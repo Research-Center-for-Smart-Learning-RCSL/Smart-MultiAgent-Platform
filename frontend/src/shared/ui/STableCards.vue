@@ -225,15 +225,15 @@ const emptyStateAttrs = computed(() => ({
 }
 
 .s-cards__label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   color: var(--color-muted);
 }
 
 .s-cards__value {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   min-width: 0;
   overflow-wrap: anywhere;

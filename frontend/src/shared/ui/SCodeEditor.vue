@@ -240,8 +240,8 @@ onBeforeUnmount(() => {
   background: var(--color-surface);
   color: var(--color-fg);
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-size-code);
+  line-height: var(--line-normal);
   white-space: pre-wrap;
   word-wrap: break-word;
   resize: vertical;

@@ -97,8 +97,8 @@ function isOpen(key: string): boolean {
   background: none;
   cursor: pointer;
   color: var(--color-fg);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   text-align: left;
 }
 

@@ -71,8 +71,8 @@ function hideTooltip() {
 .s-tooltip {
   position: absolute;
   z-index: var(--z-tooltip);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-snug);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   background-color: var(--color-fg);

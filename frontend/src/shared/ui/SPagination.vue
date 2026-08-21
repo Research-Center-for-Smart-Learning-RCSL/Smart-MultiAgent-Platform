@@ -137,7 +137,7 @@ function ariaCurrentAttrs(item: number) {
 }
 
 .s-pagination__info {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
@@ -158,8 +158,8 @@ function ariaCurrentAttrs(item: number) {
   color: var(--color-fg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   cursor: pointer;
   transition:
     background var(--transition-fast),
@@ -197,7 +197,7 @@ function ariaCurrentAttrs(item: number) {
   justify-content: center;
   width: 32px;
   height: 32px;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   user-select: none;
 }

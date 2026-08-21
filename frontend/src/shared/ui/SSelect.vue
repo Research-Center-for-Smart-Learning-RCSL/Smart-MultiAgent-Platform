@@ -123,7 +123,7 @@ function onChange(event: Event) {
   border-radius: var(--radius-md);
   background: var(--color-bg);
   color: var(--color-fg);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   padding: 0 32px 0 8px;
   cursor: pointer;
   transition: border-color var(--transition-fast);
@@ -137,7 +137,7 @@ function onChange(event: Event) {
 
 .s-select--sm .s-select__native {
   min-height: 32px;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 
 .s-select--md .s-select__native {

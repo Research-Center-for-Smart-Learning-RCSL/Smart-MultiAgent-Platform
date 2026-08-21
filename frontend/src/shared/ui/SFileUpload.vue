@@ -212,7 +212,7 @@ defineExpose({ clear })
 }
 
 .file-upload__text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
@@ -232,7 +232,7 @@ defineExpose({ clear })
   padding: 0.375rem 0.5rem;
   border-radius: var(--radius-sm);
   background: var(--color-surface);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
 }
 
 .file-upload__file-name {
@@ -247,7 +247,7 @@ defineExpose({ clear })
 .file-upload__file-size {
   flex-shrink: 0;
   color: var(--color-muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 
 .file-upload__remove {

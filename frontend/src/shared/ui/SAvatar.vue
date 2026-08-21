@@ -58,17 +58,17 @@ const sizeClass = computed(() => `s-avatar--${props.size}`)
 .s-avatar--sm {
   width: 24px;
   height: 24px;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
 }
 .s-avatar--md {
   width: 32px;
   height: 32px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 .s-avatar--lg {
   width: 40px;
   height: 40px;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
 }
 
 /* Image */
@@ -87,8 +87,8 @@ const sizeClass = computed(() => `s-avatar--${props.size}`)
   height: 100%;
   background-color: var(--color-accent);
   color: #fff;
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-none);
   user-select: none;
 }
 </style>

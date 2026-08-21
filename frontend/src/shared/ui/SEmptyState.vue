@@ -86,10 +86,10 @@ defineProps<{
 }
 
 .s-empty-state__text {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--line-normal);
 }
 
 .s-empty-state__action {

@@ -181,8 +181,8 @@ function onKeydown(e: KeyboardEvent) {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   color: var(--color-muted);
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -223,8 +223,8 @@ function onKeydown(e: KeyboardEvent) {
   min-width: 18px;
   height: 18px;
   font-size: 0.7rem;
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-none);
   border-radius: var(--radius-full);
   background: var(--color-surface);
   color: var(--color-muted);

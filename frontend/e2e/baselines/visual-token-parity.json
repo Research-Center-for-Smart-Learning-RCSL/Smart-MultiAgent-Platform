@@ -10157,69 +10157,19 @@
   "div|landing": [
    "16px|400|24px||24px||24px||130px||130px|||900px|"
   ],
-  "div|intro": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__wash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "canvas|intro__particles.particle-field": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__stage": [
-   "16px|400|24px|||||||||28px|28px|<measured>|"
-  ],
-  "svg|intro__svg": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "g|intro__edges": [
-   "16px|400|24px||||||||||||"
-  ],
-  "path|intro-edge": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__flash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__shell": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__fill": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--a": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--b": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-hub.intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "span|brand-logo.brand-logo--lg.intro__word": [
-   "26px|700|39px|||||||||8px|8px|<measured>|"
-  ],
-  "svg|brand-logo__mark.brand-mark": [
-   "16px|700|24px|||||||||||<measured>|",
-   "22px|700|33px|||||||||||<measured>|",
-   "26px|700|39px|||||||||||<measured>|"
-  ],
-  "circle|brand-mark__hub": [
-   "16px|700|24px||||||||||||",
-   "22px|700|33px||||||||||||",
-   "26px|700|39px||||||||||||"
-  ],
-  "span|intro__skip.intro__skip--on": [
-   "13px|400|19.5px||||||||||||"
-  ],
   "header|landing__nav": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|brand-logo.brand-logo--md": [
    "22px|700|33px|||||||||8px|8px|<measured>|"
+  ],
+  "svg|brand-logo__mark.brand-mark": [
+   "16px|700|24px|||||||||||<measured>|",
+   "22px|700|33px|||||||||||<measured>|"
+  ],
+  "circle|brand-mark__hub": [
+   "16px|700|24px||||||||||||",
+   "22px|700|33px||||||||||||"
   ],
   "div|landing__nav-actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -10282,7 +10232,7 @@
   "svg|trust__icon": [
    "13px|400|19.5px|||||||||||<measured>|"
   ],
-  "div|hero__visual.hero__visual--pending": [
+  "div|hero__visual": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|constellation-wrap": [
@@ -10377,69 +10327,19 @@
   "div|landing": [
    "16px|400|24px||24px||24px||130px||130px|||900px|"
   ],
-  "div|intro": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__wash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "canvas|intro__particles.particle-field": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__stage": [
-   "16px|400|24px|||||||||28px|28px|<measured>|"
-  ],
-  "svg|intro__svg": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "g|intro__edges": [
-   "16px|400|24px||||||||||||"
-  ],
-  "path|intro-edge": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__flash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__shell": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__fill": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--a": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--b": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-hub.intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "span|brand-logo.brand-logo--lg.intro__word": [
-   "26px|700|39px|||||||||8px|8px|<measured>|"
-  ],
-  "svg|brand-logo__mark.brand-mark": [
-   "16px|700|24px|||||||||||<measured>|",
-   "22px|700|33px|||||||||||<measured>|",
-   "26px|700|39px|||||||||||<measured>|"
-  ],
-  "circle|brand-mark__hub": [
-   "16px|700|24px||||||||||||",
-   "22px|700|33px||||||||||||",
-   "26px|700|39px||||||||||||"
-  ],
-  "span|intro__skip.intro__skip--on": [
-   "13px|400|19.5px||||||||||||"
-  ],
   "header|landing__nav": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|brand-logo.brand-logo--md": [
    "22px|700|33px|||||||||8px|8px|<measured>|"
+  ],
+  "svg|brand-logo__mark.brand-mark": [
+   "16px|700|24px|||||||||||<measured>|",
+   "22px|700|33px|||||||||||<measured>|"
+  ],
+  "circle|brand-mark__hub": [
+   "16px|700|24px||||||||||||",
+   "22px|700|33px||||||||||||"
   ],
   "div|landing__nav-actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -10502,7 +10402,7 @@
   "svg|trust__icon": [
    "13px|400|19.5px|||||||||||<measured>|"
   ],
-  "div|hero__visual.hero__visual--pending": [
+  "div|hero__visual": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|constellation-wrap": [
@@ -10597,69 +10497,19 @@
   "div|landing": [
    "16px|400|24px||24px||24px|||||||812px|"
   ],
-  "div|intro": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__wash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "canvas|intro__particles.particle-field": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__stage": [
-   "16px|400|24px|||||||||28px|28px|<measured>|"
-  ],
-  "svg|intro__svg": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "g|intro__edges": [
-   "16px|400|24px||||||||||||"
-  ],
-  "path|intro-edge": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__flash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__shell": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__fill": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--a": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--b": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-hub.intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "span|brand-logo.brand-logo--lg.intro__word": [
-   "26px|700|39px|||||||||8px|8px|<measured>|"
-  ],
-  "svg|brand-logo__mark.brand-mark": [
-   "16px|700|24px|||||||||||<measured>|",
-   "22px|700|33px|||||||||||<measured>|",
-   "26px|700|39px|||||||||||<measured>|"
-  ],
-  "circle|brand-mark__hub": [
-   "16px|700|24px||||||||||||",
-   "22px|700|33px||||||||||||",
-   "26px|700|39px||||||||||||"
-  ],
-  "span|intro__skip.intro__skip--on": [
-   "13px|400|19.5px||||||||||||"
-  ],
   "header|landing__nav": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|brand-logo.brand-logo--md": [
    "22px|700|33px|||||||||8px|8px|<measured>|"
+  ],
+  "svg|brand-logo__mark.brand-mark": [
+   "16px|700|24px|||||||||||<measured>|",
+   "22px|700|33px|||||||||||<measured>|"
+  ],
+  "circle|brand-mark__hub": [
+   "16px|700|24px||||||||||||",
+   "22px|700|33px||||||||||||"
   ],
   "div|landing__nav-actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -10723,7 +10573,7 @@
   "svg|trust__icon": [
    "13px|400|19.5px|||||||||||<measured>|"
   ],
-  "div|hero__visual.hero__visual--pending": [
+  "div|hero__visual": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|constellation-wrap": [
@@ -10818,69 +10668,19 @@
   "div|landing": [
    "16px|400|24px||24px||24px|||||||812px|"
   ],
-  "div|intro": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__wash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "canvas|intro__particles.particle-field": [
-   "16px|400|24px||||||||||||"
-  ],
-  "div|intro__stage": [
-   "16px|400|24px|||||||||28px|28px|<measured>|"
-  ],
-  "svg|intro__svg": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "g|intro__edges": [
-   "16px|400|24px||||||||||||"
-  ],
-  "path|intro-edge": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__flash": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__shell": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-node__fill": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--a": [
-   "16px|400|24px||||||||||||"
-  ],
-  "circle|intro-shock.intro-shock--b": [
-   "16px|400|24px||||||||||||"
-  ],
-  "g|intro-hub.intro-node": [
-   "16px|400|24px||||||||||||"
-  ],
-  "span|brand-logo.brand-logo--lg.intro__word": [
-   "26px|700|39px|||||||||8px|8px|<measured>|"
-  ],
-  "svg|brand-logo__mark.brand-mark": [
-   "16px|700|24px|||||||||||<measured>|",
-   "22px|700|33px|||||||||||<measured>|",
-   "26px|700|39px|||||||||||<measured>|"
-  ],
-  "circle|brand-mark__hub": [
-   "16px|700|24px||||||||||||",
-   "22px|700|33px||||||||||||",
-   "26px|700|39px||||||||||||"
-  ],
-  "span|intro__skip.intro__skip--on": [
-   "13px|400|19.5px||||||||||||"
-  ],
   "header|landing__nav": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|brand-logo.brand-logo--md": [
    "22px|700|33px|||||||||8px|8px|<measured>|"
+  ],
+  "svg|brand-logo__mark.brand-mark": [
+   "16px|700|24px|||||||||||<measured>|",
+   "22px|700|33px|||||||||||<measured>|"
+  ],
+  "circle|brand-mark__hub": [
+   "16px|700|24px||||||||||||",
+   "22px|700|33px||||||||||||"
   ],
   "div|landing__nav-actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -10944,7 +10744,7 @@
   "svg|trust__icon": [
    "13px|400|19.5px|||||||||||<measured>|"
   ],
-  "div|hero__visual.hero__visual--pending": [
+  "div|hero__visual": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|constellation-wrap": [

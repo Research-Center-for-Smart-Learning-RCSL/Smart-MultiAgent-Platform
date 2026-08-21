@@ -79,6 +79,7 @@ const EXPECTED: [token: string, value: string, equals: string][] = [
   ['--line-normal', '1.5', '1.5'],
   ['--line-relaxed', '1.6', '1.6'],
   // Weight
+  ['--weight-normal', '400', '400'],
   ['--weight-medium', '500', '500'],
   ['--weight-semibold', '600', '600'],
   ['--weight-bold', '700', '700'],

@@ -74,8 +74,8 @@ function onInput(event: Event) {
   background: var(--color-bg);
   color: var(--color-fg);
   font-family: inherit;
-  font-size: 0.875rem;
-  line-height: 1.5;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-normal);
   transition: border-color var(--transition-fast);
 }
 

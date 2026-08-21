@@ -80,7 +80,7 @@ function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellips
   list-style: none;
   margin: 0;
   padding: 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .breadcrumb__item {
@@ -109,7 +109,7 @@ function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellips
 
 .breadcrumb__current {
   color: var(--color-fg);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .breadcrumb__ellipsis {

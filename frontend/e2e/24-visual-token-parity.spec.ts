@@ -247,8 +247,20 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
       const before = baseline[slot]
       expect(before, `no baseline for "${slot}" - rerun with UPDATE_VISUAL_BASELINE=1`).toBeTruthy()
 
+      // An absent signature is not evidence of a style change - it is evidence
+      // the element was not on the page, which a slow query or a timed state
+      // can both produce (the landing intro's skip hint fades in and back out;
+      // a settings section renders only once its fetch lands). One re-capture
+      // settles both. A *differing value* is never retried: nothing about
+      // waiting longer can change what a declaration computes to.
+      let second: Snapshot | null = null
+      if (Object.keys(before).some((sig) => !snap[sig])) {
+        await waitForStableDom(page)
+        second = await capture(page)
+      }
+
       for (const [sig, records] of Object.entries(before)) {
-        const now = new Set(snap[sig] ?? [])
+        const now = new Set([...(snap[sig] ?? []), ...(second?.[sig] ?? [])])
         if (now.size === 0) {
           missing.push(`${slot} :: ${sig}`)
           continue
@@ -402,7 +414,17 @@ test.describe('Computed-style parity across the component surface set', () => {
   })
 
   test('the landing surface', async ({ page }) => {
-    await snapshotSurface(page, 'landing', '/', { settle: 'body' })
+    await snapshotSurface(page, 'landing', '/', {
+      settle: 'body',
+      // Dismiss the intro curtain before capturing. Two reasons: it covers the
+      // page, so without this the surface records the curtain and none of
+      // Landing.vue; and its skip hint is a timed state (LandingIntro.vue:140),
+      // so whether it is on depends on where in the animation the capture lands.
+      prepare: async (p) => {
+        await p.keyboard.press('Escape')
+        await expect(p.locator('.intro')).toHaveCount(0, { timeout: 15_000 })
+      },
+    })
   })
 
   test('the login surface', async ({ page }) => {

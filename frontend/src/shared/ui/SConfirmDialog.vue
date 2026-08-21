@@ -81,10 +81,10 @@ const inputRef = ref<HTMLInputElement | null>(null)
 
 <style scoped>
 .s-confirm__message {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--line-normal);
 }
 
 .s-confirm__prompt {
@@ -96,7 +96,7 @@ const inputRef = ref<HTMLInputElement | null>(null)
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   background: var(--color-bg);
   color: var(--color-fg);
 }
@@ -107,7 +107,7 @@ const inputRef = ref<HTMLInputElement | null>(null)
 }
 
 .s-confirm__input-error {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-danger);
   margin: 0.25rem 0 0;
 }

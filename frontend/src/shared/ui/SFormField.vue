@@ -82,17 +82,17 @@ watch(() => [props.error, props.help], () => nextTick(syncAria))
   margin-bottom: 1rem;
 }
 .form-field__label {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-fg);
 }
 .form-field__error {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-danger);
   margin: 0;
 }
 .form-field__help {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   margin: 0;
 }

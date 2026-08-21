@@ -309,7 +309,7 @@ onBeforeUnmount(() => {
   background: none;
   border: none;
   color: var(--color-fg);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
   white-space: nowrap;

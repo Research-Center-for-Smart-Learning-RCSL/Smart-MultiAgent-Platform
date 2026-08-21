@@ -57,7 +57,7 @@ const labels: Record<string, string> = { en: 'EN', 'zh-TW': 'TW' }
 
 .locale-toggle__label {
   font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1;
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-none);
 }
 </style>

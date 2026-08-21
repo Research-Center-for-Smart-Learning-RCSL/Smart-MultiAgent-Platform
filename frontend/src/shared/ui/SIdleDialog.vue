@@ -54,10 +54,10 @@ const { warningActive, remainingSeconds, stayActive, logoutNow } = useIdleLogout
 
 <style scoped>
 .s-idle__message {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--line-normal);
 }
 
 .s-idle__countdown {
@@ -70,7 +70,7 @@ const { warningActive, remainingSeconds, stayActive, logoutNow } = useIdleLogout
   background: var(--color-warning-tint);
   color: var(--color-warning-on);
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
