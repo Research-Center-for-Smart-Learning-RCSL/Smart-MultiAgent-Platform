@@ -96,6 +96,51 @@ describe('mobile viewport contract', () => {
     expect(declarations(read(resolve(SRC, 'app/App.vue')))).toContain('min-height: 100dvh')
   })
 
+  // The sweep above cannot see the one place that was still shipping `100vh`.
+  // It reads .vue and .css under src/ with __tests__/ excluded, because a test
+  // legitimately names the value it forbids - but Tailwind scans the whole
+  // project, every extension and comments included, so a class name written in
+  // a .ts test is a real rule in dist/assets/*.css. That is how
+  // `AgentDetailView.test.ts`'s two `not.toContain` assertions kept a live
+  // `height:calc(100vh - 8rem)` rule in the bundle: the only file still
+  // emitting the unit was the only file the guard was blind to.
+  //
+  // This asks a narrower question that needs no exclusions: does any Tailwind
+  // arbitrary value - the bracketed form, the only spelling that becomes a rule
+  // - name the static viewport unit? Prose and bare strings are untouched, so a
+  // test can still assert absence and a comment can still explain why.
+  it('lets no arbitrary-value utility name the static viewport unit', () => {
+    const SCANNED = /\.(vue|ts|css|html)$/
+    const SKIP = new Set(['node_modules', 'dist', 'coverage', 'playwright-report', 'test-results'])
+
+    function walkAll(dir: string, out: string[] = []): string[] {
+      for (const entry of readdirSync(dir)) {
+        if (SKIP.has(entry) || entry.startsWith('.')) continue
+        const full = join(dir, entry)
+        if (statSync(full).isDirectory()) walkAll(full, out)
+        else if (SCANNED.test(entry)) out.push(full)
+      }
+      return out
+    }
+
+    const scanned = walkAll(ROOT)
+    expect(scanned.length).toBeGreaterThan(200)
+
+    // A utility name has to precede the bracket. Without that anchor the sweep
+    // matches any bracketed text and reports its own `matchAll(/100vh/g)` -
+    // which is not a candidate and emits nothing, as removing the class literal
+    // from AgentDetailView.test.ts proved: the rule left the bundle while that
+    // expression stayed.
+    const ARBITRARY_VALUE = /[a-z][a-z0-9:-]*-\[[^\]\n]*100vh[^\]\n]*\]/g
+
+    const offenders = scanned
+      .map((file) => ({ file, found: read(file).match(ARBITRARY_VALUE) ?? [] }))
+      .filter((r) => r.found.length > 0)
+      .map((r) => `${relative(ROOT, r.file)} (${r.found.join(', ')})`)
+
+    expect(offenders).toEqual([])
+  })
+
   // -- T-1(b), F-25 ---------------------------------------------------------
   // The two halves are mutually dependent in one direction only, which is the
   // trap: insets without the meta are inert, but the meta without insets is
