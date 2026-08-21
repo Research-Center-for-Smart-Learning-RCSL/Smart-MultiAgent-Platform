@@ -70,6 +70,13 @@ const hasPool = computed(() => (invitablePool.value?.length ?? 0) > 0)
 const byEmail = ref(false)
 const usePicker = computed(() => hasPool.value && !byEmail.value)
 
+function toggleInviteMode(): void {
+  byEmail.value = !byEmail.value
+  // The error belongs to the control that produced it; carrying it across would
+  // mark the other control invalid for a value it has never seen.
+  inviteError.value = null
+}
+
 const pickerOptions = computed(() =>
   (invitablePool.value ?? []).map(m => ({ value: m.user_id, label: m.email })),
 )
@@ -127,6 +134,9 @@ async function onInvite(): Promise<void> {
   if (!email) return
   invitePending.value = true
   inviteError.value = null
+  // Cleared up front, not on success: a failed second invite must not leave the
+  // first one's link on screen under an error toast.
+  inviteLink.value = null
   try {
     const invite = await projectsApi.invite(projectId.value, email, inviteRole.value)
     inviteEmail.value = ''
@@ -252,7 +262,7 @@ const breadcrumbs = computed(() => [
         variant="ghost"
         size="sm"
         class="invite-mode-toggle"
-        @click="byEmail = !byEmail"
+        @click="toggleInviteMode"
       >
         {{ byEmail ? t('tenancy.member.inviteByPicker') : t('tenancy.member.inviteByEmail') }}
       </SButton>
