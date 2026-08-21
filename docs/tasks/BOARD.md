@@ -72,8 +72,8 @@ first, but building them serially avoids the conflict.
   one's central claim is a confidentiality claim, so AC-1, AC-4, AC-9 and AC-12 must be
   executed against a real stack or left unticked.
 
-- (moved to In progress on 2026-08-20) `2026-08-20-onboarding-without-smtp`. The original entry,
-  kept here for the record:
+- (implemented 2026-08-21; see the note under In progress) `2026-08-20-onboarding-without-smtp`.
+  The original entry, kept here for the record:
   `2026-08-20-onboarding-without-smtp` (feature, approved) - `depends_on: []`. Opened from the
   member-groups dossier's FU-1. **Read its §1 correction before scoping anything here**: SMTP is
   *not* required for an invitee who already has an account — `_notify_invitee`
@@ -135,10 +135,55 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-08-20-onboarding-without-smtp` (feature) — `depends_on: []`. Backend half first
-  (accept link, invitable-member pool, admin provisioning, the R6.11 citation fix and the
-  operator recipe); the frontend half is deliberately a later round, so the endpoints ship
-  before any view consumes them.
+Removed on 2026-08-21 after implementation:
+`2026-08-20-onboarding-without-smtp` (an install with no outbound mail can now onboard:
+every invite create returns a copyable accept link, a project invite is picked from the
+parent Org's members, and an Admin can provision an account and hand over two activation
+links). Nothing lists it in `depends_on`, so no row moved out of Blocked. It **applied an
+SRS Delta** at approval, rewriting [R6.09] and adding [R6.18]. No migration; every change
+is additive, so reverting the frontend alone leaves a working system. **Five things a
+later reader needs.**
+
+**D-16 is the entry to read before touching account state anywhere.** A post-close
+`/code-review` found that the "already activated" guard tested `password_hash is not None
+and email_verified` — and a Google-provisioned account has `password_hash=None` with
+`status=ACTIVE, email_verified=True` (R6.15/R6.16), so for every Google user the guard
+never fired and an Admin could mint a working set-password link for a fully live account.
+**"Has a password" is not a synonym for "can log in" in this codebase**; the test is a
+verified address plus *any* usable credential, password or linked identity, which is what
+`LastCredentialError` already encodes. D-21 carries the same lesson onto the client: the
+re-issue button is shown for every live account and the 409 is the answer, because gating
+it on `email_verified` would hide it from a provisioned user who walked the verify link
+first and still needs their password link.
+
+**D-12 is a hole the security gate found in the dossier's own reasoning.** Q-6 and §8 both
+claimed the invitable-member pool "discloses nothing new" because it is a subset of
+`GET /api/orgs/{id}/members`. Capability #14 does **not** establish org membership — a
+user invited straight into an org-owned project as its Owner holds #14 and appears in no
+`org_members` row — so the endpoint as first written would have handed them every address
+in the parent Org. The caller's own org membership is now a predicate of the query, and a
+caller outside the Org gets an empty pool, indistinguishable from a user-owned project.
+
+**D-18 is a live defect this task fixed on the way, and its shape recurs.**
+`ProjectMembersView` decided "may I invite" from its own row in the member list. Project
+ownership is inherited, so an Org Owner manages the project holding no `project_members`
+row, and the invite card was hidden from exactly the people the picker was designed for.
+Same fix as `2026-08-20-orchestration-room-scoped-reads` D-7: read `ProjectOut.is_moderator`,
+never the member list.
+
+**The browser pass happened** (D-23), which breaks a seven-dossier streak in this area.
+Compose stack up locally, `e2e/20-onboarding-without-smtp.spec.ts` green against it, all
+four new surfaces observed, and four mutation probes each turned the intended test red.
+One operational trap it surfaced: the backend primes its rate-limit policies at boot, so a
+backend started before `alembic upgrade head` leaves that table missing and every later
+login bounces — restart it after migrating.
+
+**FU-11 is a standing warning, not this task's bug.** The email-domain allowlist that
+`docs/operations.md` §7a.5 now tells operators to depend on lives in Redis under
+`allkeys-lru` with no TTL, and an absent `mode` reads as `off` — so memory pressure or a
+restored Redis silently reopens registration. And **no API writes those keys** (D-2, FU-6):
+Q-4 declined an invite-only mode because the policy is "admin-tunable at runtime", which is
+true only via `redis-cli`.
 Removed on 2026-08-21 after implementation:
 `2026-08-20-orchestration-room-scoped-reads` (an orchestration record naming a chat room is
 now readable by exactly that room's readers, one naming none is backstage under [R14.10],

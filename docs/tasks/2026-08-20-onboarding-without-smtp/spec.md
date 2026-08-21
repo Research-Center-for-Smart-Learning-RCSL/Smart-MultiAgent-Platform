@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-20
 requirements: [R6.01, R6.02, R6.05, R6.09, R6.10, R19a.12, R19a.13]
 depends_on: []
@@ -369,15 +369,21 @@ Q-4 declined, and without it the decision is undiscoverable.
       (Four in total — see D-3.)
 - [x] AC-12: `docs/operations.md` carries the closed-deployment recipe. (§7a.5, and §7a's
       opening claim that mail-less installs cannot onboard is corrected to point at it.)
-- [ ] AC-13: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
+- [x] AC-13: Gates green — `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`,
       `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
       `pnpm run check:openapi-drift` after `gen:api`.
-      **Unticked, with three specifics.** `ruff`, `mypy`, `pnpm lint`, `pnpm typecheck` and
-      `pnpm build` are clean. `pytest -q` excludes one module that hangs on this host
-      (D-10); the rest of the unit tier is green. `pnpm test` has one failure in
-      `SCodeEditor.test.ts` that passes in isolation and is unrelated to this diff (FU-7).
-      `check:openapi-drift` cannot run here and was reproduced by hand (D-9). Left for CI
-      to close.
+      **Ticked on the second pass, with one standing caveat.** `ruff check` (all passed),
+      `ruff format --check` (967 files), `mypy` (962 files, no issues), `pnpm lint`,
+      `pnpm typecheck`, `pnpm build`, `check:boundaries-enforced`, `check:bundle-size` and
+      `check:type-coverage` (98.61%) are clean. `pnpm test` is **1241/1241 across 197
+      files** — FU-7's `SCodeEditor.test.ts` flake did not reproduce in either full run.
+      `pytest -q` on the unit tier exits 0 with six environmental skips; it still excludes
+      `test_graphrag_builder.py`, which hangs on this host (D-10, pre-existing and
+      unrelated). `check:openapi-drift` still cannot execute here — its bash script shells
+      out to `python`, which is not on the bash PATH (D-9) — but **both halves of its
+      assertion were reproduced by hand on this pass**: re-exporting the spec from the
+      backend produced a byte-identical `backend/openapi.json`, and re-running `gen:api`
+      left `src/shared/api-client` with an empty `git status`.
 
 ## 12. Test Plan
 
@@ -433,8 +439,9 @@ Two amendments; both describe an added path, neither weakens an existing rule.
 
 ## 15. Deviation Log
 
-**Scope of this pass.** The backend is complete; the frontend of §6 is deliberately not
-built (D-8). The dossier stays `in-progress` until it is.
+**Scope.** Two passes. The first covered §6 Backend, the operator documentation and the
+API contract (D-8); the second (D-17 onward) built the frontend of §6, which retires
+FU-5 and completes the dossier.
 
 - **D-1** — §6 assumed both invite-create routes share `orgs.InviteOut`. They do not:
   `POST /api/projects/{id}/invites` returned a bare `dict[str, str]` carrying only `id`
@@ -534,6 +541,70 @@ built (D-8). The dossier stays `in-progress` until it is.
   Covered at both tiers and mutation-probed at both: restoring the password-only test turns
   the unit test and the `db` test red. **The lesson for the next reviewer of this file:
   "has a password" is not a synonym for "can log in" in this codebase.**
+- **D-17 — the frontend half is built, which closes D-8 and retires FU-5.** Everything §6
+  Frontend listed is in: the picker over `GET /api/projects/{id}/invitable-members`, the
+  copyable `accept_url` on both member views, the admin create-user dialog and the
+  re-issue action, a `useClipboard` in `@shared/composables`, the new keys in both locale
+  files, amended component tests, and the Playwright spec of §12
+  (`e2e/20-onboarding-without-smtp.spec.ts`). D-18 to D-22 record where it departed from
+  the approved §6.
+- **D-23 — the browser pass happened, which BOARD.md records as not having happened for
+  seven consecutive dossiers in this area.** The compose stack was brought up locally
+  (postgres, redis, vault, backend-web; `alembic upgrade head` clean through 0079;
+  `smap.bootstrap vault-init` for the transit keys; the two e2e users seeded by hand
+  because registration fails closed without the Vault captcha config). All three tests of
+  `e2e/20-onboarding-without-smtp.spec.ts` pass against it, and each of the four new
+  surfaces was additionally looked at in the browser: the picker with its escape hatch,
+  the accept-link card, the admin create-user dialog, and the activation-links dialog with
+  both expiries rendered. **One thing the stack surfaced that no test would have:** the
+  backend primes its rate-limit policies at boot, so a backend started before
+  `alembic upgrade head` leaves that table missing and every later login bounces — which
+  is what the first e2e run failed on, not the diff. Restart the backend after migrating.
+  Two frontend §12 tiers were also verified for real: the amended component tests, and
+  four **mutation probes** (removing the picker's pool gate, always setting the accept
+  link, dropping `useClipboard`'s copied-flag reset, and pointing both activation fields
+  at the same URL) each turned the intended test red for the intended reason.
+- **D-18 — a defect §6 did not know about, in the code the picker had to be gated on.**
+  `ProjectMembersView` decided "may I invite" from its own row in the member list
+  (`role === 'owner'`). Project ownership is **inherited** ([R5.03]), so an Org Owner
+  manages every project of the org while holding no `project_members` row — and the
+  invite card was therefore hidden from exactly the people Q-6 designed the picker for.
+  The view now reads `ProjectOut.is_moderator` through the existing `useProjectRole`,
+  which is the same fix `2026-08-20-orchestration-room-scoped-reads` D-7 made elsewhere
+  and whose BOARD.md note says in as many words: do not read the member list. The same
+  correction applies to the row actions (promote/demote/remove), which had the identical
+  gate. `OrgMembersView` is untouched — org membership is inherited from nowhere, so
+  there the member list really is the authority.
+- **D-19 — the picker replaces the address field rather than sitting beside it.** §6 said
+  "with the typed-address field retained as an alternative"; two always-visible inputs for
+  one value is an ambiguous form (which one wins on submit?). The card shows one control
+  at a time with a toggle — "invite someone who is not in the organization yet" — and
+  falls back to the address field automatically when the pool is empty, which is also what
+  a user-owned project and a caller outside the parent Org both produce. Q-6's escape
+  hatch is preserved; only its presentation changed.
+- **D-20 — an `SCopyField` in `@shared/ui`, beyond the `useClipboard` §6 asked for.** Four
+  copy fields ship in this diff (the accept link, and the two admin links on two views)
+  and each needs the same label + read-only input + copy button + copied state. The value
+  is rendered in a real `<input>` rather than as text on purpose: when the Clipboard API
+  is refused — a non-secure origin, a denied permission — the browser's own select-and-copy
+  is the only route left, and text in a `<p>` does not give the user one.
+- **D-21 — the re-issue action is offered for every live account, not only for one the
+  client believes still needs activating.** The server's predicate is D-16's: a verified
+  address **and** any usable credential, where "credential" includes a linked Google
+  identity — which the client cannot see. Gating the button on `email_verified` would have
+  hidden it from the one account D-16 exists to protect: a provisioned user who walked the
+  *verification* link first, who is ACTIVE and verified and holds no credential at all and
+  still needs their set-password link. So the button is shown for any non-deleted account
+  and the 409 is the answer, with its own message pointing at password reset or
+  impersonation. **This is D-16's lesson applied on the client: "has a password" and even
+  "is verified" are not synonyms for "can log in" here.**
+- **D-22 — `useClipboard` did not migrate the three existing hand-rolled sites.** FU-5
+  named them as the motivation for the composable, not as deliverables. `useEntityLifecycle`
+  and the two conversation-slice sites are unchanged; the conversation ones sit inside
+  `ChatroomView.vue`/`ChatroomSettingsView.vue`, which two still-open dossiers on
+  BOARD.md are editing, and rewriting them here would hand those a conflict for no
+  behavioural gain. FU-12 carries the sweep, including the `useEntityLifecycle` bug it
+  will fix on the way.
 - **D-15** — a self-audit catch worth recording because the cause was a lint fix: silencing
   ruff's `PLW0108` by replacing `lambda: AsyncMock()` with the bare `AsyncMock` class in a
   test's FastAPI dependency override turned that class's constructor keywords into query
@@ -554,13 +625,7 @@ built (D-8). The dossier stays `in-progress` until it is.
 - **FU-4** — `NotificationKind.APPROVAL_HUMAN_REQUESTED`
   (`notification/domain/models.py:16`) has no producer outside tests. Either wire it or
   delete it; an enum member that nothing emits reads as a working feature.
-- **FU-5** — **The frontend half of §6, which is the rest of this dossier** (D-8): the
-  picker over `GET /api/projects/{id}/invitable-members`, the copyable `accept_url` on both
-  member views, the admin create-user dialog and re-issue action, a `useClipboard` in
-  `@shared/composables` (three slices hand-roll `navigator.clipboard` today —
-  `useEntityLifecycle.ts:75`, `ChatroomSettingsView.vue:224`, `ChatroomView.vue:848`), the
-  new i18n keys in both locale files, the amended component tests, and the Playwright spec
-  of §12. Until it lands, the endpoints work and nothing in the UI reaches them.
+- **FU-5** — ~~The frontend half of §6~~. **Built in the second pass; see D-17.**
 - **FU-6** — No API writes the email-domain policy of R19a.13 (D-2). An admin endpoint over
   the three `config:email_domain:*` keys would retire the `redis-cli` step in
   `docs/operations.md` §7a.5 and make Q-4's rationale true as written.
@@ -590,3 +655,18 @@ built (D-8). The dossier stays `in-progress` until it is.
   but §7a.5 is the first place that tells an operator to depend on it, so the recipe now
   carries the warning. The fix is either persistence (move the lists to Postgres and mirror
   them, as the rate-limit policies already do) or a startup assertion.
+- **FU-12** — Migrate the three hand-rolled `navigator.clipboard` sites onto the new
+  `useClipboard` (D-22): `useEntityLifecycle.ts:75`, `ChatroomSettingsView.vue:224`,
+  `ChatroomView.vue:848`. Not cosmetic — the first toasts `tenancy.common.loading`
+  ("Loading...") when a copy *fails*, which is a wrong message shipped today. The other
+  two live in files two open dossiers are editing, so this is worth doing once those land
+  rather than racing them. An ESLint rule banning bare `navigator.clipboard` outside the
+  composable would make it stick.
+- **FU-13** — The picker cannot reach a member past the first page. This is FU-8 seen from
+  the client: the endpoint is `LIMIT`ed at 100 (D-13), so a class-sized Org is fine and a
+  university-sized one silently truncates the select with no search and no paging. The fix
+  is one query parameter on the endpoint plus an `SSearchInput` above the control.
+- **FU-14** — `AdminUserActions` now renders five equal-weight buttons in a flat row, and
+  the re-issue one is the least-used of them. A dropdown for the rare half would be a
+  better shape. Presentational only, and deliberately not done here because it would touch
+  every action in the component rather than the one this dossier added.
