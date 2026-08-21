@@ -5,6 +5,7 @@ import { declaration, readComponentStyles, topLevelRule } from '../../../../test
 import SDropdown from '../SDropdown.vue'
 
 const VIEWPORT_HEIGHT = 768
+const VIEWPORT_MARGIN = 8
 
 const items = [
   { key: 'a', label: 'Alpha' },
@@ -24,8 +25,13 @@ function rect(top: number, height: number): DOMRect {
  * nothing to decide from. Drive both off the element's own class: the trigger
  * reports where it sits, the menu reports its natural (uncapped) height.
  */
-function stubGeometry(triggerTop: number, triggerHeight: number, menuHeight: number): void {
-  window.innerHeight = VIEWPORT_HEIGHT
+function stubGeometry(
+  triggerTop: number,
+  triggerHeight: number,
+  menuHeight: number,
+  viewportHeight = VIEWPORT_HEIGHT,
+): void {
+  window.innerHeight = viewportHeight
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
     function (this: HTMLElement) {
       return this.classList.contains('s-dropdown__trigger')
@@ -99,6 +105,29 @@ describe('SDropdown viewport fit', () => {
     expect(Number.isNaN(maxHeight)).toBe(false)
     expect(maxHeight).toBeLessThanOrEqual(VIEWPORT_HEIGHT)
     expect(maxHeight).toBeGreaterThan(0)
+  })
+
+  // The height cap has a floor, so a menu is never capped to nothing. That
+  // floor must not push the box off screen, which would reintroduce exactly
+  // the unreachable items F-9 is about: on a viewport too short for either
+  // side, the menu pins to the viewport rather than to the trigger.
+  it.each([
+    ['below the trigger', 60],
+    ['flipped above the trigger', 90],
+  ])('keeps the whole menu on screen when the floor exceeds the room %s', async (_case, top) => {
+    const viewportHeight = 160
+    stubGeometry(top, 32, 600, viewportHeight)
+    const style = menuStyle(await openDropdown())
+
+    const maxHeight = Number.parseInt(style['maxHeight'] ?? style['max-height'] ?? '', 10)
+    expect(maxHeight).toBeLessThanOrEqual(viewportHeight - VIEWPORT_MARGIN * 2)
+
+    // Resolve the box's top edge from whichever edge was written.
+    const boxTop = style['top'] !== undefined
+      ? Number.parseInt(style['top'], 10)
+      : viewportHeight - Number.parseInt(style['bottom'] ?? '0', 10) - maxHeight
+    expect(boxTop).toBeGreaterThanOrEqual(0)
+    expect(boxTop + maxHeight).toBeLessThanOrEqual(viewportHeight)
   })
 
   // The second, independent half of F-9: updateMenuPosition ran before
