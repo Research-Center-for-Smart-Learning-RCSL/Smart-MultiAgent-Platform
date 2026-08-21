@@ -24,9 +24,11 @@ import { fileURLToPath } from 'url'
  * (its Section 3).
  *
  * A set rather than the first occurrence, because a utility class is not a
- * component: `span.sr-only` appears inside a button at 12px/600 and beside one
- * at 16px/400, and which of the two comes first in DOM order moves with the
- * data. Recording both makes the key order-independent.
+ * component: one utility can label a table header and sit beside a control at
+ * two different sizes, and which of them comes first in DOM order moves with
+ * the data. Recording every distinct record makes the key order-independent.
+ * Where even that is not enough - the screen-reader-only helpers, whose *set*
+ * varies with the data - the elements are excluded outright (HIDDEN_CLASSES).
  *
  *   pnpm exec playwright test 00-visual-token-parity --project=desktop
  *     compares against e2e/baselines/visual-token-parity.json
@@ -101,12 +103,17 @@ const OMIT: Record<string, string> = {
 /**
  * Properties whose used value can be derived from the box rather than declared:
  * `margin: auto` centres against the content width, and a percentage
- * `min-height` resolves against the parent. Every literal this dossier replaces
- * is a whole number of pixels, so a fractional value under one of these can
- * only be a measured one - it is recorded as a sentinel instead, which keeps a
- * text-width change from reading as a token regression.
+ * `min-height` resolves against the parent. Recorded as a sentinel so a
+ * text-width change cannot read as a token regression.
+ *
+ * `auto` is detected through the Typed OM rather than inferred from the number.
+ * `getComputedStyle` returns the *used* value, where an auto margin has already
+ * become a length; `computedStyleMap()` returns the computed value, where it is
+ * still the keyword. An earlier version guessed instead - treating a fractional
+ * result as measured - and it held right up until a centred empty state landed
+ * on exactly 33px and compared against a sentinel.
  */
-const MEASURED_IF_FRACTIONAL = ['margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'min-height']
+const MEASURED_IF_DERIVED = ['margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'min-height']
 const MEASURED = '<measured>'
 
 /**
@@ -119,6 +126,24 @@ const MIN_SIGNATURES_PER_SLOT = 10
 
 /** Unclassed elements worth keying anyway - their styling comes from @layer base. */
 const SEMANTIC_TAGS = ['H1', 'H2', 'H3', 'H4', 'TH', 'TD', 'LEGEND', 'FIELDSET', 'INPUT', 'SELECT', 'TEXTAREA']
+
+/**
+ * Classes whose elements are excluded from the capture entirely.
+ *
+ * Both are the "off-screen but readable by assistive tech" helper
+ * (`main.css`'s `visually-hidden` utility and Tailwind's `sr-only`). Such an
+ * element is clipped to a 1px box and paints nothing, so its font-size can
+ * never be a *visual* difference - which is all this baseline is about.
+ *
+ * They also cannot be compared reliably even if one wanted to. `sr-only` is a
+ * utility, not a component: it labels a table header at 12px/600 and sits
+ * beside a control at 16px/400, and which of those elements the page contains
+ * depends on the data. Capturing the set of records under one signature made
+ * the key order-independent but not data-independent - a capture and a compare
+ * run minutes apart on the *same commit* disagreed here, which is proof enough
+ * that nothing about the diff is being measured.
+ */
+const HIDDEN_CLASSES = ['sr-only', 'visually-hidden']
 
 /** Signature -> the distinct property records observed under it, sorted. */
 type Snapshot = Record<string, string[]>
@@ -134,17 +159,35 @@ type Baseline = Record<string, Snapshot>
  */
 async function capture(page: Page): Promise<Snapshot> {
   return page.evaluate(
-    ({ props, omit, semanticTags, measuredProps, measured }) => {
+    ({ props, omit, semanticTags, measuredProps, measured, hiddenClasses }) => {
       const seen: Record<string, Set<string>> = {}
       for (const el of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
         const classes = Array.from(el.classList).sort()
         if (classes.length === 0 && !semanticTags.includes(el.tagName)) continue
+        if (classes.some((c) => hiddenClasses.includes(c))) continue
         const key = `${el.tagName.toLowerCase()}|${classes.join('.')}`
         const s = getComputedStyle(el)
+        let typed: StylePropertyMapReadOnly | null = null
+        try {
+          typed = el.computedStyleMap?.() ?? null
+        } catch {
+          typed = null
+        }
         const parts: string[] = []
         for (const p of props) {
           let v = s.getPropertyValue(p).trim()
-          if (measuredProps.includes(p) && !Number.isInteger(Number.parseFloat(v))) v = measured
+          if (measuredProps.includes(p)) {
+            let derived = false
+            try {
+              const computed = typed?.get(p)
+              derived = computed !== undefined && String(computed) === 'auto'
+            } catch {
+              derived = false
+            }
+            // The fractional test stays as a fallback for percentages, which
+            // resolve against the parent and so are measured too.
+            if (derived || !Number.isInteger(Number.parseFloat(v))) v = measured
+          }
           parts.push(omit[p] !== undefined && v === omit[p] ? '' : v)
         }
         ;(seen[key] ??= new Set()).add(parts.join('|'))
@@ -157,8 +200,9 @@ async function capture(page: Page): Promise<Snapshot> {
       props: PROPS as unknown as string[],
       omit: OMIT,
       semanticTags: SEMANTIC_TAGS,
-      measuredProps: MEASURED_IF_FRACTIONAL,
+      measuredProps: MEASURED_IF_DERIVED,
       measured: MEASURED,
+      hiddenClasses: HIDDEN_CLASSES,
     },
   )
 }
@@ -548,6 +592,24 @@ test.describe('Computed-style parity across the component surface set', () => {
 
   test.afterAll(() => {
     if (!UPDATE) return
+
+    // Refuse to write a partial baseline. `collected` is module state, and
+    // Playwright restarts the worker after any failure - so a single surface
+    // timing out mid-capture leaves this hook running in a worker that only
+    // ever saw the surfaces after the restart, and it would happily overwrite
+    // the committed file with them. That is not hypothetical: it truncated an
+    // 82-slot baseline to the 4 slots of one surface, and the only thing that
+    // noticed was the coverage test failing on the *next* run.
+    const captured = new Set(Object.keys(collected).map((slot) => slot.split(' @')[0]))
+    const missed = SURFACES.filter((id) => !captured.has(id))
+    if (missed.length) {
+      throw new Error(
+        `[visual-parity] refusing to write a partial baseline: ${missed.length} of ` +
+          `${SURFACES.length} surfaces were not captured (${missed.join(', ')}). ` +
+          `The committed baseline is unchanged; fix the failing surface and rerun.`,
+      )
+    }
+
     mkdirSync(BASELINE_DIR, { recursive: true })
     const ordered: Baseline = {}
     for (const k of Object.keys(collected).sort()) ordered[k] = collected[k]
