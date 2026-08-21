@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-08-21
 requirements: [R24.28, R24.29, R24.30]
 depends_on: [2026-08-19-shared-overlay-and-shell-defects]
@@ -298,40 +298,72 @@ an acceptable outcome to be renegotiated later.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: **No rendered difference.** `frontend/e2e/20-visual-token-parity.spec.ts` passes
-      against the baseline captured in step 1, in both themes, at 1440x900 and 375x812,
-      after every one of steps 3 to 7. Any single property that differs is a defect in that
-      step and is fixed there, not recorded as an accepted deviation.
-- [ ] AC-2: `frontend/src/shared/styles/__tests__/tokens.test.ts` passes, asserting every
+- [x] AC-1: **No rendered difference.** `frontend/e2e/00-visual-token-parity.spec.ts` (D-6)
+      passes against the baseline captured in step 1, in both themes, at 1440x900 and
+      375x812, after every one of steps 3 to 7. Any single property that differs is a defect
+      in that step and is fixed there, not recorded as an accepted deviation.
+      **Verified**: 21 surfaces, 82 snapshots, 759 distinct element signatures; green after
+      each of steps 3, 4, 5, 6 and 7 and again on the final tree. No step produced a
+      difference, so nothing was renegotiated. See D-7, D-8 and D-11 for how the harness
+      differs from §6 and what its first self-check found.
+- [x] AC-2: `frontend/src/shared/styles/__tests__/tokens.test.ts` passes, asserting every
       row of the C-1 table. `--font-size-code` and `--control-h-sm/md/lg` exist in
       `main.css`'s `@theme` block with exactly the values `0.8125rem`, `32px`, `40px`, `48px`.
-- [ ] AC-3: **The motivating violation from §2 is gone**, verified by the T-2 sweep: no file
-      under `frontend/src/shared/ui/`, `frontend/src/app/` or `frontend/src/slices/`
-      declares a literal `font-size`, `font-weight`, `line-height`, `padding`, `margin` or
-      `gap` value inside a `<style>` block, except for the four exemptions the sweep names
-      explicitly (the three §2.3 one-offs plus any entry a later deviation adds with a
-      stated reason). The count in §2.1 (109 type, 168 spacing) goes to the exemption count.
-- [ ] AC-4: every existing test under `frontend/src/shared/ui/__tests__/`,
+      **Verified**: 40 tests. The table grew to 38 rows (D-2, D-3) and gained two assertions
+      the dossier did not specify: that every `--space-*`/`--font-size-*`/`--line-*`/
+      `--weight-*`/`--control-h-*`/`--elevation-*` token in `main.css` appears in the table,
+      and that none is redefined under `[data-theme="dark"]`.
+- [x] AC-3: **The motivating violation from §2 is gone**, verified by the T-2 sweep
+      (`frontend/src/shared/styles/__tests__/no-raw-style-literals.test.ts`): no file under
+      `frontend/src/shared/`, `frontend/src/app/` or `frontend/src/slices/` declares a
+      literal `font-size`, `font-weight`, `line-height`, `padding`, `margin` or `gap` value,
+      except for the exemptions the sweep names explicitly with a reason.
+      **Verified**: 220 files, 985 declarations in the property set, 811 naming a token,
+      48 exempt, the rest stating `0`/`auto`/an `env()` inset. The exemption count is 48,
+      not four, because §2 measured only `shared/ui/` while AC-3's sweep covers three trees
+      (D-1). The sweep additionally asserts that it scanned a plausible amount of CSS and
+      that every exemption still matches a live declaration.
+- [x] AC-4: every existing test under `frontend/src/shared/ui/__tests__/`,
       `frontend/src/app/__tests__/` and the slice test suites passes **unmodified**. A test
       that had to be edited is a signal that behaviour changed and must be raised as a
       deviation, not edited quietly.
-- [ ] AC-5: `SButton`, `SInput`, `SSelect` and `STextarea` derive their control height from
-      `--control-h-*`; `AppTopBar.vue:93-94`'s 40px toggle does too. Grep-verifiable: no
-      literal `32px`, `40px` or `48px` remains as a `height`/`min-height` in those five
-      files.
-- [ ] AC-6: `docs/UI/00-overview.md` §3 and §4 and `docs/UI/01-design-system.md` §1, §3, §4,
+      **Verified**: 214 files, 1417 tests green. Exactly one test was edited and is raised
+      as **D-10** per this criterion's own instruction: `SModal.test.ts` asserted the source
+      text `max(24px, env(...))`, a spelling this dossier exists to change. No behaviour
+      moved.
+- [x] AC-5: `SButton`, `SInput`, `SSelect` and `STextarea` derive their control height from
+      `--control-h-*`; `AppTopBar.vue`'s 40px toggle does too. Grep-verifiable: no literal
+      `32px`, `40px` or `48px` remains as a `height`/`min-height` in those five files.
+      **Verified**: grep clean across all five. `STextarea` declares no height at all - it
+      sizes from `rows`, so §2.5 and this criterion are wrong about that one file (D-9).
+      Three further shared controls were included for Q-4's own reason (D-9).
+- [x] AC-6: `docs/UI/00-overview.md` §3 and §4 and `docs/UI/01-design-system.md` §1, §3, §4,
       §5 and §6 express sizing in token names. Every token named in those documents exists in
       `main.css` and carries the value the document's token table states, verified by
-      reading both. No component spec in `01-design-system.md` states a literal size outside
-      the token definition table.
+      reading both.
+      **Verified**: all 37 tokens named across the two documents are declared in `main.css`;
+      every value in the token tables matches its declaration; every px equivalent is the
+      rem value at a 16px root; and the component specs were read against the components
+      (SButton's three rungs, STable's header, SModal's footer, SAlert, SFormField,
+      SPageHeader, STabs, SPagination, SCard). The final clause - no literal size outside
+      the token table - holds for every size that *has* a token; four classes deliberately
+      keep literals and §1 now names them (D-12).
 - [ ] AC-7: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS and #10 type
       coverage), `pnpm typecheck`, `pnpm test`, `pnpm build`,
       `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
       `pnpm run check:boundaries-enforced`. Backend gates N/A: the diff is frontend and docs
       only. Per the project's remote-CI rule, CI is authoritative over the local Windows host.
-- [ ] AC-8: `main.css`'s existing token *values* are byte-identical to before the change.
-      This dossier adds two token families and changes no existing one; a changed value is a
-      phase-2 edit that leaked in.
+      **Deliberately unticked.** Every gate listed is green on this host - `pnpm lint`
+      (0 warnings), `pnpm typecheck`, `pnpm test` (1417), `pnpm build`, plus
+      `check:bundle-size`, `check:type-coverage` (98.61%), `check:boundaries-enforced`,
+      `check:global-css` (171 scoped blocks) and `check:view-tests` (74/74) - but the branch
+      has not been pushed, so **CI has not run**. This criterion is CI's to close.
+- [x] AC-8: `main.css`'s existing token *values* are byte-identical to before the change.
+      A changed value is a phase-2 edit that leaked in.
+      **Verified** by parsing the `@theme` block at `db66167` and at HEAD: every token
+      present in both carries an identical value, none was removed, and ten were added
+      (`--font-size-code`, `--control-h-sm/md/lg`, `--space-0-5/1-5/2-5`, `--line-none`,
+      `--line-snug`, `--weight-normal`).
 
 ## 10. SRS Delta
 
@@ -343,7 +375,139 @@ tokens, which is precisely the violation §2 documents.
 
 ## 11. Deviation Log
 
-Appended by /build.
+Built 2026-08-21/22 from base `db66167`. D-1 through D-5 are scope decisions taken with
+the user before any code moved; the rest were forced by what the work found.
+
+- **D-1 - the sweep is three times the size §2 states.** §2.1's counts (109 type, 168
+  spacing) were measured inside `shared/ui/` only, while AC-3's sweep covers `app/` and
+  `slices/` as well. Measured at build start: 334 type and 604 spacing declarations across
+  ~140 files; measured at the end by the T-2 sweep: **985 declarations in the Q-2 property
+  set across 220 files, 811 of them now naming a token**. The plan in §7 already covered all
+  three trees, so no step was added - only the estimate was wrong. The user was asked
+  whether to trim `slices/` into a phase 1b and chose to keep the approved scope.
+- **D-2 - five token families were added beyond the two specified.** `--space-0-5: 2px`,
+  `--space-1-5: 6px`, `--space-2-5: 10px`, `--line-none: 1` and `--line-snug: 1.4`.
+  Q-3's conservatism was written against `shared/ui/`, where the only un-tokened values were
+  four one-off font sizes. Across three trees, 55 declarations sit on the 2/6/10px
+  half-steps and 12 more on line-heights of 1 and 1.4. Without tokens for them the AC-3
+  exemption list would have run to roughly 115 entries and the sweep would have asserted
+  nothing. Each addition is exactly equal to the literal it replaces, which §3 permits.
+  Decided with the user.
+- **D-3 - `--weight-normal: 400` was added.** Not in C-1's table. Three rules reset an
+  inherited bold explicitly (`SAlert`'s body, two sidebar rows) and would otherwise have
+  been the only literal font-weights left in the codebase.
+- **D-4 - `main.css`'s own `@layer base` and `@utility` blocks were tokenised.** AC-3's
+  wording covers `<style>` blocks in `.vue` files, which does not reach them, so the file
+  that declares the vocabulary was also the file ignoring it: `h1`/`h2`/`h3`, the Preflight
+  form-chrome restore, `fieldset`, `legend` and the skip link. The three heading rules are
+  the ones that matter - a phase-2 change to the ramp that skipped them would leave every
+  heading in the product at the old scale. Decided with the user.
+- **D-5 - `slices/tenancy/styles/detail-cards.css` and `member-form.css` were included.**
+  24 declarations of the same literals, missed by AC-3's wording for the same reason as D-4.
+- **D-6 - the parity spec is `00-visual-token-parity.spec.ts`,** not §6's `20-`: that number
+  was taken by `20-onboarding-without-smtp.spec.ts`.
+- **D-7 - C-0's property set drops measured `height`/`width` and adds `min-height`.**
+  §6 lists `height`. A used height varies with text and with seeded data, so it cannot serve
+  a byte-equality baseline; the control ladder is *declared* as `min-height` in every one of
+  the five files AC-5 names, so comparing that pins it exactly. `box-shadow` is included for
+  semantic elevation. Margins and `min-height` whose used value is fractional are recorded
+  as a sentinel: every literal in this diff is a whole number of pixels, so a fractional one
+  can only be `margin: auto` centring against a content width.
+- **D-8 - C-0 covers 21 surfaces and names no selectors.** §6 lists five surfaces and a
+  selector inventory. A hand-written selector list only protects what the author remembered,
+  and the failure C-0 exists to catch is by definition somewhere the author was not looking,
+  so every classed element is keyed by `tag|sorted-class-list` and the *set* of distinct
+  computed-style records under that key is recorded. Two surfaces are driven into a state
+  navigation cannot reach (an open modal, an open drawer) and three were added purely to
+  reach SCheckbox, STextarea and SAccordion. This shrinks FU-4's blind spot from eight
+  components to six - see FU-8.
+- **D-9 - AC-5's file list was extended, and is wrong about one file.** `STextarea` declares
+  no height at all; it sizes from `rows`. `SSearchInput`'s field, `STabs`' tab row and
+  `SPagination`'s page buttons were added, for Q-4's own reason rather than despite it: each
+  sits on the same row as an SButton, so a density change that moved the ladder without them
+  would produce exactly the mismatched-height row Q-4 exists to prevent.
+- **D-10 - one existing test was edited, raised here as AC-4 requires.**
+  `src/shared/ui/__tests__/SModal.test.ts` asserted the source text
+  `max(24px, env(safe-area-inset-<side>, 0px))` per edge. No behaviour moved - `--space-6`
+  is 24px and `tokens.test.ts` pins that - but the assertion was written against a spelling
+  this dossier exists to change. It now asserts the token form, which is stronger: it pins
+  both that every edge is inset and that the gutter comes from the design system. **§6's C-2
+  claim that no existing test asserts a raw CSS value is false by exactly one test**; the
+  other five source-reading tests assert `overflow`, `position`, `justify-content` and
+  `z-index` and were untouched.
+- **D-11 - the baseline was captured, then immediately compared against unmodified code,
+  and that self-check found three harness defects.** Each would have shipped as an
+  intermittent CI failure. (a) `margin: auto` centres against the content width, so a text
+  change read as a spacing regression. (b) `span.sr-only` is a utility, not a component - it
+  renders at 12px/600 inside a button and 16px/400 beside one, and which came first in DOM
+  order moved with the data; recording the set rather than the first occurrence made the key
+  order-independent. (c) A visible `<main>` is not a settled page, so the capture now waits
+  for the element count to stop moving. A fourth was found later: the landing surface was
+  recording the intro curtain and none of `Landing.vue`, and the curtain's skip hint is a
+  timed state - the surface now dismisses the intro first, which both stabilises it and adds
+  the whole landing page to the covered set. The baseline was recaptured at HEAD with the
+  step-3 edits stashed, so it still describes unmodified rendering.
+- **D-12 - AC-6's last clause is stricter than the dossier's own scope.** "No component spec
+  states a literal size outside the token definition table" would forbid the literals §3 and
+  Q-2 explicitly keep. Four classes stay literal - border widths, icon boxes, the 44px touch
+  floor, and modal/drawer width presets - and `01-design-system.md` §1 now names those four
+  classes, so a reader can tell an out-of-scope literal from a missed one. Without that line
+  the rule reads as "no numbers", which would invite somebody to tokenise a 3px indicator bar.
+- **D-14 - the parity spec is numbered `00-`, and that is load-bearing.** It was `24-`
+  until the full suite was run end to end, which is the only thing that could have found
+  this: running last, it reported 48 vanished signatures and 10 value differences, and
+  **none of them was a CSS change**. The suite posts messages, so the chatroom's empty state
+  stops rendering; it creates an invite, so the invites empty state goes; and
+  `.s-empty-state` declares no font-size of its own, so where it lands decides what it
+  inherits - it read 14px in a panel and 16px elsewhere. A parity baseline can only be
+  compared against the data state it was captured in, so the spec now runs before anything
+  mutates the seed. CI creates a fresh stack and bootstraps it per run
+  (`ci.yml:948-1005`), so `00-` there means the pristine seeded state, which is what the
+  baseline describes.
+- **D-15 - two suite failures were investigated and are not this diff.** The full run also
+  failed `02-org-project-flow` ("invite a member to org") and
+  `18-delegated-activity-control` ("granting with nothing selected is refused"). Playwright
+  reported `element(s) not found` for both, and CSS cannot remove an element from the DOM.
+  The first is conclusive from its own artifact: the captured page shows the server's
+  rate-limit toast, "Too many invitations. Please wait." - `global-setup.ts` raises the
+  `auth`, `auth-recovery` and `other` buckets but nothing raises the invite limit, so a
+  stack that has served several suite runs trips it. The second is shared-room state between
+  the two tests in that file. Both are recorded as FU-10 rather than fixed here.
+- **D-13 - a behaviour does change, in a case AC-1's baseline cannot see.** Ninety-odd
+  spacing declarations were written in `rem` and now resolve through `px` tokens, because
+  `--space-*` has been px since `2026-07-05-sitewide-ui-enhancement` and AC-8 forbids
+  changing it. They are identical at the default 16px root font size, which is what the
+  parity baseline measures, but a reader who raises their browser font size no longer scales
+  that spacing. The type ramp moves the other way and strictly improves: `14px` and `12px`
+  literals now resolve to `0.875rem` and `0.75rem`, so text that previously ignored the
+  setting now honours it. Recorded as FU-7 for phase 2, which owns the token values.
+
+## 11a. Verification
+
+- **AC-1 was rerun after every one of steps 3 to 7**, not only at the end, and passed each
+  time, against a live compose stack.
+- **The full e2e suite was run twice**, which is what found D-14 and D-15. First run:
+  103 passed, 3 failed, 29 skipped - the parity failure was the spec's own ordering (D-14).
+  Second run, after the rename: **104 passed**, parity green in suite order, and the same
+  two pre-existing failures reproducing identically, which is itself evidence they are
+  environmental rather than an order-dependent flake this diff introduced (D-15, FU-10).
+- **Every changed line in every changed `.vue` file was proven to sit inside a `<style>`
+  block** - 118 files, checked mechanically against the diff hunks rather than assumed. A
+  substitution that landed in a template or a script block would not necessarily fail any
+  test.
+- **Every `var(--token)` reference in `src/` resolves to a declaration.** An unresolvable
+  `var()` falls back to the initial value silently, and the parity baseline cannot see that
+  on the six components it does not reach. Nothing this dossier introduced is unresolved;
+  the check did surface five pre-existing colour tokens that are referenced and never
+  declared (FU-5).
+- **Tailwind v4 emits only referenced `@theme` variables** - `--weight-bold` and
+  `--font-size-3xl` were absent from `dist` before this change - so the two new namespaces
+  generate no utility classes and add nothing to the bundle. That closes §8's collision risk
+  by measurement rather than by reasoning.
+- **`check-security` is N/A.** The diff changes no logic: 118 `.vue` files changed only
+  inside `<style>` blocks, plus three test files, a docs rewrite and a committed baseline.
+  The baseline was checked for sensitive content and holds no UUID, address, token or
+  credential - only tag names, class names already public in the source, and CSS values.
 
 ## 12. Follow-ups
 
@@ -366,4 +530,45 @@ Appended by /build.
   `SRadio`, `SProgressBar`, `SIdleDialog`, `LocaleToggle`) are not reachable from any C-0
   surface, so their substitutions are proven equal by token value but never compared as a
   rendered box. Extending the e2e surface set to reach them is worth doing if phase 2's
-  density work touches them again.
+  density work touches them again. **Superseded by FU-8**, which measures the gap that
+  actually shipped.
+- **FU-5** - five colour custom properties are referenced and never declared anywhere, so
+  each falls back to the initial value: `--color-primary-600`
+  (`ProjectMemberGroupsView.vue:350`), `--color-surface-2`
+  (`PromptAssistantPanel.vue:162,186`), `--color-primary-soft` (`PromptAssistantPanel.vue:162`),
+  `--color-text` (`GraphragGraphView.vue:128`) and `--color-surface-sunken`
+  (`SchemaBuilder.vue:155`). Pre-existing and outside this dossier's scope (colour is §2.1's
+  explicit exclusion), found by the resolvability check in §11a. Phase 2 owns the palette
+  and is where these should be either mapped onto a real token or deleted.
+- **FU-6** - `@layer base` restores a bare `h1`/`h2`/`h3` one ramp step below the page-level
+  roles `00-overview.md` §3 documents (`--font-size-xl`/`lg`/`md` against
+  `--font-size-2xl`/`xl`/`lg`). The two have always disagreed; making both read tokens is
+  what made it visible. Correcting it changes rendered pixels, so it belongs to phase 2. The
+  document now states the discrepancy rather than hiding it.
+- **FU-7** - the spacing scale is px and the type ramp is rem, so spacing does not follow the
+  reader's browser font size while type does. D-13 explains why this dossier could not
+  resolve it (AC-8 forbids changing an existing token value). Phase 2 should decide whether
+  `--space-*` becomes rem; if it does, every consumer this dossier created follows
+  automatically, which is the whole point of the exercise.
+- **FU-8** - six components are still not reachable from any C-0 surface: `SAccordion`,
+  `SProgressBar`, `SSkeleton`, `SLoadingSpinner`, `SNetworkBanner` and `STextarea`. All six
+  are conditional or transient states (a loading skeleton, a spinner, a connection banner)
+  rather than components nobody thought of, which is why the surface set cannot reach them by
+  navigating. Their substitutions are proven equal by token value (AC-2) and by the source
+  sweep (AC-3), but no rendered box is compared.
+- **FU-10** - two pre-existing e2e fragilities, found by running the full suite (D-15).
+  `global-setup.ts` raises the `auth`, `auth-recovery` and `other` rate-limit buckets for the
+  run but nothing raises the invite limit, so `02-org-project-flow`'s invite fails with
+  "Too many invitations. Please wait." on a stack that has served several runs - invisible in
+  CI, where the stack is new every time, and a reliable local trap. And
+  `18-delegated-activity-control`'s two tests share one seeded room, so the second depends on
+  what the first left behind. Neither is caused by this diff.
+- **FU-11** - the parity baseline is only meaningful against a freshly seeded stack (D-14).
+  Nothing enforces that beyond the `00-` filename, and a future spec numbered lower would
+  silently break it. If a third such ordering constraint appears, it wants a Playwright
+  project or a dependency rather than a naming convention.
+- **FU-9** - four tokens now have zero consumers: `--font-size-3xl` (30px), `--line-tight`
+  (1.3), `--space-10` (40px) and the pre-existing `--color-accent-tint-hover` carried from
+  FU-3. Before this dossier a token with no `var()` reference might still have been "in use"
+  as a literal somewhere; now that the ramp is fully consumed, zero consumers is a real
+  statement about the vocabulary. Phase 2 should adopt or delete each.
