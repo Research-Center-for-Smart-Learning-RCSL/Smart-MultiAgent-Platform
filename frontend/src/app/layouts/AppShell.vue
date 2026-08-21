@@ -138,7 +138,12 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--topbar-height) 1fr;
-  height: 100vh;
+  /* Claims the space App.vue's flex column has left after the impersonation
+     banner, rather than assuming the whole viewport. min-height: 0 lets the
+     grid shrink to it; without it the content row's overflow would push the
+     shell taller than its share. */
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   /* Collapse/expand tweens the first grid track instead of snapping.
      --transition-slow already carries duration + easing. */
