@@ -97,9 +97,17 @@
 
   /* ── Spacing scale (4px grid) ──
      Named --space-* (not --spacing-*) so Tailwind's spacing namespace and
-     utility generation are untouched. */
+     utility generation are untouched.
+     The three half-steps are on the ladder because the codebase uses them as
+     one: 2px, 6px and 10px account for 55 declarations between them, almost
+     all of them the inner padding of a control whose outer padding is the
+     whole step above. A density change that moves --space-2 without moving
+     --space-1-5 produces controls whose two paddings no longer relate. */
+  --space-0-5: 2px;
   --space-1: 4px;
+  --space-1-5: 6px;
   --space-2: 8px;
+  --space-2-5: 10px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
@@ -119,12 +127,30 @@
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
   --font-size-3xl: 1.875rem;
+  /* The mono size docs/UI/00-overview.md's typography table already specifies
+     as a design decision ("Code / mono 0.8125rem (13px)"), named rather than
+     repeated in each of its consumers. */
+  --font-size-code: 0.8125rem;
+  /* --line-none is the "text box hugs the glyph" case: a badge, an avatar
+     initial, an icon-only control. --line-snug sits between tight and normal
+     and is what every dialog and page-header title already uses. */
+  --line-none: 1;
   --line-tight: 1.3;
+  --line-snug: 1.4;
   --line-normal: 1.5;
   --line-relaxed: 1.6;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
+
+  /* ── Control height ladder ──
+     One declaration for the 32/40/48px rung that SButton, SInput, SSelect,
+     STextarea and AppTopBar each used to carry their own copy of. They sit on
+     the same row in a form, so a density change has to move them together or
+     produce controls of mismatched height beside each other. */
+  --control-h-sm: 32px;
+  --control-h-md: 40px;
+  --control-h-lg: 48px;
 
   /* ── Semantic elevation ──
      Depth tiers components reach for by meaning, not by raw shadow:
