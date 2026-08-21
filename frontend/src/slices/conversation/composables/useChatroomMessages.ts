@@ -35,7 +35,12 @@ export const PAGE_SIZE = 100
 
 export function useChatroomMessages(
   chatroomId: string,
-  listRef: Readonly<{ value: HTMLElement | null }>,
+  // Notified after an optimistic send has been inserted and rendered. This
+  // composable used to receive the feed element and scroll it directly, which
+  // made it a second writer of scroll state that `useChatroomScroll` owns and
+  // could not see (F-49). It reports the event instead; the view wires this to
+  // `scrollToBottom`, so the pill and the at-bottom flag reset with the scroll.
+  onSent: () => void = () => {},
   // Accessor for the room's bound agents, used to resolve @mentions in the
   // draft at send time. Optional so callers/tests without agents still work.
   mentionAgents: () => MentionableAgent[] = () => [],
@@ -276,10 +281,7 @@ export function useChatroomMessages(
     pendingMessages.value = [...pendingMessages.value, optimistic]
     draft.value = ''
     await nextTick()
-    // jsdom (tests) has no Element.scrollTo.
-    if (typeof listRef.value?.scrollTo === 'function') {
-      listRef.value.scrollTo({ top: listRef.value.scrollHeight })
-    }
+    onSent()
 
     // Summon any @mentioned agents explicitly, regardless of their wakeup
     // triggers. The backend re-validates each id is bound to the room.
