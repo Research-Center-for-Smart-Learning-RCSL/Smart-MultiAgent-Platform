@@ -37,11 +37,20 @@ const sliceFiles = allVueFiles.filter((f) => f.includes(`${sep}slices${sep}`))
  * Scans past the first column-anchored `<template>` (a nested `<template v-if>`
  * is indented) and returns everything up to the first `>` that is not inside a
  * quoted attribute value — `:class="a > b ? …"` would otherwise truncate it.
+ *
+ * Leading comments are skipped rather than returned as the root: a comment has
+ * no class attribute, so treating it as the root would make this gate pass a
+ * padded view silently, which is the one failure mode a gate must not have.
  */
 function rootTag(source: string): string {
   const open = source.match(/^<template>\r?$/m)
   if (open?.index === undefined) return ''
   let i = source.indexOf('<', open.index + open[0].length)
+  while (i >= 0 && source.startsWith('<!--', i)) {
+    const end = source.indexOf('-->', i)
+    if (end < 0) return ''
+    i = source.indexOf('<', end + 3)
+  }
   if (i < 0) return ''
   let quote: string | null = null
   for (let j = i; j < source.length; j++) {
