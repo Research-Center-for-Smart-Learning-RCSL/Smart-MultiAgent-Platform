@@ -35,7 +35,10 @@ const route = useRoute()
 const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
 
-const { keys: myKeys } = useMyKeys()
+// Named apart from useProjectKeys' `loading` below: that one belongs to the
+// carried query, and binding it to the available table would tie that table to
+// an unrelated request.
+const { keys: myKeys, loading: myKeysLoading } = useMyKeys()
 const { carried, loading, error, carry, withdraw } = useProjectKeys(
   () => projectId.value,
 )
@@ -51,7 +54,14 @@ const carriable = computed(() =>
 
 const tabs = computed(() => [
   { key: 'carried', label: t('keys.project.carried'), icon: KeyIcon, badge: String(carried.value.length) },
-  { key: 'available', label: t('keys.project.carry'), icon: PlusCircleIcon, badge: String(carriable.value.length) },
+  // No badge while the list is in flight: `carriable` reads an empty array
+  // until then, so a count would assert "0 available" before anything is known.
+  {
+    key: 'available',
+    label: t('keys.project.carry'),
+    icon: PlusCircleIcon,
+    ...(myKeysLoading.value ? {} : { badge: String(carriable.value.length) }),
+  },
 ])
 
 const carriedColumns = computed<Column[]>(() => [
@@ -221,6 +231,7 @@ async function onCarry(keyId: string) {
         <STable
           :columns="availableColumns"
           :data="tableCarriable"
+          :loading="myKeysLoading"
           row-key="id"
         >
           <template #cell-provider="{ row }: { row: ApiKey }">
