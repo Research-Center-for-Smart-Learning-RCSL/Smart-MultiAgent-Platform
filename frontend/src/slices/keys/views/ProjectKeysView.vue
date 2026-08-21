@@ -52,10 +52,17 @@ const carriable = computed(() =>
   myKeys.value.filter((m) => !carried.value.some((c) => c.id === m.id)),
 )
 
+// Neither badge is rendered while its own query is in flight: both counts read
+// an empty array until then, so a number would assert "0 keys" before anything
+// is known. Each tab watches the query that actually feeds it - `carried` the
+// project's carried list, `available` the user's own key list.
 const tabs = computed(() => [
-  { key: 'carried', label: t('keys.project.carried'), icon: KeyIcon, badge: String(carried.value.length) },
-  // No badge while the list is in flight: `carriable` reads an empty array
-  // until then, so a count would assert "0 available" before anything is known.
+  {
+    key: 'carried',
+    label: t('keys.project.carried'),
+    icon: KeyIcon,
+    ...(loading.value ? {} : { badge: String(carried.value.length) }),
+  },
   {
     key: 'available',
     label: t('keys.project.carry'),

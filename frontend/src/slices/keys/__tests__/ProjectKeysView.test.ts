@@ -22,6 +22,21 @@ function pendMyKeys(): void {
   }))
 }
 
+/** Hold the project's carried list in flight for the whole test. */
+function pendCarried(): void {
+  server.use(http.get('/api/projects/:projectId/keys', async () => {
+    await delay('infinite')
+    return HttpResponse.json([])
+  }))
+}
+
+async function badgeFor(wrapper: Awaited<ReturnType<typeof render>>, key: string) {
+  const tabs = wrapper.getComponent(STabs).props('tabs') as { key: string; badge?: string }[]
+  const tab = tabs.find((t) => t.key === key)
+  expect(tab).toBeDefined()
+  return tab!.badge
+}
+
 describe('ProjectKeysView', () => {
   it('renders without errors', async () => {
     const wrapper = await render()
@@ -48,10 +63,25 @@ describe('ProjectKeysView', () => {
     pendMyKeys()
     const wrapper = await render()
 
-    const available = wrapper.getComponent(STabs).props('tabs')
-      .find((tab: { key: string }) => tab.key === 'available')
-    expect(available).toBeDefined()
-    expect(available.badge).not.toBe('0')
+    expect(await badgeFor(wrapper, 'available')).toBeUndefined()
+  })
+
+  // Sibling of the above, found by this task's self-audit: `carried` is also
+  // an empty array until useProjectKeys settles, so the carried tab asserted
+  // "0" during load through exactly the same mistake.
+  it('does not claim zero carried keys while that list is in flight', async () => {
+    pendCarried()
+    const wrapper = await render()
+
+    expect(await badgeFor(wrapper, 'carried')).toBeUndefined()
+  })
+
+  it('shows both counts once the queries settle', async () => {
+    const wrapper = await render()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(await badgeFor(wrapper, 'carried')).toBe('0')
+    expect(await badgeFor(wrapper, 'available')).toBe('0')
   })
 
   it('shows skeleton rows in the available table while the list is in flight', async () => {

@@ -135,8 +135,8 @@ function onBackdropClick() {
      put half of that excess above y = 0, where nothing could reach it - and
      the clipped element is the dialog's aria-labelledby target. flex-start
      plus the panel's margin: auto still centres, but a scroll container
-     honours the auto margins rather than clipping past its start edge.
-     Matches --s-modal-full's calc(100vw - 48px). */
+     honours the auto margins rather than clipping past its start edge. The
+     24px per side is what .s-modal__panel--full already subtracts. */
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
