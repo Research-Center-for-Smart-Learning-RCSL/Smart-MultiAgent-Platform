@@ -202,36 +202,46 @@ function statesALiteral(prop: string, value: string): boolean {
   return false
 }
 
-interface Offence {
-  key: string
-  where: string
-}
-
-function sweep(): { offences: Offence[]; scanned: number; tokenised: number } {
-  const offences: Offence[] = []
-  let scanned = 0
-  let tokenised = 0
-  const propAlternation = [...PROPS].sort((a, b) => b.length - a.length).join('|')
-
+/**
+ * Every declaration of a Q-2 property across the whole tree, as
+ * `{ key, prop, value }`. Both checks below read from this one walk - they used
+ * to build the property alternation separately, and had already drifted (one
+ * sorted it by length, the other did not), which is the shape of bug a sweep
+ * can least afford: the exemption check and the sweep must agree on what
+ * counts as a declaration or an exemption can go stale without being noticed.
+ */
+function* declarations(): Generator<{ key: string; prop: string; value: string }> {
+  const alternation = [...PROPS].sort((a, b) => b.length - a.length).join('|')
   for (const [path, text] of Object.entries(sources)) {
     const rel = path.replace(/^\/src\//, '')
     if (rel.includes('__tests__/')) continue
     for (const css of cssRegions(text, path)) {
-      const re = new RegExp(`^[ \\t]*(${propAlternation})\\s*:\\s*([^;{}]+);`, 'gm')
+      const re = new RegExp(`^[ \\t]*(${alternation})\\s*:\\s*([^;{}]+);`, 'gm')
       let m: RegExpExecArray | null
       while ((m = re.exec(css)) !== null) {
-        scanned++
         const prop = m[1]
         const value = m[2].replace(/\s+/g, ' ').trim()
-        if (value.includes('var(--')) tokenised++
-        if (!statesALiteral(prop, value)) continue
-        const key = `${rel}:${prop}:${value}`
-        if (key in EXEMPT) continue
-        offences.push({ key, where: rel })
+        yield { key: `${rel}:${prop}:${value}`, prop, value }
       }
     }
   }
-  return { offences, scanned, tokenised }
+}
+
+function sweep(): { offences: string[]; scanned: number; tokenised: number; live: Set<string> } {
+  const offences: string[] = []
+  const live = new Set<string>()
+  let scanned = 0
+  let tokenised = 0
+
+  for (const { key, prop, value } of declarations()) {
+    scanned++
+    live.add(key)
+    if (value.includes('var(--')) tokenised++
+    if (!statesALiteral(prop, value)) continue
+    if (key in EXEMPT) continue
+    offences.push(key)
+  }
+  return { offences, scanned, tokenised, live }
 }
 
 const result = sweep()
@@ -250,23 +260,12 @@ describe('component styles state no size of their own', () => {
   })
 
   it('leaves no literal font-size, font-weight, line-height, padding, margin or gap', () => {
-    expect(result.offences.map((o) => o.key)).toEqual([])
+    expect(result.offences).toEqual([])
   })
 
   it('carries no exemption for a declaration that no longer exists', () => {
     // An exemption that stops matching is a licence nobody is using, and it
     // would silently re-permit the literal if the rule ever came back.
-    const live = new Set<string>()
-    for (const [path, text] of Object.entries(sources)) {
-      const rel = path.replace(/^\/src\//, '')
-      for (const css of cssRegions(text, path)) {
-        const re = new RegExp(`^[ \\t]*(${PROPS.join('|')})\\s*:\\s*([^;{}]+);`, 'gm')
-        let m: RegExpExecArray | null
-        while ((m = re.exec(css)) !== null) {
-          live.add(`${rel}:${m[1]}:${m[2].replace(/\s+/g, ' ').trim()}`)
-        }
-      }
-    }
-    expect(Object.keys(EXEMPT).filter((k) => !live.has(k))).toEqual([])
+    expect(Object.keys(EXEMPT).filter((k) => !result.live.has(k))).toEqual([])
   })
 })

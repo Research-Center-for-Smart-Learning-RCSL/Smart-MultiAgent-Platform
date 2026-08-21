@@ -66,8 +66,8 @@ first, but building them serially avoids the conflict.
   `mobile-viewport-and-breakpoints` runs, so Q-14 now specifies `vh` and FU-8 pairs the two
   edits); §1.3 records the corrections made at approval.
 
-- (moved to In progress on 2026-08-21) `2026-08-21-visual-refinement-phase1-token-adoption`.
-  The original entry, kept here for the record:
+- (implemented 2026-08-22; see the note under In progress)
+  `2026-08-21-visual-refinement-phase1-token-adoption`. The original entry, kept for the record:
   `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) -
   **unblocked 2026-08-21** by `2026-08-19-shared-overlay-and-shell-defects`, which has now
   finished editing the scoped style blocks of `STable`, `SDropdown`, `SAlert`, `SEmptyState`,
@@ -188,7 +188,15 @@ report that the UI is consistent but flat.
   (`01-design-system.md:126-132,249,400`) and are the reason each new component is written
   that way; and its Q-5 keeps the sweep out of view *template roots*, which belong to
   `content-area-spacing-and-scroll-contract`'s F-3/F-40.
-- `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature, **approved 2026-08-21**) -
+- (moved to Ready now on 2026-08-22, unblocked by the implemented
+  `2026-08-21-visual-refinement-phase1-token-adoption`. **Read that dossier's FU-5 to FU-9
+  first** — they are all phase 2's to decide: five colour custom properties referenced but
+  never declared; `@layer base`'s headings sitting one ramp step below the documented
+  page-level roles; the spacing scale being px while the type ramp is rem, so spacing does
+  not follow the reader's browser font size; six components the parity baseline cannot
+  reach; and four tokens that now provably have zero consumers.)
+  The original entry, kept here for its detail:
+  `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature, **approved 2026-08-21**) -
   waiting on phase 1, **logically**: it is almost entirely token-value edits, which reach nothing until
   phase 1 makes the components read tokens. Changes the visual identity itself, which
   `2026-07-05-sitewide-ui-enhancement` ruled out at its §2 and which is why the product looks
@@ -210,16 +218,54 @@ report that the UI is consistent but flat.
 
 ## In progress
 
-- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor) — `depends_on:
-  [2026-08-19-shared-overlay-and-shell-defects]`, met. Started 2026-08-21 from base
-  `db66167`. **Its §2 counts were measured against `shared/ui/` only; the sweep AC-3
-  actually specifies covers three trees** — 334 type and 604 spacing declarations across
-  ~140 files, roughly three times the dossier's figure. Three scope decisions were taken
-  with the user at build start and are recorded as deviations in the dossier: half-step
-  spacing and the two missing line-heights get tokens (the exemption list would otherwise
-  run to ~115 entries and AC-3's sweep would mean nothing), `slices/` stays in scope, and
-  `main.css`'s own `@layer base` literals are tokenised too.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-22 after implementation:
+`2026-08-21-visual-refinement-phase1-token-adoption` (the design tokens are load-bearing:
+811 of the 985 type and spacing declarations in `frontend/src` now name a token, and both
+`docs/UI/` specifications are written in token names). **It unblocked
+`2026-08-21-visual-refinement-phase2-identity-and-depth`**, moved to Ready above — that
+dossier is almost entirely token-*value* edits, which reached nothing until this landed.
+Frontend and docs only; no migration, no API change. **Six things a later reader needs.**
+
+**Its §2 undercounted the work by three times, and the reason generalises.** The counts
+(109 type, 168 spacing) were measured inside `shared/ui/`, while AC-3's sweep covers `app/`
+and `slices/` too. The real figure is 985 declarations across 220 files. If a criterion
+names a scope, measure the criterion's scope, not the section that motivated it.
+
+**Q-3's conservatism did not survive the wider scope, and three scope calls were taken with
+the user before any code moved** (D-1 to D-5): 55 declarations sit on the 2/6/10px
+half-steps and 12 more on line-heights of 1 and 1.4, none of which had a token, so the AC-3
+exemption list would have run to ~115 entries and the sweep would have asserted nothing.
+Five token families were added, all exactly equal to the literals they replace.
+`main.css`'s own `@layer base` was tokenised too — the file that declares the vocabulary was
+also ignoring it, and a phase-2 change to the ramp that skipped `h1`/`h2`/`h3` would have
+left every heading at the old scale.
+
+**D-14 is the one to read before writing another baseline-comparison spec.** The parity spec
+was numbered `24-` and ran last. It reported 48 vanished signatures and 10 value
+differences, **none of them a CSS change**: the suite posts messages so the chatroom empty
+state stops rendering, it creates an invite so the invites empty state goes, and
+`.s-empty-state` declares no font-size of its own, so where it lands decides what it
+inherits. It is `00-` now. A baseline can only be compared against the data state it was
+captured in.
+
+**The harness was self-checked before it was trusted** (D-11): capture the baseline, then
+immediately compare unmodified code against it. That found three defects that would each
+have shipped as an intermittent CI failure — `margin: auto` centres against content width;
+`span.sr-only` renders at 12px/600 inside a button and 16px/400 beside one, so first-in-DOM
+order moved with the data; and a visible `<main>` is not a settled page.
+
+**Two mechanical checks did more than the test suite could.** Every changed line in all 118
+`.vue` files was proven to sit inside a `<style>` block (a substitution landing in a
+template would not necessarily fail anything), and every `var(--token)` in `src/` was proven
+to resolve — an unresolvable `var()` falls back to the initial value in silence. The latter
+found **five colour custom properties that are referenced and never declared anywhere**
+(FU-5), pre-existing and phase 2's to fix.
+
+**AC-7 is deliberately unticked**: every gate is green on this host, but the branch is
+unpushed so CI has not run. Two pre-existing e2e fragilities are recorded as FU-10 — nothing
+raises the invite rate limit for a suite run, and `18-delegated-activity-control`'s two
+tests share one seeded room.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-mobile-viewport-and-breakpoints` (the app is sized against the viewport the device
 actually shows, the breakpoints agree with themselves at their own boundaries, the mobile

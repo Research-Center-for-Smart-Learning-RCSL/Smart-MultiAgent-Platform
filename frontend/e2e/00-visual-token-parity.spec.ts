@@ -1,4 +1,4 @@
-﻿import { test, expect, type Page } from './fixtures/auth'
+import { test, expect, type Page } from './fixtures/auth'
 import { env } from './fixtures/seed'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
@@ -28,12 +28,21 @@ import { fileURLToPath } from 'url'
  * at 16px/400, and which of the two comes first in DOM order moves with the
  * data. Recording both makes the key order-independent.
  *
- *   pnpm exec playwright test 24-visual-token-parity --project=desktop
+ *   pnpm exec playwright test 00-visual-token-parity --project=desktop
  *     compares against e2e/baselines/visual-token-parity.json
  *
- *   UPDATE_VISUAL_BASELINE=1 pnpm exec playwright test 24-visual-token-parity --project=desktop
+ *   UPDATE_VISUAL_BASELINE=1 pnpm exec playwright test 00-visual-token-parity --project=desktop
  *     rewrites it. Only legitimate against unmodified code, or when the visual
  *     language is deliberately changed (phase 2).
+ *
+ * **It is numbered 00 so it runs before every other spec, and that is load-
+ * bearing rather than cosmetic.** The baseline describes the freshly seeded
+ * stack. Running it last instead cost 48 signatures and 10 value differences,
+ * none of them a CSS change: the suite posts messages, so the chatroom empty
+ * state stops rendering; it creates an invite, so the invites empty state goes;
+ * and `.s-empty-state` declares no font-size of its own, so where it lands
+ * decides what it inherits. A parity baseline can only be compared against the
+ * data state it was captured in.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -160,6 +169,8 @@ function loadBaseline(): Baseline {
   return JSON.parse(readFileSync(BASELINE_FILE, 'utf-8')) as Baseline
 }
 
+const baseline = loadBaseline()
+
 /**
  * Collected across the whole file and written once in `afterAll`. Playwright
  * runs this spec with `workers: 1` (playwright.config.ts), so a module-level
@@ -169,6 +180,8 @@ function loadBaseline(): Baseline {
 const collected: Baseline = {}
 const mismatches: string[] = []
 const missing: string[] = []
+/** Baseline slots this run actually compared - see the coverage check in afterAll. */
+const visited = new Set<string>()
 
 /**
  * The theme is applied by writing `data-theme` on the root element, which is
@@ -222,8 +235,6 @@ interface SurfaceOptions {
  * records or asserts each combination.
  */
 async function snapshotSurface(page: Page, id: string, path: string, opts: SurfaceOptions): Promise<void> {
-  const baseline = loadBaseline()
-
   for (const vp of opts.viewports ?? VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height })
     await page.goto(path)
@@ -246,6 +257,7 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
 
       const before = baseline[slot]
       expect(before, `no baseline for "${slot}" - rerun with UPDATE_VISUAL_BASELINE=1`).toBeTruthy()
+      visited.add(slot)
 
       // An absent signature is not evidence of a style change - it is evidence
       // the element was not on the page, which a slow query or a timed state
@@ -444,6 +456,17 @@ test.describe('Computed-style parity across the component surface set', () => {
     // the wrong rule typically moves dozens of elements, and failing on the
     // first one hides the shape of the mistake.
     const problems: string[] = []
+    // A surface whose seed entity is missing calls test.skip and quietly checks
+    // nothing, so a run can lose half its coverage and still report green.
+    // Partial coverage is the dangerous case and fails; zero coverage means the
+    // stack was not up at all, which every other spec here also just skips.
+    const unvisited = Object.keys(baseline).filter((slot) => !visited.has(slot))
+    if (unvisited.length && visited.size > 0) {
+      problems.push(
+        `${unvisited.length} of ${Object.keys(baseline).length} baseline surfaces were not checked ` +
+          `(a seeded entity is missing, so its test skipped):\n  ${unvisited.join('\n  ')}`,
+      )
+    }
     if (missing.length) {
       problems.push(
         `${missing.length} baseline signature(s) no longer render:\n  ${missing.slice(0, 40).join('\n  ')}`,
