@@ -37,7 +37,9 @@ The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
 `AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
 first, but building them serially avoids the conflict.
 
-- `2026-08-19-chatroom-scroll-and-composer` (bugfix, **approved 2026-08-21**) - `depends_on: []`.
+- (moved to In progress on 2026-08-21) `2026-08-19-chatroom-scroll-and-composer`. The original
+  entry, kept here for the record:
+  `2026-08-19-chatroom-scroll-and-composer` (bugfix, **approved 2026-08-21**) - `depends_on: []`.
   Independent of the chain; its Q-11 records the file-by-file overlap check that justifies the
   empty list, so it can run in parallel with all four others. Its **spec delta was applied at
   approval**: `07-conversation.md:513` claimed a cache prevents per-token markdown re-rendering,
@@ -128,6 +130,39 @@ first, but building them serially avoids the conflict.
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
 
+### From the 2026-08-21 visual-refinement analysis
+
+Two dossiers, sequenced. Not from an audit: they came from a direct read of `main.css`, the
+46 `shared/ui/` components and the two `docs/UI/` specification files, prompted by the user's
+report that the UI is consistent but flat.
+
+- `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, draft) - waiting on
+  `2026-08-19-shared-overlay-and-shell-defects`. **Overlap prerequisite only** (its Q-6): that
+  dossier edits the scoped style blocks of `STable`, `SDropdown`, `SAlert`, `SEmptyState`,
+  `SModal` and `STooltip`, and this one edits the same rules. Makes the design tokens
+  load-bearing: three of 46 shared components consume a `--font-size-*`/`--space-*`/
+  `--weight-*`/`--elevation-*` token today, against 109 raw type and 168 raw spacing
+  declarations. **Zero rendered difference is the acceptance bar** (AC-1), pinned by a
+  computed-style baseline captured before any edit. Two things a builder needs first: its Q-8
+  requires `docs/UI/00-overview.md` and `docs/UI/01-design-system.md` to be rewritten in the
+  same series, because those documents specify component sizing in literal pixels
+  (`01-design-system.md:126-132,249,400`) and are the reason each new component is written
+  that way; and its Q-5 keeps the sweep out of view *template roots*, which belong to
+  `content-area-spacing-and-scroll-contract`'s F-3/F-40.
+- `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature, draft) - waiting on
+  phase 1, **logically**: it is almost entirely token-value edits, which reach nothing until
+  phase 1 makes the components read tokens. Changes the visual identity itself, which
+  `2026-07-05-sitewide-ui-enhancement` ruled out at its §2 and which is why the product looks
+  as it does. Self-hosts Inter (Q-3: `smap.conf:177` sets `font-src 'self' data:`, so a CDN is
+  blocked by the deployed CSP, not merely undesirable), moves every neutral from Tailwind
+  `gray` onto `slate` to match the surfaces that are already slate, adds a `--color-canvas`
+  role so a card stops being the same colour as the page behind it (Q-6 - no shadow value can
+  fix a same-colour relationship), splits `--color-border` into boundary and interior weights,
+  loosens `STable` density, and adds the pressed state that `:active` being absent from all of
+  `frontend/src` means no element has. It carries an **SRS Delta**: amends [R24.28] and
+  [R24.49] and adds [R24.50]. Its AC-9 introduces a real contrast test rather than a manual
+  measurement, which is what keeps the palette honest after it lands.
+
 - `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, draft) - waiting on
   `2026-08-19-shared-overlay-and-shell-defects`. Both edit `AppShell.vue`, `router.ts` and
   `AgentDetailView.vue`. Strips the duplicated padding from 34 view roots (and the nested
@@ -141,6 +176,11 @@ overlap, so each unblocks as soon as its predecessor is `implemented`.
 
 ## In progress
 
+- `2026-08-19-chatroom-scroll-and-composer` (bugfix) - `depends_on: []`. Started 2026-08-21 from
+  base `b4b25d1`. Ten findings in the chatroom feed surface; F-29's second arm was cut at
+  approval (FU-6). Six of its eighteen ACs are browser-only by construction - jsdom performs no
+  layout, so the unit tier proves the arithmetic, the counting rule, the throttle and every
+  wiring decision, and none of the visual outcomes.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-21 after implementation:
 `2026-08-20-onboarding-without-smtp` (an install with no outbound mail can now onboard:
