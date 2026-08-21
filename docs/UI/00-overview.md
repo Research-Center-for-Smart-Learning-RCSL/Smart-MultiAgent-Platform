@@ -86,15 +86,25 @@ The sidebar bridges both modes: top half for navigation, bottom half for chatroo
 
 ## 3. Typography
 
+Sizing is written as a token name here and everywhere else in `docs/UI/`. The values
+live in one place: `01-design-system.md` §1, which mirrors `main.css`'s `@theme`
+block. A second copy of a number is a second source of truth, and this
+document is what an implementer reads.
+
 | Element | Size | Weight | Line-height |
 |---------|------|--------|-------------|
-| Page title (h1) | 1.5rem (24px) | 600 | 1.4 |
-| Section heading (h2) | 1.25rem (20px) | 600 | 1.4 |
-| Subsection (h3) | 1.125rem (18px) | 600 | 1.4 |
-| Body text | 0.875rem (14px) | 400 | 1.5 |
-| Small / caption | 0.75rem (12px) | 400 | 1.4 |
-| Extra-small (badges) | 0.625rem (10px) | 500 | 1 |
-| Code / mono | 0.8125rem (13px) | 400 | 1.5 |
+| Page title (h1) | `--font-size-2xl` | `--weight-semibold` | `--line-snug` |
+| Section heading (h2) | `--font-size-xl` | `--weight-semibold` | `--line-snug` |
+| Subsection (h3) | `--font-size-lg` | `--weight-semibold` | `--line-snug` |
+| Body text | `--font-size-sm` | `--weight-normal` | `--line-normal` |
+| Small / caption | `--font-size-xs` | `--weight-normal` | `--line-snug` |
+| Extra-small (badges) | `--font-size-2xs` | `--weight-medium` | `--line-none` |
+| Code / mono | `--font-size-code` | `--weight-normal` | `--line-normal` |
+
+The rows above are the *page-level* roles. `@layer base` in `main.css` separately
+restores a size to a bare `h1`/`h2`/`h3` that Preflight strips, one step lower on the
+ramp (`--font-size-xl` / `--font-size-lg` / `--font-size-md`); a page title is an
+`SPageHeader`, not a bare `h1`.
 
 **Font stack**: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`
 **Mono stack**: `"SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace`
@@ -103,23 +113,36 @@ The sidebar bridges both modes: top half for navigation, bottom half for chatroo
 
 ## 4. Spacing & Sizing Scale
 
-Based on Tailwind's default `--spacing: 0.25rem` (4px base unit).
+A 4px grid, plus three half-steps the component library uses as the inner padding of a
+control whose outer padding is the whole step above. Values in `01-design-system.md` §1.
 
-| Token | px | Common use |
-|-------|----|------------|
-| `1` | 4 | Tight gaps, badge padding |
-| `2` | 8 | Input padding, icon gaps |
-| `3` | 12 | Card inner padding (compact) |
-| `4` | 16 | Standard content padding |
-| `5` | 20 | Section gaps |
-| `6` | 24 | Card padding (standard) |
-| `8` | 32 | Section margins |
-| `10` | 40 | Page margins |
-| `12` | 48 | Large spacing |
+| Token | Common use |
+|-------|------------|
+| `--space-0-5` | Chip and inline-badge padding |
+| `--space-1` | Tight gaps, label-to-control |
+| `--space-1-5` | Compact control padding |
+| `--space-2` | Input padding, icon gaps |
+| `--space-2-5` | Large-control vertical padding |
+| `--space-3` | Card inner padding (compact) |
+| `--space-4` | Standard content padding |
+| `--space-5` | Section gaps |
+| `--space-6` | Card padding (standard) |
+| `--space-8` | Section margins |
+| `--space-10` | Page margins |
+| `--space-12` | Large spacing |
+
+The scale is declared in px, not rem. That is a pre-existing decision this document
+records rather than makes: it means spacing does not scale with the reader's browser
+font size, while type does: every `--font-size-*` is a rem value.
+
+**Control heights**: `--control-h-sm` / `--control-h-md` / `--control-h-lg`. Anything
+that can share a form row with a button reads these, so the row cannot end up ragged.
 
 **Border radius**: `--radius-md: 6px` (cards, inputs), `--radius-lg: 8px` (modals), `--radius-full: 9999px` (pills, avatars).
 
-**Touch target minimum**: 44x44px (`--touch-min: 44px`).
+**Touch target minimum**: 44x44px (`--touch-min: 44px`). Deliberately not on the spacing
+ladder, because it is an accessibility floor, not a design step, and must not move when the
+scale is retuned.
 
 ---
 
