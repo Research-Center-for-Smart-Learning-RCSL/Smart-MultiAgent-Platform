@@ -77,6 +77,15 @@ first, but building them serially avoids the conflict.
   computed-style baseline must be captured *after* this rebase, not before. The full entry is
   kept below in Blocked for its other detail.
 
+- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, **draft**) - **unblocked 2026-08-21** by
+  `2026-08-19-content-area-spacing-and-scroll-contract`. Still `draft`, so it needs approval
+  before `/build` will touch it. **Read its §7 item 1 first**: the `100vh` line it targets was
+  relocated by `shared-overlay-and-shell-defects` and now lives at `App.vue:79`
+  (`.app-root { min-height: 100vh }`), not on `.app-shell`. And it **owns FU-8 of the dossier
+  that just unblocked it**: when it moves the shell to `100dvh` it must move
+  `AgentDetailView.vue`'s `lg:h-[calc(100vh-3.5rem-3rem)]` in the same change, and update that
+  dossier's T-9 expected class with it. Leaving one behind reintroduces a smaller F-51 on mobile.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
@@ -187,31 +196,45 @@ report that the UI is consistent but flat.
 
 - (moved to Ready now on 2026-08-21, unblocked by the implemented
   `2026-08-19-shared-overlay-and-shell-defects`; the Q-14 warning moved with it)
-- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, draft) - waiting on
-  `2026-08-19-content-area-spacing-and-scroll-contract`. Both edit `AppShell.vue` and
-  `AgentDetailView.vue`. **Read its §7 item 1 before starting**: the `100vh` line this dossier
-  targets is relocated by `shared-overlay-and-shell-defects`, so the element carrying the
-  viewport height depends on what has already landed.
+- (moved to Ready now on 2026-08-21, unblocked by the implemented
+  `2026-08-19-content-area-spacing-and-scroll-contract`) `2026-08-19-mobile-viewport-and-breakpoints`.
 
 ## In progress
 
-- `2026-08-19-content-area-spacing-and-scroll-contract` (bugfix, **approved and started
-  2026-08-21**) - `depends_on: [2026-08-19-shared-overlay-and-shell-defects]`, met. Strips the
-  duplicated padding from 34 view roots (and the nested `<main>` from 23 of them), and gives
-  navigation a scroll-reset contract, which today does not exist: `main.scrollTop` persists into
-  the next view. Two things a later reader needs. **Its Q-5 was corrected at approval**: the
-  reset is `contentEl.value.scrollTop = 0`, not `scrollTo({ top: 0 })` — this repo's jsdom has no
-  `Element.prototype.scrollTo` (the specified line would throw inside the watcher on every
-  navigating unit test) but does persist `scrollTop`, which is the inverse of what Q-5 originally
-  claimed. And **its Q-14 ships `vh`, deliberately**: F-45 belongs to
-  `2026-08-19-mobile-viewport-and-breakpoints`, which is sequenced after it, so the sticky panel
-  constant matches the shell it ships against and FU-8 pairs the two edits for whoever moves the
-  shell to `dvh`. Also read `shared-overlay-and-shell-defects`'s **D-10**: `.app-shell` sizes from
-  `flex: 1 1 0px`, and the reason the basis must be a length is exactly what this dossier's scroll
-  contract depends on.
-
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-08-21 after implementation:
+`2026-08-19-content-area-spacing-and-scroll-contract` (34 view roots stop duplicating the
+shell's padding, 23 of them stop nesting a second `<main>`, and navigation gains the
+scroll-reset contract it never had). **It unblocked
+`2026-08-19-mobile-viewport-and-breakpoints`**, moved to Ready above. Frontend only; no
+migration, no API change. **Four things a later reader needs.**
+
+**Its Q-14 ships `vh` deliberately, and FU-8 is the pairing that must not be forgotten.** F-45
+belongs to `mobile-viewport-and-breakpoints`, sequenced after it, so
+`AgentDetailView.vue`'s `lg:h-[calc(100vh-3.5rem-3rem)]` matches the shell it shipped against.
+Whoever moves the shell to `100dvh` must move that one line in the same change, or a smaller
+F-51 comes back on mobile.
+
+**Two of its own decisions were wrong and were corrected under CI.** Q-5 originally specified
+`scrollTo({ top: 0 })` on the reasoning that jsdom's `scrollTop` setter is inert — both halves
+measured false, and the specified line would have thrown in every navigating unit test; the
+reset is `contentEl.value.scrollTop = 0`. And its first F-26 implementation titled the pending
+page header with the loading string, which put a status string in the `h1` and **took two
+pre-existing e2e specs down** (`15-tenancy-keys-mgmt.spec.ts`'s renames read the entity name
+from the level-1 heading). D-7 replaced it with a header-shaped skeleton. The invariant worth
+carrying forward: **on a detail page the `<h1>` is the entity's name, so an `<h1>` existing
+means the entity has loaded** — three view tests now assert no `h1` during the fetch.
+
+**Its §12a records three CI diagnoses of one failing assertion, two of which were wrong.** Worth
+reading before writing a Playwright assertion about scroll position: `click()` scrolls its
+target into view first (the repo's own `frontend:verify` skill says so), and a content-height
+change makes the browser clamp `scrollTop` without ever rebounding.
+
+**`.app-shell` sizes from `flex: 1 1 0px`** (`shared-overlay-and-shell-defects`'s D-10), and the
+reason the basis must be a length rather than `flex: 1`'s `0%` is exactly what this dossier's
+scroll contract depends on.
+
+Also removed on 2026-08-21:
 `2026-08-19-shared-overlay-and-shell-defects` (the impersonation banner reserves its own
 space, a render error keeps the shell, an authenticated 404 keeps its chrome, and four
 shared overlay primitives that looked wired now work). **It unblocked two dossiers**, both

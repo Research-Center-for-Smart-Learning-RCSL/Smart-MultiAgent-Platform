@@ -1,8 +1,9 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-19
 approved: 2026-08-21
+implemented: 2026-08-21
 requirements: []
 depends_on: [2026-08-19-shared-overlay-and-shell-defects]
 ---
@@ -578,59 +579,70 @@ outcomes, because they are all layout, and the unit tier has no layout engine.
 
 ## 10. Acceptance Criteria
 
-Ticked only where the mapped test was **observed red before the fix and green after**; the
-Tier 2 and Tier 3 halves that need a running stack are left unticked and named in §12a.
+Every AC is ticked. Each unit test was **observed red before its fix and green after**; every
+browser assertion passed on CI run 32485429471; V-1 to V-4 were checked by hand against a local
+stack on 2026-08-21. Where a check is weaker than its wording suggests, the entry says so rather
+than hiding it.
 
 - [x] AC-1: **F-3** - T-2 fails before the fix and passes after (verified: 34 padded roots
-      enumerated by the sweep, then zero). T-10 is written and unrun (needs the stack). No view
+      enumerated by the sweep, then zero). T-10 passes in CI at all three viewports. No view
       template root in `src/**/views/*.vue` carries a padding utility.
 - [x] AC-2: **F-4** - T-1 fails before the fix (`expected 1200 to be +0`) and passes after, in
       both halves: a path change leaves `main.scrollTop` at 0, a query-only change preserves it.
-      T-11 is written and unrun.
+      T-11 passes in CI. Its query-only half asserts non-zero rather than equality, for the
+      reason traced over three CI runs in §12a - the offset moves legitimately when a tab switch
+      changes the content height, and only its survival is a claim about the watcher.
 - [x] AC-3: **F-10** - T-3 fails before the fix and passes after; the root is a `div` carrying
-      `h-full` and neither `p-6` nor the `100vh` calc. T-12 is written and unrun, so the
-      "no scroll travel" half is asserted structurally, not measured.
+      `h-full` and neither `p-6` nor the `100vh` calc. T-12 passes in CI, so `main` really has no
+      scroll travel on the graph route.
 - [x] AC-4: **F-16** - T-9 fails before the fix (`expected … not to contain 'min-h-[32rem]'`) and
-      passes after. T-14 is written and unrun.
+      passes after. T-14 passes in CI: at 900x1200 the panel stays at 512px however much content
+      is in it.
 - [x] AC-5: **F-17** - T-4 fails before the fix in both halves and passes after. The empty state
       and the skeleton render, and the keys exist in `en` and `zh-TW` (gate #12 green).
-- [ ] AC-6: **F-26** - **wording amended by D-7**: all three detail views paint a *header-shaped
+- [x] AC-6: **F-26** - **wording amended by D-7**: all three detail views paint a *header-shaped
       skeleton* for the whole of the first fetch, not a page header - a header titled with the
       loading string put a status string in the `h1` and took two e2e specs down. T-5 fails
       before the fix and passes after for all three views, and now also asserts no `h1` exists
-      during the fetch. **V-1 is not confirmed**: no running stack. Unticked deliberately.
+      during the fetch. **V-1 confirmed by hand** at 1440x900 with the API throttled to 4s.
 - [x] AC-7: **F-27** - T-6 and T-7 fail before the fix and pass after. `AgentDetailView`'s
-      loading branch matches `docs/UI/06-agents.md:449-452` (1 + 5 + 2x4). T-13 is written and
-      unrun, so the "no upward jump" half is asserted by construction (skeleton height reduced
-      below the settled height) rather than measured.
-- [ ] AC-8: **F-28** - **V-2 is not confirmed**: no running stack, and jsdom applies no scoped
-      CSS, so nothing in the unit tier can see `min-height` at all. The CSS reasoning was
-      re-derived and the containing-block chain traced (see §12a), but the outcome is a centring
-      and remains unverified.
-- [ ] AC-9: **F-31** - T-8 fails before the fix and passes after for `store.lintRan` and
-      `loadError`, and stays green on the negative case (see D-5). **V-3 is not confirmed**: no
-      running stack, so nothing proves the fit is the *right* one.
+      loading branch matches `docs/UI/06-agents.md:449-452` (1 + 5 + 2x4). T-13 passes in CI at
+      1440x400, the viewport at which the pre-fix skeleton genuinely overflows (see D-6).
+- [x] AC-8: **F-28** - **V-2 confirmed, and measured**: the block is 796px inside an 844px
+      content box at 1440x900, 496px inside 544px at 1280x600, and 796px on `/invites/accept` -
+      each exactly the box minus its 48px of padding - with zero scroll travel in all three.
+      `NotFound` under `AuthLayout` degrades as Q-11 predicted, since the percentage resolves
+      against an auto-height wrapper there.
+- [x] AC-9: **F-31** - T-8 fails before the fix and passes after for `store.lintRan` and
+      `loadError`, and stays green on the negative case (see D-5). **V-3 confirmed against its
+      stated criterion**: the canvas pane top moved 105 -> 130 when the lint bar appeared and no
+      node fell outside it. Stated plainly in §12a: with a two-node seeded graph this run does
+      not establish that the same graph would have clipped without the re-fit.
 - [x] AC-10: **F-40** - T-2 fails before the fix (23 files listed) and passes after. Zero `<main`
       remains under `src/slices`; the shell's landmark and `Landing.vue`'s are the only two left
-      in `src`. T-16 is written and unrun.
+      in `src`. T-16 passes in CI, and V-4 measured exactly one `main` on all ten sampled routes.
 - [x] AC-11: **F-44** - T-2 covers `AdminSkillsView.vue` and `AdminPromptStudioView.vue`; both
       lost their padding utility and all 15 `/admin/*` children now inherit one gutter from the
       shell. The "no change in inset when navigating" half follows from there being one owner.
 - [x] AC-12: **F-51** - T-9 fails before the fix (`expected … not to contain
-      'lg:h-[calc(100vh-8rem)]'`) and passes after. T-15 is written and unrun.
+      'lg:h-[calc(100vh-8rem)]'`) and passes after. T-15 passes in CI: the panel's height equals
+      the viewport minus the topbar minus both 24px gutters, which is the content box.
 - [x] AC-13: **F-52** - deferred per Q-15 and recorded as FU-4.
       `AgentGroupDetailView.vue:143` is untouched: the file appears in the diff only for its
       root tag (`git diff` shows exactly two changed lines in it).
-- [ ] AC-14: **V-4 is not confirmed** by eye. Its structural half *is* covered and came back
-      clean: all 34 changed views were swept for scoped CSS that depended on the removed root
-      padding, and zero rules are affected (§12a). What remains unverified is whether any view
-      *looks* wrong, which only a browser shows.
-- [x] AC-15: green on this host: `pnpm lint` (all 12 gates), `pnpm typecheck`, `pnpm test`
-      (209 files / 1352 tests), `pnpm build`. The three bash-script gates could not run here and
-      are deferred to CI, with the bundle budget approximated instead - see §12a. Backend gates
-      N/A: the diff is frontend-only. Per the project's remote-CI rule, CI is authoritative.
-- [ ] AC-16: **not run.** `frontend/e2e/22-layout-contract.spec.ts` is written (T-10 to T-16,
-      seven assertions) but needs the compose stack, which is not up on this host.
+- [x] AC-14: **V-4 confirmed.** Ten routes sampled, each measuring a 24px left and top gutter and
+      one `main` landmark; visual pass over agent detail and notifications found no view whose
+      internal spacing depended on the removed root padding. Its structural half was already
+      clean: all 34 changed views swept for scoped CSS depending on that padding, zero rules
+      affected (§12a).
+- [x] AC-15: **green on CI run 32485429471**, every job. Locally: `pnpm lint` (all 12 gates),
+      `pnpm typecheck`, `pnpm test` (209 files / 1352 tests), `pnpm build`. The three bash-script
+      gates could not run on this Windows host and were CI's to decide - they passed there.
+      Backend gates N/A: the diff is frontend-only.
+- [x] AC-16: **`frontend/e2e/22-layout-contract.spec.ts` passes in CI** (run 32485429471,
+      `frontend-e2e` 77 passed / 5 skipped / 0 failed). Nothing in T-10 to T-16 was deleted or
+      weakened to get there; the one assertion whose *form* changed is T-11's query-only half,
+      and §12a records why equality could not be made to mean what it appeared to.
 - [x] AC-17: the shell's padding ladder is byte-identical to before the change: the three rules
       `.app-shell__content { padding: 24px }`, its `@media (max-width: 1023px)` override to 16px
       and its `@media (max-width: 479px)` override to 8px, plus the two
@@ -787,6 +799,44 @@ reporter lists neither passes nor skips individually: the last green run (`e5e23
 - and **the skip count did not move**. None of this spec's 11 self-skipped for want of seed data,
 so 10 of them genuinely executed and passed. AC-16 stays unticked until a run is green end to
 end.
+
+**CI run 32485429471** (`9452b03`): **fully green**, `frontend-e2e` at 77 passed / 5 skipped /
+0 failed. All eleven of this dossier's browser assertions pass, so T-10 (the gutter at three
+breakpoints), both halves of T-11, T-12, T-14, T-15 and T-16 are confirmed measurements rather
+than claims. **AC-16 met.**
+
+**V-1 to V-4, verified by hand 2026-08-21** against the local compose test stack (E2E overlay).
+Two environment repairs were needed first and are worth recording, because the second one made a
+pre-existing spec look like a regression: the `smap_test` database already existed from an
+earlier session, and **the local `backend-web` image was 13 migrations stale** - its bundled
+alembic tree topped out at `0066_agent_tools_mcp_capture` while the working tree carries
+`0079_member_groups`. With that image, `07-workflow-flow.spec.ts`'s validate test failed locally
+while passing in CI; rebuilding the image and running `alembic upgrade head` fixed it. **The
+frontend was always current** - Vite serves it from source - so the V-1/V-2/V-4 results below were
+never affected by the stale backend.
+
+- **V-1 (F-26) - confirmed.** All three detail views, API throttled to 4s: the header-shaped
+  skeleton paints on the shell's 24px gutter for the whole fetch and the spinner sits centred in
+  its bounded block. Judged against the criterion as amended by D-7.
+- **V-2 (F-28) - confirmed, and measured rather than eyeballed.** `min-height: 100%` resolves to
+  the content box exactly: at 1440x900 `main` is 844px with 24px padding top and bottom and the
+  block is **796px = 844 - 48**; at 1280x600, **496px = 544 - 48**; `/invites/accept` at
+  1440x900, **796px**. Scroll travel is **0** in all three, so there is no dead band and nothing
+  overflows. The old `60vh` would have been 360px inside a 544px box at 1280x600, visibly high.
+- **V-3 (F-31) - confirmed against its stated criterion, with the strength of the evidence
+  stated.** At 1366x768 the canvas pane top moved from **105 to 130** when the lint bar appeared
+  - the bar really does take 25px out of the canvas - and **no node was outside the pane** either
+  before or after. What this run does *not* establish is that the same graph would have clipped
+  without the re-fit: the seeded workflow has two nodes on a large canvas. T-8 proves `fitView`
+  is called; this proves the outcome is a fully framed graph.
+- **V-4 (F-3) - confirmed.** Ten routes sampled across the swept set (`/orgs`, `/keys`,
+  `/projects/:id/agents`, `/notifications`, `/invites`, chatrooms, graphrag-configs, agent
+  detail, workflow runs). Every one measured **24px left gutter, 24px top gutter, exactly one
+  `main` landmark**. Visual pass over agent detail (the most complex swept view) and
+  notifications (a `<section>` root that kept its class and lost `px-4 py-4 sm:p-6`): card
+  padding, field spacing and empty states all intact. **No view's internal spacing depended on
+  the removed root padding** - which the structural sweep in §12a had already predicted, and this
+  is the eyes-on half it could not cover.
 
 **Audits**: `check-quality` over the whole task diff found two Introduced-Warning and one
 Introduced-Info item, all three fixed in `a2e2095` rather than deferred (they are D-3, D-6 and
