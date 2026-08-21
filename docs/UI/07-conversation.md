@@ -510,7 +510,7 @@ As `agent.token` events arrive, content accumulates and renders progressively:
 
 - Status label: "Streaming" replaces timestamp, 12px `--color-accent`, italic
 - Blinking cursor: `_` block character at end of text, CSS animation `opacity: 1 -> 0`, 1s interval, `steps(1)`
-- Rendering: memoized per agent — only re-renders when accumulated text changes; the `_streamCache` map avoids calling `renderMarkdown()` on every token at high frequency
+- Rendering: the accumulated text is flushed from the socket layer to the store on a 120ms throttle, so `renderMarkdown()` runs at most once per flush per agent rather than once per token. The per-agent memo in `useAgentStreams` then suppresses re-rendering agents whose text did not change in that flush
 - Progressive markdown: partial markdown is tolerated (unclosed fences, incomplete lists) because `renderMarkdown()` handles truncated input gracefully
 - The streaming bubble is a transient element, not a persisted message — it lives outside the TanStack Query cache
 
@@ -894,7 +894,7 @@ Messages are fetched with cursor-based pagination (`GET /api/chatrooms/{cid}/mes
 
 **Auto-trigger**: when the user scrolls to within 100px of the top of the feed and `hasOlderMessages` is true, `loadEarlier()` triggers automatically (scroll-based pagination). The button remains as a fallback for users who prefer explicit loading.
 
-**Page size**: 50 messages per fetch. Cursor is the `id` of the oldest loaded message.
+**Page size**: 100 messages per fetch. Cursor is the `id` of the oldest loaded message. The constant is `PAGE_SIZE` in `useChatroomMessages.ts`, and the connect-time reconcile depends on the same value.
 
 ### 3.11 Scroll Behavior
 
