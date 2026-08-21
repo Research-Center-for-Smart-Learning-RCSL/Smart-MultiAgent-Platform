@@ -34,13 +34,56 @@ unbounded modal panel, and a hardcoded tooltip z-index.
 One finding in the audit's list, F-43, is not fixed here. It is a feature that was never
 built, and verification found it cannot manifest today; see Q-12.
 
+### 1.1 Freshness re-verification (2026-08-21)
+
+Every citation below was re-checked against the tree. Four things moved; the rest hold.
+
+1. **F-5 is now half fixed, and the half that remains is the one that matters.**
+   `ImpersonationBanner.vue:27` already reads `z-index: var(--z-banner, 350)` - the completed
+   `2026-08-19-transient-feedback-channels` went further than Q-1 anticipated and tokenised it,
+   with a comment recording that sonner's toasts were being clipped. So the "9999 outranks
+   `--z-modal`, `--z-toast` and `--z-tooltip`" arm of F-5 **no longer reproduces**, §7 item 2's
+   z-index edit is **already done**, and **T-2 passes today** rather than failing first. What is
+   untouched is `position: fixed; top: 0; left: 0; right: 0` (`:19-22`): nothing reserves the
+   banner's height, so it still paints over the top 33px of the top bar. Q-2's fix - taking the
+   banner out of `fixed` - is unchanged and is now the whole of F-5.
+2. **The repository-wide numeric-`z-index` sweep now returns six sites, not seven.**
+   `ImpersonationBanner.vue` dropped off it. §6's "two confirmed and four cleared" becomes **one
+   confirmed** (`STooltip.vue:73`) and five cleared, and AC-11's grep expectation is unaffected.
+3. **F-23 in the chatroom has landed**, which Q-8 wrote about in the future tense and under the
+   wrong slug. See the corrected Q-8: the assumption that this dossier's F-30 fix would leave
+   F-23 with only a stretch to add is no longer true, and the two are now independent.
+4. **Line drift only**, from `2026-08-19-chatroom-scroll-and-composer` landing in files this
+   dossier cites: `App.vue` `<ErrorBoundary>` `:29` -> `:32` (still outside the layout - F-6
+   reproduces), `ChatroomHeader.vue` `<SDropdown` `:95` -> `:99`, `ChatroomComposer.vue`
+   `z-index: 20` `:303` -> `:327`. `App.vue:30` also now passes
+   `<SNetworkBanner :below-topbar="..." />`, which makes FU-4 a live interaction rather than a
+   prediction.
+
+Re-confirmed unchanged and still reproducing: F-6 (`App.vue:32` wraps the layout), F-7 (the
+catch-all record at `router.ts:43-47` still declares no `meta`), F-8 (`STable.vue:465`), F-9
+(`SDropdown.vue:112`), F-22 (`SAlert.vue:67`), F-30 (`.s-empty-state` at `:46-55` still has no
+`justify-content`; the `justify-content: center` now visible at `:62` belongs to
+`.s-empty-state__halo`, a different rule - do not mistake it for a fix), F-33
+(`ProjectKeysView.vue:38` still destructures only `keys`), F-34 (`SkillWorkbench.vue:173` still
+passes `:description`), F-41 (`SModal.vue:128`), F-50 (`STooltip.vue:73` still `z-index: 50`).
+
+**New downstream consumer.** `2026-08-21-visual-refinement-phase1-token-adoption` (approved,
+Blocked) lists this dossier as an **overlap prerequisite**: it rewrites the scoped style blocks
+of `STable`, `SDropdown`, `SAlert`, `SEmptyState`, `SModal` and `STooltip` - the same six files
+and, in places, the same rules this dossier edits. This dossier goes first; that one rebases.
+
 ## 2. Observed vs Expected
 
 ### F-5 (major) - the impersonation banner is painted over the top bar
 
-- **Observed** - `ImpersonationBanner.vue:18-33` is
-  `position: fixed; top: 0; left: 0; right: 0; z-index: 9999`, mounted as a sibling of the
-  layout at `frontend/src/app/App.vue:28`. Nothing reserves space for it: `.app-shell`
+- **Observed** - **amended 2026-08-21, see §1.1.** `ImpersonationBanner.vue:18-37` is
+  `position: fixed; top: 0; left: 0; right: 0` with `z-index: var(--z-banner, 350)` at `:27`.
+  The z-index was `9999` when this was written; `2026-08-19-transient-feedback-channels`
+  tokenised it, so **the final sentence of this paragraph no longer holds** and the banner no
+  longer outranks modals, toasts or tooltips. Everything else below still reproduces, because
+  the defect is the positioning, not the layer. Mounted as a sibling of the
+  layout at `frontend/src/app/App.vue:31`. Nothing reserves space for it: `.app-shell`
   (`frontend/src/app/layouts/AppShell.vue:137-146`) sets no offset, no `z-index`, no
   `transform` and no `filter`, so the banner and the top bar share the root stacking context
   and 9999 beats `AppTopBar.vue:79`'s `var(--z-topbar)` (200,
@@ -227,7 +270,7 @@ built, and verification found it cannot manifest today; see Q-12.
 | Q-5 | F-8: bounded wrapper height, `overflow-x` on an inner element, or stick against `main`? | **Stick against `main`: when `stickyHeader` is set, `.s-table-wrap` becomes `overflow: visible`, so the nearest scrollport for the `<thead>` is `main.app-shell__content`.** | Moving `overflow-x` to an inner element does not work: any ancestor of the `<table>` with a non-`visible` overflow becomes the scrollport, so the header would still be pinned to a container that never scrolls vertically. A bounded wrapper height does work but requires inventing a height the component cannot know, and it creates a nested vertical scroll region inside the shell's content area, which contradicts `docs/UI/02-layout-shell.md` §3.3 (the content area is the scroll owner) and is the exact shape `2026-08-09-chatroom-rail-scroll-and-resize` §5 refused ("adding a second scroll region would nest scrollbars"). **Cost, stated plainly:** a `stickyHeader` table wider than the content area now scrolls the content area horizontally instead of scrolling inside its own box, so the page header moves sideways with it. This affects only the two consumers that opt in; the other 20-plus `STable` call sites keep `overflow-x: auto` unchanged. Both opt-in consumers use `responsive-mode="card-list"`, so no table renders at all below 768px (`STable.vue:79-81`, `useBreakpoint.ts:51`). If a wide sticky table appears later, the bounded-height variant can be added behind an explicit `maxHeight` prop; recorded as FU-1. |
 | Q-6 | F-9: flip, `max-height` plus internal scroll, or both? | **Both.** Measure the menu after `nextTick`, flip upward when it would overflow the bottom and there is more room above, and cap `max-height` to the available space on the chosen side with `overflow-y: auto`. Keep `onScrollWhileOpen` repositioning rather than closing, and re-run the flip and cap on every reposition. | Flip alone fails for a menu taller than both the space above and the space below, which a long row-action menu on a 768px-tall laptop reaches. A cap alone leaves a menu opened near the bottom showing one or two items with a scrollbar when a flip would have shown all of them. Order matters: pick the side first, then cap to that side. The measurement requires reordering `SDropdown.vue:146,150` so `updateMenuPosition` runs after `await nextTick()`; the enter transition starts at `opacity: 0` (`:309-313`), so the pre-measurement frame is not visible. Closing on scroll was considered and rejected: it would change documented behaviour for the shell's own menus (`UserMenu.vue:148`, `ChatroomHeader.vue:95`) where the menu is expected to track its trigger. |
 | Q-7 | F-22: does `SAlert` need an escape hatch prop for an info alert that really is event-driven? | **No.** Map the role from the variant: `danger`/`warning` to `role="alert"`, `info`/`success` to `role="status"`. No override prop. | `docs/UI/11-responsive-a11y.md:293` states the mapping unconditionally. `role="status"` still announces, politely, so an event-driven info alert is not silent; it merely stops pre-empting the page heading. Adding an override would invite exactly the assertive-by-default usage the finding is about. The `focusOnMount` path (`SAlert.vue:39-49`), which exists for transient submit errors, is unaffected: those are `variant="danger"` and keep `role="alert"`. |
-| Q-8 | F-30: is vertical centring the default or an opt-in prop? | **Default.** Add `justify-content: center` to `.s-empty-state`. No new prop. | The regression risk the audit warns about does not exist here, and that is checkable rather than assumed: `justify-content` on a column flex container is a no-op when the container's height is its content height, so the declaration can only change rendering where the component is stretched. A repository-wide grep for `<SEmptyState` carrying `flex-1`, `h-full`, `grow` or `self-stretch` returns exactly the two `GraphragGraphView.vue:215-229` instances, which are the defect. An opt-in prop would therefore add API surface that every future stretched consumer has to remember. Consequence for another dossier: `2026-08-19-chatroom-scroll-and-resize` owns F-23 (the chatroom's empty state pinned to the top of the feed). After this change F-23's remaining work is to make the feed row stretch the component; it must not add a second centring mechanism inside `ChatroomView.vue`. |
+| Q-8 | F-30: is vertical centring the default or an opt-in prop? | **Default.** Add `justify-content: center` to `.s-empty-state`. No new prop. | The regression risk the audit warns about does not exist here, and that is checkable rather than assumed: `justify-content` on a column flex container is a no-op when the container's height is its content height, so the declaration can only change rendering where the component is stretched. A repository-wide grep for `<SEmptyState` carrying `flex-1`, `h-full`, `grow` or `self-stretch` returns exactly the two `GraphragGraphView.vue:215-229` instances, which are the defect. An opt-in prop would therefore add API surface that every future stretched consumer has to remember. **Cross-reference corrected 2026-08-21**: F-23 belongs to `2026-08-19-chatroom-scroll-and-composer` (not `-and-resize`, which is a different, older dossier), and **it has already landed**. Its Q-5 decided not to wait on this dossier, on the ground that a stretched-but-not-self-centring `SEmptyState` inside an auto-height `<li>` would still sit at the top, so the height had to come from the chatroom side regardless. It therefore added `.chatroom__empty { flex: 1; display: flex; align-items: center; justify-content: center }` in `ChatroomView.vue`. That is a wrapper that stretches and centres its child, not a second centring mechanism inside `SEmptyState`, and the two compose: a self-centring `SEmptyState` inside a centring flex wrapper still centres. So this fix is safe to land as designed, F-23 needs nothing further, and the earlier instruction here ("it must not add a second centring mechanism") is moot. |
 | Q-9 | F-33: which loading flag does the available-keys table bind? | **`useMyKeys()`'s own `loading`, destructured in the view under a distinct name.** `ProjectKeysView.vue:38` becomes `const { keys: myKeys, loading: myKeysLoading } = useMyKeys()`, bound at `:221-225` and used to gate the tab badge at `:54`. | The obvious `:loading="loading"` is wrong: `loading` at `:39` is `useProjectKeys`'s flag for the *carried* query and would tie the available table to an unrelated request. The audit called this out and it is the whole content of the fix. Gating the badge matters more than the table: `STabs.vue:150` only renders the active panel, so on first load the available panel is not mounted and the badge reading "0" is the always-visible half of the symptom. |
 | Q-10 | F-34: fix the call site, or teach `SEmptyState` to accept `description`? | **Fix the call site.** `SkillWorkbench.vue:173` becomes `:text=`, and the call gains an `:icon` so the halo renders like every other empty state. Do not add a `description` alias. | `text` is the declared API and 40-plus other call sites already use it; adding an alias would make two names correct and leave the next author guessing. The reason this passed review is worth recording rather than patching: Vue's default `inheritAttrs` turns an unknown prop into a DOM attribute silently, and `vue-tsc` does not reject it because no `vueCompilerOptions.strictTemplates` is configured in any `frontend/tsconfig*.json` (grep returns no match). That is a tooling gap, not a component gap; recorded as FU-2. |
 | Q-11 | F-41 is `plausible` with a narrow trigger window. Is it in scope? | **Yes, in scope.** | The trigger is narrow (viewport height under about 417px *and* width at or above 768px, so landscape phones and roughly 250 to 300% zoom on wide displays), but the fix is three declarations in the file this dossier is already opening, the clipped element is the dialog's accessible name, and `docs/UI/11-responsive-a11y.md:385` makes 200%-zoom overflow an explicit manual-check item. The fix is `.s-modal { overflow-y: auto; padding: 24px; align-items: flex-start }` with `.s-modal__panel { margin: auto }`: `margin: auto` centres a flex item in a scroll container without the top-clipping that `align-items: center` produces there. `.s-modal__panel--full`'s `calc(100vw - 48px)` (`:170-172`) stays correct, since the new padding is the same 24px per side. The backdrop is separately `position: fixed; inset: 0` (`:137-141`) and is unaffected by the scroll. |
@@ -505,9 +548,11 @@ There is no axe-core harness in `frontend/` either (a grep for `axe` across `fro
   (`App.vue:29-46`), (c) `App.vue:22` selects `AuthLayout` for both session states. Follow
   `AppShell.test.ts`'s mounting shape (Pinia plus a memory router over
   `frontend/tests/utils/routes.ts`, top bar and sidebar stubbed).
-- **T-2 (F-5)** new `frontend/src/slices/admin/__tests__/ImpersonationBanner.test.ts`: the
-  rendered banner's scoped rule carries `z-index: var(--z-banner)` and no numeric literal.
-  Fails today against `:23`'s `9999`.
+- **T-2 (F-5)** new `frontend/src/slices/admin/__tests__/ImpersonationBanner.test.ts`.
+  **Amended 2026-08-21**: the z-index half already passes (`:27` is
+  `var(--z-banner, 350)`), so asserting it is a *guard*, not a regression test - keep it, but
+  it does not fail first. The half that fails first is the positioning: assert the scoped rule
+  declares `position: sticky` and not `position: fixed`. Fails today against `:19`.
 - **T-3 (F-8)** new `frontend/src/shared/ui/__tests__/STable.test.ts`: with `sticky-header`, the
   wrapper carries the `s-table-wrap--sticky` modifier; without it, the modifier is absent and
   the default markup is byte-identical to today's. **Structural only.** Fails today because no
@@ -605,8 +650,10 @@ coverage:
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: T-1(a) and T-2 fail before the fix and pass after; the impersonation banner
-      reserves its own vertical space, carries no numeric `z-index`, and T-11 shows the top bar
-      fully visible and the sidebar toggle clickable during an impersonation session.
+      reserves its own vertical space and T-11 shows the top bar fully visible and the sidebar
+      toggle clickable during an impersonation session. (**Amended 2026-08-21**: "carries no
+      numeric `z-index`" was already true before this dossier starts - see §1.1 - so it is a
+      guard here, not evidence of this task's work.)
 - [ ] AC-2: T-1(b) fails before the fix and passes after; a render error inside a view replaces
       only that view, with the top bar, sidebar and content background still rendered and the
       user able to navigate away without using the retry button.
@@ -676,9 +723,12 @@ Appended by /build.
   today, and both are teleported to `body`. Q-13 declines to fix it without a real consumer to
   design against.
 - **FU-4** - after F-5, the top bar starts at y = 33 during impersonation while
-  `SNetworkBanner` is viewport-fixed. The sibling dossier's Q-7 moves it to
-  `top: var(--topbar-height)`, which does not account for a banner above the shell. Worth a
-  single shared offset once both dossiers have landed.
+  `SNetworkBanner` is viewport-fixed. **No longer a prediction (2026-08-21)**: the sibling
+  dossier has landed, and `App.vue:30` now reads
+  `<SNetworkBanner :below-topbar="layoutComponent === AppShell" />`. That offset is computed
+  from `--topbar-height` alone and knows nothing about a banner above the shell, so the overlap
+  becomes real the moment F-5's fix moves the top bar down. Worth a single shared offset;
+  whoever builds F-5 should at least confirm the two banners' interaction by hand.
 - **FU-5** - `.s-dropdown__item` is 36px tall (`SDropdown.vue:263`) against
   `docs/UI/11-responsive-a11y.md:180`'s 40px minimum for dropdown items. Not part of F-9's
   reachability defect, so not fixed here, but it is a four-pixel change in the same rule the
