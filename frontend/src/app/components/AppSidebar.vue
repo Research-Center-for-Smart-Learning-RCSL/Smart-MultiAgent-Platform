@@ -283,11 +283,11 @@ const manageNav = computed<NavItem[]>(() => {
 .sidebar__nav {
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
 }
 
 .sidebar__switcher {
-  padding: 4px 12px 8px;
+  padding: var(--space-1) var(--space-3) var(--space-2);
 }
 
 .sidebar__section {
@@ -298,15 +298,15 @@ const manageNav = computed<NavItem[]>(() => {
 .sidebar__divider {
   height: 1px;
   background-color: var(--color-border);
-  margin: 8px 16px;
+  margin: var(--space-2) var(--space-4);
 }
 
 .section-header {
   text-transform: uppercase;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-sidebar-section-text);
-  padding: 16px 16px 8px;
+  padding: var(--space-4) var(--space-4) var(--space-2);
   letter-spacing: 0.05em;
 }
 </style>

@@ -30,10 +30,10 @@ import BrandLogo from '@app/components/BrandLogo.vue'
      designed 16px gutter is what survives; on one with a cutout the larger of
      the two wins. A bare env() would shrink the gutter below its design value.
      Unauthenticated routes render outside AppShell, so they carry their own. */
-  padding: max(16px, env(safe-area-inset-top, 0px))
-    max(16px, env(safe-area-inset-right, 0px))
-    max(16px, env(safe-area-inset-bottom, 0px))
-    max(16px, env(safe-area-inset-left, 0px));
+  padding: max(var(--space-4), env(safe-area-inset-top, 0px))
+    max(var(--space-4), env(safe-area-inset-right, 0px))
+    max(var(--space-4), env(safe-area-inset-bottom, 0px))
+    max(var(--space-4), env(safe-area-inset-left, 0px));
 }
 
 .auth-layout__wrapper {
@@ -50,7 +50,7 @@ import BrandLogo from '@app/components/BrandLogo.vue'
 .auth-layout__logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
   /* Gentle entrance so the auth pages feel continuous with the landing intro;
      frozen for reduced-motion users below. */
   animation: auth-logo-in 0.5s ease-out both;
@@ -84,10 +84,10 @@ import BrandLogo from '@app/components/BrandLogo.vue'
     min-height: 100dvh;
     /* The root drops its padding at xs, so the insets move here with the
        gutters they have to survive. */
-    padding: max(24px, env(safe-area-inset-top, 0px))
-      max(16px, env(safe-area-inset-right, 0px))
-      max(24px, env(safe-area-inset-bottom, 0px))
-      max(16px, env(safe-area-inset-left, 0px));
+    padding: max(var(--space-6), env(safe-area-inset-top, 0px))
+      max(var(--space-4), env(safe-area-inset-right, 0px))
+      max(var(--space-6), env(safe-area-inset-bottom, 0px))
+      max(var(--space-4), env(safe-area-inset-left, 0px));
   }
 }
 </style>

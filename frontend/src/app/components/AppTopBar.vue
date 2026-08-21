@@ -78,7 +78,7 @@ const { isMobile } = useBreakpoint()
      and the row it occupies cannot disagree. Horizontal insets are not
      repeated here: the bar sits inside the shell's padding box. */
   height: var(--topbar-height-total);
-  padding: env(safe-area-inset-top, 0px) 16px 0;
+  padding: env(safe-area-inset-top, 0px) var(--space-4) 0;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
   z-index: var(--z-topbar);
@@ -87,7 +87,7 @@ const { isMobile } = useBreakpoint()
 .topbar__left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-shrink: 0;
 }
 
@@ -121,11 +121,11 @@ const { isMobile } = useBreakpoint()
 }
 
 .topbar__wordmark {
-  font-size: 1.125rem;
-  font-weight: 700;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-bold);
   color: var(--color-accent);
   text-decoration: none;
-  line-height: 1;
+  line-height: var(--line-none);
   user-select: none;
 }
 
@@ -145,7 +145,7 @@ const { isMobile } = useBreakpoint()
 .topbar__right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
   flex-shrink: 0;
 }

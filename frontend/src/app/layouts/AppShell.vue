@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
   grid-row: 2;
   overflow-y: auto;
   background: var(--color-bg);
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 .app-shell__content--no-pad {
@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
   }
 
   .app-shell__content {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .app-shell__content--no-pad {
@@ -250,7 +250,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 479px) {
   .app-shell__content {
-    padding: 8px;
+    padding: var(--space-2);
   }
 
   .app-shell__content--no-pad {
