@@ -348,16 +348,19 @@ an acceptable outcome to be renegotiated later.
       SPageHeader, STabs, SPagination, SCard). The final clause - no literal size outside
       the token table - holds for every size that *has* a token; four classes deliberately
       keep literals and §1 now names them (D-12).
-- [ ] AC-7: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS and #10 type
+- [x] AC-7: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS and #10 type
       coverage), `pnpm typecheck`, `pnpm test`, `pnpm build`,
       `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
       `pnpm run check:boundaries-enforced`. Backend gates N/A: the diff is frontend and docs
       only. Per the project's remote-CI rule, CI is authoritative over the local Windows host.
-      **Deliberately unticked.** Every gate listed is green on this host - `pnpm lint`
-      (0 warnings), `pnpm typecheck`, `pnpm test` (1417), `pnpm build`, plus
-      `check:bundle-size`, `check:type-coverage` (98.61%), `check:boundaries-enforced`,
-      `check:global-css` (171 scoped blocks) and `check:view-tests` (74/74) - but the branch
-      has not been pushed, so **CI has not run**. This criterion is CI's to close.
+      **Closed by CI on 2026-08-22**: run `32515930960`, **23 of 23 jobs green**, including
+      `frontend-e2e` at 107 passed / 29 skipped / 0 failed. It took four runs to get there
+      and each failure was worth having - D-17 (the missing-signature check), D-18 (the
+      contaminated baseline) and one pre-existing red on `main` that had nothing to do with
+      this dossier (`22-layout-contract`'s `/invites` stub, fixed in its own commit). The
+      run that closed this logged **no absent signatures at all**, where the run before the
+      rebuild logged 32 - which is the evidence that the regenerated baseline describes the
+      same data state CI produces.
 - [x] AC-8: `main.css`'s existing token *values* are byte-identical to before the change.
       A changed value is a phase-2 edit that leaked in.
       **Verified** by parsing the `@theme` block at `db66167` and at HEAD: every token
