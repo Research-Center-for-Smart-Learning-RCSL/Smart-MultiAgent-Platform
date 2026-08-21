@@ -2,7 +2,11 @@
   <section
     ref="chatroomRef"
     class="chatroom"
-    :class="{ 'chatroom--mobile': isMobile, 'chatroom--tablet': isTablet }"
+    :class="{
+      'chatroom--mobile': isMobile,
+      'chatroom--tablet': isTablet,
+      'chatroom--compact': isCompactDesktop,
+    }"
     :style="[
       isMobile ? { '--kb-inset': `${keyboardInset}px` } : {},
       isDesktop ? { '--chatroom-rail-w': `${railWidth}px` } : {},
@@ -14,19 +18,21 @@
       :connection-state="connectionState"
       :is-mobile="isMobile"
       :is-desktop="isDesktop"
+      :is-compact="isCompactDesktop"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
       :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
       @search="searchOpen = true"
       @settings="goSettings"
       @export="openExport"
-      @toggle-agents="agentsDrawerOpen = true"
-      @toggle-people="peopleDrawerOpen = true"
+      @toggle-agents="agentsDrawerOpen = !agentsDrawerOpen"
+      @toggle-people="peopleDrawerOpen = !peopleDrawerOpen"
     />
 
     <ChatroomAgentSidebar
       v-if="!isMobile"
       class="chatroom__agents"
+      :class="{ 'chatroom__panel--open': agentsDrawerOpen }"
       :agents="agentList"
     />
 
@@ -181,8 +187,9 @@
     <!-- Desktop right rail: tabbed People/Observer once the creator has an
          observer surface to show (a live binding or leftover observations);
          plain presence panel otherwise. -->
+    <!-- No handle in the compact band: an overlay panel has no track to size. -->
     <SResizeHandle
-      v-if="isDesktop"
+      v-if="isDesktop && !isCompactDesktop"
       class="chatroom__rail-handle"
       :value="railWidth"
       :min="RAIL_MIN_WIDTH"
@@ -195,6 +202,7 @@
     <div
       v-if="isDesktop"
       class="chatroom__presence"
+      :class="{ 'chatroom__panel--open': peopleDrawerOpen }"
     >
       <STabs
         v-if="showRailTabs"
@@ -318,7 +326,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
-import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useResizablePanel } from '@shared/composables'
+import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useResizablePanel, BP } from '@shared/composables'
 import { SAlert, SButton, SDrawer, SEmptyState, SResizeHandle, SSkeleton, STabs } from '@shared/ui'
 import { ChatBubbleLeftRightIcon, EyeIcon, PlayCircleIcon, UsersIcon } from '@heroicons/vue/24/outline'
 import { ApiError, ValidationError } from '@shared/errors'
@@ -373,8 +381,14 @@ const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
-const { isMobile, isTablet, isDesktop } = useBreakpoint()
+const { width: viewportWidth, isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
+
+// The fourth band 07-conversation.md:238 needs and useBreakpoint does not
+// expose. Derived locally from the exported width rather than widening the
+// shared composable for one consumer; if a second view needs it, promote it
+// there instead of copying this (FU-2).
+const isCompactDesktop = computed(() => viewportWidth.value >= BP.lg && viewportWidth.value < BP.xl)
 
 // Desktop right-rail width (R24.32). 200px was the historical fixed width, so it
 // stays both the default and the floor: nothing regresses for a user who never
@@ -995,6 +1009,10 @@ function onExportSubmit(opts: ExportOptions): void {
   grid-template-rows: 48px 1fr auto auto;
   height: 100%;
   overflow: hidden;
+  /* Containing block for the compact band's overlay panels. Nothing else
+     positions against it: the pill and the search panel both resolve against
+     .chatroom__feed, which is relative in its own right. */
+  position: relative;
 }
 
 .chatroom__header {
@@ -1074,7 +1092,9 @@ function onExportSubmit(opts: ExportOptions): void {
 
 @media (prefers-reduced-motion: reduce) {
   .msg-enter-active,
-  .msg-leave-active {
+  .msg-leave-active,
+  .chatroom--compact .chatroom__agents,
+  .chatroom--compact .chatroom__presence {
     transition: none;
   }
 }
@@ -1110,6 +1130,63 @@ function onExportSubmit(opts: ExportOptions): void {
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* Compact desktop (1024-1279), per 07-conversation.md:238 and the worked block
+   at :241-252: both rails collapse to toggleable overlay panels so the feed
+   gets the full width. At 1024 the fixed chrome was 220 + 10 + 200 = 430px,
+   leaving the feed under 600px with no way to reclaim any of it.
+
+   The handle track goes with them (there is nothing to size when the rail is an
+   overlay), which is the one thing the spec block predates.
+
+   This band is entirely inside `isDesktop`; `.chatroom--tablet` below is
+   `< BP.lg`. The two never apply together, which is what keeps the deferred
+   768-1023 rail change (FU-6) from being made here by accident. */
+.chatroom--compact {
+  grid-template-columns: 1fr;
+}
+
+.chatroom--compact .chatroom__feed,
+.chatroom--compact .chatroom__typing,
+.chatroom--compact .chatroom__composer {
+  grid-column: 1;
+}
+
+.chatroom--compact .chatroom__agents,
+.chatroom--compact .chatroom__presence {
+  /* `auto` matters: an absolutely positioned grid child with a definite grid
+     placement resolves against that grid area instead of the container. */
+  grid-column: auto;
+  grid-row: auto;
+  position: absolute;
+  top: 48px;
+  bottom: 0;
+  width: 280px;
+  z-index: var(--z-dropdown);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-lg);
+  visibility: hidden;
+  transition:
+    transform var(--transition-normal),
+    visibility var(--transition-normal);
+}
+
+.chatroom--compact .chatroom__agents {
+  left: 0;
+  border-right: 1px solid var(--color-border);
+  transform: translateX(-100%);
+}
+
+.chatroom--compact .chatroom__presence {
+  right: 0;
+  border-left: 1px solid var(--color-border);
+  transform: translateX(100%);
+}
+
+.chatroom--compact .chatroom__panel--open {
+  transform: translateX(0);
+  visibility: visible;
 }
 
 /* Tablet (768-1023): 2-column — agents rail + feed. Presence is a drawer. */

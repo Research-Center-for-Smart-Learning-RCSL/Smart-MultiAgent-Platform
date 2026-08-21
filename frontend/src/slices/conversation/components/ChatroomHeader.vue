@@ -10,8 +10,9 @@
       <ArrowLeftIcon class="w-5 h-5" />
     </SButton>
 
+    <!-- Agents toggle: mobile (drawer) and compact desktop (overlay panel). -->
     <SButton
-      v-if="isMobile"
+      v-if="isMobile || isCompact"
       variant="ghost"
       icon-only
       size="sm"
@@ -78,9 +79,10 @@
       </SButton>
     </template>
 
-    <!-- People drawer toggle: mobile + tablet (presence rail only exists at lg+). -->
+    <!-- People toggle: mobile + tablet as a drawer, compact desktop as an
+         overlay panel. Only the full three-column layout has a standing rail. -->
     <SButton
-      v-if="!isDesktop"
+      v-if="!isDesktop || isCompact"
       variant="ghost"
       icon-only
       size="sm"
@@ -137,13 +139,19 @@ const props = withDefaults(
     connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded' | 'limited'
     isMobile: boolean
     isDesktop: boolean
+    // 1024-1279 (07-conversation.md:238-252): both rails are overlay panels
+    // rather than tracks, so the header carries their toggles even though this
+    // band is `isDesktop`. Without it the panels would have no way to be
+    // opened, because the agents toggle is otherwise mobile-only and the people
+    // toggle is otherwise below-desktop only.
+    isCompact?: boolean
     observersPresent?: boolean
     // Advisory (R5.05): guests may not export (docs/UI/07-conversation.md); the
     // server enforces the 403 regardless. Defaults to shown — an absent Boolean
     // prop is coerced to false by Vue, so the default must be explicit.
     canExport?: boolean
   }>(),
-  { canExport: true },
+  { canExport: true, isCompact: false },
 )
 
 const emit = defineEmits<{
