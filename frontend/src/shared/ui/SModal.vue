@@ -140,7 +140,13 @@ function onBackdropClick() {
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
-  padding: 24px;
+  /* Teleports to body outside the shell's padding box, so it carries its own.
+     max() keeps the designed 24px wherever the inset is smaller; the mobile
+     block below drops this to 0 and moves the insets onto the panel instead. */
+  padding: max(24px, env(safe-area-inset-top, 0px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(24px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
 }
 
 .s-modal__backdrop {
@@ -289,6 +295,12 @@ function onBackdropClick() {
     /* Auto cross-axis margins outrank align-items: stretch; zero them so the
        full-screen branch does not depend on the explicit height above. */
     margin: 0;
+    /* The insets belong to the panel here, not to .s-modal: full screen means
+       the panel's own background covers the cutout and the home-indicator
+       strip, and only its CONTENT steps clear of them. Insetting .s-modal
+       instead would show the dark backdrop as a border around the dialog. */
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+      env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
 
   .s-modal__body {

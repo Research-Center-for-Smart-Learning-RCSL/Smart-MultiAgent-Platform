@@ -148,7 +148,18 @@ onBeforeUnmount(() => {
 .app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
-  grid-template-rows: var(--topbar-height) 1fr;
+  /* The topbar track GROWS by the top inset rather than being pushed below it,
+     so the bar paints its own background into the status-bar strip instead of
+     leaving a bare band above itself. AppTopBar matches this with an equal
+     padding-top, which keeps its content box at --topbar-height. */
+  grid-template-rows: calc(var(--topbar-height) + env(safe-area-inset-top, 0px)) 1fr;
+  /* One rule protects every authenticated route. Preflight makes this
+     border-box, so the padding comes out of the shell's height rather than
+     overflowing it: the grid shrinks and overflow: hidden still holds. The top
+     inset is deliberately not here - it belongs to the track above. */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   /* Claims the space App.vue's flex column has left after the impersonation
      banner, rather than assuming the whole viewport.
 

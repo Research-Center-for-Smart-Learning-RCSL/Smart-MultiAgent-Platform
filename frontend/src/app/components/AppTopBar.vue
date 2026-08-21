@@ -72,8 +72,13 @@ const { isMobile } = useBreakpoint()
   top: 0;
   display: flex;
   align-items: center;
-  height: var(--topbar-height);
-  padding: 0 16px;
+  /* Grows into the status-bar strip and pads itself back out of it, so the
+     content box stays --topbar-height while the background covers the strip.
+     Must stay in step with AppShell's first grid track, which is the same
+     expression. Horizontal insets are not repeated here: the bar sits inside
+     the shell's padding box, which already carries them. */
+  height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 16px 0;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
   z-index: var(--z-topbar);

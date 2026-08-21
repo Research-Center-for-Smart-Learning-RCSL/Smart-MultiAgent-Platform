@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the page paint under a display cutout and the
+         home-indicator strip; without it env(safe-area-inset-*) resolves to 0
+         everywhere. It is document-level with no per-surface granularity, so
+         it must never ship without the insets that give the protection back -
+         src/app/__tests__/mobileViewportContract.test.ts asserts both together.
+         Reverting this one attribute restores the previous rendering exactly,
+         because every inset is written with a 0px fallback. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#2563eb" />
     <title>SMAP</title>

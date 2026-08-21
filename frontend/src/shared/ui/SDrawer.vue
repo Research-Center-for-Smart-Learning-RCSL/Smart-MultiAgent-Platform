@@ -123,10 +123,15 @@ function onBackdropClick() {
   background: var(--color-overlay);
 }
 
+/* Teleports to body and is position: fixed, so it sits outside the shell's
+   padding box and carries its own insets. Padding rather than inset offsets,
+   so the panel's background still paints across the strips. */
 .s-drawer__panel {
   position: fixed;
   top: 0;
   bottom: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--color-bg);
   box-shadow: var(--shadow-xl);
   display: flex;
@@ -134,12 +139,15 @@ function onBackdropClick() {
   outline: none;
 }
 
+/* Only the edge each variant is anchored to; the opposite side is off-screen. */
 .s-drawer__panel--right {
   right: 0;
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .s-drawer__panel--left {
   left: 0;
+  padding-left: env(safe-area-inset-left, 0px);
 }
 
 /* 11-responsive-a11y.md:58. The min() carries its own cap, so the separate
