@@ -645,7 +645,7 @@ assertion below:
 
 | Project | Viewport | Runs | Closes |
 |---|---|---|---|
-| `desktop` | 1440x900 (`devices['Desktop Chrome']`) | the whole suite | The existing 22 specs, unchanged behaviour |
+| `desktop` | 1280x720 (`devices['Desktop Chrome']`, no override - see D-12) | the whole suite | The existing 22 specs, unchanged behaviour |
 | `tablet` | 768x1024 | `23-mobile-viewport` only | F-39 at the `md` boundary: at exactly 768 the tablet layout applies, not the mobile one |
 | `mobile` | 375x812 | `23-mobile-viewport` only | F-18 (bar does not intersect the last control, and is reachable at every scroll position); F-42 (drawer fits) |
 | `mobile-xs` | 320x568 | `23-mobile-viewport` only | F-42's overflow: `sidebar.scrollWidth === sidebar.clientWidth` inside the open drawer, and every nav row's right edge inside the panel. 320px is below the 362px threshold derived in §5, so this project is what makes the finding observable at all |
@@ -744,7 +744,11 @@ cannot be closed is left unticked rather than redefined into something weaker th
       obscured. Cannot be closed by any test in this repository (§8).
 - [x] AC-5 (F-25): `frontend/index.html:5` carries `viewport-fit=cover` **and** all seven
       surfaces named in Q-5 reference `env(safe-area-inset-*)`, asserted together by T-1(b)
-      so neither can land without the other.
+      so neither can land without the other. **Widened after a post-close review** (D-12,
+      D-13): Q-5's seven were not the complete set of elements that meet a viewport edge -
+      `Landing`'s top, the skip link and the network banner were all exposed by the meta and
+      insetted none of themselves. The list is now eight surfaces asserted **per edge**, not
+      per file, because the per-file form let a half-protected surface pass.
 - [ ] AC-6 (F-25): **device check.** On a notched iPhone, portrait and landscape: the
       composer's send and attach buttons clear the home-indicator strip; the top bar's
       background paints into the status-bar strip rather than leaving a bare band; the open
@@ -897,6 +901,54 @@ and, deferred to FU-5, `:110` (mobile action-button orientation, Q-13).
   would also satisfy. It proves the treatment applies, not that the boundary sits on the right
   pixel. Strengthened during verification to walk both sides, with the measured values in §12a.
 
+- **D-12**: **A post-close `/code-review` found two regressions this task introduced, plus
+  three surfaces `viewport-fit=cover` exposed that Q-5 had not counted.** All five are fixed;
+  three further findings are routed to FU-11..FU-13. The two that were genuinely this task's
+  fault are the ones worth carrying forward:
+  - **`max-width: 100%` on `.sidebar` was not "inert on desktop", as its own comment claimed.**
+    `AppShell` tweens `grid-template-columns` from `var(--sidebar-width)` to `0` over 300ms
+    while the aside stays `visibility: visible`, and the aside carries `min-width: 0`. With an
+    unscoped `max-width` the sidebar **reflows** through that tween instead of being clipped
+    at a fixed 260px by the aside's `overflow-x: hidden`. Measured in the browser:
+    `260 → 169 → 66 → 19 → 1 → 1` px, i.e. the nav labels squash to nothing on **every**
+    collapse - which happens on every navigation into or out of a chatroom or workflow editor,
+    not just on a manual toggle. Now scoped to `@media (max-width: 1023px)`, which is exactly
+    the band where `AppShell` renders the drawer rather than the aside. Re-measured after the
+    fix: a constant `260, 260, 260, 260, 260, 260`. Q-9 and Q-10 reasoned about the drawer
+    case correctly and simply never considered the docked one.
+  - **`SNetworkBanner.vue:54` was a third consumer of the topbar height and was not migrated**
+    to `--topbar-height-total`. `main.css`'s comment for that token says "this is the one
+    place that number lives so they cannot drift apart" - and a consumer had already drifted
+    when it was written. `.s-net-banner--below-topbar` stayed at `calc(var(--topbar-height) +
+    12px)` = 68px while the bar's bottom edge moved to `56px + inset`, and at `--z-banner`
+    (350) against `--z-topbar` (200) the banner paints **over** the top bar rather than below
+    it. D-7 created the token; it did not finish the migration.
+
+  The three exposure findings are all the same shape - `viewport-fit=cover` is document-level,
+  so it removed the browser's own inset from elements Q-5 never enumerated:
+  `Landing.vue`'s nav (the first page an unauthenticated visitor sees, flush to the top edge),
+  the `skip-link` (`main.css`, fixed at `top: 8px` and the first tab stop on every page), and
+  `SNetworkBanner`'s unauthenticated position (`top: 12px`). **FU-3 had deferred the banner on
+  the reasoning that another dossier was about to move it; that dossier
+  (`2026-08-19-transient-feedback-channels`) has since landed, so the premise was stale and
+  the deferral no longer applied.**
+- **D-13**: **T-1(b) was asserting the wrong thing, and the review is what showed it.** It
+  checked that the string `env(safe-area-inset-` appeared *somewhere* in each of the six
+  files - so a surface that insets two of its four edges passed as fully protected, which is
+  precisely how `Landing.vue` shipped with its nav under the status bar. The sweep is now
+  **per edge**: each surface declares the edges it actually meets, and the failure names the
+  missing one. Mutation-probed against the real bug - removing Landing's top inset reports
+  `app/views/Landing.vue (top)`, where the old form passed. Two surfaces were added to the
+  list at the same time (`main.css`, `SNetworkBanner.vue`), and `AppShell` correctly declares
+  no `top` because its top inset lives in `--topbar-height-total`.
+- **D-14**: `docs/UI/11-responsive-a11y.md` and §8's table both said the `desktop` project runs
+  at **1440x900**. It does not: it uses `devices['Desktop Chrome']` with no override, which is
+  **1280x720** (read back from the package). Both documents corrected to match the code rather
+  than the reverse - setting an explicit 1440x900 would change the environment under all 22
+  existing specs at close-out, which is real regression risk for no benefit, since the specs
+  that care about width set their own. Recorded as FU-13 if the documented intent is
+  preferred.
+
 ## 12a. Verification record (2026-08-21)
 
 Driven against the running local compose stack (`/readyz` all-green **and** a real
@@ -982,6 +1034,34 @@ bar, no virtual keyboard and no display cutout, so `dvh`, the `visualViewport` i
   viewport-conditional assertions, so the line must be amended to say that rather than left
   reading as a claim about the golden paths. If AC-14 is descoped entirely, the doc must be
   corrected instead of left aspirational.
+- **FU-11**: **the top bar double-insets itself while an impersonation banner is showing.**
+  `ImpersonationBanner` is in flow at the top of `App.vue`'s `.app-root` column, so when it
+  renders it - not the top bar - is the element meeting the top edge. The bar still adds
+  `padding-top: env(safe-area-inset-top)`, so it reserves a second inset's worth of blank
+  space inside itself, while the banner's own text sits under the cutout with no inset at all.
+  Deliberately not fixed here: the conditional ("inset only when nothing is above me") is not
+  expressible in the CSS as structured, and the intersection of impersonating **and** a
+  notched device is narrow. The principled fix is to move the top inset onto whichever element
+  is first in the `.app-root` column.
+- **FU-12**: **the exclusive boundaries are correct at integer widths and disagree at
+  fractional ones.** `useBreakpoint` reads `window.innerWidth`, which is an integer, while a
+  media query evaluates against a viewport width that is fractional under browser zoom and OS
+  display scaling. At a 479.4px viewport JS reads 479 and reports `xs`, but
+  `max-width: 479px` does not match, so the `sm` stylesheet applies - the same JS/CSS
+  disagreement F-39 was about, relocated into a sub-pixel band. `max-width: 479.98px` /
+  `767.98px` closes it in both directions (this is why Bootstrap uses `.98`). Not applied
+  here because it **revisits Q-7**, which chose the plain integer form specifically to match
+  the 7 blocks that were already correct, and because it would apply to those 7 too. It is a
+  design decision, not a boundary correction, and wants the user's call.
+- **FU-13**: two small items from the same post-close review. `AgentDetailView.vue:989`'s
+  `lg:h-[calc(100dvh-3.5rem-3rem)]` still subtracts a **literal** 3.5rem for a top bar that is
+  now `--topbar-height-total`, and does not account for the shell's `padding-bottom`, so on a
+  large-viewport device that has insets (an iPad in landscape has a home-indicator inset) the
+  panel overshoots its cell by `inset-top + inset-bottom` and is clipped by `.app-shell`'s
+  `overflow: hidden`. Deriving it from the token would restore the pairing its own comment
+  claims. And `playwright.config.ts`'s `desktop` project could set an explicit 1440x900 to
+  match what `docs/UI/11-responsive-a11y.md` originally documented, rather than the doc being
+  corrected down to the 1280x720 it actually runs at (D-14).
 - **FU-9**: **the build already emits media-query range syntax, for every query in the app.**
   Measured in `frontend/dist/assets/*.css` after `pnpm build`: **30** blocks compiled to
   `@media (width<=N)`, including the two ad-hoc widths this dossier deliberately left alone
