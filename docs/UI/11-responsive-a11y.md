@@ -382,7 +382,7 @@ Affected animations:
 - **Axe-core smoke**: per top-level view in Vitest. Renders the view with MSW mocks and runs `axe(container)`. Fail on any violation with impact >= "serious".
 
 - **Playwright viewport tests**: `playwright.config.ts` declares four projects:
-  - `desktop`: 1440x900 — runs the whole suite
+  - `desktop`: 1280x720 (`devices['Desktop Chrome']`, no override) — runs the whole suite
   - `tablet`: 768x1024 — exactly at the `md` boundary
   - `mobile`: 375x812 (iPhone)
   - `mobile-xs`: 320x568 (iPhone SE)
