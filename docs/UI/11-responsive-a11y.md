@@ -381,10 +381,24 @@ Affected animations:
 
 - **Axe-core smoke**: per top-level view in Vitest. Renders the view with MSW mocks and runs `axe(container)`. Fail on any violation with impact >= "serious".
 
-- **Playwright viewport tests**: E2E golden-path specs run at 3 viewports:
-  - Desktop: 1440x900
-  - Tablet: 768x1024
-  - Mobile: 375x812 (iPhone)
+- **Playwright viewport tests**: `playwright.config.ts` declares four projects:
+  - `desktop`: 1440x900 — runs the whole suite
+  - `tablet`: 768x1024 — exactly at the `md` boundary
+  - `mobile`: 375x812 (iPhone)
+  - `mobile-xs`: 320x568 (iPhone SE)
+
+  The three narrow projects are scoped to `e2e/23-mobile-viewport.spec.ts`, the
+  one spec whose assertions are viewport-conditional. The golden-path specs
+  therefore run at desktop width only: the config is `workers: 1` and CI runs a
+  bare `pnpm run test:e2e`, so an unscoped fourth project would multiply the
+  serial job by four. Widening the scope is a wall-clock decision and wants the
+  e2e job made parallel first.
+
+  Three mobile behaviours are outside Playwright's reach at any viewport size,
+  because headless Chromium has no collapsing URL bar, opens no virtual
+  keyboard, and emulates no display cutout: dynamic viewport units, the
+  `visualViewport` keyboard inset, and `env(safe-area-inset-*)`. Those are
+  device checks on real hardware, not gaps in the suite.
 
 ### 7.2 Manual Checklist (per view)
 

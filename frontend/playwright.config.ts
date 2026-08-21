@@ -20,10 +20,35 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
 
+  // 11-responsive-a11y.md §10 asks for more than one viewport. The three narrow
+  // projects are testMatch-scoped to the one spec whose assertions are
+  // viewport-conditional, deliberately: this config is `workers: 1` and CI runs
+  // a bare `pnpm run test:e2e`, so letting every project run every spec would
+  // turn 22 serial specs into 88 to answer three questions. The cost of the
+  // scoping is that the golden paths are still exercised at desktop width only
+  // (dossier FU-8).
   projects: [
     {
-      name: 'chromium',
+      name: 'desktop',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // Exactly at the md breakpoint, which is the boundary F-39 got wrong.
+      name: 'tablet',
+      testMatch: /23-mobile-viewport\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } },
+    },
+    {
+      name: 'mobile',
+      testMatch: /23-mobile-viewport\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 375, height: 812 } },
+    },
+    {
+      // Below the 362px threshold at which the sidebar stops fitting its
+      // drawer, which is what makes F-42's overflow observable at all.
+      name: 'mobile-xs',
+      testMatch: /23-mobile-viewport\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 320, height: 568 } },
     },
   ],
 
