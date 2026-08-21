@@ -708,6 +708,80 @@ describe('ChatroomView', () => {
     })
   })
 
+  // Security gate, dimension 12. Scroll-based pagination turns a click loop into
+  // an automatic one: a page that comes back entirely duplicates leaves the
+  // feed, the cursor and hasOlderMessages all unchanged, so the sentinel keeps
+  // intersecting and the same request is reissued forever. A human clicking the
+  // button cannot produce that.
+  describe('history auto-trigger does not loop on a page that adds nothing', () => {
+    const originalIO = globalThis.IntersectionObserver
+    let lastCallback: IntersectionObserverCallback | null = null
+
+    class StubIO {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+      takeRecords = vi.fn()
+      constructor(cb: IntersectionObserverCallback) {
+        lastCallback = cb
+      }
+    }
+
+    afterEach(() => {
+      globalThis.IntersectionObserver = originalIO
+      lastCallback = null
+    })
+
+    function page(prefix: string, n: number) {
+      return Array.from({ length: n }, (_, i) => ({
+        id: `${prefix}_${i}`,
+        chatroom_id: 'cr_1',
+        sender_type: 'user',
+        sender_id: 'u_1',
+        content_md: `${prefix} ${i}`,
+        metadata: {},
+        version: 1,
+        created_at: `2026-01-01T00:00:${String(i).padStart(2, '0')}.000Z`,
+        edited_at: null,
+        deleted_at: null,
+      }))
+    }
+
+    it('stops re-requesting once a load adds no new messages', async () => {
+      globalThis.IntersectionObserver = StubIO as unknown as typeof IntersectionObserver
+      let calls = 0
+      // A full page every time, always the rows the client already holds: the
+      // dedupe drops all of them, so nothing is prepended and the cursor stands.
+      const first = page('m', 100)
+      server.use(
+        http.get('/api/chatrooms/cr_1/messages', ({ request }) => {
+          const url = new URL(request.url)
+          if (!url.searchParams.get('before')) return HttpResponse.json(first)
+          calls += 1
+          return HttpResponse.json(first)
+        }),
+      )
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+
+      for (let i = 0; i < 5; i++) {
+        lastCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        )
+        await settle()
+      }
+
+      // One attempt, then the trigger retires itself.
+      expect(calls).toBe(1)
+      expect(wrapper.exists()).toBe(true)
+    })
+  })
+
   // T-9 of docs/tasks/2026-08-19-chatroom-scroll-and-composer (F-29, first arm).
   //
   // useBreakpoint exposes three bands and the chatroom's layout needs four, so
