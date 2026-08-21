@@ -707,4 +707,92 @@ describe('ChatroomView', () => {
       expect(feedOrder(wrapper)).toEqual(['approval'])
     })
   })
+
+  // T-9 of docs/tasks/2026-08-19-chatroom-scroll-and-composer (F-29, first arm).
+  //
+  // useBreakpoint exposes three bands and the chatroom's layout needs four, so
+  // 1024-1279 had no expression at all: it got the full desktop grid, where
+  // 220 + 10 + 200 = 430px of fixed chrome left the feed under 600px with no
+  // way to collapse either rail.
+  //
+  // Class and presence assertions only. jsdom computes no layout, so where the
+  // overlay panels land is AC-14's browser half.
+  describe('compact desktop band, 1024-1279 (F-29)', () => {
+    const originalWidth = window.innerWidth
+
+    function setViewport(width: number): void {
+      Object.defineProperty(window, 'innerWidth', {
+        value: width, configurable: true, writable: true,
+      })
+    }
+
+    afterEach(() => {
+      setViewport(originalWidth)
+      localStorage.clear()
+    })
+
+    async function atWidth(width: number) {
+      setViewport(width)
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+      })
+      signInAs('u_1')
+      await settle()
+      return wrapper
+    }
+
+    it('binds the compact class and drops the resize handle at 1100', async () => {
+      const wrapper = await atWidth(1100)
+
+      expect(wrapper.find('.chatroom--compact').exists()).toBe(true)
+      // An overlay panel has no track to size, so the handle has nothing to do.
+      expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(false)
+    })
+
+    it('gives the compact band the toggles that open its overlay panels', async () => {
+      // Without these the panels would be unreachable: the agents toggle is
+      // otherwise mobile-only and the people toggle otherwise below-desktop.
+      const wrapper = await atWidth(1100)
+
+      const labels = wrapper.findAll('button[aria-label]')
+        .map((b) => b.attributes('aria-label'))
+      expect(labels).toContain('conversation.chatroom.agents')
+      expect(labels).toContain('conversation.chatroom.people')
+    })
+
+    it('opens and closes a panel from the same header toggle', async () => {
+      const wrapper = await atWidth(1100)
+      const agentsToggle = wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === 'conversation.chatroom.agents')!
+
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(false)
+      await agentsToggle.trigger('click')
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(true)
+      await agentsToggle.trigger('click')
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(false)
+    })
+
+    it('leaves the full three-column layout untouched at 1400', async () => {
+      const wrapper = await atWidth(1400)
+
+      expect(wrapper.find('.chatroom--compact').exists()).toBe(false)
+      expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(true)
+      expect(wrapper.find('.chatroom__agents').exists()).toBe(true)
+      expect(wrapper.find('.chatroom__presence').exists()).toBe(true)
+    })
+
+    // Q-8 was CUT from this dossier at approval and deferred to FU-6: moving the
+    // agent rail out of 768-1023 is the one change here that takes a surface
+    // away from users rather than restoring one. This pins the deferral, so a
+    // later edit to the compact band cannot quietly carry it along.
+    it('does not touch the tablet band, whose rail change was deferred', async () => {
+      const wrapper = await atWidth(800)
+
+      expect(wrapper.find('.chatroom--compact').exists()).toBe(false)
+      expect(wrapper.find('.chatroom--tablet').exists()).toBe(true)
+      // Still in the grid at 768-1023, exactly as before this dossier.
+      expect(wrapper.find('.chatroom__agents').exists()).toBe(true)
+    })
+  })
 })
