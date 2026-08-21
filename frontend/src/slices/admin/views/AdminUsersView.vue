@@ -116,7 +116,7 @@
       :open="true"
       :email="provisioned.user.email"
       :links="provisioned.activation_links"
-      @close="provisioned = null"
+      @close="dismissLinks"
     />
   </section>
 </template>
@@ -205,6 +205,14 @@ const showCreate = ref(false)
 // returns the two links once and never again from a read path (R6.18), so
 // caching them anywhere would be a second copy of a bearer credential.
 const provisioned = ref<ProvisionedUser | null>(null)
+
+// The mutation's own `data` is that second copy: vue-query keeps the last
+// result for the lifetime of the mounted view, outliving the dialog. Reset it
+// with the ref so the links really do live only as long as they are shown.
+function dismissLinks(): void {
+  provisioned.value = null
+  actions.createUser.reset()
+}
 
 function onCreate(payload: { email: string; displayName: string | null }): void {
   actions.createUser.mutate(payload, {
