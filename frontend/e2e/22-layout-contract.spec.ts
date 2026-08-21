@@ -146,19 +146,21 @@ test.describe('Scroll position on navigation', () => {
     await expect(page).toHaveURL(/[?&]tab=knowledge/, { timeout: 10_000 })
     await page.waitForTimeout(200)
 
-    // Compared against the browser's own clamp, not against the raw offset.
-    // The Knowledge panel is far shorter than General, so the content genuinely
-    // gets shorter and the browser lowers scrollTop to the new maximum - a
-    // measured 823 where the raw offset was 1200. That is not a reset, and the
-    // distinction is the whole point of this assertion: the watcher would put
-    // it at 0, which stays a failure under this form.
-    const after = await page.locator(CONTENT).evaluate((el) => ({
-      top: el.scrollTop,
-      max: el.scrollHeight - el.clientHeight,
-    }))
-    expect(after.max, 'the page must still be scrollable for this to mean anything')
+    // Not equality, and not a clamp comparison either - both were tried and
+    // both were wrong (CI runs 32482080878, 32483509852, 32484440338; see the
+    // dossier's §12a). Switching tabs hides the tall General panel, so the
+    // browser clamps scrollTop down; the Knowledge tab's coverage query then
+    // resolves and the page grows back, but a clamp never rebounds. Measured:
+    // 823 against a raw 1200 with a final max above 1200. The offset therefore
+    // moves for reasons that have nothing to do with the watcher, and only its
+    // *survival* is a claim about the watcher.
+    //
+    // Non-zero is exactly that claim: the reset writes 0 and nothing else does.
+    // The precise equality lives in T-1, where jsdom performs no layout, so
+    // neither the clamp nor the regrowth exists to confound it.
+    const after = await page.locator(CONTENT).evaluate((el) => el.scrollTop)
+    expect(after, 'a query-only change must not send the reader back to the top')
       .toBeGreaterThan(0)
-    expect(after.top).toBe(Math.min(offset, after.max))
   })
 })
 
