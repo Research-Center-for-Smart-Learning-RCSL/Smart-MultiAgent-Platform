@@ -45,7 +45,7 @@ const props = withDefaults(
 .s-divider--labeled {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: auto;
   background-color: transparent;
 }

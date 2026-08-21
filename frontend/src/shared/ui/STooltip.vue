@@ -73,7 +73,7 @@ function hideTooltip() {
   z-index: var(--z-tooltip);
   font-size: var(--font-size-xs);
   line-height: var(--line-snug);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   background-color: var(--color-fg);
   color: var(--color-bg);
@@ -88,7 +88,7 @@ function hideTooltip() {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1-5);
 }
 .s-tooltip--top::after {
   content: '';
@@ -105,7 +105,7 @@ function hideTooltip() {
   top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
 }
 .s-tooltip--bottom::after {
   content: '';
@@ -122,7 +122,7 @@ function hideTooltip() {
   right: 100%;
   top: 50%;
   transform: translateY(-50%);
-  margin-right: 6px;
+  margin-right: var(--space-1-5);
 }
 .s-tooltip--left::after {
   content: '';
@@ -139,7 +139,7 @@ function hideTooltip() {
   left: 100%;
   top: 50%;
   transform: translateY(-50%);
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 .s-tooltip--right::after {
   content: '';

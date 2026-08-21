@@ -51,8 +51,8 @@ defineProps<{
      where a consumer stretches the component - which is the defect: a stretched
      instance had no main-axis rule and packed its content to the top. */
   justify-content: center;
-  gap: 8px;
-  padding: 2rem 1rem;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
   text-align: center;
   max-width: 400px;
   margin: 0 auto;
@@ -93,6 +93,6 @@ defineProps<{
 }
 
 .s-empty-state__action {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 </style>

@@ -124,7 +124,7 @@ function onChange(event: Event) {
   background: var(--color-bg);
   color: var(--color-fg);
   font-size: var(--font-size-sm);
-  padding: 0 32px 0 8px;
+  padding: 0 var(--space-8) 0 var(--space-2);
   cursor: pointer;
   transition: border-color var(--transition-fast);
 }

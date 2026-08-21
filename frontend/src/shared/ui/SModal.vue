@@ -136,17 +136,17 @@ function onBackdropClick() {
      the clipped element is the dialog's aria-labelledby target. flex-start
      plus the panel's margin: auto still centres, but a scroll container
      honours the auto margins rather than clipping past its start edge. The
-     24px per side is what .s-modal__panel--full already subtracts. */
+     --space-6 per side is what .s-modal__panel--full already subtracts. */
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
   /* Teleports to body outside the shell's padding box, so it carries its own.
-     max() keeps the designed 24px wherever the inset is smaller; the mobile
+     max() keeps the designed gutter wherever the inset is smaller; the mobile
      block below drops this to 0 and moves the insets onto the panel instead. */
-  padding: max(24px, env(safe-area-inset-top, 0px))
-    max(24px, env(safe-area-inset-right, 0px))
-    max(24px, env(safe-area-inset-bottom, 0px))
-    max(24px, env(safe-area-inset-left, 0px));
+  padding: max(var(--space-6), env(safe-area-inset-top, 0px))
+    max(var(--space-6), env(safe-area-inset-right, 0px))
+    max(var(--space-6), env(safe-area-inset-bottom, 0px))
+    max(var(--space-6), env(safe-area-inset-left, 0px));
 }
 
 .s-modal__backdrop {
@@ -192,7 +192,7 @@ function onBackdropClick() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px 0;
+  padding: var(--space-5) var(--space-6) 0;
 }
 
 .s-modal__title {
@@ -209,7 +209,7 @@ function onBackdropClick() {
   justify-content: center;
   background: none;
   border: none;
-  padding: 4px;
+  padding: var(--space-1);
   cursor: pointer;
   color: var(--color-muted);
   border-radius: var(--radius-sm);
@@ -233,7 +233,7 @@ function onBackdropClick() {
 }
 
 .s-modal__body {
-  padding: 24px;
+  padding: var(--space-6);
   max-height: 70vh;
   overflow-y: auto;
 }
@@ -241,8 +241,8 @@ function onBackdropClick() {
 .s-modal__footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 16px 24px;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--color-border);
 }
 
@@ -309,10 +309,10 @@ function onBackdropClick() {
   }
 
   .s-modal__header {
-    padding-top: 16px;
+    padding-top: var(--space-4);
     /* Back arrow then title, both left-aligned. */
     justify-content: flex-start;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .s-modal__close {

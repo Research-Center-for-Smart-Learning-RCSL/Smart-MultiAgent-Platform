@@ -63,9 +63,9 @@ const { warningActive, remainingSeconds, stayActive, logoutNow } = useIdleLogout
 .s-idle__countdown {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   background: var(--color-warning-tint);
   color: var(--color-warning-on);

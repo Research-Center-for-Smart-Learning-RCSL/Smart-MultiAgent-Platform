@@ -122,7 +122,7 @@ const iconComponent = computed(() => {
   flex-direction: row;
   align-items: flex-start;
   width: 100%;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-left: 4px solid;
   border-radius: var(--radius-md);
 }
@@ -168,7 +168,7 @@ const iconComponent = computed(() => {
   width: 24px;
   height: 24px;
   flex-shrink: 0;
-  margin-right: 12px;
+  margin-right: var(--space-3);
 }
 
 /* Content */
@@ -187,18 +187,18 @@ const iconComponent = computed(() => {
 .s-alert__desc {
   font-size: var(--font-size-sm);
   font-weight: var(--weight-normal);
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   line-height: var(--line-normal);
 }
 
 .s-alert__title + .s-alert__desc {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .s-alert__actions {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Dismiss button */
@@ -207,7 +207,7 @@ const iconComponent = computed(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  margin-left: 12px;
+  margin-left: var(--space-3);
   border: none;
   background: none;
   color: currentColor;

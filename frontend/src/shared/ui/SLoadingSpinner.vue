@@ -53,7 +53,7 @@ const labelAttrs = computed(() => (props.label !== undefined ? { 'aria-label': p
 .s-spinner {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   color: var(--color-muted);
   font-size: var(--font-size-sm);
 }

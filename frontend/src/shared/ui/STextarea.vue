@@ -68,7 +68,7 @@ function onInput(event: Event) {
 .s-textarea {
   display: block;
   width: 100%;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg);

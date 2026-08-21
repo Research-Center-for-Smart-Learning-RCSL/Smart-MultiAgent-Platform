@@ -489,8 +489,8 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table-bulk {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--color-info-tint);
   border: 1px solid var(--color-border);
   border-bottom: none;
@@ -511,7 +511,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 }
 
 .s-table__th {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   background: var(--color-surface);
   font-weight: var(--weight-semibold);
   font-size: var(--font-size-xs);
@@ -543,7 +543,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table__th-content {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .s-table__sort-icon {
@@ -576,7 +576,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 }
 
 .s-table__td {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-fg);
 }
@@ -615,7 +615,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table__skeleton-user {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 @keyframes s-table-pulse {
@@ -630,7 +630,7 @@ function skeletonStyle(col: Column): Record<string, string> {
 
 /* ------- Empty state ------- */
 .s-table__empty {
-  padding: 48px 16px;
+  padding: var(--space-12) var(--space-4);
   text-align: center;
 }
 
@@ -638,7 +638,7 @@ function skeletonStyle(col: Column): Record<string, string> {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .s-table__empty-title {

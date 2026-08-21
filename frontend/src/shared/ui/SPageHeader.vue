@@ -72,14 +72,14 @@ defineProps<{
 
 <style scoped>
 .s-page-header {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 
 .s-page-header__breadcrumbs {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
   font-size: var(--font-size-sm);
 }
 
@@ -106,7 +106,7 @@ defineProps<{
 .s-page-header__row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .s-page-header__content {
@@ -127,19 +127,19 @@ defineProps<{
 .s-page-header__subtitle {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
-  margin: 2px 0 0;
+  margin: var(--space-0-5) 0 0;
 }
 
 .s-page-header__description {
   font-size: var(--font-size-sm);
   color: var(--color-muted);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .s-page-header__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 </style>

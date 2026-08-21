@@ -97,7 +97,7 @@ function onChange() {
 .s-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
   min-height: 44px;
 }

@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   /* Pairs with the max-height updateMenuPosition sets: a menu that fits on
      neither side stays reachable by scrolling instead of running off screen. */
   overflow-y: auto;
@@ -296,16 +296,16 @@ onBeforeUnmount(() => {
 .s-dropdown__divider {
   height: 1px;
   background: var(--color-border);
-  margin: 4px 0;
+  margin: var(--space-1) 0;
 }
 
 .s-dropdown__item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: none;
   border: none;
   color: var(--color-fg);

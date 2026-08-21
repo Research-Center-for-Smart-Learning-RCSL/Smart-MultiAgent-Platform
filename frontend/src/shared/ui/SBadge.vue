@@ -70,12 +70,12 @@ const { t } = useI18n()
 .s-badge--sm {
   height: 20px;
   font-size: var(--font-size-2xs);
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
 }
 .s-badge--md {
   height: 24px;
   font-size: var(--font-size-xs);
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 
 /* Variants */
@@ -107,7 +107,7 @@ const { t } = useI18n()
   border-radius: 50%;
   background-color: currentColor;
   flex-shrink: 0;
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 
 /* Label */
@@ -121,7 +121,7 @@ const { t } = useI18n()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
+  margin-left: var(--space-1);
   padding: 0;
   border: none;
   background: none;
