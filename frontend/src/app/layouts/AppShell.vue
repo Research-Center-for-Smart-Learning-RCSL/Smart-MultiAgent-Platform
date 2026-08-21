@@ -139,10 +139,17 @@ onBeforeUnmount(() => {
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--topbar-height) 1fr;
   /* Claims the space App.vue's flex column has left after the impersonation
-     banner, rather than assuming the whole viewport. min-height: 0 lets the
-     grid shrink to it; without it the content row's overflow would push the
-     shell taller than its share. */
-  flex: 1;
+     banner, rather than assuming the whole viewport.
+
+     The basis must be a LENGTH, not `flex: 1`'s `0%`. .app-root carries only
+     min-height, so its inner size is indefinite, and a percentage basis
+     against an indefinite container resolves to `content` - the shell would
+     then be sized by main's content, grow past the viewport, and hand
+     scrolling to the document. Measured: 3805px shell and 3385px of document
+     scroll where the content area should have scrolled instead, which is the
+     opposite of 02-layout-shell.md §3.3. min-height: 0 removes the automatic
+     minimum so the grid can actually shrink to its share. */
+  flex: 1 1 0px;
   min-height: 0;
   overflow: hidden;
   /* Collapse/expand tweens the first grid track instead of snapping.
