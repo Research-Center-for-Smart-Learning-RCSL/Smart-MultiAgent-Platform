@@ -42,6 +42,19 @@ Gotchas:
 - **`locator.click()` scrolls its target into view first**, which resets the scroll
   container's `scrollTop`. Any measurement of feed scroll position taken before a click
   is invalid. Use `dispatchEvent('click')` and assert `scrollTop` still holds its value.
+- **`toBeVisible()` does not mean "finished animating".** `SDrawer` slides in over
+  `--transition-slow` (300ms) and is visible from the first frame, while it is still
+  `translateX(-100%)` — a panel measured then reports `x = -272` at a 320px viewport, so
+  every geometry assertion after it is off by a full panel width. Poll for the transform
+  to settle before measuring:
+  `await expect.poll(async () => (await panel.boundingBox())?.x).toBe(0)`.
+  Same applies to `SModal`'s scale/fade.
+- **Tab panels are `v-show`, not `v-if`** (agent detail, and others). Every tab's content is
+  in the DOM, so `.last()` on a shared selector will happily pick an element from a hidden
+  panel — whose `boundingBox()` is `null`. Scope with `:visible`.
+- Account routes are under `/account/*` (`/account/profile`, `/account/sessions`), not
+  `/profile`. A wrong route renders the 404 view, which still has a `<main>`, so the failure
+  surfaces as a missing child rather than as a navigation error.
 - Read PNG screenshots back with the Read tool to observe the render.
 
 ## Bringing up the full test stack
