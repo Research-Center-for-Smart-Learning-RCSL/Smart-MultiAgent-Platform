@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { defineComponent, h, ref, type Ref } from 'vue'
+import { defineComponent, h, nextTick, ref, type Ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { useVisualViewport } from '../useVisualViewport'
 
@@ -152,29 +152,31 @@ describe('useVisualViewport', () => {
     unmount()
   })
 
-  it('attaches only while enabled and resets to zero on detach', () => {
+  it('attaches only while enabled and resets to zero on detach', async () => {
     const vv = stubVisualViewport(500)
     const enabled = ref(false)
     const { keyboardInset, unmount } = mountViewport(enabled)
 
-    // Never attached: the desktop case, where the inset is never consumed.
-    expect(keyboardInset.value).toBe(0)
-    expect(vv.listeners.resize).toHaveLength(0)
+    // finally, not a trailing call: a failed assertion below would otherwise
+    // leave the component mounted with its listeners still on the stub.
+    try {
+      // Never attached: the desktop case, where the inset is never consumed.
+      expect(keyboardInset.value).toBe(0)
+      expect(vv.listeners.resize).toHaveLength(0)
 
-    enabled.value = true
-    // The watcher is not `immediate`, so let it flush.
-    return Promise.resolve().then(() => {
+      enabled.value = true
+      await nextTick()
       expect(vv.listeners.resize).toHaveLength(1)
       expect(keyboardInset.value).toBe(300)
 
       enabled.value = false
-      return Promise.resolve().then(() => {
-        expect(vv.listeners.resize).toHaveLength(0)
-        // Leaving a stale inset behind would shrink the chatroom on a viewport
-        // that no longer has a keyboard.
-        expect(keyboardInset.value).toBe(0)
-        unmount()
-      })
-    })
+      await nextTick()
+      expect(vv.listeners.resize).toHaveLength(0)
+      // Leaving a stale inset behind would shrink the chatroom on a viewport
+      // that no longer has a keyboard.
+      expect(keyboardInset.value).toBe(0)
+    } finally {
+      unmount()
+    }
   })
 })

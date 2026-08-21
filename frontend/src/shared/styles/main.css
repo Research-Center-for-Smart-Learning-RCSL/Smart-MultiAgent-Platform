@@ -142,6 +142,18 @@
   --ease-spring: cubic-bezier(0.34, 1.3, 0.5, 1);
 }
 
+/* The top bar's outer height: its own 56px plus whatever the device reserves
+   for the status bar, so the bar grows INTO that strip and paints its own
+   background there rather than being pushed below a bare band.
+   AppShell's first grid track and AppTopBar's height must always agree; this
+   is the one place that number lives so they cannot drift apart.
+   Outside @theme deliberately - that block is Tailwind's token source and its
+   values are processed at build time; this one has to reach the browser
+   intact, because env() resolves per device. */
+:root {
+  --topbar-height-total: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+}
+
 /* ─── Base layer ──────────────────────────────────────────────── */
 @layer base {
   html,
