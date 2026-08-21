@@ -56,7 +56,16 @@ Use Tailwind responsive prefixes (`sm:`, `md:`, `lg:`, `xl:`) for layout changes
 - Overlay backdrop (--color-overlay)
 - Closes on: route navigation, outside click, Escape key, swipe left
 - Width: min(280px, 85vw)
-- Z-index: --z-sidebar (100)
+- Z-index: `--z-modal` (400), not `--z-sidebar`. The drawer renders through
+  `SDrawer` and is genuinely modal: it has a backdrop, `role="dialog"`,
+  `aria-modal="true"` and a focus trap. At 100 it would paint below the top bar
+  (`--z-topbar`, 200), which is exactly what its own backdrop exists to cover.
+  `--z-sidebar` (100) applies to the docked desktop aside, which is where
+  `AppSidebar.vue` uses it.
+- The nav inside the drawer renders narrower than the docked 260px sidebar:
+  `min(280px, 85vw)` minus the drawer body's 24px gutters, i.e. 232px at a
+  375px viewport. `.sidebar` carries `max-width: 100%` so it shrinks to the
+  panel instead of overflowing it.
 
 ### 2.2 Top Bar
 

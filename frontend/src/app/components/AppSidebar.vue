@@ -253,8 +253,15 @@ const manageNav = computed<NavItem[]>(() => {
 </template>
 
 <style scoped>
+/* This component renders into two containers: the shell's desktop aside,
+   whose grid track is exactly --sidebar-width, and the mobile SDrawer, whose
+   body is narrower than 260px at every viewport. max-width keeps the width
+   above a preference rather than a floor - it is inert on desktop and lets the
+   nav shrink to the drawer instead of overflowing it and raising a horizontal
+   scrollbar. Inside the drawer the nav renders at min(280px, 85vw) - 48px. */
 .sidebar {
   width: var(--sidebar-width);
+  max-width: 100%;
   height: 100%;
   overflow-y: auto;
   background-color: var(--color-sidebar-bg);
