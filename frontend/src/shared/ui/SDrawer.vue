@@ -142,9 +142,13 @@ function onBackdropClick() {
   left: 0;
 }
 
+/* 11-responsive-a11y.md:58. The min() carries its own cap, so the separate
+   max-width this replaced is redundant rather than removed. Note that 280px
+   cannot contain a 260px child plus the body's 24px gutters (308px needed), so
+   any fixed-width content here must also be able to shrink - see .sidebar's
+   max-width in AppSidebar.vue. */
 .s-drawer__panel--sm {
-  width: 320px;
-  max-width: 85vw;
+  width: min(280px, 85vw);
 }
 
 .s-drawer__panel--md {
