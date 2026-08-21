@@ -37,8 +37,8 @@ The chain `transient-feedback-channels` -> `shared-overlay-and-shell-defects` ->
 `AgentDetailView.vue`, and concurrent builds would conflict. Any of them could technically go
 first, but building them serially avoids the conflict.
 
-- (moved to In progress on 2026-08-21) `2026-08-19-chatroom-scroll-and-composer`. The original
-  entry, kept here for the record:
+- (implemented 2026-08-21; see the note under In progress)
+  `2026-08-19-chatroom-scroll-and-composer`. The original entry, kept here for the record:
   `2026-08-19-chatroom-scroll-and-composer` (bugfix, **approved 2026-08-21**) - `depends_on: []`.
   Independent of the chain; its Q-11 records the file-by-file overlap check that justifies the
   empty list, so it can run in parallel with all four others. Its **spec delta was applied at
@@ -177,12 +177,52 @@ report that the UI is consistent but flat.
 
 ## In progress
 
-- `2026-08-19-chatroom-scroll-and-composer` (bugfix) - `depends_on: []`. Started 2026-08-21 from
-  base `b4b25d1`. Ten findings in the chatroom feed surface; F-29's second arm was cut at
-  approval (FU-6). Six of its eighteen ACs are browser-only by construction - jsdom performs no
-  layout, so the unit tier proves the arithmetic, the counting rule, the throttle and every
-  wiring decision, and none of the visual outcomes.
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-21 after implementation:
+`2026-08-19-chatroom-scroll-and-composer` (the message feed now holds the reader's position
+through a history load, counts only what actually arrived, re-pins after content grows late,
+and orders approval cards by when their gate was raised). Nothing lists it in `depends_on`, so
+no row moved out of Blocked. No migration; frontend only, six files in
+`slices/conversation` plus the header. **Six things a later reader needs.**
+
+**The browser pass happened, and it was measured rather than eyeballed** (D-7). Full compose
+stack up locally, a temporary Playwright harness against it, and five of the six browser
+criteria closed with numbers: anchor drift `[0,0]` px across two history loads (the pre-fix
+expression gives `[240,240]`, probed against the running app); auto-pagination
+`[101,201,260,260,...]` on wheel-to-top, settling rather than looping; composer 37px -> 121px
+with no internal scroll -> capped at 192 with `scrollHeight 268`; empty state centred to `0`px;
+and a message carrying Mermaid + KaTeX + highlight landing 24px above the fold with the feed
+still pinned. That breaks the streak of dossiers in this area closing unobserved.
+
+**AC-9 is deliberately unticked** (D-5, FU-7), and the reason generalises: `fake_provider.py`
+answers only key-upload probes, so **the test stack cannot produce a streamed agent reply at
+all**. Nothing in `frontend/e2e/` drives `agent.token`, which means the streaming bubble, the
+tool-round reset and the turn watchdog have never been seen end to end by anything.
+
+**D-2 is the one to read before touching the socket.** The dossier named three places that
+must flush the token buffer before clearing a stream draft. There are **six**, and the one it
+would have missed - `agent.progress{tool_round}` - is the one whose omission is visible: the
+superseded round's tail reappears on top of the new round, which is the exact flash that clear
+exists to prevent. All six now route through one `resetAgentStream()` so a seventh inherits the
+rule instead of having to remember it.
+
+**Q-7 was incomplete and the gap was invisible from the spec** (D-3). It said the compact
+band's overlay panels open from "header toggles, reusing the existing refs" - but the buttons
+that set those refs are `v-if="isMobile"` and `v-if="!isDesktop"`, and 1024-1279 is neither, so
+the panels would have shipped unreachable. If you add a band, check who can still reach the
+controls in it.
+
+**Three defects in this task's own diff were caught by its gates, not by review**, all of the
+same family: two watches keyed on feed *length* where identity matters (a `pending-<uuid>` key
+swap changes the list without changing its count), and a `pre`-flush watcher that could root an
+IntersectionObserver on the viewport instead of the feed. Plus a self-audit catch: the prepend
+capture disarms the pill and the auto-loader, and only the restore rearms them, so a throw
+between the two bricked both for the session - now restored in a `finally`.
+
+**F-29's second arm was cut at approval** (Q-8, FU-6): the agent rail still renders from 768px
+where the responsive spec says drawer. It is the only item in the dossier whose correction
+*removes* a surface users have today, so it wants its own reviewable change. T-9 asserts at
+800px that the rail is still there, so the deferral is pinned rather than merely intended.
 Removed on 2026-08-21 after implementation:
 `2026-08-20-onboarding-without-smtp` (an install with no outbound mail can now onboard:
 every invite create returns a copyable accept link, a project invite is picked from the
