@@ -975,6 +975,20 @@ async function onLoadEarlier(): Promise<void> {
 const loadEarlierRef = useTemplateRef<HTMLElement>('loadEarlierRef')
 let disposeTopObserver: (() => void) | null = null
 
+// The auto-trigger retires itself once a load stops making progress. A page that
+// comes back entirely duplicates leaves the feed, the cursor and
+// `hasOlderMessages` all unchanged, so the sentinel keeps intersecting and the
+// same request would be reissued forever -- a loop a human clicking the button
+// cannot produce. The button itself stays live, which is the fallback
+// 07-conversation.md:895 asks for regardless.
+let autoLoadExhausted = false
+
+async function autoLoadEarlier(): Promise<void> {
+  const before = messages.value.length
+  await onLoadEarlier()
+  if (messages.value.length === before) autoLoadExhausted = true
+}
+
 watch(
   loadEarlierRef,
   (el) => {
@@ -984,7 +998,8 @@ watch(
     disposeTopObserver = observeTop(el, () => {
       // `loadingOlder` is the re-entrancy guard: reaching the threshold again
       // while a page is still in flight must not start a second one.
-      if (hasOlderMessages.value && !loadingOlder.value) void onLoadEarlier()
+      if (autoLoadExhausted || loadingOlder.value || !hasOlderMessages.value) return
+      void autoLoadEarlier()
     })
   },
   // `post`, so the feed element the observer roots on is committed before the
