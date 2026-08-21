@@ -957,13 +957,27 @@ const breadcrumbs = computed(() => [
               />
             </SCard>
 
-            <PromptAssistantPanel
+            <!-- The panel declares `h-full` and an internal `overflow-y-auto`
+                 message list, so it needs a DEFINITE height to resolve against
+                 or the list never scrolls and the composer is pushed off the
+                 page. A wrapper supplies it: putting the height on the panel
+                 itself would put two `height` utilities on one element and
+                 leave which one wins to Tailwind's emission order.
+
+                 The `lg` height is the content box, not the viewport:
+                 topbar (--topbar-height) + the 24px `lg:top-6` sticks at + the
+                 24px the shell reserves below. Paired with the shell's unit --
+                 both move to dvh together (spec FU-8). -->
+            <div
               v-if="pickerProjectId"
-              :project-id="pickerProjectId"
-              :current-draft="systemPrompt ?? ''"
-              class="min-h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-8rem)]"
-              @apply-draft="onAssistantDraft"
-            />
+              class="h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-3.5rem-3rem)]"
+            >
+              <PromptAssistantPanel
+                :project-id="pickerProjectId"
+                :current-draft="systemPrompt ?? ''"
+                @apply-draft="onAssistantDraft"
+              />
+            </div>
           </div>
         </div>
 

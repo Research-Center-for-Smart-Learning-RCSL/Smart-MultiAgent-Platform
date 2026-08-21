@@ -297,6 +297,28 @@ describe('AgentDetailView', () => {
     expect(body.workflow_capabilities.max_alive_subagents).toBe(7)
   })
 
+  // F-16 and F-51 are the same attribute. F-16: below 1024px the panel's cell
+  // had only a min-height, so its `h-full` resolved against an indefinite
+  // height, its message list never engaged its own scroll region, and the
+  // composer was pushed off the page. F-51: the lg constant counted the shell's
+  // padding once (8rem) where the geometry needs the topbar plus a symmetric
+  // 24px pair, leaving a 24px dead band. jsdom lays nothing out, so this pins
+  // the declaration; the geometry is the e2e tier's job (T-14, T-15).
+  it('gives the prompt assistant a definite height in both layout modes', async () => {
+    seed()
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1?tab=prompt',
+    })
+    await settle(wrapper)
+
+    const html = wrapper.html()
+    expect(html).toContain('h-[32rem]')
+    expect(html).not.toContain('min-h-[32rem]')
+    expect(html).toContain('lg:h-[calc(100vh-3.5rem-3rem)]')
+    expect(html).not.toContain('lg:h-[calc(100vh-8rem)]')
+  })
+
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
     seed()
     const wrapper = await renderView(AgentDetailView, {
