@@ -663,7 +663,10 @@ const breadcrumbs = computed(() => [
 
 <template>
   <div>
-    <!-- Loading skeleton -->
+    <!-- Loading skeleton — the shape 06-agents.md §2.10 specifies, which is
+         also the shape the General tab settles to. The two flat lines this
+         replaced stood in for two cards of form fields, so the page grew under
+         the cursor when the query landed. -->
     <template v-if="!isCreateMode && query.isLoading.value">
       <SSkeleton width="200px" />
       <div class="flex gap-2 mt-4">
@@ -675,8 +678,20 @@ const breadcrumbs = computed(() => [
           height="32px"
         />
       </div>
-      <SSkeleton class="mt-6" />
-      <SSkeleton class="mt-2" />
+      <SCard
+        v-for="card in 2"
+        :key="card"
+        class="mt-6"
+      >
+        <div class="space-y-4">
+          <SSkeleton
+            v-for="field in 4"
+            :key="field"
+            variant="rect"
+            height="38px"
+          />
+        </div>
+      </SCard>
     </template>
 
     <template v-else>

@@ -119,18 +119,17 @@ onMounted(load)
     <SPageHeader :title="$t('identity.sessions.title')" />
 
     <SCard class="sessions-card">
+      <!-- One row, not three. This branch settles either to an SEmptyState or
+           to a single ~60px session row, and a skeleton taller than the
+           shortest settled state pulls the card up when the query lands. -->
       <div
         v-if="loading"
         :aria-busy="true"
       >
-        <div
-          v-for="i in 3"
-          :key="i"
-          class="skeleton-row"
-        >
+        <div class="skeleton-row">
           <SSkeleton
             variant="rect"
-            height="80px"
+            height="56px"
           />
         </div>
       </div>
