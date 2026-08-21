@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-19
 requirements: []
 depends_on: []
@@ -530,51 +530,76 @@ visual outcomes. Roughly half of this dossier's user-visible value is verified b
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: **(browser)** With the feed scrolled such that "Load earlier" is visible but not
+- [x] AC-1: **(browser)** With the feed scrolled such that "Load earlier" is visible but not
       flush at the top, clicking it leaves the message that was being read at the same
       viewport position. Verified across two successive loads, since the audit records the
       error as compounding.
-- [ ] AC-2: T-1 fails before the fix and passes after; `restoreAfterPrepend` yields
+      **Measured**: anchor drift `[0, 0]` px across two loads, in a 260-message room at
+      `scrollTop = 240`. Mutation-probed against the running app: restoring the pre-fix
+      expression gives `[240, 240]` - the reader's entire offset, lost on every load.
+- [x] AC-2: T-1 fails before the fix and passes after; `restoreAfterPrepend` yields
       `savedScrollTop + (newHeight - savedHeight)`.
-- [ ] AC-3: T-2 fails before the fix and passes after; loading a page of history leaves
+- [x] AC-3: T-2 fails before the fix and passes after; loading a page of history leaves
       `newCount` at 0 and the pill hidden, while genuinely new items still increment it.
-- [ ] AC-4: **(browser)** A message containing a Mermaid diagram, a `$$...$$` block and an
+- [x] AC-4: **(browser)** A message containing a Mermaid diagram, a `$$...$$` block and an
       image attachment lands fully in view for a reader pinned to the bottom, after the
       enhancement pass and after the image decodes.
-- [ ] AC-5: T-4 passes; the `ResizeObserver` is constructed under a `typeof` guard, observes
+      **Measured**: all three growers present in one message (`hasSvg: true`,
+      `hasKatex: true`, `hasHighlight: true`); the message's bottom sits 24px **above** the
+      fold and the feed is still pinned (`distanceFromBottom: 0`). See D-6 on the `$$`
+      wording: KaTeX consumes a ` ```math ` fence, not dollar delimiters.
+- [x] AC-5: T-4 passes; the `ResizeObserver` is constructed under a `typeof` guard, observes
       the feed content, calls `maybeStick`, and is disconnected on unmount.
-- [ ] AC-6: T-7 passes; the composer grows with content and stops at 192px, and returns to
+- [x] AC-6: T-7 passes; the composer grows with content and stops at 192px, and returns to
       one line when the draft is cleared by a send.
-- [ ] AC-7: **(browser)** Five Shift+Enter lines are all visible in the composer while
+- [x] AC-7: **(browser)** Five Shift+Enter lines are all visible in the composer while
       typing; a ninth line scrolls internally rather than growing the box.
-- [ ] AC-8: T-6 fails before the fix and passes after; a 30-token burst inside one 120ms
+      **Measured**: one line 37px; five lines 121px with `scrollHeight === clientHeight`, so
+      every line is visible with no internal scroll; twelve lines `clientHeight 192` against
+      `scrollHeight 268`, so it caps exactly where the spec says and scrolls inside.
+- [x] AC-8: T-6 fails before the fix and passes after; a 30-token burst inside one 120ms
       window produces one store write, and `agent.finished` and unmount both flush.
 - [ ] AC-9: **(browser)** A streamed reply containing a fenced code block no longer flickers
       between highlighted and unhighlighted as it arrives.
-- [ ] AC-10: **(browser)** An empty chatroom renders its empty state vertically centred in
+      **NOT VERIFIED, and it cannot be on this stack** (D-5). `scripts/fake_provider.py`
+      answers only the key-upload probe shapes, so no agent in the test stack can produce a
+      streamed reply at all, and no existing spec drives one. The *mechanism* is proven by
+      T-6 (one store write per window, plus the forced flushes) but the perceptual claim is
+      unobserved. Left unticked deliberately rather than claimed from the unit tier, per
+      §8's own instruction. FU-7 records the missing streaming fake provider.
+- [x] AC-10: **(browser)** An empty chatroom renders its empty state vertically centred in
       the feed area, per `docs/UI/07-conversation.md:1018`.
-- [ ] AC-11: T-10's empty-state half passes; the empty-state item is a filling, centring flex
+      **Measured**: content centre and feed centre coincide to `0`px; the 226px content sits
+      152px from the top of a 530px feed, rather than flush at the top.
+- [x] AC-11: T-10's empty-state half passes; the empty-state item is a filling, centring flex
       item and ordinary message bubbles are unaffected.
-- [ ] AC-12: T-5 passes; the auto-trigger observes at a 100px top margin, fires once per
+- [x] AC-12: T-5 passes; the auto-trigger observes at a 100px top margin, fires once per
       reach, and is disarmed across a prepend/restore cycle.
-- [ ] AC-13: **(browser)** Scroll-wheeling to the top of a 500-message room loads successive
+- [x] AC-13: **(browser)** Scroll-wheeling to the top of a 500-message room loads successive
       pages without clicking, stops when `hasOlderMessages` goes false, and never loads more
       than one page per reach.
-- [ ] AC-14: T-9 passes; at 1024-1279 both rails are overlay panels driven by the header
+      **Measured**: item count after each wheel-to-top `[101, 201, 260, 260, 260, 260, 260]`
+      in a 260-message room. Two pages loaded with no click, then it settled and stopped -
+      one page per reach, and a clean termination rather than a loop.
+- [x] AC-14: T-9 passes; at 1024-1279 both rails are overlay panels driven by the header
       toggles and the feed occupies the full remaining width; at 1280+ the existing
       three-column layout and its resize handle are unchanged; and at 768-1023 the agent rail
       is **still present** and `chatroom--compact` unbound, confirming Q-8's deferral held.
-- [ ] AC-15: T-8 passes; approval cards render at their `started_at` position among messages,
+- [x] AC-15: T-8 passes; approval cards render at their `started_at` position among messages,
       and an approval arriving while the reader is scrolled up raises the pill.
-- [ ] AC-16: T-10's search half passes; the search panel's top edge is flush with the top of
+- [x] AC-16: T-10's search half passes; the search panel's top edge is flush with the top of
       the feed, with no strip of messages above it.
-- [ ] AC-17: T-3 passes; `useChatroomMessages` no longer receives or touches the feed
+- [x] AC-17: T-3 passes; `useChatroomMessages` no longer receives or touches the feed
       element, and `useChatroomScroll` is the only module in the slice that writes the feed's
       scroll position.
-- [ ] AC-18: Gates green: `pnpm lint` (all 12, notably #4 v-html allowlist, which the merged
+- [x] AC-18: Gates green: `pnpm lint` (all 12, notably #4 v-html allowlist, which the merged
       feed `v-for` must not widen, and #12 i18n), `pnpm typecheck`, `pnpm test`,
       `pnpm build`. Per `feedback_remote_ci_verification`, CI is authoritative over the local
       Windows host.
+      **Locally**: lint clean at `--max-warnings=0`; typecheck clean; `pnpm test` 199 files /
+      1292 tests green; build succeeds. Gate 4 confirmed unwidened - the diff adds no
+      `v-html`, `innerHTML`, `insertAdjacentHTML` or `outerHTML` anywhere. **Not yet run on
+      CI**, which remains authoritative.
 
 ## 11. SRS Delta
 
@@ -636,6 +661,39 @@ Neither correction changes behaviour this dossier does not already change.
   and it is the one whose omission is visible - the superseded round's tail would reappear on
   top of the new round, which is exactly the flash `useChatroomSocket.ts:396-401` exists to
   prevent. Three of the new tests cover reset sites §8's T-6 did not name.
+- **D-3** (F-29, Q-7 incomplete): Q-7 said the compact band's overlay panels would be opened
+  by "header toggles, reusing the `agentsDrawerOpen` / `peopleDrawerOpen` refs". The refs are
+  reused as specified, but **the buttons that set them do not render in this band**: the
+  agents toggle is `v-if="isMobile"` and the people toggle `v-if="!isDesktop"`
+  (`ChatroomHeader.vue:14,83`), and 1024-1279 is neither. As written the panels would have
+  been unreachable. `ChatroomHeader` therefore takes a new `isCompact` prop and shows both
+  toggles for it, and the handlers toggle rather than only opening, because an overlay panel
+  with no drawer scrim needs the same button to close it. A consequence the audit gates
+  caught: the compact band can now set refs that were previously only settable below `lg`, so
+  both are reset on any band change or a panel opened at 1100px reappears as an open drawer
+  after a resize.
+- **D-4** (F-15, narrower than specified): §7 item 4 said to buffer tokens "in a module-local
+  map". The map is **composable-local** instead. A module-local map would be shared by every
+  `useChatroomSocket` instance, so two rooms open at once would flush each other's tokens
+  into whichever room's `roomId` the flush happened to close over. The buffer is per
+  instance, and every flush writes the composable's own `roomId`.
+- **D-5** (AC-9, not verified): AC-9 is left **unticked**. `scripts/fake_provider.py` answers
+  only the key-upload probe shapes, so no agent in the test stack can produce a streamed
+  reply, and no existing spec drives one. The throttle's mechanism is proven by T-6, but the
+  perceptual claim ("no longer flickers") was not observed and is not claimed. FU-7 records
+  the gap.
+- **D-6** (AC-4 wording): AC-4 names "a `$$...$$` block", but `katexInDom`
+  (`utils/renderMarkdown.ts:138`) targets `code.language-math, code.language-latex` - a
+  fenced ` ```math ` block. Dollar delimiters were never a KaTeX input in this renderer, so
+  the first browser attempt rendered raw `$$` text. AC-4 was verified with the fence, and all
+  three growers (Mermaid SVG, KaTeX, highlight) were confirmed present in one message. No
+  code change: the ResizeObserver is source-agnostic by design, which is the whole point of
+  Q-3, so nothing here depends on which syntax triggers the math pass.
+- **D-7** (gate 4 method): the six browser criteria were **measured** with a temporary
+  Playwright harness against the full compose stack rather than eyeballed, then the harness
+  was deleted (FU-3 is deferred, and the harness is not CI-ready - see that entry). The
+  numbers are recorded per-AC in §10. Two harness pitfalls cost real time and are written
+  into FU-3 so they are not rediscovered.
 
 ## 13. Follow-ups
 
@@ -653,6 +711,21 @@ Neither correction changes behaviour this dossier does not already change.
   feed's `scrollTop` across a history load, and the bounding box of the newest message after
   a Mermaid render, would convert AC-1 and AC-4 into automated checks. Same class of gap as
   `docs/tasks/2026-08-09-chatroom-rail-scroll-and-resize` FU-2.
+  **A working harness was written and run for gate 4** (D-7) and then deleted rather than
+  committed, because it is not CI-ready: it needs a workspace id passed in by hand, since
+  `global-setup.ts` intermittently 403s on project creation ("no applicable role in scope")
+  on a re-run against an already-seeded stack, which empties `.e2e-seed.json` and skips every
+  gated spec. Making that seed idempotent is the real prerequisite for this FU. Four things
+  the next attempt should not have to rediscover:
+  1. **`click()` destroys the measurement.** Playwright scrolls a target into view before
+     clicking, so clicking "Load earlier" resets `scrollTop` to 0 *before* the capture runs
+     and the anchor drift reads as the full offset whether or not the bug is present. Use
+     `dispatchEvent('click')`, and assert `scrollTop` still holds its value at click time.
+  2. **Measure the empty state's child, not the `<li>`.** The item fills the feed by design,
+     so its own centre trivially matches the feed's; only its content's centre is evidence.
+  3. **KaTeX needs a ` ```math ` fence** (D-6), not `$$`.
+  4. **Raise the `chat-send` rate-limit bucket**, not just `auth` and `other` as
+     `global-setup.ts` does - seeding a few hundred messages trips it at message ~30.
 - **FU-4**: `AttachmentImage.vue:68-76` renders without intrinsic dimensions because
   `Attachment` (`slices/conversation/types/index.ts:105-114`) carries none. Q-3's
   `ResizeObserver` handles the consequence, but reserving space up front would be better for
@@ -672,3 +745,16 @@ Neither correction changes behaviour this dossier does not already change.
   change and its own announcement rather than riding along with ten restorations. Until it
   lands, the code knowingly diverges from the responsive spec at 768-1023, and T-9's 800px
   assertion pins the current behaviour so the divergence stays deliberate.
+- **FU-7**: the test stack cannot produce a streamed agent reply. `scripts/fake_provider.py`
+  answers only the key-upload probe shapes (`compose.test.yml:127-131` says so explicitly),
+  so nothing in `frontend/e2e/` drives `agent.thinking` -> `agent.token` -> `agent.finished`
+  against a real socket, and AC-9 could not be closed (D-5). A fake provider that streams a
+  canned reply containing a fenced code block would close AC-9 and would also give the
+  streaming bubble, the tool-round reset and the watchdog their first end-to-end coverage -
+  all three are currently reasoned about and never seen. Wider than this dossier: it is the
+  only way any streaming behaviour gets behavioural verification.
+- **FU-8**: `global-setup.ts` is not idempotent against an already-seeded stack. A second run
+  creates a fresh org, then 403s on `POST /api/projects` with "no applicable role in scope",
+  writes a three-key `.e2e-seed.json`, and every fixture-gated spec silently skips - a green
+  run with no coverage, which is the failure mode `global-setup.ts:315-331` already warns
+  about for missing IDs. Observed twice while running gate 4. Blocks FU-3.
