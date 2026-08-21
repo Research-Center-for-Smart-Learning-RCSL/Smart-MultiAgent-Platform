@@ -26,4 +26,16 @@ describe('ProjectDetailView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Test Project')
   })
+
+  // F-26: the whole template sat behind the loading flag, page header included,
+  // so a cold load painted nothing but a 24px spinner row at the top left.
+  it('paints the page header while the project is still loading', async () => {
+    // Deliberately no flushPromises — the query is still in flight here.
+    const wrapper = await renderView(ProjectDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1',
+    })
+    expect(wrapper.find('.s-spinner').exists()).toBe(true)
+    expect(wrapper.find('.s-page-header').exists()).toBe(true)
+  })
 })
