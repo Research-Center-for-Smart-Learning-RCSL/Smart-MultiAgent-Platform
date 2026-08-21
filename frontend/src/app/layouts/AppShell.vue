@@ -34,6 +34,11 @@ const sidebarCollapsed = computed(() => {
 
 const sidebarDrawerOpen = ref(false)
 
+// The content region is the page's scroll owner (02-layout-shell.md §3.3).
+// Declared here because both the navigation watcher below and the topbar
+// shadow further down read it.
+const contentEl = ref<HTMLElement | null>(null)
+
 function toggleSidebar(): void {
   if (isDesktop.value) {
     manualOverride.value = !sidebarCollapsed.value
@@ -47,6 +52,13 @@ watch(
   () => {
     sidebarDrawerOpen.value = false
     manualOverride.value = null
+    // The content region is the page's scroll owner and this shell instance
+    // outlives every authenticated route (App.vue passes no `key`), so without
+    // this the previous view's offset is inherited by the next one. Keyed on
+    // `path`, so a query-only change — a tab or scope switch — keeps its place.
+    // Written as scrollTop rather than scrollTo({ top: 0 }): jsdom implements
+    // no Element.scrollTo, the same constraint useChatroomScroll works around.
+    if (contentEl.value) contentEl.value.scrollTop = 0
   },
 )
 
@@ -64,7 +76,6 @@ const sidebarInert = computed(() => (sidebarCollapsed.value || undefined) as unk
 // Topbar depth: once the content region is scrolled, the topbar picks up a
 // shadow so it reads as floating above the page. rAF-coalesced like every
 // other scroll/pointer handler in the shell.
-const contentEl = ref<HTMLElement | null>(null)
 const scrolled = ref(false)
 let scrollRaf = 0
 
