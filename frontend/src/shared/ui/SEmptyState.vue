@@ -47,6 +47,10 @@ defineProps<{
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* A no-op while the box is content-height, so this can only change rendering
+     where a consumer stretches the component - which is the defect: a stretched
+     instance had no main-axis rule and packed its content to the top. */
+  justify-content: center;
   gap: 8px;
   padding: 2rem 1rem;
   text-align: center;
