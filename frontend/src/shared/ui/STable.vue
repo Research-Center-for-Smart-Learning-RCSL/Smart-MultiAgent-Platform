@@ -46,6 +46,11 @@ const props = withDefaults(
     selectable?: boolean
     selected?: unknown[]
     rowKey?: string
+    /** Pin the header against the page's scroll container. Mutually exclusive
+     *  with in-table horizontal scrolling: the wrapper must not be a
+     *  scrollport, or it becomes the sticky header's scrollport and the header
+     *  pins to a box that never scrolls. A wide sticky table therefore scrolls
+     *  the content area sideways. */
     stickyHeader?: boolean
     loadingLabel?: string
     responsiveMode?: 'hide-columns' | 'card-list'
@@ -206,7 +211,10 @@ function skeletonStyle(col: Column): Record<string, string> {
 </script>
 
 <template>
-  <div class="s-table-wrap">
+  <div
+    class="s-table-wrap"
+    :class="{ 's-table-wrap--sticky': stickyHeader }"
+  >
     <!-- Screen-reader loading announcement (skeleton rows are visual-only) -->
     <span
       v-if="loading"
@@ -465,6 +473,17 @@ function skeletonStyle(col: Column): Record<string, string> {
 .s-table-wrap {
   width: 100%;
   overflow-x: auto;
+}
+
+/* CSS Overflow 3 §3.1: writing one axis computes the other to auto, so the
+   default wrapper is a scrollport on both axes and intercepts the sticky
+   thead below - against a box that has no height and therefore never scrolls
+   vertically. Opting out hands the thead its real scrollport,
+   main.app-shell__content. The cost is deliberate and documented on the
+   stickyHeader prop: a sticky table wider than the content area scrolls the
+   content area sideways instead of scrolling inside its own box. */
+.s-table-wrap--sticky {
+  overflow: visible;
 }
 
 .s-table-bulk {
