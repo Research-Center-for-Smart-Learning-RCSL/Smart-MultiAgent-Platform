@@ -68,7 +68,7 @@ function retry(): void {
 .error-boundary {
   max-width: 32rem;
   margin: 4rem auto;
-  padding: 1.5rem;
+  padding: var(--space-6);
   text-align: center;
 }
 </style>

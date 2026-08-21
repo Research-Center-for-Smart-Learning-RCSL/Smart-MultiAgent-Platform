@@ -45,10 +45,10 @@ const active = computed(() => {
   display: flex;
   align-items: center;
   height: 40px;
-  padding: 0 16px;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 400;
+  padding: 0 var(--space-4);
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-normal);
   color: var(--color-sidebar-text);
   text-decoration: none;
   transition:

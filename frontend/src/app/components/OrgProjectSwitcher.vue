@@ -286,15 +286,15 @@ onBeforeUnmount(() => {
 .switcher__trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3);
   background: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-fg);
-  font-size: 0.875rem;
-  font-weight: 500;
-  line-height: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--line-none);
   cursor: pointer;
   white-space: nowrap;
   max-width: 280px;
@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 100%;
   left: 0;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   min-width: 280px;
   max-height: 400px;
   overflow-y: auto;
@@ -357,7 +357,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: var(--z-dropdown);
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .switcher__panel:focus {
@@ -365,9 +365,9 @@ onBeforeUnmount(() => {
 }
 
 .switcher__section-header {
-  padding: 8px 16px 4px;
+  padding: var(--space-2) var(--space-4) var(--space-1);
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-muted);
@@ -385,8 +385,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   height: 36px;
-  padding: 0 16px;
-  font-size: 0.875rem;
+  padding: 0 var(--space-4);
+  font-size: var(--font-size-sm);
   color: var(--color-fg);
   cursor: pointer;
   transition: background var(--transition-fast);
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
 
 .switcher__item--active {
   color: var(--color-accent);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .switcher__item-label {
@@ -417,14 +417,14 @@ onBeforeUnmount(() => {
 .switcher__action {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: none;
   border: none;
   color: var(--color-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   cursor: pointer;
   transition:
     background var(--transition-fast),
@@ -443,14 +443,14 @@ onBeforeUnmount(() => {
 }
 
 .switcher__error {
-  padding: 8px 16px;
-  font-size: 0.8125rem;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-code);
   color: var(--color-danger);
 }
 
 .switcher__divider {
   height: 1px;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   background: var(--color-border);
 }
 

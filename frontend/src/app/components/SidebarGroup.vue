@@ -63,14 +63,14 @@ function toggle() {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 8px 12px;
-  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-1);
   border: none;
   background: none;
   cursor: pointer;
   text-transform: uppercase;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-sidebar-section-text);
   letter-spacing: 0.05em;
 }

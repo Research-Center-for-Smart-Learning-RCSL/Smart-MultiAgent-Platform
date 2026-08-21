@@ -352,8 +352,8 @@ useDocumentMeta({
      viewport-fit=cover that nav renders beneath the status bar without this.
      The page scrolls the document, so the footer is reachable past the home
      indicator and needs no bottom inset. */
-  padding: env(safe-area-inset-top, 0px) max(24px, env(safe-area-inset-right, 0px)) 0
-    max(24px, env(safe-area-inset-left, 0px));
+  padding: env(safe-area-inset-top, 0px) max(var(--space-6), env(safe-area-inset-right, 0px)) 0
+    max(var(--space-6), env(safe-area-inset-left, 0px));
 }
 
 /* -- Nav -- */
@@ -368,7 +368,7 @@ useDocumentMeta({
 .landing__nav-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* -- Main / hero -- */
@@ -381,7 +381,7 @@ useDocumentMeta({
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   align-items: center;
-  gap: 48px;
+  gap: var(--space-12);
   padding: 48px 0 64px;
 }
 
@@ -473,21 +473,21 @@ useDocumentMeta({
 
 .hero__eyebrow {
   display: inline-block;
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--font-size-code);
+  font-weight: var(--weight-semibold);
   color: var(--color-info-on);
   background: var(--color-info-tint);
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-full);
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
 }
 
 .hero__title {
   font-size: clamp(2rem, 4vw, 3rem);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   line-height: 1.1;
   color: var(--color-fg);
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 /* High-contrast accent gradient on the keyword. Tokens shift per theme so the
@@ -509,17 +509,17 @@ useDocumentMeta({
 }
 
 .hero__subtitle {
-  font-size: 1.125rem;
-  line-height: 1.6;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-relaxed);
   color: var(--color-muted);
   max-width: 30rem;
-  margin: 0 0 32px;
+  margin: 0 0 var(--space-8);
 }
 
 .hero__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .hero__visual {
@@ -538,7 +538,7 @@ useDocumentMeta({
 .trust {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 20px;
+  gap: var(--space-3) var(--space-5);
   list-style: none;
   margin: 28px 0 0;
   padding: 0;
@@ -547,8 +547,8 @@ useDocumentMeta({
 .trust__item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8125rem;
+  gap: var(--space-1-5);
+  font-size: var(--font-size-code);
   color: var(--color-muted);
 }
 
@@ -563,7 +563,7 @@ useDocumentMeta({
 .features {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  gap: var(--space-6);
   padding: 32px 0 72px;
 }
 
@@ -571,7 +571,7 @@ useDocumentMeta({
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
-  padding: 24px;
+  padding: var(--space-6);
   opacity: 0;
   transform: translateY(16px);
   transition:
@@ -601,7 +601,7 @@ useDocumentMeta({
   border-radius: var(--radius-lg);
   background: var(--color-info-tint);
   color: var(--color-info-on);
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .feature__icon :deep(svg) {
@@ -611,9 +611,9 @@ useDocumentMeta({
 
 .feature__title {
   font-size: 1.0625rem;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 
 .feature__desc {
@@ -630,21 +630,21 @@ useDocumentMeta({
 
 .recent__title {
   font-size: 1.0625rem;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
 }
 
 .recent__grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .recent__card {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
@@ -688,7 +688,7 @@ useDocumentMeta({
 .recent__name {
   flex: 1;
   min-width: 0;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -705,15 +705,15 @@ useDocumentMeta({
 .landing__footer {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
-  padding: 24px 0;
+  padding: var(--space-6) 0;
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .landing__footer-tagline {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
 }
 
@@ -760,8 +760,8 @@ useDocumentMeta({
 @media (max-width: 900px) {
   .hero {
     grid-template-columns: 1fr;
-    gap: 24px;
-    padding: 24px 0 48px;
+    gap: var(--space-6);
+    padding: var(--space-6) 0 var(--space-12);
     text-align: center;
   }
 

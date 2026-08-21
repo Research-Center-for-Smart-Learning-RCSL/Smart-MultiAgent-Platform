@@ -79,9 +79,9 @@ function navigateTo(chatroomId: string): void {
 .section-header {
   text-transform: uppercase;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--color-sidebar-section-text);
-  padding: 16px 16px 8px;
+  padding: var(--space-4) var(--space-4) var(--space-2);
   letter-spacing: 0.05em;
 }
 
@@ -89,10 +89,10 @@ function navigateTo(chatroomId: string): void {
   display: flex;
   align-items: center;
   height: 40px;
-  padding: 0 16px;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 400;
+  padding: 0 var(--space-4);
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-normal);
   color: var(--color-sidebar-text);
   text-decoration: none;
   transition: background-color var(--transition-fast);
@@ -124,17 +124,17 @@ function navigateTo(chatroomId: string): void {
 }
 
 .empty-state {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   text-align: center;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
 }
 
 .skeleton-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
 }
 
 .skeleton-line {

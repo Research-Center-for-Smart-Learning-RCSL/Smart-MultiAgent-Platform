@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
   bottom: 7%;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-code);
   letter-spacing: 0.02em;
   color: var(--color-muted);
   opacity: 0;

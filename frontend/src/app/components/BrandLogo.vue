@@ -21,8 +21,8 @@ const { t } = useI18n()
 .brand-logo {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 700;
+  gap: var(--space-2);
+  font-weight: var(--weight-bold);
   color: var(--color-accent);
   letter-spacing: 0.02em;
   user-select: none;
@@ -37,7 +37,7 @@ const { t } = useI18n()
 }
 
 .brand-logo--sm {
-  font-size: 16px;
+  font-size: var(--font-size-md);
 }
 
 .brand-logo__mark {
