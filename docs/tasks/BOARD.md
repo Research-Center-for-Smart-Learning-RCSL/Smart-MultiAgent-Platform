@@ -77,7 +77,9 @@ first, but building them serially avoids the conflict.
   computed-style baseline must be captured *after* this rebase, not before. The full entry is
   kept below in Blocked for its other detail.
 
-- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, **draft**) - **unblocked 2026-08-21** by
+- (moved to In progress on 2026-08-21, approved the same day)
+  `2026-08-19-mobile-viewport-and-breakpoints`. The original entry, kept here for the record:
+  `2026-08-19-mobile-viewport-and-breakpoints` (bugfix, **draft**) - **unblocked 2026-08-21** by
   `2026-08-19-content-area-spacing-and-scroll-contract`. Still `draft`, so it needs approval
   before `/build` will touch it. **Read its §7 item 1 first**: the `100vh` line it targets was
   relocated by `shared-overlay-and-shell-defects` and now lives at `App.vue:79`
@@ -85,6 +87,11 @@ first, but building them serially avoids the conflict.
   that just unblocked it**: when it moves the shell to `100dvh` it must move
   `AgentDetailView.vue`'s `lg:h-[calc(100vh-3.5rem-3rem)]` in the same change, and update that
   dossier's T-9 expected class with it. Leaving one behind reintroduces a smaller F-51 on mobile.
+  Its **§1.2 records a second freshness pass run at build start**: all six findings still
+  reproduce, but the sibling dossier moved enough that six claims needed correcting - notably
+  `GraphragGraphView.vue` no longer holds a viewport unit at all (FU-6 closed), the paired line
+  is `AgentDetailView.vue:988` not `:964`, and F-18's fix shrank to a class change because the
+  bar is already a flow child of the now-unpadded view root.
 
 ### Other ready work
 
@@ -202,6 +209,9 @@ report that the UI is consistent but flat.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-08-19-mobile-viewport-and-breakpoints` (bugfix) — `depends_on:
+  [2026-08-19-content-area-spacing-and-scroll-contract]`, which is `implemented`. Approved and
+  started 2026-08-21. Last of the four-dossier overlap chain from the page-presentation audit.
 Removed on 2026-08-21 after implementation:
 `2026-08-19-content-area-spacing-and-scroll-contract` (34 view roots stop duplicating the
 shell's padding, 23 of them stop nesting a second `<main>`, and navigation gains the
