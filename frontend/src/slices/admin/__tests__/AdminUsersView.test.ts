@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -65,9 +65,12 @@ describe('AdminUsersView', () => {
     await wrapper.find('.s-page-header__actions button').trigger('click')
     await wrapper.find('#adminCreateUserEmail').setValue('student@example.com')
     await wrapper.find('#adminCreateUserDisplayName').setValue('Student')
-    // The submit button is the second footer action; the first is Cancel.
-    const footerButtons = wrapper.findAll('.s-modal__footer button')
-    await footerButtons[footerButtons.length - 1]!.trigger('click')
+    // Submitted through the form rather than by clicking the footer button.
+    // The button lives outside the <form> (SModal renders the footer slot as a
+    // sibling) and reaches it via the HTML5 `form` attribute, which jsdom does
+    // not honour for implicit submission — a click there fires nothing. The real
+    // button click is covered in Chromium by e2e/20-onboarding-without-smtp.
+    await wrapper.find('#adminCreateUserForm').trigger('submit')
 
     await vi.waitFor(() => {
       if (!wrapper.find('#adminSetPasswordUrl').exists()) throw new Error('no links dialog yet')

@@ -43,6 +43,11 @@ export function useAdminActions() {
         toast.error(t('admin.users.createEmailTaken'))
       } else if (isProblemWithType(err, 'auth/domain-denied')) {
         toast.error(t('admin.users.createDomainDenied'))
+      } else if (err instanceof ApiError && err.status === 422) {
+        // Pydantic's `EmailStr` and the domain's own InvalidEmailFormat both
+        // land here. The browser's constraint validation catches most of these
+        // first; this covers the shapes it accepts and the backend does not.
+        toast.error(t('admin.users.createEmailInvalid'))
       } else {
         toast.error(t('admin.actionErrors.createUserFailed'))
       }

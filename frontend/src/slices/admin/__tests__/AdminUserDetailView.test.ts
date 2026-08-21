@@ -100,6 +100,21 @@ describe('AdminUserDetailView', () => {
     })
   })
 
+  // The server's guard reads a banned, password-less account as "not yet
+  // activated" and mints for it (FU-9), so the client must not offer the action
+  // for someone the operator deliberately locked out.
+  it('hides re-issue for a banned account', async () => {
+    seedUser({ status: 'banned', banned_reason: 'spam', banned_at: '2026-08-21T11:00:00Z' })
+    const wrapper = await renderView(AdminUserDetailView, {
+      routes: [route],
+      initialRoute: '/admin/users/u_1',
+    })
+    await vi.waitFor(() => {
+      if (!wrapper.text().includes('student@example.com')) throw new Error('not loaded yet')
+    })
+    expect(reissueButton(wrapper)).toBeUndefined()
+  })
+
   it('hides re-issue for a deleted account', async () => {
     seedUser({ status: 'deleted', deleted_at: '2026-08-21T11:00:00Z' })
     const wrapper = await renderView(AdminUserDetailView, {

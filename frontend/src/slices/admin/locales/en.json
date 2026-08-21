@@ -67,6 +67,7 @@
       "created": "Account created.",
       "createEmailTaken": "That address already has an account.",
       "createDomainDenied": "This deployment's email-domain policy rejects that address.",
+      "createEmailInvalid": "That is not a valid email address.",
       "linksTitle": "Activation links",
       "linksLede": "Hand these two links to",
       "linksWarning": "The set-password link is equivalent to the password itself: anyone holding it can take control of the account. Hand it over in person, and re-issue rather than reusing an old one. Both links are single-use and expire.",

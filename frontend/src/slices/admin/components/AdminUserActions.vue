@@ -73,9 +73,13 @@ const { t } = useI18n()
          — which the client cannot see. Hiding the button on `email_verified`
          alone would hide it from the one account that legitimately needs it: a
          provisioned user who walked the verification link before the password
-         one. The 409 is the answer instead. -->
+         one. The 409 is the answer instead.
+         Banned is excluded because the server's guard does not cover it (FU-9):
+         a banned account that never set a password reads as "not yet activated"
+         there, so the mint succeeds and offers activation to someone the
+         operator deliberately locked out. -->
     <SButton
-      v-if="!user.deleted_at"
+      v-if="!user.deleted_at && user.status !== 'banned'"
       variant="secondary"
       :disabled="isPending ?? false"
       :loading="isPending ?? false"
