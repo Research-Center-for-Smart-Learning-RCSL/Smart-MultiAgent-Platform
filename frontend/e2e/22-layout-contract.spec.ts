@@ -271,7 +271,11 @@ test.describe('Loading states', () => {
         })
       })
 
-      await page.setViewportSize({ width: 1440, height: 900 })
+      // Short on purpose. main has a definite height and overflow-y: auto, so
+      // scrollHeight clamps to clientHeight for anything that fits: at a full
+      // 900px both samples would report the same number and the assertion
+      // would pass against the unfixed code.
+      await page.setViewportSize({ width: 1440, height: 400 })
       await page.goto(view.path)
 
       const skeleton = page.locator('.s-skeleton').first()

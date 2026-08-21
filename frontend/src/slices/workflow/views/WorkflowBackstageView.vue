@@ -26,17 +26,13 @@
         <h2 class="font-semibold mb-2">
           {{ $t('workflow.backstage.trace') }}
         </h2>
-        <div
+        <!-- One line, because this branch also settles to a one-line
+             "no steps" paragraph. A taller skeleton would collapse upward
+             there, which is the defect this replaced the ellipsis for. -->
+        <SSkeleton
           v-if="stepsQuery.isLoading.value"
-          class="space-y-1"
-        >
-          <SSkeleton
-            v-for="i in 3"
-            :key="i"
-            variant="rect"
-            height="26px"
-          />
-        </div>
+          width="240px"
+        />
         <div
           v-else-if="stepsList.length"
           class="space-y-1"
