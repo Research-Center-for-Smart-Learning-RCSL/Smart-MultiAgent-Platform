@@ -67,27 +67,39 @@
           @soft-delete="onSoftDelete"
           @hard-delete="onHardDelete"
           @impersonate="onImpersonate"
+          @reissue-links="onReissueLinks"
         />
       </SCard>
+
+      <AdminActivationLinksDialog
+        v-if="reissuedLinks"
+        :open="true"
+        :email="query.data.value.email"
+        :links="reissuedLinks"
+        @close="reissuedLinks = null"
+      />
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
-import { useConfirmDialog } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { SPageHeader, SCard, SStatusBadge, SLoadingSpinner, SAlert } from '@shared/ui'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { useImpersonation } from '../composables/useImpersonation'
 import { userStatusLabelKey } from '../utils/userStatus'
+import AdminActivationLinksDialog from '../components/AdminActivationLinksDialog.vue'
 import AdminUserActions from '../components/AdminUserActions.vue'
+import type { ActivationLinks } from '../types'
 
 const { t } = useI18n()
+const toast = useToast()
 const { confirm } = useConfirmDialog()
 const route = useRoute()
 const userId = route.params.userId as string
@@ -105,8 +117,29 @@ const actionPending = computed(() =>
   || actions.unbanUser.isPending.value
   || actions.softDeleteUser.isPending.value
   || actions.hardDeleteUser.isPending.value
+  || actions.reissueActivationLinks.isPending.value
   || startImpersonation.isPending.value,
 )
+
+// Held in memory only, for as long as the dialog is open — see the type's note.
+const reissuedLinks = ref<ActivationLinks | null>(null)
+
+async function onReissueLinks(): Promise<void> {
+  const ok = await confirm({
+    title: t('admin.userDetail.reissueLinksTitle'),
+    message: t('admin.userDetail.reissueLinksMessage'),
+    confirmLabel: t('admin.userDetail.reissueLinksConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  actions.reissueActivationLinks.mutate(userId, {
+    onSuccess: (links) => {
+      reissuedLinks.value = links
+      toast.success(t('admin.userDetail.reissueLinksDone'))
+    },
+  })
+}
 
 async function onUnban(): Promise<void> {
   const ok = await confirm({

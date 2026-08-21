@@ -58,7 +58,25 @@
       "banDialogReasonRequired": "原因為必填",
       "unbanTitle": "解除封鎖使用者",
       "unbanMessage": "恢復此使用者的存取權限？他們將能夠再次登入。",
-      "unbanConfirm": "解除封鎖"
+      "unbanConfirm": "解除封鎖",
+      "create": "建立使用者",
+      "createTitle": "建立使用者",
+      "createSubmit": "建立帳號",
+      "createNote": "帳號會以未驗證、未設密碼的狀態建立。系統會給你兩個連結交給對方：一個用來設定密碼，一個用來驗證信箱。不會建立任何組織或專案成員資格，使用者仍須自行接受邀請。",
+      "createDisplayNameHelp": "選填，最多 50 個字元。",
+      "created": "帳號已建立。",
+      "createEmailTaken": "此信箱地址已有帳號。",
+      "createDomainDenied": "此部署的信箱網域政策不接受這個地址。",
+      "linksTitle": "啟用連結",
+      "linksLede": "請將這兩個連結交給",
+      "linksWarning": "設定密碼連結等同於密碼本身：任何持有者都能取得此帳號的控制權。請當面交付，並在需要時重新產生，而不要沿用舊連結。兩個連結都是單次使用且會過期。",
+      "linksExpire": "於 {when} 過期。",
+      "setPasswordLabel": "設定密碼連結",
+      "setPasswordHelp": "帳號持有人透過此連結自行設定密碼。",
+      "verifyEmailLabel": "信箱驗證連結",
+      "verifyEmailHelp": "會將信箱標記為已驗證。以非信件方式交付只代表管理員為此地址背書，並不能證明持有人擁有該信箱。",
+      "linksRateLimited": "此帳號的啟用連結請求過於頻繁，請稍候再試。",
+      "alreadyActivated": "此帳號已經可以登入，因此拒絕發放啟用連結。請改用密碼重設或模擬登入。"
     },
     "userDetail": {
       "id": "ID",
@@ -82,6 +100,11 @@
       "impersonateMessage": "啟動此使用者的唯讀模擬工作階段？",
       "impersonateTitle": "模擬使用者",
       "impersonateConfirm": "開始",
+      "reissueLinks": "重新產生啟用連結",
+      "reissueLinksTitle": "重新產生啟用連結",
+      "reissueLinksMessage": "這會為此帳號產生新的設定密碼連結與信箱驗證連結，並使先前尚未使用的連結失效。請在你人在對方身旁時才操作。若該帳號已經可以登入，此操作會被拒絕。",
+      "reissueLinksConfirm": "重新產生",
+      "reissueLinksDone": "啟用連結已重新產生。",
       "notFound": "找不到使用者。"
     },
     "admins": {
@@ -220,6 +243,8 @@
       "createIpBanFailed": "建立 IP 封鎖失敗。",
       "removeIpBanFailed": "移除 IP 封鎖失敗。",
       "rateLimitFailed": "更新速率限制失敗。",
+      "createUserFailed": "建立帳號失敗。",
+      "reissueLinksFailed": "重新產生啟用連結失敗。",
       "restoreFailed": "還原資源失敗。",
       "resetGraphragFailed": "重設 GraphRAG 索引失敗。"
     },

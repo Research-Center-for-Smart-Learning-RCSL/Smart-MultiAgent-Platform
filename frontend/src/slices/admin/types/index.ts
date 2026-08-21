@@ -23,6 +23,22 @@ export interface UserDetail {
   project_ids: string[]
 }
 
+/** The two single-use links an Admin hands over to activate a provisioned
+ *  account (R6.18). Both are bearer credentials and the set-password one is
+ *  equivalent to the password itself, so they are returned by the two mint
+ *  endpoints only and must never be logged or persisted client-side. */
+export interface ActivationLinks {
+  set_password_url: string
+  verify_email_url: string
+  set_password_expires_at: string
+  verify_email_expires_at: string
+}
+
+export interface ProvisionedUser {
+  user: UserSummary
+  activation_links: ActivationLinks
+}
+
 export interface AdminEntry {
   user_id: string
   promoted_by_user_id: string | null

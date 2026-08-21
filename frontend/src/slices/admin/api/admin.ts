@@ -9,6 +9,7 @@
 
 import { AdminService, GraphragAdminService } from '@shared/api-client'
 import type {
+  ActivationLinks,
   ActivityPolicy,
   ActivityPolicyImpact,
   ActivityPolicyInput,
@@ -25,6 +26,7 @@ import type {
   Metrics,
   OrgSummary,
   ProjectSummary,
+  ProvisionedUser,
   RateLimitPolicy,
   UserDetail,
   UserSummary,
@@ -61,6 +63,25 @@ function auditFilterToOptions(f: Partial<AuditFilter>) {
 export const adminApi = {
   listUsers: (params?: { q?: string; status?: string; cursor?: string; limit?: number }): Promise<UserSummary[]> =>
     AdminService.listUsersApiAdminUsersGet(params ?? {}),
+
+  /** Provision an account for someone who cannot self-register (R6.18). The
+   *  account is created pending, unverified and password-less; the two returned
+   *  links are the only thing that activates it. */
+  createUser: (email: string, displayName: string | null): Promise<ProvisionedUser> =>
+    AdminService.createUserApiAdminUsersPost({
+      requestBody: {
+        email,
+        // Omit rather than send an explicit null: the backend defaults it and
+        // `exactOptionalPropertyTypes` forbids an undefined-valued property.
+        ...(displayName ? { display_name: displayName } : {}),
+      },
+    }),
+
+  /** Re-mint both activation links. Refused with a 409 once the account can
+   *  already authenticate — a set-password link for a live account would be an
+   *  account-takeover primitive, not a convenience. */
+  reissueActivationLinks: (id: string): Promise<ActivationLinks> =>
+    AdminService.reissueActivationLinksApiAdminUsersUserIdActivationLinksPost({ userId: id }),
 
   getUser: (id: string): Promise<UserDetail> =>
     AdminService.getUserApiAdminUsersUserIdGet({ userId: id }),
