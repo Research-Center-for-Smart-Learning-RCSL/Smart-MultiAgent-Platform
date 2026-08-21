@@ -251,6 +251,22 @@ account routes are `/account/*`, where a wrong route renders a 404 view that sti
 block is Tailwind's token source and its values are processed at build time, while this one
 carries an `env()` that must reach the browser intact.
 
+**A post-close `/code-review` found two regressions this task shipped** (D-12), and both are
+the kind that recur. `max-width: 100%` on `.sidebar` was commented "inert on desktop" and was
+not: `AppShell` tweens the sidebar track 260px -> 0 over 300ms with the aside still visible,
+so the nav **reflowed** through every collapse instead of being clipped — measured
+`260, 169, 66, 19, 1, 1`, and it fires on every navigation into or out of a chatroom, not just
+a manual toggle. And `SNetworkBanner` was a **third consumer** of the topbar height that never
+got migrated to `--topbar-height-total`, whose own comment claims "this is the one place that
+number lives" — it sits at `--z-banner` (350) over `--z-topbar` (200), so the drift paints the
+banner across the top bar. If you add a token to deduplicate a number, grep for every consumer
+before writing that comment.
+
+**Three more were `viewport-fit=cover` exposing surfaces Q-5 never enumerated** — Landing's
+nav, the skip link, the banner's unauthenticated position. The lesson is in the test: T-1(b)
+asserted an inset appeared *somewhere* in each file, so a surface insetting two of four edges
+passed as protected. It now asserts **per edge**.
+
 **AC-3, AC-4b and AC-6 are deliberately unticked** and always will be: headless Chromium has
 no collapsing URL bar, no virtual keyboard and no display cutout, so `dvh`, the
 `visualViewport` inset and every `env(safe-area-inset-*)` are identically inert there. The
