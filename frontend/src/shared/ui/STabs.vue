@@ -204,11 +204,6 @@ function onKeydown(e: KeyboardEvent) {
   cursor: not-allowed;
 }
 
-.s-tabs__tab:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .s-tabs__icon {
   width: 16px;
   height: 16px;

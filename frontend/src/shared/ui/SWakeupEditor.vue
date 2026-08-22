@@ -419,11 +419,6 @@ function onRefreshHours(v: string | number): void {
   border-color: color-mix(in srgb, var(--color-accent), var(--color-border) 40%);
 }
 
-.wakeup-mode:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .wakeup-mode:disabled {
   cursor: not-allowed;
   opacity: 0.6;
@@ -579,8 +574,6 @@ function onRefreshHours(v: string | number): void {
 }
 
 .wakeup-advanced__toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
 }
 

@@ -127,12 +127,27 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   transition:
     background var(--transition-fast),
     border-color var(--transition-fast),
-    color var(--transition-fast);
+    color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
 }
 
-.s-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+/* -- Press --
+   The mirror of the hover lift, per the motion language in main.css. Before
+   this, `:active` appeared nowhere in the entire codebase, so a button being
+   held down looked exactly like one merely hovered.
+
+   The depression is universal; the fill deepening is per variant below,
+   because "one step darker" means something different for a filled button
+   than for a transparent one. `link` is excluded: it renders as inline text
+   with no padding, and nudging a word down a pixel reads as a glitch.
+
+   Under prefers-reduced-motion the global freeze zeroes the duration, so this
+   snaps into place instead of animating - the feedback survives, the
+   movement does not. */
+.s-btn:active:not(.s-btn--disabled):not(.s-btn--link) {
+  transform: translateY(1px);
+  box-shadow: var(--elevation-0);
 }
 
 /* -- Sizes -- */
@@ -182,6 +197,11 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   border-color: var(--color-accent-hover);
 }
 
+.s-btn--primary:active:not(.s-btn--disabled) {
+  background: color-mix(in srgb, var(--color-accent), black 14%);
+  border-color: color-mix(in srgb, var(--color-accent), black 14%);
+}
+
 .s-btn--secondary {
   background: var(--color-surface);
   color: var(--color-fg);
@@ -190,6 +210,10 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 
 .s-btn--secondary:hover:not(.s-btn--disabled) {
   background: var(--color-surface-hover);
+}
+
+.s-btn--secondary:active:not(.s-btn--disabled) {
+  background: var(--color-surface-active);
 }
 
 .s-btn--danger {
@@ -203,6 +227,11 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   border-color: color-mix(in srgb, var(--color-danger), black 12%);
 }
 
+.s-btn--danger:active:not(.s-btn--disabled) {
+  background: color-mix(in srgb, var(--color-danger), black 24%);
+  border-color: color-mix(in srgb, var(--color-danger), black 24%);
+}
+
 .s-btn--ghost {
   background: transparent;
   color: var(--color-fg);
@@ -211,6 +240,10 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 
 .s-btn--ghost:hover:not(.s-btn--disabled) {
   background: var(--color-surface-hover);
+}
+
+.s-btn--ghost:active:not(.s-btn--disabled) {
+  background: var(--color-surface-active);
 }
 
 .s-btn--link {
@@ -222,6 +255,13 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 }
 
 .s-btn--link:hover:not(.s-btn--disabled) {
+  text-decoration: underline;
+}
+
+/* No depression here - see the base :active rule. The colour shift is the
+   whole press signal for a control that renders as a word in a sentence. */
+.s-btn--link:active:not(.s-btn--disabled) {
+  color: var(--color-accent-hover);
   text-decoration: underline;
 }
 

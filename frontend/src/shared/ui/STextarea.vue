@@ -83,10 +83,10 @@ function onInput(event: Event) {
   color: var(--color-muted);
 }
 
+/* Border only; the ring is the global :focus-visible outline on this same
+   element, so suppressing the outline here would remove it entirely. */
 .s-textarea:focus {
   border-color: var(--color-accent);
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .s-textarea--error {

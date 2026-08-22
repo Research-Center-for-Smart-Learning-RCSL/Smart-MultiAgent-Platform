@@ -317,6 +317,12 @@ function onDropEvent(e: DragEvent): void {
   font-family: inherit;
   line-height: var(--line-normal);
   padding: var(--space-2) 0;
+}
+
+/* Pointer focus only. This textarea is the chatroom's primary input and its
+   outline used to be suppressed unconditionally, so a keyboard user had no
+   indicator on it at all. */
+.composer__textarea:focus:not(:focus-visible) {
   outline: none;
 }
 

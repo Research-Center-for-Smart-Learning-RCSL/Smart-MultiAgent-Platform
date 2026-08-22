@@ -128,14 +128,19 @@ const iconComponent = computed(() => {
 }
 
 /* Programmatic focus (focusOnMount) must not draw a ring for mouse users; only
-   a real keyboard landing (focus-visible) does. */
+   a real keyboard landing (focus-visible) does.
+
+   The pair has to stay a pair. `.s-alert:focus` outranks the global
+   :focus-visible rule on both specificity and layer, so the suppression alone
+   would take the keyboard ring with it - which is precisely what it is trying
+   not to do. */
 .s-alert:focus {
   outline: none;
 }
 
 .s-alert:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Variant colors */
@@ -222,8 +227,6 @@ const iconComponent = computed(() => {
 }
 
 .s-alert__dismiss:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
   opacity: 1;
 }
 

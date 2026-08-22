@@ -179,9 +179,4 @@ async function onSelect(key: string) {
   cursor: pointer;
   transition: box-shadow var(--transition-fast);
 }
-
-.user-menu__trigger:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
 </style>

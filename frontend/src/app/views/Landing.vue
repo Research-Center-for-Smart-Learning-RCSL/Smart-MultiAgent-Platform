@@ -666,11 +666,6 @@ useDocumentMeta({
   transform: translateY(-2px);
 }
 
-.recent__card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .recent__icon {
   display: inline-flex;
   align-items: center;

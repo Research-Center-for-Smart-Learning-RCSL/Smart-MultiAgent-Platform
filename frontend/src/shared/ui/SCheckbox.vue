@@ -141,8 +141,11 @@ function onChange() {
   color: #fff;
 }
 
+/* The native input is clipped to a 1px rect, so an outline on it would be
+   clipped with it. The visible box is a sibling and has to carry the ring. */
 .s-checkbox__native:focus-visible ~ .s-checkbox__box {
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .s-checkbox__icon {

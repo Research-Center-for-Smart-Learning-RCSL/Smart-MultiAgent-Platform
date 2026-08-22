@@ -232,7 +232,6 @@ onBeforeUnmount(() => {
 /* The content region is a skip-link target (tabindex="-1"); it should not
    show a focus ring when focused programmatically. */
 .app-shell__content:focus-visible {
-  box-shadow: none;
   outline: none;
 }
 

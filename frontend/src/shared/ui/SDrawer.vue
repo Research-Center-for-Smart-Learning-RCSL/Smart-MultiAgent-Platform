@@ -220,11 +220,6 @@ function onBackdropClick() {
   color: var(--color-fg);
 }
 
-.s-drawer__close:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .s-drawer__close-icon {
   width: 24px;
   height: 24px;

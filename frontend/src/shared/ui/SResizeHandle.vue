@@ -166,11 +166,6 @@ onBeforeUnmount(() => setDocumentDragState(false))
   background: var(--color-accent);
 }
 
-.s-resize-handle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .s-resize-handle::before {
     transition: background var(--transition-fast);

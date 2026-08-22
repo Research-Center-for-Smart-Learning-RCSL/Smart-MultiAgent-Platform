@@ -129,10 +129,11 @@ function onChange(event: Event) {
   transition: border-color var(--transition-fast);
 }
 
+/* Border only. The ring comes from the global :focus-visible rule, which is
+   the element itself here - so this rule must not suppress the outline, and
+   a pointer user still gets the border change that :focus alone carries. */
 .s-select__native:focus {
   border-color: var(--color-accent);
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .s-select--sm .s-select__native {

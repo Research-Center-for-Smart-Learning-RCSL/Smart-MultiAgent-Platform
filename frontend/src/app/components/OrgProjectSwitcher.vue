@@ -307,11 +307,6 @@ onBeforeUnmount(() => {
   background: var(--color-surface);
 }
 
-.switcher__trigger:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .switcher__trigger--compact {
   max-width: 180px;
 }

@@ -194,11 +194,6 @@ function toggle() {
   border-color: var(--color-accent);
 }
 
-.s-toggle__track:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .s-toggle__track:disabled {
   cursor: not-allowed;
 }

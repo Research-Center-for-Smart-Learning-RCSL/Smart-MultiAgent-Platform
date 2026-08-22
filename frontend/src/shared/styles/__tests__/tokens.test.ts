@@ -99,7 +99,8 @@ const EXPECTED: [token: string, value: string, equals: string][] = [
   ['--space-5', '20px', '1.25rem'],
   ['--space-6', '24px', '1.5rem'],
   ['--space-8', '32px', '2rem'],
-  ['--space-10', '40px', '2.5rem'],
+  // --space-10 (40px) was deleted in phase 2 alongside --font-size-3xl: once
+  // phase 1 tokenised every spacing declaration, it had no consumer left.
   ['--space-12', '48px', '3rem'],
   // Control heights
   ['--control-h-sm', '32px', '32px'],
