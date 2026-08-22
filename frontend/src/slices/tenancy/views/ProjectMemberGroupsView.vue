@@ -347,7 +347,7 @@ const breadcrumbs = computed(() => [
   background: none;
   border: none;
   padding: 0;
-  color: var(--color-primary-600);
+  color: var(--color-accent);
   cursor: pointer;
   font: inherit;
 }

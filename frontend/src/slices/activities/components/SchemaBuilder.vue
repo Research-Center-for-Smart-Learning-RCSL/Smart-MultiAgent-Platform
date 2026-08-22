@@ -152,7 +152,7 @@ function removeRow(index: number): void {
         {{ t('activities.schemaBuilder.previewLabel') }}
       </p>
       <pre
-        class="text-xs font-mono bg-[var(--color-surface-sunken)] rounded p-3 overflow-x-auto"
+        class="text-xs font-mono bg-[var(--color-surface)] rounded p-3 overflow-x-auto"
         data-testid="schema-preview"
       >{{ preview }}</pre>
     </div>
