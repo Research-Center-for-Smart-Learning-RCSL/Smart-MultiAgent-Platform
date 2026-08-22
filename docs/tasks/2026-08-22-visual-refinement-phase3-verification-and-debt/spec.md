@@ -406,6 +406,66 @@ because three of them are corrections to this dossier's own work.
   `margin-left: auto` would buy desktop consistency at the cost of mobile buttons floating
   right of a left-aligned title. Considered, not overlooked.
 
+**D-7 — a second review found that the baseline this dossier committed encoded a race,
+and that AC-2's self-check could not have caught it.** Worth recording in full, because
+the blind spot is structural rather than careless.
+
+The parity spec switches theme on a live page and captures immediately after. That was
+harmless for as long as nothing in its property set was transitioned — and then this
+dossier's own FU-12 gave the filled button variants a resting `box-shadow`, which `.s-btn`
+transitions over `--transition-fast`. From that moment the capture read a value part-way
+between the two themes' shadows. In the committed file, **72 of 76 dark-theme button
+signatures carried the *light* theme's shadow, and no light slot carried the dark one.**
+The asymmetry is the proof: light is captured first and is therefore already settled;
+dark is captured 0ms after the switch. Which value lands there depends on how fast the
+machine is, so a differently loaded runner would have reported dozens of false
+differences — the exact failure mode §6.1's preconditions exist to prevent, arriving
+through a door nobody had guarded.
+
+**AC-2's self-check is structurally blind to this.** It re-runs the comparison on the same
+machine moments later, so a timing-dependent value reproduces itself and compares clean.
+It verifies that the baseline describes *something* reproducible here; it cannot verify
+that what it describes is a declaration rather than an animation frame. Phase 1's D-11
+self-check was never designed to, and this is the first time the property set contained
+anything animated.
+
+Fixed by freezing transitions and animations before capture rather than waiting out
+`--transition-fast`: a timeout re-runs the same race with a wider window, while
+`transition: none` makes the computed value the declared one by construction. Injected
+after `prepare`, not before, because the mobile drawer's settle polls for its own slide
+transform to reach 0. Re-recorded on a fresh pristine stack: **57 light slots carry the
+light shadow and 57 dark slots the dark one, with zero cross-theme contamination either
+way**, and the self-check passes 22/22. CI run `32579071096` is green.
+
+Five smaller findings from the same review, all real, all fixed in the same commit:
+
+- **Disabled buttons rendered raised.** The resting elevation went on the variant, where
+  it cannot carry the `:not(.s-btn--disabled)` that every other interaction rule in
+  `SButton` has — so a control that cannot be pressed still advertised the affordance
+  elevation exists to signal. Now pinned in `focus-and-press.test.ts`.
+- **V-7's sortable header lost its pointer cursor.** Tailwind v4's preflight gives buttons
+  `appearance: button` and no `cursor: pointer`, so the UA's `default` applied and beat
+  the `pointer` inherited from the cell: the label showed an arrow while the padding
+  around it showed a hand.
+- **And V-7's focus ring was clipped.** `.s-table-wrap` is `overflow-x: auto`, which
+  computes the block axis to auto as well — the rule directly above it says so — and the
+  `thead` sits flush against the wrapper's top edge, so an outward ring on a non-sticky
+  table was cut along its top. Inset by `-2px`, exactly as
+  `.s-dropdown__item:focus-visible` already does for the same reason.
+- **The landing hero's mobile track was a bare `1fr`** — the same `min-content` floor this
+  dossier fixed in `ChatroomView`. Left unbounded, V-2's `overflow-x: clip` would have
+  hidden real overflow rather than prevented it, and blunted the landing assertion in
+  `25-narrow-viewport-layout.spec.ts` along with it.
+- **FU-10's split was unbounded at the top bar, which is the irony of it.** Moving
+  `--control-h-*` to rem while `--topbar-height` stayed px left nothing constraining the
+  control against the bar containing it: at Chrome's "Very large" setting a `2.5rem`
+  toggle is 60px inside a ~55px content box, so the decision made for the sake of readers
+  who enlarge their font broke for exactly those readers. `AppTopBar`'s toggle was
+  borrowing a form token all along — invisible while both were px. It now uses
+  `--chrome-control-size`, px for the same reason `--topbar-height` is, and the same 40px
+  today. It is the only chrome consumer of the ladder; `SSearchInput` and the rest are
+  content controls that should scale.
+
 ### FU-5, resolved — the card footer has no consumer, and it is correct anyway
 
 **FU-5's own premise was wrong, and it was mine.** It said "four views pass a `#footer`
@@ -476,6 +536,11 @@ snapshots written.
 
 **The self-check passed**: the comparison was immediately re-run against unmodified code
 and reported 22/22 with no differences.
+
+**It passed on a baseline that was nonetheless wrong.** D-7 records what the self-check
+cannot see: re-running on the same machine reproduces a timing-dependent value rather than
+exposing it. The file committed here was re-recorded afterwards; the run id in AC-1 below
+predates that.
 
 Two earlier captures were discarded rather than committed. The first was refused by the
 spec's own partial-baseline guard after a surface timed out — the guard working exactly as
