@@ -279,8 +279,8 @@ can pick a hidden element, and the AUTH bucket is 10 req/min/IP.
 - [ ] AC-5: **The focus ring is correct on every backdrop it can appear over** — sidebar,
       card footer, table header, modal footer, dropdown — in both themes, by keyboard, with
       no halo belonging to neither surface. Closes phase 2's AC-5's open half.
-      **Unticked on purpose**: five of seven backdrops observed, two not. See §15 AC-5 and
-      FU-5/FU-6.
+      **Unticked on purpose**: the card footer was closed after the fact (§15 "FU-5,
+      resolved"), leaving only the dropdown unobserved. See §15 AC-5 and FU-6.
 - [x] AC-6: **Layering survives without its border.** An `SCard` at the default variant,
       border removed in devtools, still reads as a sheet in both themes. The landing page,
       the auth pages and the chatroom are opened and are not visibly broken. Closes phase
@@ -406,6 +406,49 @@ because three of them are corrections to this dossier's own work.
   `margin-left: auto` would buy desktop consistency at the cost of mobile buttons floating
   right of a left-aligned title. Considered, not overlooked.
 
+### FU-5, resolved — the card footer has no consumer, and it is correct anyway
+
+**FU-5's own premise was wrong, and it was mine.** It said "four views pass a `#footer`
+slot to `SCard`". They do not. That claim came from a grep for files containing both
+`<SCard` and `#footer`, which is a co-occurrence test, not an ownership test. Checked by
+line number, every one of those footers belongs to an `SModal`:
+`KnowmapDocumentsTab.vue:217` inside `SModal` 189-234, `RagDocumentsTab.vue:243` inside
+215-260, `AgentToolsView.vue:1162/1202/1348` inside 1076-1179 / 1182-1212 / 1215-1365, and
+`WorkspaceListView.vue:280` inside 259-297.
+
+Widened to the whole tree: **all 30 `#footer` sites in `src/` belong to a modal, and the
+string `s-card__footer` appears only in `SCard.vue` itself and `SCard.test.ts`.** So the
+slot has zero consumers in the application. AC-5's card-footer backdrop was not
+"uncovered" — it could not occur.
+
+That makes a second thing true that is worth writing down: `main.css:46-51` introduces the
+three surface roles and names "card footer" as its example of the recessed
+`--color-surface` role. **The one illustration of that role has never been on screen.**
+
+**Rendered once before deciding.** A temporary `#footer` carrying a real button was
+mounted on the Hosted Tools card of `/agents/:id/tools`, photographed in both themes, and
+removed. It is correct:
+
+| | canvas | card | footer |
+|---|---|---|---|
+| light | `rgb(241, 245, 249)` | `rgb(255, 255, 255)` | `rgb(248, 250, 252)` |
+| dark | `rgb(8, 13, 22)` | `rgb(15, 23, 42)` | `rgb(30, 41, 59)` |
+
+The footer is recessed into the sheet in light and lighter than it in dark, which is what
+`--color-surface` means in each theme. The `border-top` divides without competing with the
+card's own edge, the bottom corners follow `--radius-lg`, and the negative margins bleed it
+to the card's edges with no gap and no overflow.
+
+**AC-5's card-footer case is therefore closed by observation**: the button inside took
+`outline: solid 2px` at `2px` offset — `rgb(37, 99, 235)` light, `rgb(96, 165, 250)` dark —
+with no halo, reached by keyboard. Four of AC-5's five named backdrops are now observed;
+only the dropdown (FU-6) remains, which is why AC-5 stays unticked.
+
+**Decision: keep the slot.** Header/footer is the conventional API for a card primitive,
+and deleting it would leave the next person to reinvent one — possibly without the surface-
+role vocabulary this one already follows correctly. `SCard.vue` now carries the finding
+beside the rule, so a reader cannot mistake "styled" for "exercised".
+
 ### AC-1 and AC-11 — CI
 
 **Run `32574448737`, at `ee2693f`: green, all 23 jobs.** `frontend-e2e` passes, so
@@ -507,7 +550,7 @@ replaced the two-layer shadow to remove.
 | `.s-modal__panel` | Observed. Toggles and the close button. |
 | `.s-modal__footer` | Observed. |
 | `.s-table__th` | Observed — **only because V-7 created something to focus**. Ring correct against the recessed header fill. |
-| `.s-card__footer` | **Not observed.** No C-0 surface renders a focusable control inside one. FU-5. |
+| `.s-card__footer` | **Observed after the fact** — see "FU-5, resolved" above. Nothing in the app renders one, so it had to be mounted temporarily to exist at all. Ring correct in both themes. |
 | `.s-dropdown__menu` | **Not observed.** FU-6. |
 
 `.s-input__field` reports `outline-style: none` and is not a finding: the ring is painted
@@ -659,11 +702,8 @@ the numbers that were shipping.
   against their own canvas, in either theme.
 - **FU-3** — phase 2's FU-3 and FU-4, inherited unchanged: `SBadge`/`SInput`'s
   contradictory touch-target declarations, and `AppShell`'s hard-coded `300ms`.
-- **FU-5** — **AC-5's card-footer backdrop cannot be verified because it does not exist.**
-  Four views pass a `#footer` slot to `SCard`, but no C-0 surface renders a focusable
-  control inside one, so the traversal never reached that backdrop. Either the backdrop is
-  hypothetical and AC-5 should stop naming it, or a surface that uses it belongs in the
-  C-0 set. Deciding needs a look at the four consumers, not a code change.
+- **FU-5** — **resolved. See §15 "FU-5, resolved" for the finding.** The premise as first
+  written was wrong: `SCard`'s footer slot has no consumers at all, not four.
 - **FU-6** — **the dropdown menu's keyboard focus ring is still unobserved.** With a
   pointer-opened menu, arrow-key focus paints no outline at all — only the
   `--color-surface` highlight, which `SDropdown.vue:324` itself calls "too faint to be
