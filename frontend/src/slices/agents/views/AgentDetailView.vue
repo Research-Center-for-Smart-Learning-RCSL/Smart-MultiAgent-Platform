@@ -1087,7 +1087,7 @@ const breadcrumbs = computed(() => [
               <li
                 v-for="e in coverageEntries"
                 :key="e.config_id"
-                class="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-2 last:border-0"
+                class="flex items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] pb-2 last:border-0"
               >
                 <div class="min-w-0 flex items-center gap-2">
                   <span class="font-medium truncate">{{ e.owner_name }}</span>

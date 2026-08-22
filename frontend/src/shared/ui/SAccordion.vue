@@ -82,7 +82,7 @@ function isOpen(key: string): boolean {
 }
 
 .s-accordion__item {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .s-accordion__header {

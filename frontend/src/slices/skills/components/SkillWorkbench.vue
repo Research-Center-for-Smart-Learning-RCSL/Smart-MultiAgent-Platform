@@ -125,7 +125,7 @@ function onDeleted(): void {
         </p>
         <ul
           v-else
-          class="divide-y divide-[var(--color-border)]"
+          class="divide-y divide-[var(--color-border-subtle)]"
         >
           <li
             v-for="s in skills"

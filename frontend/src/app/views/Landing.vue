@@ -711,7 +711,7 @@ useDocumentMeta({
   gap: var(--space-4);
   flex-wrap: wrap;
   padding: var(--space-6) 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   flex-shrink: 0;
 }
 

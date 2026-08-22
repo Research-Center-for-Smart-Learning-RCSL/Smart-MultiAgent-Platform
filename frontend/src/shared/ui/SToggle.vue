@@ -161,7 +161,10 @@ function toggle() {
   position: relative;
   display: flex;
   align-items: center;
-  border: 1.5px solid color-mix(in srgb, var(--color-border), var(--color-fg) 12%);
+  /* The control boundary, at its own weight rather than the old
+     color-mix darkening of --color-border - that mix existed only because the
+     one border token was too faint to define a control. */
+  border: 1.5px solid var(--color-border-strong);
   border-radius: var(--radius-full);
   background: var(--color-border);
   cursor: pointer;

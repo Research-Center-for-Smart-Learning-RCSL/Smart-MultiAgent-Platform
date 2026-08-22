@@ -69,7 +69,7 @@ function onInput(event: Event) {
   display: block;
   width: 100%;
   padding: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-bg);
   color: var(--color-fg);

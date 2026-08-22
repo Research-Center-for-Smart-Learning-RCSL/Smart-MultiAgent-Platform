@@ -180,7 +180,7 @@ defineExpose({ clear })
   gap: var(--space-2);
   min-height: 120px;
   padding: var(--space-6);
-  border: 2px dashed var(--color-border);
+  border: 2px dashed var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-bg);
   cursor: pointer;
@@ -202,7 +202,7 @@ defineExpose({ clear })
 }
 
 .file-upload__dropzone--disabled:hover {
-  border-color: var(--color-border);
+  border-color: var(--color-border-strong);
 }
 
 .file-upload__icon {

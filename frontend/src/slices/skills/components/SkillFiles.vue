@@ -143,7 +143,7 @@ const selectedIsAsset = computed(() => !!selected.value && isAssetFile(selected.
         </p>
         <ul
           v-else
-          class="divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]"
+          class="divide-y divide-[var(--color-border-subtle)] rounded-md border border-[var(--color-border)]"
         >
           <li
             v-for="f in files"

@@ -160,7 +160,7 @@ function onSelect(value: string | number): void {
   display: flex;
   gap: var(--space-1);
   overflow-x: auto;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: var(--space-1);
 }
 

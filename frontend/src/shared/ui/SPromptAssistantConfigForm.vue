@@ -13,7 +13,7 @@ import SFormField from './SFormField.vue'
 import SInput from './SInput.vue'
 import SSelect from './SSelect.vue'
 
-// Structural contracts — kept local so shared/ui does not import a slice type.
+// Structural contracts ??kept local so shared/ui does not import a slice type.
 export interface ConfigFormValue {
   system_prompt: string
   key_id: string | null
@@ -174,7 +174,7 @@ function onFiles(files: File[]): void {
       </h4>
       <ul
         v-if="files.length"
-        class="divide-y divide-[var(--color-border)] rounded border border-[var(--color-border)]"
+        class="divide-y divide-[var(--color-border-subtle)] rounded border border-[var(--color-border)]"
       >
         <li
           v-for="f in files"

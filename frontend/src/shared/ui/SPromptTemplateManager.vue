@@ -103,7 +103,7 @@ function save(): void {
     />
     <ul
       v-else
-      class="divide-y divide-[var(--color-border)] rounded border border-[var(--color-border)]"
+      class="divide-y divide-[var(--color-border-subtle)] rounded border border-[var(--color-border)]"
     >
       <li
         v-for="tpl in templates"

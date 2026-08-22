@@ -295,7 +295,7 @@ onBeforeUnmount(() => {
 
 .s-dropdown__divider {
   height: 1px;
-  background: var(--color-border);
+  background: var(--color-border-subtle);
   margin: var(--space-1) 0;
 }
 

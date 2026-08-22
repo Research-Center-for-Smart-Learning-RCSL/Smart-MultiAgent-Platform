@@ -121,7 +121,7 @@ watch([messages, streamingText], async () => {
 
 <template>
   <div class="flex h-full flex-col rounded border border-[var(--color-border)]">
-    <div class="border-b border-[var(--color-border)] px-3 py-2 text-sm font-semibold">
+    <div class="border-b border-[var(--color-border-subtle)] px-3 py-2 text-sm font-semibold">
       {{ t('promptStudio.panel.title') }}
     </div>
 
@@ -205,7 +205,7 @@ watch([messages, streamingText], async () => {
         {{ errorMessage }}
       </SAlert>
 
-      <div class="border-t border-[var(--color-border)] p-3">
+      <div class="border-t border-[var(--color-border-subtle)] p-3">
         <STextarea
           v-model="input"
           :rows="2"

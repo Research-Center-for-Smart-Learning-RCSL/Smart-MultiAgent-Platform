@@ -151,7 +151,7 @@ onMounted(async () => {
           '&': {
             color: 'var(--color-fg)',
             backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
+            border: '1px solid var(--color-border-strong)',
             borderRadius: 'var(--radius-md)',
             fontFamily: 'var(--font-mono)',
             fontSize: '13px',
@@ -170,7 +170,7 @@ onMounted(async () => {
             backgroundColor: 'var(--color-surface)',
             color: 'var(--color-muted)',
             border: 'none',
-            borderRight: '1px solid var(--color-border)',
+            borderRight: '1px solid var(--color-border-subtle)',
           },
           '&.cm-focused': {
             outline: 'none',
@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   padding: var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-fg);

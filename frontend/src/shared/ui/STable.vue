@@ -520,7 +520,7 @@ function skeletonStyle(col: Column): Record<string, string> {
   text-align: left;
   white-space: nowrap;
   user-select: none;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .s-table__th--sortable {
@@ -577,7 +577,10 @@ function skeletonStyle(col: Column): Record<string, string> {
 
 .s-table__td {
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  /* The interior weight. A row rule and the table's own outer edge were the
+     same line before the split, which is what made a dense table read as a
+     grid of cells rather than as rows. */
+  border-bottom: 1px solid var(--color-border-subtle);
   color: var(--color-fg);
 }
 

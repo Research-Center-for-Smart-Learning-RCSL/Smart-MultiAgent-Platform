@@ -446,7 +446,7 @@ function isImage(mime: string): boolean {
 
 .bubble__sources {
   margin-top: var(--space-2);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-1-5);
 }
 
