@@ -6,8 +6,12 @@ import SEmptyState from './SEmptyState.vue'
 
 const props = withDefaults(
   defineProps<{
-    // Structurally compatible with STable's Column (only key/label are used here).
-    columns: { key: string; label: string }[]
+    // Structurally compatible with STable's Column, declared rather than
+    // imported so the mobile branch does not depend on the table's type. Only
+    // these three members are read here; `cellType` is widened to `string`
+    // because narrowing it would be a second copy of ColumnCellType, and every
+    // call site is already checked against the real union by STable itself.
+    columns: { key: string; label: string; cellType?: string }[]
     data?: T[]
     loading?: boolean
     emptyTitle?: string
@@ -34,6 +38,11 @@ const emit = defineEmits<{
 
 const slots = useSlots()
 const hasActionsSlot = computed(() => !!slots['actions'])
+
+/** Mirrors STable's own rule so a column's figures align in both branches. */
+function isFigureColumn(col: { cellType?: string }): boolean {
+  return col.cellType === 'number' || col.cellType === 'date'
+}
 
 // Render a card field for any column that has a label OR a cell slot (so an
 // empty-label column with real content — an in-column actions menu, an avatar —
@@ -138,7 +147,10 @@ const emptyStateAttrs = computed(() => ({
                 >
                   {{ col.label }}
                 </dt>
-                <dd class="s-cards__value">
+                <dd
+                  class="s-cards__value"
+                  :class="{ 's-cards__value--figures': isFigureColumn(col) }"
+                >
                   <slot
                     :name="`cell-${col.key}`"
                     :row="row"
@@ -227,7 +239,10 @@ const emptyStateAttrs = computed(() => ({
 .s-cards__label {
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
-  text-transform: uppercase;
+  /* Sentence case, matching STable's header: the labels are the same $t()
+     strings, and uppercasing one branch but not the other made the same table
+     read differently on either side of the breakpoint. */
+  letter-spacing: var(--tracking-tight);
   color: var(--color-muted);
 }
 
@@ -237,6 +252,10 @@ const emptyStateAttrs = computed(() => ({
   color: var(--color-fg);
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.s-cards__value--figures {
+  font-variant-numeric: tabular-nums;
 }
 
 .s-cards__actions {
