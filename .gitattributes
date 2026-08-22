@@ -35,3 +35,13 @@
 *.zip   binary
 *.gz    binary
 *.drawio binary
+
+# Fonts. `text=auto` above does detect these by content, but every other binary
+# type on this list is named explicitly rather than left to the heuristic, and a
+# font normalised as text is corrupt in a way that shows only as the page
+# silently rendering in its fallback stack.
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary

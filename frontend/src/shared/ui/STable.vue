@@ -530,8 +530,13 @@ function skeletonStyle(col: Column): Record<string, string> {
   /* Sentence case, not uppercase. The labels arrive from $t() already written
      in sentence case, so uppercasing them was a CSS-side reinterpretation that
      cost the word shapes a reader scans by - and it costs most in zh-TW, where
-     text-transform does nothing at all and the two locales stopped matching. */
-  letter-spacing: var(--tracking-tight);
+     text-transform does nothing at all and the two locales stopped matching.
+
+     No tracking. The dossier's §6.5 asked for --tracking-tight here, but its
+     own §6.1 applies tracking from --font-size-xl upward and gives the reason:
+     tightening text at body sizes costs legibility. This header is
+     --font-size-xs. Uppercase wants positive tracking; sentence case wants
+     none. */
   color: var(--color-muted);
   text-align: left;
   white-space: nowrap;
