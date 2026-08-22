@@ -383,6 +383,17 @@ useDocumentMeta({
   align-items: center;
   gap: var(--space-12);
   padding: 48px 0 64px;
+  /* The constellation's particle canvas is deliberately 48px wider than its
+     figure on each side (AgentConstellation.vue) so the ambience is not a
+     visible box. Nothing bounded that bleed, so at 375px it escaped the
+     viewport and the landing page scrolled sideways by 11px - on the one
+     surface a first-time visitor sees first. Clipped here rather than at the
+     figure, which would remove the effect: the hero is far larger than the
+     constellation, so the bleed still reads exactly as designed.
+
+     `clip`, not `hidden`: `hidden` would make this a scroll container and turn
+     every `position: sticky` descendant into a scrolled-along one. */
+  overflow-x: clip;
 }
 
 /* Decorative depth: a soft radial wash plus a faint dot grid, both fading out
