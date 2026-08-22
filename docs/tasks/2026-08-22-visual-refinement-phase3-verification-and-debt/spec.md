@@ -373,6 +373,39 @@ screenshots. The mechanical half found V-1, V-2, V-3 and V-5; the visual half fo
 and V-6, which wrap rather than clip and are therefore invisible to the measurement. Both
 halves were needed, which is the argument for doing both.
 
+**D-6 — four post-close fixes from the code review of this batch, and one decision to
+leave something alone.** Recorded here rather than folded into the narrative above,
+because three of them are corrections to this dossier's own work.
+
+- **V-7 shrank the sort target and I shipped it.** Moving `@click` from the `th` onto the
+  button left the cell's `--space-4` gutters dead, so a click aimed just left of a short
+  header stopped sorting. Keyboard access did not require giving up the pointer target:
+  the cell keeps its handler and the button stops the event rather than bubbling into a
+  second sort, which would toggle the order twice and read as the header doing nothing.
+  Both paths and the no-double-sort guarantee are asserted now. Sizing the button to fill
+  the cell was the alternative and was rejected — an inline-flex box at `width: 100%`
+  stops following the cell's `text-align`, which would left-align every right-aligned
+  column's header.
+- **The CSP job ran the wrong nginx.** `1.31.3-alpine` is what `frontend/Dockerfile` uses
+  to serve static files *behind* the edge; the edge that emits the header ships
+  `1.27.3-alpine`. Observing the header under a server two mainline releases newer
+  weakened the claim the job's first assertion is built on. Corrected and re-run locally
+  under 1.27.3: identical header, spec green.
+- **`PLAYWRIGHT_CSP_BASE_URL` was documented as set by CI and was not.** The run depended
+  on the config's fallback happening to match a port chosen in the workflow. The job sets
+  it explicitly now.
+- **The landing clip bounds more than its comment claimed.** `overflow-x: clip` on `.hero`
+  also clips `.hero__bg` (`inset: -40px -24px 0`) at every width, not only the
+  constellation bleed. Kept rather than narrowed: its `mask-image` has already faded those
+  regions to transparent, and before/after captures at 1440x900 in both themes show no
+  difference at either edge. The comment now describes what the rule does.
+- **`SPageHeader`'s wrapped action row stays left-aligned.** It was raised that this
+  silently changes alignment at desktop widths too — any header whose actions no longer
+  fit beside a 16rem title wraps, not only at 375px. True, and the user's call was to keep
+  it: flush-left under the title is what the 375px capture shows reading well, and
+  `margin-left: auto` would buy desktop consistency at the cost of mobile buttons floating
+  right of a left-aligned title. Considered, not overlooked.
+
 ### AC-1 and AC-11 — CI
 
 **Run `32574448737`, at `ee2693f`: green, all 23 jobs.** `frontend-e2e` passes, so
