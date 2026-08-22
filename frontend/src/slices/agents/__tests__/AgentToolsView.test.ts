@@ -62,14 +62,44 @@ async function waitForCodeMirror(getHost: () => { exists(): boolean }): Promise<
 // renders the raw key, so assertions match those keys rather than display
 // copy.
 async function clickByText(wrapper: Awaited<ReturnType<typeof renderView>>, text: string): Promise<void> {
-  const button = wrapper.findAll('button').find((b) => b.text().includes(text))
-  expect(button, `no button containing "${text}"`).toBeTruthy()
+  // Polled rather than read once. `settle()` above is a fixed 50ms sleep racing
+  // a real query, so on a slow enough machine the button is simply not there
+  // yet and this fails immediately with "no button containing ..." - a
+  // load-dependent failure that says nothing about the behaviour under test.
+  let button: ReturnType<typeof wrapper.findAll>[number] | undefined
+  await vi.waitFor(() => {
+    button = wrapper.findAll('button').find((b) => b.text().includes(text))
+    expect(button, `no button containing "${text}"`).toBeTruthy()
+  })
   await button!.trigger('click')
   await wrapper.vm.$nextTick()
 }
 
 describe('AgentToolsView — JSON field syntax highlighting (AC-1/AC-2/AC-3/AC-5)', () => {
-  it('renders CodeMirror for the MCP config JSON field and surfaces a positioned lint diagnostic', async () => {
+  /**
+   * Phase 3's FU-11. This file failed once under the full suite at ~6.4s -
+   * consistent with a test hitting the 5s default - and then passed in
+   * isolation and on every rerun since.
+   *
+   * What the measurement says. Under six-way CPU load the first test costs
+   * 1319ms and every other test in the file costs 92-270ms; the file was run
+   * ten times that way and passed ten times. So the slowest test has 3.8x
+   * headroom against the default, which is reachable on a shared runner but
+   * not on this machine - the failure did not reproduce in eighteen attempts.
+   *
+   * Pre-importing the `@codemirror/*` graph in a `beforeAll` was tried first,
+   * on the theory that the first test was paying a cold-start cost. It moved
+   * 1319ms to 1239ms, so it was not, and it was removed rather than kept with
+   * a rationale the numbers do not support. The cost is the mount and the
+   * editor construction, which belong to the test.
+   *
+   * The timeout is therefore raised deliberately and with the measurement above
+   * rather than as a guess: 15s is 11x the observed worst case, so it absorbs a
+   * loaded runner without hiding a test that has genuinely started to hang.
+   */
+  const SLOW_MOUNT_TIMEOUT = 15_000
+
+  it('renders CodeMirror for the MCP config JSON field and surfaces a positioned lint diagnostic', { timeout: SLOW_MOUNT_TIMEOUT }, async () => {
     seed([])
     const wrapper = await renderView(AgentToolsView, { routes, initialRoute: '/agents/agent_1/tools' })
     await settle()
