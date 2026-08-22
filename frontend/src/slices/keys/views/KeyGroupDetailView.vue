@@ -345,11 +345,14 @@ async function onDeleteGroup() {
           :key="m.key_id"
           :data-testid="`member-${m.key_id}`"
         >
+          <!-- `flex-wrap`: the row's other children are all fixed-width, so at
+               375px they consumed the line and the key name - the only part
+               identifying which key this is - was squeezed to 0px wide. -->
           <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
           <div
             role="listitem"
             :class="[
-              'flex items-center gap-3 px-4 py-3 border rounded-[var(--radius-md)] bg-[var(--color-bg)] transition-shadow',
+              'flex flex-wrap items-center gap-3 px-4 py-3 border rounded-[var(--radius-md)] bg-[var(--color-bg)] transition-shadow',
               draggingId === m.key_id ? 'shadow-md opacity-90 border-[var(--color-accent)]' : 'border-[var(--color-border)]',
               dropTargetId === m.key_id && draggingId !== m.key_id ? 'border-t-2 border-t-[var(--color-accent)]' : '',
               expandedMemberId === m.key_id ? 'rounded-b-none' : '',
@@ -404,7 +407,11 @@ async function onDeleteGroup() {
               v-if="carriedKeyMap.get(m.key_id)"
               :provider="carriedKeyMap.get(m.key_id)!.provider"
             />
-            <span class="text-sm truncate max-w-[30ch]">
+            <!-- `min-w-[12ch]`: `truncate` sets `overflow: hidden`, which makes
+                 this flex item's automatic minimum size 0 rather than its
+                 content - so without a floor it does not ellipsise, it
+                 vanishes. -->
+            <span class="text-sm truncate min-w-[12ch] max-w-[30ch]">
               {{ carriedKeyMap.get(m.key_id)?.name ?? m.key_id }}
             </span>
             <code class="text-xs font-mono text-[var(--color-muted)]">

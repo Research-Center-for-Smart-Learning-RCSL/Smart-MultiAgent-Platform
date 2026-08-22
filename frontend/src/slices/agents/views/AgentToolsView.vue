@@ -756,7 +756,12 @@ function fnLabel(tool: AgentTool): string {
         v-if="codeInterpreter?.enabled || fileWorkspace?.enabled"
         class="mt-4"
       >
-        <div class="flex items-center justify-between mb-3">
+        <!-- `flex-wrap` + `shrink-0`: the hint beside this button is long, so
+             at 375px the button's wrapper shrank to its min-content width. In
+             `en` that wrapped the label onto two lines; in `zh-TW`, where every
+             glyph is its own break opportunity, it became one character per
+             line. -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <h3 class="text-sm font-semibold text-[var(--color-fg)]">
               {{ t('agents.tools.codeInterpreter.files.title') }}
@@ -765,7 +770,7 @@ function fnLabel(tool: AgentTool): string {
               {{ t('agents.tools.codeInterpreter.files.hint') }}
             </p>
           </div>
-          <div>
+          <div class="shrink-0">
             <label
               class="sr-only"
               for="ws-file-upload"
