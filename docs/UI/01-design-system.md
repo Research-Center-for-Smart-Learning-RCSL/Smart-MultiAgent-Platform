@@ -38,32 +38,40 @@ classes that appears as a number below is a mistake.
 | `--font-size-lg` | `1.125rem` | 18 |
 | `--font-size-xl` | `1.25rem` | 20 |
 | `--font-size-2xl` | `1.5rem` | 24 |
-| `--font-size-3xl` | `1.875rem` | 30 |
+
+There is no `--font-size-3xl`. The 30px step had no consumer, and the one display-size
+heading in the product (Landing's hero) runs fluid above the ramp rather than stepping
+onto it.
 
 `--line-none: 1`, `--line-tight: 1.3`, `--line-snug: 1.4`, `--line-normal: 1.5`,
 `--line-relaxed: 1.6`.
 `--weight-normal: 400`, `--weight-medium: 500`, `--weight-semibold: 600`,
 `--weight-bold: 700`.
+`--tracking-tight: -0.011em`, `--tracking-tighter: -0.02em`. Negative on purpose, and
+applied from `--font-size-xl` upward only.
 
 ### Spacing scale
 
 4px grid, with three half-steps the component library uses as inner padding against an
-outer padding one whole step larger.
+outer padding one whole step larger. Declared in rem so spacing follows the reader's
+browser font size the way the type ramp already did; the px column is the value at the
+16px default root.
 
-| Token | px | Common use |
-|-------|----|------------|
-| `--space-0-5` | 2 | Chip and inline-badge padding |
-| `--space-1` | 4 | Tight gaps, label-to-control |
-| `--space-1-5` | 6 | Compact control padding |
-| `--space-2` | 8 | Input padding, icon gaps |
-| `--space-2-5` | 10 | Large-control vertical padding |
-| `--space-3` | 12 | Card inner padding (compact) |
-| `--space-4` | 16 | Standard content padding |
-| `--space-5` | 20 | Section gaps |
-| `--space-6` | 24 | Card padding (standard) |
-| `--space-8` | 32 | Section margins |
-| `--space-10` | 40 | Page margins |
-| `--space-12` | 48 | Large spacing |
+| Token | Value | px | Common use |
+|-------|-------|----|------------|
+| `--space-0-5` | `0.125rem` | 2 | Chip and inline-badge padding |
+| `--space-1` | `0.25rem` | 4 | Tight gaps, label-to-control |
+| `--space-1-5` | `0.375rem` | 6 | Compact control padding |
+| `--space-2` | `0.5rem` | 8 | Input padding, icon gaps |
+| `--space-2-5` | `0.625rem` | 10 | Large-control vertical padding |
+| `--space-3` | `0.75rem` | 12 | Card inner padding (compact), table row vertical |
+| `--space-4` | `1rem` | 16 | Standard content padding, table row horizontal |
+| `--space-5` | `1.25rem` | 20 | Section gaps |
+| `--space-6` | `1.5rem` | 24 | Card padding (standard) |
+| `--space-8` | `2rem` | 32 | Section margins |
+| `--space-12` | `3rem` | 48 | Large spacing |
+
+There is no `--space-10`; see `00-overview.md` §4.
 
 ### Control heights
 
@@ -79,7 +87,17 @@ time the ladder moves.
 `--elevation-2` (raised or hover), `--elevation-3` (overlay). Components reach for depth
 by meaning; the underlying `--shadow-*` values already switch per theme.
 
+The ladder only means anything because `--color-canvas` sits 3 to 5 points of L\* below
+`--color-bg` in both themes (`00-overview.md` §2). A shadow cannot raise a surface off
+a surface of the same colour, which is what the ladder was asked to do before that role
+existed. `SCard`'s `default` variant rests at `--elevation-1`, `bordered` at
+`--elevation-0`, and `elevated` at `--elevation-2`; a `hoverable` card takes one step
+above whatever its variant rests at.
+
 ### Colour, radius, motion and layering
+
+The colour tokens themselves are tabulated in `00-overview.md` §2, per theme and per
+role. What follows is everything else.
 
 ```css
 @theme {
@@ -88,17 +106,23 @@ by meaning; the underlying `--shadow-*` values already switch per theme.
   --color-sidebar-hover: #dbeafe;
   --color-sidebar-active-bg: #dbeafe;
   --color-sidebar-active-text: #1d4ed8;
-  --color-sidebar-text: #374151;
-  --color-sidebar-section-text: #6b7280;
+  --color-sidebar-text: #334155;
+  --color-sidebar-section-text: #475569;
 
-  /* Accent hover */
+  /* Accent hover, and the hover fill for an ALREADY-active sidebar row:
+     --color-sidebar-hover and --color-sidebar-active-bg are the same colour, so
+     without this the active row is the one item that ignores a pointer. */
   --color-accent-hover: #1d4ed8;
+  --color-accent-tint-hover: #bfdbfe;
 
-  /* Elevation shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  /* Elevation shadows. Tinted with the neutral axis rather than pure black, and
+     two layers at low per-layer alpha: one black layer over a cool palette reads
+     as grey haze, a tinted pair reads as a cast shadow. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.05), 0 4px 8px -2px rgba(15, 23, 42, 0.07);
+  --shadow-lg: 0 4px 8px -2px rgba(15, 23, 42, 0.05), 0 12px 20px -4px rgba(15, 23, 42, 0.09);
+  --shadow-xl: 0 8px 16px -4px rgba(15, 23, 42, 0.06), 0 24px 40px -8px rgba(15, 23, 42, 0.12);
+  --shadow-dialog: 0 8px 30px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
 
   /* Overlay */
   --color-overlay: rgba(0, 0, 0, 0.45);
@@ -123,33 +147,56 @@ by meaning; the underlying `--shadow-*` values already switch per theme.
   /* Z-index layers */
   --z-sidebar: 100;
   --z-topbar: 200;
-  --z-dropdown: 300;
+  --z-banner: 350;
   --z-modal: 400;
   --z-toast: 500;
   --z-tooltip: 600;
-
-  /* Focus ring */
-  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
 }
 ```
+
+There is no focus-ring token. The ring is one global rule in `@layer base`:
+
+```css
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+```
+
+A real outline, not the two-layer `box-shadow` this used to be. That ring painted its
+inner layer in `var(--color-bg)` regardless of what was actually behind the element, so a
+focused control inside the sidebar or a card footer wore a white halo belonging to
+neither surface. `outline-offset` leaves a gap that shows the true backdrop and needs no
+per-container configuration, and forced-colors mode recolours an outline by itself, which
+retires the parallel `@media (forced-colors: active)` rule that existed only because a
+box-shadow is dropped there.
+
+**A component must not suppress it.** `outline: none` is permitted only where something
+else draws the ring for that element — a clipped native input whose visible sibling
+carries it, a wrapper on `:focus-within`, or a container focused programmatically that
+should show nothing. `src/shared/styles/__tests__/focus-and-press.test.ts` holds the
+allowlist; anything else fails.
 
 ### Dark Theme Additions
 
 ```css
 :root[data-theme="dark"] {
-  --color-sidebar-bg: #111827;
+  --color-sidebar-bg: #080d16;
   --color-sidebar-hover: #1e3a5f;
   --color-sidebar-active-bg: #1e3a5f;
   --color-sidebar-active-text: #93c5fd;
-  --color-sidebar-text: #d1d5db;
-  --color-sidebar-section-text: #9ca3af;
+  --color-sidebar-text: #cbd5e1;
+  --color-sidebar-section-text: #94a3b8;
   --color-accent-hover: #93c5fd;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+  --color-accent-tint-hover: #27476e;
+  /* Near-black at low alpha: a dark surface carries elevation through lightness,
+     and a visible shadow on it only muddies the edge. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 2px 4px -1px rgba(0, 0, 0, 0.28), 0 4px 8px -2px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 4px 8px -2px rgba(0, 0, 0, 0.3), 0 12px 20px -4px rgba(0, 0, 0, 0.28);
+  --shadow-xl: 0 8px 16px -4px rgba(0, 0, 0, 0.34), 0 24px 40px -8px rgba(0, 0, 0, 0.32);
+  --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
   --color-overlay: rgba(0, 0, 0, 0.65);
-  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
 }
 ```
 
@@ -207,10 +254,13 @@ All components:
 **Visual spec**:
 - `primary`: `--color-accent` bg, white text, `--color-accent-hover` on hover
 - `secondary`: `--color-surface` bg, `--color-fg` text, `--color-border` border
-- `danger`: `--color-danger` bg, white text
+- `danger`: `--color-danger` bg, `--color-on-danger` text
+- `primary`: `--color-accent` bg, `--color-on-accent` text
 - `ghost`: transparent bg, `--color-fg` text, no border; hover shows `--color-surface`
 - `link`: transparent bg, `--color-accent` text, underline on hover; no min-height
-- Focus: `--focus-ring` box-shadow
+- Focus: the global `:focus-visible` outline (§1); the button states nothing of its own
+- Press: 1px depression plus one elevation step down, and a fill one step deeper than
+  hover; `link` takes the colour shift without the depression
 - Loading: spinner replaces `icon-left`; text dimmed to 60% opacity
 
 ---
@@ -234,7 +284,7 @@ All components:
 
 **Visual spec**:
 - Height: `sm` `--control-h-sm`, `md` `--control-h-md`
-- Border: 1px `--color-border`; focus: 2px `--color-accent`
+- Border: 1px `--color-border-strong` — a text field's outline is the only thing saying it is there, so WCAG 2.1 1.4.11 applies; focus turns it `--color-accent` and the wrapper carries the ring on `:focus-within`
 - Error: border `--color-danger`, focus ring `--color-danger`
 - Password type: eye toggle icon in suffix slot, sized to `--control-h-sm` so it fits
   every input size, with a 44px touch floor and negative margins that let it overhang
@@ -271,7 +321,7 @@ All components:
 
 **Slots**: `default` (label)
 
-**Visual spec**: 18x18 checkbox, `--color-accent` fill when checked, `--color-border` border when unchecked. Label inline to the right with a `--space-2` gap.
+**Visual spec**: 18x18 checkbox, `--color-accent` fill with `--color-on-accent` tick when checked, `--color-border-strong` border when unchecked. The native input is clipped to a 1px rect, so the visible box carries the focus ring on `:focus-visible`. Label inline to the right with a `--space-2` gap.
 
 ---
 
@@ -305,7 +355,7 @@ All components:
 
 **Slots**: `default` (label)
 
-**Visual spec**: pill-shaped track (36x20 `md`, 28x16 `sm`). Off: `--color-border` track, white knob. On: `--color-accent` track. Transition 150ms.
+**Visual spec**: pill-shaped track (36x20 `md`, 28x16 `sm`) bounded 1.5px in `--color-border-strong`. Off: `--color-border` track. On: `--color-accent` track. The knob stays a literal white in both states and both themes — it has to read against the neutral track and the accent one, so it can follow neither. Transition 150ms.
 
 ---
 
@@ -332,7 +382,7 @@ All components:
 
 **Props**: `name: string`, `size: 'sm' | 'md' | 'lg'` (24/32/40px), `src: string | null`
 
-**Visual spec**: circle. If `src` provided, show image. Otherwise, show initials (first letter of name, uppercase) on `--color-accent` background with white text. Sizes: `sm` 24px, `md` 32px, `lg` 40px.
+**Visual spec**: circle. If `src` provided, show image. Otherwise, show initials (first letter of name, uppercase) on `--color-accent` background in `--color-on-accent`. Sizes: `sm` 24px, `md` 32px, `lg` 40px.
 
 ---
 
@@ -342,7 +392,7 @@ All components:
 
 **Props**: `orientation: 'horizontal' | 'vertical'` (default `'horizontal'`), `label: string | undefined`
 
-**Visual spec**: 1px `--color-border` line. If label provided, centered text with line on both sides, `--color-muted` at `--font-size-xs`.
+**Visual spec**: 1px `--color-border-subtle` line — a divider is an interior separator by definition. If label provided, centered text with line on both sides, `--color-muted` at `--font-size-xs`.
 
 ---
 
@@ -412,7 +462,7 @@ All components:
 
 **Slots**: `default` (custom dropzone content)
 
-**Visual spec**: dashed border 2px `--color-border` rounded box, 120px min-height. `ArrowUpTrayIcon` centered, "Drop files here or click to browse" text. Drag-over: border turns `--color-accent`, background `--color-sidebar-hover`. Error state: border `--color-danger`. Accepted files listed below with name, size, remove button.
+**Visual spec**: dashed border 2px `--color-border-strong` rounded box, 120px min-height — the dashed edge is the only thing marking the drop region, so it is a control boundary. `ArrowUpTrayIcon` centered, "Drop files here or click to browse" text. Drag-over: border turns `--color-accent`, background `--color-sidebar-hover`. Error state: border `--color-danger`. Accepted files listed below with name, size, remove button.
 
 ---
 
@@ -473,8 +523,9 @@ interface Column {
 **Emits**: `sort(key, order)`, `select(keys[])`, `row-click(row)`
 
 **Visual spec**:
-- Header: `--color-surface` bg, `--weight-semibold`, `--font-size-xs` uppercase text, `--color-muted`; cells `--space-2` `--space-3`
-- Rows: white bg at `--font-size-sm`, 1px bottom `--color-border`, hover `--color-surface`
+- Header: `--color-surface` bg, `--weight-semibold`, `--font-size-xs` in **sentence case** with `--tracking-tight`, `--color-muted`; 1px bottom `--color-border-subtle`. Not uppercase: `text-transform` does nothing to CJK, so it made the same table render differently in en and zh-TW, and it discarded the word shapes a reader scans a header row by
+- Rows: `--color-bg` at `--font-size-sm`, cells `--space-3` `--space-4`, 1px bottom `--color-border-subtle` (an interior rule, not the table's own edge), hover `--color-surface`
+- Columns declared `cellType: 'number'` or `'date'` render with `font-variant-numeric: tabular-nums` so their digits line up down the column
 - Sortable columns: clickable header with `ChevronUpDownIcon`, active shows `ChevronUpIcon`/`ChevronDownIcon` in `--color-accent`
 - Loading: 5 skeleton rows with pulse animation
 - Empty: `SEmptyState` centered in table body
@@ -508,7 +559,7 @@ interface Column {
 - Panel: white bg, `--radius-lg` corners, `--shadow-xl`
 - Header: title at `--font-size-xl` `--weight-semibold`, X button top-right (24px icon, `--color-muted`, hover `--color-fg`)
 - Body: padding `--space-6`, max-height 70vh, overflow-y auto
-- Footer: padding `--space-4` `--space-6`, flex end, gap `--space-2`, top border `--color-border`
+- Footer: padding `--space-4` `--space-6`, flex end, gap `--space-2`, top border `--color-border-subtle`
 - Enter: scale(0.95) -> scale(1), opacity 0 -> 1, 200ms
 - Escape key closes (unless `persistent`)
 - Focus trap: tab cycles within modal
@@ -563,7 +614,7 @@ interface Column {
 
 **Emits**: `select(key)`
 
-**Visual spec**: white bg, `--shadow-lg`, `--radius-md`, 1px `--color-border`. Items: 36px height, `--space-3` `--space-4` padding at `--font-size-sm`, hover `--color-surface`. Danger items: `--color-danger` text. Divider: 1px `--color-border` horizontal line. Icons: 16px, `--color-muted`. Opens on click, closes on outside click, Escape, or item select. Keyboard: arrow keys navigate, Enter selects.
+**Visual spec**: `--color-bg`, `--shadow-lg`, `--radius-md`, 1px `--color-border`. Items: 36px height, `--space-3` `--space-4` padding at `--font-size-sm`, hover `--color-surface`, keyboard focus takes the global outline inset (`outline-offset: -2px`) because the menu scrolls its own overflow. Danger items: `--color-danger` text. Divider: 1px `--color-border-subtle` horizontal line. Icons: 16px, `--color-muted`. Opens on click, closes on outside click, Escape, or item select. Keyboard: arrow keys navigate, Enter selects.
 
 ---
 
@@ -587,7 +638,7 @@ interface Column {
 
 **Slots**: `item-{key}` (panel content), `header-{key}` (custom header)
 
-**Visual spec**: each item has 1px bottom `--color-border`. Header: 44px touch-floor height at `--font-size-sm` `--weight-medium`, `ChevronRightIcon` that rotates 90deg when open, 200ms transition. Panel: padding `--space-4`, slide-down animation.
+**Visual spec**: each item has 1px bottom `--color-border-subtle` (an interior rule). Header: 44px touch-floor height at `--font-size-sm` `--weight-medium`, `ChevronRightIcon` that rotates 90deg when open, 200ms transition. Panel: padding `--space-4`, slide-down animation.
 
 ---
 
@@ -620,15 +671,18 @@ interface Column {
 ### SCard (exists)
 - Add `variant` prop: `'default' | 'elevated' | 'bordered' | 'flat'`
 - Add `padding` prop: `'none' | 'sm' | 'md' | 'lg'` (default `'md'`): `--space-3` / `--space-4` / `--space-6`
-- `elevated`: `--elevation-1` + white bg
-- `bordered`: 1px `--color-border` + white bg
+- `default`: 1px `--color-border` + `--color-bg` at `--elevation-1` — a resting sheet
+- `elevated`: `--elevation-2` + `--color-bg`, transparent border so swapping variants never shifts layout
+- `bordered`: 1px `--color-border` + `--color-bg` at `--elevation-0` — flush, for a card nested inside another raised surface
 - `flat`: `--color-surface` bg, no border
+- `hoverable` takes one elevation step above whatever its variant rests at
+- Header and footer rules are `--color-border-subtle`: they divide one sheet rather than bound it
 
 ### SPageHeader (exists)
 - Add breadcrumb support: `breadcrumbs` prop
 - Add action buttons slot: `actions`
 - Add description slot: `description`
-- Layout: title + description on left, action buttons on right, breadcrumbs above title. Title: `--font-size-2xl` `--weight-semibold` at `--line-snug`; description `--font-size-sm`
+- Layout: title + description on left, action buttons on right, breadcrumbs above title. Title: `--font-size-2xl` `--weight-semibold` at `--line-tight` with `--tracking-tight`; description `--font-size-sm`
 
 ### SEmptyState (exists)
 - Add `icon` prop (Heroicon component)

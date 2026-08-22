@@ -670,7 +670,8 @@ When agent finishes with an error or the watchdog triggers timeout:
 - Max-height: 192px (approximately 8 lines, then scrolls internally)
 - Auto-grows with content
 - Font: 14px 400 weight `--color-fg`
-- Focus: `--focus-ring` on the entire composer border, not just the textarea
+- Focus: the global `:focus-visible` outline. The textarea suppresses it for pointer
+  focus only (`:focus:not(:focus-visible)`); a keyboard landing must show a ring
 
 **Send button** (`[>]`):
 - `PaperAirplaneIcon` 20px in 36x36px button

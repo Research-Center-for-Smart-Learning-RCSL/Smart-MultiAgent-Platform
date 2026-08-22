@@ -55,7 +55,7 @@ Badge states:
 - Size: 40x40px (meets 44px touch target via padding)
 - Background: `--color-surface`, border 1px `--color-border`, `--radius-full`
 - Hover: background `--color-border`
-- Focus: `--focus-ring` box-shadow
+- Focus: the global `:focus-visible` outline (`01-design-system.md` §1)
 
 ### 1.3 Real-time Updates
 
@@ -204,7 +204,7 @@ Card anatomy (read):
 
 **Unread state additions**:
 - `border-left`: 3px solid `--color-accent` (#2563eb)
-- `background`: `--color-surface` (#f8fafc)
+- `background`: `--color-surface`
 - Title and body: full `--color-fg` text
 
 **Read state**:
@@ -241,7 +241,7 @@ icon background circle.
 | `invite_received` | `EnvelopeIcon` (24/outline) | `--color-info-tint` (#dbeafe) | `--color-accent` (#2563eb) | Org/Project invitation |
 | `user_banned` | `NoSymbolIcon` (24/outline) | `--color-danger-tint` (#fee2e2) | `--color-danger` (#dc2626) | Admin banned user |
 | `approval_requested` | `ClipboardDocumentCheckIcon` (24/outline) | `--color-info-tint` (#dbeafe) | `--color-accent` (#2563eb) | Agent approval (v2) |
-| (unknown/fallback) | `BellIcon` (24/outline) | `--color-neutral-tint` (#f3f4f6) | `--color-muted` (#6b7280) | Unrecognized kind |
+| (unknown/fallback) | `BellIcon` (24/outline) | `--color-neutral-tint` | `--color-muted` | Unrecognized kind |
 
 **Icon container**: 32x32px circle (`--radius-full`), background uses the
 tint color, icon centered at 20x20px using the icon color. This provides a
@@ -451,7 +451,7 @@ repeated announcements work.
 | Role | Implicit `<a>` role via `<RouterLink>` |
 | Icon | `aria-hidden="true"` on `BellIcon` (decorative) |
 | Badge | Not independently focusable; count is conveyed via `aria-label` |
-| Focus | `--focus-ring` box-shadow on `:focus-visible` |
+| Focus | The global `:focus-visible` outline (`01-design-system.md` §1) |
 
 ### 4.3 Notification List Accessibility
 
@@ -478,15 +478,24 @@ repeated announcements work.
 
 ### 4.5 Color Contrast
 
-All text meets WCAG 2.1 AA contrast ratios against their backgrounds:
+All text meets WCAG 2.1 AA contrast ratios against its background.
 
-| Element | Foreground | Background | Ratio |
-|---------|------------|------------|-------|
-| Unread title | `--color-fg` (#1f2328) | `--color-surface` (#f8fafc) | 15.2:1 |
-| Read title | `--color-muted` (#6b7280) | `--color-bg` (#ffffff) | 5.0:1 |
-| Meta text | `--color-muted` (#6b7280) | `--color-surface` (#f8fafc) | 4.8:1 |
-| Badge text | #ffffff | `--color-danger` (#dc2626) | 4.6:1 |
-| Accent border | `--color-accent` (#2563eb) | N/A (decorative) | N/A |
+| Element | Foreground | Background |
+|---------|------------|------------|
+| Unread title | `--color-fg` | `--color-surface` |
+| Read title | `--color-muted` | `--color-bg` |
+| Meta text | `--color-muted` | `--color-surface` |
+| Badge count | `--color-on-danger` | `--color-danger` |
+| Accent border | `--color-accent` | decorative, not a text pair |
+
+Ratios are deliberately not written here. They are measured by
+`src/shared/styles/__tests__/contrast.test.ts`, which fails the build on a pair that drops
+below its threshold; a number copied into a document is a second source of truth that goes
+stale the first time a token moves, which is what happened to the table this replaced.
+
+The badge count is the pair worth naming. It was a hard-coded `#ffffff`, which reads at
+5:1 on the light theme's danger fill and 2.77:1 on the dark theme's — `--color-on-danger`
+is theme-aware for that reason.
 
 ---
 
