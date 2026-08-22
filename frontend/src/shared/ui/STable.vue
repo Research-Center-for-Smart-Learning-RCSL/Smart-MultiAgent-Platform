@@ -286,6 +286,7 @@ function skeletonStyle(col: Column): Record<string, string> {
               width: col.width,
               textAlign: col.align || 'left',
             }"
+            @click="handleSort(col)"
           >
             <!-- A sortable header is a button, not a `th` with a click handler.
                  It carried `@click` and `cursor: pointer` and nothing else - no
@@ -293,12 +294,22 @@ function skeletonStyle(col: Column): Record<string, string> {
                  reachable by pointer only, and `aria-sort` announced a control
                  that could not be operated. The element is swapped rather than
                  given `tabindex`, so activation, the focus ring and the
-                 announced role all come from the platform. -->
+                 announced role all come from the platform.
+
+                 The cell keeps its own handler, and the button stops the event
+                 rather than letting it bubble into a second sort. Without both
+                 halves the pointer target would shrink from the whole cell to
+                 the label and its icon: the cell's `--space-4` gutters would
+                 stop sorting, so a click aimed just left of a short header
+                 would do nothing where it used to work. Sizing the button to
+                 fill the cell instead was rejected - an inline-flex box at
+                 `width: 100%` no longer follows the cell's `text-align`, which
+                 would left-align every right-aligned column's header. -->
             <component
               :is="col.sortable ? 'button' : 'span'"
               v-bind="col.sortable ? { type: 'button' } : {}"
               class="s-table__th-content"
-              @click="handleSort(col)"
+              @click.stop="handleSort(col)"
             >
               <span>{{ col.label }}</span>
               <template v-if="col.sortable">
@@ -559,10 +570,9 @@ function skeletonStyle(col: Column): Record<string, string> {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
-/* The cell is no longer the control - the button inside it is (see the header
-   markup) - so the pointer belongs on the button. Leaving it here would offer a
-   click target over the cell's padding that no longer sorts anything. */
-.s-table__th--sortable .s-table__th-content {
+/* On the cell, not the button: the cell still sorts on click (see the header
+   markup), so the pointer must be offered over its padding too. */
+.s-table__th--sortable {
   cursor: pointer;
 }
 
