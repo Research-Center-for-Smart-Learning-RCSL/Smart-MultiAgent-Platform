@@ -25,7 +25,9 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  background: var(--color-surface);
+  /* The floor the auth card is raised off. It read --color-surface before the
+     surface roles existed, which is the recessed-fill role, not a page. */
+  background: var(--color-canvas);
   /* max(), not addition: on a device with no cutout every env() is 0px and the
      designed 16px gutter is what survives; on one with a cutout the larger of
      the two wins. A bare env() would shrink the gutter below its design value.

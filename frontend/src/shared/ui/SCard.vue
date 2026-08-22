@@ -38,7 +38,18 @@ defineProps<{
   border-radius: var(--radius-lg);
 }
 
-.s-card--default,
+/* A resting sheet: raised off the canvas by both colour and one elevation
+   step. It shared this rule with `bordered` and both sat at --elevation-0,
+   which made the two variants synonyms - the distinction the prop promises
+   only exists now that one of them carries elevation. */
+.s-card--default {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--elevation-1);
+}
+
+/* Flush: the border is the whole statement, for a card nested inside another
+   raised surface where a second shadow would read as clutter. */
 .s-card--bordered {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
@@ -50,7 +61,7 @@ defineProps<{
 .s-card--elevated {
   background: var(--color-bg);
   border: 1px solid transparent;
-  box-shadow: var(--elevation-1);
+  box-shadow: var(--elevation-2);
 }
 
 .s-card--flat {
@@ -64,9 +75,15 @@ defineProps<{
     border-color var(--transition-normal);
 }
 
+/* One step above whatever the variant rests at, so an `elevated` hoverable
+   card still changes on hover rather than being already at the hover value. */
 .s-card--hoverable:hover {
   transform: translateY(calc(var(--motion-lift) * -1));
   box-shadow: var(--elevation-2);
+}
+
+.s-card--elevated.s-card--hoverable:hover {
+  box-shadow: var(--elevation-3);
 }
 
 /* --card-pad mirrors the padding so header/footer can bleed to the card edge

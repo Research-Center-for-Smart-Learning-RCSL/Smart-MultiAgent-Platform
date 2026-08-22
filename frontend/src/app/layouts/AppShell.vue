@@ -219,7 +219,9 @@ onBeforeUnmount(() => {
   grid-column: 2;
   grid-row: 2;
   overflow-y: auto;
-  background: var(--color-bg);
+  /* The floor, not a sheet. Cards, tables and panels are the sheets raised off
+     it; while this was --color-bg they were the same colour as their own page. */
+  background: var(--color-canvas);
   padding: var(--space-6);
 }
 
