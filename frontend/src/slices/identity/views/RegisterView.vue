@@ -214,6 +214,9 @@ async function submit(): Promise<void> {
       @click="signInWithGoogle"
     >
       <template #icon-left>
+        <!-- Google's "G" mark. The four fills are its brand colours and are
+             deliberately literal: a brand mark is not ours to retheme, and
+             routing it through design tokens would misrepresent it. -->
         <svg
           width="18"
           height="18"

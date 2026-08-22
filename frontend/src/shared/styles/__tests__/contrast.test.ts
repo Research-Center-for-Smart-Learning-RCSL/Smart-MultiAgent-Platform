@@ -92,6 +92,12 @@ const TEXT_PAIRS: [fg: string, bg: string][] = [
   ['--color-sidebar-text', '--color-sidebar-bg'],
   ['--color-sidebar-section-text', '--color-sidebar-bg'],
   ['--color-accent', '--color-bg'],
+  // Content ON a filled surface, not beside it. These were a hard-coded #fff
+  // in nine components, which measured 2.54:1 against the dark theme's accent
+  // and 2.77:1 against its danger - the primary button in the product, below
+  // AA in one of the two themes, with nothing measuring it.
+  ['--color-on-accent', '--color-accent'],
+  ['--color-on-danger', '--color-danger'],
   ['--color-neutral-on', '--color-neutral-tint'],
   ['--color-info-on', '--color-info-tint'],
   ['--color-success-on', '--color-success-tint'],

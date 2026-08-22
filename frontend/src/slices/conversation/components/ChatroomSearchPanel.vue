@@ -166,7 +166,7 @@ const { t } = useI18n()
 }
 
 .result__snippet :deep(mark) {
-  background: var(--color-warning-tint, #fef3c7);
+  background: var(--color-warning-tint);
   border-radius: var(--radius-sm);
   padding: 0 var(--space-0-5);
 }

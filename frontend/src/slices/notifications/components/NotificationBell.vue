@@ -101,7 +101,7 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   padding: 0 var(--space-1);
   border-radius: var(--radius-full);
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-on-danger);
   font-size: var(--font-size-xs);
   line-height: 18px;
   text-align: center;

@@ -156,7 +156,15 @@ function handleLeftPercent(index: number, total: number): string {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
-/* Node-type left-border colours */
+/* Node-type left-border colours.
+   Deliberately literal, and this is the whole set: a categorical scale whose
+   only job is to keep eleven node types apart at a glance. Semantic tokens are
+   the wrong tool for it - they carry meaning (danger, success, accent) that a
+   node type does not have, there are eleven of these and four of those, and
+   forcing them through would make the graph harder to read, not more
+   consistent. Retained under this dossier's Q-12 alongside GraphragGraphView's
+   entity palette; FU-6 there records that neither has been checked for
+   colour-blind safety, which is the real open question about them. */
 .wf-node[data-node-type="trigger"] { border-left-color: #c084fc; }
 .wf-node[data-node-type="agent_invocation"] { border-left-color: #60a5fa; }
 .wf-node[data-node-type="approval_gate"] { border-left-color: #fb923c; }
@@ -169,7 +177,11 @@ function handleLeftPercent(index: number, total: number): string {
 .wf-node[data-node-type="set_variable"] { border-left-color: #818cf8; }
 .wf-node[data-node-type="end"] { border-left-color: #6b7280; }
 
-/* Live-step state backgrounds — semi-transparent so left border shows through */
+/* Live-step state backgrounds — semi-transparent so left border shows through.
+   Literal for a different reason from the palette above: these are mixed into
+   --color-bg at 12%, so they must stay fixed while the surface under them
+   switches per theme. A semantic token would move with the theme and the mix
+   would drift with it. */
 .wf-node--running {
   background: color-mix(in srgb, #3b82f6 12%, var(--color-bg));
 }

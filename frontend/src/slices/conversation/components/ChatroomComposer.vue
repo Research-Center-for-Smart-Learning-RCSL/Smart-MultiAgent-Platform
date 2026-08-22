@@ -278,7 +278,7 @@ function onDropEvent(e: DragEvent): void {
 }
 
 .composer--disabled {
-  background: var(--color-danger-tint, #fee2e2);
+  background: var(--color-danger-tint);
 }
 
 .composer--drag {
@@ -417,7 +417,7 @@ function onDropEvent(e: DragEvent): void {
 
 .upload__error {
   font-size: var(--font-size-xs);
-  color: var(--color-danger, #dc2626);
+  color: var(--color-danger);
 }
 
 .composer__overlay {

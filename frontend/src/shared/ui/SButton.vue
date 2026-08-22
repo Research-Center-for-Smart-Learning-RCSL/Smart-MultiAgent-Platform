@@ -188,7 +188,7 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 /* -- Variants -- */
 .s-btn--primary {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 
@@ -218,7 +218,7 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 
 .s-btn--danger {
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-on-danger);
   border-color: var(--color-danger);
 }
 

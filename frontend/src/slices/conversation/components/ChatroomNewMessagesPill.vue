@@ -35,7 +35,7 @@ const { t } = useI18n()
   border: none;
   border-radius: var(--radius-full);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   font-size: var(--font-size-code);
   cursor: pointer;
   box-shadow: var(--shadow-md);
