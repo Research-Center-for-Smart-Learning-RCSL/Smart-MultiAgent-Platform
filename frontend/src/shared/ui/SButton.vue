@@ -296,6 +296,11 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 .s-btn--disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  /* The filled variants rest at --elevation-1, and elevation is the signal that
+     a control can be pressed. Every other interaction rule here already carries
+     `:not(.s-btn--disabled)`; the resting one cannot, because it lives on the
+     variant, so the exception is stated here instead. */
+  box-shadow: none;
 }
 
 a.s-btn--disabled {

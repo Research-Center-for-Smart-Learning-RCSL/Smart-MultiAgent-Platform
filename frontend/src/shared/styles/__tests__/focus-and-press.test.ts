@@ -142,6 +142,16 @@ describe('press state', () => {
     expect(declaration(rule as string, 'box-shadow')).toBeNull()
   })
 
+  it('takes the elevation back off a disabled button', () => {
+    // Elevation is the signal that a control can be pressed, so one that cannot
+    // must not advertise it. The `:hover`/`:active` rules all carry
+    // `:not(.s-btn--disabled)`; the resting rule lives on the variant and
+    // cannot, so this is where the exception has to hold.
+    const rule = topLevelRule(readComponentStyles('shared/ui/SButton.vue'), '.s-btn--disabled')
+    expect(rule).not.toBeNull()
+    expect(declaration(rule as string, 'box-shadow')).toBe('none')
+  })
+
   it('gives the shell chrome the same press language', () => {
     expect(
       topLevelRule(readComponentStyles('app/components/AppTopBar.vue'), '.topbar__sidebar-toggle:active'),

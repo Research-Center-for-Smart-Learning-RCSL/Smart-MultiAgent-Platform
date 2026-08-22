@@ -777,7 +777,14 @@ useDocumentMeta({
    wraps badly), so stack it well before phone widths. */
 @media (max-width: 900px) {
   .hero {
-    grid-template-columns: 1fr;
+    /* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` track is floored at
+       `min-content`, so it is sized by its widest descendant rather than by the
+       space available - the same trap that made the mobile chatroom 498px wide
+       inside a 375px viewport. Here `overflow-x: clip` above would hide the
+       consequence rather than prevent it, which would also blunt the landing
+       assertion in `25-narrow-viewport-layout.spec.ts`: with the track bounded,
+       that clip is left doing only the decorative job it was added for. */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-6);
     padding: var(--space-6) 0 var(--space-12);
     text-align: center;

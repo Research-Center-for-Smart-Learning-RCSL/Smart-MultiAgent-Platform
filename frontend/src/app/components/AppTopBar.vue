@@ -99,8 +99,12 @@ const { isMobile } = useBreakpoint()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-h-md);
-  height: var(--control-h-md);
+  /* --chrome-control-size, not --control-h-md: the form ladder is in rem so a
+     control grows with the label it makes room for, but this one is bounded by
+     a fixed-height bar and would overflow it at a large root font. Same 40px at
+     the default size, so nothing moves today. */
+  width: var(--chrome-control-size);
+  height: var(--chrome-control-size);
   padding: 0;
   background: none;
   border: none;
