@@ -391,6 +391,12 @@ useDocumentMeta({
      figure, which would remove the effect: the hero is far larger than the
      constellation, so the bleed still reads exactly as designed.
 
+     This bounds `.hero__bg` too, whose `inset: -40px -24px 0` reaches 24px
+     past the hero on each side at every width. That is deliberate rather than
+     collateral: its `mask-image` has already faded those regions to
+     transparent, so nothing of it is visible there - compared before and after
+     at 1440x900 in both themes, with no difference at either edge.
+
      `clip`, not `hidden`: `hidden` would make this a scroll container and turn
      every `position: sticky` descendant into a scrolled-along one. */
   overflow-x: clip;

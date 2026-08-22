@@ -115,17 +115,28 @@ describe('STable sortable headers are operable by keyboard', () => {
     expect(heads[1].attributes('type')).toBeUndefined()
   })
 
-  it('emits the sort from the button, not from the cell around it', async () => {
-    const wrapper = mountTable()
-    await wrapper.get('thead .s-table__th-content').trigger('click')
-    expect(wrapper.emitted('sort')?.[0]).toEqual([{ key: 'name', order: 'asc' }])
+  it('sorts from the button and from the cell around it, but only once', async () => {
+    const fromButton = mountTable()
+    await fromButton.get('thead .s-table__th-content').trigger('click')
+    expect(fromButton.emitted('sort')?.[0]).toEqual([{ key: 'name', order: 'asc' }])
 
-    // The `th` itself is no longer the control. Asserted so that a future edit
-    // moving the handler back to the cell fails here rather than silently
-    // restoring the pointer-only version.
-    const plain = mountTable()
-    await plain.get('thead .s-table__th').trigger('click')
-    expect(plain.emitted('sort')).toBeUndefined()
+    // The cell keeps its own handler so the pointer target stays the whole
+    // cell, gutters included - moving the control into the button would
+    // otherwise have shrunk it to the label and its icon.
+    const fromCell = mountTable()
+    await fromCell.get('thead .s-table__th').trigger('click')
+    expect(fromCell.emitted('sort')?.[0]).toEqual([{ key: 'name', order: 'asc' }])
+  })
+
+  it('does not sort twice when the click lands on the button', async () => {
+    // `@click.stop` on the button is the only thing preventing this: without it
+    // the event bubbles into the cell's handler, the order toggles a second
+    // time, and clicking a header appears to do nothing at all.
+    const wrapper = mountTable()
+    const button = wrapper.get('thead .s-table__th-content')
+    expect(button.element.tagName).toBe('BUTTON')
+    await button.trigger('click')
+    expect(wrapper.emitted('sort')).toHaveLength(1)
   })
 
   it('leaves the button visually indistinguishable from the span it replaced', () => {

@@ -13,9 +13,10 @@ import { defineConfig, devices } from '@playwright/test'
  * `./e2e` and whose baseURL is Vite. Hence its own directory rather than a
  * `26-` spec beside the others.
  *
- * `PLAYWRIGHT_CSP_BASE_URL` is supplied by the CI job that serves `dist/`
- * behind the CSP extracted from `deploy/compose/nginx/conf.d/smap.conf`. There
- * is deliberately no `webServer`: the server under test is nginx with a
+ * `PLAYWRIGHT_CSP_BASE_URL` is set by the `frontend-csp-font` job, which is
+ * where the port is actually chosen; the fallback below only serves a local
+ * run that publishes the container on the same port by hand. There is
+ * deliberately no `webServer`: the server under test is nginx carrying a
  * specific header, which is the entire subject of the check, so starting one
  * here would test a server this repository invented instead.
  */
