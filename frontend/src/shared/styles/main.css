@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+/* ─── Interface typeface (R24.50) ─────────────────────────────────
+   Inter, self-hosted. Not a preference: the deployed CSP is
+   `font-src 'self' data:` (deploy/compose/nginx/conf.d/smap.conf:177), so a
+   font CDN is blocked outright, and an air-gapped install has no CDN anyway.
+   Files come from Google's own subsetting of Inter v4.1 and are served from
+   frontend/public/fonts/ under SIL OFL 1.1 (Inter-LICENSE.txt beside them).
+
+   Two subsets rather than one merged file: Latin is the critical path and is
+   preloaded from index.html, while Latin-Extended is 83 KB that an en/zh-TW
+   interface almost never needs and must not sit on first paint.
+
+   The ranges stop at Latin: Inter has no CJK coverage, and without an explicit
+   unicode-range a browser may fetch the file only to discover that. CJK
+   families are named after Inter in --font-body and are never resolved
+   through it. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* ─── Theme tokens ────────────────────────────────────────────────
    Semantic colors, radii, fonts, breakpoints.
    Spacing uses Tailwind's default --spacing: 0.25rem which matches
@@ -50,8 +87,11 @@
   --radius-xl: 12px;
   --radius-full: 9999px;
 
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  /* CJK families are named explicitly after Inter. Before this they were named
+     nowhere at all, so zh-TW fell to whatever the browser defaults to. */
+  --font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial,
+    sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
 
   --breakpoint-sm: 480px;
@@ -126,7 +166,6 @@
   --font-size-lg: 1.125rem;
   --font-size-xl: 1.25rem;
   --font-size-2xl: 1.5rem;
-  --font-size-3xl: 1.875rem;
   /* The 13px step. Named for the role docs/UI/00-overview.md's typography
      table gives it ("Code / mono 0.8125rem (13px)"), which is the design
      decision that justifies its existence; the dense secondary labels in
@@ -146,6 +185,12 @@
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
+  /* ── Tracking ──
+     A UI grotesque is drawn for body sizes; at heading sizes its default
+     tracking reads loose. These are negative on purpose and apply from
+     --font-size-xl upward only — tightening body text costs legibility. */
+  --tracking-tight: -0.011em;
+  --tracking-tighter: -0.02em;
 
   /* ── Control height ladder ──
      One declaration for the 32/40/48px rung that SButton, SInput, SSelect,
@@ -194,21 +239,31 @@
     font-family: var(--font-body);
   }
 
-  /* Restore heading sizes stripped by Preflight */
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Restore heading sizes stripped by Preflight.
+     These now match the page-level roles in docs/UI/00-overview.md §3 rather
+     than sitting one ramp step below them. The two had always disagreed;
+     phase 1 made both read tokens, which is what made it visible (its FU-6). */
   h1 {
-    font-size: var(--font-size-xl);
+    font-size: var(--font-size-2xl);
     font-weight: var(--weight-semibold);
     line-height: var(--line-snug);
+    letter-spacing: var(--tracking-tight);
   }
 
   h2 {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-xl);
     font-weight: var(--weight-semibold);
     line-height: var(--line-snug);
+    letter-spacing: var(--tracking-tight);
   }
 
   h3 {
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-lg);
     font-weight: var(--weight-semibold);
     line-height: var(--line-snug);
   }

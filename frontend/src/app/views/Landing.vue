@@ -486,6 +486,9 @@ useDocumentMeta({
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: var(--weight-bold);
   line-height: 1.1;
+  /* The only display-size text in the product, and the reason --tracking-tighter
+     exists: a UI grotesque at 32-48px reads loose at its default tracking. */
+  letter-spacing: var(--tracking-tighter);
   color: var(--color-fg);
   margin: 0 0 var(--space-4);
 }

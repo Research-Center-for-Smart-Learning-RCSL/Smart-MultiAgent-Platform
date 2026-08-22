@@ -71,7 +71,12 @@ const EXPECTED: [token: string, value: string, equals: string][] = [
   ['--font-size-lg', '1.125rem', '18px'],
   ['--font-size-xl', '1.25rem', '20px'],
   ['--font-size-2xl', '1.5rem', '24px'],
-  ['--font-size-3xl', '1.875rem', '30px'],
+  // --font-size-3xl (30px) was deleted in phase 2: it had zero consumers, and
+  // the one display-size heading in the product (Landing's hero) runs fluid
+  // above the ramp at clamp(2rem, 4vw, 3rem) rather than stepping onto it.
+  // Tracking
+  ['--tracking-tight', '-0.011em', '-0.011em'],
+  ['--tracking-tighter', '-0.02em', '-0.02em'],
   // Line height
   ['--line-none', '1', '1'],
   ['--line-tight', '1.3', '1.3'],
@@ -118,12 +123,12 @@ describe('design tokens', () => {
     expect(tokens[token], `${token} is not declared in main.css's @theme block`).toBe(value)
   })
 
-  it('declares every --space-*, --font-size-*, --line-* and --weight-* token in the table', () => {
+  it('declares every --space-*, --font-size-*, --line-*, --weight-* and --tracking-* token in the table', () => {
     // The table is only a guarantee if it is complete: a token added to
     // main.css and left out here is a value nothing pins.
     const covered = new Set(EXPECTED.map(([t]) => t))
     const governed = Object.keys(tokens).filter((t) =>
-      /^--(space|font-size|line|weight|control-h|elevation)-/.test(t),
+      /^--(space|font-size|line|weight|control-h|elevation|tracking)-/.test(t),
     )
     expect(governed.filter((t) => !covered.has(t))).toEqual([])
   })
@@ -135,7 +140,7 @@ describe('design tokens', () => {
     const darkStart = mainCss.indexOf(':root[data-theme="dark"]')
     expect(darkStart).toBeGreaterThan(-1)
     const dark = mainCss.slice(darkStart, mainCss.indexOf('\n  }', darkStart))
-    const offenders = [...dark.matchAll(/^\s*(--(?:space|font-size|line|weight|control-h)-[a-z0-9-]+)\s*:/gim)]
+    const offenders = [...dark.matchAll(/^\s*(--(?:space|font-size|line|weight|control-h|tracking)-[a-z0-9-]+)\s*:/gim)]
     expect(offenders.map((m) => m[1])).toEqual([])
   })
 })

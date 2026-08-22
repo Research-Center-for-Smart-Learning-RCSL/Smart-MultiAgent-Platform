@@ -118,6 +118,9 @@ defineProps<{
   font-size: var(--font-size-2xl);
   font-weight: var(--weight-semibold);
   line-height: var(--line-snug);
+  /* Restated rather than inherited from @layer base: this is the one heading
+     that truncates (below), so where it ellipsises depends on its tracking. */
+  letter-spacing: var(--tracking-tight);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
