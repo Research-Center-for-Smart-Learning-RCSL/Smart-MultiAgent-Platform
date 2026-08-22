@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
-import { ImpersonationBanner, useImpersonationFlag } from '@slices/admin'
+import { ImpersonationBanner, useImpersonation } from '@slices/admin'
 import { useBanKickGuard } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { SConfirmDialog, SIdleDialog, SNetworkBanner } from '@shared/ui'
@@ -22,7 +22,7 @@ const session = useSessionStore()
 // strip and the top bar below it must stop reserving one. The switch is a
 // single inherited property on .app-root (main.css, --topbar-inset-top), so no
 // consumer of the topbar height learns that impersonation exists.
-const { isImpersonating } = useImpersonationFlag()
+const { isImpersonating } = useImpersonation()
 
 const layoutComponent = computed(() => {
   const layout = route.meta.layout as string | undefined
