@@ -162,7 +162,13 @@ describe('mobile viewport contract', () => {
       // (declared in main.css), so the topbar track grows into the strip
       // rather than the shell padding itself away from it.
       'app/layouts/AppShell.vue': ['left', 'right', 'bottom'],
-      'app/components/AppTopBar.vue': ['top'],
+      // Listed with no edge of its own: the bar's top inset arrives through
+      // --topbar-inset-top rather than an env() call in this file, because the
+      // impersonation banner displaces it and the bar must then NOT reserve a
+      // strip it no longer meets. Both halves of that indirection are pinned
+      // by 'owns the top inset through --topbar-inset-top' below; an empty
+      // list here would otherwise be the one entry that asserts nothing.
+      'app/components/AppTopBar.vue': [],
       'app/layouts/AuthLayout.vue': ['top', 'left', 'right', 'bottom'],
       // No bottom: the landing page scrolls the document, so its footer is
       // reachable past the home indicator.
@@ -172,6 +178,16 @@ describe('mobile viewport contract', () => {
       // Fixed, outside every layout's padding box, and the first tab stop.
       'shared/styles/main.css': ['top', 'left'],
       'shared/ui/SNetworkBanner.vue': ['top'],
+      // The y = 0 element whenever an admin is impersonating: a conditional
+      // sibling ABOVE the layout component (App.vue), which is why reading the
+      // layout tree never surfaced it.
+      'slices/admin/components/ImpersonationBanner.vue': ['top'],
+      // Not a stylesheet: vue-sonner mounts its own teleported container and
+      // takes its geometry from these props, so no .vue or .css file mentions
+      // it at all. All four edges, because `position` is a prop - insetting
+      // only the two edges today's value uses rebuilds the half-protected
+      // surface this sweep exists to catch, one prop change later.
+      'app/toasterProps.ts': ['top', 'right', 'bottom', 'left'],
     }
 
     it('opts the document into the display cutout', () => {
@@ -203,6 +219,130 @@ describe('mobile viewport contract', () => {
       )
 
       expect(offenders).toEqual([])
+    })
+
+    // -- T-3 of 2026-08-22-safe-area-uncovered-top-surfaces -----------------
+    // The inverse defect: an inset applied where it is NOT owed. The bar is at
+    // y = 0 only while the impersonation banner is absent; when the banner
+    // renders it is the topmost element and owns the strip, and the bar's
+    // unconditional inset opens a band of bare --color-bg between the two.
+    //
+    // Four assertions, deliberately pinned together. --topbar-inset-top is a
+    // second property describing one fact, so a rule that moves one half and
+    // not the other reintroduces the defect inverted (dossier §9).
+    describe('the top bar owns its top inset through --topbar-inset-top', () => {
+      const topbar = declarations(read(resolve(SRC, 'app/components/AppTopBar.vue')))
+      const mainCss = declarations(read(resolve(SRC, 'shared/styles/main.css')))
+
+      it('reads the property instead of calling env() itself', () => {
+        expect(topbar).not.toContain('env(safe-area-inset-top')
+        expect(topbar).toContain('var(--topbar-inset-top)')
+      })
+
+      it('declares the property from env() with a fallback', () => {
+        expect(mainCss).toMatch(/--topbar-inset-top:\s*env\(safe-area-inset-top,\s*0px\)/)
+      })
+
+      it('has a rule that surrenders the inset', () => {
+        expect(mainCss).toMatch(/--topbar-inset-top:\s*0px/)
+      })
+
+      // The one that is easy to get wrong and impossible to see in jsdom: a
+      // custom property substitutes its var()s at computed-value time on the
+      // element that DECLARES it, so a descendant redefining
+      // --topbar-inset-top cannot reach a --topbar-height-total already
+      // resolved at :root - the descendant inherits the substituted value.
+      // Measured in Chromium: 100px where 56px was intended. The total has to
+      // be declared on the overriding element too, which is what puts
+      // .app-root in this selector.
+      it('re-resolves the total on the element that can override the inset', () => {
+        const total = mainCss.match(/([^{}]*)\{[^{}]*--topbar-height-total:[^{}]*\}/)
+        expect(total).not.toBeNull()
+        expect(total?.[1]).toContain('.app-root')
+        expect(mainCss).toMatch(
+          /--topbar-height-total:\s*calc\(var\(--topbar-height\)\s*\+\s*var\(--topbar-inset-top\)\)/,
+        )
+      })
+    })
+
+    // -- T-4 of 2026-08-22-safe-area-uncovered-top-surfaces -----------------
+    // INSET_SURFACES is hand-maintained, and every miss it has had came from
+    // the same place: the list was derived by reading the layout tree, so a
+    // surface outside that tree was never a candidate to forget. The banner is
+    // a conditional sibling above the layout component; the toaster's geometry
+    // lives in a .ts file that no stylesheet mentions.
+    //
+    // This cannot derive the list - a source scan never will - but it can make
+    // a new top-anchored surface CLASSIFIED rather than merely overlooked:
+    // either it carries its edges above, or it carries a written reason here.
+    describe('leaves no top-anchored surface unclassified', () => {
+      const EXEMPT: Record<string, string> = {
+        // Sticky against the table's own scroll port, not the viewport: the
+        // wrapper is what scrolls, and it sits inside the shell's padding box.
+        'shared/ui/STable.vue':
+          'header pins to the table scroll port, which never meets a viewport edge',
+        // Full-bleed entry curtain. It covers the strips on purpose - that is
+        // what a curtain is - and holds nothing against an edge: its content is
+        // centred and the skip hint sits at bottom: 7%.
+        'app/components/LandingIntro.vue':
+          'opaque entry curtain; deliberately edge-to-edge, no content against an edge',
+      }
+
+      const SCANNED = /\.(vue|css|ts)$/
+
+      function walkScanned(dir: string, out: string[] = []): string[] {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry)
+          if (statSync(full).isDirectory()) {
+            if (entry !== '__tests__') walkScanned(full, out)
+          } else if (SCANNED.test(entry)) out.push(full)
+        }
+        return out
+      }
+
+      // Innermost braces, so a rule nested in @media is read as its own block
+      // rather than swallowed by the at-rule around it.
+      const RULE_BODY = /\{([^{}]*)\}/g
+      const OUT_OF_FLOW = /position:\s*(?:fixed|sticky)/
+      // `inset: 0` is `top: 0` spelled shorter, and three surfaces here use it.
+      const ANCHORED_AT_TOP = /(?:^|[;{\s])(?:top|inset):\s*0(?:px)?\s*(?:;|$)/m
+      // The toaster takes its position from a prop, not a stylesheet, which is
+      // the whole reason F-3 was invisible to a scan of .vue and .css files.
+      const TOASTER_POSITION = /position:\s*['"](?:top|bottom)-(?:left|right|center)['"]/
+
+      const candidates = walkScanned(SRC)
+        .filter((file) => {
+          const source = declarations(read(file))
+          if (TOASTER_POSITION.test(source)) return true
+          return [...source.matchAll(RULE_BODY)].some(
+            (m) => OUT_OF_FLOW.test(m[1]) && ANCHORED_AT_TOP.test(m[1]),
+          )
+        })
+        .map((file) => relative(SRC, file).split(sep).join('/'))
+
+      // Seven today: AppTopBar, toasterProps, SDrawer, SModal and
+      // ImpersonationBanner above, plus the two exemptions. A floor rather
+      // than an equality so adding a surface does not fail here as well as
+      // below, but it still catches the scan silently matching nothing.
+      it('finds the surfaces it is meant to classify', () => {
+        expect(candidates.length).toBeGreaterThanOrEqual(7)
+      })
+
+      it('classifies every one of them', () => {
+        const unclassified = candidates.filter(
+          (rel) => !(rel in INSET_SURFACES) && !(rel in EXEMPT),
+        )
+
+        expect(unclassified).toEqual([])
+      })
+
+      it('states a reason for every exemption', () => {
+        const silent = Object.entries(EXEMPT)
+          .filter(([, reason]) => reason.trim().length === 0)
+          .map(([rel]) => rel)
+
+        expect(silent).toEqual([])
+      })
     })
   })
 })

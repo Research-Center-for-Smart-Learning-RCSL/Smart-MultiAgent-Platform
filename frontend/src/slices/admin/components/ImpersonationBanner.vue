@@ -32,7 +32,14 @@ const { isImpersonating, impersonatedBy } = useImpersonation()
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
-  padding: var(--space-2) var(--space-4);
+  /* Additive, not max(): index.html opts into viewport-fit=cover, so under a
+     display cutout this row is the y = 0 element and nothing else insets it.
+     The sibling gutters elsewhere use max() because their whole job is to keep
+     clear of the edge; --space-2 here is interior padding around text and has
+     to survive under the strip, which max() would swallow on every notched
+     device. Growing the banner pushes the shell down by the inset - that is
+     what the browser did before the meta, not a regression. */
+  padding: calc(var(--space-2) + env(safe-area-inset-top, 0px)) var(--space-4) var(--space-2);
   background: var(--color-warning);
   color: var(--color-warning-on);
   font-weight: var(--weight-semibold);
