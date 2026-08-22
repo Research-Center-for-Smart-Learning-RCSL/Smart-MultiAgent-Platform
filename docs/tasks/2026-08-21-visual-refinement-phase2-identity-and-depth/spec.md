@@ -654,6 +654,40 @@ taken into scope (FU-8 is a coverage note, not a code change).
   available here (the same class of blocker phase 1 recorded for `check:openapi-drift`).
   The bundle-size script's logic was replicated in PowerShell to produce AC-8's numbers and
   to confirm no chunk exceeds its budget; the scripts themselves are CI's to run.
+- **D-11 — two tokens shipped byte-identical to a surface they are drawn on, and a
+  post-build `/code-review` caught both.** Neither was visible to the contrast test as
+  written, because it measured the border weights against `--color-bg` and never against
+  `--color-surface`, and measured `--color-neutral-tint` only against its own `*-on` text.
+  - Dark `--color-border-subtle` was `#1e293b`, which is dark `--color-surface`. An
+    interior rule is drawn ON a recessed fill as often as on a sheet — `STable`'s header,
+    `SCard`'s footer, `SWakeupEditor`'s footer, `SCodeEditor`'s gutter and `SAccordion`'s
+    hovered item all fill with `--color-surface` and then draw a subtle rule — so in dark
+    mode those rules did not lighten, they disappeared. Now `#2a3750`: 1.50:1 on the sheet
+    (still below `--color-border`'s 1.72) and 1.23:1 on the recessed fill.
+  - Light `--color-neutral-tint` was `#f1f5f9`, which is `--color-canvas` and
+    `--color-sidebar-bg`. `neutral` is **`SBadge`'s default variant**, so every unstyled
+    badge on the content area or in the sidebar had no pill at all. Now `#e2e8f0`, which
+    reads on all three surface roles (1.13 / 1.23 / 1.18) and carries its `*-on` text at
+    8.40:1.
+
+  Both guards are now in `contrast.test.ts` and were mutation-probed: restoring either old
+  value fails its own test at exactly 1.00:1. **The lesson generalises past these two** — a
+  contrast budget that only measures a token against one background cannot see a collision
+  with any other, and the surface roles this dossier introduced are precisely what made
+  that gap reachable.
+- **D-12 — four em-dashes became `??` in commit `afbff9d`.** A bulk `Get-Content -Raw` +
+  `WriteAllText` pass over seven files decoded UTF-8 as the ANSI codepage and wrote it
+  back lossily; three comments in `AgentToolsView.vue` and one in
+  `SPromptAssistantConfigForm.vue` were corrupted. Comment-only, and the full extent was
+  established by diffing that commit for lines it had no business touching. Restored.
+  The mechanism is the finding, not the four sites: a text-mode bulk rewrite on Windows is
+  lossy by default, and the same pass ran over 60+ files in this build.
+- **D-13 — the resolvability guard was scoped per file.** As first written it pooled every
+  declaration in the tree into one set, so `SCard`'s `--card-pad` would satisfy a `var()`
+  reference in an unrelated component — the exact silent-transparency failure it was
+  written to catch. It now resolves against `main.css` plus the file's own declarations,
+  and asserts that a component-local name is *not* in the global set, so the scoping cannot
+  quietly regress. The tree passes under the stricter rule.
 - **D-10 — [R24.28] was amended past its approved delta.** The approved text said "two
   border weights" and listed a focus token scale. Neither survives: there are three weights
   (D-2) and the ring is a rule rather than a token. It now also states the AA contrast
@@ -707,14 +741,16 @@ moves, which is what keeps the budget true after this dossier closes.
 | `accent`/`bg` | 5.17 | 7.02 |
 | `on-accent`/`accent` | 5.17 | 7.02 |
 | `on-danger`/`danger` | 4.83 | 6.45 |
-| `neutral-on`/`neutral-tint` | 9.45 | 6.97 |
+| `neutral-on`/`neutral-tint` | 8.40 | 6.97 |
+| `neutral-tint`/`canvas` (fill vs floor) | 1.13 | 1.88 |
+| `border-subtle`/`surface` (rule on a fill) | 1.18 | 1.23 |
 | `info-on`/`info-tint` | 5.49 | 6.38 |
 | `success-on`/`success-tint` | 4.57 | 6.49 |
 | `warning-on`/`warning-tint` | 6.37 | 6.29 |
 | `danger-on`/`danger-tint` | 5.30 | 5.28 |
 | `border-strong`/`bg` (3:1 bar) | 4.76 | 3.90 |
 | `border`/`bg` (decorative) | 1.48 | 1.72 |
-| `border-subtle`/`bg` (decorative) | 1.23 | 1.22 |
+| `border-subtle`/`bg` (decorative) | 1.23 | 1.50 |
 | canvas-to-sheet L\* gap | 3.65 | 4.37 |
 
 **`sidebar-section-text`/`sidebar-bg` was 4.41:1 before this dossier** — a pre-existing AA

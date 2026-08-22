@@ -172,6 +172,38 @@ describe('WCAG contrast budget', () => {
       // Visible at all: a rule nobody can see is not a lighter rule.
       expect(interior).toBeGreaterThanOrEqual(1.1)
     })
+
+    /**
+     * An interior rule is drawn ON a recessed fill as often as on a sheet - a
+     * table header, a card footer, an editor's line-number gutter all set
+     * `background: var(--color-surface)` and then a --color-border-subtle rule.
+     * Measuring the border weights against --color-bg alone let the dark theme
+     * ship with --color-border-subtle byte-identical to --color-surface, which
+     * is not a lighter rule but no rule.
+     */
+    it('keeps an interior rule visible on a recessed fill', () => {
+      const onSurface = contrast(tokens['--color-border-subtle'], tokens['--color-surface'])
+      expect(
+        onSurface,
+        `--color-border-subtle on --color-surface is ${onSurface.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(1.1)
+    })
+
+    /**
+     * A tint is a fill, and a fill that matches what it sits on is not a fill.
+     * `neutral` is SBadge's default variant, so this one reaches every surface
+     * role in the product; it went unguarded until --color-neutral-tint and
+     * --color-canvas were assigned the same value.
+     */
+    it('gives a tint fill a value distinct from every surface it can sit on', () => {
+      for (const surface of ['--color-canvas', '--color-bg', '--color-surface']) {
+        const ratio = contrast(tokens['--color-neutral-tint'], tokens[surface])
+        expect(
+          ratio,
+          `--color-neutral-tint on ${surface} is ${ratio.toFixed(2)}:1`,
+        ).toBeGreaterThanOrEqual(1.1)
+      }
+    })
   })
 
   /**

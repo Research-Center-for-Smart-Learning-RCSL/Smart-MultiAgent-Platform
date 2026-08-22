@@ -122,7 +122,11 @@
   --color-warning-on: #92400e;
   --color-danger-tint: #fee2e2;
   --color-danger-on: #b91c1c;
-  --color-neutral-tint: #f1f5f9;
+  /* Not #f1f5f9. That is --color-canvas (and --color-sidebar-bg), and a neutral
+     badge is SBadge's DEFAULT variant, so matching it left every unstyled badge
+     on the content area or in the sidebar with no pill at all. One step down
+     the axis reads on all three surface roles. */
+  --color-neutral-tint: #e2e8f0;
   --color-neutral-on: #334155;
 
   /* Tinted with the neutral axis (slate-900) rather than pure black, and split
@@ -224,7 +228,17 @@
   /* ── Typography scale ──
      The --font-size, --line, and --weight prefixes deliberately avoid
      Tailwind's --text, --leading, and --font-weight namespaces so no utility
-     values shift. --font-size-2xs (above) predates this scale. */
+     values shift. --font-size-2xs (above) predates this scale.
+
+     That avoidance is NOT blanket, and the difference is worth knowing before
+     adding a token. --radius-*, --shadow-*, --ease-* and --tracking-* ARE
+     Tailwind v4 theme namespaces, and declaring them here deliberately
+     redefines the matching utilities: `rounded-lg`, `shadow-md`, `ease-*` and
+     `tracking-tight` render this file's values, not Tailwind's defaults. That
+     is the intent for the first three - a utility and a token that disagree on
+     what "lg" means is worse than either - and --tracking-* follows them.
+     Where a namespace is avoided it is because a *scale* would shift under
+     components that never opted in. */
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-md: 1rem;
@@ -359,7 +373,12 @@
     --color-on-accent: #0f172a;
     --color-on-danger: #0f172a;
     --color-border: #334155;
-    --color-border-subtle: #1e293b;
+    /* Not #1e293b. That is --color-surface, and an interior rule is most often
+       drawn ON a recessed fill - a table header, a card footer - so matching it
+       makes the rule vanish rather than lighten. contrast.test.ts measures both
+       border weights against --color-surface as well as --color-bg for exactly
+       this reason; measuring only against --color-bg missed it. */
+    --color-border-subtle: #2a3750;
     --color-success: #4ade80;
     --color-warning: #fbbf24;
     --color-sidebar-bg: #080d16;

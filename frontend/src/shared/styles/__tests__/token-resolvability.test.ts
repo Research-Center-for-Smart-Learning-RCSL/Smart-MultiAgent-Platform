@@ -41,29 +41,41 @@ const REFERENCE = /var\(\s*(--[a-z][a-z0-9-]*)/gi
  */
 const EXTERNAL = new Set<string>()
 
-function declared(): Set<string> {
+function namesIn(text: string): Set<string> {
   const out = new Set<string>()
-  for (const text of [mainCss, ...Object.values(sources)]) {
-    for (const m of text.matchAll(DECLARATION)) out.add(m[1])
-    for (const m of text.matchAll(BOUND_DECLARATION)) out.add(m[1])
-  }
+  for (const m of text.matchAll(DECLARATION)) out.add(m[1])
+  for (const m of text.matchAll(BOUND_DECLARATION)) out.add(m[1])
   return out
 }
 
-describe('custom property resolvability', () => {
-  const known = declared()
+/**
+ * The global vocabulary is what `main.css` declares, and only that.
+ *
+ * Pooling every declaration in the tree into one set would defeat the check:
+ * `SCard`'s `--card-pad` and `AppShell`'s `--topbar-height-total` are
+ * component-local, so a union would let either satisfy a `var()` reference in
+ * an unrelated component — which resolves to nothing at runtime and is exactly
+ * the silent transparency this test exists to catch. A component's own
+ * declarations are added per file below instead.
+ */
+const globalNames = namesIn(mainCss)
 
+describe('custom property resolvability', () => {
   it('collected a plausible vocabulary', () => {
-    expect(known.size).toBeGreaterThan(60)
-    expect(known.has('--color-bg')).toBe(true)
+    expect(globalNames.size).toBeGreaterThan(60)
+    expect(globalNames.has('--color-bg')).toBe(true)
+    // A component-local property must NOT be global, or the scoping below is
+    // decorative: the union bug would still pass this file.
+    expect(globalNames.has('--card-pad')).toBe(false)
   })
 
-  it('resolves every var() reference in the tree', () => {
+  it('resolves every var() reference against main.css plus the file itself', () => {
     const offenders: string[] = []
     for (const [path, text] of Object.entries(sources)) {
       if (path.includes('__tests__/')) continue
+      const local = namesIn(text)
       for (const m of text.matchAll(REFERENCE)) {
-        if (known.has(m[1]) || EXTERNAL.has(m[1])) continue
+        if (globalNames.has(m[1]) || local.has(m[1]) || EXTERNAL.has(m[1])) continue
         offenders.push(`${path.replace('/src/', '')}: var(${m[1]})`)
       }
     }
@@ -73,7 +85,7 @@ describe('custom property resolvability', () => {
   it('resolves every var() reference inside main.css itself', () => {
     const offenders = [...mainCss.matchAll(REFERENCE)]
       .map((m) => m[1])
-      .filter((name) => !known.has(name) && !EXTERNAL.has(name))
+      .filter((name) => !globalNames.has(name) && !EXTERNAL.has(name))
     expect(offenders).toEqual([])
   })
 })
