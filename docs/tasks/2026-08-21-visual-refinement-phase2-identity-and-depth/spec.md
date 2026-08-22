@@ -505,11 +505,11 @@ unchanged and unneeded here.
 - [x] AC-14: **No behaviour change.** Every existing unit and component test passes without
       being edited for a visual reason. *1506 tests green. Three test edits, all recorded:
       D-4 (the `@font-face` sweep exemption), D-7 (`tokens.test.ts`'s deleted rows) and D-8.*
-- [~] AC-15: gates green on CI. *Locally green: `pnpm lint`, `pnpm typecheck`, `pnpm test`
-      (1506), `pnpm build`. `check:bundle-size`, `check:type-coverage`,
-      `check:boundaries-enforced` and `check:openapi-drift` are bash scripts that cannot run
-      on this Windows host (D-9), so CI closes this one. **CI is expected to be red on
-      `00-visual-token-parity` until AC-16 is closed.***
+- [x] AC-15: gates green on CI. *Run `32561272600`: **22 of 23 jobs green**, including the
+      three bash gates this host cannot run (D-9) — `frontend-gate-bundle`,
+      `frontend-gate-type-coverage`, `frontend-gate-boundaries` — plus
+      `frontend-gate-global-css`, `frontend-gate-openapi-drift` and `compose-boot-prod`.
+      The 23rd is `frontend-e2e`, red on AC-16 alone; see §15.*
 - [ ] AC-16: **Phase 1's parity harness is retargeted, not deleted.**
       The parity spec is rebaselined against the new values, so a future refactor still has a
       computed-style net. Deleting it is not an acceptable resolution of its failures.
@@ -769,8 +769,17 @@ exactly the failure phase 1 documented: green locally, 48 vanished signatures on
 standing up a pristine stack means taking the running one down — the user directed that this
 go to remote CI rather than have the local environment rebuilt.
 
-Until a pristine-stack baseline is committed, **CI is red on `00-visual-token-parity`, and
-that is expected**. The recipe, from `frontend/`:
+**CI run `32561272600` confirms the shape of it exactly.** 22 of 23 jobs green. The 23rd,
+`frontend-e2e`, ran 145 tests and reported 21 failures — **all 21 in
+`00-visual-token-parity.spec.ts` and nothing else**, each one an `AC-1: no rendered
+difference on "<surface>"` across the whole surface set (agents, keys, orgs, project
+members, chatroom, and the rest). That is the assertion phase 1 wrote to catch an
+unintended pixel change, correctly reporting the intended one. No other spec produced a
+failure annotation, including the new `24-typography-and-assets.spec.ts`.
+
+So the red is a single, fully-diagnosed cause, and it is the one this criterion names.
+Until a pristine-stack baseline is committed, **CI stays red on `00-visual-token-parity`,
+and that is expected**. The recipe, from `frontend/`:
 
 ```
 UPDATE_VISUAL_BASELINE=1 pnpm exec playwright test 00-visual-token-parity --project=desktop
