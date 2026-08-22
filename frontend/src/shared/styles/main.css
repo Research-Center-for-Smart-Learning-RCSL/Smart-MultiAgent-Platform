@@ -166,6 +166,12 @@
   --sidebar-collapsed-width: 0px;
   --topbar-height: 56px;
 
+  /* The width below which a page title stops competing with its action buttons
+     and they wrap to their own line instead (SPageHeader). In rem, unlike the
+     three above: this is a floor for *text*, so it has to grow with the
+     reader's font, while a sidebar track and a chrome height must not. */
+  --page-header-title-min: 16rem;
+
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;
@@ -275,10 +281,20 @@
      One declaration for the 32/40/48px rung that SButton, SInput, SSelect,
      STextarea and AppTopBar each used to carry their own copy of. They sit on
      the same row in a form, so a density change has to move them together or
-     produce controls of mismatched height beside each other. */
-  --control-h-sm: 32px;
-  --control-h-md: 40px;
-  --control-h-lg: 48px;
+     produce controls of mismatched height beside each other.
+
+     In rem, while --sidebar-width and --topbar-height above stay px. They are
+     not the same kind of number and were decided separately (phase 3, FU-10).
+     A control height is a *floor* under text: it exists so a 14px label has
+     room, so when the reader enlarges their font it has to grow with the label
+     or the label overruns it. A sidebar is a *track* and the top bar is chrome
+     - growing those takes width and height away from the content the reader
+     enlarged the font to read, which is the opposite of what they asked for.
+     2/2.5/3rem are 32/40/48px at the default root size, so nothing moves
+     today; what changes is what happens when the reader intervenes. */
+  --control-h-sm: 2rem;
+  --control-h-md: 2.5rem;
+  --control-h-lg: 3rem;
 
   /* ── Semantic elevation ──
      Depth tiers components reach for by meaning, not by raw shadow:

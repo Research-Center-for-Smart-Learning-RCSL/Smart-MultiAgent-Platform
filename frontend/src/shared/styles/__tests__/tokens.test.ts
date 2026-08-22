@@ -104,10 +104,16 @@ const EXPECTED: [token: string, value: string, equals: string][] = [
   // --space-10 (40px) was deleted in phase 2 alongside --font-size-3xl: once
   // phase 1 tokenised every spacing declaration, it had no consumer left.
   ['--space-12', '3rem', '48px'],
-  // Control heights
-  ['--control-h-sm', '32px', '32px'],
-  ['--control-h-md', '40px', '40px'],
-  ['--control-h-lg', '48px', '48px'],
+  // Control heights. In rem since phase 3's FU-10, and the third column is what
+  // makes that safe to assert: these are the same 32/40/48px at the default
+  // root size, so the conversion moved no rendered pixel. It changes what
+  // happens when the reader enlarges their font - the floor grows with the
+  // label it exists to make room for, instead of staying put while the label
+  // overruns it. --sidebar-width and --topbar-height stay px for the opposite
+  // reason; see the note beside them in main.css.
+  ['--control-h-sm', '2rem', '32px'],
+  ['--control-h-md', '2.5rem', '40px'],
+  ['--control-h-lg', '3rem', '48px'],
   // Semantic elevation
   ['--elevation-0', 'none', 'none'],
   ['--elevation-1', 'var(--shadow-sm)', 'var(--shadow-sm)'],
