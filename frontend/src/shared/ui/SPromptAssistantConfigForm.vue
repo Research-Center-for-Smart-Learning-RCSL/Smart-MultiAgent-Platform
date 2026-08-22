@@ -13,7 +13,7 @@ import SFormField from './SFormField.vue'
 import SInput from './SInput.vue'
 import SSelect from './SSelect.vue'
 
-// Structural contracts ??kept local so shared/ui does not import a slice type.
+// Structural contracts — kept local so shared/ui does not import a slice type.
 export interface ConfigFormValue {
   system_prompt: string
   key_id: string | null
