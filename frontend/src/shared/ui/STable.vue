@@ -177,6 +177,10 @@ function onRowClick(row: T) {
  * Read off the existing `cellType` rather than a new prop: every call site that
  * has a numeric or date column already declares it there for the skeleton's
  * sake, so tabular figures come for free on all of them.
+ *
+ * Copied verbatim in `STableCards.vue`, which is the mobile branch of this same
+ * component. Deliberately not shared: three lines against a dependency from the
+ * card branch onto this file's `Column` type. Change one and change the other.
  */
 function isFigureColumn(col: Column): boolean {
   return col.cellType === 'number' || col.cellType === 'date'
@@ -282,9 +286,20 @@ function skeletonStyle(col: Column): Record<string, string> {
               width: col.width,
               textAlign: col.align || 'left',
             }"
-            @click="handleSort(col)"
           >
-            <span class="s-table__th-content">
+            <!-- A sortable header is a button, not a `th` with a click handler.
+                 It carried `@click` and `cursor: pointer` and nothing else - no
+                 `tabindex`, no key handler, no role - so sorting a table was
+                 reachable by pointer only, and `aria-sort` announced a control
+                 that could not be operated. The element is swapped rather than
+                 given `tabindex`, so activation, the focus ring and the
+                 announced role all come from the platform. -->
+            <component
+              :is="col.sortable ? 'button' : 'span'"
+              v-bind="col.sortable ? { type: 'button' } : {}"
+              class="s-table__th-content"
+              @click="handleSort(col)"
+            >
               <span>{{ col.label }}</span>
               <template v-if="col.sortable">
                 <ChevronUpIcon
@@ -303,7 +318,7 @@ function skeletonStyle(col: Column): Record<string, string> {
                   aria-hidden="true"
                 />
               </template>
-            </span>
+            </component>
           </th>
           <!-- Actions column header -->
           <th
@@ -544,7 +559,10 @@ function skeletonStyle(col: Column): Record<string, string> {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.s-table__th--sortable {
+/* The cell is no longer the control - the button inside it is (see the header
+   markup) - so the pointer belongs on the button. Leaving it here would offer a
+   click target over the cell's padding that no longer sorts anything. */
+.s-table__th--sortable .s-table__th-content {
   cursor: pointer;
 }
 
@@ -561,10 +579,22 @@ function skeletonStyle(col: Column): Record<string, string> {
   text-align: right;
 }
 
+/* Renders as a `<button>` for sortable columns and a `<span>` otherwise, so the
+   resets below have to make a button indistinguishable from the span it
+   replaced. `font: inherit` rather than a restated ramp: the cell already
+   carries the header's size and weight, and a button does not inherit them. */
 .s-table__th-content {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  text-align: inherit;
 }
 
 .s-table__sort-icon {

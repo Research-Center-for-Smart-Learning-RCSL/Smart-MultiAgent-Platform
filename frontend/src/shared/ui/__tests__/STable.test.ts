@@ -96,3 +96,52 @@ describe('STable density and figures', () => {
       .toBe('tabular-nums')
   })
 })
+
+/**
+ * Phase 3's V-7. Before this, a sortable header carried `@click` and
+ * `cursor: pointer` and nothing else - no tabindex, no key handler, no role -
+ * so sorting a table was reachable by pointer only while `aria-sort` announced
+ * a control that could not be operated.
+ */
+describe('STable sortable headers are operable by keyboard', () => {
+  it('renders a real button for a sortable column and a span for a plain one', () => {
+    const heads = mountTable().findAll('thead .s-table__th-content')
+    expect(heads).toHaveLength(2)
+    expect(heads[0].element.tagName).toBe('BUTTON')
+    expect(heads[0].attributes('type')).toBe('button')
+    // A non-sortable header must NOT become a button: it would join the tab
+    // order and announce itself as a control that does nothing.
+    expect(heads[1].element.tagName).toBe('SPAN')
+    expect(heads[1].attributes('type')).toBeUndefined()
+  })
+
+  it('emits the sort from the button, not from the cell around it', async () => {
+    const wrapper = mountTable()
+    await wrapper.get('thead .s-table__th-content').trigger('click')
+    expect(wrapper.emitted('sort')?.[0]).toEqual([{ key: 'name', order: 'asc' }])
+
+    // The `th` itself is no longer the control. Asserted so that a future edit
+    // moving the handler back to the cell fails here rather than silently
+    // restoring the pointer-only version.
+    const plain = mountTable()
+    await plain.get('thead .s-table__th').trigger('click')
+    expect(plain.emitted('sort')).toBeUndefined()
+  })
+
+  it('leaves the button visually indistinguishable from the span it replaced', () => {
+    // A button brings its own font, background, border and padding. If any of
+    // them survive, sortable and non-sortable headers stop matching.
+    const rule = topLevelRule(readComponentStyles('shared/ui/STable.vue'), '.s-table__th-content')
+    expect(rule).not.toBeNull()
+    for (const [prop, value] of [
+      ['background', 'none'],
+      ['border', 'none'],
+      ['font', 'inherit'],
+      ['color', 'inherit'],
+      ['padding', '0'],
+      ['margin', '0'],
+    ] as const) {
+      expect(declaration(rule as string, prop), `${prop} is not reset`).toBe(value)
+    }
+  })
+})
