@@ -913,6 +913,88 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: pnpm run test
 
+  # The self-hosted typeface, observed behind the CSP that actually ships.
+  #
+  # frontend-e2e already asserts "no CSP violation was logged" — against Vite on
+  # :5173, which sends no CSP header, so that assertion cannot fail. The header
+  # lives in deploy/compose/nginx/conf.d/smap.conf and nothing else in this
+  # repository runs the frontend behind it. Dossier
+  # 2026-08-22-visual-refinement-phase3-verification-and-debt closes phase 2's
+  # FU-8 here rather than leaving it "proven by construction" a third time.
+  #
+  # Cheap on purpose: a built dist/ behind a bare nginx, no backend, no compose
+  # stack. The font is requested by the preload in index.html and by the
+  # stylesheet, neither of which needs the API — so a page that cannot reach
+  # /api still answers the only question this job asks.
+  frontend-csp-font:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-frontend
+        with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Playwright browsers
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-retry.sh" npx playwright install --with-deps chromium
+      # A built bundle, not `pnpm dev`: Vite injects inline module preambles that
+      # `script-src 'self' 'wasm-unsafe-eval'` blocks, so the dev server under
+      # this CSP fails on the SPA never booting and says nothing about the font.
+      - name: Build
+        run: pnpm run build
+
+      # The CSP is EXTRACTED from smap.conf, never copied. A copy drifts, and a
+      # drifted copy leaves this job green while the deployed header changes —
+      # the same vacuous pass it exists to replace.
+      - name: Serve dist/ behind smap.conf's Content-Security-Policy
+        working-directory: .
+        run: |
+          conf=deploy/compose/nginx/conf.d/smap.conf
+          csp=$(sed -n 's/.*add_header  *Content-Security-Policy  *"\(.*\)"  *always;.*/\1/p' "$conf" | head -1)
+          if [ -z "$csp" ]; then
+            echo "FAIL: no Content-Security-Policy add_header found in $conf"
+            echo "      (the directive was renamed or reformatted — fix this extractor,"
+            echo "       do not inline the header here)"
+            exit 1
+          fi
+          case "$csp" in
+            *font-src*) ;;
+            *) echo "FAIL: the extracted CSP has no font-src clause: $csp"; exit 1 ;;
+          esac
+          echo "Extracted CSP: $csp"
+
+          mkdir -p /tmp/csp-edge
+          cat > /tmp/csp-edge/default.conf <<EOF
+          server {
+              listen 8080;
+              root /usr/share/nginx/html;
+              index index.html;
+              location / {
+                  add_header Content-Security-Policy "$csp" always;
+                  try_files \$uri \$uri/ /index.html;
+              }
+          }
+          EOF
+          docker run -d --name csp-edge -p 8080:8080 \
+            -v "$PWD/frontend/dist:/usr/share/nginx/html:ro" \
+            -v /tmp/csp-edge/default.conf:/etc/nginx/conf.d/default.conf:ro \
+            nginx:1.31.3-alpine
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://localhost:8080/; then echo "edge up"; exit 0; fi
+            sleep 1
+          done
+          echo "FAIL: the CSP edge never served a response"
+          docker logs csp-edge || true
+          exit 1
+
+      - name: Font check under the deployed CSP
+        run: pnpm exec playwright test --config=playwright.csp.config.ts
+
+      - name: Edge logs
+        if: always()
+        run: docker logs csp-edge || true
+
   # frontend-e2e brings up the whole compose stack, so it is not worth running
   # on a PR that cannot affect it. This decides whether it is.
   e2e-scope:
@@ -1388,6 +1470,7 @@ jobs:
       - frontend-gate-openapi-drift
       - frontend-typecheck
       - frontend-test
+      - frontend-csp-font
       - e2e-scope
       - frontend-e2e
     steps:
@@ -1414,6 +1497,7 @@ jobs:
           echo "  frontend-gate-openapi-drift: ${{ needs.frontend-gate-openapi-drift.result }}"
           echo "  frontend-typecheck:         ${{ needs.frontend-typecheck.result }}"
           echo "  frontend-test:              ${{ needs.frontend-test.result }}"
+          echo "  frontend-csp-font:          ${{ needs.frontend-csp-font.result }}"
           echo "  e2e-scope:                  ${{ needs.e2e-scope.result }} (relevant=${{ needs.e2e-scope.outputs.relevant }})"
           echo "  frontend-e2e:               ${{ needs.frontend-e2e.result }}"
 
@@ -1438,6 +1522,7 @@ jobs:
             "${{ needs.frontend-gate-openapi-drift.result }}" \
             "${{ needs.frontend-typecheck.result }}" \
             "${{ needs.frontend-test.result }}" \
+            "${{ needs.frontend-csp-font.result }}" \
             "${{ needs.e2e-scope.result }}"; do
             if [ "$result" != "success" ]; then
               echo "FAIL: required job returned $result"
