@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-08-22
 requirements: []
 depends_on: []
@@ -76,6 +76,16 @@ no written source is a guess (§3, Q-1).
 | Q-6 | Does this depend on `2026-08-21-visual-refinement-phase2-identity-and-depth`, the one active dossier that touches a file here? | **No.** `depends_on: []`. | The only shared file is `main.css`, and the regions are disjoint: this dossier edits the `:root` block at `:183-184` that carries `--topbar-height-total` (deliberately outside `@theme`, because `env()` must reach the browser intact), while phase 2 edits `@theme`'s colour values and the `[data-sonner-toaster]` colour block. Q-4 keeps the toaster fix out of `main.css` entirely. Whoever builds second rebases; neither needs the other's output. |
 | Q-7 | The banner uses `--space-2`/`--space-4` padding. Does the inset add to that padding or replace it? | **Add.** `padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px))`. | The `max()` form used elsewhere is right for a *gutter* whose only job is to keep clear of the edge (`SModal`, `AuthLayout`). The banner's `--space-2` is interior padding around text that must remain interior padding under the strip; `max()` would swallow it whenever the inset exceeded 8px, which is every notched device. This is a real difference from the sibling sites and is why §8's T-3 asserts the `calc(` form here rather than reusing the `max()` assertion. |
 
+The two rows below were decided at approval on 2026-08-22, after `/build`'s freshness pass
+found that §7's F-2 design does not work as written and that §6 undercounted the consumers
+of `--topbar-height-total`. Both are recorded here rather than as deviations, because they
+were agreed before any code moved; §12 carries what changed afterwards.
+
+| ID | Question | Decision | Rationale |
+|---|---|---|---|
+| Q-8 | §7's F-2 puts `--topbar-inset-top` on `.app-root` and expects `--topbar-height-total` to follow. It does not: a custom property substitutes its `var()`s at computed-value time **on the element that declares it**, so a descendant override cannot reach a total already resolved at `:root` - the descendant inherits the substituted value. Measured in Chromium at 100px where 56px was intended. Which correction? | **Declare the total on `:root, .app-root`** - one `calc()`, two subjects. | The alternatives were worse in ways that matter here. `:root:has(.impersonation-banner)` is pure CSS but makes a global stylesheet depend on a slice component's class name, which breaks silently on a rename; a JS attribute on `documentElement` adds a DOM side effect for a fact the cascade can already express. Both also give `SNetworkBanner` a *worse* offset than the double-subject form (Q-9). The double subject keeps §7's "one property per fact" intact - the value is still written once - and re-resolves it exactly where an override can exist. |
+| Q-9 | §6 cleared `SNetworkBanner`, but it is a **fourth** consumer of `--topbar-height-total` (`:61`) and renders *outside* `.app-root` (`App.vue:36`), so it sees no override. During impersonation its below-topbar offset already ignores the banner's height entirely. Leave as a follow-up, or fix here? | **Fix here.** Move it inside `.app-root`, into a zero-height `position: relative` anchor placed after the impersonation banner, and make the below-topbar mode `absolute` rather than `fixed`. | Arithmetic over a height is what produced F-2 in the first place; adding a second number for the banner's height would repeat it, and the banner's height is not a constant (the text wraps on a narrow viewport). Measuring from a flow position removes the arithmetic instead of correcting it - neither file has to know the other's height, and nothing can drift. The one assumption it takes on is that the authenticated shell does not scroll the document, which `.app-shell`'s `overflow: hidden` plus `flex: 1 1 0px` already guarantee and which is stated in the rule. |
+
 ## 4. Reproduction
 
 Deterministic, but only on hardware with a display cutout or a status-bar inset - iOS
@@ -140,7 +150,7 @@ enumeration:
 
 | Surface | Verdict |
 |---|---|
-| `SNetworkBanner.vue:45-49` | **Cleared.** `position: fixed` with `top: max(var(--space-3), env(safe-area-inset-top, 0px))`, and listed. |
+| `SNetworkBanner.vue:45-49` | **Cleared** here, and that was wrong - see Q-9 and D-2. Its own inset is fine; what this row never asked is what its `--below-topbar` offset *assumes*. |
 | `App.vue`'s `.app-root` | **Cleared.** Carries `min-height: 100dvh` only; its children own their edges. |
 | `main.css`'s `skip-link` utility | **Cleared.** `top`/`left` insets present and listed. |
 | `AppShell`, `AuthLayout`, `Landing`, `SDrawer`, `SModal`, `AppTopBar` | **Cleared.** All listed with their edges. |
@@ -242,25 +252,46 @@ unticked for exactly this reason and that precedent should hold.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1, T-2 and T-3 each fail against current code for the documented reason, and
+- [x] AC-1: T-1, T-2 and T-3 each fail against current code for the documented reason, and
       pass after their fix. Verified by running them before the corresponding edit.
-- [ ] AC-2: `ImpersonationBanner.vue` insets its top edge additively, so its interior
-      `--space-2` survives under a non-zero inset (Q-7).
-- [ ] AC-3: `AppTopBar.vue` contains no direct `env(safe-area-inset-top` call, and both it
+      **Observed: 5 failures, 7 passes** on the first run - the per-edge sweep against
+      `ImpersonationBanner.vue` (top) and `toasterProps.ts` (four edges), plus all four
+      T-3 assertions. Each failed for its documented reason, not incidentally.
+- [x] AC-2: `ImpersonationBanner.vue` insets its top edge additively, so its interior
+      `--space-2` survives under a non-zero inset (Q-7). **Measured** under §4's simulation
+      at a 44px inset: banner 0-79px, its text at y=52, leaving exactly 8px of interior
+      padding above and 8px below. See D-5 - it now insets three edges, not one.
+- [x] AC-3: `AppTopBar.vue` contains no direct `env(safe-area-inset-top` call, and both it
       and `AppShell.vue:156` still derive from `--topbar-height-total` with no new consumer
-      of impersonation state.
-- [ ] AC-4: `toasterProps.ts` returns `offset` and `mobileOffset` covering all four edges,
+      of impersonation state. `AppShell.vue` is untouched by this task's diff. **Measured**
+      at a 44px inset: with the banner present the bar's `padding-top` is `0px`, its height
+      exactly `56px`, and the shell's first grid track `56px` - no empty band. Without it,
+      `44px` / `100px` / `100px`, identical to before the change. The only new reader of
+      impersonation state is `App.vue`, which is where §7 put it.
+- [x] AC-4: `toasterProps.ts` returns `offset` and `mobileOffset` covering all four edges,
       each `max()`-guarded with the vue-sonner default as the floor, so geometry on a device
-      with no inset is unchanged.
-- [ ] AC-5: T-4 passes, and its exemption list is empty or every entry carries a stated
-      reason.
+      with no inset is unchanged. Pinned twice by `ToasterSafeArea.test.ts` (D-7): all eight
+      custom properties reach the mounted container verbatim, and the two floors are
+      compared against `VIEWPORT_OFFSET` / `MOBILE_VIEWPORT_OFFSET` read out of the
+      installed package rather than against themselves.
+- [x] AC-5: T-4 passes, and its exemption list is empty or every entry carries a stated
+      reason. Seven candidates found across 762 scanned files: five classified in
+      `INSET_SURFACES`, two exempted (`STable.vue`, `LandingIntro.vue`), each with a reason.
 - [ ] AC-6: **device check, on hardware with a display cutout, portrait and landscape** -
       the impersonation banner's text clears the strip, no empty band appears between banner
       and top bar, and the first toast clears the strip. Left unticked rather than claimed if
       no such device is available; nothing in CI can close this.
-- [ ] AC-7: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` green, and
+      **Left unticked: no notched hardware was available.** What *was* done instead is
+      §4's simulation - the shipped rules with `env(safe-area-inset-top, 0px)` replaced by a
+      constant `44px`, measured in Chromium at 390x844 in both states (numbers under AC-2
+      and AC-3). That proves the cascade and the geometry; it proves nothing about a real
+      inset, and in particular **the landscape half of this criterion has been reasoned
+      about and not seen** - D-5's side insets are the least-observed part of the change.
+      The toaster's rendered offset has not been observed at any inset, real or simulated.
+- [x] AC-7: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` green, and
       `ToasterAccessibility.test.ts` passes unmodified - it mounts these exact props, so a
-      shape change there is a signal, not a formality.
+      shape change there is a signal, not a formality. Final run: **220 files, 1521 tests,
+      all passing**; lint, typecheck and build clean.
 
 ## 11. SRS Delta
 
@@ -270,7 +301,76 @@ surfaces its enumeration missed (Q-1).
 
 ## 12. Deviation Log
 
-Appended by /build.
+Q-8 and Q-9 in §3 carry the two changes agreed **at approval**, before code moved. These
+are what changed **after** it.
+
+- **D-1** - `--topbar-height-total` is declared on `:root, .app-root`, not on `:root`
+  alone as §7 implies. This is Q-8's correction; it is repeated here because a reader of
+  §7 alone would write the version that does not work. The property substitution rule
+  behind it was verified empirically in Chromium before the design was changed, not
+  argued from memory: a total declared only at `:root` computed to `100px` under a
+  descendant override that should have made it `56px`, and the same declaration repeated
+  on the overriding element computed to `56px`.
+
+- **D-2** - `SNetworkBanner` was taken into scope (Q-9). §6 had **cleared** it, on the
+  strength of its own `top: max(var(--space-3), env(...))` rule - which is correct for
+  the unauthenticated mode and says nothing about `--below-topbar`. The sibling sweep
+  asked "does this surface inset itself" and the right question for this file was "what
+  does this surface's offset assume". It ships as a zero-height `position: relative`
+  anchor in `App.vue` with the banner's below-topbar mode switched to `absolute`.
+
+- **D-3** - `AppTopBar.vue`'s `INSET_SURFACES` entry is `[]`, not `['top']` with an
+  explanatory note as §7 specified. The note alone would not have worked: the per-edge
+  sweep tests for a literal `env(safe-area-inset-top` in the file, and the whole point of
+  F-2 is that the bar no longer calls `env()` itself. T-3's four assertions carry the
+  contract instead, and the entry's comment says so - an empty list would otherwise be
+  the one entry in the map that asserts nothing.
+
+- **D-4** - T-4 matches `inset: 0` as well as `top: 0`. §8 specified `top: 0`. `inset: 0`
+  is the same statement spelled shorter and three surfaces in the tree use it
+  (`SModal`, `SDrawer`'s overlay, `LandingIntro`); leaving it out would have left a known
+  hole in a guard whose entire purpose is closing a known hole.
+
+- **D-5** - `ImpersonationBanner.vue` insets **three** edges, not the one `padding-top`
+  §7 specified, and its `INSET_SURFACES` entry is `['top', 'left', 'right']`. Found by a
+  post-implementation `/code-review`, and it is the dossier's own reproduction: §4 step 3
+  says "Rotate to landscape: it renders under the cutout", and AC-6 asks for both
+  orientations, but §7's fix covers portrait only. In landscape on a notched device
+  `safe-area-inset-top` is `0px` and the sensor housing becomes a left/right inset, which
+  this full-bleed row never cleared. That is precisely the half-protected surface §2
+  quotes the sweep as existing to catch - and with `['top']` in the map, the sweep could
+  never have flagged it. The sides are `max()` and the top stays additive, which is Q-7's
+  own distinction applied per edge: the side `--space-4` is a gutter, the top `--space-2`
+  is interior padding. `AuthLayout` and `Landing` are the in-repo precedent.
+
+- **D-6** - a `useImpersonationFlag` export was added to the admin slice and then
+  **reverted**; the shipped code matches §7's `useImpersonation().isImpersonating`. It is
+  recorded because the reasoning was wrong in an instructive way. `App.test.ts` threw
+  `No 'queryClient' found in Vue context` when `App.vue` began calling the composable,
+  which was read as "App.vue is mounted above the QueryClient provider" and answered with
+  a narrower export. The real cause was that `App.test.ts` never installed
+  `VueQueryPlugin` at all: `main.ts:56` installs it with `app.use()`, an app-level
+  provide that the root component resolves like any other. Verified by mounting a root
+  component that calls `useMutation()` under an app-level plugin - no throw. **A test
+  harness that differs from `main.ts` is not evidence about the application.** The
+  correction was to give the test the plugin the real app has always had.
+
+- **D-7** - `ToasterSafeArea.test.ts` is a new file; §8's plan had four tests, all source
+  assertions in `mobileViewportContract.test.ts`. Two things there are unreachable by a
+  source scan. That vue-sonner still *reads* `offset`/`mobileOffset` is one - a rename in
+  the library would leave the scan green and put every toast back behind the cutout. §9's
+  named risk is the other: its first version asserted the floors against the same
+  literals `toasterProps.ts` writes, comparing the file with itself, so a vue-sonner bump
+  that moved `VIEWPORT_OFFSET` would have passed. It reads the constants out of the
+  installed package now. That first version shipped and was caught by `/code-review`.
+
+- **D-8** - two existing tests changed. `AppFeedback.test.ts` gains a case asserting the
+  `.app-root--impersonating` class tracks the flag, which is the only part of F-2 jsdom
+  can see. `App.test.ts:93` asserted `SNetworkBanner` sits **outside** `.app-root`; D-2
+  reverses that contract, so the assertion was replaced - not deleted - by a stronger one
+  that pins containment **and DOM order**, order being the whole mechanism. Its old
+  comment justified the exclusion with "the wrapper would constrain them", which is false
+  for a `position: fixed` child of a non-transformed ancestor.
 
 ## 13. Follow-ups
 
@@ -283,4 +383,31 @@ Appended by /build.
 - **FU-2** - `docs/UI/11-responsive-a11y.md:397-401` lists cutout behaviour among the three
   things outside the suite's reach but gives no checklist for confirming them; §7.2's manual
   checklist has no safe-area row. AC-6 is currently the only written form of that check, and
-  it will leave with this dossier.
+  it will leave with this dossier. **This is now the load-bearing one**: AC-6 closed
+  unticked and D-5's landscape insets are the least-observed part of the change, so the
+  only durable record of what to check on a real device is a criterion in a closed
+  dossier. Moving it into that document's §7.2 is what stops it evaporating.
+
+- **FU-3** - `--topbar-height-total` is now declared twice, and a consumer rendered
+  **outside** `.app-root` silently gets the `:root` value - correct on every device with
+  no inset, wrong by exactly the inset during an impersonation session. There is no such
+  consumer today (D-2 moved the last one in), and T-3 pins the `.app-root` half of the
+  declaration, but nothing detects a *new* outside consumer. The check has the same shape
+  as T-4: a sweep for `var(--topbar-height-total)` in files whose element is not a
+  descendant of `.app-root`. That descendant relationship is not something a source scan
+  can determine, which is why it is a follow-up rather than a fifth test here.
+
+- **FU-4** - `e2e/baselines/visual-token-parity.json` predates D-2's
+  `div|app-root__overlay-anchor` element. Nothing fails: the spec iterates baseline
+  signatures and reports absent ones without failing, so a *new* element is simply never
+  compared. It matters only because
+  `2026-08-22-visual-refinement-phase3-verification-and-debt`'s AC-1 regenerates that
+  baseline, and whoever does should know the extra div is expected rather than drift.
+
+- **FU-5** - D-6's real finding generalises past this task. `App.test.ts` was mounting the
+  application root under a plugin set that did not match `main.ts` - it had pinia, router
+  and i18n but not `VueQueryPlugin` - and that gap read as a fact about the application
+  for long enough to produce a wrong design. Nothing asserts that a test harness mounting
+  `App.vue` installs what `main.ts` installs. A single shared mount helper, or a test that
+  compares the two plugin lists, would close a class of false evidence rather than this
+  one instance.
