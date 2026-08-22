@@ -3,6 +3,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -133,10 +136,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-alert.s-alert--danger.warning-banner": [
    "16px|400|24px|12px|16px|12px|16px|||20px||||<measured>|"
@@ -193,7 +196,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -203,6 +206,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -333,10 +339,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-alert.s-alert--danger.warning-banner": [
    "16px|400|24px|12px|16px|12px|16px|||20px||||<measured>|"
@@ -393,7 +399,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -403,6 +409,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -476,10 +485,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-alert.s-alert--danger.warning-banner": [
    "16px|400|24px|12px|16px|12px|16px|||20px||||<measured>|"
@@ -536,7 +545,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -546,6 +555,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -619,10 +631,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-alert.s-alert--danger.warning-banner": [
    "16px|400|24px|12px|16px|12px|16px|||20px||||<measured>|"
@@ -679,7 +691,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -688,6 +700,9 @@
  "admin-metrics @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -853,13 +868,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|admin-metrics__grid": [
    "16px|400|24px|||||16px||16px||16px|16px|<measured>|"
   ],
   "div|admin-metrics__card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "svg|admin-metrics__icon": [
    "16px|400|24px|||||||||||<measured>|"
@@ -875,6 +890,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -1039,13 +1057,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|admin-metrics__grid": [
    "16px|400|24px|||||16px||16px||16px|16px|<measured>|"
   ],
   "div|admin-metrics__card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|admin-metrics__icon": [
    "16px|400|24px|||||||||||<measured>|"
@@ -1061,6 +1079,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -1158,13 +1179,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|admin-metrics__grid": [
    "16px|400|24px|||||16px||16px||16px|16px|<measured>|"
   ],
   "div|admin-metrics__card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "svg|admin-metrics__icon": [
    "16px|400|24px|||||||||||<measured>|"
@@ -1180,6 +1201,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -1277,13 +1301,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|admin-metrics__grid": [
    "16px|400|24px|||||16px||16px||16px|16px|<measured>|"
   ],
   "div|admin-metrics__card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||4px|4px|<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|admin-metrics__icon": [
    "16px|400|24px|||||||||||<measured>|"
@@ -1298,6 +1322,9 @@
  "agent-detail @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -1441,13 +1468,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -1460,7 +1487,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6.s-tabs": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -1487,8 +1514,8 @@
    "16px|400|24px|||||24px||||||<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|",
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px",
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h3|font-semibold.mb-4.text-lg": [
    "18px|600|28px|||||||16px||||<measured>|"
@@ -1575,7 +1602,7 @@
    "18px|600|28px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "textarea|code-editor": [
    "13px|400|19.5px|12px|12px|12px|12px|||||||312px|"
@@ -1589,7 +1616,7 @@
   "div|border.border-[var(--color-border)].flex.flex-col.h-full.rounded": [
    "16px|400|24px|||||||||||<measured>|"
   ],
-  "div|border-[var(--color-border)].border-b.font-semibold.px-3.py-2.text-sm": [
+  "div|border-[var(--color-border-subtle)].border-b.font-semibold.px-3.py-2.text-sm": [
    "14px|600|20px|8px|12px|8px|12px|||||||<measured>|"
   ],
   "div|flex.flex-1.items-center.justify-center.p-4.text-[var(--color-muted)].text-center.text-sm": [
@@ -1701,7 +1728,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|wakeup-advanced": [
    "16px|400|24px|10px||||||||||<measured>|"
@@ -1722,7 +1749,7 @@
    "14px|400|20px|||||||16px||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|space-y-6": [
    "16px|400|24px|||||||||||<measured>|"
@@ -1754,6 +1781,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -1896,13 +1926,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -1915,7 +1945,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6.s-tabs": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -1942,8 +1972,8 @@
    "16px|400|24px|||||24px||||||<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|",
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px",
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h3|font-semibold.mb-4.text-lg": [
    "18px|600|28px|||||||16px||||<measured>|"
@@ -2030,7 +2060,7 @@
    "18px|600|28px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "textarea|code-editor": [
    "13px|400|19.5px|12px|12px|12px|12px|||||||312px|"
@@ -2044,7 +2074,7 @@
   "div|border.border-[var(--color-border)].flex.flex-col.h-full.rounded": [
    "16px|400|24px|||||||||||<measured>|"
   ],
-  "div|border-[var(--color-border)].border-b.font-semibold.px-3.py-2.text-sm": [
+  "div|border-[var(--color-border-subtle)].border-b.font-semibold.px-3.py-2.text-sm": [
    "14px|600|20px|8px|12px|8px|12px|||||||<measured>|"
   ],
   "div|flex.flex-1.items-center.justify-center.p-4.text-[var(--color-muted)].text-center.text-sm": [
@@ -2156,7 +2186,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|wakeup-advanced": [
    "16px|400|24px|10px||||||||||<measured>|"
@@ -2177,7 +2207,7 @@
    "14px|400|20px|||||||16px||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|space-y-6": [
    "16px|400|24px|||||||||||<measured>|"
@@ -2209,6 +2239,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -2294,13 +2327,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -2313,7 +2346,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -2331,8 +2364,8 @@
    "16px|400|24px|||||24px||||||<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|",
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px",
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h3|font-semibold.mb-4.text-lg": [
    "18px|600|28px|||||||16px||||<measured>|"
@@ -2407,7 +2440,7 @@
    "18px|600|28px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "textarea|code-editor": [
    "13px|400|19.5px|12px|12px|12px|12px|||||||312px|"
@@ -2421,7 +2454,7 @@
   "div|border.border-[var(--color-border)].flex.flex-col.h-full.rounded": [
    "16px|400|24px|||||||||||<measured>|"
   ],
-  "div|border-[var(--color-border)].border-b.font-semibold.px-3.py-2.text-sm": [
+  "div|border-[var(--color-border-subtle)].border-b.font-semibold.px-3.py-2.text-sm": [
    "14px|600|20px|8px|12px|8px|12px|||||||<measured>|"
   ],
   "div|flex.flex-1.items-center.justify-center.p-4.text-[var(--color-muted)].text-center.text-sm": [
@@ -2533,7 +2566,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|wakeup-advanced": [
    "16px|400|24px|10px||||||||||<measured>|"
@@ -2554,7 +2587,7 @@
    "14px|400|20px|||||||16px||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|space-y-6": [
    "16px|400|24px|||||||||||<measured>|"
@@ -2585,16 +2618,19 @@
    "16px|400|24px|16px|16px|16px|16px|||||12px|12px|<measured>|"
   ],
   "button|flex-1.s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|flex-1.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "agent-detail @375x812 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -2680,13 +2716,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -2699,7 +2735,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -2717,8 +2753,8 @@
    "16px|400|24px|||||24px||||||<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|",
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px",
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h3|font-semibold.mb-4.text-lg": [
    "18px|600|28px|||||||16px||||<measured>|"
@@ -2793,7 +2829,7 @@
    "18px|600|28px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "textarea|code-editor": [
    "13px|400|19.5px|12px|12px|12px|12px|||||||312px|"
@@ -2807,7 +2843,7 @@
   "div|border.border-[var(--color-border)].flex.flex-col.h-full.rounded": [
    "16px|400|24px|||||||||||<measured>|"
   ],
-  "div|border-[var(--color-border)].border-b.font-semibold.px-3.py-2.text-sm": [
+  "div|border-[var(--color-border-subtle)].border-b.font-semibold.px-3.py-2.text-sm": [
    "14px|600|20px|8px|12px|8px|12px|||||||<measured>|"
   ],
   "div|flex.flex-1.items-center.justify-center.p-4.text-[var(--color-muted)].text-center.text-sm": [
@@ -2919,7 +2955,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|wakeup-advanced": [
    "16px|400|24px|10px||||||||||<measured>|"
@@ -2940,7 +2976,7 @@
    "14px|400|20px|||||||16px||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|space-y-6": [
    "16px|400|24px|||||||||||<measured>|"
@@ -2971,15 +3007,18 @@
    "16px|400|24px|16px|16px|16px|16px|||||12px|12px|<measured>|"
   ],
   "button|flex-1.s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|flex-1.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "agent-tools @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -3123,7 +3162,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "section|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -3135,9 +3174,9 @@
    "14px|400|20px|||||4px||||||<measured>|"
   ],
   "div|mt-4.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
-  "ul|divide-[var(--color-border)].divide-y.flex.flex-col": [
+  "ul|divide-[var(--color-border-subtle)].divide-y.flex.flex-col": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|flex.gap-4.items-center.justify-between.py-3": [
@@ -3159,13 +3198,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "p|mt-1.text-[var(--color-warning)].text-xs": [
    "12px|400|16px|||||4px||||||<measured>|"
@@ -3173,17 +3212,20 @@
   "div|s-toggle.s-toggle--disabled": [
    "16px|400|24px|||||||||8px|8px|44px|"
   ],
-  "div|flex.items-center.justify-between.mb-3": [
-   "16px|400|24px|||||||12px||||<measured>|"
+  "div|flex.flex-wrap.gap-3.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||12px|12px|<measured>|"
   ],
   "h3|font-semibold.text-[var(--color-fg)].text-sm": [
    "14px|600|20px|||||||||||<measured>|"
+  ],
+  "div|shrink-0": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "input|hidden": [
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3213,6 +3255,9 @@
   "p|s-empty-state__title": [
    "16px|600|24px|||||||||||<measured>|"
   ],
+  "div|flex.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||||<measured>|"
+  ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
   ],
@@ -3220,13 +3265,13 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "td|s-table__empty": [
    "14px|400|21px|48px|16px|48px|16px|||||||<measured>|"
@@ -3239,7 +3284,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -3266,6 +3311,9 @@
  "agent-tools @1440x900 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -3409,7 +3457,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "section|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -3421,9 +3469,9 @@
    "14px|400|20px|||||4px||||||<measured>|"
   ],
   "div|mt-4.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
-  "ul|divide-[var(--color-border)].divide-y.flex.flex-col": [
+  "ul|divide-[var(--color-border-subtle)].divide-y.flex.flex-col": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|flex.gap-4.items-center.justify-between.py-3": [
@@ -3445,13 +3493,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "p|mt-1.text-[var(--color-warning)].text-xs": [
    "12px|400|16px|||||4px||||||<measured>|"
@@ -3459,17 +3507,20 @@
   "div|s-toggle.s-toggle--disabled": [
    "16px|400|24px|||||||||8px|8px|44px|"
   ],
-  "div|flex.items-center.justify-between.mb-3": [
-   "16px|400|24px|||||||12px||||<measured>|"
+  "div|flex.flex-wrap.gap-3.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||12px|12px|<measured>|"
   ],
   "h3|font-semibold.text-[var(--color-fg)].text-sm": [
    "14px|600|20px|||||||||||<measured>|"
+  ],
+  "div|shrink-0": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "input|hidden": [
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3499,6 +3550,9 @@
   "p|s-empty-state__title": [
    "16px|600|24px|||||||||||<measured>|"
   ],
+  "div|flex.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||||<measured>|"
+  ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
   ],
@@ -3506,13 +3560,13 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "td|s-table__empty": [
    "14px|400|21px|48px|16px|48px|16px|||||||<measured>|"
@@ -3525,7 +3579,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -3553,6 +3607,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -3638,7 +3695,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "section|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -3650,9 +3707,9 @@
    "14px|400|20px|||||4px||||||<measured>|"
   ],
   "div|mt-4.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
-  "ul|divide-[var(--color-border)].divide-y.flex.flex-col": [
+  "ul|divide-[var(--color-border-subtle)].divide-y.flex.flex-col": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|flex.gap-4.items-center.justify-between.py-3": [
@@ -3674,13 +3731,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "p|mt-1.text-[var(--color-warning)].text-xs": [
    "12px|400|16px|||||4px||||||<measured>|"
@@ -3688,17 +3745,20 @@
   "div|s-toggle.s-toggle--disabled": [
    "16px|400|24px|||||||||8px|8px|44px|"
   ],
-  "div|flex.items-center.justify-between.mb-3": [
-   "16px|400|24px|||||||12px||||<measured>|"
+  "div|flex.flex-wrap.gap-3.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||12px|12px|<measured>|"
   ],
   "h3|font-semibold.text-[var(--color-fg)].text-sm": [
    "14px|600|20px|||||||||||<measured>|"
+  ],
+  "div|shrink-0": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "input|hidden": [
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3725,6 +3785,9 @@
   "p|s-empty-state__title": [
    "16px|600|24px|||||||||||<measured>|"
   ],
+  "div|flex.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||||<measured>|"
+  ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
   ],
@@ -3738,7 +3801,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -3766,6 +3829,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -3851,7 +3917,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "section|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -3863,9 +3929,9 @@
    "14px|400|20px|||||4px||||||<measured>|"
   ],
   "div|mt-4.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|16px||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
-  "ul|divide-[var(--color-border)].divide-y.flex.flex-col": [
+  "ul|divide-[var(--color-border-subtle)].divide-y.flex.flex-col": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|flex.gap-4.items-center.justify-between.py-3": [
@@ -3887,13 +3953,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "p|mt-1.text-[var(--color-warning)].text-xs": [
    "12px|400|16px|||||4px||||||<measured>|"
@@ -3901,17 +3967,20 @@
   "div|s-toggle.s-toggle--disabled": [
    "16px|400|24px|||||||||8px|8px|44px|"
   ],
-  "div|flex.items-center.justify-between.mb-3": [
-   "16px|400|24px|||||||12px||||<measured>|"
+  "div|flex.flex-wrap.gap-3.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||12px|12px|<measured>|"
   ],
   "h3|font-semibold.text-[var(--color-fg)].text-sm": [
    "14px|600|20px|||||||||||<measured>|"
+  ],
+  "div|shrink-0": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "input|hidden": [
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3938,6 +4007,9 @@
   "p|s-empty-state__title": [
    "16px|600|24px|||||||||||<measured>|"
   ],
+  "div|flex.items-center.justify-between.mb-3": [
+   "16px|400|24px|||||||12px||||<measured>|"
+  ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
   ],
@@ -3951,7 +4023,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -3979,6 +4051,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -4123,13 +4198,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4143,7 +4218,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -4176,19 +4251,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|cursor-pointer.font-medium.text-[var(--color-accent)]": [
    "14px|500|21px|||||||||||<measured>|"
@@ -4203,7 +4278,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--sm": [
    "12px|500|15px|||||||||8px|8px|32px|"
@@ -4213,6 +4288,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -4357,13 +4435,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4377,7 +4455,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -4410,19 +4488,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|cursor-pointer.font-medium.text-[var(--color-accent)]": [
    "14px|500|21px|||||||||||<measured>|"
@@ -4437,7 +4515,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--sm": [
    "12px|500|15px|||||||||8px|8px|32px|"
@@ -4446,6 +4524,9 @@
  "agents-list @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -4532,13 +4613,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4552,7 +4633,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -4622,6 +4703,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -4707,13 +4791,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4727,7 +4811,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -4796,6 +4880,9 @@
  "chatroom @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -4936,7 +5023,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|chat-header__name": [
-   "16px|600|22.4px|||||||||||<measured>|"
+   "16px|600|20.8px|||||||||||<measured>|"
   ],
   "span|chat-header__pill.chat-header__pill--on": [
    "12px|400|18px|2px|10px|2px|10px|||||4px|4px|<measured>|"
@@ -5061,6 +5148,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -5200,7 +5290,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|chat-header__name": [
-   "16px|600|22.4px|||||||||||<measured>|"
+   "16px|600|20.8px|||||||||||<measured>|"
   ],
   "span|chat-header__pill.chat-header__pill--on": [
    "12px|400|18px|2px|10px|2px|10px|||||4px|4px|<measured>|"
@@ -5325,6 +5415,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -5404,7 +5497,7 @@
    "12px|500|15px|||||||||||<measured>|"
   ],
   "h1|chat-header__name": [
-   "16px|600|22.4px|||||||||||<measured>|"
+   "16px|600|20.8px|||||||||||<measured>|"
   ],
   "span|chat-header__pill.chat-header__pill--on": [
    "12px|400|18px|2px|10px|2px|10px|||||4px|4px|<measured>|"
@@ -5465,6 +5558,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -5544,7 +5640,7 @@
    "12px|500|15px|||||||||||<measured>|"
   ],
   "h1|chat-header__name": [
-   "16px|600|22.4px|||||||||||<measured>|"
+   "16px|600|20.8px|||||||||||<measured>|"
   ],
   "span|chat-header__pill.chat-header__pill--on": [
    "12px|400|18px|2px|10px|2px|10px|||||4px|4px|<measured>|"
@@ -5605,6 +5701,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -5743,13 +5842,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -5763,7 +5862,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -5787,25 +5886,28 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
-  "span|s-table__th-content": [
+  "button|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "span|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|room-name": [
    "14px|400|21px|||||||||6px|6px|<measured>|"
@@ -5826,7 +5928,7 @@
    "10px|500|10px|||||||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--sm": [
    "12px|500|15px|||||||||8px|8px|32px|"
@@ -5838,7 +5940,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-modal__panel.s-modal__panel--md": [
-   "16px|400|24px|||||<measured>|<measured>|<measured>|<measured>|||<measured>|rgba(0, 0, 0, 0.3) 0px 20px 25px -5px"
+   "16px|400|24px|||||<measured>|<measured>|<measured>|<measured>|||<measured>|rgba(0, 0, 0, 0.34) 0px 8px 16px -4px, rgba(0, 0, 0, 0.32) 0px 24px 40px -8px"
   ],
   "div|s-modal__header": [
    "16px|400|24px|20px|24px||24px|||||||<measured>|"
@@ -5886,28 +5988,31 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-modal__footer": [
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-create-modal @1440x900 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -6046,13 +6151,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -6066,7 +6171,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -6090,25 +6195,28 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
-  "span|s-table__th-content": [
+  "button|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "span|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|room-name": [
    "14px|400|21px|||||||||6px|6px|<measured>|"
@@ -6129,7 +6237,7 @@
    "10px|500|10px|||||||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--sm": [
    "12px|500|15px|||||||||8px|8px|32px|"
@@ -6141,7 +6249,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-modal__panel.s-modal__panel--md": [
-   "16px|400|24px|||||<measured>|<measured>|<measured>|<measured>|||<measured>|rgba(0, 0, 0, 0.1) 0px 20px 25px -5px, rgba(0, 0, 0, 0.1) 0px 8px 10px -6px"
+   "16px|400|24px|||||<measured>|<measured>|<measured>|<measured>|||<measured>|rgba(15, 23, 42, 0.06) 0px 8px 16px -4px, rgba(15, 23, 42, 0.12) 0px 24px 40px -8px"
   ],
   "div|s-modal__header": [
    "16px|400|24px|20px|24px||24px|||||||<measured>|"
@@ -6189,28 +6297,31 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-modal__footer": [
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-create-modal @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -6290,13 +6401,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -6310,7 +6421,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -6379,7 +6490,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-modal__panel.s-modal__panel--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.3) 0px 20px 25px -5px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.34) 0px 8px 16px -4px, rgba(0, 0, 0, 0.32) 0px 24px 40px -8px"
   ],
   "div|s-modal__header": [
    "16px|400|24px|16px|24px||24px|||||8px|8px|<measured>|"
@@ -6427,28 +6538,31 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-modal__footer": [
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-create-modal @375x812 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -6528,13 +6642,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -6548,7 +6662,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -6617,7 +6731,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-modal__panel.s-modal__panel--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.1) 0px 20px 25px -5px, rgba(0, 0, 0, 0.1) 0px 8px 10px -6px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 8px 16px -4px, rgba(15, 23, 42, 0.12) 0px 24px 40px -8px"
   ],
   "div|s-modal__header": [
    "16px|400|24px|16px|24px||24px|||||8px|8px|<measured>|"
@@ -6665,28 +6779,31 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "14px|400|21px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "14px|400|21px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-modal__footer": [
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -6842,16 +6959,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|settings__stack": [
    "16px|400|24px|||||24px||||24px|24px|<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|settings__heading": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|form-field": [
    "16px|400|24px|||||||16px||4px|4px|<measured>|"
@@ -6872,7 +6989,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -6897,13 +7014,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "form|agent-add": [
    "16px|400|24px|||||||12px||8px|8px|<measured>|"
@@ -6951,19 +7068,19 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|settings__heading.settings__heading--danger": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-row": [
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -6972,13 +7089,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @1440x900 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -7134,16 +7254,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|settings__stack": [
    "16px|400|24px|||||24px||||24px|24px|<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|settings__heading": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|form-field": [
    "16px|400|24px|||||||16px||4px|4px|<measured>|"
@@ -7164,7 +7284,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7189,13 +7309,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "form|agent-add": [
    "16px|400|24px|||||||12px||8px|8px|<measured>|"
@@ -7243,19 +7363,19 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|settings__heading.settings__heading--danger": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-row": [
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -7264,13 +7384,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -7369,16 +7492,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|settings__stack": [
    "16px|400|24px|||||24px||||24px|24px|<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|settings__heading": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|form-field": [
    "16px|400|24px|||||||16px||4px|4px|<measured>|"
@@ -7399,7 +7522,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7424,13 +7547,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.2) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "form|agent-add": [
    "16px|400|24px|||||||12px||8px|8px|<measured>|"
@@ -7478,19 +7601,19 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|settings__heading.settings__heading--danger": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-row": [
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -7499,13 +7622,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @375x812 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -7604,16 +7730,16 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|settings__stack": [
    "16px|400|24px|||||24px||||24px|24px|<measured>|"
   ],
   "div|s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|settings__heading": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|form-field": [
    "16px|400|24px|||||||16px||4px|4px|<measured>|"
@@ -7634,7 +7760,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7659,13 +7785,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-toggle__track.s-toggle__track--md.s-toggle__track--on": [
    "16px|400|24px|||||||||||<measured>|"
   ],
   "span|s-toggle__knob.s-toggle__knob--md.s-toggle__knob--on": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.05) 0px 1px 2px 0px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "form|agent-add": [
    "16px|400|24px|||||||12px||8px|8px|<measured>|"
@@ -7713,19 +7839,19 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|settings__heading.settings__heading--danger": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-row": [
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -7734,12 +7860,15 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "invites @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -7880,7 +8009,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -7899,6 +8028,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -8038,7 +8170,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -8057,6 +8189,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -8136,7 +8271,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -8155,6 +8290,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -8234,7 +8372,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -8253,6 +8391,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -8395,13 +8536,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -8446,12 +8587,12 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
+  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.flex-wrap.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
    "16px|400|24px|12px|16px|12px|16px|||||12px|12px|<measured>|"
   ],
   "button|active:cursor-grabbing.bg-transparent.border-0.cursor-grab.p-0.text-[var(--color-muted)]": [
@@ -8476,7 +8617,7 @@
   "span|s-badge.s-badge--neutral.s-badge--sm": [
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
-  "span|max-w-[30ch].text-sm.truncate": [
+  "span|max-w-[30ch].min-w-[12ch].text-sm.truncate": [
    "14px|400|20px|||||||||||<measured>|"
   ],
   "code|font-mono.text-[var(--color-muted)].text-xs": [
@@ -8493,6 +8634,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -8635,13 +8779,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -8686,12 +8830,12 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
+  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.flex-wrap.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
    "16px|400|24px|12px|16px|12px|16px|||||12px|12px|<measured>|"
   ],
   "button|active:cursor-grabbing.bg-transparent.border-0.cursor-grab.p-0.text-[var(--color-muted)]": [
@@ -8716,7 +8860,7 @@
   "span|s-badge.s-badge--neutral.s-badge--sm": [
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
-  "span|max-w-[30ch].text-sm.truncate": [
+  "span|max-w-[30ch].min-w-[12ch].text-sm.truncate": [
    "14px|400|20px|||||||||||<measured>|"
   ],
   "code|font-mono.text-[var(--color-muted)].text-xs": [
@@ -8733,6 +8877,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -8818,13 +8965,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -8869,12 +9016,12 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
+  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.flex-wrap.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
    "16px|400|24px|12px|16px|12px|16px|||||12px|12px|<measured>|"
   ],
   "div|flex.flex-col": [
@@ -8899,7 +9046,7 @@
   "span|s-badge.s-badge--neutral.s-badge--sm": [
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
-  "span|max-w-[30ch].text-sm.truncate": [
+  "span|max-w-[30ch].min-w-[12ch].text-sm.truncate": [
    "14px|400|20px|||||||||||<measured>|"
   ],
   "code|font-mono.text-[var(--color-muted)].text-xs": [
@@ -8916,6 +9063,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -9001,13 +9151,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -9052,12 +9202,12 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
+  "div|bg-[var(--color-bg)].border.border-[var(--color-border)].flex.flex-wrap.gap-3.items-center.px-4.py-3.rounded-[var(--radius-md)].transition-shadow": [
    "16px|400|24px|12px|16px|12px|16px|||||12px|12px|<measured>|"
   ],
   "div|flex.flex-col": [
@@ -9082,7 +9232,7 @@
   "span|s-badge.s-badge--neutral.s-badge--sm": [
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
-  "span|max-w-[30ch].text-sm.truncate": [
+  "span|max-w-[30ch].min-w-[12ch].text-sm.truncate": [
    "14px|400|20px|||||||||||<measured>|"
   ],
   "code|font-mono.text-[var(--color-muted)].text-xs": [
@@ -9099,6 +9249,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -9234,7 +9387,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__description": [
    "14px|400|21px|||||4px||||||<measured>|"
@@ -9243,7 +9396,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -9261,19 +9414,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|gap-1.inline-flex.items-center": [
    "14px|400|21px|||||||||4px|4px|<measured>|"
@@ -9300,7 +9453,7 @@
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--md": [
    "14px|500|17.5px|||||||||8px|8px|40px|"
@@ -9310,6 +9463,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -9445,7 +9601,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__description": [
    "14px|400|21px|||||4px||||||<measured>|"
@@ -9454,7 +9610,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -9472,19 +9628,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|gap-1.inline-flex.items-center": [
    "14px|400|21px|||||||||4px|4px|<measured>|"
@@ -9511,7 +9667,7 @@
    "10px|500|10px||6px||6px|||||||<measured>|"
   ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--ghost.s-btn--icon-only.s-btn--md": [
    "14px|500|17.5px|||||||||8px|8px|40px|"
@@ -9520,6 +9676,9 @@
  "keys @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -9594,7 +9753,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__description": [
    "14px|400|21px|||||4px||||||<measured>|"
@@ -9603,7 +9762,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -9673,6 +9832,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -9746,7 +9908,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__description": [
    "14px|400|21px|||||4px||||||<measured>|"
@@ -9755,7 +9917,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -9825,6 +9987,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|public-layout": [
    "16px|400|24px|||||||||||900px|"
   ],
@@ -9862,7 +10027,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -9892,10 +10057,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -9976,7 +10141,7 @@
    "16px|400|24px|||||||16px||||<measured>|"
   ],
   "h2|feature__title": [
-   "17px|600|23.8px|||||||8px||||<measured>|"
+   "17px|600|22.1px|||||||8px||||<measured>|"
   ],
   "p|feature__desc": [
    "15px|400|23.25px|||||||||||<measured>|"
@@ -9995,6 +10160,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|public-layout": [
    "16px|400|24px|||||||||||900px|"
   ],
@@ -10032,7 +10200,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -10062,10 +10230,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -10146,7 +10314,7 @@
    "16px|400|24px|||||||16px||||<measured>|"
   ],
   "h2|feature__title": [
-   "17px|600|23.8px|||||||8px||||<measured>|"
+   "17px|600|22.1px|||||||8px||||<measured>|"
   ],
   "p|feature__desc": [
    "15px|400|23.25px|||||||||||<measured>|"
@@ -10165,6 +10333,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|public-layout": [
    "16px|400|24px|||||||||||812px|"
   ],
@@ -10202,7 +10373,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -10232,10 +10403,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -10316,7 +10487,7 @@
    "16px|400|24px|||||||16px||||<measured>|"
   ],
   "h2|feature__title": [
-   "17px|600|23.8px|||||||8px||||<measured>|"
+   "17px|600|22.1px|||||||8px||||<measured>|"
   ],
   "p|feature__desc": [
    "15px|400|23.25px|||||||||||<measured>|"
@@ -10335,6 +10506,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|public-layout": [
    "16px|400|24px|||||||||||812px|"
   ],
@@ -10372,7 +10546,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -10402,10 +10576,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -10486,7 +10660,7 @@
    "16px|400|24px|||||||16px||||<measured>|"
   ],
   "h2|feature__title": [
-   "17px|600|23.8px|||||||8px||||<measured>|"
+   "17px|600|22.1px|||||||8px||||<measured>|"
   ],
   "p|feature__desc": [
    "15px|400|23.25px|||||||||||<measured>|"
@@ -10505,6 +10679,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|auth-layout": [
    "16px|400|24px|16px|16px|16px|16px|||||||900px|"
   ],
@@ -10530,10 +10707,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-auth-card__body": [
-   "16px|400|24px|32px|32px|32px|32px|||||||<measured>|rgba(0, 0, 0, 0.3) 0px 4px 6px -1px"
+   "16px|400|24px|32px|32px|32px|32px|||||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
   ],
   "h1|card-heading": [
-   "24px|600|33.6px|||||||24px||||<measured>|"
+   "24px|600|31.2px|||||||24px||||<measured>|"
   ],
   "form|form-stack": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -10548,11 +10725,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|",
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "div|s-input.s-input--has-suffix.s-input--md": [
    "16px|400|24px|||||||||||40px|"
@@ -10570,7 +10746,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10579,7 +10755,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10592,6 +10768,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|auth-layout": [
    "16px|400|24px|16px|16px|16px|16px|||||||900px|"
   ],
@@ -10617,10 +10796,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-auth-card__body": [
-   "16px|400|24px|32px|32px|32px|32px|||||||<measured>|rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px"
+   "16px|400|24px|32px|32px|32px|32px|||||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
   ],
   "h1|card-heading": [
-   "24px|600|33.6px|||||||24px||||<measured>|"
+   "24px|600|31.2px|||||||24px||||<measured>|"
   ],
   "form|form-stack": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -10635,11 +10814,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|",
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "div|s-input.s-input--has-suffix.s-input--md": [
    "16px|400|24px|||||||||||40px|"
@@ -10657,7 +10835,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10666,7 +10844,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10679,6 +10857,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|auth-layout": [
    "16px|400|24px|||||||||||812px|"
   ],
@@ -10707,7 +10888,7 @@
    "16px|400|24px|24px||24px||||||||<measured>|"
   ],
   "h1|card-heading": [
-   "24px|600|33.6px|||||||24px||||<measured>|"
+   "24px|600|31.2px|||||||24px||||<measured>|"
   ],
   "form|form-stack": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -10722,11 +10903,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|",
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "div|s-input.s-input--has-suffix.s-input--md": [
    "16px|400|24px|||||||||||40px|"
@@ -10744,7 +10924,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10753,7 +10933,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10766,6 +10946,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|auth-layout": [
    "16px|400|24px|||||||||||812px|"
   ],
@@ -10794,7 +10977,7 @@
    "16px|400|24px|24px||24px||||||||<measured>|"
   ],
   "h1|card-heading": [
-   "24px|600|33.6px|||||||24px||||<measured>|"
+   "24px|600|31.2px|||||||24px||||<measured>|"
   ],
   "form|form-stack": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -10809,11 +10992,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|",
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "div|s-input.s-input--has-suffix.s-input--md": [
    "16px|400|24px|||||||||||40px|"
@@ -10831,7 +11013,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10840,7 +11022,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10852,6 +11034,9 @@
  "mobile-drawer @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -10938,13 +11123,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -10958,7 +11143,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -11030,7 +11215,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-drawer__panel.s-drawer__panel--left.s-drawer__panel--sm": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.3) 0px 20px 25px -5px"
+   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.34) 0px 8px 16px -4px, rgba(0, 0, 0, 0.32) 0px 24px 40px -8px"
   ],
   "div|s-drawer__header": [
    "16px|400|24px|20px|24px||24px|||||||<measured>|"
@@ -11085,6 +11270,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -11170,13 +11358,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -11190,7 +11378,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -11262,7 +11450,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-drawer__panel.s-drawer__panel--left.s-drawer__panel--sm": [
-   "16px|400|24px|||||||||||<measured>|rgba(0, 0, 0, 0.1) 0px 20px 25px -5px, rgba(0, 0, 0, 0.1) 0px 8px 10px -6px"
+   "16px|400|24px|||||||||||<measured>|rgba(15, 23, 42, 0.06) 0px 8px 16px -4px, rgba(15, 23, 42, 0.12) 0px 24px 40px -8px"
   ],
   "div|s-drawer__header": [
    "16px|400|24px|20px|24px||24px|||||||<measured>|"
@@ -11317,6 +11505,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -11453,13 +11644,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11484,6 +11675,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -11620,13 +11814,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11651,6 +11845,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -11727,13 +11924,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11758,6 +11955,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -11834,13 +12034,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11865,6 +12065,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -12010,7 +12213,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -12032,7 +12235,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12041,7 +12244,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|card-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "dl|settings-list": [
    "16px|400|24px|||||||||12px|12px|<measured>|"
@@ -12059,7 +12262,7 @@
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
   "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.3) 0px 4px 6px -1px"
+   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
   ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12077,7 +12280,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|danger-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-content": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12089,13 +12292,16 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "org-detail @1440x900 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -12241,7 +12447,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -12263,7 +12469,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12272,7 +12478,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|card-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "dl|settings-list": [
    "16px|400|24px|||||||||12px|12px|<measured>|"
@@ -12290,7 +12496,7 @@
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
   "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px"
+   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
   ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12308,7 +12514,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|danger-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-content": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12320,13 +12526,16 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "org-detail @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -12412,7 +12621,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -12434,7 +12643,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12443,7 +12652,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|card-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "dl|settings-list": [
    "16px|400|24px|||||||||12px|12px|<measured>|"
@@ -12461,7 +12670,7 @@
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
   "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.3) 0px 4px 6px -1px"
+   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
   ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12479,7 +12688,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|danger-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-content": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12491,13 +12700,16 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "org-detail @375x812 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -12583,7 +12795,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -12605,7 +12817,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12614,7 +12826,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|card-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "dl|settings-list": [
    "16px|400|24px|||||||||12px|12px|<measured>|"
@@ -12632,7 +12844,7 @@
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
   "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px"
+   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
   ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12650,7 +12862,7 @@
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
   ],
   "h2|danger-title": [
-   "18px|600|25.2px|||||||16px||||<measured>|"
+   "18px|600|23.4px|||||||16px||||<measured>|"
   ],
   "div|danger-content": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -12662,12 +12874,15 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "orgs @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -12808,13 +13023,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -12832,22 +13047,25 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
-  "span|s-table__th-content": [
+  "button|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "span|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|org-name": [
    "14px|500|21px|||||||||||<measured>|"
@@ -12866,6 +13084,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -13005,13 +13226,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -13029,22 +13250,25 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
-  "span|s-table__th-content": [
+  "button|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "span|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|org-name": [
    "14px|500|21px|||||||||||<measured>|"
@@ -13062,6 +13286,9 @@
  "orgs @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -13142,13 +13369,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -13200,6 +13427,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -13279,13 +13509,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -13337,6 +13567,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -13467,10 +13700,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "dl|current-email": [
    "16px|400|24px|||||||20px||||<measured>|"
@@ -13488,26 +13721,26 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "p|form-field__help": [
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|connections-card.form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|section-title": [
-   "18px|600|25.2px|||||||||||<measured>|"
+   "18px|600|23.4px|||||||||||<measured>|"
   ],
   "div|provider-row": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -13522,13 +13755,16 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "profile @1440x900 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -13659,10 +13895,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "dl|current-email": [
    "16px|400|24px|||||||20px||||<measured>|"
@@ -13680,26 +13916,26 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "p|form-field__help": [
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|connections-card.form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|section-title": [
-   "18px|600|25.2px|||||||||||<measured>|"
+   "18px|600|23.4px|||||||||||<measured>|"
   ],
   "div|provider-row": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -13714,13 +13950,16 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "profile @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -13794,10 +14033,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "dl|current-email": [
    "16px|400|24px|||||||20px||||<measured>|"
@@ -13815,26 +14054,26 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(11, 15, 20) 0px 0px 0px 2px, rgb(96, 165, 250) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "p|form-field__help": [
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|connections-card.form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "h2|section-title": [
-   "18px|600|25.2px|||||||||||<measured>|"
+   "18px|600|23.4px|||||||||||<measured>|"
   ],
   "div|provider-row": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -13849,13 +14088,16 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "profile @375x812 light": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -13929,10 +14171,10 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "dl|current-email": [
    "16px|400|24px|||||||20px||||<measured>|"
@@ -13950,26 +14192,26 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "16px|400|24px|||||||||||40px|"
   ],
   "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 99, 235) 0px 0px 0px 4px"
+   "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "p|form-field__help": [
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|connections-card.form-card.s-card.s-card--default.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|"
+   "16px|400|24px|16px|16px|16px|16px|24px||||16px|16px|<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "h2|section-title": [
-   "18px|600|25.2px|||||||||||<measured>|"
+   "18px|600|23.4px|||||||||||<measured>|"
   ],
   "div|provider-row": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
@@ -13984,12 +14226,15 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ]
  },
  "project-members @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -14133,13 +14378,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14179,7 +14424,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14188,13 +14433,16 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "button|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
@@ -14203,7 +14451,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|you-label": [
    "14px|400|21px||||||||4px|||<measured>|"
@@ -14222,6 +14470,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -14364,13 +14615,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14410,7 +14661,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14419,13 +14670,16 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--sortable": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
+  ],
+  "button|s-table__th-content": [
+   "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "svg|s-table__sort-icon": [
    "12px|600|18px|||||||||||<measured>|"
@@ -14434,7 +14688,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|you-label": [
    "14px|400|21px||||||||4px|||<measured>|"
@@ -14452,6 +14706,9 @@
  "project-members @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -14538,13 +14795,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14584,7 +14841,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14627,6 +14884,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -14712,13 +14972,13 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "div|s-page-header__actions": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14758,7 +15018,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14801,6 +15061,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -14934,7 +15197,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "p|s-page-header__subtitle": [
    "14px|400|21px|||||2px||||||<measured>|"
@@ -15020,7 +15283,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15033,7 +15296,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15046,6 +15309,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -15179,7 +15445,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "p|s-page-header__subtitle": [
    "14px|400|21px|||||2px||||||<measured>|"
@@ -15265,7 +15531,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15278,7 +15544,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15291,6 +15557,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -15367,7 +15636,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "p|s-page-header__subtitle": [
    "14px|400|21px|||||2px||||||<measured>|"
@@ -15453,7 +15722,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15466,7 +15735,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15479,6 +15748,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -15555,7 +15827,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "p|s-page-header__subtitle": [
    "14px|400|21px|||||2px||||||<measured>|"
@@ -15641,7 +15913,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15654,7 +15926,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15666,6 +15938,9 @@
  "workflows @1440x900 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
@@ -15800,7 +16075,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "form|flex.gap-2.items-end.mb-4": [
    "16px|400|24px|||||||16px||8px|8px|<measured>|"
@@ -15821,7 +16096,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -15833,19 +16108,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "a|hover:underline.text-accent": [
    "14px|400|21px|||||||||||<measured>|"
@@ -15853,8 +16128,11 @@
   "span|text-muted": [
    "14px|400|21px|||||||||||<measured>|"
   ],
+  "td|s-table__td.s-table__td--figures": [
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
+  ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "div|flex.gap-2.justify-end": [
    "14px|400|21px|||||||||8px|8px|<measured>|"
@@ -15870,6 +16148,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||900px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell": [
    "16px|400|24px||||||||||||"
   ],
@@ -16003,7 +16284,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "form|flex.gap-2.items-end.mb-4": [
    "16px|400|24px|||||||16px||8px|8px|<measured>|"
@@ -16024,7 +16305,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -16036,19 +16317,19 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "th|s-table__th": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "span|s-table__th-content": [
    "12px|600|18px|||||||||4px|4px|<measured>|"
   ],
   "th|s-table__th.s-table__th--actions": [
-   "12px|600|18px|8px|12px|8px|12px|||||||<measured>|"
+   "12px|600|18px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "tr|s-table__row.s-table__row--clickable": [
    "14px|400|21px|||||||||||<measured>|"
   ],
   "td|s-table__td": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "a|hover:underline.text-accent": [
    "14px|400|21px|||||||||||<measured>|"
@@ -16056,8 +16337,11 @@
   "span|text-muted": [
    "14px|400|21px|||||||||||<measured>|"
   ],
+  "td|s-table__td.s-table__td--figures": [
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
+  ],
   "td|s-table__td.s-table__td--actions": [
-   "14px|400|21px|8px|12px|8px|12px|||||||<measured>|"
+   "14px|400|21px|12px|16px|12px|16px|||||||<measured>|"
   ],
   "div|flex.gap-2.justify-end": [
    "14px|400|21px|||||||||8px|8px|<measured>|"
@@ -16072,6 +16356,9 @@
  "workflows @375x812 dark": {
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
+  ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
   ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
@@ -16149,7 +16436,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "form|flex.gap-2.items-end.mb-4": [
    "16px|400|24px|||||||16px||8px|8px|<measured>|"
@@ -16170,7 +16457,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -16222,6 +16509,9 @@
   "div|app-root": [
    "16px|400|24px|||||||||||812px|"
   ],
+  "div|app-root__overlay-anchor": [
+   "16px|400|24px|||||||||||<measured>|"
+  ],
   "div|app-shell.app-shell--sidebar-collapsed": [
    "16px|400|24px||||||||||||"
   ],
@@ -16298,7 +16588,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "h1|s-page-header__title": [
-   "24px|600|33.6px|||||||||||<measured>|"
+   "24px|600|31.2px|||||||||||<measured>|"
   ],
   "form|flex.gap-2.items-end.mb-4": [
    "16px|400|24px|||||||16px||8px|8px|<measured>|"
@@ -16319,7 +16609,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
