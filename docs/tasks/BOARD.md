@@ -205,13 +205,15 @@ report that the UI is consistent but flat.
   (`01-design-system.md:126-132,249,400`) and are the reason each new component is written
   that way; and its Q-5 keeps the sweep out of view *template roots*, which belong to
   `content-area-spacing-and-scroll-contract`'s F-3/F-40.
-- (moved to Ready now on 2026-08-22, unblocked by the implemented
-  `2026-08-21-visual-refinement-phase1-token-adoption`. **Read that dossier's FU-5 to FU-9
-  first** — they are all phase 2's to decide: five colour custom properties referenced but
-  never declared; `@layer base`'s headings sitting one ramp step below the documented
-  page-level roles; the spacing scale being px while the type ramp is rem, so spacing does
-  not follow the reader's browser font size; six components the parity baseline cannot
-  reach; and four tokens that now provably have zero consumers.)
+- (moved to In progress on 2026-08-22. Its freshness pass found four material drifts and
+  confirmed phase 1's hand-off: **FU-5, FU-6, FU-7 and FU-9 were all taken into scope with
+  the user** rather than deferred again, so this build also declares the five orphan colour
+  properties, lifts `@layer base`'s heading ramp onto the documented page-level roles, moves
+  `--space-*` from px to rem, and resolves the four zero-consumer tokens. FU-8 stays a
+  coverage note. The drifts: `--focus-ring` has **29 references in 24 component files**, not
+  the six §6.6 enumerates; the parity spec is `00-`, not `20-`, and `21-` is taken so the new
+  spec is `24-`; §4.5's "no `font-variant-numeric` anywhere" is false at two non-table sites;
+  and §12's source sweep is in `shared/styles/__tests__/`, not `app/__tests__/`.)
   The original entry, kept here for its detail:
   `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature, **approved 2026-08-21**) -
   waiting on phase 1, **logically**: it is almost entirely token-value edits, which reach nothing until
@@ -236,6 +238,38 @@ report that the UI is consistent but flat.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature) — `depends_on:
+  [2026-08-21-visual-refinement-phase1-token-adoption]`, met. Started and built out
+  2026-08-22 across eleven commits; **deliberately still `in-progress`, with two acceptance
+  criteria open**. Everything else is done: Inter self-hosted, every neutral on slate, a
+  third surface role so a card stops being the same colour as its page, three rule weights,
+  the focus ring rebuilt as an outline across 24 files, the pressed state that `:active`
+  being absent from all of `frontend/src` meant nothing had, table density and tabular
+  figures, the literal colours named, `--space-*` on rem, and phase 1's FU-5/6/7/9 closed.
+  1506 unit tests and a nine-check e2e spec green; six new tests under
+  `shared/styles/__tests__/` keep the contrast budget, the border roles, the focus
+  suppressions, the literal allowlist and token resolvability enforced rather than reviewed.
+
+  **AC-16 is the blocker and CI will be red until it closes.** The parity baseline must be
+  regenerated (shadows, the heading ramp, `SCard`'s elevation and `STable`'s padding all
+  moved, all four in its property set) and phase 1's D-17/D-18 established it is only
+  meaningful on a freshly seeded stack. `compose.test.yml` binds the dev stack's port and
+  container names, so a pristine stack means taking the running one down; the user directed
+  this to remote CI instead. Recipe in the dossier's §15.
+
+  **AC-3 was never performed**, and it is now FU-7: no overflow pass at either viewport in
+  either locale, no keyboard traversal of the C-0 surface set, and nobody has looked at the
+  landing page. This is a visual-identity change that has been measured thoroughly and seen
+  barely at all — Inter runs wider than Segoe UI and §10 named the three exposures.
+
+  **Two decisions were taken with the user mid-build and both changed the token vocabulary
+  past the approved spec.** AC-9's border clause was unreachable as written (3:1 on every
+  container edge would make the product a grid of mid-grey lines), so WCAG 1.4.11 was
+  applied where it actually governs — a third weight, `--color-border-strong`, for form
+  controls only. And Q-12's retained `#fff` turned out to be a live AA failure: white on the
+  dark theme's accent is 2.54:1, on its danger 2.77:1, on the most-used control in the
+  product, so `--color-on-accent`/`--color-on-danger` are theme-aware now. [R24.28] was
+  amended for both (D-10).
 Removed on 2026-08-22 after implementation:
 `2026-08-21-visual-refinement-phase1-token-adoption` (the design tokens are load-bearing:
 811 of the 985 type and spacing declarations in `frontend/src` now name a token, and both
