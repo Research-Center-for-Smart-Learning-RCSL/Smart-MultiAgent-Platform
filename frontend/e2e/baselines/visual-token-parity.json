@@ -196,7 +196,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -399,7 +399,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -545,7 +545,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -691,7 +691,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--disabled.s-btn--md.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -1474,7 +1474,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -1487,7 +1487,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|mt-6.s-tabs": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -1945,7 +1945,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|mt-6.s-tabs": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -2333,7 +2333,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -2346,7 +2346,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -2618,10 +2618,10 @@
    "16px|400|24px|16px|16px|16px|16px|||||12px|12px|<measured>|"
   ],
   "button|flex-1.s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|flex-1.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "agent-detail @375x812 light": {
@@ -2735,7 +2735,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -3010,7 +3010,7 @@
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|flex-1.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "agent-tools @1440x900 dark": {
@@ -3225,7 +3225,7 @@
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3284,7 +3284,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -3758,7 +3758,7 @@
    "14px|400|21px|8px|8px|8px|8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|"
@@ -3801,7 +3801,7 @@
    "16px|400|24px|||||8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "section|mt-8": [
    "16px|400|24px|||||32px||||||<measured>|"
@@ -4204,7 +4204,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4218,7 +4218,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -4619,7 +4619,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -4633,7 +4633,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -5848,7 +5848,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -5862,7 +5862,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -6000,10 +6000,10 @@
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "chatroom-create-modal @1440x900 light": {
@@ -6312,7 +6312,7 @@
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "chatroom-create-modal @375x812 dark": {
@@ -6407,7 +6407,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -6421,7 +6421,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|mt-6": [
    "16px|400|24px|||||24px||||||<measured>|"
@@ -6550,10 +6550,10 @@
    "16px|400|24px|16px|24px|16px|24px|||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "chatroom-create-modal @375x812 light": {
@@ -6794,7 +6794,7 @@
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ]
  },
  "chatroom-settings @1440x900 dark": {
@@ -6989,7 +6989,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7068,7 +7068,7 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
@@ -7080,7 +7080,7 @@
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -7089,7 +7089,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @1440x900 light": {
@@ -7284,7 +7284,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7363,7 +7363,7 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
@@ -7522,7 +7522,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7601,7 +7601,7 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
@@ -7613,7 +7613,7 @@
    "16px|400|24px|12px||12px||||||16px|16px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "svg|h-4.w-4": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -7622,7 +7622,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "chatroom-settings @375x812 light": {
@@ -7760,7 +7760,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -7839,7 +7839,7 @@
    "16px|400|24px|||||||||||40px|"
   ],
   "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
@@ -8542,7 +8542,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -8587,7 +8587,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -8830,7 +8830,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -8971,7 +8971,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -9016,7 +9016,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -9202,7 +9202,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "div|flex.flex-col.gap-2": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
@@ -9396,7 +9396,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -9762,7 +9762,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10027,7 +10027,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -10057,10 +10057,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -10373,7 +10373,7 @@
    "16px|500|20px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "main|landing__main": [
    "16px|400|24px|||||||||||<measured>|"
@@ -10403,10 +10403,10 @@
    "16px|400|24px|||||||||12px|12px|<measured>|"
   ],
   "a|s-btn.s-btn--lg.s-btn--primary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "a|s-btn.s-btn--lg.s-btn--secondary": [
-   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "16px|500|20px|10px|24px|10px|24px|||||8px|8px|48px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "ul|trust": [
    "16px|400|24px|||||28px||||12px|20px|<measured>|"
@@ -10746,7 +10746,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10755,7 +10755,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10924,7 +10924,7 @@
    "16px|400|24px|||||-8px||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -10933,7 +10933,7 @@
    "13px|400|19.5px|||||16px||16px||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -11129,7 +11129,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "12px|500|15px|||||||||||<measured>|",
@@ -11143,7 +11143,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|flex.flex-wrap.gap-4.items-center.mt-6": [
    "16px|400|24px|||||24px||||16px|16px|<measured>|"
@@ -11650,7 +11650,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11820,7 +11820,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -11930,7 +11930,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -12040,7 +12040,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|"
@@ -12235,7 +12235,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12292,7 +12292,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "org-detail @1440x900 light": {
@@ -12643,7 +12643,7 @@
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "a|s-btn.s-btn--md.s-btn--secondary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|detail-grid": [
    "16px|400|24px|||||||24px||24px|24px|<measured>|"
@@ -12700,7 +12700,7 @@
    "14px|400|21px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "org-detail @375x812 light": {
@@ -13029,7 +13029,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -13375,7 +13375,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__icon": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -13730,7 +13730,7 @@
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -13755,7 +13755,7 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "profile @1440x900 light": {
@@ -14063,7 +14063,7 @@
    "12px|400|18px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary.submit-btn": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14088,7 +14088,7 @@
    "13px|400|19.5px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ]
  },
  "profile @375x812 light": {
@@ -14384,7 +14384,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14424,7 +14424,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14661,7 +14661,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14801,7 +14801,7 @@
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -14841,7 +14841,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -15018,7 +15018,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -15283,7 +15283,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15296,7 +15296,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15531,7 +15531,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15722,7 +15722,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -15735,7 +15735,7 @@
    "16px|400|24px|||||||12px||||<measured>|"
   ],
   "button|s-btn.s-btn--secondary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "div|s-empty-state": [
    "16px|400|24px|32px|16px|32px|16px||<measured>||<measured>|8px|8px|<measured>|"
@@ -15913,7 +15913,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "button|s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
    "12px|500|15px|||||||||||<measured>|",
@@ -16096,7 +16096,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
@@ -16457,7 +16457,7 @@
    "14px|400|21px||8px||8px|||||||<measured>|"
   ],
   "button|s-btn.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
    "14px|500|17.5px|||||||||||<measured>|"
