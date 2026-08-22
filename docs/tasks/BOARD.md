@@ -124,7 +124,9 @@ first, but building them serially avoids the conflict.
 
 ### From the 2026-08-21 post-close code review
 
-- `2026-08-22-safe-area-uncovered-top-surfaces` (bugfix, **draft** — needs approval before
+- (implemented 2026-08-22; see the note under In progress)
+  `2026-08-22-safe-area-uncovered-top-surfaces`. The original entry, kept here for the record:
+  `2026-08-22-safe-area-uncovered-top-surfaces` (bugfix, **draft** — needs approval before
   `/build` will touch it) — `depends_on: []`. Opened from
   `2026-08-21-visual-refinement-phase1-token-adoption`'s FU-12. `viewport-fit=cover` removes
   the browser's own inset from **every** surface at once, so a surface the enumeration missed
@@ -270,6 +272,57 @@ the row to read for why CI is red.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-22 after implementation:
+`2026-08-22-safe-area-uncovered-top-surfaces` (the impersonation banner, the toasts and
+the top bar all inset exactly the edges they meet, and the enumeration that missed them
+now refuses to let a new top-anchored surface go unclassified). Nothing lists it in
+`depends_on`, so no row moved out of Blocked. Frontend only; no migration, no API change.
+**Five things a later reader needs.**
+
+**Its approved design did not work, and the reason will catch the next person too** (Q-8).
+A custom property substitutes its `var()`s at computed-value time **on the element that
+declares it**, so a descendant that redefines an input inherits an already-resolved total
+and cannot change it. `--topbar-height-total` is declared on `:root, .app-root` for that
+reason — one `calc()`, two subjects — and it was measured in Chromium before the design
+moved, not argued from memory: `100px` where `56px` was intended, and `56px` once the
+declaration was repeated on the overriding element. **If you build a token out of another
+token and expect an override to reach it, check where it resolves.**
+
+**The sibling sweep cleared the one file that was also broken** (Q-9, D-2). §6 asked "does
+this surface inset itself" of `SNetworkBanner` and got yes. The right question was what its
+`--below-topbar` offset *assumes* — it was arithmetic over `--topbar-height-total` from a
+`position: fixed` origin, so it painted across the top bar during an impersonation session
+and would have got worse under the conditional inset. It now sits in a zero-height
+`position: relative` anchor below the impersonation banner and is positioned `absolute`, so
+"below the top bar" is measured from a flow position and no arithmetic can drift. **The
+generalisable half: arithmetic over a height is what produced the bug; adding a second
+number would have repeated it.**
+
+**D-5 is the finding a post-close `/code-review` caught, and it is the dossier's own
+reproduction.** §7 specified `padding-top` alone, and §4 step 3 says "rotate to landscape:
+it renders under the cutout". On a notched device in landscape `safe-area-inset-top` is
+`0px` and the sensor housing becomes a left/right inset, which this full-bleed row never
+cleared — the exact half-protected surface the per-edge sweep exists to catch, and with
+`['top']` in `INSET_SURFACES` the sweep could never have flagged it. Three edges now, sides
+`max()` and top additive.
+
+**D-6 is a testing lesson worth carrying.** `App.test.ts` threw `No 'queryClient' found in
+Vue context`, which was read as "App.vue is mounted above the QueryClient provider" and
+answered with a narrower slice export. False: `main.ts:56` installs `VueQueryPlugin` with
+`app.use()`, an app-level provide the root component resolves like any other, and the test
+simply never installed it. **A test harness that differs from `main.ts` is not evidence
+about the application.** The export was reverted and the test got the plugin; FU-5 asks for
+something that stops the harness drifting again.
+
+**AC-6 is deliberately unticked and nothing in CI can close it.** Headless Chromium emulates
+no display cutout. What was done instead is the dossier's own §4 simulation — the shipped
+rules with `env()` replaced by a constant `44px`, measured at 390x844 in both states: banner
+0-79px with its text at y=52 (8px of interior padding survives the strip), top bar
+`padding-top: 0px` at exactly 56px with a 56px grid track and no empty band. That proves the
+cascade and the geometry and nothing about a real inset — **the landscape insets and the
+toaster's rendered offset have been reasoned about and not seen.** FU-2 is now the
+load-bearing follow-up, because AC-6 is the only written form of that device check and it
+leaves with this dossier.
 Removed on 2026-08-22 after implementation:
 `2026-08-21-visual-refinement-phase2-identity-and-depth` (the product has a typeface, one
 neutral axis, surfaces that are actually layered, three rule weights instead of one, and a
