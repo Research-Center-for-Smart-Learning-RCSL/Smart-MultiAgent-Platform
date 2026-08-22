@@ -88,20 +88,22 @@ const EXPECTED: [token: string, value: string, equals: string][] = [
   ['--weight-medium', '500', '500'],
   ['--weight-semibold', '600', '600'],
   ['--weight-bold', '700', '700'],
-  // Spacing, including the three half-steps
-  ['--space-0-5', '2px', '2px'],
-  ['--space-1', '4px', '0.25rem'],
-  ['--space-1-5', '6px', '0.375rem'],
-  ['--space-2', '8px', '0.5rem'],
-  ['--space-2-5', '10px', '10px'],
-  ['--space-3', '12px', '0.75rem'],
-  ['--space-4', '16px', '1rem'],
-  ['--space-5', '20px', '1.25rem'],
-  ['--space-6', '24px', '1.5rem'],
-  ['--space-8', '32px', '2rem'],
+  // Spacing, including the three half-steps. rem since phase 2 (FU-7), and
+  // every value is exactly the px it replaced at the 16px default root, which
+  // is what makes the switch invisible to a reader who changed nothing.
+  ['--space-0-5', '0.125rem', '2px'],
+  ['--space-1', '0.25rem', '4px'],
+  ['--space-1-5', '0.375rem', '6px'],
+  ['--space-2', '0.5rem', '8px'],
+  ['--space-2-5', '0.625rem', '10px'],
+  ['--space-3', '0.75rem', '12px'],
+  ['--space-4', '1rem', '16px'],
+  ['--space-5', '1.25rem', '20px'],
+  ['--space-6', '1.5rem', '24px'],
+  ['--space-8', '2rem', '32px'],
   // --space-10 (40px) was deleted in phase 2 alongside --font-size-3xl: once
   // phase 1 tokenised every spacing declaration, it had no consumer left.
-  ['--space-12', '48px', '3rem'],
+  ['--space-12', '3rem', '48px'],
   // Control heights
   ['--control-h-sm', '32px', '32px'],
   ['--control-h-md', '40px', '40px'],

@@ -190,28 +190,36 @@
   --color-surface-active: #e2e8f0;
   --color-accent-tint-hover: #bfdbfe;
 
-  /* ── Spacing scale (4px grid) ──
+  /* ── Spacing scale (4px grid, expressed in rem) ──
      Named --space-* (not --spacing-*) so Tailwind's spacing namespace and
      utility generation are untouched.
+
+     rem, not px, and the reason is not tidiness: the type ramp is already rem,
+     so before this a reader who raised their browser's font size got larger
+     text inside padding that stayed put, and the interface tightened around
+     them exactly when they had asked for more room. Every value below is the
+     px it replaces at the 16px default, so nothing moves for a reader who
+     changed nothing (phase 1's FU-7).
+
      The three half-steps are on the ladder because the codebase uses them as
      one: 2px, 6px and 10px account for 55 declarations between them, almost
      all of them the inner padding of a control whose outer padding is the
      whole step above. A density change that moves --space-2 without moving
      --space-1-5 produces controls whose two paddings no longer relate. */
-  --space-0-5: 2px;
-  --space-1: 4px;
-  --space-1-5: 6px;
-  --space-2: 8px;
-  --space-2-5: 10px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
+  --space-0-5: 0.125rem;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
   /* No --space-10. The 40px rung had no consumer once phase 1 tokenised every
      spacing declaration in the codebase, and nothing since has wanted it: the
      jump from 32 to 48 is where the large-gap cases actually sit. */
-  --space-12: 48px;
+  --space-12: 3rem;
 
   /* ── Typography scale ──
      The --font-size, --line, and --weight prefixes deliberately avoid
