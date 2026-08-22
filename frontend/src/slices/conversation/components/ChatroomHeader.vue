@@ -281,17 +281,17 @@ function onOverflow(key: string): void {
 
 .chat-header__pill--on {
   color: var(--color-success);
-  background: var(--color-success-tint, #dcfce7);
+  background: var(--color-success-tint);
 }
 
 .chat-header__pill--off {
   color: var(--color-danger);
-  background: var(--color-danger-tint, #fee2e2);
+  background: var(--color-danger-tint);
 }
 
 .chat-header__pill--reconnecting {
   color: var(--color-warning);
-  background: var(--color-warning-tint, #fef3c7);
+  background: var(--color-warning-tint);
 }
 
 .chat-header__pill-icon--spin {

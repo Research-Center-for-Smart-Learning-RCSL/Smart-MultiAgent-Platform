@@ -86,7 +86,7 @@ const sizeClass = computed(() => `s-avatar--${props.size}`)
   width: 100%;
   height: 100%;
   background-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   font-weight: var(--weight-semibold);
   line-height: var(--line-none);
   user-select: none;

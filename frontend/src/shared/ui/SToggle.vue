@@ -201,6 +201,9 @@ function toggle() {
 .s-toggle__knob {
   position: absolute;
   border-radius: var(--radius-full);
+  /* Literal, not --color-on-accent: the knob has to read against BOTH track
+     states, the neutral off-track and the accent on-track, so it cannot follow
+     either one. Its --shadow-sm is what separates it from the pale off-track. */
   background: #fff;
   box-shadow: var(--shadow-sm);
   transition: transform var(--transition-fast);
@@ -264,7 +267,8 @@ function toggle() {
 }
 
 /* White body keeps contrast on both track colors; outline + bolts carry the
-   off(muted) -> on(accent) shift. */
+   off(muted) -> on(accent) shift. Literal for the same reason as the knob
+   above: it belongs to neither track state, so no surface token fits it. */
 .s-robot__head {
   fill: #fff;
   stroke: var(--color-muted);

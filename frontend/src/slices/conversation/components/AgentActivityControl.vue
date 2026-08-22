@@ -211,6 +211,6 @@ function toggleType(typeId: string, checked: boolean): void {
   padding: 0;
 }
 .activity-control__warn {
-  color: var(--color-warning, var(--color-muted));
+  color: var(--color-warning);
 }
 </style>

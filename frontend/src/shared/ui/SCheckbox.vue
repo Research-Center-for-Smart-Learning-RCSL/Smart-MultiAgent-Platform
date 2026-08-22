@@ -138,7 +138,7 @@ function onChange() {
 .s-checkbox__box--indeterminate {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 /* The native input is clipped to a 1px rect, so an outline on it would be

@@ -41,6 +41,11 @@ const isKnowmap = computed(() => props.domain === 'knowmap')
 
 // Entity-category palette (audit L1). Matches the backend ENTITY_TYPES set;
 // unknown/'' falls back to neutral. Chosen to stay legible in light + dark.
+// Deliberately literal, retained under this dossier's Q-12: a categorical
+// scale keeps categories apart, which is not a job any semantic token does -
+// they carry meaning these categories do not have, and they switch per theme
+// while these are picked to hold in both. FU-6 records that this palette has
+// never been checked for colour-blind safety.
 const TYPE_COLORS: Record<string, string> = {
   person: '#3b82f6',
   organization: '#8b5cf6',

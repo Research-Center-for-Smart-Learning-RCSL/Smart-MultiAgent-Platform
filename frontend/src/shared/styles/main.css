@@ -72,6 +72,14 @@
   --color-success: #16a34a;
   --color-warning: #d97706;
 
+  /* Foreground for content sitting ON a filled accent or danger surface - a
+     primary button's label, an avatar's initials, a notification count.
+     This was a hard-coded #fff in nine components, which is correct against
+     the light theme's accent and wrong against the dark theme's: white on
+     #60a5fa measures 2.54:1. Theme-aware because the accent is. */
+  --color-on-accent: #ffffff;
+  --color-on-danger: #ffffff;
+
   /* ── Rule weights ──
      One token used to draw both the outer boundary of a container and the rule
      between two table rows, so a card's edge and a row separator were the same
@@ -338,6 +346,10 @@
     --color-accent-hover: #93c5fd;
     --color-accent-2: #a78bfa;
     --color-danger: #f87171;
+    /* The dark theme's accent and danger are light colours, so what reads on
+       them is the sheet, not white: 7.02:1 and 6.45:1 against 2.54 and 2.77. */
+    --color-on-accent: #0f172a;
+    --color-on-danger: #0f172a;
     --color-border: #334155;
     --color-border-subtle: #1e293b;
     --color-success: #4ade80;

@@ -399,8 +399,11 @@ useDocumentMeta({
       color-mix(in srgb, var(--color-accent) 12%, transparent),
       transparent 70%
     ),
-    radial-gradient(var(--color-border) 1px, transparent 1px);
+    radial-gradient(var(--color-border-subtle) 1px, transparent 1px);
   background-size: auto, 22px 22px;
+  /* #000 in a mask is an alpha selector, not a colour: it means "keep this
+     region opaque". Tokenising it would make the mask follow the theme, which
+     is exactly what a mask must not do. */
   -webkit-mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
   mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
   opacity: 0.5;

@@ -356,7 +356,7 @@ function isImage(mime: string): boolean {
 
 @keyframes msg-flash {
   from {
-    background-color: var(--color-warning-tint, #fef3c7);
+    background-color: var(--color-warning-tint);
   }
 }
 

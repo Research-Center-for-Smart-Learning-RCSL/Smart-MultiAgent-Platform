@@ -172,7 +172,7 @@ function ariaCurrentAttrs(item: number) {
 
 .s-pagination__btn--active {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 
