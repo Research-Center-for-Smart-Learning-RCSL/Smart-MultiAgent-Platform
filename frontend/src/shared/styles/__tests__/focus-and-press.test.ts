@@ -120,6 +120,28 @@ describe('press state', () => {
     expect(transition).toContain('box-shadow')
   })
 
+  // Phase 3's FU-12. The press drops to `--elevation-0`, which resolves to
+  // `none` - so without a resting shadow to fall from, half the press language
+  // was declared and none of it rendered. Pinned per variant because the answer
+  // differs per variant: `ghost` and `link` are transparent text and are meant
+  // to stay flat.
+  it.each(['primary', 'secondary', 'danger'] as const)(
+    'SButton %s rests at an elevation the press can drop from',
+    (variant) => {
+      const rule = topLevelRule(readComponentStyles('shared/ui/SButton.vue'), `.s-btn--${variant}`)
+      expect(rule, `.s-btn--${variant} has no base rule`).not.toBeNull()
+      expect(
+        declaration(rule as string, 'box-shadow'),
+        `.s-btn--${variant} declares no resting shadow, so :active's --elevation-0 is a no-op`,
+      ).toBe('var(--elevation-1)')
+    },
+  )
+
+  it.each(['ghost', 'link'] as const)('SButton %s stays flat at rest', (variant) => {
+    const rule = topLevelRule(readComponentStyles('shared/ui/SButton.vue'), `.s-btn--${variant}`)
+    expect(declaration(rule as string, 'box-shadow')).toBeNull()
+  })
+
   it('gives the shell chrome the same press language', () => {
     expect(
       topLevelRule(readComponentStyles('app/components/AppTopBar.vue'), '.topbar__sidebar-toggle:active'),

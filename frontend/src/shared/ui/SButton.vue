@@ -144,7 +144,13 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 
    Under prefers-reduced-motion the global freeze zeroes the duration, so this
    snaps into place instead of animating - the feedback survives, the
-   movement does not. */
+   movement does not. Observed rather than assumed: under
+   `prefers-reduced-motion: reduce` the computed transition-duration is 1e-05s
+   and the pressed transform is still `matrix(1, 0, 0, 1, 0, 1)`.
+
+   The drop to `--elevation-0` reads only against the resting `--elevation-1`
+   the filled variants now carry (below). `ghost` and `link` have no resting
+   shadow, so it stays a no-op for them by design rather than by oversight. */
 .s-btn:active:not(.s-btn--disabled):not(.s-btn--link) {
   transform: translateY(1px);
   box-shadow: var(--elevation-0);
@@ -186,10 +192,29 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
 }
 
 /* -- Variants -- */
+
+/* Resting elevation for the filled variants, so the press below is a step and
+   not a no-op.
+
+   The press rule sets `box-shadow: var(--elevation-0)`, which resolves to
+   `none`, and nothing declared a resting shadow - so "one elevation step down"
+   moved from nothing to nothing and only the 1px translate was ever expressed.
+   Either half of that pair had to go; this is the half that keeps the motion
+   language `main.css` describes.
+
+   Filled variants only. `ghost` and `link` render as transparent text: a
+   shadow under them would be a shadow cast by nothing, and their `:active`
+   already deepens a fill that `ghost` only acquires on interaction. They are
+   excluded from the press's shadow for the same reason `link` is excluded from
+   its translate.
+
+   Declared per variant rather than as one grouped selector so the source sweep
+   in `focus-and-press.test.ts` can ask each variant the question separately. */
 .s-btn--primary {
   background: var(--color-accent);
   color: var(--color-on-accent);
   border-color: var(--color-accent);
+  box-shadow: var(--elevation-1);
 }
 
 .s-btn--primary:hover:not(.s-btn--disabled) {
@@ -206,6 +231,7 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   background: var(--color-surface);
   color: var(--color-fg);
   border-color: var(--color-border);
+  box-shadow: var(--elevation-1);
 }
 
 .s-btn--secondary:hover:not(.s-btn--disabled) {
@@ -220,6 +246,7 @@ const tagAttrs = computed<Record<string, unknown>>(() => {
   background: var(--color-danger);
   color: var(--color-on-danger);
   border-color: var(--color-danger);
+  box-shadow: var(--elevation-1);
 }
 
 .s-btn--danger:hover:not(.s-btn--disabled) {
