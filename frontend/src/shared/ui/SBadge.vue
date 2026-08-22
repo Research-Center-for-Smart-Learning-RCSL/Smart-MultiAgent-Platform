@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/20/solid'
 
@@ -152,8 +152,6 @@ const { t } = useI18n()
   opacity: 1;
 }
 .s-badge__remove:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
   opacity: 1;
 }
 .s-badge__remove-icon {

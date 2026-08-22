@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, useSlots, useId, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
@@ -220,11 +220,6 @@ function onBackdropClick() {
 
 .s-modal__close:hover {
   color: var(--color-fg);
-}
-
-.s-modal__close:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .s-modal__close-icon {

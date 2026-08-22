@@ -103,16 +103,20 @@ const { isMobile } = useBreakpoint()
   border-radius: var(--radius-md);
   color: var(--color-fg);
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .topbar__sidebar-toggle:hover {
   background: var(--color-surface-hover);
 }
 
-.topbar__sidebar-toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+/* The shell's own controls follow the same press language as SButton, so the
+   chrome does not feel less responsive than the content inside it. */
+.topbar__sidebar-toggle:active {
+  background: var(--color-surface-active);
+  transform: translateY(1px);
 }
 
 .topbar__toggle-icon {
@@ -130,8 +134,6 @@ const { isMobile } = useBreakpoint()
 }
 
 .topbar__wordmark:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
   border-radius: var(--radius-md);
 }
 

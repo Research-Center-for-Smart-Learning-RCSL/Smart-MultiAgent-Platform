@@ -45,11 +45,6 @@ const labels: Record<string, string> = { en: 'EN', 'zh-TW': 'TW' }
   color: var(--color-fg);
 }
 
-.locale-toggle:focus-visible {
-  box-shadow: var(--focus-ring);
-  outline: none;
-}
-
 .locale-toggle__icon {
   width: 20px;
   height: 20px;

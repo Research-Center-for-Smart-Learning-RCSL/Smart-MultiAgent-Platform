@@ -117,7 +117,7 @@ defineProps<{
 .s-page-header__title {
   font-size: var(--font-size-2xl);
   font-weight: var(--weight-semibold);
-  line-height: var(--line-snug);
+  line-height: var(--line-tight);
   /* Restated rather than inherited from @layer base: this is the one heading
      that truncates (below), so where it ellipsises depends on its tracking. */
   letter-spacing: var(--tracking-tight);

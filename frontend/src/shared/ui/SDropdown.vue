@@ -319,6 +319,17 @@ onBeforeUnmount(() => {
 .s-dropdown__item:hover:not(.s-dropdown__item--disabled),
 .s-dropdown__item:focus:not(.s-dropdown__item--disabled) {
   background: var(--color-surface);
+}
+
+/* The highlight alone was the focus indicator, and it is a one-step background
+   change - too faint to be one. A keyboard landing gets a real ring; a pointer
+   landing keeps the highlight only. The offset is negative because the menu
+   scrolls its own overflow, which would clip an outward ring on the end items. */
+.s-dropdown__item:focus-visible {
+  outline-offset: -2px;
+}
+
+.s-dropdown__item:focus:not(:focus-visible) {
   outline: none;
 }
 

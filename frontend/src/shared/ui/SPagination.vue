@@ -170,11 +170,6 @@ function ariaCurrentAttrs(item: number) {
   background: var(--color-surface);
 }
 
-.s-pagination__btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .s-pagination__btn--active {
   background: var(--color-accent);
   color: #fff;

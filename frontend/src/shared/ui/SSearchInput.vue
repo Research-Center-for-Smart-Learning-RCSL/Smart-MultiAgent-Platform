@@ -110,9 +110,13 @@ function onClear() {
   transition: border-color var(--transition-fast);
 }
 
+/* Same arrangement as SInput: the wrapper draws the border the user sees, and
+   .search-input__field carries outline: none, so the ring goes on the wrapper
+   rather than around the bare field inside it. */
 .search-input:focus-within {
   border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .search-input__icon,

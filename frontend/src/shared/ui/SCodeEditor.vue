@@ -172,10 +172,13 @@ onMounted(async () => {
             border: 'none',
             borderRight: '1px solid var(--color-border-subtle)',
           },
+          // CodeMirror focuses an inner contenteditable, not this element, so
+          // the global :focus-visible rule never reaches the box the user sees
+          // and the ring has to be stated here.
           '&.cm-focused': {
-            outline: 'none',
             borderColor: 'var(--color-accent)',
-            boxShadow: 'var(--focus-ring)',
+            outline: '2px solid var(--color-accent)',
+            outlineOffset: '2px',
           },
         }),
       ),
@@ -245,7 +248,6 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-wrap: break-word;
   resize: vertical;
-  outline: none;
   transition: border-color var(--transition-fast);
 }
 
@@ -253,10 +255,16 @@ onBeforeUnmount(() => {
   color: var(--color-muted);
 }
 
+/* Border only; the ring is the global :focus-visible outline on this element.
+   The suppression below is scoped to pointer focus so a mouse click gets the
+   border change alone - an unconditional `outline: none`, which is what this
+   rule used to carry, would take the keyboard ring with it. */
 .code-editor:focus {
   border-color: var(--color-accent);
+}
+
+.code-editor:focus:not(:focus-visible) {
   outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .code-editor[readonly] {

@@ -161,9 +161,13 @@ function togglePasswordVisibility() {
   transition: border-color var(--transition-fast);
 }
 
+/* The ring belongs to the wrapper, not the field: the border the user sees is
+   the wrapper's, and .s-input__field carries outline: none so the global
+   :focus-visible rule does not draw a second one inside this box. */
 .s-input:focus-within {
   border-color: var(--color-accent);
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .s-input--error {
@@ -171,7 +175,7 @@ function togglePasswordVisibility() {
 }
 
 .s-input--error:focus-within {
-  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-danger);
+  outline-color: var(--color-danger);
 }
 
 .s-input--disabled {
@@ -256,11 +260,6 @@ function togglePasswordVisibility() {
 
 .s-input__eye-toggle:hover {
   color: var(--color-fg);
-}
-
-.s-input__eye-toggle:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .s-input__eye-icon {

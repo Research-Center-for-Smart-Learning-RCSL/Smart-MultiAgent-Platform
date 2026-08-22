@@ -105,8 +105,11 @@ function onChange() {
   border-color: var(--color-accent);
 }
 
+/* The native input is clipped to a 1px rect, so an outline on it would be
+   clipped with it. The visible circle is a sibling and has to carry the ring. */
 .s-radio__native:focus-visible ~ .s-radio__circle {
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .s-radio__dot {

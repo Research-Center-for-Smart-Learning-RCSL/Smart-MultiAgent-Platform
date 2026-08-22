@@ -44,11 +44,6 @@ const icons = { light: SunIcon, dark: MoonIcon, system: ComputerDesktopIcon } as
   color: var(--color-fg);
 }
 
-.theme-toggle:focus-visible {
-  box-shadow: var(--focus-ring);
-  outline: none;
-}
-
 .theme-toggle__icon {
   width: 20px;
   height: 20px;

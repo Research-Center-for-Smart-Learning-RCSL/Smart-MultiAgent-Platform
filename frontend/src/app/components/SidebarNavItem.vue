@@ -76,9 +76,21 @@ const active = computed(() => {
   background-color: var(--color-sidebar-hover);
 }
 
+.nav-item:active {
+  background-color: var(--color-accent-tint-hover);
+}
+
 .nav-item--active {
   background-color: var(--color-sidebar-active-bg);
   color: var(--color-sidebar-active-text);
+}
+
+/* --color-sidebar-hover and --color-sidebar-active-bg are the same colour, so
+   the active row was the one item in the sidebar that did not respond to a
+   pointer at all. --color-accent-tint-hover is one step deeper and had been
+   sitting unused since 2026-07-05-sitewide-ui-enhancement's FU-9. */
+.nav-item--active:hover {
+  background-color: var(--color-accent-tint-hover);
 }
 
 .nav-item--active::before {

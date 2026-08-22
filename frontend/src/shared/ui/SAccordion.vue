@@ -106,11 +106,6 @@ function isOpen(key: string): boolean {
   background: var(--color-surface);
 }
 
-.s-accordion__header:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .s-accordion__title {
   flex: 1;
   min-width: 0;
