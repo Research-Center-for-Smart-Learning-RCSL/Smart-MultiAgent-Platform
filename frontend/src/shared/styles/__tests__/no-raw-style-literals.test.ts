@@ -168,9 +168,37 @@ exempt(
   'slices/conversation/components/ObservationReleaseDialog.vue:margin-left:26px',
 )
 
+/**
+ * Strips `@font-face { ... }` blocks, brace-counted.
+ *
+ * A font-face descriptor is not a component style: its `font-weight` is the
+ * variable font's weight *axis range* (`100 900`), which shares a name with the
+ * property this sweep governs and means something else entirely. Excluded
+ * structurally rather than by exemption, so a later descriptor inherits the
+ * rule instead of needing its own licence.
+ */
+function stripFontFace(css: string): string {
+  let out = ''
+  let i = 0
+  for (;;) {
+    const at = css.indexOf('@font-face', i)
+    if (at === -1) return out + css.slice(i)
+    out += css.slice(i, at)
+    const open = css.indexOf('{', at)
+    if (open === -1) return out
+    let depth = 0
+    let j = open
+    for (; j < css.length; j++) {
+      if (css[j] === '{') depth++
+      else if (css[j] === '}' && --depth === 0) break
+    }
+    i = j + 1
+  }
+}
+
 /** CSS regions of a file: every `<style>` block, or the whole of a .css file. */
 function cssRegions(text: string, path: string): string[] {
-  if (path.endsWith('.css')) return [text]
+  if (path.endsWith('.css')) return [stripFontFace(text)]
   const out: string[] = []
   const re = /<style[^>]*>/g
   let m: RegExpExecArray | null
