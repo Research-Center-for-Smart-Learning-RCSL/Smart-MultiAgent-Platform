@@ -46,3 +46,51 @@ describe('STable sticky header', () => {
     expect(declaration(sticky as string, 'overflow')).toBe('visible')
   })
 })
+
+/** AC-11 of `docs/tasks/2026-08-21-visual-refinement-phase2-identity-and-depth`. */
+describe('STable density and figures', () => {
+  it('gives a row the loosened padding', () => {
+    // The one deliberate layout change in phase 2, so it is pinned rather than
+    // left to be re-tightened by the next person who wants more rows on screen.
+    const css = readComponentStyles('shared/ui/STable.vue')
+    expect(declaration(topLevelRule(css, '.s-table__td') ?? '', 'padding'))
+      .toBe('var(--space-3) var(--space-4)')
+    expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'padding'))
+      .toBe('var(--space-3) var(--space-4)')
+  })
+
+  it('leaves header labels in the case the locale files wrote them in', () => {
+    // text-transform: uppercase is inert in zh-TW, so it did not merely restyle
+    // the header - it made the two locales render the same table differently.
+    const css = readComponentStyles('shared/ui/STable.vue')
+    expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'text-transform')).toBeNull()
+    expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'letter-spacing'))
+      .toBe('var(--tracking-tight)')
+  })
+
+  it('marks a number or date column for tabular figures', () => {
+    const wrapper = mount(STable, {
+      props: {
+        columns: [
+          { key: 'name', label: 'Name' },
+          { key: 'count', label: 'Count', cellType: 'number' },
+          { key: 'created', label: 'Created', cellType: 'date' },
+        ] as Column[],
+        data: [{ id: '1', name: 'a', count: 1, created: 'x' }],
+      },
+      global: { plugins: [i18n] },
+    })
+
+    const cells = wrapper.findAll('tbody .s-table__td')
+    expect(cells).toHaveLength(3)
+    expect(cells[0].classes()).not.toContain('s-table__td--figures')
+    expect(cells[1].classes()).toContain('s-table__td--figures')
+    expect(cells[2].classes()).toContain('s-table__td--figures')
+  })
+
+  it('applies tabular figures to the class it marks', () => {
+    const css = readComponentStyles('shared/ui/STable.vue')
+    expect(declaration(topLevelRule(css, '.s-table__td--figures') ?? '', 'font-variant-numeric'))
+      .toBe('tabular-nums')
+  })
+})

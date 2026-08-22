@@ -171,6 +171,17 @@ function onRowClick(row: T) {
   emit('row-click', row)
 }
 
+/**
+ * Columns whose cells are digits that should line up down the column.
+ *
+ * Read off the existing `cellType` rather than a new prop: every call site that
+ * has a numeric or date column already declares it there for the skeleton's
+ * sake, so tabular figures come for free on all of them.
+ */
+function isFigureColumn(col: Column): boolean {
+  return col.cellType === 'number' || col.cellType === 'date'
+}
+
 const skeletonRows = 5
 
 // row[props.rowKey] indexes the generic T with a non-literal string key, which
@@ -414,6 +425,7 @@ function skeletonStyle(col: Column): Record<string, string> {
               v-for="col in visibleColumns"
               :key="col.key"
               class="s-table__td"
+              :class="{ 's-table__td--figures': isFigureColumn(col) }"
               :style="{ textAlign: col.align || 'left' }"
             >
               <slot
@@ -511,11 +523,15 @@ function skeletonStyle(col: Column): Record<string, string> {
 }
 
 .s-table__th {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
   font-weight: var(--weight-semibold);
   font-size: var(--font-size-xs);
-  text-transform: uppercase;
+  /* Sentence case, not uppercase. The labels arrive from $t() already written
+     in sentence case, so uppercasing them was a CSS-side reinterpretation that
+     cost the word shapes a reader scans by - and it costs most in zh-TW, where
+     text-transform does nothing at all and the two locales stopped matching. */
+  letter-spacing: var(--tracking-tight);
   color: var(--color-muted);
   text-align: left;
   white-space: nowrap;
@@ -576,12 +592,22 @@ function skeletonStyle(col: Column): Record<string, string> {
 }
 
 .s-table__td {
-  padding: var(--space-2) var(--space-3);
+  /* Loosened from --space-2/--space-3. This is the one deliberate layout
+     consequence in the dossier: a row grows by 8px, so a viewport that showed
+     20 rows now shows about 15. Accepted because a data table that cannot be
+     read is not denser, only smaller. */
+  padding: var(--space-3) var(--space-4);
   /* The interior weight. A row rule and the table's own outer edge were the
      same line before the split, which is what made a dense table read as a
      grid of cells rather than as rows. */
   border-bottom: 1px solid var(--color-border-subtle);
   color: var(--color-fg);
+}
+
+/* Proportional digits have per-glyph widths, so a column of them does not line
+   up and the eye cannot compare two rows without reading both. */
+.s-table__td--figures {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ------- Checkbox ------- */
