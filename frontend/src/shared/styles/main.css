@@ -43,24 +43,68 @@
    our original token scale exactly (p-1=4px … p-6=24px).
    ─────────────────────────────────────────────────────────────── */
 @theme {
+  /* ── Surface roles ──
+     Three depths, not two. --color-canvas is the floor the application sits
+     on, --color-bg is a sheet raised off it (card, modal, dropdown, top bar,
+     table row), --color-surface is a fill recessed into a sheet (table header,
+     secondary button, card footer).
+
+     Before this the content area and the cards on it were both --color-bg, so
+     no shadow value could make a card read as raised - it was the same colour
+     as the page with a 1px line around it. The gap between canvas and sheet is
+     held at 3-5 points of CIE L* in BOTH themes, which is the premise the
+     --elevation-* ladder was built on and had never been true: light was 1.6
+     points apart and dark was 11.
+
+     --color-bg keeps its old meaning rather than being redefined as the
+     canvas: it has 52 consumers plus html/body, and flipping its sense would
+     have silently inverted every one of them. */
+  --color-canvas: #f1f5f9;
   --color-bg: #ffffff;
-  --color-fg: #1f2328;
-  --color-muted: #6b7280;
+  --color-surface: #f8fafc;
+
+  --color-fg: #0f172a;
+  --color-muted: #475569;
   --color-accent: #2563eb;
   --color-accent-hover: #1d4ed8;
   --color-accent-2: #7c3aed;
   --color-danger: #dc2626;
-  --color-surface: #f8fafc;
-  --color-border: #e5e7eb;
   --color-success: #16a34a;
   --color-warning: #d97706;
+
+  /* ── Rule weights ──
+     One token used to draw both the outer boundary of a container and the rule
+     between two table rows, so a card's edge and a row separator were the same
+     line. Three roles now, split by what the rule is *for*:
+
+     --color-border-strong  the boundary of a form control. WCAG 1.4.11 applies
+                            here and nowhere else on this list: the outline is
+                            the only thing that says a text field is present, so
+                            it must clear 3:1 against its own background. It
+                            measures 4.76:1 light / 3.90:1 dark, which is why it
+                            is not overridden per theme.
+     --color-border         the boundary of a container - card, sidebar edge,
+                            top bar, fieldset. Decorative: the container is
+                            identified by its content and its elevation, so this
+                            is a drawn edge, not an affordance.
+     --color-border-subtle  an interior separator - table row rules, card
+                            header/footer rules, accordion and dropdown
+                            dividers. Keeps the weight the whole product already
+                            rendered at, because row rules are what make a wide
+                            table scannable.
+
+     src/shared/styles/__tests__/contrast.test.ts holds all three to those
+     roles; the ordering between them is asserted, not just their values. */
+  --color-border-strong: #64748b;
+  --color-border: #cbd5e1;
+  --color-border-subtle: #e2e8f0;
 
   --color-sidebar-bg: #f1f5f9;
   --color-sidebar-hover: #dbeafe;
   --color-sidebar-active-bg: #dbeafe;
   --color-sidebar-active-text: #1d4ed8;
-  --color-sidebar-text: #374151;
-  --color-sidebar-section-text: #6b7280;
+  --color-sidebar-text: #334155;
+  --color-sidebar-section-text: #475569;
 
   --color-info-tint: #dbeafe;
   --color-info-on: #1d4ed8;
@@ -70,14 +114,19 @@
   --color-warning-on: #92400e;
   --color-danger-tint: #fee2e2;
   --color-danger-on: #b91c1c;
-  --color-neutral-tint: #f3f4f6;
-  --color-neutral-on: #4b5563;
+  --color-neutral-tint: #f1f5f9;
+  --color-neutral-on: #334155;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.2);
+  /* Tinted with the neutral axis (slate-900) rather than pure black, and split
+     across two layers at lower per-layer alpha: a single black layer reads as
+     grey haze over a cool palette, where a tinted pair reads as a cast shadow.
+     The dark overrides stay near-black - a dark surface carries its elevation
+     through lightness, and a visible shadow on it only muddies the edge. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.05), 0 4px 8px -2px rgba(15, 23, 42, 0.07);
+  --shadow-lg: 0 4px 8px -2px rgba(15, 23, 42, 0.05), 0 12px 20px -4px rgba(15, 23, 42, 0.09);
+  --shadow-xl: 0 8px 16px -4px rgba(15, 23, 42, 0.06), 0 24px 40px -8px rgba(15, 23, 42, 0.12);
+  --shadow-dialog: 0 8px 30px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
   --color-overlay: rgba(0, 0, 0, 0.45);
   --overlay-backdrop: rgba(0, 0, 0, 0.45);
 
@@ -234,7 +283,8 @@
   html,
   body {
     margin: 0;
-    background: var(--color-bg);
+    /* The canvas, so an overscroll bounce shows the floor rather than a sheet. */
+    background: var(--color-canvas);
     color: var(--color-fg);
     font-family: var(--font-body);
   }
@@ -274,23 +324,28 @@
 
   /* Dark theme overrides — semantic colors switch, palette colors stay */
   :root[data-theme="dark"] {
-    --color-bg: #0b0f14;
-    --color-fg: #e5e7eb;
-    --color-muted: #9ca3af;
+    /* The same three roles, and the same 3-5 L* canvas-to-sheet gap, reached
+       from the other direction: the sheet is lifted off a near-black canvas
+       rather than the canvas being dropped below a white sheet. */
+    --color-canvas: #080d16;
+    --color-bg: #0f172a;
+    --color-surface: #1e293b;
+    --color-fg: #e2e8f0;
+    --color-muted: #94a3b8;
     --color-accent: #60a5fa;
     --color-accent-hover: #93c5fd;
     --color-accent-2: #a78bfa;
     --color-danger: #f87171;
-    --color-surface: #1f2937;
-    --color-border: #374151;
+    --color-border: #334155;
+    --color-border-subtle: #1e293b;
     --color-success: #4ade80;
     --color-warning: #fbbf24;
-    --color-sidebar-bg: #111827;
+    --color-sidebar-bg: #080d16;
     --color-sidebar-hover: #1e3a5f;
     --color-sidebar-active-bg: #1e3a5f;
     --color-sidebar-active-text: #93c5fd;
-    --color-sidebar-text: #d1d5db;
-    --color-sidebar-section-text: #9ca3af;
+    --color-sidebar-text: #cbd5e1;
+    --color-sidebar-section-text: #94a3b8;
     --color-info-tint: #1e3a5f;
     --color-info-on: #93c5fd;
     --color-success-tint: #14532d;
@@ -299,13 +354,13 @@
     --color-warning-on: #fcd34d;
     --color-danger-tint: #7f1d1d;
     --color-danger-on: #fca5a5;
-    --color-neutral-tint: #374151;
-    --color-neutral-on: #d1d5db;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-    --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --color-neutral-tint: #334155;
+    --color-neutral-on: #cbd5e1;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.16);
+    --shadow-md: 0 2px 4px -1px rgba(0, 0, 0, 0.28), 0 4px 8px -2px rgba(0, 0, 0, 0.24);
+    --shadow-lg: 0 4px 8px -2px rgba(0, 0, 0, 0.3), 0 12px 20px -4px rgba(0, 0, 0, 0.28);
+    --shadow-xl: 0 8px 16px -4px rgba(0, 0, 0, 0.34), 0 24px 40px -8px rgba(0, 0, 0, 0.32);
+    --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
     --color-overlay: rgba(0, 0, 0, 0.65);
     --overlay-backdrop: rgba(0, 0, 0, 0.65);
     --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
