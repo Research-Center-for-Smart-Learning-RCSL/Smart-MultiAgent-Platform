@@ -50,7 +50,10 @@ interface Probe {
 }
 
 async function probe(page: Page): Promise<Probe> {
-  return page.evaluate((hidden) => {
+  // The floor is passed in rather than restated inside: this callback runs in
+  // the page and cannot close over module scope, so a literal here would be a
+  // second copy that the constant above no longer controls.
+  return page.evaluate(({ hidden, floor }) => {
     const doc = document.documentElement
     const starved: Probe['starved'] = []
     for (const el of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
@@ -69,7 +72,7 @@ async function probe(page: Page): Promise<Probe> {
         s.whiteSpace === 'nowrap'
       if (!clips) continue
       if (el.scrollWidth <= el.clientWidth + 1) continue
-      if (el.clientWidth >= 40) continue
+      if (el.clientWidth >= floor) continue
       starved.push({
         tag: el.tagName.toLowerCase(),
         cls: Array.from(el.classList).join('.'),
@@ -84,7 +87,7 @@ async function probe(page: Page): Promise<Probe> {
       ),
       starved,
     }
-  }, HIDDEN_CLASSES)
+  }, { hidden: HIDDEN_CLASSES, floor: CLIPPED_FLOOR_PX })
 }
 
 /** Waits until the element count stops moving; a visible `<main>` is not a settled page. */
