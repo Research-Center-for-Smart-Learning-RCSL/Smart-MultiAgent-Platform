@@ -104,8 +104,11 @@ export default [
   },
 
   // Playwright e2e tests — needs the TS parser for non-null assertions etc.
+  // `e2e-csp/` is a second suite rather than a spec in `e2e/`: it runs against a
+  // built bundle behind nginx, so `playwright.config.ts` (Vite baseURL, testDir
+  // `./e2e`) must not pick it up.
   {
-    files: ['e2e/**/*.ts'],
+    files: ['e2e/**/*.ts', 'e2e-csp/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
