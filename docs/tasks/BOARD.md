@@ -95,6 +95,33 @@ first, but building them serially avoids the conflict.
   is `AgentDetailView.vue:988` not `:964`, and F-18's fix shrank to a class change because the
   bar is already a flow child of the now-unpadded view root.
 
+### From the 2026-08-22 close of visual-refinement phase 2
+
+- `2026-08-22-visual-refinement-phase3-verification-and-debt` (refactor, **draft** — needs
+  approval before `/build` will touch it) — `depends_on: []`. Phase 2 is `implemented` and
+  every predecessor is closed, so nothing sequences against this.
+
+  **Its AC-1 is the reason CI is currently red.** The parity baseline
+  (`e2e/baselines/visual-token-parity.json`) predates phase 2's restyle, so
+  `00-visual-token-parity` reports 21 failures — correctly, on a dossier whose whole purpose
+  was to move those values. Regenerating it has **three preconditions and none is optional**
+  (its §6.1): a pristine `smap_test`, a verified full `E2E_*` seed set (`global-setup.ts`
+  fails *silently* on an already-seeded stack and a short seed file makes every gated spec
+  skip — a green run with no coverage), and then the `UPDATE_VISUAL_BASELINE=1` capture.
+  `compose.test.yml` binds `28000:8000` and reuses the base project's container names, so
+  **this displaces a running dev stack**; that is stated in Q-2 rather than discovered.
+
+  **Its AC-3 to AC-7 are the visual pass phase 2 never did** — 20 C-0 surfaces, two
+  viewports, two locales, two themes, recorded per surface rather than as a tick. Its Q-3
+  records why this is not automated: a screenshot diff answers "did anything change", and
+  phase 2 changed everything by design. Phase 2 already automated everything with a
+  threshold; what is left is what only a person can answer.
+
+  The rest is phase 2's FU-8 to FU-12: the CSP path that closes against Vite rather than
+  nginx, a duplicated predicate, a px-versus-rem decision that is **per token** (a control
+  height is a floor, a sidebar width is a track), an inert half of the press language, and
+  an intermittent CodeMirror test.
+
 ### From the 2026-08-21 post-close code review
 
 - `2026-08-22-safe-area-uncovered-top-surfaces` (bugfix, **draft** — needs approval before
@@ -190,6 +217,11 @@ Two dossiers, sequenced. Not from an audit: they came from a direct read of `mai
 46 `shared/ui/` components and the two `docs/UI/` specification files, prompted by the user's
 report that the UI is consistent but flat.
 
+**Both are `implemented` as of 2026-08-22** and their rows below are kept only as the record
+of what they were waiting on. Phase 2 closed with two criteria unticked; they belong to
+`2026-08-22-visual-refinement-phase3-verification-and-debt` in Ready above, which is also
+the row to read for why CI is red.
+
 - (moved to Ready now on 2026-08-21, unblocked by the implemented
   `2026-08-19-shared-overlay-and-shell-defects`) The original entry, kept here for its detail:
   `2026-08-21-visual-refinement-phase1-token-adoption` (refactor, **approved 2026-08-21**) - waiting on
@@ -238,38 +270,53 @@ report that the UI is consistent but flat.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
-- `2026-08-21-visual-refinement-phase2-identity-and-depth` (feature) — `depends_on:
-  [2026-08-21-visual-refinement-phase1-token-adoption]`, met. Started and built out
-  2026-08-22 across eleven commits; **deliberately still `in-progress`, with two acceptance
-  criteria open**. Everything else is done: Inter self-hosted, every neutral on slate, a
-  third surface role so a card stops being the same colour as its page, three rule weights,
-  the focus ring rebuilt as an outline across 24 files, the pressed state that `:active`
-  being absent from all of `frontend/src` meant nothing had, table density and tabular
-  figures, the literal colours named, `--space-*` on rem, and phase 1's FU-5/6/7/9 closed.
-  1506 unit tests and a nine-check e2e spec green; six new tests under
-  `shared/styles/__tests__/` keep the contrast budget, the border roles, the focus
-  suppressions, the literal allowlist and token resolvability enforced rather than reviewed.
+Removed on 2026-08-22 after implementation:
+`2026-08-21-visual-refinement-phase2-identity-and-depth` (the product has a typeface, one
+neutral axis, surfaces that are actually layered, three rule weights instead of one, and a
+pressed state where `:active` had appeared nowhere in `frontend/src`). Nothing lists it in
+`depends_on`, so no row moved out of Blocked. It **applied an SRS Delta** at approval and
+**amended [R24.28] again at build time** (its D-10). Frontend and docs only; no migration,
+no API change. **Five things a later reader needs.**
 
-  **AC-16 is the blocker and CI will be red until it closes.** The parity baseline must be
-  regenerated (shadows, the heading ramp, `SCard`'s elevation and `STable`'s padding all
-  moved, all four in its property set) and phase 1's D-17/D-18 established it is only
-  meaningful on a freshly seeded stack. `compose.test.yml` binds the dev stack's port and
-  container names, so a pristine stack means taking the running one down; the user directed
-  this to remote CI instead. Recipe in the dossier's §15.
+**It closed with two acceptance criteria unticked, by the user's explicit scope decision,
+and one of them leaves CI red.** That is not a formality. `frontend-e2e` fails on
+`00-visual-token-parity` — one job, one spec, 21 failures all in it — because the baseline
+predates the restyle and phase 1's D-17/D-18 established it is only meaningful when
+regenerated on a freshly seeded stack. **And AC-3 was never performed at all**: no overflow
+pass at any viewport in any locale, no traversal of the surface set for a mismatched focus
+ring, nobody opened the landing page. Inter runs wider than the stack it replaced, so this
+is a visual identity that has been measured thoroughly and seen barely at all. Both are
+owned by `2026-08-22-visual-refinement-phase3-verification-and-debt` in Ready above.
 
-  **AC-3 was never performed**, and it is now FU-7: no overflow pass at either viewport in
-  either locale, no keyboard traversal of the C-0 surface set, and nobody has looked at the
-  landing page. This is a visual-identity change that has been measured thoroughly and seen
-  barely at all — Inter runs wider than Segoe UI and §10 named the three exposures.
+**Two mid-build decisions changed the token vocabulary past the approved spec**, both taken
+with the user. AC-9's border clause was unreachable as written — 3:1 on every container
+edge makes the product a grid of mid-grey lines — so WCAG 1.4.11 was applied where it
+actually governs, via a third weight `--color-border-strong` for form controls only. And
+Q-12's retained `#fff` was a live AA failure: white on the dark theme's accent is 2.54:1
+and on its danger 2.77:1, on the most-used control in the product, so `--color-on-accent`
+and `--color-on-danger` are theme-aware now.
 
-  **Two decisions were taken with the user mid-build and both changed the token vocabulary
-  past the approved spec.** AC-9's border clause was unreachable as written (3:1 on every
-  container edge would make the product a grid of mid-grey lines), so WCAG 1.4.11 was
-  applied where it actually governs — a third weight, `--color-border-strong`, for form
-  controls only. And Q-12's retained `#fff` turned out to be a live AA failure: white on the
-  dark theme's accent is 2.54:1, on its danger 2.77:1, on the most-used control in the
-  product, so `--color-on-accent`/`--color-on-danger` are theme-aware now. [R24.28] was
-  amended for both (D-10).
+**D-11 is the one to read before adding a colour token.** A post-build `/code-review` found
+two tokens shipped byte-identical to a surface they are drawn on: dark
+`--color-border-subtle` equalled dark `--color-surface`, so every interior rule on a table
+header, card footer or editor gutter *vanished* rather than lightened in dark mode; and
+light `--color-neutral-tint` equalled `--color-canvas`, so every badge at SBadge's default
+variant had no pill. The contrast test could not see either, because it measured the border
+weights against `--color-bg` alone and the tint against its own text. **A budget that
+measures a token against one background cannot see a collision with any other** — and the
+surface roles this dossier introduced are what made that reachable. Both guards exist now
+and were mutation-probed.
+
+**D-12 is a Windows trap that will recur.** A bulk `Get-Content -Raw` + `WriteAllText` pass
+over seven files decoded UTF-8 as the ANSI codepage and wrote it back lossily, turning four
+em-dashes into `??`. Comment-only this time; the extent was established by diffing the
+commit for lines it had no business touching. Use `[System.IO.File]::ReadAllText` for bulk
+rewrites, or do them one Edit at a time.
+
+**Three CI gates cannot run on this host at all** (D-9) — `check:bundle-size`,
+`check:type-coverage`, `check:boundaries-enforced` are bash scripts, the same class of
+blocker phase 1 hit with `check:openapi-drift`. All three went green on CI run
+`32561272600`, which is the only thing that could close them.
 Removed on 2026-08-22 after implementation:
 `2026-08-21-visual-refinement-phase1-token-adoption` (the design tokens are load-bearing:
 811 of the 985 type and spacing declarations in `frontend/src` now name a token, and both

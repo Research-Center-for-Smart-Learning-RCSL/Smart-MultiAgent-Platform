@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-21
 requirements: [R24.28, R24.30, R24.34, R24.48, R24.49]
 depends_on: [2026-08-21-visual-refinement-phase1-token-adoption]
@@ -449,7 +449,10 @@ unchanged and unneeded here.
 - [ ] AC-3: **No text overflow regression.** At 1440x900 and 375x812, in both locales: no
       sidebar nav label is truncated that was not truncated before, no `STable` header wraps
       or clips, and no `SBadge` label overflows its pill. Checked against the phase-1 C-0
-      surface set. **Deliberately unticked — not performed.** See §15.
+      surface set. **Never performed, and closed unticked by the user's scope decision on
+      2026-08-22.** Owned by
+      `docs/tasks/2026-08-22-visual-refinement-phase3-verification-and-debt` (its AC-3 and
+      AC-4). See §15 for what that leaves unknown.
 - [x] AC-4: **Press and focus.** Every `SButton` variant, the top-bar icon buttons and
       `SidebarNavItem` show a visible pressed state distinct from hover; the state survives
       under `prefers-reduced-motion: reduce` as an instant change with no movement.
@@ -513,9 +516,12 @@ unchanged and unneeded here.
 - [ ] AC-16: **Phase 1's parity harness is retargeted, not deleted.**
       The parity spec is rebaselined against the new values, so a future refactor still has a
       computed-style net. Deleting it is not an acceptable resolution of its failures.
-      **Deliberately unticked and the one thing outstanding.** The spec is
-      `00-visual-token-parity.spec.ts`, not `20-` (D-1). The recipe and the reason it was not
-      run here are in §15.
+      **Closed unticked by the user's scope decision on 2026-08-22, and it leaves CI red.**
+      The harness was not deleted or weakened — it is doing its job, reporting the change
+      this dossier exists to make. The spec is `00-visual-token-parity.spec.ts`, not `20-`
+      (D-1). Owned by
+      `docs/tasks/2026-08-22-visual-refinement-phase3-verification-and-debt` (its AC-1 and
+      AC-2), which carries the preconditions; the recipe is in §15.
 
 ## 12. Test Plan
 
@@ -576,6 +582,26 @@ Amend §24.9 of `REQUIREMENTS.md`:
   what is not acceptable is a third dossier leaving it dead.
 
 ## 15. Deviation Log
+
+### How this dossier closed
+
+Marked `implemented` on 2026-08-22 by the user's explicit scope decision, with **AC-3 and
+AC-16 unticked and both handed to
+`docs/tasks/2026-08-22-visual-refinement-phase3-verification-and-debt`**. Recorded here
+because an `implemented` status that quietly covers two open criteria is worth exactly
+nothing to the next reader.
+
+What that means concretely, and it is not a formality:
+
+- **CI is red on `frontend-e2e` until phase 3's AC-1 lands.** One job, one spec, one
+  fully-diagnosed cause (§15's AC-16 section). Nothing else in the run fails.
+- **This visual-identity change has never been looked at.** No overflow pass at any
+  viewport in any locale, no traversal of the surface set for a mismatched focus ring, and
+  nobody has opened the landing page — which §10 named the highest-risk surface. Inter runs
+  wider than the system stack it replaced, so the exposure is real rather than theoretical.
+
+Everything else closed: eleven criteria ticked, three (AC-5, AC-6, AC-7) closed on their
+mechanical half with the human half stated as unmade, and thirteen deviations recorded.
 
 ### Freshness pass (before any code moved)
 
