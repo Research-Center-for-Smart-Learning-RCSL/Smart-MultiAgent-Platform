@@ -116,6 +116,24 @@ defineProps<{
   font-weight: var(--weight-semibold);
 }
 
+/* No consumer. Nothing in `src/` passes this slot: all 30 `#footer` sites in the
+   tree belong to an `SModal`, and `s-card__footer` appears only here and in this
+   component's own unit test. `main.css` nevertheless cites "card footer" as its
+   example of the recessed `--color-surface` role, so the one illustration of
+   that role was never on screen.
+
+   Kept rather than deleted, and rendered once deliberately before deciding
+   (phase 3's FU-5): a temporary consumer was mounted on `/agents/:id/tools` and
+   photographed in both themes. It is correct. Light: canvas rgb(241,245,249),
+   card rgb(255,255,255), footer rgb(248,250,252) - recessed into the sheet.
+   Dark: canvas rgb(8,13,22), card rgb(15,23,42), footer rgb(30,41,59) -
+   recessed reads as lighter there, which is what --color-surface means in dark.
+   The divider does not compete with the card's own edge, the bottom corners
+   follow --radius-lg, and a button inside takes the standard focus ring against
+   it with no halo.
+
+   So the first consumer can use it as-is. What it must not assume is that
+   anything else exercises it. */
 .s-card__footer {
   margin: var(--card-pad) calc(var(--card-pad) * -1) calc(var(--card-pad) * -1);
   padding: var(--space-3) max(var(--card-pad), var(--space-4));
