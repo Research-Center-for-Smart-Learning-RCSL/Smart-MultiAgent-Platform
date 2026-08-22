@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
-import { ImpersonationBanner } from '@slices/admin'
+import { ImpersonationBanner, useImpersonationFlag } from '@slices/admin'
 import { useBanKickGuard } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { SConfirmDialog, SIdleDialog, SNetworkBanner } from '@shared/ui'
@@ -18,6 +18,11 @@ useBanKickGuard()
 const route = useRoute()
 const { t } = useI18n()
 const session = useSessionStore()
+// The banner is the y = 0 element while this is true, so it owns the status-bar
+// strip and the top bar below it must stop reserving one. The switch is a
+// single inherited property on .app-root (main.css, --topbar-inset-top), so no
+// consumer of the topbar height learns that impersonation exists.
+const { isImpersonating } = useImpersonationFlag()
 
 const layoutComponent = computed(() => {
   const layout = route.meta.layout as string | undefined
@@ -33,13 +38,24 @@ const layoutComponent = computed(() => {
 </script>
 
 <template>
-  <SNetworkBanner :below-topbar="layoutComponent === AppShell" />
   <!-- The impersonation banner shares this flow column with the layout, so it
-       reserves its own height instead of painting over the top bar. The fixed
-       and teleported siblings stay outside: the wrapper would constrain them
-       and none of them takes part in flow anyway. -->
-  <div class="app-root">
+       reserves its own height instead of painting over the top bar. The
+       teleported siblings stay outside: the wrapper would constrain them and
+       none of them takes part in flow anyway. -->
+  <div
+    class="app-root"
+    :class="{ 'app-root--impersonating': isImpersonating }"
+  >
     <ImpersonationBanner />
+    <!-- Zero-height anchor, so the network banner's below-topbar offset is
+         measured from wherever the impersonation banner ENDS rather than from
+         a banner height this file would have to know. The banner is
+         position: fixed in its default (unauthenticated) mode and unaffected
+         by a non-transformed ancestor; only the below-topbar mode positions
+         against this. -->
+    <div class="app-root__overlay-anchor">
+      <SNetworkBanner :below-topbar="layoutComponent === AppShell" />
+    </div>
     <component :is="layoutComponent">
       <!-- Wraps only the routed view. A fallback rendered inside a shell that
            is itself broken is not a fallback, so a throw in the shell chrome
@@ -86,5 +102,14 @@ const layoutComponent = computed(() => {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+}
+
+/* height: 0 so it reserves nothing, position: relative so the network banner's
+   below-topbar mode resolves its `top` against this point in the flow. No
+   z-index: `relative` alone builds no stacking context, so the banner keeps
+   competing on --z-banner against the rest of the app. */
+.app-root__overlay-anchor {
+  position: relative;
+  height: 0;
 }
 </style>

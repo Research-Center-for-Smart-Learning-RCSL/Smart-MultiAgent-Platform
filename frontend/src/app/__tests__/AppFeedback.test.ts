@@ -2,7 +2,8 @@
 import { shallowMount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 
 import { i18n } from '@shared/i18n'
 import en from '@app/locales/en.json'
@@ -25,9 +26,13 @@ vi.mock('../layouts/PublicLayout.vue', async () => {
   const { defineComponent } = await import('vue')
   return { default: defineComponent({ name: 'PublicLayout', template: '<div><slot /></div>' }) }
 })
+const isImpersonating = ref(false)
 vi.mock('@slices/admin', async () => {
   const { defineComponent } = await import('vue')
-  return { ImpersonationBanner: defineComponent({ name: 'ImpersonationBanner', template: '<div />' }) }
+  return {
+    ImpersonationBanner: defineComponent({ name: 'ImpersonationBanner', template: '<div />' }),
+    useImpersonationFlag: () => ({ isImpersonating }),
+  }
 })
 vi.mock('@shared/ui', async () => {
   const { defineComponent } = await import('vue')
@@ -81,6 +86,10 @@ async function renderApp(path: string, locale: 'en' | 'zh-TW') {
 }
 
 describe('App feedback hosts', () => {
+  afterEach(() => {
+    isImpersonating.value = false
+  })
+
   it.each([
     ['en', 'Notifications', 'Close notification'],
     ['zh-TW', '通知', '關閉通知'],
@@ -98,5 +107,21 @@ describe('App feedback hosts', () => {
     expect(auth.getComponent({ name: 'SNetworkBanner' }).props('belowTopbar')).toBe(false)
     const publicPage = await renderApp('/public', 'en')
     expect(publicPage.getComponent({ name: 'SNetworkBanner' }).props('belowTopbar')).toBe(false)
+  })
+
+  // The banner is the y = 0 element while impersonating, so it owns the
+  // status-bar strip and the top bar below it must stop reserving one. The
+  // whole switch is this class: it redefines --topbar-inset-top on .app-root,
+  // and --topbar-height-total and AppTopBar's padding both follow through
+  // inheritance. jsdom resolves no env(), so what is checkable here is that
+  // the class tracks the flag - the geometry is AC-6's device check.
+  it('surrenders the top inset to the impersonation banner', async () => {
+    const wrapper = await renderApp('/app', 'en')
+    expect(wrapper.get('.app-root').classes()).not.toContain('app-root--impersonating')
+
+    isImpersonating.value = true
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.app-root').classes()).toContain('app-root--impersonating')
   })
 })

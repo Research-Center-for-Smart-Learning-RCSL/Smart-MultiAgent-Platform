@@ -76,9 +76,13 @@ const { isMobile } = useBreakpoint()
      content box stays --topbar-height while the background covers the strip.
      Shares --topbar-height-total with AppShell's first grid track, so the bar
      and the row it occupies cannot disagree. Horizontal insets are not
-     repeated here: the bar sits inside the shell's padding box. */
+     repeated here: the bar sits inside the shell's padding box.
+     --topbar-inset-top rather than env() directly: the bar is at y = 0 only
+     while the impersonation banner is absent, and that property is what the
+     banner switches off (main.css). Both declarations read it, so neither can
+     reserve a strip this element does not meet. */
   height: var(--topbar-height-total);
-  padding: env(safe-area-inset-top, 0px) var(--space-4) 0;
+  padding: var(--topbar-inset-top) var(--space-4) 0;
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
   z-index: var(--z-topbar);
