@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: implemented
 created: 2026-08-22
 requirements: [R24.28, R24.48, R24.49]
 depends_on: []
@@ -265,36 +265,40 @@ can pick a hidden element, and the AUTH bucket is 10 req/min/IP.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: **CI is green.** `frontend-e2e` passes, including `00-visual-token-parity`
+- [x] AC-1: **CI is green.** `frontend-e2e` passes, including `00-visual-token-parity`
       against a baseline regenerated on a pristine stack, and the run id is recorded in §15.
-- [ ] AC-2: **The baseline describes the code it was captured from.** Immediately after
+- [x] AC-2: **The baseline describes the code it was captured from.** Immediately after
       capture, an unmodified re-run compares clean (phase 1's D-11 self-check), and that is
       stated in §15 rather than assumed.
-- [ ] AC-3: **The visual pass is performed and recorded per surface.** All 20 C-0 surfaces,
+- [x] AC-3: **The visual pass is performed and recorded per surface.** All 20 C-0 surfaces,
       1440x900 and 375x812, `en` and `zh-TW`, light and dark. §15 carries one line per
       surface with the result, not a single tick. Phase 2's AC-3 is quoted as closed by this.
-- [ ] AC-4: **No truncation regression**, or every regression found is listed with the
+- [x] AC-4: **No truncation regression**, or every regression found is listed with the
       element, the viewport, the locale and the fix. Specifically checked: sidebar nav
       labels, `STable` `nowrap` headers, `SBadge` pills.
 - [ ] AC-5: **The focus ring is correct on every backdrop it can appear over** — sidebar,
       card footer, table header, modal footer, dropdown — in both themes, by keyboard, with
       no halo belonging to neither surface. Closes phase 2's AC-5's open half.
-- [ ] AC-6: **Layering survives without its border.** An `SCard` at the default variant,
+      **Unticked on purpose**: five of seven backdrops observed, two not. See §15 AC-5 and
+      FU-5/FU-6.
+- [x] AC-6: **Layering survives without its border.** An `SCard` at the default variant,
       border removed in devtools, still reads as a sheet in both themes. The landing page,
       the auth pages and the chatroom are opened and are not visibly broken. Closes phase
       2's AC-6's open half.
-- [ ] AC-7: **The press survives reduced motion.** Under `prefers-reduced-motion: reduce`
+- [x] AC-7: **The press survives reduced motion.** Under `prefers-reduced-motion: reduce`
       the pressed state is an instant change with no movement — observed, not reasoned.
-- [ ] AC-8: **FU-8 is decided**, and the decision is either implemented (a CI job with
+- [x] AC-8: **FU-8 is decided**, and the decision is either implemented (a CI job with
       nginx in front) or recorded with a named owner and a date. "Proven by construction"
       is not an acceptable close.
-- [ ] AC-9: **FU-9, FU-10 and FU-12 are each fixed or decided in writing**, with the
+- [x] AC-9: **FU-9, FU-10 and FU-12 are each fixed or decided in writing**, with the
       reasoning in §15. FU-10 is decided per token, not as one answer.
 - [ ] AC-10: **FU-11 no longer reproduces under load**, with the measurement that shows it.
-- [ ] AC-11: gates green on CI: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
+      **Unticked on purpose**: it never reproduced here, so "no longer" cannot be claimed.
+      The measurement exists and the change is defensive. See §15 AC-10.
+- [x] AC-11: gates green on CI: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`,
       `check:bundle-size`, `check:type-coverage`, `check:boundaries-enforced`. Backend
       gates N/A. CI is authoritative over the local Windows host.
-- [ ] AC-12: **Any defect §6.2 surfaces is a numbered entry here**, fixed with a test where
+- [x] AC-12: **Any defect §6.2 surfaces is a numbered entry here**, fixed with a test where
       a test can express it, and never fixed silently.
 
 ## 12. Test Plan
@@ -326,8 +330,291 @@ either lands, the amendment is drafted here verbatim before it is applied.
 
 ## 15. Deviation Log
 
-Appended by /build. AC-3's per-surface results, AC-1's CI run id, and the FU-9/10/12
-decisions are recorded here.
+### Deviations
+
+**D-1 — the build order was inverted: the baseline was captured last, not first.**
+§5 chose Option A "rebaseline, then the visual pass, then the debt items". FU-12's
+approved close (D-3) gives the filled button variants a resting `box-shadow`, and
+`box-shadow` is in the parity spec's `PROPS` — so a baseline captured first would have
+been invalidated by the last step and needed a second pristine stack. Capturing once, at
+the end, also makes AC-2's self-check apply to the code that ships rather than to an
+intermediate state. The risk Option A was protecting against — spending the whole budget
+before learning whether the harness works — was retired instead by a diagnostic dry run
+of `00-visual-token-parity` in compare mode on a fresh stack before anything else began.
+It reproduced CI exactly (21 failed, 1 passed, all `AC-1: no rendered difference`), which
+established that the harness was healthy and the 21 failures had a single cause.
+
+**D-2 — the six defects §6.2 found are fixed here rather than handed to a fourth
+dossier.** §10 and §14 both anticipated this fork and left it to be decided when the pass
+ran. It ran, and the finding was six defects with five root causes, all at 375px, all
+predating phase 2. That is a coherent class — "the narrow viewport was never looked at" —
+rather than the broad metric problem §10 feared, and the user's call was to close it here.
+AC-12 is therefore read as written rather than amended.
+
+**D-3 — FU-8 and FU-12 were decided at approval, not left to §6.3/§6.6.** FU-8 closes as
+a CI job with nginx in front (§6.3's first option). FU-12 closes by giving the filled
+variants a resting elevation (§6.6's first option) rather than by dropping the inert
+`box-shadow`. The second is the one with visible consequences: every primary, secondary
+and danger button now rests at `--elevation-1`. It sits close to the non-goal "no new
+visual identity work", and was taken with that tension stated.
+
+**D-4 — V-7 (a table header operable only by pointer) was fixed here although it is an
+accessibility defect rather than a visual one.** It was found while trying to satisfy
+AC-5: one of the five backdrops it names is a table header, and there was nothing there
+to focus. Out of scope on a strict reading, taken in scope by the user's call, and it is
+what made AC-5's table-header case testable at all.
+
+**D-5 — truncation was measured as well as looked at.** Q-3 rejected a screenshot-diff
+harness, correctly. It did not rule out measuring the one thing in §6.2 that has a
+threshold: `scrollWidth > clientWidth` is the browser's own statement that content was
+clipped, and it is exact where 168 eyeballed screenshots are not. The judgements Q-3
+reserved for a person — halo, layering, "does this read as a sheet" — were made from
+screenshots. The mechanical half found V-1, V-2, V-3 and V-5; the visual half found V-4
+and V-6, which wrap rather than clip and are therefore invisible to the measurement. Both
+halves were needed, which is the argument for doing both.
+
+### AC-1 and AC-11 — CI
+
+**Run `32574448737`, at `ee2693f`: green, all 23 jobs.** `frontend-e2e` passes, so
+`00-visual-token-parity` now compares clean against the regenerated baseline, and
+`25-narrow-viewport-layout` passes on CI's own data. The new `frontend-csp-font` job
+passes there too, which is what makes AC-8 an observation rather than a local anecdote.
+
+The run this dossier inherited (`32563605043`, at `4a0f0de`) was red on `frontend-e2e`
+alone: 21 failures, every one `AC-1: no rendered difference on "<surface>"`, 95 passed.
+§4.1's citation of run `32561272600` was one push stale by the time work began; the
+signature was identical, so the diagnosis carried.
+
+That push also carried the four `2026-08-22-safe-area-uncovered-top-surfaces` commits,
+which had been sitting unpushed and had never been through CI. They are frontend style
+changes on surfaces this baseline covers, so capturing against `origin/main` rather than
+`HEAD` would have produced a baseline describing code that was not shipping.
+
+### AC-2 — the baseline self-check
+
+Captured on a `smap_test` that was dropped, recreated, migrated to head and seeded by the
+backend alone (2 users, 0 `api_keys` — the state CI starts from), with `global-setup` run
+exactly once and its 11-key `E2E_*` set verified before the run was trusted. Only spec 00
+ran, so the capture saw the freshly seeded data its header requires. 22 passed, 82
+snapshots written.
+
+**The self-check passed**: the comparison was immediately re-run against unmodified code
+and reported 22/22 with no differences.
+
+Two earlier captures were discarded rather than committed. The first was refused by the
+spec's own partial-baseline guard after a surface timed out — the guard working exactly as
+its comment describes. The second succeeded but on a stack `global-setup` had seeded
+twice, which is a data state CI never has; committing it would have been the same
+casualness Q-2 exists to prevent.
+
+### AC-3 — the visual pass, per surface
+
+21 surfaces (the `SURFACES` list in `00-visual-token-parity.spec.ts` holds 21, not the 20
+§6.2 says; `mobile-drawer` exists at one viewport only). 1440x900 and 375x812, `en` and
+`zh-TW`, light and dark — 164 combinations, each captured and each swept for clipped text
+and horizontal page overflow. Screenshots were read per surface; the table records what
+was found, not merely that it was looked at.
+
+| Surface | Result |
+|---|---|
+| agents-list | 1440 clean both themes/locales. **V-1** at 375: title "AI Agents" in a 13px box, rendering as the single letter "A". Fixed. |
+| agent-detail | Clean at 1440. At 375 the title ellipsised to `e2e-agent-…` — degraded but legible; full width after V-1. |
+| keys | Clean. The masked-preview column wraps `sk-e2e- … 2334` over two lines at 1440 — cramped, not a defect. Recorded, not fixed. |
+| key-group-detail | **V-5** at 375: the key name clipped to a 0px box. Header also read oddly, the title wrapping right-aligned beside its action. Both resolved. |
+| orgs | Clean at both viewports, both locales, both themes. |
+| org-detail | **V-1** at its worst: title box 0px, so the page never named the org it was showing, and the five-button action row ran 267px past the right edge with the last two unreachable. Fixed; verified by screenshot after. |
+| project-members | Clean. |
+| chatroom | **V-3** and **V-4** at 375, both locales, both themes: the room name and `live` pill clipped mid-word, and the empty-state description running off the container. One cause, fixed. |
+| chatroom-settings | Clean. A suspected back-arrow/title collision in `zh-TW` was **not confirmed** and is recorded as unproven rather than as a defect. |
+| workflows | Clean. Lower visual polish than its neighbours (no breadcrumb, plain-text row actions); a design observation, not a defect, and not this dossier's property set. |
+| profile | Clean. The focus ring on the display-name input reads correctly against the card at 375 dark. |
+| notifications | Clean. |
+| invites | Clean. |
+| admin-metrics | Clean; the metric cards layer well at 375 dark. |
+| account-delete | Clean; the danger alert reads correctly in dark. |
+| prompt-assistant | Clean. |
+| agent-tools | **V-6** at 375 in `zh-TW`: the upload button's label broke one CJK glyph per line. `en` wrapped to two lines — the same cause, less visible. Fixed. |
+| chatroom-create-modal | The modal itself is clean; the `s-page-header__title` reported at this slot belongs to the workspace page behind it. |
+| mobile-drawer | Clean. The panel reads as a raised sheet over the dimmed canvas. |
+| landing | 1440 excellent in both themes and locales. **V-2** at 375: the page scrolled sideways 11px in all four combinations. Fixed. |
+| login | Clean. The autofocused email field's ring reads correctly against the auth card. |
+
+**After the fixes, the same 164-combination sweep reports zero horizontal page overflow
+(was 4) and zero starved labels (was 28 entries including 0px and 13px boxes).** The eight
+remaining clipped elements are long seeded names ellipsising in boxes of 147-359px, which
+is what ellipsis is for.
+
+### AC-4 — truncation
+
+**The three exposures §6.2 named are clean.** Sidebar nav labels against
+`--sidebar-width`, `STable`'s `nowrap` headers, and `SBadge` pills showed no truncation in
+any of the 164 combinations. **Inter caused no truncation regression** — which is the
+question AC-4 asks, and the answer is no.
+
+Everything the sweep did find is older than the typeface work: `SPageHeader`'s geometry is
+unchanged since the Phase U1 component library (phase 2 touched only its `line-height`, in
+`5599303`), and `.chatroom--mobile`'s track and the constellation's bleed likewise predate
+it. `zh-TW` was the more revealing locale exactly as §7 predicted, but by exposing V-6
+rather than by any metric problem.
+
+### AC-5 — the focus ring
+
+Observed by keyboard traversal, both themes, recording the computed outline at every stop
+and photographing each one. The ring is `solid 2px` at `2px` offset with
+`box-shadow: none` on every control reached — `rgb(37, 99, 235)` light, `rgb(96, 165, 250)`
+dark. **No control anywhere painted a `--color-bg` halo**, which is the failure phase 2
+replaced the two-layer shadow to remove.
+
+| Backdrop | Result |
+|---|---|
+| Top bar chrome | Observed. Skip link, sidebar toggle, wordmark, bell, user menu, locale and theme toggles. |
+| `.sidebar` | Observed. Switcher, nav items, group header, active nav item. |
+| `main#main-content` | Observed. |
+| `.s-card` | Observed on `/agents/:id/tools` — toggles, secondary, primary and link buttons. |
+| `.s-modal__panel` | Observed. Toggles and the close button. |
+| `.s-modal__footer` | Observed. |
+| `.s-table__th` | Observed — **only because V-7 created something to focus**. Ring correct against the recessed header fill. |
+| `.s-card__footer` | **Not observed.** No C-0 surface renders a focusable control inside one. FU-5. |
+| `.s-dropdown__menu` | **Not observed.** FU-6. |
+
+`.s-input__field` reports `outline-style: none` and is not a finding: the ring is painted
+on the `.s-input` wrapper via `:focus-within`, and the login and profile screenshots show
+it rendering correctly.
+
+The dropdown is the honest gap. What *is* established: with a pointer-opened menu,
+arrow-key focus produces no outline at all, only the `--color-surface` highlight — and
+`SDropdown.vue:332` does that deliberately, with the comment at `:324` saying a keyboard
+landing should get a real ring instead. Whether the keyboard-opened path delivers that
+inset ring could not be observed: three harness approaches failed to land focus on a menu
+item within budget. Reasoning from Chromium's `:focus-visible` modality rules says it
+works. That reasoning is exactly what this dossier exists to replace, so it is recorded as
+open rather than ticked.
+
+### AC-6 — layering
+
+Measured and observed, both themes, with `.s-card`'s border removed via an injected style.
+Light: canvas `rgb(241, 245, 249)` against card `rgb(255, 255, 255)`. Dark: canvas
+`rgb(8, 13, 22)` against card `rgb(15, 23, 42)`. Both keep `--elevation-1`. **The cards
+still read as sheets on the canvas with no border at all**, which is what phase 2's
+three-surface-role work was for. The landing page, the auth pages and the chatroom were
+all opened and none is visibly broken.
+
+### AC-7 — the press under reduced motion
+
+Observed, by holding the button down rather than clicking it. Normal: transition-duration
+`0.15s`, pressed transform `matrix(1, 0, 0, 1, 0, 1)`. Under
+`prefers-reduced-motion: reduce`: transition-duration `1e-05s`, pressed transform still
+`matrix(1, 0, 0, 1, 0, 1)`. **The press becomes an instant change rather than
+disappearing.** The same measurement confirmed FU-12's premise: `box-shadow` was `none`
+both at rest and pressed.
+
+### FU-8, FU-9, FU-10, FU-12 — the decisions
+
+**FU-8 — a CI job (`frontend-csp-font`).** It serves a built `dist/` from a bare nginx
+carrying the CSP **extracted from `smap.conf` at run time**, never copied — a copy drifts,
+and a drifted copy holds the job green while the deployed header changes, which is the
+same vacuous pass in a new costume. The extractor fails loudly if the directive is renamed
+or loses its `font-src` clause, and the spec asserts the response header *first*, because
+without that every other assertion passes just as happily against a server that sent no
+CSP. Both directions were run locally: green against the real header, red under
+`font-src 'none'` with "no Inter face reached status loaded".
+
+**FU-9 — two commented copies.** A third consumer of `isFigureColumn` is not plausible,
+and lifting it would give the mobile card branch a dependency on the table's `Column` type
+— the coupling that splitting the branches removed. Each copy now names the other.
+
+**FU-10 — decided per token, and the answers differ.** `--control-h-*` moves to rem;
+`--sidebar-width` and `--topbar-height` stay px. A control height is a *floor under text*:
+it exists so a 14px label has room, so it must grow when the reader enlarges their font or
+the label overruns it. A sidebar is a *track* and the top bar is *chrome*: growing those
+takes space away from the content the reader enlarged the font to read. `2/2.5/3rem` are
+exactly `32/40/48px` at the default root size, and `tokens.test.ts` keeps the px column so
+that claim stays checkable.
+
+**FU-12 — a resting elevation on the filled variants.** `primary`, `secondary` and
+`danger` now rest at `--elevation-1`, so the press's drop to `--elevation-0` is a real
+step. `ghost` and `link` render as transparent text, where a shadow would be cast by
+nothing; they stay flat, and the press's shadow stays a no-op for them **by design rather
+than by oversight** — the same reasoning that already excludes `link` from the translate.
+Declared per variant so `focus-and-press.test.ts` can ask each one separately, including
+the two that must answer "none".
+
+### AC-10 — FU-11
+
+**It did not reproduce.** Eighteen runs of `AgentToolsView.test.ts` under six-way CPU
+load, all passing. The measurement the dossier requires before any timeout may move: the
+first test costs **1319ms** under that load and every other test in the file costs
+**92-270ms**, so the slowest has 3.8x headroom against the 5s default — reachable on a
+shared runner, not on this machine.
+
+A cause fix was attempted first. Pre-importing the `@codemirror/*` graph in a `beforeAll`,
+on the theory that the first test paid a cold start for the code-split editor, moved
+1319ms to **1239ms**. It was therefore wrong, and it was removed rather than kept with a
+rationale the numbers do not support. The cost is the mount and the editor construction,
+which belong to the test.
+
+The timeout moves to 15s — 11x the observed worst case — and `clickByText` now polls
+instead of reading the button once after a fixed 50ms sleep, which is an independent race
+worth removing on its own merits.
+
+**This file is not special, and that is the more useful finding.** Three consecutive full
+local suites during close-out failed 1, 0 and 2 tests, and the failures were different
+tests each time (`mobileViewportContract`'s viewport-unit sweep at 10542ms, `SFormField`'s
+CodeMirror re-sync) — never `AgentToolsView`. The thin headroom is host-wide, not
+file-specific. FU-7.
+
+### Defects found by §6.2
+
+Numbered, each with the measurement that identified it and the commit that closed it.
+None is a phase-2 regression; all six predate the typeface work.
+
+**V-1 — a page header's actions erase its title at 375px.** `.s-page-header__row` was a
+flex row with no wrap, `__actions` was `flex-shrink: 0` and `__content` could shrink to
+zero, so the row resolved entirely in the actions' favour. Six surfaces; worst on
+`/orgs/:id` (title box 0px, action row 267px past the edge). Fixed in `612957c` by giving
+the content a floor — which is what forces the wrap — and capping the actions at `100%` —
+which is what makes the wrap reachable, since `flex-shrink: 0` otherwise holds that box at
+its max-content width however narrow the line. Title box 13px → 359px on the agent list,
+0px → 359px on the org detail.
+
+**V-2 — the landing page scrolls sideways 11px at 375px**, all four locale/theme
+combinations. The constellation's particle canvas is deliberately 48px wider than its
+figure on each side; nothing bounded that bleed. Fixed in `ab73642` with `overflow-x: clip`
+on `.hero` — far larger than the figure, so the effect is preserved exactly. `clip` not
+`hidden`, which would make the hero a scroll container.
+
+**V-3 — the chatroom header is clipped at 375px**, both locales and themes. A `1fr` grid
+track is floored at `min-content`, so the single mobile column measured 498px inside a
+375px viewport and `.chatroom`'s `overflow: hidden` cut the pill and buttons off.
+`minmax(0, 1fr)`, in `7083af9`; the desktop template took the same treatment, where it has
+never bitten only because the window is wide enough to hide it.
+
+**V-4 — the chatroom empty state overflows its container at 375px.** Same cause as V-3:
+`max-width: 400px` was resolving against a 498px column. No separate fix.
+
+**V-5 — a key group member's name is clipped to 0px at 375px.** `truncate` sets
+`overflow: hidden`, which makes a flex item's automatic minimum size 0 rather than its
+content — so the only part of the row identifying the key did not ellipsise, it vanished.
+Fixed in `553f70e` with a floor and a wrapping row.
+
+**V-6 — the workspace-files upload button breaks one CJK glyph per line at 375px in
+`zh-TW`.** Its wrapper shrank to min-content beside a long hint. `en` wrapped to two lines:
+same cause, less visible. Fixed in `553f70e`. Found by looking, not by measuring — it wraps
+rather than clips, so D-5's mechanical half is blind to it.
+
+**V-7 — a sortable table header is operable by pointer only.** It carried `@click` and
+`cursor: pointer` and nothing else: no `tabindex`, no key handler, no role, while
+`aria-sort` announced a control that could not be operated. Fixed in `f809d87` by making
+the header content a real `<button>` for sortable columns, so activation, the focus ring
+and the announced role come from the platform. Found while trying to satisfy AC-5.
+
+**The regression test.** `e2e/25-narrow-viewport-layout.spec.ts` (`feab657`) pins the class
+rather than the instances: at 375px in both locales, no page scrolls sideways and no
+element that clips its text is given a box too small to show any of it. Its assertions are
+about boxes, not text, because whether a seeded name ellipsises is data. Verified in both
+directions — with `SPageHeader`'s floor reverted it fails with
+`"agents-list" gives its page title "AI Agents" only 13px of box`, which is the defect in
+the numbers that were shipping.
 
 ## 16. Follow-ups
 
@@ -339,6 +626,31 @@ decisions are recorded here.
   against their own canvas, in either theme.
 - **FU-3** — phase 2's FU-3 and FU-4, inherited unchanged: `SBadge`/`SInput`'s
   contradictory touch-target declarations, and `AppShell`'s hard-coded `300ms`.
+- **FU-5** — **AC-5's card-footer backdrop cannot be verified because it does not exist.**
+  Four views pass a `#footer` slot to `SCard`, but no C-0 surface renders a focusable
+  control inside one, so the traversal never reached that backdrop. Either the backdrop is
+  hypothetical and AC-5 should stop naming it, or a surface that uses it belongs in the
+  C-0 set. Deciding needs a look at the four consumers, not a code change.
+- **FU-6** — **the dropdown menu's keyboard focus ring is still unobserved.** With a
+  pointer-opened menu, arrow-key focus paints no outline at all — only the
+  `--color-surface` highlight, which `SDropdown.vue:324` itself calls "too faint to be
+  one". `:332` removes the outline deliberately for that path, and `:328` promises an
+  inset ring for the keyboard path. Three harness approaches failed to land focus on a
+  menu item within budget, so whether that promise is kept is unknown. It is a menu:
+  `role="menu"` with `tabindex="-1"` items driven by arrow keys and focused by script, so
+  the answer turns on Chromium's `:focus-visible` modality rules and cannot be read off
+  the CSS. Worth one deliberate manual check rather than another harness.
+- **FU-7** — **the unit suite's timing headroom is thin host-wide, not in one file.**
+  Phase 2's FU-11 named `AgentToolsView.test.ts`; this dossier's AC-10 raised its timeout
+  with a measurement but never reproduced the failure. Three consecutive full local suites
+  during close-out failed 1, 0 and 2 tests respectively, and never the same ones —
+  `mobileViewportContract`'s viewport-unit sweep at 10542ms and `SFormField`'s CodeMirror
+  re-sync were the two that fell over. Raising timeouts one file at a time as each is
+  observed is a treadmill; the question worth answering is whether the suite's default
+  timeout is right for a loaded runner at all.
+- **FU-8** — the `/keys` masked-preview column wraps `sk-e2e- … 2334` over two lines at
+  1440x900. Cramped rather than broken, and outside the property set this dossier's ACs
+  cover. Recorded because it was seen, not fixed because it was not asked for.
 - **FU-4** — the page width policy is still undecided
   (`2026-08-19-content-area-spacing-and-scroll-contract`'s Q-15/Q-16/FU-4, phase 2's FU-2):
   six views cap their own width and the rest do not, with no intent source. It is a layout

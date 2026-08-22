@@ -97,7 +97,10 @@ first, but building them serially avoids the conflict.
 
 ### From the 2026-08-22 close of visual-refinement phase 2
 
-- `2026-08-22-visual-refinement-phase3-verification-and-debt` (refactor, **draft** — needs
+- (implemented 2026-08-22; see the note under In progress)
+  `2026-08-22-visual-refinement-phase3-verification-and-debt`. The original entry, kept
+  here for its detail:
+  `2026-08-22-visual-refinement-phase3-verification-and-debt` (refactor, **draft** — needs
   approval before `/build` will touch it) — `depends_on: []`. Phase 2 is `implemented` and
   every predecessor is closed, so nothing sequences against this.
 
@@ -272,6 +275,48 @@ the row to read for why CI is red.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-22 after implementation:
+`2026-08-22-visual-refinement-phase3-verification-and-debt` (the parity baseline is
+regenerated and CI is no longer red on it; the product phase 2 shipped has now been
+looked at across 164 combinations; and phase 2's FU-8 to FU-12 are each closed).
+Nothing lists it in `depends_on`, so no row moved out of Blocked. Frontend, CI and docs
+only; no migration, no API change. **Five things a later reader needs.**
+
+**The visual pass found six defects and none of them was a typeface regression.** Inter
+caused no truncation anywhere — sidebar nav labels, `STable`'s `nowrap` headers and
+`SBadge` pills were clean in all 164 combinations, which is exactly the question phase 2's
+AC-3 was supposed to answer. What it found instead is that **375px had never been looked
+at**: a page title rendered in a 13px box (the single letter "A"), another in 0px with its
+action row running 267px off-screen, the landing page scrolling sideways, the chatroom
+header cut mid-word. All six predate phase 2. Measuring found four of them, looking found
+the other two — the two that *wrap* rather than clip, which no measurement sees.
+
+**`1fr` and `min-width: 0` are the two shapes to recognise.** A `1fr` grid track is
+floored at `min-content`, so it is sized by its widest descendant rather than the space
+available; `minmax(0, 1fr)` is what people mean. `overflow: hidden` (which `truncate`
+sets) makes a flex item's automatic minimum size 0, so a label with it does not ellipsise
+when squeezed — it disappears. Both failure modes are invisible on a desktop window,
+which is why they survived three visual dossiers.
+
+**A gate that cannot fail is worse than no gate.** Phase 2 closed FU-8 as "proven by
+construction" because its font assertions ran against Vite, which sends no CSP header at
+all. The new `frontend-csp-font` job serves a built `dist/` behind the CSP **extracted
+from `smap.conf`**, asserts the response header before anything else, and was run in both
+directions before landing — red under `font-src 'none'`. The same discipline applies to
+the new narrow-viewport spec, which was verified by reverting the fix.
+
+**FU-11 did not reproduce, and the more useful finding is why.** Eighteen runs under
+six-way CPU load all passed. The timeout moved anyway, with the measurement that justifies
+it (slowest test 1319ms against a 5s default). But three full local suites during
+close-out failed 1, 0 and 2 tests and never the same ones — the thin headroom is
+host-wide, not file-specific. That is FU-7, and raising timeouts one file at a time is a
+treadmill.
+
+**Two things are deliberately left unticked.** AC-5 has two of seven backdrops unobserved
+(`.s-card__footer` has no focusable control on any C-0 surface; the dropdown's
+keyboard-opened ring resisted three harness approaches) and AC-10 cannot claim "no longer
+reproduces" for something that never reproduced. Both are recorded as FU-5, FU-6 and FU-7
+rather than closed by reasoning — which is the habit this whole dossier existed to break.
 Removed on 2026-08-22 after implementation:
 `2026-08-22-safe-area-uncovered-top-surfaces` (the impersonation banner, the toasts and
 the top bar all inset exactly the edges they meet, and the enumeration that missed them
