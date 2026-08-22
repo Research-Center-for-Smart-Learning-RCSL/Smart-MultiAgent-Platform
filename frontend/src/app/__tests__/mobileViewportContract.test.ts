@@ -180,8 +180,11 @@ describe('mobile viewport contract', () => {
       'shared/ui/SNetworkBanner.vue': ['top'],
       // The y = 0 element whenever an admin is impersonating: a conditional
       // sibling ABOVE the layout component (App.vue), which is why reading the
-      // layout tree never surfaced it.
-      'slices/admin/components/ImpersonationBanner.vue': ['top'],
+      // layout tree never surfaced it. Full-bleed, so it meets three edges -
+      // no 'bottom', because the shell below it covers that one. Landscape is
+      // why the sides are here at all: rotate a notched device and the top
+      // inset goes to 0 while the cutout becomes a side inset.
+      'slices/admin/components/ImpersonationBanner.vue': ['top', 'left', 'right'],
       // Not a stylesheet: vue-sonner mounts its own teleported container and
       // takes its geometry from these props, so no .vue or .css file mentions
       // it at all. All four edges, because `position` is a prop - insetting

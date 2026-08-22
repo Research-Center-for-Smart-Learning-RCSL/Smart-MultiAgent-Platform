@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createRouter, createMemoryHistory, type RouteRecordRaw } from 'vue-router'
 
 import { i18n } from '@shared/i18n'
@@ -63,7 +64,11 @@ async function mountApp(path: string, authenticated: boolean): Promise<VueWrappe
 
   return mount(App, {
     global: {
-      plugins: [pinia, router, i18n],
+      // VueQueryPlugin because App.vue reads useImpersonation() for the
+      // safe-area handover, and that composable also builds the two mutations.
+      // main.ts installs it with app.use() before mount, so the real root
+      // component resolves it the same way this one does.
+      plugins: [pinia, router, i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]],
       stubs: {
         teleport: true,
         AppTopBar: AppTopBarStub,

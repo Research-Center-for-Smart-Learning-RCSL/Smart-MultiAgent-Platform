@@ -31,7 +31,7 @@ vi.mock('@slices/admin', async () => {
   const { defineComponent } = await import('vue')
   return {
     ImpersonationBanner: defineComponent({ name: 'ImpersonationBanner', template: '<div />' }),
-    useImpersonationFlag: () => ({ isImpersonating }),
+    useImpersonation: () => ({ isImpersonating }),
   }
 })
 vi.mock('@shared/ui', async () => {

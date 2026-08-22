@@ -32,14 +32,20 @@ const { isImpersonating, impersonatedBy } = useImpersonation()
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
-  /* Additive, not max(): index.html opts into viewport-fit=cover, so under a
-     display cutout this row is the y = 0 element and nothing else insets it.
-     The sibling gutters elsewhere use max() because their whole job is to keep
-     clear of the edge; --space-2 here is interior padding around text and has
-     to survive under the strip, which max() would swallow on every notched
-     device. Growing the banner pushes the shell down by the inset - that is
-     what the browser did before the meta, not a regression. */
-  padding: calc(var(--space-2) + env(safe-area-inset-top, 0px)) var(--space-4) var(--space-2);
+  /* Three edges, because this row is full-bleed and meets three. In portrait
+     the cutout is the top inset; rotate a notched device and safe-area-inset-top
+     goes to 0 while the sensor housing moves to the left/right insets, which a
+     top-only fix would walk straight into.
+     Top is additive and the sides are max(), and that difference is real: the
+     side --space-4 is a gutter whose only job is to keep clear of the edge, so
+     the larger of the two is right, while the top --space-2 is interior padding
+     around text that has to survive under the strip - max() would swallow it on
+     every notched device. Growing the banner pushes the shell down by the
+     inset; that is what the browser did before viewport-fit=cover, not a
+     regression. */
+  padding: calc(var(--space-2) + env(safe-area-inset-top, 0px))
+    max(var(--space-4), env(safe-area-inset-right, 0px)) var(--space-2)
+    max(var(--space-4), env(safe-area-inset-left, 0px));
   background: var(--color-warning);
   color: var(--color-warning-on);
   font-weight: var(--weight-semibold);
