@@ -159,7 +159,7 @@ watch([messages, streamingText], async () => {
           <div
             class="max-w-[85%] whitespace-pre-wrap rounded px-3 py-2 text-sm"
             :class="[
-              m.role === 'user' ? 'bg-[var(--color-primary-soft)]' : 'bg-[var(--color-surface-2)]',
+              m.role === 'user' ? 'bg-[var(--color-info-tint)]' : 'bg-[var(--color-surface)]',
               { 'italic text-[var(--color-muted)]': m.errorText },
             ]"
           >
@@ -183,7 +183,7 @@ watch([messages, streamingText], async () => {
           v-if="streaming"
           class="flex justify-start"
         >
-          <div class="max-w-[85%] whitespace-pre-wrap rounded bg-[var(--color-surface-2)] px-3 py-2 text-sm">
+          <div class="max-w-[85%] whitespace-pre-wrap rounded bg-[var(--color-surface)] px-3 py-2 text-sm">
             {{ streamingText }}<span class="animate-pulse">▍</span>
           </div>
         </div>

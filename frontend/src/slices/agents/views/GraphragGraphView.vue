@@ -130,7 +130,7 @@ const baseNodes = computed(() => {
         opacity: 1,
         background: `${color}33`,
         borderColor: color,
-        color: 'var(--color-text)',
+        color: 'var(--color-fg)',
       },
     }
   })
