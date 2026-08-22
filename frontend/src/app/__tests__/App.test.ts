@@ -81,8 +81,8 @@ async function mountApp(path: string, authenticated: boolean): Promise<VueWrappe
 
 describe('App shell composition', () => {
   // F-5: the banner must share a flow container with the layout so it can
-  // reserve its own height. The viewport-fixed and teleported siblings must
-  // stay outside it, or the wrapper would constrain them.
+  // reserve its own height. The teleported siblings stay outside it; they take
+  // no part in flow and the wrapper would only constrain them.
   it('puts the impersonation banner and the layout in one flow wrapper', async () => {
     const wrapper = await mountApp('/app', true)
 
@@ -90,10 +90,31 @@ describe('App shell composition', () => {
     expect(root.exists()).toBe(true)
     expect(root.find('.banner-stub').exists()).toBe(true)
     expect(root.find('.app-shell').exists()).toBe(true)
-    expect(root.find('s-network-banner-stub').exists()).toBe(false)
     expect(root.find('toaster-stub').exists()).toBe(false)
     expect(root.find('s-confirm-dialog-stub').exists()).toBe(false)
     expect(root.find('s-idle-dialog-stub').exists()).toBe(false)
+  })
+
+  // The network banner used to sit outside .app-root, and its below-topbar
+  // offset was pure arithmetic over --topbar-height-total - which knows nothing
+  // about the impersonation banner displacing the top bar. Inside the
+  // zero-height anchor, "below the top bar" is measured from where the
+  // impersonation banner ENDS, so neither file has to know the other's height.
+  // A non-transformed ancestor does not constrain a fixed child, so the
+  // unauthenticated mode is unaffected by the move.
+  it('anchors the network banner below the impersonation banner, in flow', async () => {
+    const wrapper = await mountApp('/app', true)
+
+    const anchor = wrapper.find('.app-root > .app-root__overlay-anchor')
+    expect(anchor.exists()).toBe(true)
+    expect(anchor.find('s-network-banner-stub').exists()).toBe(true)
+
+    // Order is the whole mechanism: an anchor placed BEFORE the impersonation
+    // banner would be back at y = 0 and measure nothing.
+    const children = [...wrapper.get('.app-root').element.children].map((el) => el.className)
+    expect(children.indexOf('banner-stub')).toBeLessThan(
+      children.indexOf('app-root__overlay-anchor'),
+    )
   })
 
   // F-6: the boundary's own docstring promises a fallback "keeping the rest of
