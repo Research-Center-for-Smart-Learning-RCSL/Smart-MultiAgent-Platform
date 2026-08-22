@@ -239,6 +239,34 @@ const baseline = loadBaseline()
 const collected: Baseline = {}
 
 /**
+ * Freezes every transition and animation on the page.
+ *
+ * **Load-bearing, and it was learned the hard way.** This spec switches theme
+ * on a live page and captures immediately after. That was harmless only while
+ * nothing in the property set was transitioned: the moment `.s-btn` gained a
+ * resting `box-shadow` (its variants carry `--elevation-1`, and `.s-btn`
+ * transitions `box-shadow` over `--transition-fast`), the capture began reading
+ * a value part-way between the two themes' shadows. It recorded the *light*
+ * shadow into 72 of 76 dark button slots, and which value lands there depends
+ * entirely on how fast the machine is — a baseline that flips on a differently
+ * loaded runner and reports dozens of false differences.
+ *
+ * Freezing is preferred to waiting out `--transition-fast`: a timeout re-runs
+ * the same race with a wider window, while `transition: none` makes the
+ * computed value the declared one by construction, which is the only thing this
+ * baseline is trying to describe. The injected `<style>` carries no class and is
+ * not a semantic tag, so `capture()` skips it.
+ */
+async function freezeMotion(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: `*, *::before, *::after {
+      transition: none !important;
+      animation: none !important;
+    }`,
+  })
+}
+
+/**
  * The theme is applied by writing `data-theme` on the root element, which is
  * exactly what `useTheme()` does (`useTheme.ts:31`). Setting it directly avoids
  * a reload per theme; nothing reads the attribute back, so no state diverges.
@@ -352,6 +380,10 @@ async function snapshotSurface(page: Page, id: string, path: string, opts: Surfa
       await opts.prepare(page)
       await waitForStableDom(page)
     }
+    // After `prepare`, not before: `prepare` drives an open modal or drawer,
+    // and the mobile drawer's own settle polls for its slide transform to reach
+    // 0. Freezing first would leave that transform at its start value forever.
+    await freezeMotion(page)
 
     for (const theme of ['light', 'dark'] as const) {
       await setTheme(page, theme)

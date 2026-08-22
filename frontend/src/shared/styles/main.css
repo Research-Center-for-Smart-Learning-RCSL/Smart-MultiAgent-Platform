@@ -172,6 +172,15 @@
      reader's font, while a sidebar track and a chrome height must not. */
   --page-header-title-min: 16rem;
 
+  /* Square hit target for a control that lives *in* the chrome rather than in a
+     form. Deliberately not --control-h-md, and px for the same reason
+     --topbar-height above is: a control bounded by a fixed-height bar cannot
+     scale with the root font, or it overflows the bar it sits in. At Chrome's
+     "Very large" setting --control-h-md would resolve to 60px inside a bar
+     whose content box is ~55px. The form ladder still scales; this does not,
+     because what contains it does not either. */
+  --chrome-control-size: 40px;
+
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;

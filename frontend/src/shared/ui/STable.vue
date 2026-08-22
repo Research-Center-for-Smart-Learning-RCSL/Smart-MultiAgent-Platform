@@ -605,6 +605,20 @@ function skeletonStyle(col: Column): Record<string, string> {
   letter-spacing: inherit;
   color: inherit;
   text-align: inherit;
+  /* Tailwind v4's preflight gives buttons `appearance: button` but no
+     `cursor: pointer`, so the UA's `cursor: default` applies and beats the
+     `pointer` inherited from the cell - the label showed an arrow while the
+     cell's padding around it showed a hand, which is backwards. */
+  cursor: inherit;
+}
+
+/* Inset, like `.s-dropdown__item:focus-visible` and for the same reason: the
+   `thead` sits flush against `.s-table-wrap`, whose `overflow-x: auto` computes
+   the block axis to `auto` as well (CSS Overflow 3 §3.1, noted on that rule),
+   so an outward ring on the top row of a non-sticky table is clipped along its
+   top edge. */
+.s-table__th-content:focus-visible {
+  outline-offset: -2px;
 }
 
 .s-table__sort-icon {
