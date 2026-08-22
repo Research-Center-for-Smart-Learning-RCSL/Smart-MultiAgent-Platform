@@ -222,21 +222,21 @@ Use padding and `min-width`/`min-height` to achieve touch targets without visual
 - Large text (>= 18px or >= 14px bold): 3:1
 - UI components and graphical objects: 3:1
 
-**Verified pairs (light theme)**:
+**Verified pairs**: not tabulated here any more, and not verified by hand.
+`src/shared/styles/__tests__/contrast.test.ts` parses both theme blocks out of `main.css`,
+computes every foreground-on-background pair in the token vocabulary, and fails the build
+below its threshold. A table in a document is a copy of the palette that nothing keeps in
+step with it — this one had drifted, and it had never covered the dark theme at all, which
+is where the failures actually were.
 
-| Foreground | Background | Ratio | Pass |
-|------------|------------|-------|------|
-| `#1f2328` (fg) | `#ffffff` (bg) | 15.4:1 | AA |
-| `#6b7280` (muted) | `#ffffff` (bg) | 5.0:1 | AA |
-| `#2563eb` (accent) | `#ffffff` (bg) | 4.6:1 | AA |
-| `#ffffff` (white) | `#2563eb` (accent btn) | 4.6:1 | AA |
-| `#dc2626` (danger) | `#ffffff` (bg) | 4.6:1 | AA |
-| `#374151` (sidebar text) | `#f1f5f9` (sidebar bg) | 7.1:1 | AA |
-| `#1d4ed8` (active) | `#dbeafe` (active bg) | 4.9:1 | AA |
+The pairs it covers: `fg`, `muted`, `sidebar-text` and `sidebar-section-text` against each
+surface role they can appear on; `accent` on `bg`; `on-accent` and `on-danger` against the
+filled surfaces they sit on; `neutral-on` on `neutral-tint`; and the four status
+`*-on`/`*-tint` pairs. All meet 4.5:1 in both themes.
+`--color-border-strong` — the one border weight 1.4.11 governs — meets 3:1 in both.
 
-**Dark theme pairs**: verified separately; `--color-muted` (#9ca3af) on `--color-bg` (#0b0f14) = 8.1:1.
-
-**Badge tint pairs**: all tint/on combinations achieve >= 4.5:1 by design.
+The canvas-to-sheet L\* separation is asserted in the same file, since a card that cannot
+be told from the page behind it is a legibility problem before it is a stylistic one.
 
 ### 5.2 Focus Management
 
@@ -245,20 +245,26 @@ Use padding and `min-width`/`min-height` to achieve touch targets without visual
 ```css
 /* Applied globally via focus-visible (keyboard only, not mouse) */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* High-contrast mode override */
-@media (forced-colors: active) {
-  :focus-visible {
-    outline: 2px solid LinkText;
-    outline-offset: 2px;
-  }
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 ```
 
-**Focus ring**: 2px white gap + 2px accent color ring. Visible on all backgrounds.
+**Focus ring**: a 2px accent outline, offset 2px. The gap shows whatever is actually
+behind the element, which is why there is no separate high-contrast rule any more:
+forced-colors mode recolours an outline from the system palette by itself, where the
+two-layer box-shadow this replaced was dropped entirely and needed a parallel override.
+
+That box-shadow also painted its inner layer in `var(--color-bg)` regardless of the real
+backdrop, so a focused control inside the sidebar or a card footer wore a white halo
+belonging to neither surface — the defect the offset fixes without per-container
+configuration.
+
+**No component may suppress it.** `outline: none` is permitted only where something else
+draws the ring for that element: a clipped native input whose visible sibling carries it,
+a wrapper on `:focus-within`, or a container focused programmatically that should show
+nothing. `src/shared/styles/__tests__/focus-and-press.test.ts` holds that allowlist and
+fails on anything else, because a suppression is invisible to anyone testing with a mouse.
 
 **Focus trap**: modals and drawers trap focus within their content. Tab cycles through focusable elements. Shift+Tab cycles backward. First focusable element focused on open. Focus returns to trigger element on close.
 

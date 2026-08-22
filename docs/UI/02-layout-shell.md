@@ -45,8 +45,8 @@ App.vue
 
 **Visual spec**:
 - Full viewport height, centered both axes
-- Background: `--color-surface` (light grey)
-- Content card: max-width 420px, white bg, `--shadow-md`, `--radius-lg`, padding 32px
+- Background: `--color-canvas` — the floor the auth card is raised off. It read `--color-surface` before the surface roles existed, which is the recessed-fill role, not a page
+- Content card: max-width 420px, `--color-bg`, `--shadow-md`, `--radius-lg`, padding 32px
 - SMAP logo above the card: text-only "SMAP" in 24px 700 weight `--color-accent`, 24px margin-bottom
 - Footer: links row below card (Login / Register toggle), 16px margin-top, centered
 
@@ -133,7 +133,7 @@ A toggle button in the top bar allows manual collapse/expand. When collapsed, th
 - Padding: 24px on desktop, 16px on mobile
 - Max-width: none (full available width)
 - Overflow-y: auto (scrollable)
-- Background: `--color-bg` (white)
+- Background: `--color-canvas` — the floor, not a sheet. Cards, tables and panels are the sheets raised off it; while this was `--color-bg` they were the same colour as their own page and no shadow could make them read as raised
 
 For chatroom routes, content padding is reduced to 0 (the chatroom view manages its own padding for full-height experience).
 
@@ -196,7 +196,7 @@ For chatroom routes, content padding is reduced to 0 (the chatroom view manages 
 ### 4.3 Visual Spec
 
 - Height: 56px (`--topbar-height`)
-- Background: `--color-bg` (white)
+- Background: `--color-bg` — a raised sheet, deliberately distinct from the canvas behind the content
 - Bottom border: 1px `--color-border`
 - Z-index: `--z-topbar` (200)
 - Position: sticky top 0 (part of grid, but sticks during content scroll)
@@ -283,7 +283,7 @@ Visible when a project is selected. Shows the most recent 10 chatrooms across al
 ### 5.3 Visual Spec
 
 - Width: 260px (`--sidebar-width`)
-- Background: `--color-sidebar-bg` (`#f1f5f9`)
+- Background: `--color-sidebar-bg`, which equals `--color-canvas` in both themes: the sidebar is part of the floor, separated from the content by its right border rather than by a colour step
 - Border-right: 1px `--color-border`
 - Z-index: `--z-sidebar` (100)
 - Overflow-y: auto (scrollable when items exceed viewport)
@@ -303,7 +303,7 @@ Visible when a project is selected. Shows the most recent 10 chatrooms across al
 - Padding: 16px 16px 8px
 - Letter-spacing: 0.05em
 
-**Dividers**: 1px `--color-border`, 16px horizontal margin, 8px vertical margin
+**Dividers**: 1px `--color-border-subtle` (an interior separator), 16px horizontal margin, 8px vertical margin
 
 ---
 

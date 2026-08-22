@@ -1287,7 +1287,8 @@ interface IpBan {
 - Error states use `role="alert"` with `aria-live="assertive"` for immediate announcement.
 - All form inputs have explicit `aria-label` attributes (provided via i18n keys).
 - Destructive actions require confirmation dialogs, preventing accidental operations.
-- Focus ring (`--focus-ring`) on all interactive elements.
+- Focus ring on all interactive elements, from the global `:focus-visible` outline
+  (`01-design-system.md` §1).
 
 ### 20.2 Keyboard Navigation
 

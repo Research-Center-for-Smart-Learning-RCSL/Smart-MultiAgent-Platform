@@ -127,7 +127,8 @@ Card vertical centering uses `min-height: 100dvh` with flexbox. On small viewpor
 - Submit button: when loading, `aria-busy="true"`.
 - "Log in" link: standard `<RouterLink>`, keyboard-focusable.
 - Tab order: email -> password -> show/hide toggle -> captcha -> submit -> log in link.
-- Focus ring: `--focus-ring` on all interactive elements.
+- Focus ring: the global `:focus-visible` outline (`01-design-system.md` §1) on all
+  interactive elements. No component states one of its own.
 
 ### 1.8 Components Used
 
