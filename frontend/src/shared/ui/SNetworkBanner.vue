@@ -56,8 +56,15 @@ defineProps<{ belowTopbar?: boolean }>()
 /* --topbar-height-total, not --topbar-height: the bar grows by the top safe-area
    inset, so on a device with a cutout its bottom edge is below 56px. This banner
    sits at --z-banner (350), above --z-topbar (200), so getting it wrong paints
-   the banner over the top bar rather than below it. */
+   the banner over the top bar rather than below it.
+   absolute, not fixed: App.vue's zero-height overlay anchor sits directly below
+   the impersonation banner, so this offset stays correct while that banner is
+   displacing the top bar without either file knowing the other's height. The
+   authenticated shell does not scroll the document (.app-shell owns its scroll
+   port), so absolute and fixed are indistinguishable in the one mode that uses
+   this rule. */
 .s-net-banner--below-topbar {
+  position: absolute;
   top: calc(var(--topbar-height-total) + 12px);
 }
 
