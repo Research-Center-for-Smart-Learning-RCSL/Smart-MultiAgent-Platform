@@ -39,7 +39,13 @@ const emit = defineEmits<{
 const slots = useSlots()
 const hasActionsSlot = computed(() => !!slots['actions'])
 
-/** Mirrors STable's own rule so a column's figures align in both branches. */
+/**
+ * Mirrors `isFigureColumn` in `STable.vue` so a column's figures align in both
+ * branches. Deliberately a copy, not an import: the two are three lines each,
+ * and sharing them would give this mobile branch a dependency on the table's
+ * `Column` type - which is the coupling splitting the branches removed. Change
+ * one and change the other.
+ */
 function isFigureColumn(col: { cellType?: string }): boolean {
   return col.cellType === 'number' || col.cellType === 'date'
 }
