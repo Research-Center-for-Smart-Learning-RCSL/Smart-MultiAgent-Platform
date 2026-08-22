@@ -36,6 +36,22 @@ Gotchas:
   sliding window or bump those policies the same way. The auth fixture also backs off
   on 429. Storage-state reuse does NOT work: refresh rotates the token and revokes the
   family on reuse — log in per test (fresh session each), not once-and-share.
+- **`page.reload()` near a boot refresh logs the session out**, for the same reason. The
+  SPA re-authenticates on every full load; reloading before the first refresh has
+  committed its rotated cookie sends the old one, the backend reads that as a replay and
+  revokes the family, and every later navigation lands on `/login` with
+  `getByLabel(/email/i)` never appearing. A sweep that reloaded once per surface to change
+  locale died on its seventh navigation this way. **To change a persisted setting, use
+  `page.addInitScript` and navigate — never set-then-reload.** One test per locale, one
+  `addInitScript` per test: the calls accumulate on the context, so registering a second
+  one makes every later navigation run both and the last registered wins.
+- **A cold Vite server charges its whole transform cost to your first test.** Playwright's
+  `webServer` waits for the port to answer, which happens long before the app's modules
+  are transformed, so the first `login()` can exceed its 30s wait and fail as if the app
+  were broken. Before an expensive or unrepeatable run (a baseline capture, a long sweep),
+  start `pnpm dev` yourself and drive one throwaway spec against it — `reuseExistingServer`
+  is on outside CI, so the real run then starts warm. Kill it by port afterwards:
+  `Get-NetTCPConnection -LocalPort 5173 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`.
 - **`chat-send` is NOT one of the buckets `global-setup` raises.** Seeding messages
   through `POST /api/chatrooms/{id}/messages` 429s around the 30th. Raise it the same
   way if a spec needs a room with real history.
@@ -73,7 +89,7 @@ docker compose -f ... -f ... run --rm --no-deps --volume "$PWD/deploy:/deploy:ro
 docker compose -f ... -f ... up -d --wait backend-web backend-worker
 ```
 
-Two blockers seen:
+Three blockers seen:
 
 1. **Bootstrap fails: `database "smap_test" does not exist`.** The overlay points at
    `smap_test`, but a `postgres` volume created before the overlay was first used has
@@ -84,8 +100,32 @@ Two blockers seen:
    applicable role in scope"), writes a three-key `.e2e-seed.json`, and **every
    fixture-gated spec then skips** — a green run with zero coverage. Check the seed file
    has the full `E2E_*` set before trusting a pass, or pass the ids you need in yourself.
+   Note it runs on **every** `playwright test` invocation, so each run seeds another
+   org/project/agent set on top of the last — the stack gets deeper, never cleaner.
+3. **`/readyz` 503 listing all six dependencies as `timeout` at once is host load, not a
+   broken stack.** Postgres, Redis, Qdrant, Neo4j, MinIO and Vault do not fail together;
+   seeing them do so means the machine is starved (a long sweep plus Docker plus a build
+   will do it). Wait and re-check before debugging any of them. The same starvation shows
+   up in Playwright as an `apiRequestContext.post` timeout on `/api/auth/login` from
+   `global-setup`.
 
 Tear down with `down`, **not `down -v`**: the volumes may predate your session.
+
+**To reset `smap_test` to pristine without touching any volume** — which `down` alone does
+not do, since it keeps the data — stop the backends first so nothing holds a connection,
+then drop and recreate just that database and re-bootstrap:
+
+```powershell
+docker compose -f ... -f ... stop backend-web backend-worker
+docker exec smap_postgres psql -U smap -d postgres `
+  -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='smap_test';" `
+  -c "DROP DATABASE IF EXISTS smap_test;" -c "CREATE DATABASE smap_test OWNER smap;"
+# then bootstrap + `up -d --wait backend-web backend-worker` as above
+```
+
+The dev database `smap` is untouched by this. A pristine result is 2 seed users and 0
+`api_keys`, which is the state CI starts from — worth asserting before anything that
+depends on it.
 
 ## Unblocking the local dev stack (one-time)
 
@@ -123,8 +163,74 @@ provisioned. Two blockers seen:
 `qdrant`/`neo4j`/`minio` are often down in this stack — fine for create/read/toggle
 surfaces, but the GraphRAG **build** path and file uploads need them.
 
+## Regenerating the visual parity baseline
+
+`e2e/baselines/visual-token-parity.json` describes a rendered stack, so how it is
+captured is part of what it means. Every precondition below has failed in practice at
+least once.
+
+1. **Reset `smap_test` to pristine** (above). A saturated stack renders widgets CI never
+   does — a developer machine with 70 `api_keys` draws the pagination control that CI's
+   single key does not, which is 28 signatures of pure environment difference.
+2. **Warm the dev server first** (Gotchas), or the first surface times out on login and
+   the run is wasted.
+3. **Let `global-setup` run exactly once**, then confirm `.e2e-seed.json` has the full
+   11-key set before trusting anything. A second Playwright invocation seeds a second
+   org/project set, so a capture taken on the retry describes a data state CI never has.
+4. **Capture with `UPDATE_VISUAL_BASELINE=1 pnpm exec playwright test 00-visual-token-parity
+   --project=desktop`** — that spec alone. It is numbered `00` because the baseline must
+   describe freshly seeded data, and the rest of the suite posts messages and creates
+   invites that move it.
+5. **Self-check immediately**: re-run the same spec in compare mode against unmodified
+   code. It must report no differences.
+
+The spec refuses to write a partial baseline if any surface failed, so a bad run leaves
+the committed file alone — retry rather than repair.
+
+**What the self-check cannot catch.** It re-runs on the same machine moments later, so
+anything timing-dependent reproduces itself and compares clean. The spec freezes
+transitions and animations before capturing for exactly this reason: it switches theme on
+a live page, and once a captured property was transitioned (`box-shadow`, when the button
+variants gained a resting elevation) the capture began recording a value part-way between
+the two themes — 72 of 76 dark slots held the *light* shadow, and the self-check passed
+anyway. **If you add a property to `PROPS`, check whether anything transitions it.**
+
+## Sweeping for layout defects
+
+Screenshots answer "does this read right"; they do not answer "is anything clipped", and
+168 of them cannot be eyeballed reliably. Measure that half instead — in the page, over
+`document.querySelectorAll('*')`:
+
+- **`scrollWidth > clientWidth + 1`** on an element that clips (`text-overflow: ellipsis`,
+  `overflow-x: hidden|clip`, or `white-space: nowrap`) is the browser's own statement that
+  text was cut. Skip elements with element children (they report their widest descendant,
+  which is that descendant's finding) and skip `sr-only`/`visually-hidden` (clipped to 1px
+  on purpose, paints nothing).
+- **`documentElement.scrollWidth - clientWidth`** catches a page that scrolls sideways.
+  Ignore `position: fixed` elements when hunting the culprit — they do not contribute.
+- **A box under ~40px wide that is clipping is showing nothing at all**, which is a
+  different defect from ellipsis and worth separating: `min-width: 0` and `overflow:
+  hidden` both make a flex item's automatic minimum size 0, so a squeezed label does not
+  ellipsise, it vanishes.
+
+This found six real defects at 375px that three visual reviews had missed. It is blind to
+anything that **wraps** rather than clips, though — a CJK button label breaking one glyph
+per line measures as fine — so run it *alongside* looking, not instead of it.
+`e2e/25-narrow-viewport-layout.spec.ts` is the permanent, narrower version.
+
 ## API-level checks
 
 For deterministic contract checks (e.g. a read-path field), skip the GUI: login via
 `POST /api/auth/login`, then drive the REST endpoints with the bearer token. Faster
 and immune to the login-fixture flakiness.
+
+## Running the suites
+
+- **Vitest 4 has no `basic` reporter.** `--reporter=basic` fails at startup with "Failed to
+  load custom Reporter", which reads as every run failing rather than as a bad flag —
+  eight consecutive "failures" that were nothing of the kind. Use the default, or `verbose`
+  for per-test durations.
+- **A local full-suite failure is not evidence on its own.** Three consecutive `pnpm test`
+  runs during one close-out failed 1, 0 and 2 tests and never the same ones (a viewport
+  sweep at 10.5s, a CodeMirror re-sync). Re-run the file in isolation before believing it,
+  and let CI arbitrate — it is authoritative over this host.
