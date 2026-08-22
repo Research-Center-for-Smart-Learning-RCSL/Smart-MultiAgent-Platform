@@ -119,7 +119,7 @@ function onChange(event: Event) {
 .s-select__native {
   width: 100%;
   appearance: none;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-bg);
   color: var(--color-fg);

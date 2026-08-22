@@ -297,7 +297,7 @@ const manageNav = computed<NavItem[]>(() => {
 
 .sidebar__divider {
   height: 1px;
-  background-color: var(--color-border);
+  background-color: var(--color-border-subtle);
   margin: var(--space-2) var(--space-4);
 }
 

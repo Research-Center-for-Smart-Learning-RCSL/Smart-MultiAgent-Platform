@@ -105,10 +105,13 @@ defineProps<{
   padding: var(--space-6);
 }
 
+/* Interior rules, not the card's own edge: they divide one sheet, they do not
+   bound it. Sharing a weight with the boundary is what made a card read as a
+   stack of boxes rather than as one surface with sections. */
 .s-card__header {
   margin: calc(var(--card-pad) * -1) calc(var(--card-pad) * -1) var(--card-pad);
   padding: var(--space-3) max(var(--card-pad), var(--space-4));
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   font-size: var(--font-size-md);
   font-weight: var(--weight-semibold);
 }
@@ -116,7 +119,7 @@ defineProps<{
 .s-card__footer {
   margin: var(--card-pad) calc(var(--card-pad) * -1) calc(var(--card-pad) * -1);
   padding: var(--space-3) max(var(--card-pad), var(--space-4));
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }

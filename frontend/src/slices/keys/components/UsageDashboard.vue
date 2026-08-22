@@ -113,7 +113,7 @@ const thresholdAlerts = computed(() =>
           size="sm"
           :class="[
             'rounded-none border-0',
-            idx > 0 && 'border-l border-l-[var(--color-border)]',
+            idx > 0 && 'border-l border-l-[var(--color-border-subtle)]',
           ]"
           @click="selectedWindow = w.value"
         >

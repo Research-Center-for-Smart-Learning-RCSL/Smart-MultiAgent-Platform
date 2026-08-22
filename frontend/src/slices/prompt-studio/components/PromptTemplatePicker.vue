@@ -73,7 +73,7 @@ function insert(tpl: PromptTemplate): void {
           <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
             {{ t(`promptStudio.scope.${group.scope}`) }}
           </h4>
-          <ul class="divide-y divide-[var(--color-border)] rounded border border-[var(--color-border)]">
+          <ul class="divide-y divide-[var(--color-border-subtle)] rounded border border-[var(--color-border)]">
             <li
               v-for="tpl in group.templates"
               :key="tpl.id"

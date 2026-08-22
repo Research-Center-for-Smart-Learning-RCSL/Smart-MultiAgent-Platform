@@ -155,7 +155,7 @@ function togglePasswordVisibility() {
 .s-input {
   display: flex;
   align-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-bg);
   transition: border-color var(--transition-fast);

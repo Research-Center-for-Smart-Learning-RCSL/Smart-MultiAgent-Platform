@@ -280,7 +280,7 @@ async function submit(): Promise<void> {
 .oauth-divider::after {
   content: '';
   flex: 1;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .oauth-divider span {

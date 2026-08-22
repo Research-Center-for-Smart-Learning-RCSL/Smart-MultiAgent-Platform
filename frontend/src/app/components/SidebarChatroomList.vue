@@ -140,7 +140,7 @@ function navigateTo(chatroomId: string): void {
 .skeleton-line {
   height: 20px;
   border-radius: var(--radius-md);
-  background-color: var(--color-border);
+  background-color: var(--color-border-subtle);
   animation: pulse 1.5s ease-in-out infinite;
 }
 

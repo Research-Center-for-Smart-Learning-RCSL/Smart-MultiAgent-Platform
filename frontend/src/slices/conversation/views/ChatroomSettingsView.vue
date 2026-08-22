@@ -835,7 +835,7 @@ watchEffect(() => {
   justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .access-row:last-child {
@@ -909,7 +909,7 @@ watchEffect(() => {
 
 .agent-item {
   padding: var(--space-3) 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .agent-head {

@@ -222,7 +222,7 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .session-item--first {

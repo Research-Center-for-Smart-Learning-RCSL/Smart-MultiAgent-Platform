@@ -102,7 +102,7 @@ const showAuthoring = ref(false)
         </p>
         <ul
           v-else
-          class="mb-4 divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]"
+          class="mb-4 divide-y divide-[var(--color-border-subtle)] rounded-md border border-[var(--color-border)]"
         >
           <li
             v-for="b in bindings"
@@ -133,7 +133,7 @@ const showAuthoring = ref(false)
         </p>
         <ul
           v-else
-          class="divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]"
+          class="divide-y divide-[var(--color-border-subtle)] rounded-md border border-[var(--color-border)]"
         >
           <li
             v-for="s in candidates"

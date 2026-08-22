@@ -512,7 +512,7 @@ function onRefreshHours(v: string | number): void {
   flex-direction: column;
   gap: var(--space-2-5);
   padding: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   border-bottom-left-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
@@ -556,7 +556,7 @@ function onRefreshHours(v: string | number): void {
 
 /* ─── Advanced ──────────────────────────────────────────────────── */
 .wakeup-advanced {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-2-5);
 }
 

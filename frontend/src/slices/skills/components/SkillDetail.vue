@@ -161,7 +161,7 @@ async function onDuplicate(): Promise<void> {
       </p>
 
       <!-- Actions -->
-      <div class="flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-4">
+      <div class="flex flex-wrap gap-2 border-t border-[var(--color-border-subtle)] pt-4">
         <SButton
           v-if="!deleted"
           variant="primary"
@@ -227,7 +227,7 @@ async function onDuplicate(): Promise<void> {
       </div>
 
       <!-- Bundled files -->
-      <div class="border-t border-[var(--color-border)] pt-4">
+      <div class="border-t border-[var(--color-border-subtle)] pt-4">
         <h4 class="mb-3 text-sm font-semibold text-[var(--color-fg)]">
           {{ t('skills.files.sectionHeading') }}
         </h4>

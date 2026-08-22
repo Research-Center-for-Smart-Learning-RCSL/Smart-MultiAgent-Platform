@@ -126,7 +126,7 @@ function onChange() {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  border: 1.5px solid var(--color-border);
+  border: 1.5px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   transition:

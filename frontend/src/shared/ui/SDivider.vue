@@ -38,7 +38,7 @@ const props = withDefaults(
 .s-divider {
   width: 100%;
   height: 1px;
-  background-color: var(--color-border);
+  background-color: var(--color-border-subtle);
   border: none;
 }
 
@@ -53,7 +53,7 @@ const props = withDefaults(
 .s-divider__line {
   flex: 1;
   height: 1px;
-  background-color: var(--color-border);
+  background-color: var(--color-border-subtle);
 }
 
 .s-divider__label {
@@ -67,6 +67,6 @@ const props = withDefaults(
 .s-divider--vertical {
   width: 1px;
   height: 100%;
-  background-color: var(--color-border);
+  background-color: var(--color-border-subtle);
 }
 </style>

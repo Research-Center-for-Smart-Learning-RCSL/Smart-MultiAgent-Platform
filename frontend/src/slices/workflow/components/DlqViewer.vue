@@ -144,7 +144,7 @@ function toggle(): void {
 .dlq-table th,
 .dlq-table td {
   padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   text-align: left;
 }
 

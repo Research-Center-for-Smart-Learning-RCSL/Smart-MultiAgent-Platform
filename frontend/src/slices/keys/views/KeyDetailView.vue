@@ -313,7 +313,7 @@ async function onDelete() {
   display: flex;
   align-items: center;
   min-height: 40px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .project-row {
@@ -322,7 +322,7 @@ async function onDelete() {
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2-5) 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .project-row:last-child {

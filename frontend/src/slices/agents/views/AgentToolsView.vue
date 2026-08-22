@@ -287,7 +287,7 @@ function openEditModal(tool: AgentTool): void {
 // invisible where it is set: useServerErrors suppresses the toast as soon as it
 // maps ANY field error, so a 422 naming config.allowed_tools, config, auth or
 // tool_type used to leave the dialog open with no feedback at all. The JSON
-// error had the same problem for a different reason — it lived inside an
+// error had the same problem for a different reason ??it lived inside an
 // SAccordion panel that is collapsed by default and hides its content with CSS.
 // Anything not in this list is surfaced by the form-level alert instead.
 const INLINE_ERROR_PATHS: readonly string[] = ['config.source', 'config.reference']
@@ -365,7 +365,7 @@ const onSubmit = handleSubmit((values) => {
   const editing = editingTool.value
   if (editing) {
     // parsedExtraConfig already carries the stored advanced keys (openEditModal
-    // seeds the JSON editor from them), so we don't spread editing.config — that
+    // seeds the JSON editor from them), so we don't spread editing.config ??that
     // would re-send backend-only markers like auth_present into stored config.
     const mergedConfig: Record<string, unknown> = {
       ...parsedExtraConfig,
@@ -720,7 +720,7 @@ function fnLabel(tool: AgentTool): string {
 
       <!-- Singleton hosted tool toggles -->
       <SCard class="mt-4">
-        <ul class="flex flex-col divide-y divide-[var(--color-border)]">
+        <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
           <li
             v-for="card in singletonCards"
             :key="card.key"
@@ -798,7 +798,7 @@ function fnLabel(tool: AgentTool): string {
         </p>
 
         <div v-if="wsFiles.length">
-          <ul class="flex flex-col divide-y divide-[var(--color-border)]">
+          <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
             <li
               v-for="file in wsFiles"
               :key="file.id"
@@ -965,7 +965,7 @@ function fnLabel(tool: AgentTool): string {
         </div>
 
         <div v-if="functionTools.length">
-          <ul class="flex flex-col divide-y divide-[var(--color-border)]">
+          <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
             <li
               v-for="fn in functionTools"
               :key="fn.id"
@@ -1030,7 +1030,7 @@ function fnLabel(tool: AgentTool): string {
         </SEmptyState>
       </SCard>
 
-      <!-- Local Shell — coming soon -->
+      <!-- Local Shell ??coming soon -->
       <SCard class="mt-4">
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">

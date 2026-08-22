@@ -451,7 +451,7 @@ onBeforeUnmount(() => {
 .switcher__divider {
   height: 1px;
   margin: var(--space-1) 0;
-  background: var(--color-border);
+  background: var(--color-border-subtle);
 }
 
 /* -- Enter/Leave transitions -- */
