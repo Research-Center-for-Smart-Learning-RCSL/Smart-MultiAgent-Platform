@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-08-21
 requirements: [R24.28, R24.30, R24.34, R24.48, R24.49]
 depends_on: [2026-08-21-visual-refinement-phase1-token-adoption]
@@ -436,70 +436,86 @@ unchanged and unneeded here.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: **Typeface.** On a running stack with the browser cache cold,
+- [x] AC-1: **Typeface.** On a running stack with the browser cache cold,
       `getComputedStyle(document.body).fontFamily` resolves to Inter first, the woff2 is
       requested exactly once and returns 200, and no request is made to any third-party
       host. `frontend/public/fonts/` contains the woff2 and the SIL OFL 1.1 licence text.
-- [ ] AC-2: **CJK is unaffected by the Latin subset.** A zh-TW screen with mixed Latin and
+      *Closed by `e2e/24-typography-and-assets.spec.ts`, green against a live stack.*
+- [x] AC-2: **CJK is unaffected by the Latin subset.** A zh-TW screen with mixed Latin and
       CJK renders Latin in Inter and CJK in the first available family from the CJK stack,
       and a CJK-only screen does not download the Inter file (verified in the network panel,
-      both themes).
+      both themes). *Closed by the same spec, via CDP `getPlatformFontsForNode` rather than
+      the network panel — see D-6.*
 - [ ] AC-3: **No text overflow regression.** At 1440x900 and 375x812, in both locales: no
       sidebar nav label is truncated that was not truncated before, no `STable` header wraps
       or clips, and no `SBadge` label overflows its pill. Checked against the phase-1 C-0
-      surface set.
-- [ ] AC-4: **Press and focus.** Every `SButton` variant, the top-bar icon buttons and
+      surface set. **Deliberately unticked — not performed.** See §15.
+- [x] AC-4: **Press and focus.** Every `SButton` variant, the top-bar icon buttons and
       `SidebarNavItem` show a visible pressed state distinct from hover; the state survives
       under `prefers-reduced-motion: reduce` as an instant change with no movement.
       `:active` is no longer absent from `frontend/src`.
-- [ ] AC-5: **Focus ring correctness.** A full keyboard traversal of the phase-1 C-0 surface
+      *Rules asserted per variant in `focus-and-press.test.ts`; the depression measured in
+      the browser and mutation-probed. The reduced-motion run is reasoned, not observed —
+      see §15.*
+- [~] AC-5: **Focus ring correctness.** A full keyboard traversal of the phase-1 C-0 surface
       set, in both themes, shows a focus indicator on every focusable element, with no white
       or mismatched halo on controls inside the sidebar, a card footer, a table header or a
       modal footer. `--focus-ring` no longer exists in `main.css` and no component rule
       references it (grep-verifiable).
-- [ ] AC-6: **Layering is visible.** On any authenticated route, an `SCard` with the default
+      *Second sentence closed and enforced. The traversal ran on one surface, not the C-0
+      set, and the "no mismatched halo" judgement was not made — see §15.*
+- [~] AC-6: **Layering is visible.** On any authenticated route, an `SCard` with the default
       variant is distinguishable from the page behind it with its border removed in devtools
       (that is, the distinction survives without the 1px rule). The measured L\* gap between
       `--color-canvas` and `--color-bg` is between 3 and 5 points in **both** themes. The
       landing page, the auth pages and the chatroom render without a visibly broken surface.
-- [ ] AC-7: **CSP.** With the production nginx config in front of the stack, the font loads
+      *The L\* gap is measured and enforced in two places (3.65 light / 4.37 dark). The
+      visual judgements were not made — see §15.*
+- [~] AC-7: **CSP.** With the production nginx config in front of the stack, the font loads
       with no CSP violation in the console and `smap.conf:177` is unmodified.
-- [ ] AC-8: **Payload.** The woff2's transferred size is measured and recorded in §15,
+      *`smap.conf:177` is unmodified and the font is proven same-origin with no third-party
+      host contacted, which is the only property that CSP clause tests. But the run went
+      through Vite, which sets no CSP header, so the production nginx path was not
+      exercised — see §15.*
+- [x] AC-8: **Payload.** The woff2's transferred size is measured and recorded in §15,
       together with the initial JS bundle size before and after. `pnpm run check:bundle-size`
       passes. If the font exceeds 120 KB the subset is narrowed before the dossier closes,
       rather than the number being accepted because gate #9 cannot see it.
-- [ ] AC-9: **Contrast.** Every foreground-on-background token pair in both themes is
-      measured and listed in §15 with its ratio: `fg`/`canvas`, `fg`/`bg`, `fg`/`surface`,
-      `muted`/`canvas`, `muted`/`bg`, `muted`/`surface`, `sidebar-text`/`sidebar-bg`,
-      `sidebar-section-text`/`sidebar-bg`, `accent`/`bg`, `neutral-on`/`neutral-tint`, and
-      the four status `*-on`/`*-tint` pairs. Body text pairs meet 4.5:1; non-text boundary
-      pairs (`border`/`bg`, `border-subtle`/`bg`) meet 3:1.
-- [ ] AC-10: **Border roles are separated.** `--color-border-subtle` exists in both themes
+      *Measured both sides of the diff; the gate's logic was replicated locally because the
+      bash script cannot run on this host (D-9). CI runs the real script.*
+- [x] AC-9: **Contrast.** Every foreground-on-background token pair in both themes is
+      measured and listed in §15 with its ratio. Body text pairs meet 4.5:1; non-text
+      boundary pairs meet 3:1. *Met, with the boundary clause amended — see D-2, which is
+      the largest deviation in this build and was agreed with the user.*
+- [x] AC-10: **Border roles are separated.** `--color-border-subtle` exists in both themes
       and is used by every interior separator listed in §6.4; `--color-border` is used by
       every outer boundary listed there and by no interior separator (grep-verifiable
-      against that list).
-- [ ] AC-11: **Table density and numerals.** `STable` `td` padding is `var(--space-3)
+      against that list). *Enforced by `border-roles.test.ts` over three roles, not two.*
+- [x] AC-11: **Table density and numerals.** `STable` `td` padding is `var(--space-3)
       var(--space-4)`, `th` is sentence case, and a column declared `cellType: 'number'` or
       `'date'` renders with `font-variant-numeric: tabular-nums` so its digits align down
-      the column. `STableCards` matches.
-- [ ] AC-12: **Literal colours.** The 48 hex literals of §4.7 are reduced to the retained set
-      of Q-12 (the two graph palettes and `SButton`'s `#fff`), each carrying a comment
-      stating why it is retained. Grep-verifiable.
-- [ ] AC-13: **Documentation.** `docs/UI/00-overview.md` §2, §3 and §4 and
-      `docs/UI/01-design-system.md` §1 state the shipped values, including the font stack at
-      `00-overview.md:99`, which currently names the system stack verbatim.
-- [ ] AC-14: **No behaviour change.** Every existing unit and component test passes without
-      being edited for a visual reason. A test that asserted on `--focus-ring` or on
-      `SCard`'s `elevation-0` may be updated, and each such edit is recorded as a deviation.
-- [ ] AC-15: gates green on CI: `pnpm lint` (all 12, notably #6 global CSS, #11
-      accessibility, #12 i18n), `pnpm typecheck`, `pnpm test`, `pnpm build`,
-      `pnpm run check:bundle-size`, `pnpm run check:type-coverage`,
-      `pnpm run check:boundaries-enforced`. Backend gates N/A. CI is authoritative over the
-      local Windows host.
+      the column. `STableCards` matches. *The `th`'s tracking was dropped — see D-8.*
+- [x] AC-12: **Literal colours.** The 48 hex literals of §4.7 are reduced to the retained set
+      of Q-12, each carrying a comment stating why it is retained. Grep-verifiable.
+      *The retained set differs from Q-12's — see D-3. Enforced by `literal-colours.test.ts`.*
+- [x] AC-13: **Documentation.** `docs/UI/00-overview.md` §2, §3 and §4 and
+      `docs/UI/01-design-system.md` §1 state the shipped values, including the font stack.
+      *Six further documents were corrected because they had become false rather than merely
+      incomplete — see D-5.*
+- [x] AC-14: **No behaviour change.** Every existing unit and component test passes without
+      being edited for a visual reason. *1506 tests green. Three test edits, all recorded:
+      D-4 (the `@font-face` sweep exemption), D-7 (`tokens.test.ts`'s deleted rows) and D-8.*
+- [~] AC-15: gates green on CI. *Locally green: `pnpm lint`, `pnpm typecheck`, `pnpm test`
+      (1506), `pnpm build`. `check:bundle-size`, `check:type-coverage`,
+      `check:boundaries-enforced` and `check:openapi-drift` are bash scripts that cannot run
+      on this Windows host (D-9), so CI closes this one. **CI is expected to be red on
+      `00-visual-token-parity` until AC-16 is closed.***
 - [ ] AC-16: **Phase 1's parity harness is retargeted, not deleted.**
-      `frontend/e2e/20-visual-token-parity.spec.ts` is rebaselined against the new values in
-      the final commit, so a future refactor still has a computed-style net. Deleting it is
-      not an acceptable resolution of its failures.
+      The parity spec is rebaselined against the new values, so a future refactor still has a
+      computed-style net. Deleting it is not an acceptable resolution of its failures.
+      **Deliberately unticked and the one thing outstanding.** The spec is
+      `00-visual-token-parity.spec.ts`, not `20-` (D-1). The recipe and the reason it was not
+      run here are in §15.
 
 ## 12. Test Plan
 
@@ -561,8 +577,209 @@ Amend §24.9 of `REQUIREMENTS.md`:
 
 ## 15. Deviation Log
 
-Appended by /build. AC-8's measured sizes, AC-9's contrast table and AC-3/AC-5/AC-6's
-per-surface manual results are recorded here.
+### Freshness pass (before any code moved)
+
+Phase 1 landed on 2026-08-22, one day after this dossier was written, so the citations
+were checked before implementing. Line numbers had moved throughout `main.css` and the
+components; every content claim held except the four below. `:active` was still absent
+from all of `frontend/src`, `@font-face` still appeared nowhere, `frontend/public/` still
+held only two files, and §4.7's count of 48 hex literals across 16 `.vue` files was exact.
+
+- **`--focus-ring` had 29 references in 24 component files, not the six §6.6 enumerates.**
+  §10 built its risk assessment on that six. Worse than a miscount: every one of those
+  rules also carried `outline: none`, so under the new outline-based rule they would not
+  have been redundant restatements, they would have removed the indicator.
+- **`00-visual-token-parity.spec.ts` is numbered `00-`, not `20-`** (phase 1's D-14 moved
+  it so it runs before anything mutates the seed). `20-` and `21-` are both occupied, so
+  §12's proposed `21-typography-and-assets.spec.ts` would have displaced an existing spec.
+- **§4.5's "no `font-variant-numeric` anywhere in `frontend/src`" was false** — two sites
+  (`SIdleDialog.vue`, `ChatroomMessageBubble.vue`). Neither is a table, so §6.5's substance
+  stood.
+- **§12 pointed at `frontend/src/app/__tests__/` for phase 1's source sweep**; it lives in
+  `src/shared/styles/__tests__/`.
+
+**Scope taken with the user at that point**: phase 1 assigned FU-5, FU-6, FU-7, FU-8 and
+FU-9 to phase 2 and this dossier records none of them, having been written first. All were
+taken into scope (FU-8 is a coverage note, not a code change).
+
+### D-n
+
+- **D-1 — the new e2e spec is `24-`, not `21-`.** §12's number is occupied. `00-` must stay
+  first for the parity baseline, so the next free number was taken.
+- **D-2 — AC-9's border clause is amended, and it is the largest deviation here.**
+  It required `border`/`bg` and `border-subtle`/`bg` to meet 3:1. Measured, that is
+  unreachable without making every container edge a mid-grey line: the value was 1.23:1
+  before this dossier and 1.48:1 after. WCAG 2.1 1.4.11 governs boundaries that *identify*
+  a component, which is a form control's outline and not a card's decorative edge.
+  **Resolved with the user by adding a third rule weight**, `--color-border-strong`
+  (4.76:1 light / 3.90:1 dark), used by the nine form-control components and by nothing
+  else. The contrast test asserts 3:1 on that token and asserts the ordering of all three.
+- **D-3 — the retained-literal set differs from Q-12's.** Q-12 named the two graph palettes
+  and `SButton`'s `#fff`. The `#fff` is gone: nine components used it as the foreground of
+  a filled accent or danger surface, and against the *dark* theme's accent that measures
+  2.54:1 — below AA on the most-used control in the product, with nothing looking at it.
+  **Agreed with the user**: `--color-on-accent` and `--color-on-danger`, theme-aware,
+  taking the dark theme to 7.02:1 and 6.45:1. Two categories Q-12 did not anticipate are
+  retained instead, each commented: Google's brand mark in the two auth views (a brand mark
+  is not ours to retheme) and `#000` used as a mask alpha stop in `Landing.vue` (in a mask
+  it is an alpha selector, not a colour). `SToggle`'s knob also stays literal — it must read
+  against both track states, so it can follow neither.
+- **D-4 — the literal sweep excludes `@font-face` structurally rather than by exemption.**
+  A descriptor's `font-weight: 100 900` is a variable font's weight *axis*, which shares a
+  name with the property the sweep governs and means something else.
+- **D-5 — six documents beyond AC-13's scope were corrected.** They had stopped being
+  incomplete and become false: `--focus-ring` no longer exists but five documents still told
+  an implementer to reach for it, and two hand-maintained contrast tables stated ratios
+  against hexes that had moved. Those tables were replaced with a pointer to the test rather
+  than with corrected numbers — a table in a document is a copy of the palette that nothing
+  keeps in step, and both had already drifted. Neither had ever covered the dark theme,
+  which is where the real failures were.
+- **D-6 — the CJK check uses CDP, not `document.fonts.check()`.** The obvious API is the
+  wrong one: it reports whether *every* face matching the family is loaded, so it answers
+  `false` for Inter purely because the Latin-Extended subset has correctly never been
+  fetched. `CSS.getPlatformFontsForNode` reports what was really put on the glyphs. Cost a
+  red run to discover.
+- **D-7 — three tokens were deleted, closing phase 1's FU-9.** `--font-size-3xl` and
+  `--space-10` had no consumers and none was found for them; `--line-tight` and
+  `--color-accent-tint-hover` were adopted instead. The latter fixes a live defect:
+  `--color-sidebar-hover` and `--color-sidebar-active-bg` are the same colour, so the active
+  sidebar row was the one item in the product that did not respond to a pointer at all.
+- **D-8 — the table header ships with no tracking, against §6.5.** §6.5 asked for
+  `--tracking-tight` on the `th`; §6.1 of the same dossier applies tracking from
+  `--font-size-xl` upward and gives the reason, that tightening text at body sizes costs
+  legibility. The header is `--font-size-xs`. Uppercase wants positive tracking; the
+  sentence case that replaced it wants none. Found by the self-audit, not by review.
+- **D-9 — three CI gates could not run on this host.** `check:bundle-size`,
+  `check:type-coverage` and `check:boundaries-enforced` are bash scripts and bash is not
+  available here (the same class of blocker phase 1 recorded for `check:openapi-drift`).
+  The bundle-size script's logic was replicated in PowerShell to produce AC-8's numbers and
+  to confirm no chunk exceeds its budget; the scripts themselves are CI's to run.
+- **D-10 — [R24.28] was amended past its approved delta.** The approved text said "two
+  border weights" and listed a focus token scale. Neither survives: there are three weights
+  (D-2) and the ring is a rule rather than a token. It now also states the AA contrast
+  requirement, which the design system had asserted since it was written with nothing
+  measuring it.
+
+### AC-8 — measured payload
+
+| | before (`2d8f14d`) | after |
+|---|---|---|
+| `index-*.js` | 25,031 B gz | 25,035 B gz |
+| `vendor-*.js` | 70,770 B gz | 70,770 B gz |
+| **initial JS** | **95,801 B gz** | **95,805 B gz** (+4) |
+| `index-*.css` | 9,840 B gz | 10,401 B gz (+561) |
+| `ui-*.css` | 8,697 B gz | 8,801 B gz (+104) |
+| `inter-latin.woff2` (preloaded) | — | **48,256 B** |
+| `inter-latin-ext.woff2` (on demand) | — | 85,068 B |
+
+Budget is 256,000 B gz for an initial chunk; the larger of the two is at 28% of it. The
+critical-path font is 48 KB against AC-8's 120 KB ceiling, asserted in the e2e spec because
+the gate script iterates `dist/assets/*.js` and structurally cannot see a font.
+
+Font provenance, recorded so a future change is detectable: Google's own subsetting of
+Inter v4.1 (`rsms/inter`, SIL OFL 1.1), fetched over TLS.
+`inter-latin.woff2` SHA-256 `3100E775E8616CD2611BEECFA23A4263D7037586789B43F035236A2E6FBD4C62`;
+`inter-latin-ext.woff2` SHA-256 `34B9C504CAB7A73E37B746343A449132E56CF7B5481AF2CB81DC74DCFF25C956`.
+Both verified as valid `wOF2` and byte-identical to their committed blobs — `.gitattributes`
+named png, jpg and pdf as binary but no font format, so that guarantee rested on a content
+heuristic. It is explicit now.
+
+### AC-9 — measured contrast
+
+Computed by `src/shared/styles/__tests__/contrast.test.ts` from the two theme blocks. Text
+pairs are held at 4.5:1, `--color-border-strong` at 3:1, and the canvas-to-sheet separation
+at 3 to 5 L\*. This is a test, not a measurement session: it fails the build when a colour
+moves, which is what keeps the budget true after this dossier closes.
+
+| Pair | light | dark |
+|---|---|---|
+| `fg`/`canvas` | 16.29 | 15.78 |
+| `fg`/`bg` | 17.85 | 14.48 |
+| `fg`/`surface` | 17.06 | 11.87 |
+| `muted`/`canvas` | 6.92 | 7.59 |
+| `muted`/`bg` | 7.55 | 6.96 |
+| `muted`/`surface` | 7.24 | 5.71 |
+| `sidebar-text`/`sidebar-bg` | 9.45 | 13.10 |
+| `sidebar-section-text`/`sidebar-bg` | 6.92 | 7.59 |
+| `sidebar-text`/`sidebar-hover` | 8.49 | 7.75 |
+| `sidebar-active-text`/`sidebar-active-bg` | 5.49 | 6.38 |
+| `sidebar-active-text`/`accent-tint-hover` | 4.72 | 5.26 |
+| `accent`/`bg` | 5.17 | 7.02 |
+| `on-accent`/`accent` | 5.17 | 7.02 |
+| `on-danger`/`danger` | 4.83 | 6.45 |
+| `neutral-on`/`neutral-tint` | 9.45 | 6.97 |
+| `info-on`/`info-tint` | 5.49 | 6.38 |
+| `success-on`/`success-tint` | 4.57 | 6.49 |
+| `warning-on`/`warning-tint` | 6.37 | 6.29 |
+| `danger-on`/`danger-tint` | 5.30 | 5.28 |
+| `border-strong`/`bg` (3:1 bar) | 4.76 | 3.90 |
+| `border`/`bg` (decorative) | 1.48 | 1.72 |
+| `border-subtle`/`bg` (decorative) | 1.23 | 1.22 |
+| canvas-to-sheet L\* gap | 3.65 | 4.37 |
+
+**`sidebar-section-text`/`sidebar-bg` was 4.41:1 before this dossier** — a pre-existing AA
+failure that nothing had ever looked at, which is the case for building the test rather than
+measuring once.
+
+### What was verified in a browser, and what was not
+
+`e2e/24-typography-and-assets.spec.ts`, nine checks, green against a live stack. Two of them
+were mutation-probed: reverting the press depression and stripping `SInput`'s wrapper ring
+each turned exactly their own test red and nothing else.
+
+Observed: the stack resolves to Inter and a face reaches `loaded`; the Latin subset is
+requested exactly once, same-origin, 200; no third-party font host is contacted and no CSP
+message reaches the console; the preload carries `crossorigin`; Latin-Extended is **not**
+fetched for a Latin screen; CDP reports Latin rendered in Inter and CJK not; the
+canvas-to-sheet gap holds in both themes against the live cascade; a held button really
+translates 1px; and every control an eight-stop keyboard traversal of `/login` reaches has a
+2px solid outline on itself or an ancestor.
+
+**Not observed, and the ACs are marked accordingly:**
+
+- **AC-3 was not performed at all.** No 1440x900 / 375x812 pass in either locale. Inter runs
+  slightly wider than Segoe UI, and §10 named the three exposures — the 260px sidebar,
+  `STable`'s `white-space: nowrap` headers, and badge pills. This is the item most likely to
+  have a visible regression and nothing in this build looked for one.
+- **AC-5's traversal covered `/login`, not the phase-1 C-0 surface set**, and the "no white
+  or mismatched halo" judgement — the actual reason the ring was replaced — was not made by
+  eye anywhere.
+- **AC-6's visual half**: nobody removed a card's border in devtools to check the layering
+  survives it, and nobody looked at the landing page, the auth pages or the chatroom. The
+  landing page is §10's stated highest risk and the least likely surface to be opened.
+- **AC-4's reduced-motion run**: the global freeze at `main.css` zeroes every transition
+  duration, and the press is a transition, so it snaps rather than disappearing. Reasoned,
+  not observed.
+- **AC-7's nginx path**: the run went through Vite, which sets no CSP header. What the test
+  proves is the property the CSP clause actually turns on — the font is same-origin and no
+  third-party host is contacted — but `font-src 'self' data:` was not exercised by a real
+  header. The e2e baseURL is Vite in CI too, so this does not close on CI either; it wants a
+  staging check.
+
+### AC-16 — the parity baseline, outstanding
+
+The baseline must be regenerated: `--shadow-*`, the heading ramp, `SCard`'s default
+elevation and `STable`'s padding all moved, and all four are in the spec's property set.
+
+It was **not** regenerated here, deliberately. Phase 1's D-17 and D-18 established that the
+baseline is only meaningful against a freshly seeded stack, and the only stack available was
+a developer stack that had been up for eighteen hours. Regenerating against it reproduces
+exactly the failure phase 1 documented: green locally, 48 vanished signatures on CI.
+`compose.test.yml` binds `28000:8000` and reuses the dev stack's container names, so
+standing up a pristine stack means taking the running one down — the user directed that this
+go to remote CI rather than have the local environment rebuilt.
+
+Until a pristine-stack baseline is committed, **CI is red on `00-visual-token-parity`, and
+that is expected**. The recipe, from `frontend/`:
+
+```
+UPDATE_VISUAL_BASELINE=1 pnpm exec playwright test 00-visual-token-parity --project=desktop
+```
+
+against a stack brought up per `frontend/.claude/skills/verify/SKILL.md` ("Bringing up the
+full test stack"), with `.e2e-seed.json` confirmed to hold the full `E2E_*` set first —
+`global-setup.ts` fails silently on an already-seeded stack and a three-key seed file makes
+every fixture-gated spec skip, which reads as a green run with no coverage.
 
 ## 16. Follow-ups
 
@@ -588,3 +805,29 @@ per-surface manual results are recorded here.
 - **FU-6** - `WorkflowNodeComponent.vue`'s 14 hard-coded colours and
   `GraphragGraphView.vue`'s 8 are categorical palettes retained by Q-12. Neither has been
   checked for colour-blind safety or for contrast against its own canvas, in either theme.
+- **FU-7** - **AC-3, and the visual halves of AC-5 and AC-6, were never performed.** The
+  work is enumerated in §15 and is not small: a two-viewport, two-locale overflow pass over
+  the phase-1 C-0 surface set, a keyboard traversal of that set in both themes looking for a
+  mismatched halo, and a look at the landing page, the auth pages and the chatroom. This is
+  a visual-identity change that has been measured thoroughly and *seen* barely at all.
+- **FU-8** - AC-7 is closed against Vite, which sets no CSP header. Nothing in this
+  repository runs the frontend behind the production nginx config, so `font-src 'self'
+  data:` admitting the font is proven by construction (same origin) rather than observed.
+  A staging check would close it; a CI job that puts nginx in front would close it for good.
+- **FU-9** - `isFigureColumn` is duplicated in `STable.vue` and `STableCards.vue`, three
+  lines each, deliberately (the mobile branch does not import the table's type). If a third
+  branch appears, or if `ColumnCellType` grows a member that should align, the two will
+  drift and the same table will align different columns on either side of the breakpoint.
+- **FU-10** - `--control-h-*`, `--sidebar-width` and `--topbar-height` stay px while
+  `--space-*` and the type ramp are now rem. Phase 1's FU-7 named only the spacing scale, so
+  this is not an oversight, but the question it raises is real: a 260px sidebar holding rem
+  text truncates sooner as the reader's font size grows. Different answer per token.
+- **FU-11** - `src/slices/agents/__tests__/AgentToolsView.test.ts` failed once under the
+  full suite (a CodeMirror test, 6.4s, at what looks like a timeout) and passed in isolation
+  and on two later full runs. Not caused by this diff — the only change since the previous
+  green run was documentation — but an intermittent test is a future red CI nobody will be
+  able to attribute.
+- **FU-12** - `--elevation-0` is `none`, so `.s-btn:active`'s `box-shadow: var(--elevation-0)`
+  is a no-op today: buttons rest without a shadow, so the "one elevation step down" half of
+  the press language is only expressed by the translate. Harmless, and correct the day a
+  variant gains a resting elevation, but worth knowing it is currently inert.
