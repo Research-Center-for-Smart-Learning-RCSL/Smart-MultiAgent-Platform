@@ -1080,8 +1080,13 @@ function onExportSubmit(opts: ExportOptions): void {
      custom property the view binds, falling back to the historical 200px when
      no width has been chosen (or when storage is unavailable). The 220px and
      10px literals are mirrored by AGENTS_RAIL_WIDTH / RAIL_HANDLE_WIDTH in the
-     script, which is where the rail's ceiling is derived from. */
-  grid-template-columns: 220px 1fr 10px var(--chatroom-rail-w, 200px);
+     script, which is where the rail's ceiling is derived from.
+
+     The centre track is `minmax(0, 1fr)` for the reason spelled out on
+     `.chatroom--mobile` below: a bare `1fr` is floored at `min-content` and so
+     is sized by its widest descendant rather than by the space available. It
+     never bit here only because a desktop window is wide enough to hide it. */
+  grid-template-columns: 220px minmax(0, 1fr) 10px var(--chatroom-rail-w, 200px);
   grid-template-rows: 48px 1fr auto auto;
   height: 100%;
   overflow: hidden;
@@ -1272,8 +1277,16 @@ function onExportSubmit(opts: ExportOptions): void {
 
 /* Mobile: single column; side panels become drawers. The grid shrinks by the
    keyboard overlap so the composer stays visible above the virtual keyboard. */
+/* `minmax(0, 1fr)`, never a bare `1fr`. A `1fr` track's automatic minimum is
+   `min-content`, so the single mobile column was sized by the widest thing in
+   it rather than by the viewport: at 375px the header's name, live pill and
+   three icon buttons gave it a 498px min-content width, the track grew to
+   match, and `.chatroom`'s `overflow: hidden` then clipped the pill and the
+   buttons off the right edge. The empty state's `max-width: 400px` overflowed
+   for the same reason - it was measuring against a 498px column, not a 375px
+   screen. */
 .chatroom--mobile {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 48px 1fr auto auto;
   height: calc(100% - var(--kb-inset, 0px));
 }
