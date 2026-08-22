@@ -64,8 +64,10 @@ describe('STable density and figures', () => {
     // the header - it made the two locales render the same table differently.
     const css = readComponentStyles('shared/ui/STable.vue')
     expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'text-transform')).toBeNull()
-    expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'letter-spacing'))
-      .toBe('var(--tracking-tight)')
+    // And no tracking either: tracking applies from --font-size-xl upward, and
+    // this header is --font-size-xs. Uppercase wants positive tracking;
+    // sentence case at body size wants none.
+    expect(declaration(topLevelRule(css, '.s-table__th') ?? '', 'letter-spacing')).toBeNull()
   })
 
   it('marks a number or date column for tabular figures', () => {

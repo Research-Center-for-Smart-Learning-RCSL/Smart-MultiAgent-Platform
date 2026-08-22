@@ -91,6 +91,13 @@ const TEXT_PAIRS: [fg: string, bg: string][] = [
   ['--color-muted', '--color-surface'],
   ['--color-sidebar-text', '--color-sidebar-bg'],
   ['--color-sidebar-section-text', '--color-sidebar-bg'],
+  // The sidebar's interaction states. Not in AC-9's list, added because phase 2
+  // moved every one of them: the label colours changed with the axis, and
+  // --color-accent-tint-hover went from zero consumers to being the fill under
+  // an active row's hover and press.
+  ['--color-sidebar-text', '--color-sidebar-hover'],
+  ['--color-sidebar-active-text', '--color-sidebar-active-bg'],
+  ['--color-sidebar-active-text', '--color-accent-tint-hover'],
   ['--color-accent', '--color-bg'],
   // Content ON a filled surface, not beside it. These were a hard-coded #fff
   // in nine components, which measured 2.54:1 against the dark theme's accent

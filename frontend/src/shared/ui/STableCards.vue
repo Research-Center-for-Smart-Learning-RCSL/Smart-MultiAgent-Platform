@@ -241,8 +241,8 @@ const emptyStateAttrs = computed(() => ({
   font-weight: var(--weight-semibold);
   /* Sentence case, matching STable's header: the labels are the same $t()
      strings, and uppercasing one branch but not the other made the same table
-     read differently on either side of the breakpoint. */
-  letter-spacing: var(--tracking-tight);
+     read differently on either side of the breakpoint. No tracking, for the
+     reason stated on .s-table__th. */
   color: var(--color-muted);
 }
 

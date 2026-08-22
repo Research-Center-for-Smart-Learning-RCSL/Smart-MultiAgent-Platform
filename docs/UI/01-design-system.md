@@ -523,7 +523,7 @@ interface Column {
 **Emits**: `sort(key, order)`, `select(keys[])`, `row-click(row)`
 
 **Visual spec**:
-- Header: `--color-surface` bg, `--weight-semibold`, `--font-size-xs` in **sentence case** with `--tracking-tight`, `--color-muted`; 1px bottom `--color-border-subtle`. Not uppercase: `text-transform` does nothing to CJK, so it made the same table render differently in en and zh-TW, and it discarded the word shapes a reader scans a header row by
+- Header: `--color-surface` bg, `--weight-semibold`, `--font-size-xs` in **sentence case**, no tracking, `--color-muted`; 1px bottom `--color-border-subtle`. Not uppercase: `text-transform` does nothing to CJK, so it made the same table render differently in en and zh-TW, and it discarded the word shapes a reader scans a header row by. No tracking because tracking applies from `--font-size-xl` upward — uppercase wants positive tracking, sentence case at body size wants none
 - Rows: `--color-bg` at `--font-size-sm`, cells `--space-3` `--space-4`, 1px bottom `--color-border-subtle` (an interior rule, not the table's own edge), hover `--color-surface`
 - Columns declared `cellType: 'number'` or `'date'` render with `font-variant-numeric: tabular-nums` so their digits line up down the column
 - Sortable columns: clickable header with `ChevronUpDownIcon`, active shows `ChevronUpIcon`/`ChevronDownIcon` in `--color-accent`
