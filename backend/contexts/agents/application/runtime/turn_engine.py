@@ -92,6 +92,7 @@ from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.db.faults import is_infrastructure_error
+from shared_kernel.labels import MAX_GUEST_LABEL
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.distributed_lock import LockHandle
 from shared_kernel.realtime.pubsub import Publisher
@@ -350,6 +351,14 @@ def _participant_note(owner_label: str | None) -> str:
     if not owner_label:
         return _PARTICIPANT_LABEL_NOTE
     return f"{_PARTICIPANT_LABEL_NOTE} {_ROOM_OWNER_NOTE.format(owner=owner_label)}"
+
+
+# What the measure pass counts, since it runs before the turn knows whether the
+# note will render and before the owner label has been paid for. The owner
+# sentence is always counted and the placeholder is the longest label the label
+# layer can produce, so the estimate is an over-count in both directions --
+# MEASURED_ONLY's contract, and the direction F-16 exists to protect.
+_PARTICIPANT_NOTE_MEASURE = _participant_note("W" * MAX_GUEST_LABEL)
 
 
 def _one_line_label(label: str) -> str:
@@ -815,6 +824,13 @@ class _BlockSlot(enum.Enum):
 
     SUMMARIES = "summaries"
     KNOWLEDGE = "knowledge"
+    # The participant note. A slot rather than fixed text because its owner
+    # sentence costs a DB read to resolve, and whether the note renders at all is
+    # not known until history has been assembled -- which is after the measure
+    # pass that sizes the knowledge budget. Measure therefore counts a worst-case
+    # note (see `_PARTICIPANT_NOTE_MEASURE`) and render supplies the real one, so
+    # the lookup is paid only on turns that actually show it.
+    PARTICIPANT_NOTE = "participant_note_text"
 
 
 # The one MEASURED_ONLY block today. Named once so `build`, the render call site,
@@ -856,7 +872,6 @@ class _SystemBlocks:
         activity_block: str | None,
         staged_note: str | None,
         notify_block: str | None,
-        participant_note: str = _PARTICIPANT_LABEL_NOTE,
     ) -> _SystemBlocks:
         blocks: list[_SystemBlock] = [
             _SystemBlock("base_system", _BlockRole.MEASURED_AND_RENDERED, text=base_system)
@@ -878,7 +893,9 @@ class _SystemBlocks:
         blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
         blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
         blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
-        blocks.append(_SystemBlock(_PARTICIPANT_NOTE_BLOCK, _BlockRole.MEASURED_ONLY, text=participant_note))
+        blocks.append(
+            _SystemBlock(_PARTICIPANT_NOTE_BLOCK, _BlockRole.MEASURED_ONLY, slot=_BlockSlot.PARTICIPANT_NOTE)
+        )
         return cls(blocks=tuple(blocks))
 
     @staticmethod
@@ -898,7 +915,10 @@ class _SystemBlocks:
         """The non-knowledge system text, for the compaction decision (F-17) and
         the knowledge budget (F-16). Knowledge blocks are excluded by role, so
         this pass supplies no text for their slot."""
-        slot_texts = {_BlockSlot.SUMMARIES: summaries}
+        slot_texts = {
+            _BlockSlot.SUMMARIES: summaries,
+            _BlockSlot.PARTICIPANT_NOTE: [_PARTICIPANT_NOTE_MEASURE],
+        }
         parts: list[str] = []
         for block in self.blocks:
             if block.role is _BlockRole.RENDERED_ONLY:
@@ -912,6 +932,7 @@ class _SystemBlocks:
         knowledge_blocks: Sequence[str],
         *,
         include_conditional: Collection[str] = (),
+        participant_note: str = _PARTICIPANT_LABEL_NOTE,
     ) -> str:
         """The system text actually sent to the provider.
 
@@ -919,8 +940,17 @@ class _SystemBlocks:
         wants. Naming them individually keeps each one's inclusion tied to its own
         condition — a single shared flag would silently gate a second such block on
         the first one's reason.
+
+        ``participant_note`` is only consulted when that block is included, which
+        is what lets the caller skip resolving the room owner on a turn that will
+        not show the note. It defaults to the owner-less note so a caller that
+        does not opt the block in cannot accidentally render an empty slot.
         """
-        slot_texts = {_BlockSlot.SUMMARIES: summaries, _BlockSlot.KNOWLEDGE: knowledge_blocks}
+        slot_texts = {
+            _BlockSlot.SUMMARIES: summaries,
+            _BlockSlot.KNOWLEDGE: knowledge_blocks,
+            _BlockSlot.PARTICIPANT_NOTE: [participant_note],
+        }
         parts: list[str] = []
         for block in self.blocks:
             if block.role is _BlockRole.MEASURED_ONLY and block.name not in include_conditional:
@@ -2564,12 +2594,6 @@ class TurnEngine:
             # their own round trip for the same roster.
             guests = await self._room_guest_names(chatroom_id)
             activity_block = await self._activity_context(chatroom_id, guests=guests)
-            # Who set this room up. Folded into the participant note (which is why
-            # it is resolved here, before the blocks are built) rather than given a
-            # block of its own: it is a fact *about* the "Name:" labels, and an
-            # agent that reads the two apart is the one that treats a name as
-            # authority.
-            owner_label = await self._room_owner_label(chatroom_id, guests=guests)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
             # reply's metadata carries them. Collected here rather than inside the tool so
@@ -2597,7 +2621,6 @@ class TurnEngine:
                 activity_block=activity_block,
                 staged_note=staged_note,
                 notify_block=notify_block,
-                participant_note=_participant_note(owner_label),
             )
 
             # F-17: compaction is decided against the whole non-knowledge request
@@ -2723,12 +2746,23 @@ class TurnEngine:
                 # _provider_message prefixes every resolved user/agent label, so
                 # gating on >1 user left a single-human room labelled but note-less
                 # — the model then treats "Alice:" as literal text.
+                labelled_turn = bool(other_agents_present or user_names)
+                # Who set this room up, folded into that note rather than given a
+                # block of its own: it is a fact *about* the "Name:" labels, and an
+                # agent that reads the two apart is the one that treats a name as
+                # authority. Resolved here and not beside the other context reads,
+                # because a turn that shows no labels has nothing for it to qualify
+                # — and the lookup is two DB reads that would otherwise be paid on
+                # every silent wakeup. The measure pass already counted the note at
+                # its worst case, so skipping it here cannot under-count.
+                owner_label = (
+                    await self._room_owner_label(chatroom_id, guests=guests) if labelled_turn else None
+                )
                 assembled_system_text = system_blocks.render(
                     summaries,
                     knowledge_blocks,
-                    include_conditional=(
-                        [_PARTICIPANT_NOTE_BLOCK] if other_agents_present or user_names else []
-                    ),
+                    include_conditional=[_PARTICIPANT_NOTE_BLOCK] if labelled_turn else [],
+                    participant_note=_participant_note(owner_label),
                 )
 
                 if input_text:

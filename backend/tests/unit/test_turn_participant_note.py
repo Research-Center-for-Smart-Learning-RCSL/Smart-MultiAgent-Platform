@@ -52,10 +52,14 @@ class TestParticipantNote:
             activity_block=None,
             staged_note=None,
             notify_block=None,
-            participant_note=_participant_note("Alice Chen"),
         )
 
-        rendered = blocks.render([], [], include_conditional=[_PARTICIPANT_NOTE_BLOCK])
+        rendered = blocks.render(
+            [],
+            [],
+            include_conditional=[_PARTICIPANT_NOTE_BLOCK],
+            participant_note=_participant_note("Alice Chen"),
+        )
 
         assert "Alice Chen" in rendered
 
