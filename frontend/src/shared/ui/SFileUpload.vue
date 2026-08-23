@@ -162,6 +162,12 @@ defineExpose({ clear })
 </template>
 
 <style scoped>
+/* Anchors the visually-hidden file input's containing block — see the note on
+   `.s-checkbox` in SCheckbox.vue for why omitting it scrolls the page away. */
+.file-upload {
+  position: relative;
+}
+
 .file-upload__input {
   position: absolute;
   width: 1px;

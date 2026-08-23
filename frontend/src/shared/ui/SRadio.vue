@@ -62,7 +62,10 @@ function onChange() {
 </template>
 
 <style scoped>
+/* Anchors the visually-hidden native input's containing block — see the note on
+   `.s-checkbox` in SCheckbox.vue for why omitting it scrolls the page away. */
 .s-radio {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);

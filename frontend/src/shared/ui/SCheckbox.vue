@@ -94,7 +94,17 @@ function onChange() {
 </template>
 
 <style scoped>
+/* `position: relative` is load-bearing, not styling. The native input below is
+   visually hidden with `position: absolute`, and with no positioned ancestor its
+   containing block is the initial containing block — outside the app shell's
+   scrolling content region. It then keeps its unscrolled document coordinates
+   while the page scrolls, so on a long settings page the input ends up hundreds
+   of pixels below the viewport, and focusing it (a plain click on this label)
+   makes the browser scroll the *document* there: the shell scrolls off and the
+   user is left staring at blank space. Anchoring the containing block here keeps
+   the input where its label is. Same for SRadio and SFileUpload. */
 .s-checkbox {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
