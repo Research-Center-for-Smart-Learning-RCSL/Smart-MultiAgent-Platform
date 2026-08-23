@@ -173,7 +173,7 @@ authorization widener: `a2a_scope.evaluate` lets any a2a-enabled agent in the pr
 a `call_only` agent with no shared context. Disabling both triggers suppresses wake-ups
 identically and grants nothing.
 
-### Three constraints every shipped prompt states
+### Four constraints every shipped prompt states
 
 These are asserted by `backend/tests/unit/test_agent_example_packs.py` over the shipped
 files, not left to review.
@@ -182,23 +182,35 @@ files, not left to review.
    `echo_includes_content: false`, so the room transcript deliberately withholds answer
    text while agents still read a digest of it. An agent reading that aloud reverses the
    privacy decision for the whole class.
-2. **AA may not claim to score creativity.** `filled_count` operationalizes **fluency
+2. **But every agent must admit that it can see one.** The ban governs what an agent may
+   *repeat*, not what is in its context, and the two are not the same claim. Stated alone
+   it produced the wrong answer to the obvious question: asked "can you see what I wrote?",
+   the agents replied "I will not read it out" — true, non-responsive, and heard by the
+   person asking as "no". A rule about output that says nothing about input is one the
+   model satisfies by evading the question. Each room-facing prompt therefore requires the
+   agent to acknowledge what it can see, give the reason it will not repeat it (the message
+   box is class-visible), and offer what it *can* do instead: name a tendency it noticed,
+   ask a question the submission raises, invite the author to pick a part and say it
+   themselves. DA carries the same requirement one hop further, into the TA/SA prompts it
+   drafts.
+3. **AA may not claim to score creativity.** `filled_count` operationalizes **fluency
    (流暢力)** alone. **Flexibility (變通力), originality (獨創力), and elaboration (精進力)
    have no scorer and no delivered rubric.** What AA may reason from is the thesis's own
    five-level (A–E) per-unit competency rubric, which measures the self-development theme
    axis rather than the creativity dimensions, and the prompt requires it to say which it
    is using.
-3. **Unit 4 collects negative-affect narratives from 13-year-olds.** The room-facing
+4. **Unit 4 collects negative-affect narratives from 13-year-olds.** The room-facing
    prompts forbid pressing for detail, eliciting further disclosure, and therapeutic
    responses, and require handing back to the teacher when a disclosure exceeds a classroom
    exercise.
 
 ### What AA is looking at, and what it cannot be asked
 
-AA's only structured input is the recent-activity block: one line per **submission
-event**, carrying a truncated participant code, the attempt number, the type key, the
-outcome, and (where the type allows it) a digest. Two properties of that block bound what
-any question to AA can mean.
+AA's only structured input is the recent-activity block: a short preamble saying what the
+feed is, a legend mapping each participant code in it to a display name, then one line per
+**submission event** carrying a truncated participant code, the attempt number, the type
+key, the outcome, and (where the type allows it) a digest. Two properties of that block
+bound what any question to AA can mean.
 
 **It is a window, not a record.** The block holds the most recent
 `DEFAULT_ACTIVITY_WINDOW` events, newest first
@@ -208,9 +220,15 @@ per unit produces roughly 56 events before anyone retries, so once the second ac
 under way the window holds almost none of the first: 26 of its 28 submissions have been
 evicted, and any retry evicts one more.
 
-**There is no roster.** No block delivers the list of people expected to submit, and the
-transcript's display names cannot be matched to the block's truncated codes, which is a
-deliberate privacy choice.
+**There is no roster.** No block delivers the list of people expected to submit. The block
+does now carry a legend resolving each code *it contains* to a display name, which is what
+lets an agent answer "can you see what I wrote?" — but a legend of the people who appear is
+not a list of the people expected, and the gap between the two is exactly what a coverage
+question asks about. The codes stay on the rows rather than being replaced by names, and
+AA's prompt requires it to report by code: the mapping exists so an agent can *read* the
+feed, not so an analysis can name students. A participant with no display name is absent
+from the legend and keeps a bare code; a login email never appears there, only in the
+transcript's own speaker labels ([R30.38]).
 
 Together those mean AA can report **who retried and how often**, which survives truncation
 unconditionally because `attempt_no` is a per-row server fact: a visible `#3` is true no
@@ -508,6 +526,13 @@ no test can assert.
 
 - [ ] **No agent quotes or paraphrases a submission**, in the room or in AA's notes to the
   teacher. Check TA and SA in particular, since they see the same digests.
+- [ ] **Asked "can you see what I wrote?", every agent says yes.** Then gives the reason it
+  will not repeat it, and offers a way to discuss it without quoting. An agent that answers
+  only "I will not read it out" has failed this item even though it broke no rule: the
+  student hears "no", and the next thing they learn is that it was untrue.
+- [ ] **No agent reads the code legend aloud.** The activity block maps each participant
+  code to a display name so an agent can connect a row to a speaker. AA must keep reporting
+  by code; TA and SA have no reason to recite the mapping at all.
 - [ ] **AA claims no score for 變通力, 獨創力 or 精進力**, and names which rubric it is
   using whenever it cites one.
 - [ ] **AA declines coverage questions.** Run more submissions than the activity window

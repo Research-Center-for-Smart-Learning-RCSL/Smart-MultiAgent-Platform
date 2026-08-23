@@ -30,7 +30,7 @@ contexts/{name}/
 
 ## API Routes
 
-47 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (8 files).
+49 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (8 files).
 
 Route handlers must:
 1. Validate input via Pydantic request models
@@ -51,7 +51,7 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-Migrations are in `alembic/versions/` (0000–0056). Each migration must be forward-compatible (old code runs on new schema).
+Migrations are in `alembic/versions/` (0000–0079). Each migration must be forward-compatible (old code runs on new schema).
 
 ## Testing
 
@@ -69,7 +69,7 @@ pytest tests/ -q -m wiring
 pytest -q --cov=app --cov=contexts --cov=shared_kernel
 ```
 
-~4700 unit tests, ~65% coverage. Test files mirror source structure in `tests/unit/`.
+~7200 unit tests. Test files mirror source structure in `tests/unit/`.
 
 ### PostgreSQL-specific SQL needs a `db`-tier test
 
