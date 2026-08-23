@@ -352,6 +352,20 @@ def _participant_note(owner_label: str | None) -> str:
     return f"{_PARTICIPANT_LABEL_NOTE} {_ROOM_OWNER_NOTE.format(owner=owner_label)}"
 
 
+def _one_line_label(label: str) -> str:
+    """Collapse a participant label to one line before it is rendered.
+
+    Applies to every model-facing label, not only the new system-prompt ones: a
+    "Name: message" prefix carrying a newline already let the name open a line of
+    its own inside the message stream. A guest label is the reachable case —
+    ``GuestService.enroll`` stores what the guest typed verbatim, while identity's
+    ``_normalise_display_name`` strips category-C characters from account display
+    names for exactly this reason. Guarding here covers every label source at the
+    one point they all pass through, including rows already stored raw.
+    """
+    return " ".join(label.split())
+
+
 def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
     """Resolve the configured model with its required provider."""
     provider = ApiKeyProvider(agent.model_hint.value)
@@ -2545,13 +2559,17 @@ class TurnEngine:
             # provider itself gates per-submission content on that row's
             # ActivityType.expose_payload_to_agent. Coverage-gated: None when the
             # room has no activities.
-            activity_block = await self._activity_context(chatroom_id)
+            # Fetched once and handed to all three label consumers below (activity
+            # legend, owner note, transcript prefixes), which otherwise each pay
+            # their own round trip for the same roster.
+            guests = await self._room_guest_names(chatroom_id)
+            activity_block = await self._activity_context(chatroom_id, guests=guests)
             # Who set this room up. Folded into the participant note (which is why
             # it is resolved here, before the blocks are built) rather than given a
             # block of its own: it is a fact *about* the "Name:" labels, and an
             # agent that reads the two apart is the one that treats a name as
             # authority.
-            owner_label = await self._room_owner_label(chatroom_id)
+            owner_label = await self._room_owner_label(chatroom_id, guests=guests)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
             # reply's metadata carries them. Collected here rather than inside the tool so
@@ -2659,7 +2677,9 @@ class TurnEngine:
                 # apart (humans by display name, other agents by their configured
                 # name). The running agent's own turns stay unlabelled so the model
                 # is not trained to echo a "Name:" prefix on its reply.
-                agent_names, user_names = await self._participant_labels(agent, chatroom_id, history)
+                agent_names, user_names = await self._participant_labels(
+                    agent, chatroom_id, history, guests=guests
+                )
                 # Attachments on the triggering user message become content blocks
                 # so the agent can see the file. When this turn carries fresh
                 # `input_text`, the trigger is that appended message (below);
@@ -3351,6 +3371,8 @@ class TurnEngine:
         agent: Agent,
         chatroom_id: uuid.UUID,
         history: list[tx.HistoryMessage],
+        *,
+        guests: Mapping[uuid.UUID, str | None] | None = None,
     ) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, str]]:
         """Resolve ``(agent_id -> name, user_id -> label)`` for labelling.
 
@@ -3363,35 +3385,99 @@ class TurnEngine:
         agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
         agent_names = await AgentRepository(self._db).names_for_ids(list(agent_ids))
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
-        user_names = await self._room_user_labels(chatroom_id, list(user_ids))
+        user_names = await self._room_user_labels(chatroom_id, list(user_ids), guests=guests)
         return agent_names, user_names
 
-    async def _room_user_labels(
-        self, chatroom_id: uuid.UUID, user_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, str]:
-        """``{user_id: label}`` in this room, in the precedence documented above.
+    async def _room_guest_names(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str | None]:
+        """``{user_id: guest label}`` for the room, fetched once per turn.
 
-        The single implementation on purpose. The activity feed labels the same
-        people this labels in the transcript, and an agent reading "Alice: ..."
-        beside a submission row it can only call ``u:1a2b3c4d`` cannot connect the
-        two — which is what made "can you see what I wrote?" unanswerable even
-        with the answer sitting in its own context.
+        Three consumers now share it (transcript labels, the activity legend, the
+        owner note), and each used to pay its own ``list_guests`` round trip. The
+        map is passed down rather than cached on the engine: an arq job builds one
+        engine and runs several agents through it, so an instance cache would hold
+        a stale roster across turns that are minutes apart.
+        """
+        return {
+            g.user_id: g.display_name for g in await ConversationFacade(self._db).list_guests(chatroom_id)
+        }
+
+    async def _room_user_labels(
+        self,
+        chatroom_id: uuid.UUID,
+        user_ids: Sequence[uuid.UUID],
+        *,
+        guests: Mapping[uuid.UUID, str | None] | None = None,
+    ) -> dict[uuid.UUID, str]:
+        """``{user_id: label}`` for the *transcript*, in the precedence above.
+
+        Every label is collapsed to one line. A guest's label is whatever they
+        typed at enrolment (``GuestService.enroll`` stores it raw, where identity's
+        own display names go through a control-character strip), so without this a
+        guest can open a second line inside a rendered turn — as a "Name:" prefix
+        in the message stream, and, since the activity legend and the owner note
+        were added, inside the system prompt itself.
         """
         if not user_ids:
             return {}
-        guest_names = {
-            g.user_id: g.display_name for g in await ConversationFacade(self._db).list_guests(chatroom_id)
-        }
+        guest_names = guests if guests is not None else await self._room_guest_names(chatroom_id)
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
-        return {uid: (guest_names.get(uid) or account_labels.get(uid) or "Guest") for uid in user_ids}
+        return {
+            uid: _one_line_label(guest_names.get(uid) or account_labels.get(uid) or "Guest")
+            for uid in user_ids
+        }
 
-    async def _room_owner_label(self, chatroom_id: uuid.UUID) -> str | None:
-        """The room creator's chat label, or ``None`` when there is no creator row.
+    async def _room_display_labels(
+        self,
+        chatroom_id: uuid.UUID,
+        user_ids: Sequence[uuid.UUID],
+        *,
+        guests: Mapping[uuid.UUID, str | None] | None = None,
+    ) -> dict[uuid.UUID, str]:
+        """``{user_id: display name}`` for the *system prompt*. No email, no filler.
+
+        Deliberately not ``_room_user_labels``. That one falls back to the login
+        email so two speakers in a transcript can always be told apart, and it is
+        fed into the message stream where the same string is already the speaker's
+        visible prefix. These callers are different in both directions: the
+        activity legend names people who may never have spoken at all, and a
+        room-facing agent writes into a channel the whole class reads, so an email
+        reaching either sink is a login identifier handed to an audience that had
+        no other way to learn it.
+
+        A user with no display name is simply absent from the result. That leaves
+        the caller exactly where it stood before labels existed — a bare subject
+        code, or no owner line — which is the honest outcome, and the reason there
+        is no generic ``Guest`` filler here: every unnamed user would share it, and
+        a legend mapping three codes to one word is worse than three bare codes.
+        """
+        if not user_ids:
+            return {}
+        guest_names = guests if guests is not None else await self._room_guest_names(chatroom_id)
+        display = await IdentityFacade(self._db).get_display_names(list(user_ids))
+        resolved = {}
+        for uid in user_ids:
+            label = guest_names.get(uid) or display.get(uid)
+            if label:
+                resolved[uid] = _one_line_label(label)
+        return resolved
+
+    async def _room_owner_label(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        guests: Mapping[uuid.UUID, str | None] | None = None,
+    ) -> str | None:
+        """The room creator's display name, or ``None`` when there isn't one.
 
         Legacy rooms carry a NULL ``created_by_user_id`` (pre-0041 backfill miss)
         and fall back to moderator semantics, which is a *set* of people rather
         than a person. Saying nothing beats naming the wrong one: the note this
         feeds is about who set the room up, and a guess there is worse than a gap.
+
+        That is also why it resolves through ``_room_display_labels``: a creator
+        with no display name yields no label at all rather than a generic filler
+        that every other unnamed participant in the same transcript would share,
+        which would hand owner authority to all of them.
 
         Best-effort, like every other context read on this path.
         """
@@ -3399,7 +3485,7 @@ class TurnEngine:
             room = await ConversationFacade(self._db).get_chatroom(chatroom_id)
             if room is None or room.created_by_user_id is None:
                 return None
-            labels = await self._room_user_labels(chatroom_id, [room.created_by_user_id])
+            labels = await self._room_display_labels(chatroom_id, [room.created_by_user_id], guests=guests)
             return labels.get(room.created_by_user_id)
         except Exception:
             _log.warning("room owner label lookup failed for room %s", chatroom_id, exc_info=True)
@@ -4034,7 +4120,12 @@ class TurnEngine:
             blocks.append(knowmap_block)
         return blocks, rag_ctx
 
-    async def _activity_context(self, chatroom_id: uuid.UUID) -> str | None:
+    async def _activity_context(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        guests: Mapping[uuid.UUID, str | None] | None = None,
+    ) -> str | None:
         """Delegate to the activities :class:`ActivityContextProvider` (R30.15).
 
         Coverage-gated inside the provider (returns ``None`` when the room has no
@@ -4044,10 +4135,12 @@ class TurnEngine:
         The label resolver is injected rather than imported by the activities
         context: the block's subject codes and the transcript's "Name:" prefixes
         have to name the same people, and this engine is where that precedence
-        already lives."""
+        already lives. Display names only (see ``_room_display_labels``) — the
+        block names submitters who may never have spoken, so the transcript's
+        email fallback would introduce a login identifier rather than echo one."""
         return await self._activity_provider.query(
             chatroom_id=chatroom_id,
-            resolve_labels=lambda ids: self._room_user_labels(chatroom_id, ids),
+            resolve_labels=lambda ids: self._room_display_labels(chatroom_id, ids, guests=guests),
         )
 
     async def _audit(

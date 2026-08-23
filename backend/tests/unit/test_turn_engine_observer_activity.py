@@ -49,25 +49,35 @@ class TestActivityContextDelegation:
     async def test_passes_a_resolver_bound_to_the_engines_own_label_precedence(self) -> None:
         """The block's subject codes and the transcript's "Name:" prefixes have to
         name the same people. The provider cannot do that itself — the precedence
-        (room guest label, display name, login email) lives here — so the resolver
-        is injected, and this is what stops a refactor dropping it."""
+        lives here — so the resolver is injected, and this is what stops a refactor
+        dropping it.
+
+        It must be the *display-name* resolver, not the transcript one: the block
+        names submitters who may never have spoken, so the transcript's login-email
+        fallback would put an identifier in front of the agent rather than echo one
+        it already had."""
         stub = SimpleNamespace(_activity_provider=SimpleNamespace())
         stub._activity_provider.query = AsyncMock(return_value="[Recent room activity]\n- x")
         room = uuid.uuid4()
         seen: dict[str, object] = {}
 
-        async def labels(chatroom_id: uuid.UUID, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        async def labels(
+            chatroom_id: uuid.UUID, ids: list[uuid.UUID], *, guests: object = None
+        ) -> dict[uuid.UUID, str]:
             seen["room"] = chatroom_id
             seen["ids"] = ids
+            seen["guests"] = guests
             return {}
 
-        stub._room_user_labels = labels
-        await TurnEngine._activity_context(stub, room)
+        stub._room_display_labels = labels
+        stub._room_user_labels = AsyncMock(side_effect=AssertionError("must not use the email path"))
+        roster = {uuid.uuid4(): "Guesty"}
+        await TurnEngine._activity_context(stub, room, guests=roster)
 
         resolve = stub._activity_provider.query.await_args.kwargs["resolve_labels"]
         user_id = uuid.uuid4()
         assert await resolve([user_id]) == {}
-        assert seen == {"room": room, "ids": [user_id]}
+        assert seen == {"room": room, "ids": [user_id], "guests": roster}
 
     async def test_returns_none_when_provider_gates_off(self) -> None:
         stub = SimpleNamespace(_activity_provider=SimpleNamespace())
@@ -211,8 +221,11 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
             )
         ]
 
-    async def _labels(agent_, chatroom_id, history):
+    async def _labels(agent_, chatroom_id, history, **k):
         return {}, {}
+
+    async def _empty_dict(*a, **k):
+        return {}
 
     async def _none(*a, **k):
         return None
@@ -239,6 +252,8 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
     engine._turn_rate_allowed = _true  # type: ignore[attr-defined]
     engine._assemble_history = _history  # type: ignore[attr-defined]
     engine._participant_labels = _labels  # type: ignore[attr-defined]
+    engine._room_guest_names = _empty_dict  # type: ignore[attr-defined]
+    engine._room_owner_label = _none  # type: ignore[attr-defined]
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]
