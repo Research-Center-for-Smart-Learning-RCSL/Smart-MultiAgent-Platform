@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,12 +31,39 @@ _log = logging.getLogger(__name__)
 
 DEFAULT_ACTIVITY_WINDOW = 30
 
+#: ``fn(user_ids) -> {user_id: chat label}``, supplied by the caller.
+#:
+#: Injected rather than imported so this context never reaches into identity or
+#: conversation for the label precedence (room guest label, then display name,
+#: then login email) that the turn engine already owns for chat authors. The
+#: point of passing it in is that the two label spaces must be the *same* one:
+#: an agent that reads "Alice: ..." in the transcript and ``u:1a2b3c4d`` here has
+#: no way to connect a submission to the person who wrote it.
+LabelResolver = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, str]]]
+
+# What the block is, in the block itself. Without it the whole burden of
+# explaining the feed falls on each agent's own system prompt, which is how every
+# shipped example pack came to restate the same paragraph — and how one that
+# forgets leaves the model to guess whether an opaque row of JSON is something it
+# is allowed to discuss at all.
+_PREAMBLE = (
+    "Structured activity events in this room, newest first, capped at a few dozen rows — "
+    "an incomplete window, not a roster. Attempt number, valid/invalid and error class are "
+    "server-computed facts. Text after an em dash is what that participant wrote themselves."
+)
+
 
 class ActivityContextProvider:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def query(self, *, chatroom_id: uuid.UUID, limit: int = DEFAULT_ACTIVITY_WINDOW) -> str | None:
+    async def query(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        limit: int = DEFAULT_ACTIVITY_WINDOW,
+        resolve_labels: LabelResolver | None = None,
+    ) -> str | None:
         """Return a ``[Recent room activity]`` block for the room, or ``None`` when
         the room has no activity events (coverage gate) or on any failure."""
         # Lazy import keeps the activities facade off this module's import graph
@@ -51,8 +79,31 @@ class ActivityContextProvider:
         if not rows:
             return None
         digests_allowed = await self._digests_allowed(facade)
-        lines = [_format_row(r, digests_allowed=digests_allowed) for r in rows]
-        return "[Recent room activity]\n" + "\n".join(lines)
+        labels = await self._labels(rows, resolve_labels)
+        parts = ["[Recent room activity]", _PREAMBLE]
+        legend = _legend(rows, labels)
+        if legend:
+            parts.append(legend)
+        parts.extend(_format_row(r, digests_allowed=digests_allowed) for r in rows)
+        return "\n".join(parts)
+
+    @staticmethod
+    async def _labels(
+        rows: Sequence[RecentActivityRow], resolve_labels: LabelResolver | None
+    ) -> Mapping[uuid.UUID, str]:
+        """Chat labels for the subjects in this window, or empty on any failure.
+
+        Best-effort like the rest of the provider: a label lookup that fails costs
+        the legend, not the block. The rows still carry their codes, which is what
+        the feed meant before labels existed.
+        """
+        if resolve_labels is None:
+            return {}
+        try:
+            return await resolve_labels(sorted({r.subject_user_id for r in rows}))
+        except Exception:
+            _log.warning("activity label resolution failed; block keeps bare codes", exc_info=True)
+            return {}
 
     async def _digests_allowed(self, facade: ActivitiesFacade) -> bool:
         """Whether the platform policy still permits submission content in a prompt.
@@ -76,9 +127,33 @@ class ActivityContextProvider:
         return not (policy.expose_payload_to_agent_locked and not policy.expose_payload_to_agent_default)
 
 
+def _subject_code(subject_user_id: uuid.UUID) -> str:
+    return f"u:{str(subject_user_id)[:8]}"
+
+
+def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) -> str | None:
+    """``Codes: u:1a2b3c4d = Alice Chen; ...`` for the subjects in this window.
+
+    The rows keep their codes rather than being rewritten to names, because the
+    code is what an agent reporting on the room is meant to quote back (an
+    analysis that names students is the thing the observer role exists to avoid).
+    The legend is the bridge: it lets an agent answer "can you see what I wrote"
+    without turning the feed itself into a list of names.
+    """
+    if not labels:
+        return None
+    seen: dict[uuid.UUID, None] = {}
+    for row in rows:
+        seen.setdefault(row.subject_user_id, None)
+    pairs = [f"{_subject_code(uid)} = {labels[uid]}" for uid in seen if uid in labels]
+    if not pairs:
+        return None
+    return "Codes: " + "; ".join(pairs)
+
+
 def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     ts = row.created_at.isoformat() if row.created_at else "?"
-    subject = f"u:{str(row.subject_user_id)[:8]}"
+    subject = _subject_code(row.subject_user_id)
     outcome = _outcome(row.validation_status, row.is_valid)
     suffix = f" [{row.error_class}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
@@ -95,4 +170,4 @@ def _outcome(status: ValidationStatus, is_valid: bool | None) -> str:
     return "valid" if is_valid else "invalid"
 
 
-__all__ = ["ActivityContextProvider"]
+__all__ = ["ActivityContextProvider", "LabelResolver"]

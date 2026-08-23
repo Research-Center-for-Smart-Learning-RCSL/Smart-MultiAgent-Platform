@@ -44,7 +44,30 @@ class TestActivityContextDelegation:
         result = await TurnEngine._activity_context(stub, room)
 
         assert result == "[Recent room activity]\n- x"
-        stub._activity_provider.query.assert_awaited_once_with(chatroom_id=room)
+        assert stub._activity_provider.query.await_args.kwargs["chatroom_id"] == room
+
+    async def test_passes_a_resolver_bound_to_the_engines_own_label_precedence(self) -> None:
+        """The block's subject codes and the transcript's "Name:" prefixes have to
+        name the same people. The provider cannot do that itself — the precedence
+        (room guest label, display name, login email) lives here — so the resolver
+        is injected, and this is what stops a refactor dropping it."""
+        stub = SimpleNamespace(_activity_provider=SimpleNamespace())
+        stub._activity_provider.query = AsyncMock(return_value="[Recent room activity]\n- x")
+        room = uuid.uuid4()
+        seen: dict[str, object] = {}
+
+        async def labels(chatroom_id: uuid.UUID, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+            seen["room"] = chatroom_id
+            seen["ids"] = ids
+            return {}
+
+        stub._room_user_labels = labels
+        await TurnEngine._activity_context(stub, room)
+
+        resolve = stub._activity_provider.query.await_args.kwargs["resolve_labels"]
+        user_id = uuid.uuid4()
+        assert await resolve([user_id]) == {}
+        assert seen == {"room": room, "ids": [user_id]}
 
     async def test_returns_none_when_provider_gates_off(self) -> None:
         stub = SimpleNamespace(_activity_provider=SimpleNamespace())

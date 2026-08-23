@@ -121,6 +121,72 @@ class TestFormatting:
         assert "hidden content" not in block
 
 
+class TestSubjectLegend:
+    """The block's codes and the transcript's "Name:" prefixes must be connectable.
+
+    Without the legend an agent holding a participant's own answer in its context
+    still cannot tell that the row belongs to the person asking about it: the feed
+    says ``u:11111111`` and the transcript says ``Alice``, and nothing joins them.
+    The codes stay on the rows on purpose — an observer agent is meant to report by
+    code, not by name — so the legend, not a rewrite, is the bridge.
+    """
+
+    _ALICE = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    _BOB = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+    async def test_legend_maps_every_subject_in_the_window(self) -> None:
+        rows = [_row(subject_user_id=self._ALICE), _row(subject_user_id=self._BOB)]
+
+        async def resolve(ids: object) -> dict[uuid.UUID, str]:
+            return {self._ALICE: "Alice Chen", self._BOB: "Bob Lin"}
+
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(
+                chatroom_id=uuid.uuid4(), resolve_labels=resolve
+            )
+
+        assert block is not None
+        assert "Codes: u:11111111 = Alice Chen; u:22222222 = Bob Lin" in block
+        # The rows keep the code, not the name.
+        assert "u:11111111 #3 creativity_probe" in block
+        assert "Alice Chen #3" not in block
+
+    async def test_no_resolver_keeps_the_bare_codes(self) -> None:
+        with patch(_FACADE, return_value=_facade_returning([_row()])):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "Codes:" not in block
+        assert "u:11111111" in block
+
+    async def test_a_failing_resolver_costs_the_legend_not_the_block(self) -> None:
+        """Best-effort, like every other read on this path: an identity lookup that
+        falls over must not take the deterministic outcome facts down with it."""
+
+        async def resolve(ids: object) -> dict[uuid.UUID, str]:
+            raise RuntimeError("identity down")
+
+        with patch(_FACADE, return_value=_facade_returning([_row()])):
+            block = await ActivityContextProvider(MagicMock()).query(
+                chatroom_id=uuid.uuid4(), resolve_labels=resolve
+            )
+
+        assert block is not None
+        assert "Codes:" not in block
+        assert "creativity_probe: valid" in block
+
+    async def test_the_block_says_what_it_is(self) -> None:
+        """The framing belongs to the block, not to each agent's prompt: a pack that
+        forgets to restate it leaves the model guessing whether an opaque row of
+        JSON is something it may discuss at all."""
+        with patch(_FACADE, return_value=_facade_returning([_row()])):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "server-computed facts" in block
+        assert "not a roster" in block
+
+
 class TestPlatformPolicyGate:
     """A tightened policy has to reach an activity that is already running.
 
