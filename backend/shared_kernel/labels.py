@@ -30,7 +30,13 @@ from typing import Final
 # multi-codepoint emoji (ZWJ sequences like the family/profession emoji, and
 # VS16-presented glyphs) survive normalisation; every other control/format char —
 # newlines, tabs, and the bidi overrides used for display spoofing — is stripped.
-_KEEP: Final = ("‍", "️")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
+#
+# Written as escapes, not as the codepoints themselves. They are invisible: an
+# editor's "strip invisible characters", a paste through a normalising tool or a
+# git filter would silently turn this tuple into ``("", "")``, after which every
+# ZWJ emoji sequence and every VS16 glyph is quietly mangled — and nothing runs
+# differently, so no test, lint or type check would notice.
+_KEEP: Final = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
 
 #: Account display names (``users.display_name``).
 MAX_DISPLAY_NAME: Final = 50
