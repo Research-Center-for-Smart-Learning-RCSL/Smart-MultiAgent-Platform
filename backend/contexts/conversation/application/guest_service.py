@@ -30,6 +30,7 @@ from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
 )
 from shared_kernel import audit
+from shared_kernel.labels import MAX_GUEST_LABEL, normalise_label
 
 
 class GuestService:
@@ -62,7 +63,14 @@ class GuestService:
             chatroom_id=chatroom_id,
             user_id=user_id,
             joined_via_token=token,
-            display_name=display_name,
+            # A guest label is self-chosen and wins the precedence over an account
+            # display name when the turn engine builds a chat author label — so it
+            # reaches the "Name: message" prefix in the message stream and, since
+            # the room-owner note and the activity legend landed, the agent's
+            # system prompt. Identity normalises account names for exactly this
+            # reason; this path did not, which left the guarantee holding on the
+            # branch nobody could reach and not on the one everybody could.
+            display_name=normalise_label(display_name, max_len=MAX_GUEST_LABEL),
         )
         await audit.emit(
             self._db,

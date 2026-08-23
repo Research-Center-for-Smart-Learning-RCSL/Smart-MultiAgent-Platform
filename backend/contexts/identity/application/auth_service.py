@@ -8,7 +8,6 @@ crosses the HTTP boundary.
 from __future__ import annotations
 
 import hashlib
-import unicodedata
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -62,6 +61,7 @@ from shared_kernel.auth.password import (
     PasswordPolicyError,
     validate_password,
 )
+from shared_kernel.labels import normalise_label
 
 _PROVIDER_GOOGLE = "google"
 _VERIFY_TTL = timedelta(hours=24)
@@ -1146,31 +1146,16 @@ def _normalise_email(raw: str) -> str:
     return e
 
 
-# Format chars that legitimately appear *inside* an emoji grapheme. Kept so
-# multi-codepoint emoji (ZWJ sequences like the family/profession emoji, and
-# VS16-presented glyphs) survive normalisation; every other control/format char
-# — newlines, tabs, and bidi overrides used for display spoofing — is stripped.
-_DISPLAY_NAME_KEEP = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
-
-
 def _normalise_display_name(raw: str | None) -> str | None:
     """Trim and strip control/format characters; empty collapses to None.
 
-    Printable Unicode (incl. CJK and emoji) is preserved — this is user content,
-    not project UI text. Control/format chars (category ``C*``) are removed so a
-    name cannot smuggle newlines or bidi overrides into chat author labels, with
-    the emoji joiners in ``_DISPLAY_NAME_KEEP`` exempted. Length is capped
-    defensively even though the API boundary also validates it.
+    The rule moved to ``shared_kernel.labels``. It had to: a room guest's label
+    *wins* the precedence over an account display name when the turn engine
+    builds a chat author label, and conversation stored that one raw — so a
+    guarantee held only here was held nowhere it mattered. This wrapper stays as
+    the place that pins the account-side cap.
     """
-    if raw is None:
-        return None
-    cleaned = "".join(
-        ch
-        for ch in raw
-        if ch in _DISPLAY_NAME_KEEP or ch == " " or not unicodedata.category(ch).startswith("C")
-    )
-    cleaned = cleaned.strip()[:_MAX_DISPLAY_NAME].strip()
-    return cleaned or None
+    return normalise_label(raw, max_len=_MAX_DISPLAY_NAME)
 
 
 __all__ = [
