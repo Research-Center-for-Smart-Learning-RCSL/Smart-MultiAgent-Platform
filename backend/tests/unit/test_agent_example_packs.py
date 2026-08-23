@@ -211,6 +211,16 @@ class TestPromptConstraints:
         assert "引述" in prompt, f"{agent.key} states no quoting prohibition"
         assert "轉述" in prompt, f"{agent.key} states no paraphrasing prohibition"
 
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_no_agent_pretends_it_cannot_see_a_submission(self, pack: Any, agent: Any) -> None:
+        """The prohibition above governs what an agent may *repeat*, not what it
+        can *see* — and the digest is in its context either way. Every shipped
+        prompt used to state only the ban, so asked "can you see what I wrote?" the
+        agents answered "I will not read it out": true, non-responsive, and read by
+        the person asking as "no". A rule about output that is silent about input
+        is a rule the model resolves by evading the question."""
+        assert "看得到" in agent.system_prompt, f"{agent.key} never admits it can see the content"
+
     def test_the_analyst_disclaims_the_three_unscored_creativity_dimensions(self) -> None:
         """AC-10. filled_count operationalizes fluency alone; flexibility,
         originality and elaboration have no scorer and no delivered rubric."""
