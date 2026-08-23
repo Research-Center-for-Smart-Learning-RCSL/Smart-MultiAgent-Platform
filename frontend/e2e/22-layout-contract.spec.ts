@@ -274,6 +274,55 @@ test.describe('Views that size themselves against the shell', () => {
   })
 })
 
+test.describe('Visually hidden native controls', () => {
+  // The native input inside SCheckbox/SRadio/SFileUpload is hidden with
+  // position: absolute. With no positioned ancestor its containing block is the
+  // initial containing block, which is OUTSIDE main's scrolling content region:
+  // the input keeps its unscrolled document coordinates while the page scrolls,
+  // and it escapes .app-shell's overflow: hidden, so the *document* grows to
+  // reach it. Clicking the label then focuses an input the browser believes is
+  // hundreds of pixels below the fold, it scrolls the document there, and the
+  // whole 100vh shell slides off — the user is left on blank space and has to
+  // scroll back up. Measured before the fix on a synthetic shell: input rect top
+  // 2476 in a 720px viewport, window.scrollY 1787 against a documentElement
+  // scrollHeight of 720.
+  //
+  // Both halves matter. The rect is the cause and the scroll is the symptom, and
+  // only the rect assertion fails deterministically — whether a given browser
+  // scrolls on a mouse-driven focus is its own heuristic.
+  test('a hidden checkbox input stays with its label in a scrolled content area', async ({
+    authedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 700 })
+    await page.goto('/account/delete')
+
+    const label = page.locator(`${CONTENT} .s-checkbox`).first()
+    await expect(label).toBeVisible({ timeout: 20_000 })
+
+    // Synthetic, like scrollAway above: the claim is about any long page, not
+    // about this view happening to be tall enough on this viewport.
+    await page.locator(CONTENT).evaluate((el) => {
+      const filler = document.createElement('div')
+      filler.style.height = '3000px'
+      el.prepend(filler)
+    })
+    await label.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(150)
+
+    const geometry = await label.evaluate((el) => {
+      const input = el.querySelector('input')!.getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      return { inputTop: input.top, labelTop: box.top, labelBottom: box.bottom }
+    })
+    expect(geometry.inputTop).toBeGreaterThanOrEqual(geometry.labelTop - 2)
+    expect(geometry.inputTop).toBeLessThanOrEqual(geometry.labelBottom + 2)
+
+    await label.click()
+    await page.waitForTimeout(150)
+    expect(await page.evaluate(() => window.scrollY), 'the document must not scroll').toBe(0)
+  })
+})
+
 test.describe('Loading states', () => {
   // T-13 (F-27). A skeleton taller than the state its branch settles to pulls
   // the page up under the cursor when the query lands. /invites rendered 384px
