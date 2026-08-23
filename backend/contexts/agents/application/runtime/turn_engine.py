@@ -355,24 +355,37 @@ def _participant_note(owner_label: str | None) -> str:
 
 # What the measure pass counts, since it runs before the turn knows whether the
 # note will render and before the owner label has been paid for. The owner
-# sentence is always counted and the placeholder is the longest label the label
-# layer can produce, so the estimate is an over-count in both directions --
-# MEASURED_ONLY's contract, and the direction F-16 exists to protect.
-_PARTICIPANT_NOTE_MEASURE = _participant_note("W" * MAX_GUEST_LABEL)
+# sentence is always counted, so the estimate is an over-count -- MEASURED_ONLY's
+# contract, and the direction F-16 exists to protect.
+#
+# The placeholder is CJK because the *character* count is not what the budget
+# spends: `estimate_tokens` charges 1 token per CJK character and `len // 4` for
+# everything else, so 100 Latin chars buy 25 tokens where 100 CJK chars buy 100.
+# A Latin placeholder is therefore not a worst case at all -- against a zh-TW
+# teacher's name, which is this platform's common case and not its edge, it
+# under-counted the fixed context by up to 75 tokens. Worst case has to be
+# measured in the unit the consumer subtracts.
+_PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL)
 
 
 def _one_line_label(label: str) -> str:
-    """Collapse a participant label to one line before it is rendered.
+    """Reduce a participant label to text that cannot punctuate its container.
 
-    Applies to every model-facing label, not only the new system-prompt ones: a
-    "Name: message" prefix carrying a newline already let the name open a line of
-    its own inside the message stream. A guest label is the reachable case —
-    ``GuestService.enroll`` stores what the guest typed verbatim, while identity's
-    ``_normalise_display_name`` strips category-C characters from account display
-    names for exactly this reason. Guarding here covers every label source at the
-    one point they all pass through, including rows already stored raw.
+    Two things are removed. Whitespace runs collapse, so a label cannot open a
+    line of its own — as a "Name:" prefix in the message stream, or as a row in
+    the activity legend. And double quotes go, because ``_ROOM_OWNER_NOTE`` names
+    the owner between literal quotes and the activity legend quotes each label:
+    a name carrying one closes the span early and writes whatever follows as the
+    note's own words. Dropped rather than escaped — a quote inside a display name
+    is vanishingly rare, and an escape sequence in the middle of a name is its own
+    kind of confusion.
+
+    Applies to every model-facing label. Account display names are already
+    normalised at the source and guest labels now are too, but rows written before
+    that guard existed are still in the database, so the render site cannot assume
+    it.
     """
-    return " ".join(label.split())
+    return " ".join(label.replace('"', "").split())
 
 
 def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
@@ -2648,11 +2661,17 @@ class TurnEngine:
             # two assembly passes (same agent, same room), and its Concept Map arm
             # costs a query.
             has_knowledge_source: bool | None = None
+            # Same, for the same reason: the recompaction path below runs the
+            # assembly closure a second time, and the room's creator cannot change
+            # between the passes. A separate flag rather than a None sentinel,
+            # because None is a real answer here — a room with no creator row.
+            owner_label: str | None = None
+            owner_resolved = False
 
             async def _assemble_request(
                 history: list[tx.HistoryMessage],
             ) -> tuple[str, list[dict[str, Any]], RagContext | None, _Starvation | None]:
-                nonlocal has_knowledge_source
+                nonlocal has_knowledge_source, owner_label, owner_resolved
                 summaries = [
                     f"[Earlier conversation summary]\n{hm.content}"
                     for hm in history
@@ -2755,9 +2774,9 @@ class TurnEngine:
                 # — and the lookup is two DB reads that would otherwise be paid on
                 # every silent wakeup. The measure pass already counted the note at
                 # its worst case, so skipping it here cannot under-count.
-                owner_label = (
-                    await self._room_owner_label(chatroom_id, guests=guests) if labelled_turn else None
-                )
+                if labelled_turn and not owner_resolved:
+                    owner_label = await self._room_owner_label(chatroom_id, guests=guests)
+                    owner_resolved = True
                 assembled_system_text = system_blocks.render(
                     summaries,
                     knowledge_blocks,
@@ -3417,7 +3436,14 @@ class TurnEngine:
         resolve to their configured name.
         """
         agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
-        agent_names = await AgentRepository(self._db).names_for_ids(list(agent_ids))
+        # Through the same guard as the human labels. An agent name is free text
+        # bounded only by length (`AgentCreateIn.name`), and `_provider_message`
+        # interpolates it into the same "Name: message" prefix, so a name carrying
+        # a newline opens a line that reads as another participant's turn.
+        agent_names = {
+            aid: _one_line_label(name)
+            for aid, name in (await AgentRepository(self._db).names_for_ids(list(agent_ids))).items()
+        }
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
         user_names = await self._room_user_labels(chatroom_id, list(user_ids), guests=guests)
         return agent_names, user_names

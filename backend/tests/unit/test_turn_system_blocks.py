@@ -43,6 +43,7 @@ from contexts.agents.application.runtime.turn_engine import (
     _SystemBlocks,
 )
 from contexts.skills.interfaces.facade import SkillsFacade
+from shared_kernel.labels import MAX_GUEST_LABEL
 from shared_kernel.tokens import estimate_tokens
 from tests.unit.skill_fakes import make_skill
 
@@ -228,19 +229,33 @@ class TestTheParticipantNoteSlot:
     caller skip the lookup entirely on a silent wakeup, without ever handing the
     knowledge budget an under-count."""
 
-    def test_measure_counts_the_owner_sentence_even_with_no_owner_resolved(self) -> None:
-        measured = _build(_CASES[0]).measure([])
-
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "王" * MAX_GUEST_LABEL,  # the token-worst case: 1 token per char
+            "柯佩蓉老師",
+            "W" * MAX_GUEST_LABEL,
+            "Alice Chen",
+        ],
+    )
+    def test_measure_is_an_over_count_against_any_real_label(self, label: str) -> None:
+        """In tokens, not characters. `estimate_tokens` charges 1 per CJK char and
+        `len // 4` otherwise, so a Latin placeholder of the same length buys a
+        quarter of the tokens — it under-counted a zh-TW owner name by up to 75,
+        which is the F-16 direction this block's role promises to avoid. A
+        character-length assertion cannot see that, so this one measures what the
+        knowledge budget actually subtracts."""
+        blocks = _build(_CASES[0])
+        measured = blocks.measure([])
         assert "created this room and owns its settings" in measured
-        # And by at least as much as any real label could cost: the placeholder is
-        # the longest label the label layer can produce.
-        real = _build(_CASES[0]).render(
+
+        real = blocks.render(
             [],
             [],
             include_conditional=[_PARTICIPANT_NOTE_BLOCK],
-            participant_note=_participant_note("A very long teacher name indeed"),
+            participant_note=_participant_note(label),
         )
-        assert len(measured) >= len(real)
+        assert estimate_tokens(measured) >= estimate_tokens(real)
 
     def test_render_uses_the_note_the_caller_supplies(self) -> None:
         rendered = _build(_CASES[0]).render(
