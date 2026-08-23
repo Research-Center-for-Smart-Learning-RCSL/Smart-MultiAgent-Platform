@@ -12,12 +12,16 @@ Every test asserts the new implementation is byte-identical to them across the
 matrix of block combinations. Pinning the old behaviour this way is what the
 closures themselves made impossible.
 
-The one departure from "verbatim" is §31's `skills_note`, which post-dates the
-refactor: both baselines carry it in the position §31 specifies (measured with
-the fixed context, rendered after knowledge and before activity). The baseline is
-still doing its job — it is the independent statement of order and role that the
-implementation must match, and the block's own semantics are pinned separately in
-`test_skill_index_budget.py`.
+Two departures from "verbatim", both post-dating the refactor. §31's `skills_note`
+is carried by both baselines in the position §31 specifies (measured with the
+fixed context, rendered after knowledge and before activity). And the participant
+note now names the room's owner, which costs a DB read to resolve on a pass that
+runs before the turn knows whether the note renders at all — so measure counts a
+worst-case note and render supplies the real one, and `_legacy_fixed_system_text`
+follows. The baseline is still doing its job in both cases: it is the independent
+statement of order and role that the implementation must match, and each block's
+own semantics are pinned separately (`test_skill_index_budget.py`,
+`test_turn_participant_note.py`).
 """
 
 from __future__ import annotations
@@ -31,8 +35,10 @@ from contexts.agents.application.runtime.turn_engine import (
     _OBSERVER_SYSTEM_NOTE,
     _PARTICIPANT_LABEL_NOTE,
     _PARTICIPANT_NOTE_BLOCK,
+    _PARTICIPANT_NOTE_MEASURE,
     _BlockRole,
     _BlockSlot,
+    _participant_note,
     _SystemBlock,
     _SystemBlocks,
 )
@@ -70,7 +76,13 @@ def _legacy_fixed_system_text(
         parts.append(staged_note)
     if notify_block:
         parts.append(notify_block)
-    parts.append(_PARTICIPANT_LABEL_NOTE)
+    # Departure #2 from "verbatim" (see the module docstring): the note now names
+    # the room's owner, and resolving that costs a DB read on a pass that runs
+    # before the turn knows whether the note will render at all. So measure counts
+    # a worst-case note and render supplies the real one. The baseline follows,
+    # because the claim it pins is order-and-role, not this string's contents —
+    # and an under-counted fixed context is precisely the F-16 direction.
+    parts.append(_PARTICIPANT_NOTE_MEASURE)
     return "\n\n".join(p for p in parts if p)
 
 
@@ -204,6 +216,50 @@ def test_measured_only_block_is_counted_but_omitted_when_not_included() -> None:
     assert _PARTICIPANT_LABEL_NOTE in blocks.measure([])
     assert _PARTICIPANT_LABEL_NOTE not in blocks.render([], [], include_conditional=[])
     assert _PARTICIPANT_LABEL_NOTE in blocks.render([], [], include_conditional=[_PARTICIPANT_NOTE_BLOCK])
+
+
+class TestTheParticipantNoteSlot:
+    """The note is a slot, not fixed text, so its owner sentence can be paid for
+    only on the turns that show it.
+
+    The measure pass runs before history exists, so it cannot know whether the
+    note will render — and the owner label costs two DB reads. Counting a
+    worst-case note there and supplying the real one at render is what lets the
+    caller skip the lookup entirely on a silent wakeup, without ever handing the
+    knowledge budget an under-count."""
+
+    def test_measure_counts_the_owner_sentence_even_with_no_owner_resolved(self) -> None:
+        measured = _build(_CASES[0]).measure([])
+
+        assert "created this room and owns its settings" in measured
+        # And by at least as much as any real label could cost: the placeholder is
+        # the longest label the label layer can produce.
+        real = _build(_CASES[0]).render(
+            [],
+            [],
+            include_conditional=[_PARTICIPANT_NOTE_BLOCK],
+            participant_note=_participant_note("A very long teacher name indeed"),
+        )
+        assert len(measured) >= len(real)
+
+    def test_render_uses_the_note_the_caller_supplies(self) -> None:
+        rendered = _build(_CASES[0]).render(
+            [],
+            [],
+            include_conditional=[_PARTICIPANT_NOTE_BLOCK],
+            participant_note=_participant_note("Alice Chen"),
+        )
+
+        assert '"Alice Chen"' in rendered
+        assert _PARTICIPANT_NOTE_MEASURE not in rendered
+
+    def test_an_unnamed_turn_renders_the_ownerless_note_by_default(self) -> None:
+        """The default matters: a caller that opts the block in without resolving
+        an owner must get the plain note, not an empty slot or a placeholder."""
+        rendered = _build(_CASES[0]).render([], [], include_conditional=[_PARTICIPANT_NOTE_BLOCK])
+
+        assert rendered.endswith(_PARTICIPANT_LABEL_NOTE)
+        assert "created this room" not in rendered
 
 
 def test_each_conditional_block_is_gated_by_its_own_name() -> None:
