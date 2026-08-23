@@ -323,7 +323,29 @@ fails on anything else, because a suppression is invisible to anyone testing wit
 - **Form errors**: `aria-describedby` links input to error message, `aria-invalid="true"` on errored field
 - **Confirmation dialogs**: focus moves to confirm button on open, auto-read title and message
 
-### 5.6 Motion & Reduced Motion
+### 5.6 Visually hidden native controls
+
+A control whose native `<input>` is hidden with `position: absolute` (`SCheckbox`,
+`SRadio`, `SFileUpload`, and anything using the `visually-hidden` / `sr-only`
+utility on a focusable element) **must** have `position: relative` on the wrapper
+that stands in its place.
+
+Without it, the nearest positioned ancestor is the initial containing block,
+which is outside `main#main-content` — the shell's scroll owner (02-layout-shell
+§3.3). The input then keeps its unscrolled document coordinates while the page
+scrolls, and it escapes `.app-shell`'s `overflow: hidden`, so the document itself
+grows to reach it. Clicking the label focuses an input the browser believes is
+far below the fold, it scrolls the *document* there, and the whole 100vh shell
+slides off: the user is left on blank space and has to scroll back up.
+
+Measured on a synthetic shell before the fix: input rect top 2476 in a 720px
+viewport, `window.scrollY` 1787 against a `documentElement.scrollHeight` of 720.
+
+The rule is layout, not styling, so it survives a visual redesign. Regression
+coverage is in `e2e/22-layout-contract.spec.ts` (§ "Visually hidden native
+controls"); jsdom computes no box, so a component test cannot see it.
+
+### 5.7 Motion & Reduced Motion
 
 Respect `prefers-reduced-motion`:
 

@@ -10,7 +10,8 @@ backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
   contexts/       DDD bounded contexts (activities, agents, agent_groups, audit, conversation,
                   identity, keys, knowledge, notification, orchestration, prompt_studio, skills,
                   tenancy, workflow)
-  shared_kernel/  Cross-cutting: auth, db, errors, i18n, infra, logging, markdown,
+  shared_kernel/  Cross-cutting: auth, db, errors, i18n, infra, labels (display-name
+                  normalisation shared by identity and conversation), logging, markdown,
                   observability, realtime, security (incl. Vault envelope crypto), storage,
                   text_extraction
   services/       Standalone microservices (egress_proxy, mcp_supervisor)
