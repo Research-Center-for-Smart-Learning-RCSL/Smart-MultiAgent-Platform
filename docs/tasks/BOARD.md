@@ -144,6 +144,33 @@ first, but building them serially avoids the conflict.
   that file entirely. **AC-6 is a device check and will most likely close unticked**: nothing
   in CI emulates a display cutout.
 
+### From the 2026-08-24 SRS update for the activity-context work
+
+- `2026-08-24-traceability-extraction-gate` (feature, **approved 2026-08-24**) —
+  `depends_on: []`. `docs/traceability.csv` is the index from every `[Rxx.yy]` to the SRS
+  section defining it, and **83 of 389 requirements have no row** (R30 38, R11 19, R13 10,
+  R6 5, R15 4, R12 2, R24 2, R5/R9/R14 1 each). §27 has always instructed "re-run the
+  extraction", but **no extraction tool was ever built** — the file came from a one-off
+  author pass on 2026-04-25 and has been hand-maintained per chapter since, which is why §31
+  is complete (its dossier added the rows explicitly) and §30 has none of its 38. Builds the
+  script, wires `--check` into `repo-gates`, regenerates the file, and rewrites §27. Its
+  **SRS Delta was applied at approval**: §27's first paragraph rewritten and `[R27.01]`
+  added — the first requirement §27 has ever defined.
+
+  **Two things a builder needs.** Its Q-2 decides the `summary` column is *derived*, so the
+  backfill commit rewrites all 306 existing rows rather than appending 83; AC-6 makes
+  reviewing that diff a criterion, and the rule is to fix a bad summary by editing the SRS
+  sentence, never by special-casing the script. And **the citation half of the gate already
+  has a target**: `docs/implement/E-agents-knowledge.md:62,72` cites `[R9.04]`, `[R9.05]` and
+  `[R9.08]`, all removed by §31 on 2026-07-16, so AC-7 requires the check to go red on the
+  repo as it stands before AC-8 fixes them.
+
+  **Read its §4 before writing the parser.** Three ID shapes (`Rn.nn`, `Rn.nn`+letter,
+  `Rn.nn.nn`) and three definition forms (bullet, bare paragraph, numbered item) are all in
+  use. The first pass of the analysis that produced this dossier used `\[R(\d+\.\d+)\]` and
+  reported nine non-existent "stale" rows — the 16 IDs that pattern cannot see are 4 % of the
+  corpus, and getting this wrong looks like a finding rather than a bug.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.

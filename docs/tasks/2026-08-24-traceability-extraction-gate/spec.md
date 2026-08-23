@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-24
 requirements: [R27.01]
 depends_on: []
@@ -327,6 +327,11 @@ SRS would change its own expectations every time a requirement is added, which i
 asserts nothing.
 
 ## 13. SRS Delta
+
+**Applied to `REQUIREMENTS.md` on approval, 2026-08-24.** Recorded here as the authoritative
+text. Note that applying it makes the gate's own subject one requirement larger: `[R27.01]` is
+row 390, and the file does not carry it yet — the first `--check` run is expected to fail on
+exactly that row, which is the mechanism proving itself.
 
 Replace §27's first paragraph (`REQUIREMENTS.md:2097`) with:
 
