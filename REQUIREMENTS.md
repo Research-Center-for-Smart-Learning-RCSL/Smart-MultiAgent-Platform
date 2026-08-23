@@ -2094,10 +2094,11 @@ These are points the current spec intentionally leaves to the implementation tea
 
 ## 27. Traceability
 
-Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv`, generated from this document by an author pass on 2026-04-25 (304 entries; columns: `requirement_id, section, summary`). Re-run the extraction whenever new `[Rxx.yy]` IDs are added. In particular:
+Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv` (columns: `requirement_id, section, summary`), which is **generated from this document** by `scripts/traceability.py` and is not edited by hand. Adding or renumbering a requirement means regenerating the file in the same change; `scripts/traceability.py --check` runs in the `repo-gates` CI job and fails when the committed file does not match this document. The same check verifies that every `[Rxx.yy]` cited outside this document — in backend or frontend source, in tests, or under `docs/` — names a requirement that exists here, so a removed or renumbered requirement cannot leave a citation pointing at nothing. Task dossiers under `docs/tasks/` and `docs/audits/` are excluded from that check: they are a historical record of what was true when they were written, not live documentation. In particular:
 
 - Stakeholder Q&A items Q1–Q66 are each addressed; decisions marked "SKIP" (Q33) are deliberately absent.
 - Items marked **Recommendation applied** in this document are: Q9 (Qdrant), Q22 (Vault + envelope), Q23 (permission matrix), Q36 (prompt strategies — §31), Q47 (WS+SSE), Q38 (sandbox), Q53 (loop detection), Q56 (audit scope).
+- **[R27.01]** `docs/traceability.csv` is a generated artifact, complete by construction: it carries exactly one row per `[Rxx.yy]` defined in this document, and CI rejects a commit in which the two disagree. Traceability is therefore a property the repository enforces rather than a convention a contributor is asked to remember — the arrangement it replaces held for the chapters whose author happened to update the file and had drifted by 83 requirements across nine chapters by 2026-08-24.
 
 ---
 
