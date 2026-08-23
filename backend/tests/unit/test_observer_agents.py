@@ -1215,8 +1215,11 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
             )
         ]
 
-    async def _labels(agent_, chatroom_id, history):
+    async def _labels(agent_, chatroom_id, history, **k):
         return {}, {}
+
+    async def _labels_empty(*a, **k):
+        return {}
 
     async def _none(*a, **k):
         return None
@@ -1245,6 +1248,8 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     engine._turn_rate_allowed = _true  # type: ignore[attr-defined]
     engine._assemble_history = _history  # type: ignore[attr-defined]
     engine._participant_labels = _labels  # type: ignore[attr-defined]
+    engine._room_guest_names = _labels_empty  # type: ignore[attr-defined]
+    engine._room_owner_label = _none  # type: ignore[attr-defined]
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]

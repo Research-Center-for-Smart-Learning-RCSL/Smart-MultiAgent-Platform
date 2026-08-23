@@ -46,10 +46,24 @@ LabelResolver = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, str
 # shipped example pack came to restate the same paragraph — and how one that
 # forgets leaves the model to guess whether an opaque row of JSON is something it
 # is allowed to discuss at all.
+#
+# Deliberately free of em dashes: the sentence below defines one as the marker
+# that separates computed fields from participant text, and a preamble that uses
+# the marker while defining it is its own first counter-example.
 _PREAMBLE = (
-    "Structured activity events in this room, newest first, capped at a few dozen rows — "
-    "an incomplete window, not a roster. Attempt number, valid/invalid and error class are "
-    "server-computed facts. Text after an em dash is what that participant wrote themselves."
+    "Structured activity events in this room, newest first, capped at a few dozen rows. "
+    "An incomplete window, not a roster: a participant absent from it may simply have been "
+    "pushed out by later rows. Attempt number, valid/invalid and error class are "
+    "server-computed facts about the submission."
+)
+
+# Appended only when the row content is actually present. Stated unconditionally
+# it describes a format the block does not have — every row stops at its outcome
+# once the platform policy withholds digests — which teaches the model to look for
+# a separator that is not there.
+_CONTENT_NOTE = (
+    "Text following the first — on a row is what that participant wrote themselves: "
+    "quoted from them, not computed, and not vouched for by this block."
 )
 
 
@@ -81,6 +95,8 @@ class ActivityContextProvider:
         digests_allowed = await self._digests_allowed(facade)
         labels = await self._labels(rows, resolve_labels)
         parts = ["[Recent room activity]", _PREAMBLE]
+        if digests_allowed and any(r.expose_payload_to_agent and r.agent_digest for r in rows):
+            parts.append(_CONTENT_NOTE)
         legend = _legend(rows, labels)
         if legend:
             parts.append(legend)
@@ -131,6 +147,24 @@ def _subject_code(subject_user_id: uuid.UUID) -> str:
     return f"u:{str(subject_user_id)[:8]}"
 
 
+def _one_line(text: str) -> str:
+    """Collapse any run of whitespace, newlines included, to a single space.
+
+    A row is a line, and the preamble above tells the model the fields on a row
+    are server-computed. A value carrying a newline therefore does not merely look
+    untidy: it opens a second line indistinguishable from a real row, which the
+    preamble has just vouched for. Two values on a row are attacker-reachable —
+    ``agent_digest``, whose ``ValidationResult.detail`` branch is parsed straight
+    out of an MCP or webhook validator response (the JSON-dump fallback beside it
+    escapes newlines already, so only ``detail`` is exposed), and the injected
+    labels, which include a room guest's self-chosen display name.
+
+    CJK is unaffected: ``str.split()`` splits on whitespace, and Chinese text
+    carries none.
+    """
+    return " ".join(text.split())
+
+
 def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) -> str | None:
     """``Codes: u:1a2b3c4d = Alice Chen; ...`` for the subjects in this window.
 
@@ -145,7 +179,7 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
     seen: dict[uuid.UUID, None] = {}
     for row in rows:
         seen.setdefault(row.subject_user_id, None)
-    pairs = [f"{_subject_code(uid)} = {labels[uid]}" for uid in seen if uid in labels]
+    pairs = [f"{_subject_code(uid)} = {_one_line(labels[uid])}" for uid in seen if uid in labels]
     if not pairs:
         return None
     return "Codes: " + "; ".join(pairs)
@@ -158,7 +192,7 @@ def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     suffix = f" [{row.error_class}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
     if digests_allowed and row.expose_payload_to_agent and row.agent_digest:
-        line += f" — {row.agent_digest}"
+        line += f" — {_one_line(row.agent_digest)}"
     return line
 
 

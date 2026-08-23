@@ -212,6 +212,9 @@ def wire_engine(
     async def _labels(*a: Any, **k: Any) -> tuple[dict, dict]:
         return {}, {}
 
+    async def _empty_dict(*a: Any, **k: Any) -> dict[Any, Any]:
+        return {}
+
     async def _no_staging(*a: Any, **k: Any) -> tuple[None, list[Any]]:
         return None, []
 
@@ -244,6 +247,10 @@ def wire_engine(
     engine._turn_rate_allowed = _true  # type: ignore[attr-defined]
     engine._assemble_history = _history  # type: ignore[attr-defined]
     engine._participant_labels = _labels  # type: ignore[attr-defined]
+    # The room roster and the owner lookup are DB reads on the turn path; the
+    # harness has no session, so they are seams like every other context read.
+    engine._room_guest_names = _empty_dict  # type: ignore[attr-defined]
+    engine._room_owner_label = _none  # type: ignore[attr-defined]
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]
