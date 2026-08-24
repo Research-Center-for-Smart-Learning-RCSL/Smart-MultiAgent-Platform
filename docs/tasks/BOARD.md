@@ -440,12 +440,22 @@ the two `**` markers in different fragments. Both are corrections to the stated 
 SRS text was edited. The rule that made this work: **fix a bad summary in the SRS sentence,
 never with an exception in the script.**
 
-**Two criteria close unticked and both need a push.** AC-10 (the `repo-gates` job green on
-the branch) and AC-12's scratch-commit half cannot be closed from a workstation. AC-12's
-mechanism *was* demonstrated locally — a throwaway `[R27.99]` made `--check` print
-`missing row R27.99` and exit 1 — and CI runs that exact command, but "CI is red" has not
-been observed. The gate was otherwise mutation-probed in both directions before landing:
-red on a deleted row, red on an invented `[R99.99]` citation, green once reverted.
+**Every criterion closed, both CI-dependent ones on real runs.** AC-10 is run `32747505420`
+(`repo-gates: completed success` on main). AC-12 is PR #163 — a throwaway `[R27.99]` with the
+CSV left alone, closed unmerged — where `repo-gates` failed at exactly one step,
+`traceability.csv matches REQUIREMENTS.md`, while both sibling gates passed. The gate was
+also mutation-probed locally before landing: red on a deleted row, red on an invented
+`[R99.99]` citation, green once reverted.
+
+**A unit test can break a CI tier that never runs it** (D-9), and this shipped. `backend-db`
+and `backend-wiring` bind-mount only `backend/` over `/app`, so `scripts/` is outside those
+containers; the new test resolves the script through `parents[3]` and **executes it at import
+time**, so both tiers died at collection with `FileNotFoundError` and lost 7502 and 7576
+deselected tests. Six sibling files use `parents[3]` too and none of them broke — they build
+the path at module level but read it inside a test, so marker deselection removes them before
+the missing file matters. **Collection runs before deselection; import-time I/O is what
+forfeits that protection.** The guard is a module-level `pytest.skip(...,
+allow_module_level=True)`, verified by rebuilding the mount layout locally in both states.
 Removed on 2026-08-22 after implementation:
 `2026-08-22-visual-refinement-phase3-verification-and-debt` (the parity baseline is
 regenerated and CI is no longer red on it; the product phase 2 shipped has now been
