@@ -317,8 +317,10 @@ the row to read for why CI is red.
 
 ### From the 2026-08-24 observer-presentation work
 
-Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extraction-gate`
-(Ready above) and, for the second, on the first.
+Two dossiers, both `draft`. Both are blocked on `2026-08-24-traceability-extraction-gate`
+(Ready above); the second is additionally blocked on the first **and** on
+`2026-08-24-example-agents-quote-unit-two`. Read each row for its own list — the frontmatter
+wins over this preamble.
 
 - `2026-08-24-observer-presentation-blocks` (feature, **draft**) — waiting on
   `2026-08-24-traceability-extraction-gate`. **Overlap prerequisite only**: its SRS Delta adds
@@ -339,6 +341,15 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   change does not reach an existing install, and the documented upgrade deletes the types and
   revokes every project's opt-in. Migration 0080.
 
+  **Its §5.5 is the correction a code review caught and is the difference between the feature
+  working and silently doing nothing.** `run_turn` guards on `if not final_text.strip():`
+  (`turn_engine.py:2958`) and returns `skipped` *before* the observer branch at `:3026`, so a
+  model that delivers its analysis as blocks and says nothing in prose — the ordinary case for
+  this feature, not an edge case — would have every block discarded. The guard becomes "empty
+  only when there is neither text nor blocks", and AC-16/AC-17 pin all three combinations.
+  Its §6 also corrects `_CONTENT_NOTE`, which would otherwise vouch for a server-computed
+  digest as the participant's own words once the example moves to `filled_count_coverage`.
+
 - `2026-08-24-agent-readable-live-drafts` (feature, **draft**) — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
   `2026-08-24-example-agents-quote-unit-two`. The last is a **logical** prerequisite (its
@@ -347,7 +358,7 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   submissions became quotable, drafts stay unquotable in both units, because what governs a
   draft is not topic sensitivity but the author not having chosen to send it. The blocks
   dossier is an **overlap prerequisite**: both add a runtime tool through the same three
-  seams (`BUILTIN_TOOL_NAMES`, `build_agent_tools`' signature, `_build_tools`). Lets a
+  seams (`BUILTIN_TOOL_NAMES`, `build_agent_tools`' signature, `_builtin_tools`). Lets a
   granted binding read a room's unsent composer and activity-worksheet text on demand, via
   `read_drafts`. Reported over the existing room WebSocket like `typing.start`, held **only**
   in Redis under a TTL, never in Postgres. **This is the most privacy-sensitive surface in the
@@ -359,7 +370,7 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   **AC-16 is in scope and is not a follow-up**: the shipped pack prompts forbid quoting a
   *submission* and say nothing about a draft, so this task edits all three prompts and the
   example guide. A build that ships the grant with AC-16 unticked is the one combination the
-  dossier exists to prevent. Opens SRS chapter §32. Migration 0081.
+  dossier exists to prevent. Opens SRS chapter §32.
 
 ### From the 2026-08-24 group-submission work
 
@@ -380,9 +391,11 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   fiction. So the task **adds** `six-hats-shared-case` (the hats applied to a shared scenario,
   which is de Bono's original group use) and edits none of the four.
 
-  **Three things a builder needs.** Its migration 0082 relaxes `NOT NULL` on
+  **Three things a builder needs.** Its migration relaxes `NOT NULL` on
   `activity_sessions.subject_user_id` and replaces it with a CHECK — AC-1 and AC-7 are
   `pytest.mark.db` because a CHECK and a partial unique index are invisible to the unit tier.
+  **Take the revision number from `alembic heads`, not from any dossier**: this one and
+  `agent-readable-live-drafts` share all three predecessors with no ordering between them.
   Its Q-4 defines rejection as *threshold unreachable*, not first-dissent, because the latter
   silently implements unanimity. And **`allow_member_groups` is mutually exclusive with
   `allow_project_members`** (`chatroom_service.py:39-43`, [R13.04]), so adopting group

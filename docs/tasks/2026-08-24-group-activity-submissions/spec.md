@@ -271,7 +271,10 @@ group's answer as one student's.
 
 ## 6. Detailed Changes
 
-**Backend — `contexts/activities`** (migration 0082)
+**Backend — `contexts/activities`** (migration: **take the number from `alembic heads` at
+build start**, not from this dossier — this task and `2026-08-24-agent-readable-live-drafts`
+share all three predecessors with no ordering between them, so a hard-coded number collides
+for whichever builds second)
 
 - `tables.py`: `activity_sessions.subject_user_id` becomes nullable; new
   `subject_member_group_id` (no FK — the groups table belongs to tenancy, and [R30.09]
@@ -300,8 +303,20 @@ group's answer as one student's.
 
 **API contract**
 
-- Four new room-scoped endpoints (§5.3). `ActivityTypeOut` gains `group_config`;
-  `ActivitySessionOut` gains the subject kind. `pnpm run gen:api` rerun: **yes**.
+- Four new room-scoped endpoints (§5.3). `ActivityTypeOut` gains `group_config`, and so do
+  **`ActivityTypeCreateIn` and `ActivityTypeUpdateIn`** (`app/api/v1/activities.py:87-117`,
+  `:91-102`) — without them the field is settable only by hand-editing the shipped catalogue
+  JSON, AC-3's edit half is unreachable, and no project could ever declare its own type
+  group-submittable, which contradicts §5.1. `ActivitySessionOut` gains the subject kind.
+  `pnpm run gen:api` rerun: **yes**.
+- **`AdminPlatformActivityTypeIn` is deliberately not extended.** Its docstring
+  (`admin_activities.py:350-356`) states the reason: it is a four-field install surface, and
+  "the moment a schema is editable from here this stops being an install surface and becomes a
+  course-authoring CMS". `group_config` is a behavioural definition field like
+  `payload_schema`, so it belongs on the same side of that line. The consequence is real and
+  goes in the guide: a platform-scoped example's consent fraction is whatever the shipped
+  catalogue says, and a project wanting a different one installs a project-scoped copy via
+  `python -m smap.examples` ([R30.28]) and edits that.
 
 **Frontend — `slices/activities`**
 
@@ -415,7 +430,7 @@ processing.
 
 ## 10. Risks and Rollback
 
-- **Migration 0082 is the riskiest in this series.** It relaxes a `NOT NULL` on a live table
+- **This migration is the riskiest in this series.** It relaxes a `NOT NULL` on a live table
   and adds a CHECK in its place. Forward compatible (old code writes `subject_user_id` and
   satisfies the CHECK); reversing needs every group session deleted before `subject_user_id`
   can go back to `NOT NULL`, which the down-revision must do explicitly rather than fail
@@ -440,8 +455,9 @@ processing.
       database CHECK and verified at the `db` tier.
 - [ ] AC-2: An activity type with `group_config: NULL` behaves exactly as today; no existing
       path changes.
-- [ ] AC-3: `group_config` is validated at registration and edit; a malformed fraction is
-      refused there, and an edit is refused while an activation of the type is live.
+- [ ] AC-3: `group_config` is settable through the project-scoped create and edit routes and
+      validated there; a malformed fraction is refused, and an edit is refused while an
+      activation of the type is live. The admin platform-type surface still refuses it.
 - [ ] AC-4: Required approvals is `ceil(numerator * N / denominator)` over the **pinned**
       voter set, at least 1 and at most N; `1/1` requires everyone.
 - [ ] AC-5: A proposal may be created only by a member of a live group of the room's project

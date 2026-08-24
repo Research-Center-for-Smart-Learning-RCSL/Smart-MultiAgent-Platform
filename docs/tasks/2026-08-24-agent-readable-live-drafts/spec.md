@@ -72,7 +72,7 @@ that legible to the person typing and bounded for everyone else.
 | Q-5 | Where do drafts live? | Redis, TTL-bounded, keyed per (room, user, surface). | A draft is by definition unshared. Postgres would put it in backups, exports and retention scans, and every one of those is a place it must not be. Presence already takes this posture for the same reason (`presence.py:15-21`). |
 | Q-6 | How does the client report them? | Client frames on the existing room WebSocket, throttled, mirroring `typing.start`. | The socket is already open, authenticated and room-scoped, and `on_client_message` already writes presence state to Redis from exactly this path (`app/api/ws/chatroom.py:107-129`). A REST endpoint would duplicate the AuthZ and add a round trip per keystroke burst. |
 | Q-7 | Should the `creative-thinking-room` pack ship agents holding this grant? | No. The pack carries an advisory field at most; the guide documents the unit-4 caution. | Unit 4 collects negative-affect narratives from 13-year-olds and the shipped prompts already forbid pressing for detail (`creative-thinking-room.json:27`, `:52`). A pack that silently grants draft reads in that unit would undo that by installation. |
-| Q-8 | Does this depend on `2026-08-24-observer-presentation-blocks`? | Yes. Overlap prerequisite. | Both add a runtime tool through the same three seams: `BUILTIN_TOOL_NAMES` (`tool_registry.py:119-135`), `build_agent_tools`' signature (`builtin_tools.py:863-873`), and `_build_tools` (`turn_engine.py:1489-1528`). Concurrent builds conflict; either could go first. Built second, this one reuses the tool-assembly shape that dossier lands. |
+| Q-8 | Does this depend on `2026-08-24-observer-presentation-blocks`? | Yes. Overlap prerequisite. | Both add a runtime tool through the same three seams: `BUILTIN_TOOL_NAMES` (`tool_registry.py:119-135`), `build_agent_tools`' signature (`builtin_tools.py:863-873`), and `_builtin_tools` (`turn_engine.py:1457-1528`). Concurrent builds conflict; either could go first. Built second, this one reuses the tool-assembly shape that dossier lands. |
 | Q-9 | Does this depend on `2026-08-24-traceability-extraction-gate`? | Yes, for the same reason its sibling does. | This task's SRS Delta opens a new chapter §32 whose requirements each need a `docs/traceability.csv` row, and that dossier regenerates the whole file from a script it builds. |
 | Q-10 | Does this depend on `2026-08-24-example-agents-quote-unit-two`? | Yes, **logically**. | AC-16 writes the draft rule into prompts whose submission rule that task is about to split by activity type. Written first, the draft rule would sit beside a flat prohibition that no longer exists, and would have to be rewritten anyway. Written second, it says the sharper thing: unit 2 submissions became quotable, unit 4 submissions did not, and **drafts stay unquotable in both** — because the distinction is not topic sensitivity, it is whether the author chose to send it. |
 
@@ -82,13 +82,20 @@ that legible to the person typing and bounded for everyone else.
 
 The room has a full typing indicator:
 
-- The client sends `typing.start` once per burst on a debounce timer and `typing.stop` when
-  it lapses (`ChatroomView.vue:815-834`), plus a final `typing.stop` on teardown (`:615`).
+- The client sends `typing.start` once per burst on a 3-second debounce timer and
+  `typing.stop` when it lapses (`ChatroomView.vue:815-836`, `emitTyping` at `:826`), plus a
+  final `typing.stop` on socket teardown — which lives in **`useChatroomSocket.ts:615`**, not
+  in the view. `ChatroomView.vue`'s `onBeforeUnmount` (`:866-873`) only clears the timer;
+  retraction is otherwise server-side per connection (`app/api/ws/chatroom.py:86-105`).
 - The server refcounts it per connection in Redis under `ws:typing:{room}:{user}`
   (`presence.py:68-71`, `:175-241`) with `_TYPING_TTL_SECONDS = _CONN_TTL_SECONDS = 150`
   (`:33-53`), and throttles inbound starts at 2s (`app/api/ws/chatroom.py:76-77`).
 - **The published event carries a user id and nothing else** (`app/api/ws/chatroom.py:105`,
-  `:124`), and the client renders it as a name list (`ChatroomView.vue:875-877`).
+  `:124`), and the client renders even that as truncated codes — `typingNames`
+  (`ChatroomView.vue:875-881`) maps each id through `uid.slice(0, 8)`. So "codes, never names"
+  (§5.4, §8) is not a property this feature introduces; it is the posture the room already
+  takes, and the reason it is stated there is that a draft-reading tool is the surface most
+  likely to be built the other way.
 
 So the room already knows *that* someone is composing. This feature is exactly the step from
 that to *what*, and every safeguard below exists because that step is not small.
@@ -140,7 +147,7 @@ it. Any design where the draft path is looser than this is wrong by construction
 
 Gate #1's `SLICE_DEPS` makes `conversation` the host that imports `activities` one-way
 (`frontend/CLAUDE.md`, "Slice isolation"). The activities slice must not reach the chatroom
-socket. `ChatroomView.vue:815-834` is the existing example of the host owning a socket send
+socket. `ChatroomView.vue:826-836` is the existing example of the host owning a socket send
 on behalf of a child component.
 
 ## 5. Design
@@ -181,15 +188,30 @@ Two new client frames on the room channel:
 
 Throttle and lifecycle:
 
-- **Composer.** `emitTyping` (`ChatroomView.vue:815-834`) already runs a debounce timer for
-  `typing.start`/`typing.stop`. The draft update rides the same timer, at the same 2s server
-  throttle the typing path uses (`app/api/ws/chatroom.py:76-77`), and `draft.clear` is sent
-  where `typing.stop` is sent on teardown (`:615`) and on a successful send.
+- **Composer.** `emitTyping` (`ChatroomView.vue:826-836`) already runs a 3s debounce timer for
+  `typing.start`/`typing.stop`. The draft update rides the same timer and is bounded by the
+  same 2s server-side throttle the typing path uses (`app/api/ws/chatroom.py:76-77`).
+  `draft.clear` goes on a successful send, and on teardown at
+  **`useChatroomSocket.ts:615`** — the view's `onBeforeUnmount` (`:866-873`) only clears the
+  timer and is not a send site, so anchoring the clear there would leave AC-4's unmount half
+  unimplemented.
 - **Activity worksheet.** `ActivityHost` emits a Vue `draft` event upward; `ChatroomView`
   forwards it to `wsChannel.send()`. **The activities slice never touches the socket**
   (§4.6). `draft.clear` goes on a successful submit and on unmount.
 - The server drops a frame whose room has no binding holding the grant, before touching
   Redis. A room nobody may read stores nothing.
+
+  **This costs a Postgres read on the socket path, and the design pays for it deliberately.**
+  `on_client_message` closes over `presence` and `publisher` only
+  (`app/api/ws/chatroom.py:107-129`); the route's session is opened and closed around the ACL
+  check at `:60-71`, so a grant read means a fresh session per frame, the way
+  `_notify_presence` already takes one at `:43`. Rather than pay that per frame, the
+  connection resolves "does any binding in this room hold the grant" **once at connect**, into
+  a connection-scoped flag beside `_typing_active` (`:84`), and re-resolves on the
+  `chatroom.agents_changed` event the settings write already publishes. A grant revoked
+  mid-session therefore stops new writes at the next event, and the TTL bounds what was
+  already stored. A grant *added* mid-session starts collecting at the same point. Both are
+  stated here rather than discovered as a lag.
 
 ### 5.2 The SDK contract extension
 
@@ -297,7 +319,7 @@ was this used". Mirrors [R28.11]'s rule that content never enters audit metadata
   `build_read_drafts_tool`, structurally mirroring `activity_tools.py`.
 - `tool_registry.py`: `read_drafts` added to `BUILTIN_TOOL_NAMES` (`:119-135`).
 - `builtin_tools.py`: `build_agent_tools` gains `draft_access: DraftAccessContext | None`.
-- `turn_engine.py`: `_build_tools` resolves it, beside the activity-control resolution
+- `turn_engine.py`: `_builtin_tools` resolves it, beside the activity-control resolution
   (`:1501-1505`).
 
 **Backend — `contexts/activities`**
@@ -347,7 +369,11 @@ was this used". Mirrors [R28.11]'s rule that content never enters audit metadata
   to read over someone's shoulder. It states that the packs confer no grant and that a teacher
   enabling it should do so per agent, deliberately.
 
-**Migration** — 0081: two boolean columns with server defaults.
+**Migration** — two boolean columns with server defaults. **Take the revision number from
+`alembic heads` at build start, not from this line.** `0079_member_groups` is head today and
+`2026-08-24-observer-presentation-blocks` claims 0080, but this dossier and
+`2026-08-24-group-activity-submissions` share all three predecessors and nothing orders them
+against each other, so whichever builds second would collide on a hard-coded number.
 
 ## 7. NFR Checklist
 
@@ -363,8 +389,12 @@ was this used". Mirrors [R28.11]'s rule that content never enters audit metadata
   optimistic-update-plus-toast treatment. A grant that is revoked mid-turn simply yields no
   tool on the next turn.
 - **Performance** — one Redis write per user per 2s burst window, bounded by the existing
-  typing throttle; one `SCAN`-free room read per tool call (the store keeps a per-room index
-  set, as presence does at `presence.py:60-61`). Content caps in §5.3 bound memory. Redis
+  typing throttle, and **no Postgres read per frame**: the grant is resolved once per
+  connection (§5.1), so a 30-typist room costs 30 grant reads for the lesson rather than ~15
+  sessions per second on the socket path. One `SCAN`-free room read per tool call (the store
+  keeps a per-room index set, in the shape of the roster key `_room_key` at
+  `presence.py:56-57` — **not** `_user_rooms_key` at `:60-61`, which is the per-*user* reverse
+  index and the wrong key shape here). Content caps in §5.3 bound memory. Redis
   runs `allkeys-lru`, so an evicted draft simply is not returned — the TTL means eviction is
   a bounded loss, which is exactly the property `2026-08-20-onboarding-without-smtp`'s FU-11
   found missing in the email-allowlist keys.
@@ -417,7 +447,7 @@ processing, and it is the most privacy-sensitive surface in the product.
 
 **Existing debt in touched files:**
 
-- `ChatroomView.vue:815-834` keeps the typing timer in the view body as module-level `let`
+- `ChatroomView.vue:815-836` keeps the typing timer in the view body as module-level `let`
   state. The draft snapshot must not deepen that: extract a `useDraftReporting` composable
   and have `emitTyping` call into it, rather than adding a second timer beside the first.
 - `presence.py` mixes key layout, Lua and policy in one module. `drafts.py` follows its
@@ -460,7 +490,7 @@ processing, and it is the most privacy-sensitive surface in the product.
   prompts and the guide is therefore part of this task (§6, AC-16). A build that ships the
   grant with AC-16 unticked is not a partial delivery of this dossier; it is the one
   combination the dossier exists to prevent.
-- **Migration 0081** adds two booleans with server defaults; forward compatible and reversible
+- **The migration** adds two booleans with server defaults; forward compatible and reversible
   by `DROP COLUMN`, which revokes every grant — a safe direction to fail.
 - **Rollback of the frontend alone is safe.** No client reports drafts, so the store stays
   empty and the tool returns nothing.

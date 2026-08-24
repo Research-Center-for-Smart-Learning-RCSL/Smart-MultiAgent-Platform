@@ -140,15 +140,34 @@ already on that answer. It does not open a turn with someone's answer, does not 
 what several people wrote, and does not use a quote to restart a stalled discussion. SA's
 prompt keeps its existing instruction to offer its own version instead.
 
-### 5.2 The test
+### 5.2 The default for a type in neither column
+
+Both columns are literal enumerations, and §8 makes the literal match the mitigation — but an
+enumeration with no default says nothing about a type it does not name, and the safety-critical
+sentence then falls silent exactly where nobody is looking. Two such types are already
+foreseeable: `2026-08-24-group-activity-submissions` adds `six-hats-shared-case` (its §5.6),
+and a Project Owner may register arbitrary types at any time ([R30.23]).
+
+Each prompt therefore closes the enumeration: **a type key in neither column is treated as
+unquotable.** One clause, and it fails safe for every type that will ever exist. A later
+course that wants a new type quotable adds it to the first column deliberately, which is the
+right place for that decision to be visible.
+
+### 5.3 The test
 
 `test_no_agent_may_quote_a_participant_submission` is replaced by two assertions, both at the
 same substring tier as the ones they replace (§4.1's honest limit still applies):
 
-- Every room-facing prompt names both unit 4 type keys **and** carries `不引述`, so a prompt
-  that drops the unit 4 prohibition fails.
+- Every room-facing prompt names both unit 4 type keys **and** carries both `引述` and
+  `轉述`, so a prompt that drops either the quoting or the paraphrasing half of the unit 4
+  prohibition fails. Keeping `轉述` is not optional tidiness: AC-2 requires the prompts to
+  forbid quoting, paraphrasing *and* repeating, and a replacement test that checked only
+  `不引述` would let the paraphrase clause be deleted from the safety-critical column with the
+  suite green — a net loss of coverage against the thing this task is most likely to break.
 - Every room-facing prompt carries `不主動`, so a prompt that relaxes quoting without the
   volunteer bound fails.
+- Every room-facing prompt carries the default clause of §5.2, so a prompt that states the two
+  columns and stops fails.
 
 The existing `test_no_agent_pretends_it_cannot_see_a_submission` (`看得到`) is untouched, as
 are the unit 4 boundary test and AA's `代號` rule.
@@ -174,12 +193,20 @@ first constraint DA must require in what it drafts is now the split rule, not th
 **Docs**
 
 - `docs/examples/creative-thinking-course.md:181-195`: constraint #1 rewritten as the split
-  rule, keeping constraint #2 (the "must admit it can see" lesson) exactly as it stands. A new
-  paragraph states the consequence: for unit 2, `echo_includes_content: false` now bounds only
-  the system echo, not what the class can hear, because an agent may repeat an answer when
-  asked. A teacher who needs the stronger property for unit 2 turns
-  `expose_payload_to_agent` off for that type instead — which is a governance field a platform
-  admin edits ([R30.23]).
+  rule plus the §5.2 default, keeping constraint #2 (the "must admit it can see" lesson)
+  exactly as it stands. A new paragraph states the consequence: for unit 2,
+  `echo_includes_content: false` now bounds only the system echo, not what the class can hear,
+  because an agent may repeat an answer when asked.
+
+  **The escape hatch is not the teacher's to pull, and the guide must say so.** Turning
+  `expose_payload_to_agent` off is the only structural control (§8), but the four example
+  types are **platform-scoped** (`creative-thinking-course.md:313-314`), and that field is
+  editable only by a platform admin (`admin_activities.py:350-361`, `:421-445`) — the Project
+  Owner edit route refuses a platform-scoped target ([R30.31], `activities.py:487-514`). So
+  the guide instructs a facilitator to **ask a platform admin**, and names the alternative
+  that is genuinely theirs: install a project-scoped copy of the course via
+  `python -m smap.examples` ([R30.28]) and edit that. Framing it as a switch the teacher can
+  reach would send them to a 404.
 
 **No platform code. No migration. No API change. `gen:api` rerun: no.**
 
@@ -202,9 +229,10 @@ This changes what an LLM agent is instructed to repeat into a class-visible chan
   unenforced. What changes is the direction the instruction points for unit 2, and the fact
   that a model now has to evaluate a condition rather than follow an absolute. A model that
   gets the condition wrong quotes a unit 4 answer into the room. That risk is real, it is
-  new, and the only structural control against it is `expose_payload_to_agent` — which the
-  guide now names as the lever for a teacher who needs the guarantee rather than the
-  instruction (§6).
+  new, and the only structural control against it is `expose_payload_to_agent`. **That lever
+  is a platform admin's, not the facilitator's**, for the shipped platform-scoped types (§6),
+  so "the teacher can turn it off" would be a false reassurance. What the facilitator actually
+  controls is which units they run and whether they use the shipped types at all.
 - **Keying on type keys rather than topic** is the mitigation that makes the condition
   tractable: the model matches a literal string present in its own context rows
   (`activity_context_provider.py:207`), instead of judging whether a piece of text is
@@ -278,19 +306,25 @@ This changes what an LLM agent is instructed to repeat into a class-visible chan
 - [ ] AC-8: `test_agent_example_packs.py` asserts AC-2 and AC-3 over the shipped files, and
       goes red when either the unit 4 prohibition or the volunteer bound is removed from any
       room-facing prompt.
-- [ ] AC-9: The guide's constraint #1 states the split rule, names
-      `expose_payload_to_agent` as the lever for a teacher who needs a guarantee rather than
-      an instruction, and states that existing installs keep the old prompt.
+- [ ] AC-9: The guide's constraint #1 states the split rule and the §5.2 default, names
+      `expose_payload_to_agent` as the structural guarantee **and says it is a platform
+      admin's edit for the shipped platform-scoped types**, names the project-scoped copy as
+      the facilitator's own alternative, and states that existing installs keep the old
+      prompt.
+- [ ] AC-12: Every room-facing prompt states that a type key in neither column is unquotable,
+      asserted by `test_agent_example_packs.py` and mutation-probed by deleting the clause.
 - [ ] AC-10: The dry-run checklist's quoting line is split into a unit 2 line and a unit 4
       line rather than removed.
 - [ ] AC-11: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`.
 
 ## 12. Test Plan
 
-- **AC-1 to AC-3, AC-8** — unit, `backend/tests/unit/test_agent_example_packs.py`. AC-8 is
-  mutation-probed: delete the unit 4 clause from one prompt and confirm red, then delete the
-  volunteer bound from another and confirm red. A substring test that has never been seen to
-  fail is not evidence.
+- **AC-1 to AC-3, AC-8, AC-12** — unit, `backend/tests/unit/test_agent_example_packs.py`.
+  AC-8 is mutation-probed four ways, one per assertion the replacement carries: delete the
+  unit 4 type keys, delete `引述`, delete `轉述`, delete `不主動` — each must turn it red on
+  its own. AC-12 adds a fifth probe on the default clause. A substring test that has never
+  been seen to fail is not evidence, and the `轉述` probe is the one that would have caught
+  the coverage gap this dossier shipped with in its first draft.
 - **AC-4 to AC-7** — the existing tests, run unchanged; AC-7's assertion is retargeted, not
   relaxed.
 - **AC-9, AC-10** — doc-diff review.
