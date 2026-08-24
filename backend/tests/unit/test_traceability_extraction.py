@@ -133,6 +133,17 @@ def test_a_duplicated_id_fails_and_names_both_definitions() -> None:
     assert "REQUIREMENTS.md:5" in message
 
 
+def test_two_definitions_on_one_line_fail_and_name_both() -> None:
+    """A summary runs to the end of its block, so the second would be swallowed silently."""
+    source = "## 3. A\n\n| **[R3.01]** First. | **[R3.02]** Second. |\n"
+    with pytest.raises(traceability.TraceabilityError) as excinfo:
+        traceability.parse_requirements(source)
+    message = str(excinfo.value)
+    assert "[R3.01]" in message
+    assert "[R3.02]" in message
+    assert "REQUIREMENTS.md:3" in message
+
+
 def test_a_definition_before_any_heading_fails() -> None:
     with pytest.raises(traceability.TraceabilityError) as excinfo:
         traceability.parse_requirements("- **[R3.01]** Homeless.\n")
@@ -182,6 +193,29 @@ def test_this_file_is_excluded_from_the_citation_scan() -> None:
     """Renaming this fixture without moving its exclusion turns the real gate red."""
     rel = pathlib.Path(__file__).resolve().relative_to(_REPO).as_posix()
     assert traceability._excluded(rel)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".github/workflows/ci.yml",
+        "deploy/sandbox/code-exec/Dockerfile",
+        "deploy/sandbox/code-exec/kernel/kernel.py",
+        "frontend/eslint.config.js",
+        "frontend/tests",
+        "scripts/traceability.py",
+    ],
+)
+def test_the_citation_scan_reaches_outside_backend_frontend_src_and_docs(rel: str) -> None:
+    """Each of these cites an `[Rxx.yy]` (or is a sibling gate's root) and was unreachable
+    under the four-root scope the dossier specified. A root list cannot be kept honest;
+    every tracked file minus a printed exclusion list can."""
+    assert not traceability._excluded(rel)
+
+
+def test_the_definition_source_is_excluded() -> None:
+    """§9.2 legitimately names the ids it removed, so scanning the SRS would fail on it."""
+    assert traceability._excluded("REQUIREMENTS.md")
 
 
 def test_a_bom_is_named_rather_than_reported_as_a_row_diff(

@@ -22,8 +22,8 @@ What this gate does NOT verify, stated so the gap is not mistaken for coverage:
 - that a requirement has a test, or any implementation at all. It checks that the index
   is complete and that citations resolve; it makes no claim about coverage.
 - that `[Rxx.yy]` prose *inside* `REQUIREMENTS.md` resolves. That file is the definition
-  source and is excluded from the citation scan; a self-citation of a removed ID is not
-  caught here.
+  source and is the first exclusion below; §9.2 legitimately names the ids it removed, and
+  a self-citation of a removed ID is therefore not caught here.
 - unbracketed mentions. Only `[R13.13]` is a citation; the bare `R13.13` form, which the
   SRS and `docs/implement/` both use freely, is indistinguishable from ordinary prose
   without a much looser pattern and its false positives.
@@ -103,11 +103,17 @@ BOLD = re.compile(r"\*\*(.+?)\*\*")
 ITALIC = re.compile(r"\*([^*]+)\*")
 WHITESPACE = re.compile(r"\s+")
 
-SCAN_ROOTS = ("backend", "frontend/src", "frontend/e2e", "docs")
-
-# Each exclusion is deliberate. `REQUIREMENTS.md` needs no entry: it sits at the repo
-# root, outside every scan root.
+# Every tracked file, minus the exclusions below — not a root list. A root list is the
+# wrong shape for this check: `[Rxx.yy]` is cited wherever someone reaches for it, and
+# the four roots the dossier specified missed four files that cite one today
+# (`.github/workflows/ci.yml`, `deploy/sandbox/code-exec/Dockerfile`, that image's
+# `kernel/kernel.py`, and `frontend/eslint.config.js`). A citation the gate does not
+# read is a citation the gate cannot defend.
+#
+# Each exclusion is deliberate, and each is printed on every run so the scope stays
+# visible rather than becoming folklore.
 EXCLUSIONS: tuple[tuple[str, str], ...] = (
+    ("REQUIREMENTS.md", "the definition source; its own prose is not a citation"),
     ("docs/tasks", "task dossiers are a historical record, not live documentation"),
     ("docs/audits", "audit findings are a historical record, not live documentation"),
     ("backend/alembic/versions", "a landed migration is immutable history"),
@@ -116,7 +122,7 @@ EXCLUSIONS: tuple[tuple[str, str], ...] = (
         "generated from REQUIREMENTS.md, which is itself the definition source",
     ),
     # Scoped to the one file whose whole content is a fixture SRS. Its ids are invented
-    # on purpose — a shape like [R7a.01] has to be spelled out to prove the parser sees
+    # on purpose — a shape like R7a.01 has to be spelled out to prove the parser sees
     # it — so every one of them dangles by construction. Same shape and same reasoning
     # as check_no_lazy_prompt.py's fourth exclusion.
     (
@@ -172,10 +178,21 @@ def parse_requirements(text: str) -> list[Requirement]:
             section = heading.group(1)
             continue
 
-        match = DEFINITION.search(line)
-        if not match:
+        matches = list(DEFINITION.finditer(line))
+        if not matches:
             continue
+        if len(matches) > 1:
+            # A summary runs to the end of its block, so a second marker's text would be
+            # swallowed into the first requirement's row and the second would vanish from
+            # the index with both the generator and the checker agreeing. Same reasoning
+            # as the duplicate-ID rule below: fail rather than pick.
+            named = ", ".join(f"[{m.group(1)}]" for m in matches)
+            raise TraceabilityError(
+                f"REQUIREMENTS.md:{index + 1} defines {named} on one line. "
+                "Each definition needs a line of its own, or all but the first are lost."
+            )
 
+        match = matches[0]
         requirement_id = match.group(1)
         lineno = index + 1
         if requirement_id in seen:
@@ -277,14 +294,15 @@ def _excluded(rel: str) -> bool:
 
 
 def _tracked_files() -> list[str]:
-    """Tracked files under the scan roots.
+    """Every tracked file in the repository.
 
     `git ls-files` rather than a filesystem walk, so build output and tool caches
     (`dist/`, `node_modules/`, `.import_linter_cache`) stay out of scope without a
-    hand-maintained skip list drifting out of date.
+    hand-maintained skip list drifting out of date. Untracked files are out of scope for
+    the same reason they are invisible to a reviewer: they are not part of the commit.
     """
     out = subprocess.run(
-        ["git", "ls-files", "-z", "--", *SCAN_ROOTS],
+        ["git", "ls-files", "-z"],
         cwd=REPO,
         check=True,
         capture_output=True,
@@ -358,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote docs/traceability.csv ({len(requirements)} rows).")
 
     dangling, scanned = find_dangling_citations({r.id for r in requirements})
-    print(f"\nScanned {scanned} files across {', '.join(SCAN_ROOTS)} for citations.")
+    print(f"\nScanned {scanned} tracked files for citations.")
     for path, why in EXCLUSIONS:
         print(f"  excluded {path} — {why}")
 

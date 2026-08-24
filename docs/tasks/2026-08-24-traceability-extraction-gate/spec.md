@@ -306,7 +306,7 @@ machine.
   `[R9.05]` and `[R9.08]` with their `path:line` — and a fifth the spec did not know about,
   `docs/implement/K-agent-runtime.md:83`. See D-4.
 - [x] AC-8: Those citations are corrected — §31 supersedes them — and the check passes across
-  all four scan roots (2083 files scanned, five exclusions; see D-6 for the fifth).
+  the whole repository (2216 tracked files scanned, six exclusions; see D-6 and D-7).
 - [x] AC-9: Mutation-probed in both directions before landing. Red on a deleted CSV row
   (`missing row R30.15`), red on an invented `[R99.99]` citation
   (`docs/implement/K-agent-runtime.md:209: [R99.99]`), green once both were reverted.
@@ -444,6 +444,30 @@ on the day it lands.
   reason printed on every run, in the same shape and for the same kind of reason as
   `check_no_lazy_prompt.py:41-44`. A test asserts the exclusion still covers the file's own
   path, so renaming the fixture cannot silently drop it.
+
+- **D-7 — Rule 6's four scan roots replaced by every tracked file.** From a post-close
+  `/code-review`. Rule 6 scopes the citation scan to `backend/`, `frontend/src`,
+  `frontend/e2e` and `docs/`. Four tracked files cite an `[Rxx.yy]` from outside that list
+  and were therefore unprotected: `.github/workflows/ci.yml` (`[R27.01]` — the requirement
+  this very task added, and `[R12.03b]`), `deploy/sandbox/code-exec/Dockerfile` (`[R12.03]`),
+  `deploy/sandbox/code-exec/kernel/kernel.py` (`[R12.03b]`) and `frontend/eslint.config.js`
+  (`[R24.06]`). `frontend/tests/` — which the sibling `check_no_lazy_prompt.py` does scan —
+  was missed too. **Decided with the user**: scan every tracked file minus a printed
+  exclusion list, which is what §2's goal actually asks for and is a scope that cannot
+  quietly fall behind where people cite requirements. `REQUIREMENTS.md` becomes a real
+  exclusion rather than one holding by accident of being outside the roots, and this
+  script's own comment stopped spelling `R7a.01` in brackets. Scanned file count 2083 → 2216;
+  still green.
+
+- **D-8 — Two definitions on one line now fail loudly instead of dropping the second.**
+  From the same review. `parse_requirements` used `DEFINITION.search`, so a line carrying two
+  markers — a table row, or two definitions merged by an edit — produced one row for the
+  first ID and none for the second, with the second's text swallowed into the first's
+  summary. Generator and checker share the parser, so CI would have stayed green over an
+  index missing a requirement: the silent-wrong-result class this gate exists to remove.
+  Zero occurrences in the SRS today. Now a `TraceabilityError` naming both IDs and the line,
+  which is rule 1's "fails on a duplicate rather than picking one" applied to the same
+  ambiguity one axis over. This closes the sibling that FU-5 does not cover.
 
 ## 16. Follow-ups
 
