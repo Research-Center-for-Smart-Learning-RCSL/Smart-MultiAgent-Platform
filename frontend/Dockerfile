@@ -17,7 +17,7 @@ RUN cd frontend && pnpm run build \
  && find dist -name '*.map' -delete
 
 # Stage 2: serve via nginx (lightweight, no node runtime in prod)
-FROM nginx:1.31.3-alpine
+FROM nginx:1.31.4-alpine
 
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
