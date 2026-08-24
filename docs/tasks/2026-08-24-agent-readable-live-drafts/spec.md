@@ -3,7 +3,7 @@ type: feature
 status: draft
 created: 2026-08-24
 requirements: [R13.19, R28.02, R28.09, R30.15, R30.17, R30.19, R30.30, R30.37]
-depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks]
+depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks, 2026-08-24-example-agents-quote-unit-two]
 ---
 
 # A granted agent can read a room's unsent drafts on demand
@@ -40,9 +40,10 @@ that legible to the person typing and bounded for everyone else.
 - The room shows a disclosure indicator while any binding holds the grant, defaulting on.
 - Every read is audited by count, never by content.
 - The shipped `creative-thinking-room` prompts and the example guide state the draft rule
-  before this feature is usable: the three pack prompts forbid quoting a *submission* and say
-  nothing about a draft, and a draft is strictly worse to quote. This is in scope, not
-  deferred (§8, AC-16).
+  before this feature is usable. By the time this task runs, its predecessor has made unit 2
+  submissions quotable and left unit 4 unquotable; **a draft is unquotable in both units**,
+  because what governs a draft is not how sensitive the topic is but the fact that its author
+  has not chosen to send it. This is in scope, not deferred (§8, AC-16).
 
 **Non-goals**
 
@@ -73,6 +74,7 @@ that legible to the person typing and bounded for everyone else.
 | Q-7 | Should the `creative-thinking-room` pack ship agents holding this grant? | No. The pack carries an advisory field at most; the guide documents the unit-4 caution. | Unit 4 collects negative-affect narratives from 13-year-olds and the shipped prompts already forbid pressing for detail (`creative-thinking-room.json:27`, `:52`). A pack that silently grants draft reads in that unit would undo that by installation. |
 | Q-8 | Does this depend on `2026-08-24-observer-presentation-blocks`? | Yes. Overlap prerequisite. | Both add a runtime tool through the same three seams: `BUILTIN_TOOL_NAMES` (`tool_registry.py:119-135`), `build_agent_tools`' signature (`builtin_tools.py:863-873`), and `_build_tools` (`turn_engine.py:1489-1528`). Concurrent builds conflict; either could go first. Built second, this one reuses the tool-assembly shape that dossier lands. |
 | Q-9 | Does this depend on `2026-08-24-traceability-extraction-gate`? | Yes, for the same reason its sibling does. | This task's SRS Delta opens a new chapter §32 whose requirements each need a `docs/traceability.csv` row, and that dossier regenerates the whole file from a script it builds. |
+| Q-10 | Does this depend on `2026-08-24-example-agents-quote-unit-two`? | Yes, **logically**. | AC-16 writes the draft rule into prompts whose submission rule that task is about to split by activity type. Written first, the draft rule would sit beside a flat prohibition that no longer exists, and would have to be rewritten anyway. Written second, it says the sharper thing: unit 2 submissions became quotable, unit 4 submissions did not, and **drafts stay unquotable in both** — because the distinction is not topic sensitivity, it is whether the author chose to send it. |
 
 ## 4. Current State
 
@@ -333,11 +335,12 @@ was this used". Mirrors [R28.11]'s rule that content never enters audit metadata
 **Example pack and guide** (in scope — §2, AC-16)
 
 - `backend/contexts/agents/infrastructure/examples/packs/creative-thinking-room.json`: TA, SA
-  and AA each gain the draft rule alongside the submission rule they already carry
-  (`:27`, `:52`, `:77`). The wording follows the existing one: the agent may say what it can
-  see, must not repeat it, and must give the reason — for a draft the reason is stronger,
-  because the author has not chosen to send it at all. AA's version also states that a draft
-  is not a submission and must not be counted as one.
+  and AA each gain the draft rule alongside the per-type submission rule its predecessor
+  leaves in place (`:27`, `:52`, `:77`). The wording follows the existing one: the agent may
+  say what it can see, must not repeat it, and must give the reason. The rule is flat across
+  both units, and the prompt says why the submission rule is not — the author has not chosen
+  to send a draft at all, so the unit 2 relaxation does not reach it. AA's version also states
+  that a draft is not a submission and must not be counted as one.
 - `docs/examples/creative-thinking-course.md`: a section on the grant, the disclosure chip,
   and the unit-4 caution — the unit collects negative-affect narratives from 13-year-olds
   (`creative-thinking.json:160-166`), and a half-typed one is the worst thing in this product
@@ -401,6 +404,9 @@ processing, and it is the most privacy-sensitive surface in the product.
   therefore edited **in this task** (§6, AC-16), not deferred — a prompt is not an
   enforcement boundary, but shipping the grant while the shipped prompts are silent about
   drafts would leave the one instruction the model actually reads pointing the wrong way.
+  This matters more after `2026-08-24-example-agents-quote-unit-two`: a model that has just
+  been told unit 2 answers are quotable will generalise to drafts unless the prompt says
+  otherwise.
 - **Fail closed everywhere.** Grant resolution, policy read, type read: any exception yields
   no tool or no data, never a permissive default.
 - **Guests.** A guest's draft is reported and readable on the same terms as a member's, and
@@ -497,8 +503,9 @@ processing, and it is the most privacy-sensitive surface in the product.
       access; `pnpm lint` passes gate #1 and `check:boundaries-enforced` still enforces it.
 - [ ] AC-14: `ActivityRenderCtx` exposes exactly five members, asserted as an exact set; the
       `PluginToHostMessage` union carries the new `draft` kind.
-- [ ] AC-16: All three `creative-thinking-room` prompts state the draft rule, asserted over
-      the shipped file by `backend/tests/unit/test_agent_example_packs.py` alongside the four
+- [ ] AC-16: All three `creative-thinking-room` prompts state that a draft is unquotable in
+      **both** units and say why that differs from the per-type submission rule, asserted over
+      the shipped file by `backend/tests/unit/test_agent_example_packs.py` alongside the
       constraints it already asserts, and `docs/examples/creative-thinking-course.md` carries
       the grant, the disclosure chip and the unit-4 caution.
 - [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
