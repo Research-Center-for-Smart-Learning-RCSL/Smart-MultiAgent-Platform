@@ -171,22 +171,6 @@ first, but building them serially avoids the conflict.
   reported nine non-existent "stale" rows — the 16 IDs that pattern cannot see are 4 % of the
   corpus, and getting this wrong looks like a finding rather than a bug.
 
-### From the 2026-08-24 example-agent scope work
-
-- `2026-08-24-example-agents-quote-unit-two` (feature, **approved 2026-08-24**) —
-  `depends_on: []`. **The one to build first in the 2026-08-24 series**: example content
-  alone, with **no SRS Delta, no platform code, no migration**. It splits the example agents' quoting rule by
-  activity type — `mandala-9grid` and `time-traveler-next-steps` answers become quotable in
-  response (never volunteered), while `emotion-desk-three-emotions` and
-  `six-hats-emotion-desk` stay unquotable, unchanged. **Its §4.1 is the finding that makes it
-  cheap**: the prohibition was never a requirement, it lives only in three prompt strings, one
-  substring test (`test_agent_example_packs.py:205-212`) and the guide, and
-  [R30.28]/[R30.35] both say example content is repository data. **Its Q-3 is the detail worth
-  keeping**: the rule is keyed on *type keys*, not on "unit 2" and "unit 4", because
-  `type_key` is what the activity context block actually puts in front of the model
-  (`activity_context_provider.py:207`). Two dossiers in Blocked depend on it. **Its AC-8 must
-  be mutation-probed** — a substring test that has never been seen to fail is not evidence.
-
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
@@ -352,8 +336,9 @@ its own list — the frontmatter wins over this preamble.
 
 - `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**) — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two`. The last is a **logical** prerequisite (its
-  Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
+  `2026-08-24-example-agents-quote-unit-two` — **that one is `implemented` as of 2026-08-24**,
+  so two of its three dependencies remain. The quoting dossier was a **logical** prerequisite
+  (its Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
   dossier splits by activity type, and written second it says the sharper thing — unit 2
   submissions became quotable, drafts stay unquotable in both units, because what governs a
   draft is not topic sensitivity but the author not having chosen to send it. The blocks
@@ -377,7 +362,8 @@ its own list — the frontmatter wins over this preamble.
 - `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
   — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two`. **The largest of the series.** Lets a project
+  `2026-08-24-example-agents-quote-unit-two` — **that one is `implemented` as of 2026-08-24**,
+  so two of its three dependencies remain. **The largest of the series.** Lets a project
   Member Group ([R13.28]) be the subject of an `ActivitySession`, via a proposal one member
   makes and the group votes on. The platform does **not** hard-code unanimity: an activity
   type declares the consent fraction in a new `group_config`, as two integers so the required
