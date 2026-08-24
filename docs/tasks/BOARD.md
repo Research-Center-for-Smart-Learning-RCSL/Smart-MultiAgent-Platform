@@ -146,7 +146,13 @@ first, but building them serially avoids the conflict.
 
 ### From the 2026-08-24 SRS update for the activity-context work
 
-- `2026-08-24-traceability-extraction-gate` (feature, **approved 2026-08-24**) —
+- (implemented 2026-08-24; see the note under In progress)
+  `2026-08-24-traceability-extraction-gate`. **It unblocked
+  `2026-08-24-observer-presentation-blocks`**, moved to Ready below — that dossier's only
+  dependency was this one. `agent-readable-live-drafts` and `group-activity-submissions`
+  each lose one of their three and stay Blocked on `observer-presentation-blocks`.
+  The original entry, kept here for the record:
+  `2026-08-24-traceability-extraction-gate` (feature, **approved 2026-08-24**) —
   `depends_on: []`. `docs/traceability.csv` is the index from every `[Rxx.yy]` to the SRS
   section defining it, and **83 of 389 requirements have no row** (R30 38, R11 19, R13 10,
   R6 5, R15 4, R12 2, R24 2, R5/R9/R14 1 each). §27 has always instructed "re-run the
@@ -301,12 +307,18 @@ the row to read for why CI is red.
 
 ### From the 2026-08-24 observer-presentation work
 
-Two dossiers, both **approved 2026-08-24** with their SRS Deltas applied at approval. Both are
-blocked on `2026-08-24-traceability-extraction-gate` (Ready above); the second is additionally
-blocked on the first **and** on `2026-08-24-example-agents-quote-unit-two`. Read each row for
-its own list — the frontmatter wins over this preamble.
+Two dossiers, both **approved 2026-08-24** with their SRS Deltas applied at approval. Both were
+blocked on `2026-08-24-traceability-extraction-gate`, which is **implemented as of
+2026-08-24**. The first is therefore **Ready now**; the second still waits on the first. Read
+each row for its own list — the frontmatter wins over this preamble.
 
-- `2026-08-24-observer-presentation-blocks` (feature, **approved 2026-08-24**) — waiting on
+- (moved to Ready now on 2026-08-24, unblocked by the implemented
+  `2026-08-24-traceability-extraction-gate`) The original entry, kept here for its detail.
+  **One thing changed under it while it waited**: the gate regenerated all 306 existing rows
+  *and* backfilled 115 rather than 83, so `docs/traceability.csv` is now generated — its five
+  new `[R28.15]`-`[R28.19]` rows are produced by `python scripts/traceability.py`, never
+  hand-added, and CI rejects the commit if that step is skipped.
+  `2026-08-24-observer-presentation-blocks` (feature, **approved 2026-08-24**) — waiting on
   `2026-08-24-traceability-extraction-gate`. **Overlap prerequisite only**: its SRS Delta adds
   `[R28.15]`-`[R28.19]`, each needing a `docs/traceability.csv` row, and the gate dossier
   regenerates all 306 existing rows from a script it builds. Gives an observer agent a closed
@@ -336,8 +348,9 @@ its own list — the frontmatter wins over this preamble.
 
 - `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**) — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two` — **that one is `implemented` as of 2026-08-24**,
-  so two of its three dependencies remain. The quoting dossier was a **logical** prerequisite
+  `2026-08-24-example-agents-quote-unit-two` — **the quoting dossier and the traceability gate
+  are both `implemented` as of 2026-08-24**, so only `observer-presentation-blocks` remains.
+  The quoting dossier was a **logical** prerequisite
   (its Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
   dossier splits by activity type, and written second it says the sharper thing — unit 2
   submissions became quotable, drafts stay unquotable in both units, because what governs a
@@ -362,8 +375,9 @@ its own list — the frontmatter wins over this preamble.
 - `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
   — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two` — **that one is `implemented` as of 2026-08-24**,
-  so two of its three dependencies remain. **The largest of the series.** Lets a project
+  `2026-08-24-example-agents-quote-unit-two` — **the quoting dossier and the traceability gate
+  are both `implemented` as of 2026-08-24**, so only `observer-presentation-blocks` remains.
+  **The largest of the series.** Lets a project
   Member Group ([R13.28]) be the subject of an `ActivitySession`, via a proposal one member
   makes and the group votes on. The platform does **not** hard-code unanimity: an activity
   type declares the consent fraction in a new `group_config`, as two integers so the required
@@ -393,6 +407,45 @@ its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-08-24 after implementation:
+`2026-08-24-traceability-extraction-gate` (`docs/traceability.csv` is generated by
+`scripts/traceability.py`, `repo-gates` rejects a commit where it disagrees with
+`REQUIREMENTS.md`, and every `[Rxx.yy]` cited outside the SRS now resolves). **It unblocked
+`2026-08-24-observer-presentation-blocks`**, moved to Ready above. Docs, one script, one
+test file and one CI step; no migration, no API change, no runtime code. **Four things a
+later reader needs.**
+
+**The spec's own §4 measurement was wrong, and the way it was wrong is the lesson.** §4
+enumerates three ID shapes and warns that a naive `\[R(\d+\.\d+)\]` misses two of them. It
+missed a **fourth** itself: a letter suffix on the *chapter* number — `[R11a.01]`,
+`[R11a.02]` and `[R19a.01]`-`[R19a.13]`, 15 defined requirements, four of them cited from
+live code. Built as specified, the CSV would have been complete-by-construction while
+omitting them, and the citation check would have been blind to those four citations. The
+gap was found by re-measuring at build start rather than trusting the spec's numbers, and
+**the true figure is 421 defined requirements, not 389** — 15 from the miss and 17 from the
+other 2026-08-24 dossiers' SRS deltas landing after §4 was measured.
+
+**The backfill was 115 rows, not 83, and the summary column is now derivable.** All 306
+existing rows were regenerated per Q-2. 186 of them reproduce byte-for-byte from the
+mechanical rule; the 120 that differ had lost apostrophes, flattened em-dashes to hyphens,
+dropped `§` and `≤`, left `*italic*` markers in, or simply gone stale against an SRS
+sentence that had been rewritten under them. Per D-2 there is **no truncation** — no row
+ends in `...` any more, and the longest is `[R12.03b]` at 1502 characters.
+
+**AC-6 paid for itself twice.** Reviewing the regeneration diff row by row found two parser
+defects, not two bad SRS sentences: a fenced code block directly beneath a definition was
+being swallowed into the summary (`[R9.13]`, `[R12.11]`, `[R24.18]`), and emphasis wrapping
+a code span survived unstripped (`[R24.13]`) because splitting the line on code spans puts
+the two `**` markers in different fragments. Both are corrections to the stated rule, so no
+SRS text was edited. The rule that made this work: **fix a bad summary in the SRS sentence,
+never with an exception in the script.**
+
+**Two criteria close unticked and both need a push.** AC-10 (the `repo-gates` job green on
+the branch) and AC-12's scratch-commit half cannot be closed from a workstation. AC-12's
+mechanism *was* demonstrated locally — a throwaway `[R27.99]` made `--check` print
+`missing row R27.99` and exit 1 — and CI runs that exact command, but "CI is red" has not
+been observed. The gate was otherwise mutation-probed in both directions before landing:
+red on a deleted row, red on an invented `[R99.99]` citation, green once reverted.
 Removed on 2026-08-22 after implementation:
 `2026-08-22-visual-refinement-phase3-verification-and-debt` (the parity baseline is
 regenerated and CI is no longer red on it; the product phase 2 shipped has now been
