@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-24
 requirements: [R27.01]
 depends_on: []
@@ -281,31 +281,44 @@ machine.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `python scripts/traceability.py` regenerates `docs/traceability.csv` and running
-  it twice in a row produces no diff.
-- [ ] AC-2: `python scripts/traceability.py --check` exits 0 against the committed file and
-  exits non-zero, naming the offending row, when a row is edited or deleted.
-- [ ] AC-3: The regenerated file has one row per defined requirement — 389 today — with every
-  one of the 83 previously-missing IDs present, including all 38 `R30.*`.
-- [ ] AC-4: The script fails, with a message naming the ID, when `REQUIREMENTS.md` defines the
+- [x] AC-1: `python scripts/traceability.py` regenerates `docs/traceability.csv` and running
+  it twice in a row produces no diff. Verified by hashing the file after two consecutive runs.
+- [x] AC-2: `python scripts/traceability.py --check` exits 0 against the committed file and
+  exits non-zero, naming the offending row, when a row is edited or deleted. The deletion arm
+  is the AC-9 probe.
+- [x] AC-3: The regenerated file has one row per defined requirement — **421**, not the 389
+  §4 measured; see D-1 — with every previously-missing ID present, including all **43**
+  `R30.*` and the 15 `R11a.*`/`R19a.*` §4 never counted.
+- [x] AC-4: The script fails, with a message naming the ID, when `REQUIREMENTS.md` defines the
   same ID twice; and its success output states how many definitions it found, so a dropped
-  one is visible as a count change.
-- [ ] AC-5: All three ID shapes round-trip: `[R30.15]`, `[R7.09a]` and `[R22.15.01]` each
-  produce a row, and each of the three definition forms in §4 is represented in the output.
-- [ ] AC-6: The regeneration diff is reviewed row by row for the 306 rewritten summaries, and
-  every case where the derived text reads materially worse than the authored one is resolved
-  by editing the SRS sentence rather than by an exception in the script.
-- [ ] AC-7: The citation check fails against `docs/implement/E-agents-knowledge.md` as it
-  stands today, naming `[R9.04]`, `[R9.05]` and `[R9.08]` with their `path:line`.
-- [ ] AC-8: Those three citations are corrected — §31 supersedes them — and the check then
-  passes across all four scan roots.
-- [ ] AC-9: The check is mutation-probed in both directions before landing: it goes red on a
-  deleted CSV row, red on an invented `[R99.99]` citation added to a scanned file, and green
-  once both are reverted.
-- [ ] AC-10: `repo-gates` runs the check in CI and the job is green on the branch.
-- [ ] AC-11: §27 of `REQUIREMENTS.md` names the script and the gate, and states no row count.
+  one is visible as a count change. Probed against the live SRS: a duplicated `[R27.01]`
+  reported `REQUIREMENTS.md:2101 and REQUIREMENTS.md:2102`.
+- [x] AC-5: All ID shapes round-trip: `[R30.15]`, `[R7.09a]`, `[R22.15.01]` and — per D-1 —
+  `[R19a.10]` each produce a row, and each of the three definition forms in §4 is represented
+  in the output. Pinned by `test_all_four_id_shapes_round_trip` against a fixture SRS.
+- [x] AC-6: The regeneration diff was reviewed row by row. 186 of the 306 authored rows
+  reproduce byte-for-byte from the mechanical rule; the 120 that differ are truncation
+  removed, stale text the CSV never picked up, or authored mangling (lost apostrophes,
+  em-dashes flattened to hyphens, `§` and `≤` dropped, italic markers left in). **No SRS
+  sentence needed editing**: the two rows whose derived text was materially worse (`R9.13`,
+  `R12.11`, plus `R24.18`) were parser bugs, fixed in the parser — see D-3.
+- [x] AC-7: The citation check failed against the repo as it stood, naming `[R9.04]`,
+  `[R9.05]` and `[R9.08]` with their `path:line` — and a fifth the spec did not know about,
+  `docs/implement/K-agent-runtime.md:83`. See D-4.
+- [x] AC-8: Those citations are corrected — §31 supersedes them — and the check passes across
+  all four scan roots (2083 files scanned, five exclusions; see D-6 for the fifth).
+- [x] AC-9: Mutation-probed in both directions before landing. Red on a deleted CSV row
+  (`missing row R30.15`), red on an invented `[R99.99]` citation
+  (`docs/implement/K-agent-runtime.md:209: [R99.99]`), green once both were reverted.
+- [ ] AC-10: `repo-gates` runs the check in CI and the job is green on the branch. **Cannot
+  close locally** — the step is wired into `.github/workflows/ci.yml` and `repo-gates` is in
+  the required-jobs list (`ci.yml:1518`), but a green run needs a push, which was not made.
+- [x] AC-11: §27 of `REQUIREMENTS.md` names the script (`:2097`) and the gate, and states no
+  row count. Applied at approval; verified in place.
 - [ ] AC-12: Adding a requirement to `REQUIREMENTS.md` without regenerating the CSV makes CI
-  red — demonstrated on a scratch commit, not argued.
+  red. **Demonstrated locally, not on a scratch commit**: a throwaway `[R27.99]` made
+  `--check` report `missing row R27.99` and exit 1, and was reverted. CI runs that exact
+  command, but the scratch-commit half needs a push.
 
 ## 12. Test Plan
 
@@ -369,7 +382,68 @@ on the day it lands.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1 — A fourth ID shape the spec never measured.** §4's table lists three shapes totalling
+  389 IDs. The live SRS holds **421**, and the gap is two unrelated things. 17 are legitimate
+  growth: `ecb0c6d` and `f5283e1` applied the other 2026-08-24 dossiers' SRS deltas plus this
+  spec's own `[R27.01]` after §4 was measured (R30 +5, R32 +6, R28 +5, R27 +1). The other 15
+  are a **measurement error**: a letter suffix on the *chapter* number — `[R11a.01]`,
+  `[R11a.02]` (`REQUIREMENTS.md:553-554`, under §11) and `[R19a.01]`–`[R19a.13]` (§19a is a
+  real chapter at `:945`) — which the normative regex in rules 1 and 6 cannot match.
+  Implemented as specified, the CSV would have omitted 15 defined requirements, contradicting
+  `[R27.01]`'s "exactly one row per `[Rxx.yy]` defined in this document", and the citation
+  check would have been blind to four live citations of `R19a.12`, `R19a.13`, `R11a.01` and
+  `R11a.02` in code and docs. **Raised before implementation and decided by the user**: widen
+  rules 1 and 6 to `R\d+[a-z]?\.\d+(\.\d+)?[a-z]?`, and correct AC-3 and AC-5 to match. This
+  is the failure mode §4 itself documents, arriving one level up from where it was expected.
+
+- **D-2 — §14's open question resolved: no truncation.** The implementer's choice, confirmed
+  by the user, is that `summary` carries the requirement's full derived text. No row ends in
+  `...`; the longest is `[R12.03b]` at 1502 characters. Two other unspecified formatting choices
+  are recorded here rather than left to be rediscovered: the `requirement_id` column is
+  emitted bare and `section`/`summary` are **always** quoted (matching the file that existed,
+  and keeping every row the same shape whether or not its text holds a comma), and the file is
+  UTF-8 without BOM with LF endings, which `.gitattributes:2` already forces.
+
+- **D-3 — Two parser rules §5 did not state, found by AC-6's review.** Rule 3 says a summary
+  runs "to the end of that Markdown block" with "inline markdown removed". Two cases were not
+  covered and both produced visibly worse text than the authored row, which is exactly what
+  AC-6 exists to catch:
+  (a) a **fenced code block** directly beneath a definition, with no blank line between —
+  `[R9.13]`, `[R12.11]` and `[R24.18]` each swallowed their example into the summary. A fence
+  now ends the block, which is what rule 3 already meant.
+  (b) **emphasis wrapping a code span** — `[R24.13]`'s ``**Slice `api/` folders wrap these**``
+  survived unstripped, because splitting the line on code spans puts the two `**` markers in
+  different fragments. Code spans are now stashed behind placeholders instead, which also
+  protects the `*` inside `` `S*` ``, `` `on*` `` and `` `ceil(numerator * N / denominator)` ``
+  from being paired as italics across a span boundary.
+  Both are corrections to the stated rule, not exceptions to it, so no SRS sentence was edited.
+
+- **D-4 — A fifth dangling citation, and two unbracketed ones.** Q-4 and AC-7 name three
+  dangling IDs in `docs/implement/E-agents-knowledge.md`. The check found a fourth occurrence
+  (`E-agents-knowledge.md:75`) and a fifth file: `docs/implement/K-agent-runtime.md:83` cites
+  `[R9.04]` as the head of a `[R9.04]`–`[R9.11]` range. While fixing those, two **unbracketed**
+  citations of the same removed requirements were found by hand in the same two files —
+  `K-agent-runtime.md:74` `(R9.05)` and `E-agents-knowledge.md:335` `(R9.07)` — and corrected
+  with them, since leaving a knowingly-wrong citation two lines from one the gate forced open
+  would be worse than the sweep being slightly wider than AC-8's wording. The bare form is
+  outside the check's reach by design; see FU-7.
+
+- **D-5 — Two failure messages the NFR demanded and the first implementation did not give.**
+  §7 requires the script to distinguish its failure modes, "because a gate whose failure
+  message does not say what to do gets suppressed". The row-level report could not explain two
+  byte-comparison failures that show no row difference: a UTF-8 BOM added by an editor, and a
+  changed header. Both would have printed "differs R3.01" over two visually identical rows.
+  They are now named explicitly, and pinned by two tests.
+
+- **D-6 — A fifth exclusion §5's rule 7 does not list: the test's own fixture.**
+  `backend/tests/unit/test_traceability_extraction.py` embeds a fixture SRS whose IDs are
+  invented on purpose — `[R7a.01]` has to be spelled out to prove the parser sees that shape —
+  so four of them dangle against the real SRS by construction. This was invisible while the
+  file was untracked and turned the gate red the moment it was committed, which is a fair
+  demonstration of why the scan uses `git ls-files`. The file is excluded by name, with its
+  reason printed on every run, in the same shape and for the same kind of reason as
+  `check_no_lazy_prompt.py:41-44`. A test asserts the exclusion still covers the file's own
+  path, so renaming the fixture cannot silently drop it.
 
 ## 16. Follow-ups
 
@@ -388,3 +462,22 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   `status`, and a value outside the enum is one no gate can reason about; the dossier is
   almost certainly `implemented`. Worth a sweep of every `spec.md` frontmatter for other
   out-of-enum values while fixing it.
+- **FU-5** — A `**[Rxx.yy]**` marker inside a fenced code block would be parsed as a
+  definition and produce a phantom row. Because the generator and the checker share one
+  parser, both would agree and CI would stay green — a silent wrong result, which is the one
+  failure class this gate was built to remove. There are **zero occurrences today** (verified:
+  no definition and no `## ` heading falls inside a fence in `REQUIREMENTS.md`), and fixing it
+  means tracking fence state in `parse_requirements`, which changes normative rule 1. Not done
+  unilaterally; worth doing the next time §5 is opened.
+- **FU-6** — `scripts/` is covered by no lint or type job. `ruff check` finds real issues there
+  (`B007` in the first draft of `traceability.py`; `S603`/`S607` in the pre-existing
+  `check_no_lazy_prompt.py:61-62`), and `mypy .` runs with `cwd=backend` so it never sees the
+  directory at all. Both were run by hand for this task. Adding `scripts/` to a lint job needs
+  a decision about which rules apply to a repo gate versus to application code.
+- **FU-7** — The citation check sees only the bracketed `[R13.13]` form. The unbracketed
+  `R13.13` form is used freely in both the SRS and `docs/implement/`, and D-4 found two bare
+  citations of removed requirements purely by hand. A looser pattern would catch them at the
+  cost of false positives on ordinary prose; deciding that trade is its own task.
+- **FU-8** — `docs/implement/K-agent-runtime.md:85` still lists "Lazy-prompt section load
+  round-trip" as an exit criterion for a mechanism removed on 2026-07-16. A concrete instance
+  of FU-3, left alone because no citation dangles and the gate does not reach prose.
