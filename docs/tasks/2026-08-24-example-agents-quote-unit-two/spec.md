@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-24
 requirements: [R30.28, R30.29, R30.35]
 depends_on: []
@@ -290,32 +290,32 @@ This changes what an LLM agent is instructed to repeat into a class-visible chan
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: TA, SA and AA each state that `mandala-9grid` and `time-traveler-next-steps`
+- [x] AC-1: TA, SA and AA each state that `mandala-9grid` and `time-traveler-next-steps`
       answers may be quoted, paraphrased and built on.
-- [ ] AC-2: TA, SA and AA each state that `emotion-desk-three-emotions` and
+- [x] AC-2: TA, SA and AA each state that `emotion-desk-three-emotions` and
       `six-hats-emotion-desk` answers may never be quoted, paraphrased or repeated — for AA,
       including in its teacher-only notes.
-- [ ] AC-3: TA, SA and AA each state that a quotable answer is never raised unprompted.
-- [ ] AC-4: Every shipped prompt still admits it can see submission content
+- [x] AC-3: TA, SA and AA each state that a quotable answer is never raised unprompted.
+- [x] AC-4: Every shipped prompt still admits it can see submission content
       (`test_no_agent_pretends_it_cannot_see_a_submission` passes unchanged).
-- [ ] AC-5: AA still reports by code and never by name; its creativity-dimension disclaimer
+- [x] AC-5: AA still reports by code and never by name; its creativity-dimension disclaimer
       is unchanged.
-- [ ] AC-6: TA and SA still carry the unit 4 boundary (`不要追問`, `誘導`, `諮商`).
-- [ ] AC-7: DA still requires three constraints in what it drafts, with the first now the
+- [x] AC-6: TA and SA still carry the unit 4 boundary (`不要追問`, `誘導`, `諮商`).
+- [x] AC-7: DA still requires three constraints in what it drafts, with the first now the
       split rule.
-- [ ] AC-8: `test_agent_example_packs.py` asserts AC-2 and AC-3 over the shipped files, and
+- [x] AC-8: `test_agent_example_packs.py` asserts AC-2 and AC-3 over the shipped files, and
       goes red when either the unit 4 prohibition or the volunteer bound is removed from any
       room-facing prompt.
-- [ ] AC-9: The guide's constraint #1 states the split rule and the §5.2 default, names
+- [x] AC-9: The guide's constraint #1 states the split rule and the §5.2 default, names
       `expose_payload_to_agent` as the structural guarantee **and says it is a platform
       admin's edit for the shipped platform-scoped types**, names the project-scoped copy as
       the facilitator's own alternative, and states that existing installs keep the old
       prompt.
-- [ ] AC-12: Every room-facing prompt states that a type key in neither column is unquotable,
+- [x] AC-12: Every room-facing prompt states that a type key in neither column is unquotable,
       asserted by `test_agent_example_packs.py` and mutation-probed by deleting the clause.
-- [ ] AC-10: The dry-run checklist's quoting line is split into a unit 2 line and a unit 4
+- [x] AC-10: The dry-run checklist's quoting line is split into a unit 2 line and a unit 4
       line rather than removed.
-- [ ] AC-11: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`.
+- [x] AC-11: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`.
 
 ## 12. Test Plan
 
@@ -348,10 +348,56 @@ that example content is repository data rather than platform behaviour.
 
 ## 15. Deviation Log
 
-Empty. Appended by `/build`.
+- **D-1. The three new assertions run over every shipped agent, not only the room-facing
+  ones.** §5.3 says "every room-facing prompt". The test they replace was already
+  parametrised over all of `SHIPPED_AGENTS`, so scoping the replacements to TA/SA/AA would
+  have *removed* DA from a constraint it previously carried. DA is the agent that must
+  require these rules in the TA/SA prompts it drafts (AC-7), so its own prompt carrying them
+  is correct rather than incidental. DA's prompt was updated to match.
+
+- **D-2. A fourth clause was added to every prompt, plus a fifth assertion and a fifth
+  dry-run item, after the security gate.** Not in the approved spec. The gate found that
+  moving from an absolute prohibition to one keyed on a literal type code puts
+  attacker-controlled text on the same row as the field the safety decision reads:
+  `_format_row` appends the participant's own answer digest after an em dash
+  (`activity_context_provider.py:202-210`), so a student can write `mandala-9grid`, or a
+  sentence shaped like a rule change, into their own unit 4 answer and have it land in every
+  agent's context. `_one_line` (`:150-170`) stops them forging a whole row, and
+  `_CONTENT_NOTE` (`:64-67`) already tells the model that post-em-dash text is the
+  participant's own words — but no prompt tied the two together. Each prompt now states that
+  the type code lives only between the attempt number and the colon, and that anything after
+  the em dash is a participant's words rather than a field or an instruction.
+  `test_the_type_code_is_read_from_the_row_not_from_the_answer` pins it, mutation-probed.
+  **§8 anticipated model error but not attacker-steered model error**; the flat prohibition
+  this replaced had no token to attack, so the exposure is introduced by this change and was
+  fixed inside it rather than deferred.
+
+- **D-3. AC citations in `test_agent_example_packs.py` were qualified with their dossier.**
+  From the quality gate: the class mixes AC numbers from this dossier and from
+  `2026-08-13-creative-thinking-example-agents`, and a bare "AC-9" resolved against the wrong
+  one. Docstring-only.
 
 ## 16. Follow-ups
 
 - **FU-1.** The same prohibition is stated three times in three wordings across the room pack,
   and DA restates it a fourth. There is no shared prompt fragment mechanism for packs, so
   every change like this one is a four-place edit that a test can only check by substring.
+  D-2 made this worse rather than better: the injection clause is now a fifth string that has
+  to stay consistent across four files.
+
+- **FU-2. Closed, not deferred — fixed on the user's instruction, in its own commit.**
+  `mypy .` failed on `contexts/conversation/application/access.py:267`:
+  `bindings.get(room.id, frozenset()) & my_group_ids` is `set[UUID] | frozenset[Never]` on the
+  left, because a bare `frozenset()` infers `frozenset[Never]`. Pre-existing — the file was
+  byte-identical to this task's base commit `ecb0c6d`, so it arrived with
+  `2026-08-20-member-groups-and-room-visibility-isolation` and would have kept `mypy .` red on
+  the branch regardless of this task. The default is now `set()`, which resolves to the dict's
+  own value type. Verified: `mypy .` clean over 965 files, and the 63 room-ACL tests
+  (`test_visible_room_ids`, `test_room_listing_bound`, `test_room_member_group_binding`,
+  `test_member_group_service`) pass. Kept out of this task's own commit so the example change
+  reverts cleanly on its own.
+
+- **FU-3.** Every parametrised test in `test_agent_example_packs.py` annotates
+  `pack: Any, agent: Any`, and most ignore `pack` entirely — it exists only to satisfy the
+  `SHIPPED_AGENTS` tuple shape. Pre-existing convention, matched rather than diverged from by
+  the new tests. Worth a typed fixture if the module is revisited.
