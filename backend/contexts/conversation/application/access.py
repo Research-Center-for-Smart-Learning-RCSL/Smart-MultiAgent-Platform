@@ -264,7 +264,10 @@ async def visible_room_ids(
             project_id=project_id,
             roles=roles_by_project[project_id],
             is_guest=room.id in guest_ids,
-            in_bound_group=bool(bindings.get(room.id, frozenset()) & my_group_ids),
+            # Default typed to the dict's own value type: a bare `frozenset()`
+            # infers `frozenset[Never]`, and mypy cannot then resolve `&` against
+            # `set[UUID]` on the other side.
+            in_bound_group=bool(bindings.get(room.id, set()) & my_group_ids),
         )
         if _satisfies_room_flags(access):
             visible.add(room.id)
