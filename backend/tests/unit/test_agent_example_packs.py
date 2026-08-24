@@ -11,10 +11,11 @@ system can check them:
   without updating a pack fails this file.
 - **AC-7, the import direction**, asserted statically for the same reason: no tool
   in CI covers it.
-- **AC-9/10/11, the three prompt constraints.** They are content, not code, so a
-  reviewer is the only other thing standing between a shipped prompt and a
-  classroom. These assert over the *shipped* files rather than over fixtures --
-  a constraint that holds only for a hand-built example is worth nothing.
+- **The prompt constraints.** They are content, not code, so a reviewer is the only
+  other thing standing between a shipped prompt and a classroom. These assert over
+  the *shipped* files rather than over fixtures -- a constraint that holds only for
+  a hand-built example is worth nothing. Two dossiers number them and each citation
+  in ``TestPromptConstraints`` names its own; see that class's docstring.
 - The loader's rejection rules, mirroring the course catalogue's own table.
 """
 
@@ -193,7 +194,12 @@ class TestPacksResolveAgainstTheirCourse:
 
 
 class TestPromptConstraints:
-    """AC-9, AC-10, AC-11: the three things a shipped prompt must say.
+    """What a shipped prompt must say.
+
+    Two dossiers number the criteria here, so every citation below names its own:
+    ``example-agents`` is 2026-08-13-creative-thinking-example-agents, ``quote-unit-two``
+    is 2026-08-24-example-agents-quote-unit-two. A bare "AC-9" resolves against the
+    wrong one half the time.
 
     Asserted by substring rather than by meaning, which is the honest limit of a
     test here: it catches a constraint deleted or lost in an edit, not a prompt
@@ -202,14 +208,56 @@ class TestPromptConstraints:
     """
 
     @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
-    def test_no_agent_may_quote_a_participant_submission(self, pack: Any, agent: Any) -> None:
-        """AC-9. Both shipped units set echo_includes_content false, so the room
-        transcript deliberately withholds answer text; an agent reading the digest
-        aloud reverses that for the whole class."""
+    def test_unit_four_answers_may_not_be_quoted_or_paraphrased(self, pack: Any, agent: Any) -> None:
+        """quote-unit-two AC-2/AC-8. The quoting rule is split by activity type: unit 2 answers are
+        quotable in response, unit 4 answers are not.
+
+        Both halves of the prohibition are asserted. Checking only ``不引述`` would
+        let the paraphrase clause be deleted from the safety-critical column with the
+        suite green, which is a net loss against the constraint most likely to be
+        weakened by a later edit of this rule.
+
+        Keyed on the type keys rather than on "unit 4", because ``type_key`` is what
+        the activity context block actually puts in front of the model
+        (``activity_context_provider._format_row``); "單元四" appears nowhere in its
+        structured input.
+        """
         prompt = agent.system_prompt
 
+        for type_key in ("emotion-desk-three-emotions", "six-hats-emotion-desk"):
+            assert type_key in prompt, f"{agent.key} does not name the unit 4 type {type_key}"
         assert "引述" in prompt, f"{agent.key} states no quoting prohibition"
         assert "轉述" in prompt, f"{agent.key} states no paraphrasing prohibition"
+
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_a_quotable_answer_is_never_volunteered(self, pack: Any, agent: Any) -> None:
+        """quote-unit-two AC-3/AC-8. Relaxing the ban without the volunteer bound would license an
+        agent to open a turn with someone's answer or read the class's answers out as
+        a survey — neither of which anyone asked for."""
+        assert "不主動" in agent.system_prompt, f"{agent.key} states no volunteer bound"
+
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_an_unlisted_activity_type_defaults_to_unquotable(self, pack: Any, agent: Any) -> None:
+        """quote-unit-two AC-12/AC-8. Both columns are literal enumerations, so without a default the
+        safety-critical sentence is silent for every type they do not name — and a
+        Project Owner may register one at any time ([R30.23])."""
+        assert "一律當成不可引述" in agent.system_prompt, (
+            f"{agent.key} states no default for an unlisted type"
+        )
+
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_the_type_code_is_read_from_the_row_not_from_the_answer(self, pack: Any, agent: Any) -> None:
+        """quote-unit-two, added at the security gate. The split rule keys on a
+        literal type code, and a participant's own answer text is appended to the
+        same row after an em dash (``activity_context_provider._format_row``), so a
+        student can put ``mandala-9grid`` -- or a sentence shaped like a rule change --
+        inside their unit 4 answer and have it land in every agent's context.
+
+        The flat prohibition this replaced had no token to attack. Each prompt must
+        therefore say where the code actually is, and that anything after the em dash
+        is the participant's words rather than a field or an instruction.
+        """
+        assert "破折號後面" in agent.system_prompt, f"{agent.key} does not locate the type code on the row"
 
     @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
     def test_no_agent_pretends_it_cannot_see_a_submission(self, pack: Any, agent: Any) -> None:
@@ -222,7 +270,7 @@ class TestPromptConstraints:
         assert "看得到" in agent.system_prompt, f"{agent.key} never admits it can see the content"
 
     def test_the_analyst_disclaims_the_three_unscored_creativity_dimensions(self) -> None:
-        """AC-10. filled_count operationalizes fluency alone; flexibility,
+        """example-agents AC-10. filled_count operationalizes fluency alone; flexibility,
         originality and elaboration have no scorer and no delivered rubric."""
         aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-silent-analyst")
 
@@ -236,7 +284,7 @@ class TestPromptConstraints:
         ["ta-guidance-teacher", "sa-peer-catalyst"],
     )
     def test_the_room_facing_agents_carry_the_unit_four_boundary(self, agent_key: str) -> None:
-        """AC-11. Unit 4 collects negative-affect narratives from 13-year-olds."""
+        """example-agents AC-11. Unit 4 collects negative-affect narratives from 13-year-olds."""
         agent = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key)
 
         assert "不要追問" in agent.system_prompt
