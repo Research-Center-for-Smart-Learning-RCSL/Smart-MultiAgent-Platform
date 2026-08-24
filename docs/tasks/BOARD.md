@@ -171,6 +171,22 @@ first, but building them serially avoids the conflict.
   reported nine non-existent "stale" rows — the 16 IDs that pattern cannot see are 4 % of the
   corpus, and getting this wrong looks like a finding rather than a bug.
 
+### From the 2026-08-24 example-agent scope work
+
+- `2026-08-24-example-agents-quote-unit-two` (feature, **draft**) — `depends_on: []`.
+  **The one to build first in the 2026-08-24 series**: example content alone, with **no SRS
+  Delta, no platform code, no migration**. It splits the example agents' quoting rule by
+  activity type — `mandala-9grid` and `time-traveler-next-steps` answers become quotable in
+  response (never volunteered), while `emotion-desk-three-emotions` and
+  `six-hats-emotion-desk` stay unquotable, unchanged. **Its §4.1 is the finding that makes it
+  cheap**: the prohibition was never a requirement, it lives only in three prompt strings, one
+  substring test (`test_agent_example_packs.py:205-212`) and the guide, and
+  [R30.28]/[R30.35] both say example content is repository data. **Its Q-3 is the detail worth
+  keeping**: the rule is keyed on *type keys*, not on "unit 2" and "unit 4", because
+  `type_key` is what the activity context block actually puts in front of the model
+  (`activity_context_provider.py:207`). Two dossiers in Blocked depend on it. **Its AC-8 must
+  be mutation-probed** — a substring test that has never been seen to fail is not evidence.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
@@ -324,8 +340,13 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   revokes every project's opt-in. Migration 0080.
 
 - `2026-08-24-agent-readable-live-drafts` (feature, **draft**) — waiting on
-  `2026-08-24-traceability-extraction-gate` and on `2026-08-24-observer-presentation-blocks`.
-  The second is an **overlap prerequisite**: both add a runtime tool through the same three
+  `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
+  `2026-08-24-example-agents-quote-unit-two`. The last is a **logical** prerequisite (its
+  Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
+  dossier splits by activity type, and written second it says the sharper thing — unit 2
+  submissions became quotable, drafts stay unquotable in both units, because what governs a
+  draft is not topic sensitivity but the author not having chosen to send it. The blocks
+  dossier is an **overlap prerequisite**: both add a runtime tool through the same three
   seams (`BUILTIN_TOOL_NAMES`, `build_agent_tools`' signature, `_build_tools`). Lets a
   granted binding read a room's unsent composer and activity-worksheet text on demand, via
   `read_drafts`. Reported over the existing room WebSocket like `typing.start`, held **only**
@@ -339,6 +360,35 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   *submission* and say nothing about a draft, so this task edits all three prompts and the
   example guide. A build that ships the grant with AC-16 unticked is the one combination the
   dossier exists to prevent. Opens SRS chapter §32. Migration 0081.
+
+### From the 2026-08-24 group-submission work
+
+- `2026-08-24-group-activity-submissions` (feature, **draft**) — waiting on
+  `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
+  `2026-08-24-example-agents-quote-unit-two`. **The largest of the series.** Lets a project
+  Member Group ([R13.28]) be the subject of an `ActivitySession`, via a proposal one member
+  makes and the group votes on. The platform does **not** hard-code unanimity: an activity
+  type declares the consent fraction in a new `group_config`, as two integers so the required
+  count is exact integer arithmetic, and the shipped example uses 2/3.
+
+  **Read its §4.4 before proposing a group variant of anything.** None of the four existing
+  example types fits, and the analysis is not a preference: units 2 and 4 are first-person by
+  construction, and unit 2's *stated teaching point* is that answers differ per person — TA's
+  prompt says "不需要被統一成一種答案" and AA's says the spread is the unit's most valuable
+  observation. A consensus answer erases the signal both agents exist to surface. Unit 4 is
+  worse: group consent over one member's distressing event either publishes it or forces a
+  fiction. So the task **adds** `six-hats-shared-case` (the hats applied to a shared scenario,
+  which is de Bono's original group use) and edits none of the four.
+
+  **Three things a builder needs.** Its migration 0082 relaxes `NOT NULL` on
+  `activity_sessions.subject_user_id` and replaces it with a CHECK — AC-1 and AC-7 are
+  `pytest.mark.db` because a CHECK and a partial unique index are invisible to the unit tier.
+  Its Q-4 defines rejection as *threshold unreachable*, not first-dissent, because the latter
+  silently implements unanimity. And **`allow_member_groups` is mutually exclusive with
+  `allow_project_members`** (`chatroom_service.py:39-43`, [R13.04]), so adopting group
+  submission changes who can enter the room, not just who submits together — AC-18 puts that
+  warning in the settings UI, and its OQ-1 records that a guest can never join a group
+  submission at all.
 
 ## In progress
 
