@@ -25,6 +25,7 @@ import ast
 import copy
 import json
 import pathlib
+import re
 from typing import Any
 
 import pytest
@@ -193,6 +194,23 @@ class TestPacksResolveAgainstTheirCourse:
         assert not missing, f"{pack.pack_key}/{agent.key} binds unknown type(s) {missing}"
 
 
+UNIT_FOUR_TYPES = ("emotion-desk-three-emotions", "six-hats-emotion-desk")
+
+# `；` is in the separator set because the design agent packs both halves of the split
+# rule into one sentence — "...可以引述、轉述、延伸；`emotion-desk-...` 不得唸出、引述或
+# 轉述..." — so splitting on `。` alone leaves the permissive half inside the window and
+# the assertion goes back to being satisfiable by the wrong column.
+_CLAUSE_SEPARATORS = re.compile(r"[\n。；]")
+
+
+def _unit_four_clause(prompt: str) -> str:
+    """The one clause that governs both unit 4 activity types, or "" if there is none."""
+    for clause in _CLAUSE_SEPARATORS.split(prompt):
+        if all(type_key in clause for type_key in UNIT_FOUR_TYPES):
+            return clause.strip()
+    return ""
+
+
 class TestPromptConstraints:
     """What a shipped prompt must say.
 
@@ -221,13 +239,25 @@ class TestPromptConstraints:
         the activity context block actually puts in front of the model
         (``activity_context_provider._format_row``); "單元四" appears nowhere in its
         structured input.
+        Asserted against the unit-4 *clause*, not the whole prompt. Since the rule was
+        split by activity type, every prompt also carries a permissive clause reading
+        ``可以引述、轉述、延伸`` for the unit-2 types — so a whole-prompt substring check
+        for ``引述``/``轉述`` is satisfied by the permissive column no matter what the
+        unit-4 half says. Probed: with ``轉述`` deleted from all four prohibitions, the
+        whole-prompt form left every test in this file green.
         """
         prompt = agent.system_prompt
 
-        for type_key in ("emotion-desk-three-emotions", "six-hats-emotion-desk"):
+        for type_key in UNIT_FOUR_TYPES:
             assert type_key in prompt, f"{agent.key} does not name the unit 4 type {type_key}"
-        assert "引述" in prompt, f"{agent.key} states no quoting prohibition"
-        assert "轉述" in prompt, f"{agent.key} states no paraphrasing prohibition"
+
+        clause = _unit_four_clause(prompt)
+        assert clause, f"{agent.key} has no single clause governing both unit 4 types"
+        assert "引述" in clause, f"{agent.key} states no quoting prohibition for unit 4"
+        assert "轉述" in clause, f"{agent.key} states no paraphrasing prohibition for unit 4"
+        assert any(word in clause for word in ("不可以", "不得", "絕不")), (
+            f"{agent.key} names the unit 4 types without forbidding anything: {clause[:120]}"
+        )
 
     @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
     def test_a_quotable_answer_is_never_volunteered(self, pack: Any, agent: Any) -> None:

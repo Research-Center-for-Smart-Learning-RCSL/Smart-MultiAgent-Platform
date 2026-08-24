@@ -377,6 +377,22 @@ that example content is repository data rather than platform behaviour.
   `2026-08-13-creative-thinking-example-agents`, and a bare "AC-9" resolved against the wrong
   one. Docstring-only.
 
+- **D-4. The unit-4 assertion was scoped to the unit-4 clause, after a post-close
+  `/code-review` found it could no longer fail.** Appended 2026-08-24, after this dossier
+  reached `implemented`. `test_unit_four_answers_may_not_be_quoted_or_paraphrased` asserted
+  `引述` and `轉述` against the **whole prompt**. That was sound before this change, when the
+  only place those words appeared was the prohibition. Splitting the rule by activity type
+  added a permissive clause to every prompt — `可以引述、轉述、延伸` for the unit-2 types —
+  which satisfies both substrings on its own, so the assertion stopped depending on the
+  unit-4 half at all. **Probed, not argued**: deleting `轉述` from all four prohibitions left
+  every test in the file green, which is precisely the failure D-2's own docstring claims the
+  two-substring form prevents. The test now locates the single clause naming both unit-4 type
+  keys and asserts inside it, plus that the clause negates something. `；` is in the clause
+  separator set because the design agent packs both halves of the rule into one sentence;
+  splitting on `。` alone leaves the permissive half inside the window and restores the hole.
+  Re-probed in both directions across all four shipped agents: red when `轉述` is deleted, red
+  when the prohibition is inverted to a permission, green unmutated.
+
 ## 16. Follow-ups
 
 - **FU-1.** The same prohibition is stated three times in three wordings across the room pack,
