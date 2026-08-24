@@ -53,9 +53,11 @@ way to render as anything but a bulleted list.
   (`ObservationReleaseDialog.vue:15-20`) keeps working on the serialised markdown and is
   the only editing surface.
 - **Normal-role agents get nothing.** The tool is bound to observer-role turns only.
-- **No change to `filled_count`, `RecentActivityRow`, or the recent-activity block format.**
-  The new per-field fact is supplied by a *new* first-party validator that the example
-  course opts into (Q-4).
+- **No change to `filled_count` or `RecentActivityRow`.** The new per-field fact is supplied
+  by a *new* first-party validator that the example course opts into (Q-4). The
+  recent-activity block is touched in exactly one place — `_CONTENT_NOTE` must stop calling a
+  server-computed digest the participant's own words (§6) — and that is a correction the
+  validator change forces, not a widening of scope.
 - **No change to the observation retention, soft-delete, release-CAS or audit paths.**
 
 ## 3. Clarifications
@@ -68,7 +70,7 @@ way to render as anything but a bulleted list.
 | Q-4 | `field_coverage` and `mandala_grid` need "which box was filled", and no such fact exists. Where does it come from? | A **new** first-party validator that sets `ValidationResult.detail` and records the filled field names in `sub_scores`. The example course's four types opt into it. `filled_count` is untouched. | The user's constraint was to change the example, not the platform. `build_agent_digest` prefers `detail` over the raw-payload dump (`agent_digest.py:21-27`), so this also **removes participant answer text from the digest** for these types, which is a privacy improvement over today. Registering an additional validator in `app/plugins/activity_validators.py` is the sanctioned site for a first-party validator (its docstring, `:1-8`) and changes no existing type's behaviour. |
 | Q-5 | Who arranges the blocks? | The agent. The creator reads, releases or deletes, exactly as today. | Matches the request ("let the observer choose how to present, per situation"). An observation row is immutable except for the release CAS (`observation_repo.py:167-217`); a creator-side re-arrangement would need a mutable presentation layer, which is a separate feature. |
 | Q-6 | Do the blocks reach the room on release? | No. Release serialises to markdown, unchanged. | Keeps `messages`, the WS fan-out, the release dialog and the disclosure rules ([R28.09]) entirely out of scope, and avoids a second public data surface over student submissions. |
-| Q-7 | Does this depend on `2026-07-19-large-artifacts-silently-dropped`, which is `status: in-progress` and edits the same two files? | No. The user confirmed on 2026-08-24 that it is complete; its frontmatter is stale. | Its edits are `_persist_artifacts` (`turn_engine.py:1133`, `:1843`) and the `code_exec` block of `builtin_tools.py:185-209`; this task edits `_build_tools` (`turn_engine.py:1489-1528`), the observer record branch (`:3026-3078`) and `build_agent_tools`' signature (`builtin_tools.py:863-873`). Different regions, same files. See FU-1. |
+| Q-7 | Does this depend on `2026-07-19-large-artifacts-silently-dropped`, which is `status: in-progress` and names the same two files? | No — it is complete. The user confirmed that on 2026-08-24; its frontmatter is stale, its Deviation Log is filled in, and its close-out reviews are committed (`4323256`, `f0733fc`). | Nothing sequences against finished work, so no region comparison is needed. **Do not reuse that dossier's line anchors**: they were written against an older `turn_engine.py` and no longer resolve — `_persist_artifacts` is at `:2008` today, not the `:1133`/`:1843` it cites. Its prose is still accurate; only its coordinates have moved. See FU-1. |
 | Q-8 | Does this depend on `2026-08-24-traceability-extraction-gate`? | Yes — `depends_on: [2026-08-24-traceability-extraction-gate]`. | Overlap prerequisite. This task's SRS Delta adds `[R28.15]`-`[R28.19]`, each of which needs a `docs/traceability.csv` row; that dossier rewrites all 306 existing rows from a generator it builds. Sequencing means the new rows are produced by the script rather than hand-written into a file that is about to be regenerated. |
 
 ## 4. Current State
@@ -269,6 +271,33 @@ its limits into the room with it.
 the markdown path for any observation whose `blocks` is empty, which covers every row
 written before this migration.
 
+### 5.5 Blocks with no prose — the path that would otherwise lose them
+
+`run_turn` guards on `if not final_text.strip():` (`turn_engine.py:2958`) and **returns
+`skipped` before the observer branch at `:3026` is ever reached**, emitting
+`observation.skipped` / `observation.failed` (`:2985-2993`) and calling
+`ObservationService.record` not at all. A model told to deliver its analysis as structured
+blocks — the entire point of this feature — that calls `present_observation` and then says
+nothing in prose is the ordinary case, not an edge case, and under the guard as it stands
+every block is silently discarded.
+
+The guard therefore becomes: **the turn is empty only when it produced neither text nor
+blocks.** On an observer turn holding validated blocks, `content_md` is their serialisation
+(§5.3), which is non-empty by construction, so the existing "never persist an empty message"
+invariant is preserved rather than weakened.
+
+Two sub-cases, decided rather than left to the implementer:
+
+- **Blocks, no prose** — record the observation. Not a skip.
+- **Blocks, and synthesis failed** (`outcome.synthesis_failed`) — record the observation and
+  keep `synthesis_meta` on it, exactly as the non-empty path already does at `:3012-3015`
+  ("Persisted even when the synthesis failed... never unmarked"). The tool rounds behind
+  those blocks are real work; the reason for the missing prose is a provider fault, and
+  filing it as `empty_reply` would be the same misfiling the comment at `:2959-2965` was
+  written to prevent.
+
+Nothing changes for a normal-role turn: an agent with no blocks and no text is still a skip.
+
 ## 6. Detailed Changes
 
 **Backend — `contexts/conversation`**
@@ -283,7 +312,7 @@ written before this migration.
 **Backend — `contexts/activities`**
 
 - `interfaces/facade.py`: three new read-only aggregate methods (§5.2). No domain change, no
-  table change, no change to `RecentActivityRow` or `ActivityContextProvider`.
+  table change, no change to `RecentActivityRow`.
 - `application/`: one new query module for the aggregates; repository reads only.
 
 **Backend — `contexts/agents/application/runtime`**
@@ -299,9 +328,20 @@ written before this migration.
   `observation_presentation: ObservationPresentationContext | None = None` and
   `observation_block_sink: list[dict] | None = None`, following the `activity_control` /
   `activation_event_sink` pair exactly.
-- `turn_engine.py`: `_build_tools` (`:1489-1528`) resolves the presentation context only when
-  the binding is observer-role; the observer branch (`:3026-3036`) drains the sink, validates,
-  serialises and passes both `blocks` and the derived `content_md` to `record`.
+- `turn_engine.py`: `_builtin_tools` (`:1457-1528`) resolves the presentation context and
+  gains an `is_observer` parameter — it takes no role argument today, and `run_turn` is where
+  the role is known (`:2428`), so the flag is threaded from there rather than re-read. The
+  empty-text guard at `:2958` gains the blocks arm from §5.5. The observer branch
+  (`:3026-3036`) drains the sink, validates, serialises and passes both `blocks` and the
+  derived `content_md` to `record`.
+- `activity_context_provider.py`: `_CONTENT_NOTE` (`:64-67`) becomes conditional. It currently
+  tells the model "Text following the first — on a row is what that participant wrote
+  themselves: quoted from them, not computed", and it is appended whenever any row carries a
+  digest (`:98-99`). Once the example types move to `filled_count_coverage`, their digest is a
+  server-computed field list, and the note would vouch for computed text as the participant's
+  own words — the exact confusion it exists to prevent. The note is split so a row whose
+  digest came from a validator `detail` is described as computed, and only a payload-fallback
+  digest is described as the participant's own text.
 
 **Backend — `app/plugins/activity_validators.py`** (Q-4)
 
@@ -329,8 +369,13 @@ written before this migration.
 - `types/index.ts`: `Observation.blocks: ObservationBlock[]`, plus a discriminated union of
   the six kinds.
 - New `components/observation-blocks/`: one presentational component per kind plus an
-  `ObservationBlocks.vue` switch. **None of them uses `v-html`.** `prose` renders through the
-  existing `renderMarkdown()` call in `ObservationCard.vue`, which is already allowlisted.
+  `ObservationBlocks.vue` switch. **None of them uses `v-html`.** A `prose` block can sit at
+  any position in the array, so it cannot simply reuse the card's own binding: the card passes
+  a **scoped slot** down through `ObservationBlocks`, and renders each prose block's
+  `renderMarkdown()` output at `ObservationCard.vue:15-19` — the single allowlisted site
+  (`eslint.config.js:322`) — wherever the slot lands. Without this the design contradicts
+  itself: a prose block at position 3 would have no legal path to a sanitiser, and AC-14
+  forbids widening the allowlist.
 - `ObservationCard.vue`: renders `<ObservationBlocks>` when `blocks.length`, else the current
   markdown path. The clamp, the release/delete footer and the release chip are unchanged.
 - i18n: new keys under `conversation.observers.blocks.*` and `conversation.observers.basis.*`
@@ -398,7 +443,7 @@ creator-only UI.
 - `ObservationOut` returns `metadata` wholesale (`observations.py:81`), exposing engine
   telemetry keys to the client with no contract. This feature adds a typed column instead of
   widening that. Not fixed here — FU-2.
-- `turn_engine._build_tools` swallows every assembly exception into "no tools at all"
+- `turn_engine._builtin_tools` swallows every assembly exception into "no tools at all"
   (`:1526-1528`). Correct for its purpose, but it means a bug in the new resolver is silent.
   The resolver therefore logs on its own before returning `None`, as `activity_tools` does.
 - `ObservationCard.vue:80` clamps on `content_md.length > 600`. With blocks, character count
@@ -495,14 +540,28 @@ creator-only UI.
 - [ ] AC-13: An observation whose `blocks` contains an unknown `kind` renders its title and a
       "cannot display" line; the panel does not throw and the other blocks still render.
 - [ ] AC-14: `pnpm lint` passes with no new file added to the gate #4 `v-html` allowlist.
+- [ ] AC-16: An observer turn that calls `present_observation` with valid blocks and then
+      produces **no prose** records the observation, with `content_md` set to the blocks'
+      serialisation. It is not reported as `observation.skipped`, and no block is lost.
+- [ ] AC-17: The same turn with `synthesis_failed` also records, keeps `synthesis_meta` on the
+      observation, and is not filed as `empty_reply`. An observer turn with neither text nor
+      blocks is still a skip, and a normal-role turn's empty-text behaviour is unchanged.
+- [ ] AC-18: A row whose digest came from a validator `detail` is not described by the context
+      block as the participant's own words; a payload-fallback digest still is.
 - [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`.
 
 ## 12. Test Plan
 
-- **AC-1, AC-3, AC-4** — unit, `backend/tests/unit/test_observer_agents.py` (extends the
-  existing turn-engine observer tests at `:1181`, `:1304`, `:1704`) plus a new
-  `test_observation_blocks.py` for the schema and serialiser.
+- **AC-1, AC-3, AC-4, AC-16, AC-17** — unit, `backend/tests/unit/test_observer_agents.py`
+  (extends the existing turn-engine observer tests at `:1181`, `:1304`, `:1704`) plus a new
+  `test_observation_blocks.py` for the schema and serialiser. AC-16 and AC-17 drive the turn
+  with an empty `final_text` in three combinations — blocks only, blocks plus
+  `synthesis_failed`, and neither — and assert which of `record` / `observation.skipped` /
+  `observation.failed` fires in each. The existing `:1704` failure test pins the normal-role
+  half.
+- **AC-18** — unit over `activity_context_provider`, with one row whose digest came from a
+  validator `detail` and one payload-fallback row in the same block.
 - **AC-2, AC-5** — unit, new `test_observer_presentation_tools.py`, mirroring
   `test_activity_control_tools.py`'s structure: assert the tool is absent for a normal-role
   binding, and that the built `input_schema` enum equals the room's reachable set.
@@ -540,7 +599,11 @@ blocks**, placed after §28.5:
 - **[R28.16]** An observer-role binding's turn is offered a `present_observation` tool whose
   single argument is a block array validated against a schema built at turn assembly. A
   normal-role binding is never offered it. The last successful call in a turn wins. A turn
-  that does not call it records `blocks = []` and the model's text as `content_md`.
+  that does not call it records `blocks = []` and the model's text as `content_md`. An
+  observer turn that delivers blocks and no prose is **not** an empty turn: the observation is
+  recorded with the blocks' serialisation as `content_md`, including when the turn's text
+  synthesis failed, and the failure is marked on the observation rather than filed as a benign
+  skip. Only a turn producing neither text nor blocks is skipped.
 - **[R28.17]** Block kinds split into narrative kinds (`prose`, `key_points`, `timeline`),
   whose text the agent supplies, and computed kinds (`field_coverage`, `mandala_grid`,
   `attempt_table`), whose values the **server** computes at tool-invoke time from
