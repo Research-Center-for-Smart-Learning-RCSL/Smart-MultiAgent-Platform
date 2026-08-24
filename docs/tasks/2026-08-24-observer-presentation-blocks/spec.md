@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-24
 requirements: [R28.01, R28.03, R28.05, R28.06, R28.08, R28.12, R28.13, R30.15, R30.27, R30.37]
 depends_on: [2026-08-24-traceability-extraction-gate]

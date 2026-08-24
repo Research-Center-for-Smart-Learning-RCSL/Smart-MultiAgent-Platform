@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-24
 requirements: [R13.19, R28.02, R28.09, R30.15, R30.17, R30.19, R30.30, R30.37]
 depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks, 2026-08-24-example-agents-quote-unit-two]

@@ -173,9 +173,9 @@ first, but building them serially avoids the conflict.
 
 ### From the 2026-08-24 example-agent scope work
 
-- `2026-08-24-example-agents-quote-unit-two` (feature, **draft**) — `depends_on: []`.
-  **The one to build first in the 2026-08-24 series**: example content alone, with **no SRS
-  Delta, no platform code, no migration**. It splits the example agents' quoting rule by
+- `2026-08-24-example-agents-quote-unit-two` (feature, **approved 2026-08-24**) —
+  `depends_on: []`. **The one to build first in the 2026-08-24 series**: example content
+  alone, with **no SRS Delta, no platform code, no migration**. It splits the example agents' quoting rule by
   activity type — `mandala-9grid` and `time-traveler-next-steps` answers become quotable in
   response (never volunteered), while `emotion-desk-three-emotions` and
   `six-hats-emotion-desk` stay unquotable, unchanged. **Its §4.1 is the finding that makes it
@@ -317,12 +317,12 @@ the row to read for why CI is red.
 
 ### From the 2026-08-24 observer-presentation work
 
-Two dossiers, both `draft`. Both are blocked on `2026-08-24-traceability-extraction-gate`
-(Ready above); the second is additionally blocked on the first **and** on
-`2026-08-24-example-agents-quote-unit-two`. Read each row for its own list — the frontmatter
-wins over this preamble.
+Two dossiers, both **approved 2026-08-24** with their SRS Deltas applied at approval. Both are
+blocked on `2026-08-24-traceability-extraction-gate` (Ready above); the second is additionally
+blocked on the first **and** on `2026-08-24-example-agents-quote-unit-two`. Read each row for
+its own list — the frontmatter wins over this preamble.
 
-- `2026-08-24-observer-presentation-blocks` (feature, **draft**) — waiting on
+- `2026-08-24-observer-presentation-blocks` (feature, **approved 2026-08-24**) — waiting on
   `2026-08-24-traceability-extraction-gate`. **Overlap prerequisite only**: its SRS Delta adds
   `[R28.15]`-`[R28.19]`, each needing a `docs/traceability.csv` row, and the gate dossier
   regenerates all 306 existing rows from a script it builds. Gives an observer agent a closed
@@ -350,7 +350,7 @@ wins over this preamble.
   Its §6 also corrects `_CONTENT_NOTE`, which would otherwise vouch for a server-computed
   digest as the participant's own words once the example moves to `filled_count_coverage`.
 
-- `2026-08-24-agent-readable-live-drafts` (feature, **draft**) — waiting on
+- `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**) — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
   `2026-08-24-example-agents-quote-unit-two`. The last is a **logical** prerequisite (its
   Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
@@ -374,7 +374,8 @@ wins over this preamble.
 
 ### From the 2026-08-24 group-submission work
 
-- `2026-08-24-group-activity-submissions` (feature, **draft**) — waiting on
+- `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
+  — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
   `2026-08-24-example-agents-quote-unit-two`. **The largest of the series.** Lets a project
   Member Group ([R13.28]) be the subject of an `ActivitySession`, via a proposal one member
