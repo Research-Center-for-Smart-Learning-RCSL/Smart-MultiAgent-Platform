@@ -43,6 +43,10 @@ jobs:
       # only touches pyproject.toml ships nothing while looking green.
       - name: requirements.lock satisfies pyproject
         run: python scripts/check_lock_consistency.py
+      # [R27.01] — docs/traceability.csv is generated from REQUIREMENTS.md, so the
+      # two must not drift, and no [Rxx.yy] cited outside the SRS may dangle.
+      - name: traceability.csv matches REQUIREMENTS.md
+        run: python scripts/traceability.py --check
 
   # ──────────────────────────────────────────────
   # Backend
