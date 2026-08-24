@@ -35,6 +35,18 @@ import pytest
 _REPO = pathlib.Path(__file__).resolve().parents[3]
 _SCRIPT = _REPO / "scripts" / "traceability.py"
 
+if not _SCRIPT.is_file():
+    # `backend-db` and `backend-wiring` bind-mount only `backend/` over /app, so the repo
+    # root — and with it `scripts/` — is outside the container. Both tiers deselect this
+    # file by marker, but deselection happens *after* collection: without this guard the
+    # unreachable import raises FileNotFoundError while collecting and takes the entire
+    # tier down with it, which is exactly how it shipped once.
+    pytest.skip(
+        "scripts/traceability.py is outside this container's mount; this file belongs to "
+        "the unit tier, which runs against a whole checkout",
+        allow_module_level=True,
+    )
+
 _spec = importlib.util.spec_from_file_location("_traceability_extraction", _SCRIPT)
 assert _spec is not None
 assert _spec.loader is not None
