@@ -39,6 +39,10 @@ that legible to the person typing and bounded for everyone else.
 - A draft is never readable on looser terms than the corresponding submitted payload.
 - The room shows a disclosure indicator while any binding holds the grant, defaulting on.
 - Every read is audited by count, never by content.
+- The shipped `creative-thinking-room` prompts and the example guide state the draft rule
+  before this feature is usable: the three pack prompts forbid quoting a *submission* and say
+  nothing about a draft, and a draft is strictly worse to quote. This is in scope, not
+  deferred (§8, AC-16).
 
 **Non-goals**
 
@@ -53,7 +57,8 @@ that legible to the person typing and bounded for everyone else.
   (`useChatroomMessageEditing.ts`) are not reported.
 - **No cross-room reads.** The tool is built from the turn's own room.
 - **The shipped example packs do not grant it.** Like `may_control_activities`, the pack
-  field is advisory; the grant is the teacher's separate act (§6, and Q-7).
+  field is advisory; the grant is the teacher's separate act (§6, and Q-7). The pack prompts
+  *are* edited by this task — stating the rule is in scope, conferring the authority is not.
 
 ## 3. Clarifications
 
@@ -95,7 +100,7 @@ that to *what*, and every safeguard below exists because that step is not small.
   payload column; the payload appears for the first time on an `activity_submissions` row.
 - Therefore a student's half-filled mandala is currently unrecoverable even to themselves
   after a tab reload — worth noting, because this feature incidentally makes it recoverable
-  and the guide should not promise that (FU-2).
+  and the guide should not promise that (FU-1).
 
 ### 4.3 The plugin SDK contract is closed at four members
 
@@ -325,6 +330,20 @@ was this used". Mirrors [R28.11]'s rule that content never enters audit metadata
 - i18n: new keys in both locales, including the tooltip text that tells a participant exactly
   what is read and that it is not stored.
 
+**Example pack and guide** (in scope — §2, AC-16)
+
+- `backend/contexts/agents/infrastructure/examples/packs/creative-thinking-room.json`: TA, SA
+  and AA each gain the draft rule alongside the submission rule they already carry
+  (`:27`, `:52`, `:77`). The wording follows the existing one: the agent may say what it can
+  see, must not repeat it, and must give the reason — for a draft the reason is stronger,
+  because the author has not chosen to send it at all. AA's version also states that a draft
+  is not a submission and must not be counted as one.
+- `docs/examples/creative-thinking-course.md`: a section on the grant, the disclosure chip,
+  and the unit-4 caution — the unit collects negative-affect narratives from 13-year-olds
+  (`creative-thinking.json:160-166`), and a half-typed one is the worst thing in this product
+  to read over someone's shoulder. It states that the packs confer no grant and that a teacher
+  enabling it should do so per agent, deliberately.
+
 **Migration** — 0081: two boolean columns with server defaults.
 
 ## 7. NFR Checklist
@@ -377,9 +396,11 @@ processing, and it is the most privacy-sensitive surface in the product.
   the read-time consent gate rather than a write-time one.
 - **Amplification of the quoting risk.** The example prompts already forbid quoting a
   submission because the message box is class-visible
-  (`creative-thinking-room.json:27`, `:52`, `:77`). A draft is strictly worse to quote. The
-  pack prompts must be extended in the same change (§6 has no pack edit — that is FU-1, and
-  it must land before any teacher is told to use the grant).
+  (`creative-thinking-room.json:27`, `:52`, `:77`). A draft is strictly worse to quote: its
+  author has not chosen to send it at all. The pack prompts and the example guide are
+  therefore edited **in this task** (§6, AC-16), not deferred — a prompt is not an
+  enforcement boundary, but shipping the grant while the shipped prompts are silent about
+  drafts would leave the one instruction the model actually reads pointing the wrong way.
 - **Fail closed everywhere.** Grant resolution, policy read, type read: any exception yields
   no tool or no data, never a permissive default.
 - **Guests.** A guest's draft is reported and readable on the same terms as a member's, and
@@ -429,9 +450,10 @@ processing, and it is the most privacy-sensitive surface in the product.
   that this is the user's explicit choice for consistency with [R28.09]. If that trade is
   ever reconsidered, making `disclose_drafts` non-suppressible is a one-line change plus the
   DTO.
-- **Unit 4 of the shipped example is the worst case for this feature.** FU-1 (extending the
-  pack prompts) is a hard precondition for recommending the grant to any teacher, not a
-  nice-to-have.
+- **Unit 4 of the shipped example is the worst case for this feature.** Extending the pack
+  prompts and the guide is therefore part of this task (§6, AC-16). A build that ships the
+  grant with AC-16 unticked is not a partial delivery of this dossier; it is the one
+  combination the dossier exists to prevent.
 - **Migration 0081** adds two booleans with server defaults; forward compatible and reversible
   by `DROP COLUMN`, which revokes every grant — a safe direction to fail.
 - **Rollback of the frontend alone is safe.** No client reports drafts, so the store stays
@@ -475,6 +497,10 @@ processing, and it is the most privacy-sensitive surface in the product.
       access; `pnpm lint` passes gate #1 and `check:boundaries-enforced` still enforces it.
 - [ ] AC-14: `ActivityRenderCtx` exposes exactly five members, asserted as an exact set; the
       `PluginToHostMessage` union carries the new `draft` kind.
+- [ ] AC-16: All three `creative-thinking-room` prompts state the draft rule, asserted over
+      the shipped file by `backend/tests/unit/test_agent_example_packs.py` alongside the four
+      constraints it already asserts, and `docs/examples/creative-thinking-course.md` carries
+      the grant, the disclosure chip and the unit-4 caution.
 - [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`,
       `check:boundaries-enforced`.
@@ -498,6 +524,9 @@ processing, and it is the most privacy-sensitive surface in the product.
   later by someone "improving" the handler.
 - **AC-3, AC-4, AC-11, AC-13, AC-14** — frontend unit/component specs, plus the existing
   `sdk.test.ts` updated for the five-member ctx.
+- **AC-16** — unit, extending `backend/tests/unit/test_agent_example_packs.py`, which already
+  asserts four constraints over the shipped pack files rather than leaving them to review;
+  the draft rule becomes the fifth. The guide half is a doc-diff review.
 - **Browser pass** — `frontend:verify` against the compose stack: two sessions, one typing in
   the composer and one filling a mandala, with the chip observed in both places and in both
   disclosure states; then confirm via the Redis keys that a send and a submit each cleared
@@ -561,19 +590,14 @@ Empty. Appended by `/build`.
 
 ## 16. Follow-ups
 
-- **FU-1.** The `creative-thinking-room` pack's three prompts forbid quoting a *submission*
-  and say nothing about a draft. They must gain the equivalent rule, and the example guide
-  must carry the unit-4 caution, **before** any teacher is told to use this grant (§8, §10).
-  Recorded as a follow-up only because the pack edit is a documentation-and-prompt change
-  with its own review; it is not optional.
-- **FU-2.** This feature incidentally makes a half-filled worksheet survive a tab reload on
+- **FU-1.** This feature incidentally makes a half-filled worksheet survive a tab reload on
   the server side for up to the TTL. Nothing restores it to the participant's screen, and the
   guide must not imply otherwise. A real draft-restore feature is separate work.
-- **FU-3.** A `draft_activity` presentation block — who is mid-way through which worksheet —
+- **FU-2.** A `draft_activity` presentation block — who is mid-way through which worksheet —
   is the obvious meeting point between this dossier and
   `2026-08-24-observer-presentation-blocks`. Deliberately not in either: it would put unsent
   text into a stored observation, which §2's no-persistence rule forbids without a separate
   decision.
-- **FU-4.** `ChatroomView.vue` will own two socket-send responsibilities on one timer after
+- **FU-3.** `ChatroomView.vue` will own two socket-send responsibilities on one timer after
   this. If a third arrives, the timer belongs in a composable rather than in the view body
   (§9).

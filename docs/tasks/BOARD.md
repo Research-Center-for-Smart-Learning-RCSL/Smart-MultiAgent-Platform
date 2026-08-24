@@ -334,10 +334,11 @@ Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extrac
   13-year-olds' accounts of distressing events. Default-deny per binding, disclosure on by
   default, codes never names, per-call audit by count. **Its single most important rule is the
   read-time gate** (AC-6): an activity type whose payload agents may not see has no readable
-  drafts either, and the platform consent lock withholds every activity draft immediately. Its
-  **FU-1 is a hard precondition, not a nice-to-have**: the shipped pack prompts forbid quoting
-  a *submission* and say nothing about a draft, and that must land before any teacher is told
-  to use the grant. Opens SRS chapter §32. Migration 0081.
+  drafts either, and the platform consent lock withholds every activity draft immediately.
+  **AC-16 is in scope and is not a follow-up**: the shipped pack prompts forbid quoting a
+  *submission* and say nothing about a draft, so this task edits all three prompts and the
+  example guide. A build that ships the grant with AC-16 unticked is the one combination the
+  dossier exists to prevent. Opens SRS chapter §32. Migration 0081.
 
 ## In progress
 
