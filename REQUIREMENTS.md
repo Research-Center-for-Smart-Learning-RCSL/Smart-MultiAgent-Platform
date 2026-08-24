@@ -2098,6 +2098,9 @@ Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommend
 
 - Stakeholder Q&A items Q1–Q66 are each addressed; decisions marked "SKIP" (Q33) are deliberately absent.
 - Items marked **Recommendation applied** in this document are: Q9 (Qdrant), Q22 (Vault + envelope), Q23 (permission matrix), Q36 (prompt strategies — §31), Q47 (WS+SSE), Q38 (sandbox), Q53 (loop detection), Q56 (audit scope).
+- **[R27.99]** THROWAWAY — proves AC-12 of the traceability extraction gate. This requirement
+  is added without regenerating `docs/traceability.csv`, so `repo-gates` must go red. This
+  branch is never merged.
 - **[R27.01]** `docs/traceability.csv` is a generated artifact, complete by construction: it carries exactly one row per `[Rxx.yy]` defined in this document, and CI rejects a commit in which the two disagree. Traceability is therefore a property the repository enforces rather than a convention a contributor is asked to remember — the arrangement it replaces held for the chapters whose author happened to update the file and had drifted by 83 requirements across nine chapters by 2026-08-24.
 
 ---
