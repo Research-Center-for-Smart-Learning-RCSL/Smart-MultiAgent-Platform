@@ -310,15 +310,17 @@ machine.
 - [x] AC-9: Mutation-probed in both directions before landing. Red on a deleted CSV row
   (`missing row R30.15`), red on an invented `[R99.99]` citation
   (`docs/implement/K-agent-runtime.md:209: [R99.99]`), green once both were reverted.
-- [ ] AC-10: `repo-gates` runs the check in CI and the job is green on the branch. **Cannot
-  close locally** — the step is wired into `.github/workflows/ci.yml` and `repo-gates` is in
-  the required-jobs list (`ci.yml:1518`), but a green run needs a push, which was not made.
+- [x] AC-10: `repo-gates` runs the check in CI and the job is green on `main` — run
+  `32747505420`, `repo-gates: completed success`. That same run is what surfaced D-9.
 - [x] AC-11: §27 of `REQUIREMENTS.md` names the script (`:2097`) and the gate, and states no
   row count. Applied at approval; verified in place.
-- [ ] AC-12: Adding a requirement to `REQUIREMENTS.md` without regenerating the CSV makes CI
-  red. **Demonstrated locally, not on a scratch commit**: a throwaway `[R27.99]` made
-  `--check` report `missing row R27.99` and exit 1, and was reverted. CI runs that exact
-  command, but the scratch-commit half needs a push.
+- [x] AC-12: Adding a requirement to `REQUIREMENTS.md` without regenerating the CSV makes CI
+  red — **demonstrated on a scratch commit, not argued**. Branch
+  `scratch/traceability-gate-proof` added a throwaway `[R27.99]` and left the CSV alone;
+  PR #163 (draft, closed unmerged, branch deleted) produced run `32747818609` with
+  `repo-gates: completed failure` and, at step level, `[failure] traceability.csv matches
+  REQUIREMENTS.md` while `no lazy-prompt residue` and `requirements.lock satisfies pyproject`
+  both passed — so the red is attributable to this gate alone.
 
 ## 12. Test Plan
 
@@ -468,6 +470,23 @@ on the day it lands.
   Zero occurrences in the SRS today. Now a `TraceabilityError` naming both IDs and the line,
   which is rule 1's "fails on a duplicate rather than picking one" applied to the same
   ambiguity one axis over. This closes the sibling that FU-5 does not cover.
+
+- **D-9 — The unit test took down two CI tiers that never run it.** Found on the first real
+  CI run of this work, which is the run that closed AC-10. `backend-db` and `backend-wiring`
+  bind-mount only `backend/` over `/app`
+  (`ci.yml`: `--volume "${{ github.workspace }}/backend:/app"`), so the repo root — and with
+  it `scripts/` — is outside those containers. The test file resolves the script via
+  `parents[3]` and **executes it at import time**, so both tiers died with
+  `FileNotFoundError: '/scripts/traceability.py'` and `Interrupted: 1 error during
+  collection`, losing 7502 and 7576 deselected tests respectively. Six other files under
+  `tests/unit/` also use `parents[3]`, and none of them broke: they build a path at module
+  level but only read it inside a test, so the missing file is deselected away before it is
+  ever touched. Import-time execution is what removes that protection, because collection
+  happens before marker deselection. Fixed with a module-level `pytest.skip(...,
+  allow_module_level=True)` guarded on the script being reachable; the unit tier, which runs
+  against a whole checkout, still executes all 34 tests. Verified by reproducing the mount
+  layout locally: without the guard the same `FileNotFoundError` and collection interrupt,
+  with it a clean skip.
 
 ## 16. Follow-ups
 
