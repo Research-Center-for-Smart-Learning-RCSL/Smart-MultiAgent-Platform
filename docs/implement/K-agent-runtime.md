@@ -71,7 +71,7 @@ Closes gap 1 (core). There is no module in the backend that performs an agent tu
   - `tool_registry.py` — per-turn tool table assembled from: `update_wakeup` (R15.06, exists in `wakeup_service.py`), `web_search` (R12.07, exists), `file` (exists), `code_exec` (R12.05, exists; needs K.5), bound MCP server tools (R12.01; needs K.5), and `read_skill` (R31.15, §31). Every entry currently has zero callers — this registry is their first.
 - Turn algorithm:
   1. Acquire per-`(agent_id, chatroom_id)` Redis lock — one concurrent turn per agent per room; a trigger landing during a turn coalesces into at most one queued follow-up.
-  2. Load agent row; resolve key group; take `system_prompt` verbatim (R9.05) and resolve the agent's bound skills into the index block (R31.12/R31.13).
+  2. Load agent row; resolve key group; take `system_prompt` verbatim (R9.01-R9.03) and resolve the agent's bound skills into the index block (R31.12/R31.13).
   3. Assemble history per `context_mode` (R9.09 `general` / R9.10 `compact` via `should_compact` → `run_compact`; compaction failure keeps original context and audits, R9.11).
   4. If `rag_config_id` set: run `RetrieveService` (embed → Qdrant → optional rerank → hydrate) and inject as a context block; GraphRAG configs likewise via `GraphRagRetrieveService` (both currently caller-less).
   5. Stream the provider call through K.1; on first token emit `agent.thinking` → `agent.token` deltas on the chatroom channel (R13.19); execute tool-call rounds through the registry (each MCP/tool call audited, R12.02/R12.15).
@@ -80,7 +80,7 @@ Closes gap 1 (core). There is no module in the backend that performs an agent tu
 - Sub-agent turns: `subagent_service` spawn path (logic exists) invokes `run_turn` with depth/concurrency caps already implemented; `parent_agent_id` flows into the K.1 `ProviderRequest`.
 - Wire `POST /api/chatrooms/{id}/compact` (`chatrooms.py:405-423`, currently a documented no-op returning 202) to enqueue a real compaction job against the room's active agent.
 
-**Key IDs.** `[R9.04]`–`[R9.11]`, `[R10.07]`–`[R10.09]`, `[R12.01]`–`[R12.16]`, `[R13.19]`, `[R15.06]`–`[R15.08]`, `[R15.22]`.
+**Key IDs.** `[R9.01]`–`[R9.03]`, `[R9.09]`–`[R9.11]`, `[R10.07]`–`[R10.09]`, `[R12.01]`–`[R12.16]`, `[R13.19]`, `[R15.06]`–`[R15.08]`, `[R15.22]`, `[R31.12]`–`[R31.17]`.
 
 **Exit criteria.** Integration (FakeAdapter, real Postgres/Redis via compose.test.yml — **not** mocked at the service boundary): user message → agent reply persisted with `sender_type=AGENT` and streamed events observed on a live WS client. Compaction triggers at cap and replaces range. Lazy-prompt section load round-trip. RAG block present when configured. Lock prevents concurrent double-turns. Tool round executes `update_wakeup` with clamp audit.
 

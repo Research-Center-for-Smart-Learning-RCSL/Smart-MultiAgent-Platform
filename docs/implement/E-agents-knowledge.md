@@ -59,9 +59,11 @@ By phase close:
 ## E.2 Prompt Read Strategy — **REMOVED** — superseded by §31 (Agent Skills)
 
 The per-agent prompt-read-strategy enum, its loader module, and its section-fetch tool
-were removed on 2026-07-16 with zero users. `[R9.04]`–`[R9.08]` are deleted from the SRS;
-§9.2 is a superseded stub pointing at §31. The removed symbols are named in the task
-dossier, which is the historical record for this change; naming them in live
+were removed on 2026-07-16 with zero users. The requirements that defined them are deleted
+from the SRS; §9.2 is a superseded stub pointing at §31, and it is where their numbers stay
+on record — repeating them here would cite requirements that no longer exist, which the
+citation half of `scripts/traceability.py` rejects. The removed symbols are named in the
+task dossier, which is the historical record for this change; naming them in live
 documentation would fail the repo gate under `scripts/` that keeps them from returning.
 
 Both of Q36's modes survive, re-based onto a carrier that offers reuse and packaging:
@@ -69,10 +71,11 @@ inline-every-call is `system_prompt` (`[R9.01]`–`[R9.03]`), and retrieve-on-de
 Skill aggregate (§31) — an index of names and descriptions in the system prompt, bodies
 fetched via `read_skill`. See `docs/tasks/2026-07-16-agent-skills/`.
 
-- **`full`** (`[R9.05]`, retained): the entire `system_prompt` is sent verbatim every turn.
+- **`full`** (`[R9.01]`–`[R9.03]`): the entire `system_prompt` is sent verbatim every turn.
+  This is the surviving form of the mode; §31 supersedes the enum that used to select it.
 - Invocation pipeline assembles `[system_prompt] + [skills_index?] + [compact_summary?] + [retrieved_rag?] + [retrieved_graphrag?] + chat_history`.
 
-**Key IDs.** `[R9.05]`, `[R31.12]`–`[R31.17]`.
+**Key IDs.** `[R9.01]`–`[R9.03]`, `[R31.12]`–`[R31.17]`.
 
 **Exit criteria.** Unit tests cover full rendering, lazy index + section load, provider-no-tools fallback.
 
@@ -332,4 +335,4 @@ fetched via `read_skill`. See `docs/tasks/2026-07-16-agent-skills/`.
 - **GraphRAG compensation edge cases.** Chaos-injection nightly test; build_id isolation prevents partial pollution.
 - **gVisor kernel compatibility.** Bootstrap probe at startup; Kata fallback path documented (§26 item 3).
 - **Tavily rate variability.** Per-provider 60/min/project + Redis cache + 4KB cap absorb bursts.
-- **Prompt section drift under lazy strategy.** Turn-level cache only (R9.07) so edits take effect next turn.
+- **Skill body drift within a turn.** Turn-level cache only (R31.16) so edits take effect next turn.
