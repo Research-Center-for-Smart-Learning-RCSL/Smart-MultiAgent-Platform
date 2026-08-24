@@ -299,6 +299,46 @@ the row to read for why CI is red.
 - (moved to Ready now on 2026-08-21, unblocked by the implemented
   `2026-08-19-content-area-spacing-and-scroll-contract`) `2026-08-19-mobile-viewport-and-breakpoints`.
 
+### From the 2026-08-24 observer-presentation work
+
+Two dossiers, both `draft`, both blocked only on `2026-08-24-traceability-extraction-gate`
+(Ready above) and, for the second, on the first.
+
+- `2026-08-24-observer-presentation-blocks` (feature, **draft**) — waiting on
+  `2026-08-24-traceability-extraction-gate`. **Overlap prerequisite only**: its SRS Delta adds
+  `[R28.15]`-`[R28.19]`, each needing a `docs/traceability.csv` row, and the gate dossier
+  regenerates all 306 existing rows from a script it builds. Gives an observer agent a closed
+  set of platform-defined presentation blocks, delivered by one structured tool call
+  (`present_observation`) on observer turns only. **The design's load-bearing split**: `prose`,
+  `key_points` and `timeline` are agent-authored text, while `field_coverage`, `mandala_grid`
+  and `attempt_table` are **server-computed** — the agent picks and frames them, and never
+  supplies a number. That split exists because of the finding in its §4.5: no server fact says
+  which worksheet fields were filled (`filled_count` records a count, not a field list, at
+  `app/plugins/activity_validators.py:109-116`, and `RecentActivityRow` carries no
+  `sub_scores` at all), so the only alternative was a chart drawn from the agent eyeballing a
+  480-character truncation of the participant's own words. Its Q-4 supplies that fact from a
+  **new** validator the example course opts into rather than by changing `filled_count`, at
+  the user's explicit direction — which also stops the raw-payload dump reaching the agent
+  digest for those types. **Read its §10 before touching the example**: the `validator_id`
+  change does not reach an existing install, and the documented upgrade deletes the types and
+  revokes every project's opt-in. Migration 0080.
+
+- `2026-08-24-agent-readable-live-drafts` (feature, **draft**) — waiting on
+  `2026-08-24-traceability-extraction-gate` and on `2026-08-24-observer-presentation-blocks`.
+  The second is an **overlap prerequisite**: both add a runtime tool through the same three
+  seams (`BUILTIN_TOOL_NAMES`, `build_agent_tools`' signature, `_build_tools`). Lets a
+  granted binding read a room's unsent composer and activity-worksheet text on demand, via
+  `read_drafts`. Reported over the existing room WebSocket like `typing.start`, held **only**
+  in Redis under a TTL, never in Postgres. **This is the most privacy-sensitive surface in the
+  product and its §8 says so plainly** — in the example course the unsent text includes
+  13-year-olds' accounts of distressing events. Default-deny per binding, disclosure on by
+  default, codes never names, per-call audit by count. **Its single most important rule is the
+  read-time gate** (AC-6): an activity type whose payload agents may not see has no readable
+  drafts either, and the platform consent lock withholds every activity draft immediately. Its
+  **FU-1 is a hard precondition, not a nice-to-have**: the shipped pack prompts forbid quoting
+  a *submission* and say nothing about a draft, and that must land before any teacher is told
+  to use the grant. Opens SRS chapter §32. Migration 0081.
+
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
