@@ -37,6 +37,7 @@ from contexts.activities.application.validators.registry import (
 )
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import PayloadSchemaInvalid, ValidatorConfigInvalid
+from contexts.activities.domain.group_consent import validate_group_config
 from contexts.activities.domain.models import ValidatorKind
 
 COURSES_DIRNAME = "courses"
@@ -61,6 +62,18 @@ _TYPE_FIELDS = frozenset(
         "echo_includes_content",
     }
 )
+
+# The one field a course type may omit, and the asymmetry is the reason.
+#
+# Every other field is required because omitting it would make a *permissive*
+# choice silently: a missing ``expose_payload_to_agent`` would default a course
+# to sending participant text to an LLM provider, and a default is the wrong way
+# to make that decision. ``group_config`` runs the other way. Absent means the
+# type is individual-only, which is what every type has always been and is the
+# restrictive answer -- a missing field cannot silently make a course
+# collective. So the rule's own stated reason does not reach it, and requiring
+# it would mean editing four shipped types to declare a null.
+_OPTIONAL_TYPE_FIELDS = frozenset({"group_config"})
 
 
 class CourseFileInvalid(ValueError):
@@ -87,6 +100,10 @@ class CourseActivityType:
     # not echo answer content back to everyone.
     expose_payload_to_agent: bool = True
     echo_includes_content: bool = False
+    # The consent fraction a group must clear ([R30.40]); ``None`` means the type
+    # is individual-only. See ``_OPTIONAL_TYPE_FIELDS`` for why this is the one
+    # field a course file may leave out.
+    group_config: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,11 +120,17 @@ def _fail(source: str, where: str, problem: str) -> CourseFileInvalid:
     return CourseFileInvalid(f"{source}: {where}: {problem}")
 
 
-def _require_fields(source: str, where: str, data: dict[str, Any], allowed: frozenset[str]) -> None:
+def _require_fields(
+    source: str,
+    where: str,
+    data: dict[str, Any],
+    allowed: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+) -> None:
     missing = sorted(allowed - data.keys())
     if missing:
         raise _fail(source, where, f"missing required field(s) {', '.join(missing)}")
-    unknown = sorted(data.keys() - allowed)
+    unknown = sorted(data.keys() - allowed - optional)
     if unknown:
         raise _fail(source, where, f"unknown field(s) {', '.join(unknown)}")
 
@@ -198,11 +221,28 @@ def _parse_retention_days(source: str, where: str, value: Any) -> int | None:
     return int(value)
 
 
+def _parse_group_config(source: str, where: str, value: Any) -> dict[str, Any] | None:
+    """A course's consent fraction, checked here rather than at install ([R30.40]).
+
+    A course file is edited by hand, so a malformed fraction has to name its own
+    file and key. Deferring it to the registration service would report it as a
+    422 from a CLI command the operator ran on a whole course, with no line to
+    look at.
+    """
+    if value is None:
+        return None
+    try:
+        validate_group_config(value)
+    except ValueError as exc:
+        raise _fail(source, f"{where}.group_config", str(exc)) from exc
+    return dict(value)
+
+
 def _parse_activity_type(source: str, index: int, data: Any) -> CourseActivityType:
     where = f"activity_types[{index}]"
     if not isinstance(data, dict):
         raise _fail(source, where, "must be an object")
-    _require_fields(source, where, data, _TYPE_FIELDS)
+    _require_fields(source, where, data, _TYPE_FIELDS, _OPTIONAL_TYPE_FIELDS)
 
     key = _require_str(source, where, data, "key")
     where = f"activity_types[{index}] '{key}'"
@@ -230,6 +270,7 @@ def _parse_activity_type(source: str, index: int, data: Any) -> CourseActivityTy
         retention_days=_parse_retention_days(source, where, data["retention_days"]),
         expose_payload_to_agent=_require_bool(source, where, data, "expose_payload_to_agent"),
         echo_includes_content=_require_bool(source, where, data, "echo_includes_content"),
+        group_config=_parse_group_config(source, where, data.get("group_config")),
     )
 
 

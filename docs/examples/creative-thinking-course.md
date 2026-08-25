@@ -54,26 +54,33 @@ Two units cover both techniques and both rendering paths. Unit 2's grid has a cu
 plugin; everything else deliberately has none, demonstrating that an activity type ships
 with zero frontend code.
 
-## The four activity types
+## The five activity types
 
-One type per worksheet section. The split is forced for unit 2: the bundled plugin lays
-out a 3x3 grid only for a schema of exactly nine fields, so the worksheet's second section
-could not simply become a tenth property. Unit 4 follows the same shape because its two
-sections are the lesson plan's 準備活動 and 總結活動 and are scored on different things.
+One type per worksheet section, plus one group task. The split is forced for unit 2: the
+bundled plugin lays out a 3x3 grid only for a schema of exactly nine fields, so the
+worksheet's second section could not simply become a tenth property. Unit 4 follows the
+same shape because its two sections are the lesson plan's 準備活動 and 總結活動 and are
+scored on different things.
 
-| Key | Name | Renderer | Fields | `min_filled` |
-|---|---|---|---|---|
-| `mandala-9grid` | 單元二 時空旅人（曼陀羅九宮格） | bundled plugin | 9 | 4 |
-| `time-traveler-next-steps` | 單元二 為了與你相遇 | generic form | 1 | 1 |
-| `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 |
-| `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 |
+| Key | Name | Renderer | Fields | `min_filled` | Submitted by |
+|---|---|---|---|---|---|
+| `mandala-9grid` | 單元二 時空旅人（曼陀羅九宮格） | bundled plugin | 9 | 4 | one person |
+| `time-traveler-next-steps` | 單元二 為了與你相遇 | generic form | 1 | 1 | one person |
+| `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 | one person |
+| `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 | one person |
+| `six-hats-shared-case` | 單元四延伸 共同情境六頂思考帽（小組） | generic form | 6 | 4 | a Member Group, 2/3 |
 
-All four set `validator_kind: in_process`, `retention_days: null`,
-`expose_payload_to_agent: true`, and `echo_includes_content: false`. Three of them use
+All five set `validator_kind: in_process`, `retention_days: null`,
+`expose_payload_to_agent: true`, and `echo_includes_content: false`. Four of them use
 `filled_count_coverage`; `time-traveler-next-steps` uses `filled_count`. Both produce the
 same verdict and the split is deliberate, because adopting the coverage variant costs a type
 its answer text — see
 [Which types record per-field coverage, and what that costs](#which-types-record-per-field-coverage-and-what-that-costs).
+
+The last row is the only one carrying `group_config`, and it is the only one a group
+submits together. The four above it are first-person by construction and are deliberately
+**not** group-submittable; the reasoning is in
+[Why only one unit is a group task](#why-only-one-unit-is-a-group-task).
 
 ### Field order is declared, not implied
 
@@ -141,6 +148,117 @@ most recent occasion for it) is `emotion-desk-three-emotions`.
 The unit's teaching frame, which the agents also carry: 情緒列車 is 事件 → 想法 → 情緒 →
 行為. The event is the locomotive, but what determines the feeling is the thought in
 between, which is why the same event produces different feelings in different people.
+
+### Unit 4 extension: 共同情境六頂思考帽 (a group task)
+
+The five hats again, but applied to a scenario the group shares rather than to one
+member's own difficulty. The fields are `case` plus the same five hats in the same order
+with the same descriptors; `case` is the only required one, and `min_filled` is 4.
+
+This returns the technique to its original use. De Bono's hats are a parallel-thinking
+method for a group, which this course deliberately turned inward for the self-development
+theme axis. Turning it back out is what makes the unit safe to submit collectively: `case`
+is a shared scenario the teacher sets or the group picks, so the worksheet carries no
+personal disclosure at all.
+
+#### Why only one unit is a group task
+
+None of the four individual types was made group-submittable, and the reason is
+pedagogical rather than technical.
+
+Units 2 and 4 are first-person by construction. Unit 2's stated teaching point is that
+value orderings differ between people: TA's prompt says the spread 不需要被統一成一種答案,
+and AA's says it 是這個單元最值得回報的觀察. A consensus answer erases exactly the signal
+those two agents exist to surface. Unit 4 is worse. Group consent over one member's
+distressing event either publishes that member's difficulty to the group or forces them to
+supply a fiction, and every safety clause the room-facing prompts carry for unit 4 exists
+because of that field.
+
+So the capability is worth having and those four are not where to demonstrate it. Nothing
+in the platform enforces this: a Project Owner may set `group_config` on any type,
+including a personal one. The platform cannot tell the difference, and this section is
+guidance rather than a gate.
+
+#### How a group submission is made
+
+A group submission is never a direct write. One member proposes a payload, the group's
+other members vote, and the submission is recorded the moment the type's declared consent
+fraction is met.
+
+- The group is a **project Member Group** bound to the room, and the proposer must belong
+  to it. There is no ad-hoc "pick some people" flow.
+- The **voter set and the required count are pinned when the proposal is made**. Adding
+  someone to the group mid-vote does not hand them a ballot, and removing someone does not
+  lower a bar the group already agreed to clear.
+- At most one proposal is open per (round, group) at a time. The proposer may withdraw it;
+  a group whose proposal was rejected may then propose something different in the same
+  round.
+- The proposal **fails when the remaining undecided votes can no longer reach the
+  threshold** — not on the first rejection. Under 2/3 those are different events.
+- Ending the round resolves every proposal still open under it. A proposal can never
+  produce a submission after its round has finished.
+- The room sees that a group is deciding, and counts. It never sees the proposed answer or
+  who voted which way, and neither does any agent.
+
+#### What a 2/3 threshold means when somebody disagrees
+
+The shipped fraction is two integers, `numerator: 2` and `denominator: 3`, so the required
+count is exact integer arithmetic: `ceil(2 * N / 3)`, at least 1 and at most N. For a group
+of three that is two approvals; for a group of five, four.
+
+Below unanimity has a cost, and a teacher should choose it knowingly. **A group's
+submission can carry an answer one of its members voted against.** What the platform does
+about that:
+
+- the submission is attributed to the **group**, never to an individual, and the room echo
+  names the group;
+- the vote record is kept and is readable by the group's own members and by the room
+  creator;
+- no agent can see it, so a disagreement never becomes something an agent discusses in
+  front of the class.
+
+What is not mitigated: a member of a group remains associated with an answer they rejected.
+That is inherent in any threshold short of unanimity. Unanimity is expressible — set the
+fraction to `1/1` — and its own cost is that one absent student blocks their group for the
+rest of the lesson.
+
+The proposal records who wrote the text (`producer_user_id` is the proposer) even though
+the submission belongs to the group. The others approved it; they did not write it, and the
+record says which.
+
+#### Setting the room up, and the two things that surprise a teacher
+
+Group submission needs the room to admit its students through Member Groups, which means
+enabling `allow_member_groups`. Two consequences follow that are worth stating before a
+first setup rather than discovering during one.
+
+**`allow_member_groups` and `allow_project_members` are mutually exclusive**, refused
+server-side ([R13.04]). So in such a room:
+
+1. **Every student must be in a bound group, or they cannot reach the room at all.** The
+   grouping is not merely how they submit together; it is the door. A student in no bound
+   group loses access to the room entirely, not just to the group task.
+2. **A guest can never take part in a group submission.** Guest links still work and a
+   guest is still a full activity participant, but group membership is restricted to
+   current Project Members ([R13.28]), so a guest submits individually and is invisible to
+   every group flow. This is a real gap rather than a designed behaviour, and the
+   alternative — a guest-inclusive ad-hoc group — was rejected because it would not be a
+   Member Group and would confer no accountability.
+
+Project Owners and Org Owners reach every room regardless ([R13.30]), so the teacher needs
+no group membership of their own — which is correct, since a teacher is not part of a
+student group.
+
+#### Changing the threshold
+
+`group_config` is a behavioural definition field, like `payload_schema`. Editing it bumps
+the type's version and is **refused while any activation of the type is live**, so a
+threshold can never move under a vote in progress. Plan the fraction before the lesson, not
+during it.
+
+A platform-scoped example's fraction is whatever the shipped catalogue says: the admin
+install surface does not author behavioural fields. A project that wants a different
+fraction installs a project-scoped copy with `python -m smap.examples` and edits that.
 
 ## The two agent packs
 
@@ -410,8 +528,16 @@ To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
 `/admin/activities` first**, then install the course again. Deleting a platform type ends
 its active activations across every tenant, so do it between classes.
 
+**`six-hats-shared-case` is the one addition that is cheap to adopt.** Install is
+idempotent by key and never updates, which is what makes every change above a
+delete-and-reinstall — but a *new* key has nothing to collide with. Re-running the install
+on an existing deployment creates it and leaves every other row alone. Projects still have
+to enable it, like any other platform example.
+
 **The `filled_count_coverage` change has the same shape and applies to three of the four
-types.** `validator_config` is outside the set of fields a platform admin may edit, and
+types that existed when it landed** (`six-hats-shared-case` was added later and has always
+shipped with the coverage validator, so a first install of it needs none of this).
+`validator_config` is outside the set of fields a platform admin may edit, and
 install never updates an existing row, so an environment installed before the change keeps
 `filled_count` everywhere indefinitely. Nothing breaks: those types validate exactly as they
 did, and the only visible difference is that their submissions record no per-field coverage,
@@ -518,7 +644,7 @@ declaring a checkbox is enough will instead require that many boxes actually tic
 `_is_filled`'s docstring for the reasoning and the cost it accepts; it is the authority,
 and this paragraph is a pointer to it rather than a second copy.
 
-All four types here are all-string, so none of this affects them.
+All five types here are all-string, so none of this affects them.
 
 ### Which types record per-field coverage, and what that costs
 
@@ -564,7 +690,8 @@ false for a coverage type on every row. A row carries at most one marker and it 
 one on the line, so a `::` inside a quoted answer means nothing. All of this is asserted over
 the shipped files by `backend/tests/unit/test_agent_example_packs.py`.
 
-**Existing installs keep `filled_count` on all four until the types are re-installed**, with
+**Existing installs keep `filled_count` on all four of the original types until they are
+re-installed**, with
 the consequences in
 [Upgrading an environment installed before this correction](#upgrading-an-environment-installed-before-this-correction).
 A room whose types still use `filled_count` records no `filled_fields`, so a coverage figure
