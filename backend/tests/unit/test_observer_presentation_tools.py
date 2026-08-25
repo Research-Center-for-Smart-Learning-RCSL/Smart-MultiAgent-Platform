@@ -120,8 +120,9 @@ def facades(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeActivitiesFacade.summary = None
     _FakeActivitiesFacade.list_error = None
     monkeypatch.setattr(ot, "ConversationFacade", _FakeConversationFacade)
+    # One seam covers both the resolver and the block materialiser: each imports
+    # the facade lazily from this module path.
     monkeypatch.setattr("contexts.activities.interfaces.facade.ActivitiesFacade", _FakeActivitiesFacade)
-    monkeypatch.setattr(ob, "ActivitiesFacade", _FakeActivitiesFacade)
 
 
 # --------------------------------------------------------------------------- #
