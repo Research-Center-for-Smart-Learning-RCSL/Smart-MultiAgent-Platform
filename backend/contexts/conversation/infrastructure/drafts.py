@@ -252,6 +252,23 @@ class DraftStore:
         a longer one of the same size class never trips it — otherwise a student whose
         worksheet already fills the budget could never edit it again.
 
+        **Both ceilings count live entries only**, and that is not a detail. The
+        index outlives its entries deliberately (:data:`_INDEX_TTL_SECONDS`) and is
+        reconciled only on the read path, so a member whose entry has expired sits in
+        the set until an agent happens to call the tool. The byte budget was immune
+        to that — a dead member contributes nothing to ``used`` — but a *count* taken
+        off ``SMEMBERS`` would treat it as a full entry. Closing a tab does not fire
+        the client's unmount hook, so a handful of those accumulate in ordinary use,
+        and counting them would eventually refuse a participant's own chat draft with
+        no way for them to see why and no path back: the index key's TTL is refreshed
+        by any participant's write, so in an active room it never lapses on its own.
+
+        Reconciling here costs nothing extra — the byte budget already fetches these
+        values — and it makes the situation self-healing rather than merely
+        diagnosed. It also keeps ``others`` small in the case the cap exists for: a
+        client minting keys cannot accumulate dead members faster than this prunes
+        them.
+
         Fails **open** (returns False) on a read error: the per-surface cap already
         bounds any single value, so a Redis hiccup costs the aggregate ceiling for one
         write rather than the participant's draft.
@@ -261,26 +278,47 @@ class DraftStore:
         except Exception:
             return False
         prefix = f"ws:draft:{room_id}:{user_id}:"
+        # `others` excludes `entry_key`, so replacing an existing draft is never
+        # refused by either ceiling -- only a genuinely new key is.
         others = [m for m in members if m.startswith(prefix) and m != entry_key]
         if not others:
             return incoming > MAX_USER_CHARS
-        # Counted before the values are fetched: the count cap is what stops a
-        # client minting entries, and reading a thousand of them to decide to
-        # refuse the thousand-and-first would be doing the work the cap exists to
-        # prevent. `others` excludes `entry_key`, so replacing an existing draft is
-        # never refused by this -- only a genuinely new key is.
-        if len(others) >= MAX_USER_ENTRIES:
-            return True
         try:
             values = await r.mget(others)
         except Exception:
             return False
+
         used = 0
-        for raw in values:
+        live = 0
+        stale: list[str] = []
+        for member, raw in zip(others, values, strict=True):
             entry = _decode(raw)
-            if entry is not None:
-                used += len(str(entry.get("content") or ""))
+            if entry is None:
+                stale.append(member)
+                continue
+            live += 1
+            used += len(str(entry.get("content") or ""))
+        if stale:
+            await self._prune(r, room_id, stale)
+        if live >= MAX_USER_ENTRIES:
+            return True
         return used + incoming > MAX_USER_CHARS
+
+    @staticmethod
+    async def _prune(r: Redis[str], room_id: uuid.UUID, stale: list[str]) -> None:
+        """Drop index members whose entry is gone. Best-effort and never raises.
+
+        A failure here costs the reconciliation, not the write: the counts above were
+        already computed from the live values, so the caller's decision stands either
+        way and the next write tries again.
+        """
+        try:
+            pipe = r.pipeline(transaction=False)
+            for member in stale:
+                pipe.srem(_index_key(room_id), member)
+            await pipe.execute()
+        except Exception:
+            logger.warning("draft index prune failed for room %s", room_id, exc_info=True)
 
     async def clear(
         self,

@@ -292,6 +292,37 @@ class TestCaps:
         )
         assert len(await store.list_for_room(ROOM)) == MAX_USER_ENTRIES
 
+    async def test_an_expired_entry_does_not_count_toward_the_cap(
+        self, store: DraftStore, redis: _FakeRedis
+    ) -> None:
+        """`/code-review` finding. The index outlives its entries on purpose and is
+        reconciled only on the read path, so counting raw `SMEMBERS` would treat a
+        lapsed member as a live entry.
+
+        Closing a tab does not fire the client's unmount hook, so these accumulate in
+        ordinary use — and once eight had, the participant's own chat draft would be
+        refused, silently and permanently.
+        """
+        for index in range(MAX_USER_ENTRIES):
+            await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key=f"t{index}", content="x")
+        # Every entry lapses; the index members survive, as they really do.
+        for key in list(redis.values):
+            del redis.values[key]
+
+        assert await store.put(room_id=ROOM, user_id=ALICE, surface=COMPOSER, key=None, content="mine")
+
+    async def test_a_lapsed_member_is_pruned_from_the_index(
+        self, store: DraftStore, redis: _FakeRedis
+    ) -> None:
+        """Self-healing, not merely tolerated: the prune is what keeps the set from
+        growing without bound in a room where no agent ever calls the tool."""
+        await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key="gone", content="x")
+        del redis.values[f"ws:draft:{ROOM}:{ALICE}:activity:gone"]
+
+        await store.put(room_id=ROOM, user_id=ALICE, surface=COMPOSER, key=None, content="mine")
+
+        assert redis.sets[f"ws:draft:rooms:{ROOM}"] == {f"ws:draft:{ROOM}:{ALICE}:composer"}
+
     async def test_the_count_cap_never_blocks_editing_an_existing_draft(self, store: DraftStore) -> None:
         """Measured against the participant's *other* entries, so a student sitting
         at the cap can still edit the worksheet in front of them."""

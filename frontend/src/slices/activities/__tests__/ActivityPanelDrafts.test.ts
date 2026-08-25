@@ -195,6 +195,15 @@ describe('ActivityPanel — the group-proposal form reports its draft too', () =
     expect(wrapper.emitted('draftClear')).toHaveLength(1)
     expect(wrapper.emitted('draft')).toBeUndefined()
   })
+
+  // NOT covered here: the round-change interaction. `cancelGroupDraft()` in the
+  // activation watcher is what stops one round's pending values going out under
+  // the next round's key (and so under the next type's consent gate). Two attempts
+  // at a component-level test for it passed with the cancel deliberately removed —
+  // vacuous both times, once because the wire-shaped activation never reached the
+  // store and once for a reason not yet established. A test that cannot fail is
+  // worse than none, so it is not here; the cancel's own behaviour is pinned in
+  // `useDraftThrottle.test.ts`, and FU-4 of the dossier records the gap.
 })
 
 describe('ActivityPanel — the disclosure chip (AC-11)', () => {

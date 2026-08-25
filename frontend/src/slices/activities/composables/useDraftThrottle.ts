@@ -42,14 +42,23 @@ export interface UseDraftThrottle<T> {
  */
 export function useDraftThrottle<T>(emit: (value: T) => void): UseDraftThrottle<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
-  let pending: T | null = null
+  // "Is something pending" is its own flag rather than a null check on the value.
+  // `T` is instantiated as `unknown` by the plugin path, where `ctx.draft(null)` is
+  // a legal way to say "the worksheet is empty now" — and swallowing that would
+  // leave the participant's EARLIER text readable for the rest of the TTL, which is
+  // the one direction this feature must never fail in.
+  let hasPending = false
+  let pending: T | undefined
 
   function report(value: T): void {
     pending = value
+    hasPending = true
     if (timer !== null) return
     timer = setTimeout(() => {
       timer = null
-      if (pending !== null) emit(pending)
+      if (!hasPending) return
+      hasPending = false
+      emit(pending as T)
     }, DRAFT_THROTTLE_MS)
   }
 
@@ -58,7 +67,8 @@ export function useDraftThrottle<T>(emit: (value: T) => void): UseDraftThrottle<
       clearTimeout(timer)
       timer = null
     }
-    pending = null
+    hasPending = false
+    pending = undefined
   }
 
   onBeforeUnmount(cancel)

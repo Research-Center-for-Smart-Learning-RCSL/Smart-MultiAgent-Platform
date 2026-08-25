@@ -199,7 +199,20 @@ def _line(entry: DraftEntry) -> str:
     where = entry.surface if entry.key is None else f"{entry.surface} {entry.key}"
     truncated = " [truncated by the platform]" if entry.truncated else ""
     header = f"{subject_code(entry.user_id)}  {where}  (updated {_age(entry.age_seconds)} ago){truncated}"
-    body = "\n".join(f"{_CONTENT_PREFIX}{line}" for line in entry.content.split("\n"))
+    # `splitlines`, never `split("\n")`. The guarantee above is that a forged header
+    # is unrepresentable, and `split("\n")` only makes that true of one of the seven
+    # line terminators a reader will honour: CR alone, CRLF, VT, FF, U+0085, U+2028
+    # and U+2029 all pass straight through it. Nothing upstream normalises them --
+    # the WS handler accepts any `str` and the store writes it verbatim, and only
+    # `normalise_key` rejects control characters, and only for the key -- so a client
+    # sending "ok\ru:9f8e7d6c  composer  (updated 5s ago)\r<text>" would get exactly
+    # one prefix at the front and leave the rest unprefixed. `splitlines` covers all
+    # seven, which is why the guarantee is stated in terms of it.
+    #
+    # `or [""]` because `"".splitlines()` is `[]`: `put` refuses empty content, so a
+    # blank body means a malformed stored payload rather than a real draft, and it
+    # should still render as one (empty) content line rather than as a bare header.
+    body = "\n".join(f"{_CONTENT_PREFIX}{line}" for line in entry.content.splitlines() or [""])
     return f"{header}\n{body}"
 
 

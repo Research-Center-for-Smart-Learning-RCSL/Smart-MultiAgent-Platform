@@ -129,9 +129,13 @@ function draftKey(): string | null {
   return activeType.value?.key ?? null
 }
 
-// The key is resolved when the window closes rather than when the change arrives:
-// a round that ends mid-window must not report the outgoing worksheet under the
-// incoming round's key.
+// The key is resolved when the window closes, which is the risky end of the choice
+// rather than the safe one: the pending values belong to the round that was running
+// when they were typed, while `draftKey()` answers for whatever round is running
+// now. What keeps those the same round is `cancelGroupDraft()` in the activation
+// watcher below — it drops the pending values before the new round takes effect.
+// Remove that cancel and this reports one round's answers under another round's
+// key, and therefore under another type's consent gate.
 const { report: onGroupDraftChange, cancel: cancelGroupDraft } = useDraftThrottle<
   Record<string, unknown>
 >((values) => {
