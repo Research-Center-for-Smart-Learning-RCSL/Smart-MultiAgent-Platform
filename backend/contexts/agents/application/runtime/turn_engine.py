@@ -34,6 +34,7 @@ from contexts.agents.application import context as ctxmod
 from contexts.agents.application.mcp_ports import SandboxRunner
 from contexts.agents.application.runtime import model_attachments as mattach
 from contexts.agents.application.runtime import transcript as tx
+from contexts.agents.application.runtime.observation_blocks import serialise_blocks
 from contexts.agents.application.runtime.summariser import RouterSummariser
 from contexts.agents.application.runtime.tool_registry import (
     ARTIFACT_SKIP_KEY,
@@ -1462,6 +1463,8 @@ class TurnEngine:
         chatroom_id: uuid.UUID | None = None,
         artifact_sink: list[dict[str, Any]] | None = None,
         activation_event_sink: list[dict[str, Any]] | None = None,
+        is_observer: bool = False,
+        observation_block_sink: list[dict[str, Any]] | None = None,
     ) -> list[Tool]:
         """Assemble the sandbox (``code_exec`` / ``file``) + ``web_search`` built-in
         tools and the agent's bound MCP tools for this turn (K.5).
@@ -1482,6 +1485,15 @@ class TurnEngine:
         dossier). A headless turn has no room, so it resolves nothing and gets no
         activity tools at all.
 
+        ``is_observer`` decides whether this turn is offered ``present_observation``
+        ([R28.16]), and ``observation_block_sink`` collects what it recorded. The
+        flag is a **parameter** rather than a read of its own: ``run_turn`` already
+        resolves the binding role at turn start, and a second read could disagree
+        with the one that decides where the output goes — a turn that assembled the
+        tool as an observer and then persisted a message would be the worst
+        possible split. Defaulting to ``False`` keeps every headless and A2A caller
+        correct without naming it.
+
         Best-effort: a wiring fault (no Docker daemon in a dev run, etc.) must
         not abort the turn — the agent simply runs without those tools. Each
         tool's own ``invoke`` already degrades a runtime fault to an ``is_error``
@@ -1494,14 +1506,25 @@ class TurnEngine:
                 build_agent_tools,
                 default_builtin_deps,
             )
+            from contexts.agents.application.runtime.observer_tools import (
+                resolve_observation_presentation,
+            )
 
-            # Fails closed on its own (returns None on any error), so a grant that
-            # cannot be read yields no tools rather than an exception this method's
-            # catch-all would turn into "no tools at all", MCP bindings included.
+            # Both resolvers fail closed on their own (returning None on any
+            # error), so a grant or a room that cannot be read yields no tools
+            # rather than an exception this method's catch-all would turn into "no
+            # tools at all", MCP bindings included.
             activity_control = (
                 None
                 if chatroom_id is None
                 else await resolve_activity_control(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
+            )
+            observation_presentation = (
+                None
+                if chatroom_id is None
+                else await resolve_observation_presentation(
+                    self._db, chatroom_id=chatroom_id, is_observer=is_observer
+                )
             )
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
@@ -1522,6 +1545,8 @@ class TurnEngine:
                 artifact_sink=artifact_sink,
                 activity_control=activity_control,
                 activation_event_sink=activation_event_sink,
+                observation_presentation=observation_presentation,
+                observation_block_sink=observation_block_sink,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
@@ -2568,12 +2593,19 @@ class TurnEngine:
             # published after the commit that made them durable. Same sink shape
             # and same reason as `artifact_sink` above.
             activation_events: list[dict[str, Any]] = []
+            # The observation this turn assembled, if it is an observer turn and
+            # the model called `present_observation` ([R28.16]). Replaced rather
+            # than appended to by the tool: the last call in a turn is the
+            # observation. Drained below, after the stream and before the record.
+            observation_blocks: list[dict[str, Any]] = []
             extra_tools = extra_tools + await self._builtin_tools(
                 agent,
                 agent_tools,
                 chatroom_id=chatroom_id,
                 artifact_sink=artifact_sink,
                 activation_event_sink=activation_events,
+                is_observer=is_observer,
+                observation_block_sink=observation_blocks,
             )
             # Resolved once and shared by both consumers below so they see the
             # same snapshot (see _resolve_trigger_attachments docstring).
@@ -2955,11 +2987,22 @@ class TurnEngine:
             final_text, rounds = outcome.text, outcome.rounds
             synthesis_meta = _synthesis_meta(outcome)
 
-            if not final_text.strip():
+            if not final_text.strip() and not observation_blocks:
                 # Nothing to say — never persist an empty agent message. When the
                 # synthesis failed, the reason is the failure and not the model
                 # choosing silence: recording it as `empty_reply` filed a provider
                 # outage as a benign skip.
+                #
+                # `observation_blocks` is the second arm ([R28.16]). An observer told
+                # to deliver its analysis as structured blocks, that calls
+                # `present_observation` and then says nothing in prose, is the
+                # ordinary shape of that feature rather than an edge case — and
+                # under a text-only guard every block it built would be discarded
+                # here, before the observer branch below ever ran. The invariant is
+                # preserved rather than weakened: the blocks serialise to a
+                # non-empty `content_md` by construction, so nothing empty is
+                # persisted either way. The sink is only ever non-empty on an
+                # observer turn, so a normal-role turn's behaviour is unchanged.
                 skip_reason = (
                     (outcome.error_kind or _SYNTHESIS_FAILED) if outcome.synthesis_failed else "empty_reply"
                 )
@@ -3026,13 +3069,24 @@ class TurnEngine:
             if is_observer:
                 # R28.03: observer output is an observation, never a message —
                 # no room emit, no workflow signal, no reply wake-ups.
+                #
+                # [R28.15]: when the turn assembled blocks, they are the
+                # observation and `content_md` is their serialisation. The model's
+                # own closing text is deliberately **not** appended: the tool tells
+                # it the blocks are what the teacher reads, so whatever follows the
+                # last tool result is post-hoc chatter ("I have prepared the
+                # analysis"), and a released observation would carry it into the
+                # room as the body. A model that wants prose in the observation has
+                # a `prose` block, at any position it likes.
+                observation_md = serialise_blocks(observation_blocks) if observation_blocks else final_text
                 obs = await ObservationService(self._db).record(
                     chatroom_id=chatroom_id,
                     agent_id=agent.id,
-                    content_md=final_text,
+                    content_md=observation_md,
                     trigger=trigger,
                     trigger_message_id=trigger_message_id,
                     metadata=reply_meta,
+                    blocks=observation_blocks or None,
                 )
                 await self._audit(
                     agent,
@@ -3069,7 +3123,9 @@ class TurnEngine:
                 return TurnResult(
                     status="completed",
                     message_id=None,
-                    text=final_text,
+                    # What was recorded, which is the serialisation when the turn
+                    # delivered blocks. Identical to `final_text` when it did not.
+                    text=observation_md,
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
                     voted_approval_ids=frozenset(voted_approvals),
