@@ -34,6 +34,7 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
+    GroupProposalResolution,
     GroupProposalTally,
     ProposalStatus,
     ValidatorKind,
@@ -1138,10 +1139,14 @@ async def create_activity_group_proposal(
     submitting, and a reader who may not answer may not start a vote that would
     answer for them either. The group gates are the service's — this route knows
     nothing about groups beyond forwarding the id the caller named.
+
+    Creating one can also settle it, when the fraction over the pinned set rounds
+    down to the proposer's own approval. The post-commit fan-out is therefore the
+    vote route's, not a shorter version of it.
     """
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
-    tally = await ActivitiesFacade(db).create_group_proposal(
+    resolution = await ActivitiesFacade(db).create_group_proposal(
         project_id=access.project_id,
         chatroom_id=chatroom_id,
         member_group_id=body.member_group_id,
@@ -1152,8 +1157,8 @@ async def create_activity_group_proposal(
         request_id=ctx.request_id,
     )
     await db.commit()
-    await dispatch_group_proposal("activity.proposal.opened", tally)
-    return _proposal_out(tally)
+    await _dispatch_proposal(chatroom_id, resolution, opened=True, db=db)
+    return _proposal_out(resolution.tally)
 
 
 @chatroom_router.post("/{chatroom_id}/activity-proposals/{proposal_id}/votes")
@@ -1184,19 +1189,39 @@ async def vote_on_activity_group_proposal(
         request_id=ctx.request_id,
     )
     await db.commit()
-    # Keyed on the proposal's STATUS, not on whether this request is the one that
-    # moved it. A vote that lost the resolve race still finds the proposal
-    # decided, and announcing that as `voted` would tell a client the vote is
-    # still running while the payload beside it says otherwise.
-    event = (
-        "activity.proposal.voted"
-        if resolution.tally.proposal.status is ProposalStatus.OPEN
-        else "activity.proposal.resolved"
-    )
+    await _dispatch_proposal(chatroom_id, resolution, opened=False, db=db)
+    return _proposal_out(resolution.tally)
+
+
+async def _dispatch_proposal(
+    chatroom_id: uuid.UUID,
+    resolution: GroupProposalResolution,
+    *,
+    opened: bool,
+    db: AsyncSession,
+) -> None:
+    """Post-commit fan-out shared by the create and vote routes.
+
+    The event name is keyed on the proposal's STATUS, not on whether this request
+    is the one that moved it. A vote that lost the resolve race still finds the
+    proposal decided, and announcing that as `voted` would tell a client the vote
+    is still running while the payload beside it says otherwise.
+
+    ``opened`` distinguishes only the still-open case: a creation that has not
+    settled is `opened`, a vote that has not settled is `voted`, and either that
+    HAS settled is `resolved` — because a proposal accepted the instant it was
+    created is not an opening, whatever route produced it.
+
+    A submission goes through the individual path's own fan-out, so a group
+    submission reaches the room, the validation worker and the reactive rules by
+    exactly the routes an individual one does."""
+    if resolution.tally.proposal.status is not ProposalStatus.OPEN:
+        event = "activity.proposal.resolved"
+    else:
+        event = "activity.proposal.opened" if opened else "activity.proposal.voted"
     await dispatch_group_proposal(event, resolution.tally)
     if resolution.submission is not None and resolution.signal_payload is not None:
         await _dispatch_submission(chatroom_id, resolution.submission, resolution.signal_payload, db=db)
-    return _proposal_out(resolution.tally)
 
 
 @chatroom_router.post("/{chatroom_id}/activity-proposals/{proposal_id}/withdraw")

@@ -433,7 +433,13 @@ const onSubmit = handleSubmit((formValues) => {
     echo_includes_content: formValues.echo_includes_content,
   }
   if (isEdit.value && props.editType) {
-    updateMutation.mutate(shared)
+    // `group_config` is round-tripped, not edited here. The PATCH body is a
+    // FULL editable representation -- the backend diffs it against the stored
+    // row -- so a field this form does not resubmit is a field it clears. This
+    // form has no group-consent control, and omitting the value would turn a
+    // group-submittable type individual-only on an unrelated rename, and bump
+    // its version (a behavioural change) while a round is live.
+    updateMutation.mutate({ ...shared, group_config: props.editType.group_config ?? null })
     return
   }
   createMutation.mutate({ key: formValues.key, ...shared })

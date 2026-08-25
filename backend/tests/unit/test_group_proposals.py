@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -135,6 +136,7 @@ def _service(
     bound_groups: set[uuid.UUID] | None = None,
     caller_groups: set[uuid.UUID] | None = None,
     members: set[uuid.UUID] | None = None,
+    room: SimpleNamespace | None = None,
 ) -> GroupProposalService:
     """A service whose every collaborator is a double, wired to the happy path.
 
@@ -179,9 +181,15 @@ def _service(
     svc._conversation_double = MagicMock(  # type: ignore[attr-defined]
         chatroom_member_group_ids=AsyncMock(
             return_value=bound_groups if bound_groups is not None else {_GROUP}
-        )
+        ),
+        get_chatroom=AsyncMock(return_value=room if room is not None else _room()),
     )
     return svc
+
+
+def _room(*, member_groups: bool = True, owners_only: bool = False) -> SimpleNamespace:
+    """Only the two access flags the proposal gate reads."""
+    return SimpleNamespace(allow_member_groups=member_groups, allow_project_owners_only=owners_only)
 
 
 def _wired(svc: GroupProposalService) -> Any:
@@ -226,13 +234,13 @@ class TestCreation:
     async def test_a_proposal_pins_the_group_and_computes_the_bar(self) -> None:
         svc = _service()
 
-        tally = await _create(svc)
+        resolution = await _create(svc)
 
         pinned = svc._proposals.create.await_args.kwargs  # type: ignore[attr-defined]
         assert pinned["voter_user_ids"] == (_ALICE, _BOB, _CARA)
         # 2/3 over three people is two, by exact integer arithmetic.
         assert pinned["required_approvals"] == 2
-        assert tally.proposal.member_group_id == _GROUP
+        assert resolution.tally.proposal.member_group_id == _GROUP
 
     async def test_the_proposers_own_approval_is_recorded_as_a_vote(self) -> None:
         """So the tally is the whole story: a reader never has to add one to a
@@ -289,6 +297,27 @@ class TestCreation:
         with pytest.raises(NotAGroupMember):
             await _create(svc)
 
+    async def test_an_owners_only_room_cannot_host_a_group_submission(self) -> None:
+        """§5.2's "intersected with those who can read the room", expressed over
+        the room rather than per member.
+
+        `allow_project_owners_only` is exclusive and no other tier widens it
+        (`_satisfies_room_flags`), so in such a room the group's members cannot
+        read it at all. Pinning them anyway would put people on a ballot they can
+        never cast and raise the bar for everyone else until the TTL expired it.
+        """
+        svc = _service(room=_room(owners_only=True))
+
+        with pytest.raises(MemberGroupNotBoundToRoom):
+            await _create(svc)
+
+    async def test_a_room_with_the_group_tier_switched_off_is_refused_too(self) -> None:
+        """A binding can outlive the flag that made it mean anything."""
+        svc = _service(room=_room(member_groups=False))
+
+        with pytest.raises(MemberGroupNotBoundToRoom):
+            await _create(svc)
+
     async def test_a_payload_that_fails_the_schema_is_refused_at_proposal_time(self) -> None:
         """A proposal nobody could accept should fail now, not after three people
         have voted for it."""
@@ -316,6 +345,38 @@ class TestCreation:
         await _create(svc)
 
         assert _ALICE in svc._proposals.create.await_args.kwargs["voter_user_ids"]  # type: ignore[attr-defined]
+
+    async def test_a_proposal_already_at_its_bar_is_accepted_at_creation(self) -> None:
+        """The proposer's own approval can be enough, and then nothing else will
+        ever happen to the proposal.
+
+        `required_approvals` is 1 whenever the fraction over the pinned set
+        rounds down to one person -- 2/3 over a group whose only standing member
+        is the proposer, 1/2 over two, 1/3 over three. Casting the implicit
+        approval and returning without settling leaves such a proposal `open`
+        until the four-hour TTL expires it, and the group's answer is lost with
+        no error anywhere.
+        """
+        svc = _service(members={_ALICE})
+        svc._proposals.get = AsyncMock(  # type: ignore[attr-defined]
+            return_value=_proposal(voters=(_ALICE,), required=1)
+        )
+        svc._votes.counts = AsyncMock(return_value=(1, 0))  # type: ignore[attr-defined]
+
+        resolution = await _create(svc)
+
+        assert resolution.transitioned is True
+        assert resolution.submission is not None
+        svc._submissions.submit_for_group.assert_awaited_once()  # type: ignore[attr-defined]
+
+    async def test_an_unmet_bar_still_leaves_the_proposal_open(self) -> None:
+        svc = _service()
+
+        resolution = await _create(svc)
+
+        assert resolution.transitioned is False
+        assert resolution.submission is None
+        svc._submissions.submit_for_group.assert_not_awaited()  # type: ignore[attr-defined]
 
     async def test_the_audit_event_carries_no_payload_content(self) -> None:
         svc = _service()

@@ -260,6 +260,10 @@ export class ActivitiesService {
      * submitting, and a reader who may not answer may not start a vote that would
      * answer for them either. The group gates are the service's — this route knows
      * nothing about groups beyond forwarding the id the caller named.
+     *
+     * Creating one can also settle it, when the fraction over the pinned set rounds
+     * down to the proposer's own approval. The post-commit fan-out is therefore the
+     * vote route's, not a shorter version of it.
      * @returns ActivityGroupProposalOut Successful Response
      * @throws ApiError
      */

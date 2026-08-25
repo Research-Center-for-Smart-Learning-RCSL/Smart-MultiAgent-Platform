@@ -626,6 +626,40 @@ describe('ActivityTypeForm', () => {
     await flushPromises()
     expect(wrapper.emitted('updated')).toBeTruthy()
   })
+
+  it('round-trips group_config on an edit rather than clearing it', async () => {
+    // The PATCH body is a FULL editable representation, so a field this form
+    // does not resubmit is a field it clears. This form has no group-consent
+    // control, so renaming a group-submittable type would otherwise turn it
+    // individual-only -- and, because the consent fraction is a behavioural
+    // field, bump its version and be refused outright while a round is live.
+    updateMock.mockResolvedValue({ id: 't1' })
+    const consent = { consent: { numerator: 2, denominator: 3 } }
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: { ...EDIT_TYPE, group_config: consent } },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Shared case v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2]).toMatchObject({ group_config: consent })
+  })
+
+  it('sends a null group_config for a type that never had one', async () => {
+    updateMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Quiz v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2].group_config).toBeNull()
+  })
 })
 
 describe('ActivityTypeForm — cross-scope key collision (AC-1)', () => {

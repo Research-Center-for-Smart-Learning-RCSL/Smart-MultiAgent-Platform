@@ -706,8 +706,14 @@ class ActivitiesFacade:
         payload: dict[str, Any],
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> GroupProposalTally:
-        """Open a group's proposal for the live round (AC-5)."""
+    ) -> GroupProposalResolution:
+        """Open a group's proposal for the live round (AC-5).
+
+        Returns a resolution rather than a tally because creating one can also
+        settle it: a fraction that rounds down to a single approval is met by the
+        proposer's own, and the caller has to dispatch the resulting submission
+        exactly as the vote route does.
+        """
         return await self._proposals.create(
             project_id=project_id,
             chatroom_id=chatroom_id,
