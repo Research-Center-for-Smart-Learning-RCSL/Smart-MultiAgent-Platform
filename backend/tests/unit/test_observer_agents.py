@@ -1764,3 +1764,72 @@ async def test_observation_list_before_anchor_scoped_by_chatroom_id() -> None:
     compiled = str(anchor_stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert str(room_id) in compiled
     assert str(before_id) in compiled
+
+
+# --------------------------------------------------------------------------- #
+# ObservationRepository — the blocks column ([R28.15])
+# --------------------------------------------------------------------------- #
+
+
+def _create_returning(**overrides):
+    """A fake INSERT ... RETURNING row for `_row_to_observation`."""
+    row = {
+        "id": uuid.uuid4(),
+        "chatroom_id": uuid.uuid4(),
+        "agent_id": uuid.uuid4(),
+        "content_md": "serialised",
+        "metadata": {},
+        "blocks": [],
+        "trigger": "silence_minutes",
+        "trigger_message_id": None,
+        "released_at": None,
+        "release_target": None,
+        "released_by_user_id": None,
+        "created_at": None,
+        "deleted_at": None,
+    }
+    row.update(overrides)
+    return SimpleNamespace(**row)
+
+
+async def _create_with(db_row, **kwargs):
+    db = AsyncMock()
+    result = MagicMock()
+    result.one.return_value = db_row
+    db.execute.return_value = result
+    observation = await ObservationRepository(db).create(
+        chatroom_id=db_row.chatroom_id,
+        agent_id=db_row.agent_id,
+        content_md=db_row.content_md,
+        trigger=db_row.trigger,
+        **kwargs,
+    )
+    stmt = db.execute.await_args_list[0].args[0]
+    return observation, stmt
+
+
+@pytest.mark.asyncio
+async def test_create_persists_and_maps_blocks() -> None:
+    blocks = [{"kind": "prose", "text": "hello"}]
+    observation, stmt = await _create_with(_create_returning(blocks=blocks), blocks=blocks)
+    assert observation.blocks == blocks
+    assert stmt.compile().params["blocks"] == blocks
+
+
+@pytest.mark.asyncio
+async def test_create_without_blocks_writes_an_empty_array() -> None:
+    """AC-3: a turn that never called the tool stores `[]`, not NULL — the column
+    is NOT NULL and every reader treats an empty array as "render content_md"."""
+    _, stmt = await _create_with(_create_returning())
+    assert stmt.compile().params["blocks"] == []
+
+
+def test_row_to_observation_tolerates_a_null_blocks_column() -> None:
+    """Rows written before 0080 read back as no blocks rather than as None.
+
+    The column is NOT NULL going forward, but a repository mapper that would raise
+    on a legacy NULL turns a schema rollback into an unreadable panel.
+    """
+    from contexts.conversation.infrastructure.repositories.observation_repo import _row_to_observation
+
+    assert _row_to_observation(_create_returning(blocks=None)).blocks == []

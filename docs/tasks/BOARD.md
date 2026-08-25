@@ -312,7 +312,7 @@ blocked on `2026-08-24-traceability-extraction-gate`, which is **implemented as 
 2026-08-24**. The first is therefore **Ready now**; the second still waits on the first. Read
 each row for its own list — the frontmatter wins over this preamble.
 
-- (moved to Ready now on 2026-08-24, unblocked by the implemented
+- (moved to In progress on 2026-08-24, unblocked by the implemented
   `2026-08-24-traceability-extraction-gate`) The original entry, kept here for its detail.
   **One thing changed under it while it waited**: the gate regenerated all 306 existing rows
   *and* backfilled 115 rather than 83, so `docs/traceability.csv` is now generated — its five
