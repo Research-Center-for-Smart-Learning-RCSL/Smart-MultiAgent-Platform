@@ -163,19 +163,27 @@ def build_present_observation_tool(
     )
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
+        def refuse(reasons: list[str]) -> ToolResult:
+            # A refusal leaves the sink exactly as it was, which is not the same
+            # sentence in both cases: after a successful earlier call, "nothing was
+            # recorded" would tell the model its blocks are gone, it would fall back
+            # to plain prose, and the engine would then record the superseded
+            # layout and discard that prose entirely.
+            return ToolResult(content=_refusal(reasons, kept=bool(block_sink)), is_error=True)
+
         blocks = list(args.get("blocks") or [])
         violations = structural_violations(blocks)
         if violations:
-            return ToolResult(content=_refusal(violations), is_error=True)
+            return refuse(violations)
 
         filled, refusals = await materialise(
             db, chatroom_id=presentation.chatroom_id, blocks=blocks, types_by_key=types_by_key
         )
         if refusals:
-            return ToolResult(content=_refusal(refusals), is_error=True)
+            return refuse(refusals)
         oversize = oversize_violation(filled)
         if oversize:
-            return ToolResult(content=_refusal([oversize]), is_error=True)
+            return refuse([oversize])
         if not serialise_blocks(filled).strip():
             # The engine records these blocks with their serialisation as
             # `content_md`, and an observer turn may carry no prose at all — so a
@@ -183,7 +191,7 @@ def build_present_observation_tool(
             # observation, which is the one thing the empty-turn guard exists to
             # prevent. The schema cannot catch it: `minLength` accepts whitespace
             # and `schema_violations` strips `pattern` outright.
-            return ToolResult(content=_refusal(["these blocks render to nothing at all"]), is_error=True)
+            return refuse(["these blocks render to nothing at all"])
 
         if block_sink is not None:
             # Last call wins: the sink is replaced, not appended to, so a model
@@ -215,11 +223,21 @@ def _declared_count(activity_type: ActivityType) -> int:
     return len(properties) if isinstance(properties, dict) else 0
 
 
-def _refusal(reasons: list[str]) -> str:
-    """A refusal the model can act on: nothing was recorded, and why."""
-    return clip_tool_output(
-        "Nothing was recorded. " + " ".join(reasons) + " Fix these and call present_observation again."
+def _refusal(reasons: list[str], *, kept: bool) -> str:
+    """A refusal the model can act on: what this call did, and why.
+
+    ``kept`` says an earlier call in this turn already succeeded and its blocks
+    still stand. Saying "nothing was recorded" then would be false in the
+    direction that costs the most: the model would take its analysis as lost, fall
+    back to prose, and the engine would record the superseded layout while
+    discarding that prose.
+    """
+    head = (
+        "This call was not recorded; the blocks from your previous call still stand."
+        if kept
+        else "Nothing was recorded."
     )
+    return clip_tool_output(f"{head} " + " ".join(reasons) + " Fix these and call present_observation again.")
 
 
 def _description(coverage_keys: list[str], mandala_keys: list[str]) -> str:

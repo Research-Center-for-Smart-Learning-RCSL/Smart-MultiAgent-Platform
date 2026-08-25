@@ -223,12 +223,37 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
     return "Codes, one per line:\n" + "\n".join(pairs)
 
 
+def _row_field(text: str) -> str:
+    """A row field that sits *before* the digest marker, made unable to be one.
+
+    ``type_key`` and ``error_class`` are the only two values on a row that this
+    module does not author. An error class comes back verbatim from an MCP or
+    webhook validator's JSON response (``validators/base.py``), and a type key is
+    length-checked at the API boundary and nothing more.
+
+    Both notes tell the model that a row's marker is the **first** one on the
+    line, so a value carrying ``::`` puts a counterfeit marker ahead of the real
+    one — and the computed note says the text after it is a server fact that never
+    contains the participant's words, which is exactly the label a unit-4 answer
+    must not acquire. Collapsing runs of the marker (rather than a single pass,
+    which turns ``:::`` back into ``::``) is what makes that unreachable.
+
+    ``_one_line`` on top, for the reason it exists: a newline here opens a second
+    line indistinguishable from a real row, which the preamble has just vouched
+    for.
+    """
+    out = _one_line(text)
+    while _COMPUTED_MARKER in out:
+        out = out.replace(_COMPUTED_MARKER, ":")
+    return out
+
+
 def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     ts = row.created_at.isoformat() if row.created_at else "?"
     subject = subject_code(row.subject_user_id)
     outcome = outcome_word(row.validation_status, row.is_valid)
-    suffix = f" [{row.error_class}]" if row.error_class else ""
-    line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
+    suffix = f" [{_row_field(row.error_class)}]" if row.error_class else ""
+    line = f"- ({ts}) {subject} #{row.attempt_no} {_row_field(row.type_key)}: {outcome}{suffix}"
     if digests_allowed and row.expose_payload_to_agent and row.agent_digest:
         marker = _COMPUTED_MARKER if row.digest_is_computed else "—"
         line += f" {marker} {_one_line(row.agent_digest)}"
