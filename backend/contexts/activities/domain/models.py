@@ -316,7 +316,104 @@ class ActivityAggregate:
     latency_max_ms: int | None
 
 
+#: ``sub_scores`` key under which a validator records **which** declared properties
+#: a submission answered, as a JSON array of property names ([R28.17]). Declared
+#: here rather than beside the validator that writes it: the coverage aggregates
+#: read the key in SQL, and ``contexts/activities`` must not import ``app.plugins``.
+#: A submission without it has no coverage to report — which is the mid-course
+#: upgrade case, not an error.
+FILLED_FIELDS_SUB_SCORE = "filled_fields"
+
+#: Upper bound on the declared properties a coverage aggregate will tally. The
+#: query builds one aggregate per field, so an unbounded schema would build an
+#: unbounded statement. Well above any worksheet: the shipped nine-cell mandala is
+#: the widest example type, and a form with more boxes than this is not something a
+#: single figure could render legibly anyway.
+MAX_COVERAGE_FIELDS = 64
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCoverageCell:
+    """One declared property and how many counted submissions answered it.
+
+    ``title`` is the owner-authored schema title, falling back to the property
+    name. Both are owner-authored; **no participant value is carried here** —
+    the aggregate that builds these reads field *names* only ([R28.18]).
+    """
+
+    name: str
+    title: str
+    filled: int
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCoverage:
+    """Per-field answer counts for one activity type in one room ([R28.17]).
+
+    ``submissions_counted`` is the denominator and it counts **submissions, not
+    participants**: a coverage figure over this data cannot say what fraction of a
+    class did anything, because only submissions carrying ``filled_fields`` are in
+    scope at all and the room has no roster ([R28.18]).
+
+    ``cells`` is in the schema's declared order (``x-order`` where present).
+    """
+
+    type_key: str
+    type_name: str
+    submissions_counted: int
+    cells: tuple[FieldCoverageCell, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MandalaGrid:
+    """:class:`FieldCoverage` for a nine-property type, laid out three by three.
+
+    A separate read model rather than a flag on ``FieldCoverage`` because the
+    nine-property requirement is an invariant of *this* shape: ``rows`` is always
+    three rows of three, so a renderer never has to handle a ragged grid.
+    """
+
+    type_key: str
+    type_name: str
+    submissions_counted: int
+    rows: tuple[tuple[FieldCoverageCell, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptSummaryRow:
+    """One participant's attempt record, addressed by truncated code ([R28.18]).
+
+    ``attempts`` is the highest attempt number reached within a **single** session,
+    not a total across sessions: attempt numbers are per session, so a participant
+    who tried twice in each of two rounds reports 2, not 4.
+    """
+
+    subject_code: str
+    attempts: int
+    submissions: int
+    latest_outcome: str
+    latest_error_class: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptSummary:
+    """Room-scoped attempt records, newest activity first ([R28.17]).
+
+    ``truncated`` says the limit cut the listing short. Reported rather than
+    silently dropped: a table that stops at its cap with no sign of it reads as a
+    complete record of the room, which is the one thing this data is not.
+    """
+
+    type_key: str | None
+    type_name: str | None
+    submissions_counted: int
+    rows: tuple[AttemptSummaryRow, ...]
+    truncated: bool
+
+
 __all__ = [
+    "FILLED_FIELDS_SUB_SCORE",
+    "MAX_COVERAGE_FIELDS",
     "PERMISSIVE_POLICY",
     "PLATFORM_SCOPE",
     "ActivationStatus",
@@ -329,6 +426,11 @@ __all__ = [
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",
+    "AttemptSummary",
+    "AttemptSummaryRow",
+    "FieldCoverage",
+    "FieldCoverageCell",
+    "MandalaGrid",
     "PolicyImpact",
     "ProjectActivityTypeOptIn",
     "RecentActivityRow",

@@ -26,7 +26,11 @@ from typing import Any
 
 from contexts.activities.application.validators.registry import register_in_process_validator
 from contexts.activities.domain.errors import ValidatorConfigInvalid
-from contexts.activities.domain.models import ActivityType, ValidationResult
+from contexts.activities.domain.models import (
+    FILLED_FIELDS_SUB_SCORE,
+    ActivityType,
+    ValidationResult,
+)
 
 EXACT_MATCH_ID = "exact_match"
 _MISMATCH = "mismatch"
@@ -35,10 +39,10 @@ FILLED_COUNT_ID = "filled_count"
 _TOO_FEW_FILLED = "too_few_filled"
 
 FILLED_COUNT_COVERAGE_ID = "filled_count_coverage"
-#: ``sub_scores`` key carrying the declared property *names* that were answered.
-#: Read by the room-scoped coverage aggregates ([R28.17]); a type whose submissions
-#: do not carry it has no coverage to report and the tool refuses the block.
-FILLED_FIELDS_KEY = "filled_fields"
+#: Re-exported so a reader of this module sees which key it writes. The name is
+#: owned by ``contexts.activities.domain`` because the coverage aggregates read it
+#: in SQL and that context cannot import ``app.plugins``.
+FILLED_FIELDS_KEY = FILLED_FIELDS_SUB_SCORE
 
 
 def exact_match_scorer(payload: dict[str, Any], activity_type: ActivityType, *, db: Any) -> ValidationResult:
@@ -153,9 +157,7 @@ def filled_count_coverage_scorer(
 
     if len(filled_fields) >= min_filled:
         return ValidationResult(is_valid=True, sub_scores=sub_scores, detail=detail)
-    return ValidationResult(
-        is_valid=False, error_class=_TOO_FEW_FILLED, sub_scores=sub_scores, detail=detail
-    )
+    return ValidationResult(is_valid=False, error_class=_TOO_FEW_FILLED, sub_scores=sub_scores, detail=detail)
 
 
 def _coverage_detail(filled_fields: list[str], declared_count: int) -> str:

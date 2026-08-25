@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.subject_code import subject_code
 from contexts.activities.domain.models import RecentActivityRow, ValidationStatus
 
 if TYPE_CHECKING:
@@ -143,10 +144,6 @@ class ActivityContextProvider:
         return not (policy.expose_payload_to_agent_locked and not policy.expose_payload_to_agent_default)
 
 
-def _subject_code(subject_user_id: uuid.UUID) -> str:
-    return f"u:{str(subject_user_id)[:8]}"
-
-
 def _one_line(text: str) -> str:
     """Strip quotes and collapse any run of whitespace, newlines included.
 
@@ -193,7 +190,7 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
     seen: dict[uuid.UUID, None] = {}
     for row in rows:
         seen.setdefault(row.subject_user_id, None)
-    pairs = [f'{_subject_code(uid)} = "{_one_line(labels[uid])}"' for uid in seen if uid in labels]
+    pairs = [f'{subject_code(uid)} = "{_one_line(labels[uid])}"' for uid in seen if uid in labels]
     if not pairs:
         return None
     return "Codes, one per line:\n" + "\n".join(pairs)
@@ -201,7 +198,7 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
 
 def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     ts = row.created_at.isoformat() if row.created_at else "?"
-    subject = _subject_code(row.subject_user_id)
+    subject = subject_code(row.subject_user_id)
     outcome = _outcome(row.validation_status, row.is_valid)
     suffix = f" [{row.error_class}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
@@ -218,4 +215,4 @@ def _outcome(status: ValidationStatus, is_valid: bool | None) -> str:
     return "valid" if is_valid else "invalid"
 
 
-__all__ = ["ActivityContextProvider", "LabelResolver"]
+__all__ = ["ActivityContextProvider", "LabelResolver", "subject_code"]

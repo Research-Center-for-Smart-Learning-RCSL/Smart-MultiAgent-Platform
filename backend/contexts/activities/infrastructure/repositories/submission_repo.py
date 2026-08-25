@@ -8,14 +8,17 @@ single-query aggregate. All writes keep the caller's :class:`AsyncSession`.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.models import (
+    FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
     ActivitySubmission,
     RecentActivityRow,
@@ -390,6 +393,102 @@ class ActivitySubmissionRepository:
             latency_min_ms=int(row.latency_min) if row.latency_min is not None else None,
             latency_max_ms=int(row.latency_max) if row.latency_max is not None else None,
         )
+
+    # -- Presentation-block aggregates ([R28.17]) ---------------------------- #
+
+    async def count_field_fills(
+        self, *, chatroom_id: uuid.UUID, activity_type_id: uuid.UUID, field_names: Sequence[str]
+    ) -> tuple[int, dict[str, int]]:
+        """``(submissions counted, {field name: how many answered it})``.
+
+        Only submissions whose ``sub_scores`` carries a ``filled_fields`` **array**
+        are in scope, for both the denominator and every tally. A room that adopted
+        the coverage validator mid-course therefore reports the population the
+        figure is actually about, rather than silently reading every earlier
+        submission as "answered nothing".
+
+        One ``count(*) FILTER`` per declared field rather than a set-returning
+        function over the array. ``jsonb_array_elements_text`` raises on a value
+        that is not an array, and a comma-join SRF is expanded before ``WHERE``
+        runs, so the guard could not protect it; ``@>`` is simply false for a
+        non-array and needs no guard at all.
+
+        ``@>`` against a one-element array — ``'["home"]'`` — is the containment
+        form for "this array holds this string". PostgreSQL-specific, hence the
+        ``db``-tier test (backend/CLAUDE.md).
+        """
+        scoped = sa.and_(
+            _SUB.c.chatroom_id == chatroom_id,
+            _SUB.c.activity_type_id == activity_type_id,
+            _SUB.c.deleted_at.is_(None),
+            sa.func.jsonb_typeof(_SUB.c.sub_scores[FILLED_FIELDS_SUB_SCORE]) == "array",
+        )
+        filled_fields = sa.type_coerce(_SUB.c.sub_scores[FILLED_FIELDS_SUB_SCORE], pg.JSONB)
+        columns: list[sa.ColumnElement[Any]] = [sa.func.count().label("submissions")]
+        # Positional labels: a property name is owner-authored and may be anything,
+        # including something that collides with `submissions` or another field's
+        # name after SQL identifier folding.
+        columns.extend(
+            sa.func.count()
+            .filter(filled_fields.contains(sa.cast(sa.literal(json.dumps([name])), pg.JSONB)))
+            .label(f"f{i}")
+            for i, name in enumerate(field_names)
+        )
+        row = (await self._db.execute(sa.select(*columns).where(scoped))).one()
+        counted = int(row.submissions or 0)
+        return counted, {name: int(getattr(row, f"f{i}") or 0) for i, name in enumerate(field_names)}
+
+    async def attempt_summary_rows(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activity_type_id: uuid.UUID | None,
+        limit: int,
+    ) -> tuple[int, list[Any]]:
+        """``(submissions in scope, one row per subject)``, newest activity first.
+
+        ``limit + 1`` rows are fetched so the caller can say the listing was cut
+        short instead of presenting a truncated table as the whole room.
+
+        Ordering is by the subject's most recent submission, not by attempt count:
+        a table sorted by tries reads as a ranking, and this data does not support
+        one.
+        """
+        scoped = sa.and_(_SUB.c.chatroom_id == chatroom_id, _SUB.c.deleted_at.is_(None))
+        if activity_type_id is not None:
+            scoped = sa.and_(scoped, _SUB.c.activity_type_id == activity_type_id)
+
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        subject = _SESS.c.subject_user_id
+        latest = (
+            sa.select(
+                subject,
+                _SUB.c.validation_status,
+                _SUB.c.is_valid,
+                _SUB.c.error_class,
+                _SUB.c.created_at.label("last_at"),
+                sa.func.max(_SUB.c.attempt_no).over(partition_by=subject).label("attempts"),
+                sa.func.count().over(partition_by=subject).label("submissions"),
+            )
+            .select_from(joined)
+            .where(scoped)
+            # Window functions are evaluated before DISTINCT ON, so `attempts` and
+            # `submissions` cover the subject's whole set even though only their
+            # newest row survives.
+            .distinct(_SESS.c.subject_user_id)
+            .order_by(_SESS.c.subject_user_id, _SUB.c.created_at.desc(), _SUB.c.id.desc())
+            .subquery()
+        )
+        rows = (
+            await self._db.execute(
+                sa.select(latest).order_by(latest.c.last_at.desc(), latest.c.subject_user_id).limit(limit + 1)
+            )
+        ).all()
+
+        total = (
+            await self._db.execute(sa.select(sa.func.count()).select_from(joined).where(scoped))
+        ).scalar_one()
+        return int(total or 0), list(rows)
 
 
 __all__ = ["ActivitySubmissionRepository"]
