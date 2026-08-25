@@ -1497,6 +1497,206 @@ async def test_a_failed_synthesis_marks_the_observation_it_persists(monkeypatch)
     assert recorded["metadata"]["synthesis_error"] == "provider_stream_failed"
 
 
+# --------------------------------------------------------------------------- #
+# Presentation blocks on the turn ([R28.15], [R28.16]) — AC-1, AC-3, AC-16, AC-17
+# --------------------------------------------------------------------------- #
+
+_BLOCKS = [
+    {"kind": "prose", "text": "the room split three ways"},
+    {
+        "kind": "field_coverage",
+        "basis": "server_facts",
+        "type_key": "mandala-9grid",
+        "submissions_counted": 12,
+        "cells": [{"name": "home", "title": "Home", "filled": 9}],
+    },
+]
+
+
+def _call_the_tool(engine, blocks=_BLOCKS) -> dict:
+    """Stand in for the model calling `present_observation` mid-turn.
+
+    What the engine sees afterwards is a filled sink, however it got there — the
+    same shape ``test_activity_control_tools`` uses for the activation sink. The
+    returned dict captures the kwargs so a test can assert `is_observer` was
+    threaded rather than re-read.
+    """
+    seen: dict = {}
+
+    async def _tools(agent_, agent_tools, **kw):
+        seen.update(kw)
+        sink = kw.get("observation_block_sink")
+        if sink is not None and blocks is not None:
+            sink.extend(blocks)
+        return []
+
+    engine._builtin_tools = _tools  # type: ignore[attr-defined]
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_an_observer_turn_records_its_blocks_and_their_serialisation(monkeypatch) -> None:
+    """AC-1. The blocks reach the column, `content_md` is their markdown, and
+    nothing is written to `messages`."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+    seen = _call_the_tool(engine)
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert result.message_id is None
+    assert recorded["blocks"] == _BLOCKS
+    # The serialisation, not the model's closing text: the tool tells it the
+    # blocks are what the teacher reads.
+    assert "the room split three ways" in recorded["content_md"]
+    assert "| Home | 9 |" in recorded["content_md"]
+    assert "12 submissions counted." in recorded["content_md"]
+    assert "private analysis" not in recorded["content_md"]
+    assert [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")] == []
+    # AC-2's engine half: the flag is threaded from the role `run_turn` resolved,
+    # never re-read inside the assembly.
+    assert seen["is_observer"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_observer_turn_that_never_calls_the_tool_is_byte_identical_to_before(
+    monkeypatch,
+) -> None:
+    """AC-3."""
+    agent = _observer_agent()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=uuid.uuid4())
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert recorded["content_md"] == "private analysis"
+    # `None` and `[]` both persist as an empty array; what matters is that the
+    # record carries no blocks.
+    assert not recorded["blocks"]
+
+
+@pytest.mark.asyncio
+async def test_blocks_with_no_prose_are_recorded_rather_than_skipped(monkeypatch) -> None:
+    """AC-16, and the correction §5.5 of the dossier exists for.
+
+    A model told to deliver its analysis as blocks, that calls the tool and then
+    says nothing, is the ordinary shape of this feature. Under a text-only empty
+    guard every block would be discarded before the observer branch ran, and the
+    creator would see `observation.skipped`.
+    """
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+    _call_the_tool(engine)
+
+    async def _silent_stream(**kw):
+        return te.ToolLoopOutcome(text="   ", rounds=2)
+
+    engine._stream_with_tools = _silent_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert recorded["blocks"] == _BLOCKS
+    assert recorded["content_md"].strip()
+    user_events = [e[1] for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert user_events == ["observation.started", "observation.created"]
+
+
+@pytest.mark.asyncio
+async def test_blocks_survive_a_failed_synthesis_and_are_marked_not_filed_as_empty(
+    monkeypatch,
+) -> None:
+    """AC-17. The tool rounds behind those blocks are real work, and the missing
+    prose is a provider fault — filing it as `empty_reply` is the misfiling the
+    non-empty path was already written to prevent."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+    _call_the_tool(engine)
+
+    async def _failed_stream(**kw):
+        return te.ToolLoopOutcome(
+            text="", rounds=8, synthesis_failed=True, error_kind="provider_stream_failed"
+        )
+
+    engine._stream_with_tools = _failed_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "completed"
+    assert recorded["blocks"] == _BLOCKS
+    assert recorded["metadata"]["synthesis_failed"] is True
+    assert recorded["metadata"]["synthesis_error"] == "provider_stream_failed"
+    user_events = [e[1] for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert "observation.failed" not in user_events
+    assert user_events[-1] == "observation.created"
+
+
+@pytest.mark.asyncio
+async def test_neither_text_nor_blocks_is_still_a_skip(monkeypatch) -> None:
+    """AC-17's other half. The guard was widened, not removed."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+    _call_the_tool(engine, blocks=None)
+
+    async def _silent_stream(**kw):
+        return te.ToolLoopOutcome(text="", rounds=1)
+
+    engine._stream_with_tools = _silent_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "empty_reply"
+    assert recorded == {}
+    user_events = [e[1] for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert user_events == ["observation.started", "observation.skipped"]
+
+
 @pytest.mark.asyncio
 async def test_empty_reply_settles_pending_approvals(monkeypatch) -> None:
     """/code-review, FU-7 — the empty_reply skip used to return without
