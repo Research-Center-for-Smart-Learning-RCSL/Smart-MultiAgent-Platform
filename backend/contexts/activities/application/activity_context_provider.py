@@ -301,6 +301,19 @@ def _row_field(text: str) -> str:
     replacement contains no em dash — but it is written the same way so the two
     branches cannot drift.
 
+    Collapsing the value's own markers is still not enough, because the ROW
+    FORMAT contributes a character too: ``_format_row`` writes
+    ``{_row_field(type_key)}: {outcome}``, so a key ending in a single ``:`` --
+    which survives the collapse, having no run to collapse -- meets the format's
+    literal ``:`` and completes a ``::`` the value never contained.
+    ``mandala-9grid:`` renders as ``... #1 mandala-9grid:: valid — <the
+    participant's words>``, and since the notes define a row's marker as the
+    FIRST one on the line, everything after it reads as server-computed and, per
+    the shipped AA prompt, as quotable. ``key`` carries no character class at the
+    API boundary (only ``min_length``/``max_length``), so a Project Owner can
+    register exactly that. Stripping the trailing colon closes the seam; the em
+    dash needs no equivalent, since no adjacent character can complete one.
+
     ``_one_line`` on top, for the reason it exists: a newline here opens a second
     line indistinguishable from a real row, which the preamble has just vouched
     for.
@@ -309,7 +322,7 @@ def _row_field(text: str) -> str:
     for marker, replacement in ((_COMPUTED_MARKER, ":"), (_PARTICIPANT_MARKER, "-")):
         while marker in out:
             out = out.replace(marker, replacement)
-    return out
+    return out.rstrip(":")
 
 
 #: What a row shows when neither subject column is set. Unreachable under
