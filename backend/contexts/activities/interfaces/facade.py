@@ -22,6 +22,7 @@ from contexts.activities.application.example_service import (
     InstallReport,
     PlatformExample,
 )
+from contexts.activities.application.observation_aggregates import ObservationAggregateService
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
@@ -43,6 +44,9 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
+    AttemptSummary,
+    FieldCoverage,
+    MandalaGrid,
     PolicyImpact,
     RecentActivityRow,
     ValidationResult,
@@ -69,8 +73,11 @@ __all__ = [
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",
+    "AttemptSummary",
     "CatalogueEntry",
+    "FieldCoverage",
     "InstallReport",
+    "MandalaGrid",
     "PlatformExample",
     "RecentActivityRow",
     "ValidationResult",
@@ -97,6 +104,7 @@ class ActivitiesFacade:
         self._sessions = ActivitySessionService(db, activation_repo=activation_repo)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
+        self._observation_aggregates = ObservationAggregateService(db)
         self._examples = ActivityExampleService(db)
 
     # -- Types --------------------------------------------------------------
@@ -768,3 +776,40 @@ class ActivitiesFacade:
         """Bounded, most-recent-first activity for the observer context provider
         (R30.10). Positional signature matches the observer dossier's call."""
         return await self._aggregation.list_recent_activity(chatroom_id=chatroom_id, limit=limit)
+
+    # -- Observer presentation blocks ([R28.17]) ----------------------------- #
+    #
+    # Three read-only, room-scoped aggregates. Each takes a **resolved**
+    # ``ActivityType`` rather than a key: [R30.02] lets a project-owned type and an
+    # opted-in platform type share one key, so a key is not a unique handle, and
+    # the caller has already put the id through ``resolve_type_for_project``
+    # ([R30.33]). Passing the type also keeps the reachability gate on one path.
+    #
+    # Every one returns ``None`` rather than an empty figure when there is nothing
+    # to count, so the caller refuses the block instead of rendering a chart that
+    # asserts nobody did anything.
+
+    async def field_coverage(
+        self, *, chatroom_id: uuid.UUID, activity_type: ActivityType
+    ) -> FieldCoverage | None:
+        return await self._observation_aggregates.field_coverage(
+            chatroom_id=chatroom_id, activity_type=activity_type
+        )
+
+    async def mandala_grid(
+        self, *, chatroom_id: uuid.UUID, activity_type: ActivityType
+    ) -> MandalaGrid | None:
+        return await self._observation_aggregates.mandala_grid(
+            chatroom_id=chatroom_id, activity_type=activity_type
+        )
+
+    async def attempt_summary(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activity_type: ActivityType | None = None,
+        limit: int,
+    ) -> AttemptSummary | None:
+        return await self._observation_aggregates.attempt_summary(
+            chatroom_id=chatroom_id, activity_type=activity_type, limit=limit
+        )
