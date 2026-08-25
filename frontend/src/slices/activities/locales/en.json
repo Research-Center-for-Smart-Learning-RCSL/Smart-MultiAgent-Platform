@@ -43,6 +43,7 @@
       "myVoteApproved": "You agreed.",
       "myVoteRejected": "You disagreed. If it still reaches the threshold, it is submitted as your group's answer.",
       "loadFailed": "Could not load your group's proposal. Please try again.",
+      "retry": "Try again",
       "proposeFailed": "Could not propose this answer. Please try again.",
       "voteFailed": "Could not record your vote. Please try again.",
       "withdrawFailed": "Could not withdraw the proposal. Please try again."

@@ -10,6 +10,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { defineComponent } from 'vue'
 
 import type { ChannelEvent } from '@shared/transport'
+import { buildGroupProposal } from '../../../../tests/utils'
 import { useActivitiesStore } from '@slices/activities'
 import type * as ActivitiesSlice from '@slices/activities'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
@@ -423,26 +424,11 @@ describe('useChatroomSocket agent streaming', () => {
     activities.setRound(ROOM, {
       activationId: 'activation_1',
       proposals: [
-        {
-          id: 'p_1',
+        buildGroupProposal({
           chatroom_id: ROOM,
           activation_id: 'activation_1',
           activity_type_id: 'type_1',
-          member_group_id: 'g1',
-          proposer_user_id: 'u1',
-          payload: { answer: 'ours' },
-          status: 'open',
-          required_approvals: 2,
-          approvals: 1,
-          rejections: 0,
-          undecided: 2,
-          voter_count: 3,
-          votes: [],
-          created_at: null,
-          expires_at: null,
-          resolved_at: null,
-          submission_id: null,
-        },
+        }),
       ],
       eligibleGroups: [{ id: 'g1', name: 'Group A' }],
     })

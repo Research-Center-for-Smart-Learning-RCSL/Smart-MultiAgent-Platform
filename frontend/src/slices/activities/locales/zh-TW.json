@@ -43,6 +43,7 @@
       "myVoteApproved": "你已表示同意。",
       "myVoteRejected": "你表示不同意。若同意人數仍達標，這份答案仍會以小組名義送出。",
       "loadFailed": "無法載入小組提案，請再試一次。",
+      "retry": "重新載入",
       "proposeFailed": "無法提出這份答案，請再試一次。",
       "voteFailed": "無法記錄你的表決，請再試一次。",
       "withdrawFailed": "無法收回提案，請再試一次。"

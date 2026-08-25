@@ -4,32 +4,18 @@
 // asserted here is which controls exist in which state.
 
 import { describe, expect, it } from 'vitest'
-import { renderView } from '../../../../tests/utils'
+import { buildGroupProposal, renderView } from '../../../../tests/utils'
 import GroupProposalCard from '../components/GroupProposalCard.vue'
 import type { ActivityGroupProposal } from '../types'
 
 function proposal(over: Partial<ActivityGroupProposal> = {}): ActivityGroupProposal {
-  return {
-    id: 'p_1',
-    chatroom_id: 'c1',
-    activation_id: 'act_1',
-    activity_type_id: 'at_1',
-    member_group_id: 'g1',
-    proposer_user_id: 'u_alice',
+  return buildGroupProposal({
     payload: { case: 'A shared scenario', hat_white: 'facts' },
-    status: 'open',
     required_approvals: 3,
     approvals: 2,
-    rejections: 0,
-    undecided: 2,
     voter_count: 4,
-    votes: [],
-    created_at: null,
-    expires_at: null,
-    resolved_at: null,
-    submission_id: null,
     ...over,
-  }
+  })
 }
 
 function mount(over: Record<string, unknown> = {}) {

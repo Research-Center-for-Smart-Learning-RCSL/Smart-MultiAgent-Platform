@@ -215,8 +215,18 @@ export const useActivitiesStore = defineStore('activities', () => {
     return proposalRooms[roomId]
   }
 
-  function clearProposals(roomId: string): void {
-    delete proposalRooms[roomId]
+  /** Drop a room's group state.
+   *
+   *  `activationId` guards it the way `clearActivation` is guarded: a stale
+   *  `activation.ended` for a round that has already been replaced would
+   *  otherwise wipe the CURRENT round's proposals while leaving its activation
+   *  in place — a panel that then waits forever for a read nothing will issue,
+   *  because the round it is keyed on never changed. Omit the id to clear
+   *  unconditionally (no round is running). */
+  function clearProposals(roomId: string, activationId?: string): void {
+    if (!activationId || proposalRooms[roomId]?.activationId === activationId) {
+      delete proposalRooms[roomId]
+    }
   }
 
   function resetRoom(roomId: string): void {

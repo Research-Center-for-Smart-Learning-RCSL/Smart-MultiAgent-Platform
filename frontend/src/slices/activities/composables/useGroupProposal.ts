@@ -42,6 +42,14 @@ export interface UseGroupProposal {
   /** Whether the panel should offer group mode at all: the server said this
    *  caller belongs to at least one group bound to this room. */
   canPropose: ComputedRef<boolean>
+  /** Whether the server has answered for THIS round yet.
+   *
+   *  `canPropose` alone cannot carry this: it is false both for a caller in no
+   *  group and for one whose read has not returned, and a panel that treats
+   *  those the same shows the individual worksheet to a group participant until
+   *  the read lands — long enough to type an answer into a surface that is
+   *  about to be replaced. */
+  roundResolved: ComputedRef<boolean>
   /** This caller's own decision on the open proposal: true approved, false
    *  rejected, null undecided. Also null for a caller the server did not send
    *  the per-person record to, which is the same thing as far as the controls
@@ -87,6 +95,10 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
     () => activeRoom.value?.eligibleGroups ?? [],
   )
   const canPropose = computed(() => eligibleGroups.value.length > 0)
+  // Keyed on the store entry for THIS activation, not on `loading`: the watcher
+  // that starts the read is async, so there is a tick where the round has
+  // changed and no request is in flight yet. `loading` reads false in it.
+  const roundResolved = computed(() => activeRoom.value !== undefined)
 
   const openProposal = computed<ActivityGroupProposal | null>(() => {
     const mine = new Set(eligibleGroups.value.map((g) => g.id))
@@ -235,6 +247,7 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
     eligibleGroups,
     openProposal,
     canPropose,
+    roundResolved,
     myVote,
     isProposer,
     loading,

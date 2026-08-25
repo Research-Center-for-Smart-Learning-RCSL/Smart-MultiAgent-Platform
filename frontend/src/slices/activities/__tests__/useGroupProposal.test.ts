@@ -9,7 +9,7 @@
 import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderView } from '../../../../tests/utils'
+import { buildGroupProposal, renderView } from '../../../../tests/utils'
 import { useActivitiesStore } from '../stores/activities'
 import { useGroupProposal, type UseGroupProposal } from '../composables/useGroupProposal'
 import type { ActivityGroupProposal } from '../types'
@@ -31,27 +31,15 @@ const MY_GROUP = 'g_mine'
 const OTHER_GROUP = 'g_theirs'
 
 function proposal(over: Partial<ActivityGroupProposal> = {}): ActivityGroupProposal {
-  return {
-    id: 'p_1',
+  return buildGroupProposal({
     chatroom_id: ROOM,
     activation_id: ACTIVATION,
-    activity_type_id: 'at_1',
     member_group_id: MY_GROUP,
-    proposer_user_id: 'u_alice',
-    payload: { answer: 'ours' },
-    status: 'open',
-    required_approvals: 2,
-    approvals: 1,
-    rejections: 0,
-    undecided: 2,
-    voter_count: 3,
+    // The proposer's approval is implicit and recorded as a vote row, which is
+    // what makes `myVote` answerable without adding one to a count.
     votes: [{ user_id: 'u_alice', approve: true, created_at: null }],
-    created_at: null,
-    expires_at: null,
-    resolved_at: null,
-    submission_id: null,
     ...over,
-  }
+  })
 }
 
 /** Mount the composable inside a real component so its watchers run. */
