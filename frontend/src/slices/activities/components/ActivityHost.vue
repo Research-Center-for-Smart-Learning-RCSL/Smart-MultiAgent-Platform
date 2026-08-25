@@ -5,6 +5,7 @@ import { getActivityPlugin } from '../plugins'
 import { InProcessBridge, type HostBridge } from '../sdk/bridge'
 import type { ActivitySubmissionResult, ActivityTeardown, JSONSchema } from '../sdk/types'
 import { useActivityHost } from '../composables/useActivityHost'
+import { useDraftThrottle } from '../composables/useDraftThrottle'
 import type { ActivityTypePublic } from '../types'
 import SchemaForm from './SchemaForm.vue'
 import ActivityOutcomeBadge from './ActivityOutcomeBadge.vue'
@@ -53,37 +54,13 @@ const { submit: rawSubmit, submitting, errorMessage, outcome } = useActivityHost
 })
 
 // ---- draft reporting ([R32.01]) ---------------------------------------------
-// Trailing-edge throttle on the same 3s window the composer's typing timer uses,
-// so a worksheet and a chat message cost the room the same frame rate. Trailing
-// rather than leading: what matters is the LATEST state of the worksheet, and a
-// leading edge would report the first keystroke of a burst and then nothing until
-// the next one.
+// The window and its cancel-before-clear rule live in `useDraftThrottle`; the
+// group-proposal form in `ActivityPanel` needs the same behaviour and does not
+// pass through this component.
 
-const DRAFT_THROTTLE_MS = 3000
-let draftTimer: ReturnType<typeof setTimeout> | null = null
-let pendingDraft: unknown = null
-
-function reportDraft(payload: unknown): void {
-  pendingDraft = payload
-  if (draftTimer !== null) return
-  draftTimer = setTimeout(() => {
-    draftTimer = null
-    emit('draft', pendingDraft)
-  }, DRAFT_THROTTLE_MS)
-}
-
-/** Drop anything the throttle is holding, so a clear is never overtaken.
- *
- *  Without this a submit would clear the entry and the pending timer would then
- *  fire and re-report the answer that was just sent — leaving a "draft" of an
- *  already-submitted worksheet readable for a full TTL. */
-function cancelPendingDraft(): void {
-  if (draftTimer !== null) {
-    clearTimeout(draftTimer)
-    draftTimer = null
-  }
-  pendingDraft = null
-}
+const { report: reportDraft, cancel: cancelPendingDraft } = useDraftThrottle<unknown>(
+  (payload) => emit('draft', payload),
+)
 
 /** The single submit both paths (plugin and schema form) go through, so neither
  *  can accept a submission without announcing it. Only a resolved call emits:

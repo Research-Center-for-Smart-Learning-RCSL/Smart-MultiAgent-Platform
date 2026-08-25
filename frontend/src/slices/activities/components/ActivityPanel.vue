@@ -14,6 +14,7 @@ import {
   startActivation,
 } from '../api'
 import { useActivationProgress } from '../composables/useActivationProgress'
+import { useDraftThrottle } from '../composables/useDraftThrottle'
 import { useGroupProposal } from '../composables/useGroupProposal'
 import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import { useActivitiesStore } from '../stores/activities'
@@ -124,31 +125,19 @@ function onProposalSubmit(payload: Record<string, unknown>): void {
 // worksheet, so the read-time consent gate ([R32.04]) applies to it unchanged: a
 // group task whose type agents may not see has no readable draft either.
 
-const DRAFT_THROTTLE_MS = 3000
-let groupDraftTimer: ReturnType<typeof setTimeout> | null = null
-let pendingGroupDraft: unknown = null
-
 function draftKey(): string | null {
   return activeType.value?.key ?? null
 }
 
-function onGroupDraftChange(values: Record<string, unknown>): void {
-  pendingGroupDraft = values
-  if (groupDraftTimer !== null) return
-  groupDraftTimer = setTimeout(() => {
-    groupDraftTimer = null
-    const key = draftKey()
-    if (key) emit('draft', key, pendingGroupDraft)
-  }, DRAFT_THROTTLE_MS)
-}
-
-function cancelGroupDraft(): void {
-  if (groupDraftTimer !== null) {
-    clearTimeout(groupDraftTimer)
-    groupDraftTimer = null
-  }
-  pendingGroupDraft = null
-}
+// The key is resolved when the window closes rather than when the change arrives:
+// a round that ends mid-window must not report the outgoing worksheet under the
+// incoming round's key.
+const { report: onGroupDraftChange, cancel: cancelGroupDraft } = useDraftThrottle<
+  Record<string, unknown>
+>((values) => {
+  const key = draftKey()
+  if (key) emit('draft', key, values)
+})
 
 function emitDraftClear(): void {
   const key = draftKey()

@@ -46,7 +46,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.domain.subject_code import subject_code
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
 from contexts.agents.domain.models import Agent
-from contexts.conversation.infrastructure.drafts import ACTIVITY, COMPOSER, DraftEntry, DraftStore
+from contexts.conversation.interfaces import (
+    ACTIVITY_SURFACE,
+    COMPOSER_SURFACE,
+    DraftEntry,
+    DraftStore,
+)
 from contexts.conversation.interfaces.facade import ConversationFacade, DraftReadGrant
 
 logger = logging.getLogger(__name__)
@@ -237,7 +242,7 @@ _SCHEMA: dict[str, Any] = {
     "properties": {
         "surface": {
             "type": "string",
-            "enum": [COMPOSER, ACTIVITY],
+            "enum": [COMPOSER_SURFACE, ACTIVITY_SURFACE],
             "description": (
                 "Optional. Limit the result to chat composer drafts or to activity "
                 "worksheet drafts. Omit for both."
@@ -279,18 +284,18 @@ def build_read_drafts_tool(
 
         wanted = args.get("surface")
         entries = await drafts.list_for_room(access.chatroom_id)
-        if wanted in (COMPOSER, ACTIVITY):
+        if wanted in (COMPOSER_SURFACE, ACTIVITY_SURFACE):
             entries = [e for e in entries if e.surface == wanted]
 
         readable_keys = None
-        if any(e.surface == ACTIVITY for e in entries):
+        if any(e.surface == ACTIVITY_SURFACE for e in entries):
             # Only paid for when there is something it could gate. A composer-only
             # room must not carry a policy read on every call.
             readable_keys = await _readable_activity_keys(db, project_id=access.project_id)
         shown = [
             e
             for e in entries
-            if e.surface != ACTIVITY or (readable_keys is not None and e.key in readable_keys)
+            if e.surface != ACTIVITY_SURFACE or (readable_keys is not None and e.key in readable_keys)
         ]
 
         await _audit_read(db, agent=agent, access=access, entries=shown)

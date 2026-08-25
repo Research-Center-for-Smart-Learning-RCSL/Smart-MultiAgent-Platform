@@ -568,6 +568,60 @@ class TestTheAuditTrail:
         assert "still returned" in result.content
 
 
+class TestTheDraftSurfaceIsReachedThroughTheContextsPublicSurface:
+    """Quality gate finding, Introduced/Critical. The regression for it.
+
+    ``lint-imports`` does not catch this: its contracts enforce domain purity, not
+    the application/infrastructure direction, and neither ruff nor mypy has an
+    opinion about which module a name came from. So the rule needs a test or it is
+    a convention that holds until the next person is in a hurry.
+
+    ``activity_tools`` — the sibling this module is modelled on — reaches the
+    conversation context only through ``interfaces``. This module reached into
+    ``contexts.conversation.infrastructure.drafts`` directly, which is an
+    application layer importing another context's infrastructure.
+    """
+
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "contexts.agents.application.runtime.draft_tools",
+            "app.api.ws.chatroom",
+        ],
+    )
+    def test_no_consumer_imports_the_draft_store_from_infrastructure(self, module: str) -> None:
+        import ast
+        import importlib
+        import pathlib
+
+        source = pathlib.Path(importlib.import_module(module).__file__ or "").read_text(encoding="utf-8")
+        offenders = [
+            node.module
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and (node.module or "").startswith("contexts.conversation.infrastructure")
+        ]
+
+        assert not offenders, (
+            f"{module} reaches into conversation infrastructure ({offenders}); "
+            "the draft surface is re-exported from contexts.conversation.interfaces"
+        )
+
+    def test_the_public_surface_exports_what_those_consumers_need(self) -> None:
+        from contexts.conversation import interfaces
+
+        for name in (
+            "ACTIVITY_SURFACE",
+            "COMPOSER_SURFACE",
+            "DRAFT_SURFACES",
+            "DraftEntry",
+            "DraftStore",
+            "normalise_draft_key",
+        ):
+            assert name in interfaces.__all__, f"{name} is not on the context's public surface"
+
+
 class TestTheDescriptionTellsTheModelWhatItIsReading:
     """§5.4's last clause. A prompt is not an enforcement boundary, but it is the
     one instruction the model reliably reads, and shipping the grant with the

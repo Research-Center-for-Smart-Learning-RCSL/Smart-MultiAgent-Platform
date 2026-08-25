@@ -14,8 +14,14 @@ from contexts.conversation.application.access import (
 )
 from contexts.conversation.application.triggers import evaluate_presence_change
 from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom
-from contexts.conversation.infrastructure.drafts import ACTIVITY, SURFACES, DraftStore, normalise_key
-from contexts.conversation.interfaces import PresenceTracker, room_channel
+from contexts.conversation.interfaces import (
+    ACTIVITY_SURFACE,
+    DRAFT_SURFACES,
+    DraftStore,
+    PresenceTracker,
+    normalise_draft_key,
+    room_channel,
+)
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.db.session import async_session, get_sessionmaker
 from shared_kernel.realtime import (
@@ -170,10 +176,10 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         channel for probing the room's grant state.
         """
         surface = msg.get("surface")
-        if not isinstance(surface, str) or surface not in SURFACES:
+        if not isinstance(surface, str) or surface not in DRAFT_SURFACES:
             return
-        key = normalise_key(msg.get("key"))
-        if surface == ACTIVITY and key is None:
+        key = normalise_draft_key(msg.get("key"))
+        if surface == ACTIVITY_SURFACE and key is None:
             return
         if clear:
             # A clear is honoured whatever the grant says. A revoke between the write
