@@ -523,8 +523,26 @@ def _serialise_one(block: dict[str, Any]) -> str:
         # release. Dropping it is the safe direction; the stored array keeps it.
         logger.warning("no serialiser for observation block kind %r; omitting it", kind)
         return ""
-    lines = _heading(block) + body(block) + _footnotes(block)
-    return "\n".join(line for line in lines if line)
+    return _join(_heading(block) + body(block) + _footnotes(block))
+
+
+def _join(lines: list[str]) -> str:
+    """Join, collapsing runs of blank lines and trimming the ends.
+
+    The blank lines are load-bearing and were being filtered out. A markdown
+    paragraph directly beneath a list is a **lazy continuation of its last item**,
+    so without the separator the next step, the caveat and the basis sentence all
+    folded into the final bullet — including on the copy released into the room,
+    where the basis label is the whole point of [R28.19].
+    """
+    out: list[str] = []
+    for line in lines:
+        if not line and (not out or not out[-1]):
+            continue
+        out.append(line)
+    while out and not out[-1]:
+        out.pop()
+    return "\n".join(out)
 
 
 def _heading(block: dict[str, Any]) -> list[str]:

@@ -1668,6 +1668,35 @@ async def test_blocks_survive_a_failed_synthesis_and_are_marked_not_filed_as_emp
 
 
 @pytest.mark.asyncio
+async def test_blocks_that_render_to_nothing_are_still_an_empty_turn(monkeypatch) -> None:
+    """Self-audit. The guard tests the serialisation, not the sink, so "never
+    persist an empty message" holds by checking rather than by assuming. The tool
+    refuses such an array on its own; this is what makes the engine safe anyway."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+    _call_the_tool(engine, blocks=[{"kind": "prose", "text": "   "}])
+
+    async def _silent_stream(**kw):
+        return te.ToolLoopOutcome(text="", rounds=1)
+
+    engine._stream_with_tools = _silent_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert recorded == {}
+
+
+@pytest.mark.asyncio
 async def test_neither_text_nor_blocks_is_still_a_skip(monkeypatch) -> None:
     """AC-17's other half. The guard was widened, not removed."""
     agent = _observer_agent()

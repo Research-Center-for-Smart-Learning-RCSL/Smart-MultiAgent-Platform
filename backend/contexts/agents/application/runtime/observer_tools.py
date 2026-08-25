@@ -54,6 +54,7 @@ from contexts.agents.application.runtime.observation_blocks import (
     build_blocks_schema,
     materialise,
     oversize_violation,
+    serialise_blocks,
     structural_violations,
 )
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult, clip_tool_output
@@ -175,6 +176,14 @@ def build_present_observation_tool(
         oversize = oversize_violation(filled)
         if oversize:
             return ToolResult(content=_refusal([oversize]), is_error=True)
+        if not serialise_blocks(filled).strip():
+            # The engine records these blocks with their serialisation as
+            # `content_md`, and an observer turn may carry no prose at all — so a
+            # block array that renders to nothing would persist an empty
+            # observation, which is the one thing the empty-turn guard exists to
+            # prevent. The schema cannot catch it: `minLength` accepts whitespace
+            # and `schema_violations` strips `pattern` outright.
+            return ToolResult(content=_refusal(["these blocks render to nothing at all"]), is_error=True)
 
         if block_sink is not None:
             # Last call wins: the sink is replaced, not appended to, so a model
