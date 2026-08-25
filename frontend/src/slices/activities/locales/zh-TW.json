@@ -40,6 +40,7 @@
       "approve": "同意",
       "reject": "不同意",
       "withdraw": "收回提案",
+      "proposeAgain": "另外提一份答案",
       "myVoteApproved": "你已表示同意。",
       "myVoteRejected": "你表示不同意。若同意人數仍達標，這份答案仍會以小組名義送出。",
       "loadFailed": "無法載入小組提案，請再試一次。",

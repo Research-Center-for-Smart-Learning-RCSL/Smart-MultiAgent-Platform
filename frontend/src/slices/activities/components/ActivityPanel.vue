@@ -17,7 +17,7 @@ import { useActivationProgress } from '../composables/useActivationProgress'
 import { useGroupProposal } from '../composables/useGroupProposal'
 import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import { useActivitiesStore } from '../stores/activities'
-import { readGroupConsent, type ActivityType, type ActivityTypePublic } from '../types'
+import { isProposalOpen, readGroupConsent, type ActivityType, type ActivityTypePublic } from '../types'
 import ActivityHost from './ActivityHost.vue'
 import GroupProposalCard from './GroupProposalCard.vue'
 import SchemaForm from './SchemaForm.vue'
@@ -99,6 +99,13 @@ function onProposalSubmit(payload: Record<string, unknown>): void {
   if (!selectedGroupId.value) return
   void group.propose(selectedGroupId.value, payload)
 }
+
+// A settled proposal that did NOT accept leaves the group free to try again;
+// an accepted one is this round's answer and the form stays away.
+const canProposeAgain = computed(() => {
+  const shown = group.visibleProposal.value
+  return !!shown && !isProposalOpen(shown.status) && shown.status !== 'accepted'
+})
 
 // Re-read the open proposal at call time rather than closing over the render's
 // value: a broadcast can resolve it between paint and click, and a non-null
@@ -343,16 +350,22 @@ onMounted(() => {
         >
           {{ group.errorMessage.value }}
         </p>
+        <!-- Shown through the settled state too, not just while open: the
+             student who cast the deciding vote has to be told their group's
+             answer went in, and a blank form returning in its place would invite
+             a second proposal the database does not stop. -->
         <GroupProposalCard
-          v-if="group.openProposal.value"
-          :proposal="group.openProposal.value"
-          :group-name="group.groupName(group.openProposal.value.member_group_id)"
+          v-if="group.visibleProposal.value"
+          :proposal="group.visibleProposal.value"
+          :group-name="group.groupName(group.visibleProposal.value.member_group_id)"
           :my-vote="group.myVote.value"
           :is-proposer="group.isProposer.value"
           :pending="group.pending.value"
           :can-vote="!!session.me?.id"
+          :can-retry="canProposeAgain"
           @vote="(approve) => onVote(approve)"
           @withdraw="onWithdraw"
+          @retry="group.dismissSettled()"
         />
         <template v-else>
           <SSelect

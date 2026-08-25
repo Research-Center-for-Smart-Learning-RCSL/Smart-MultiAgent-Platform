@@ -1,4 +1,4 @@
-// Group-submission state for one round ([R30.41], [R30.42]). Owns the four
+﻿// Group-submission state for one round ([R30.41], [R30.42]). Owns the four
 // proposal calls and the decision of when a room broadcast is worth a refetch;
 // the panel renders what this returns and holds none of it itself (§9 of the
 // dossier — ActivityPanel is already the slice's largest component).
@@ -39,6 +39,17 @@ export interface UseGroupProposal {
    *  one exists per (activation, group) and the panel only ever offers the
    *  caller's own groups, so a single card is the whole participant surface. */
   openProposal: ComputedRef<ActivityGroupProposal | null>
+  /** The proposal to SHOW: the open one, or the one that settled under this
+   *  caller in this session.
+   *
+   *  Distinct from `openProposal` because a card that disappears the instant the
+   *  vote lands is the worst moment to remove it — the student who cast the
+   *  deciding vote gets no word that their group's answer went in, and the blank
+   *  propose form returning in its place invites a second proposal that the
+   *  partial unique does not stop (it bars only concurrent OPEN ones), producing
+   *  a duplicate attempt for the group. The listing returns open proposals only,
+   *  so this is the sole way a terminal state is ever seen. */
+  visibleProposal: ComputedRef<ActivityGroupProposal | null>
   /** Whether the panel should offer group mode at all: the server said this
    *  caller belongs to at least one group bound to this room. */
   canPropose: ComputedRef<boolean>
@@ -61,6 +72,10 @@ export interface UseGroupProposal {
   pending: Ref<boolean>
   errorMessage: Ref<string | null>
   groupName(groupId: string): string | null
+  /** Put the settled outcome away and go back to the propose form. Only for a
+   *  proposal that did NOT accept: a rejected, withdrawn or expired one leaves
+   *  the group free to try again, an accepted one is the round's answer. */
+  dismissSettled(): void
   refresh(): Promise<void>
   propose(memberGroupId: string, payload: Record<string, unknown>): Promise<void>
   vote(proposalId: string, approve: boolean): Promise<void>
@@ -107,19 +122,46 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
     )
   })
 
+  // The id of a proposal that settled while this caller was watching. Held
+  // rather than derived, because `setRound` drops resolved proposals -- the
+  // listing returns only open ones -- so a refetch triggered by anything else in
+  // the round would otherwise take the outcome off the screen mid-read.
+  const settledId = ref<string | null>(null)
+  watch(openProposal, (next, previous) => {
+    if (previous && !next) settledId.value = previous.id
+    else if (next) settledId.value = null
+  })
+  // A new round is a new question; last round's outcome is not part of it.
+  watch(
+    () => toValue(options.activationId),
+    () => {
+      settledId.value = null
+    },
+  )
+
+  const visibleProposal = computed<ActivityGroupProposal | null>(
+    () =>
+      openProposal.value ??
+      (settledId.value ? (proposals.value.find((p) => p.id === settledId.value) ?? null) : null),
+  )
+
   const myVote = computed<boolean | null>(() => {
     const viewer = toValue(options.viewerUserId)
     if (!viewer) return null
-    return openProposal.value?.votes.find((v) => v.user_id === viewer)?.approve ?? null
+    return visibleProposal.value?.votes.find((v) => v.user_id === viewer)?.approve ?? null
   })
 
   const isProposer = computed(() => {
     const viewer = toValue(options.viewerUserId)
-    return !!viewer && openProposal.value?.proposer_user_id === viewer
+    return !!viewer && visibleProposal.value?.proposer_user_id === viewer
   })
 
   function groupName(groupId: string): string | null {
     return eligibleGroups.value.find((g) => g.id === groupId)?.name ?? null
+  }
+
+  function dismissSettled(): void {
+    settledId.value = null
   }
 
   function report(err: unknown, fallback: string): void {
@@ -246,6 +288,7 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
     proposals,
     eligibleGroups,
     openProposal,
+    visibleProposal,
     canPropose,
     roundResolved,
     myVote,
@@ -254,6 +297,7 @@ export function useGroupProposal(options: UseGroupProposalOptions): UseGroupProp
     pending,
     errorMessage,
     groupName,
+    dismissSettled,
     refresh,
     propose,
     vote,

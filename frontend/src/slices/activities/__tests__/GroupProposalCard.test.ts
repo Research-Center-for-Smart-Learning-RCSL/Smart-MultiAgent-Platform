@@ -113,6 +113,22 @@ describe('once it has settled', () => {
 
     expect(wrapper.find('[data-testid="group-proposal-threshold"]').exists()).toBe(true)
   })
+
+  it('offers another attempt when the group is allowed one', async () => {
+    const wrapper = await mount({ proposal: proposal({ status: 'rejected' }), canRetry: true })
+
+    await wrapper.find('[data-testid="group-proposal-retry"]').trigger('click')
+
+    expect(wrapper.emitted('retry')).toHaveLength(1)
+  })
+
+  it('offers none after an acceptance, which is the round answer', async () => {
+    // A second proposal here is not blocked by the partial unique -- that bars
+    // only concurrent OPEN ones -- so it would land as a duplicate attempt.
+    const wrapper = await mount({ proposal: proposal({ status: 'accepted' }), canRetry: false })
+
+    expect(wrapper.find('[data-testid="group-proposal-retry"]').exists()).toBe(false)
+  })
 })
 
 describe('naming the group', () => {
