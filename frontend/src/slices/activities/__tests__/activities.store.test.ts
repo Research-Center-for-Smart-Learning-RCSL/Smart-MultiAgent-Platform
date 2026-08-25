@@ -3,6 +3,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { buildGroupProposal } from '../../../../tests/utils'
 import { useActivitiesStore } from '../stores/activities'
 import type { ActivitySubmission, ActivityTypePublic } from '../types'
 
@@ -142,28 +143,7 @@ describe('group proposal state ([R30.42])', () => {
 
   const round = {
     activationId: 'act_1',
-    proposals: [
-      {
-        id: 'p_1',
-        chatroom_id: 'c1',
-        activation_id: 'act_1',
-        activity_type_id: 'at_1',
-        member_group_id: 'g1',
-        proposer_user_id: 'u1',
-        payload: { answer: 'ours' },
-        status: 'open',
-        required_approvals: 2,
-        approvals: 1,
-        rejections: 0,
-        undecided: 2,
-        voter_count: 3,
-        votes: [],
-        created_at: null,
-        expires_at: null,
-        resolved_at: null,
-        submission_id: null,
-      },
-    ],
+    proposals: [buildGroupProposal()],
     eligibleGroups: [{ id: 'g1', name: 'Group A' }],
   }
 
@@ -240,6 +220,28 @@ describe('group proposal state ([R30.42])', () => {
     })
 
     expect(store.getProposalRoom('c1')?.proposals.p_1?.undecided).toBe(0)
+  })
+
+  it('ignores an end for a round that has already been replaced', () => {
+    // A stale `activation.ended` would otherwise wipe the CURRENT round's
+    // proposals while `clearActivation`'s own id guard left its activation in
+    // place — and the panel, keyed on an activation that never changed, would
+    // then wait forever for a read nothing is going to issue.
+    const store = useActivitiesStore()
+    store.setRound('c1', { ...round, activationId: 'act_2' })
+
+    store.clearProposals('c1', 'act_1')
+
+    expect(store.getProposalRoom('c1')?.activationId).toBe('act_2')
+  })
+
+  it('clears unconditionally when no round is named', () => {
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+
+    store.clearProposals('c1')
+
+    expect(store.getProposalRoom('c1')).toBeUndefined()
   })
 
   it('clears the group state with the room and with the session', () => {

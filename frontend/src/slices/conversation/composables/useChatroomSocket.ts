@@ -544,7 +544,7 @@ export function useChatroomSocket(roomId: string) {
         // the end broadcast is the only announcement of that (dossier FU-8) — so
         // the cards go with the activation rather than waiting for a per-proposal
         // event that this path deliberately does not send.
-        activitiesStore.clearProposals(roomId)
+        activitiesStore.clearProposals(roomId, ev.activation_id as string)
         break
       }
       // Group proposals ([R30.42]): ids, a status and counts — never the payload

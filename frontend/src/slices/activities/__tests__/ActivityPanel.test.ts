@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { renderView } from '../../../../tests/utils'
+import { buildGroupProposal, renderView } from '../../../../tests/utils'
 import ActivityHost from '../components/ActivityHost.vue'
 import ActivityPanel from '../components/ActivityPanel.vue'
 import { useActivitiesStore } from '../stores/activities'
@@ -222,33 +222,67 @@ describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
   })
 
   it('shows the card instead of the form once a proposal is open', async () => {
-    const wrapper = await panel({
-      items: [
-        {
-          id: 'p_1',
-          chatroom_id: 'c1',
-          activation_id: 'act_1',
-          activity_type_id: 'at_1',
-          member_group_id: 'g1',
-          proposer_user_id: 'u_alice',
-          payload: { answer: 'ours' },
-          status: 'open',
-          required_approvals: 2,
-          approvals: 1,
-          rejections: 0,
-          undecided: 2,
-          voter_count: 3,
-          votes: [],
-          created_at: null,
-          expires_at: null,
-          resolved_at: null,
-          submission_id: null,
-        },
-      ],
-    })
+    const wrapper = await panel({ items: [buildGroupProposal()] })
 
     expect(wrapper.find('[data-testid="group-proposal-card"]').exists()).toBe(true)
     expect(wrapper.find('form').exists()).toBe(false)
+  })
+
+  it('shows neither worksheet until the round read has answered', async () => {
+    // `canPropose` is false both for a caller in no group AND while the read is
+    // in flight. A panel that treats those the same shows the INDIVIDUAL
+    // worksheet to a group participant for as long as the request takes — long
+    // enough to type an answer into a surface about to be replaced.
+    const { deferred } = await import('../../../../tests/utils')
+    const gate = deferred<{ items: unknown[]; eligible_groups: unknown[] }>()
+    sessionMe.value = { id: 'u_bob' }
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({ activity_type: publicType({ group_config: GROUP_CONFIG }) }),
+    )
+    listActivityTypesMock.mockResolvedValue([])
+    listGroupProposalsMock.mockReturnValue(gate.promise)
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('activities.panel.markDone')
+
+    gate.resolve({ items: [], eligible_groups: [{ id: 'g1', name: 'Group A' }] })
+    await flushPromises()
+
+    expect(wrapper.find('form').exists()).toBe(true)
+    expect(wrapper.text()).toContain('activities.group.intro')
+  })
+
+  it('offers a retry rather than spinning forever when the round read fails', async () => {
+    const { ApiError } = await import('@shared/errors')
+    sessionMe.value = { id: 'u_bob' }
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({ activity_type: publicType({ group_config: GROUP_CONFIG }) }),
+    )
+    listActivityTypesMock.mockResolvedValue([])
+    listGroupProposalsMock.mockRejectedValueOnce(
+      new ApiError({ type: 'about:blank', title: 'boom', status: 500 }),
+    )
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    listGroupProposalsMock.mockResolvedValue({
+      items: [],
+      eligible_groups: [{ id: 'g1', name: 'Group A' }],
+    })
+
+    await wrapper.find('[data-testid="group-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('activities.group.intro')
   })
 })
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
-import { SButton, SEmptyState, SSelect } from '@shared/ui'
+import { SButton, SEmptyState, SLoadingSpinner, SSelect } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
 import {
   endActivation,
@@ -70,7 +70,15 @@ const group = useGroupProposal({
   viewerUserId: () => session.me?.id ?? null,
   isCreator: () => props.isCreator,
 })
-const isGroupMode = computed(() => !!consent.value && group.canPropose.value)
+// Three states, not two. Until the server has answered for this round, whether
+// this caller submits with a group is UNKNOWN — and showing the individual
+// worksheet meanwhile invites them to type an answer into a surface that is
+// about to be replaced. `groupModePending` is that gap; the read failing is
+// shown as a failure rather than silently becoming "no group".
+const isGroupMode = computed(
+  () => !!consent.value && group.roundResolved.value && group.canPropose.value,
+)
+const groupModePending = computed(() => !!consent.value && !group.roundResolved.value)
 const groupOptions = computed(() =>
   group.eligibleGroups.value.map((g) => ({ value: g.id, label: g.name })),
 )
@@ -90,6 +98,19 @@ watch(
 function onProposalSubmit(payload: Record<string, unknown>): void {
   if (!selectedGroupId.value) return
   void group.propose(selectedGroupId.value, payload)
+}
+
+// Re-read the open proposal at call time rather than closing over the render's
+// value: a broadcast can resolve it between paint and click, and a non-null
+// assertion there would throw where nothing catches.
+function onVote(approve: boolean): void {
+  const open = group.openProposal.value
+  if (open) void group.vote(open.id, approve)
+}
+
+function onWithdraw(): void {
+  const open = group.openProposal.value
+  if (open) void group.withdraw(open.id)
 }
 // A project's usable set can hold its own type and an opted-in platform type
 // under one key ([R30.02]), and `name` alone leaves those two indistinguishable
@@ -286,10 +307,32 @@ onMounted(() => {
       >
         {{ t('activities.panel.progress', { completed: progress.completed, working: progress.in_progress }) }}
       </p>
+      <!-- The round's group state has not come back yet. Neither worksheet is
+           the right one to show, so show neither. -->
+      <template v-if="activeType && groupModePending">
+        <p
+          v-if="group.errorMessage.value"
+          class="activity-panel__error"
+          role="alert"
+        >
+          {{ group.errorMessage.value }}
+        </p>
+        <SButton
+          v-if="group.errorMessage.value"
+          variant="secondary"
+          :loading="group.loading.value"
+          data-testid="group-retry"
+          @click="group.refresh()"
+        >
+          {{ t('activities.group.retry') }}
+        </SButton>
+        <SLoadingSpinner v-else />
+      </template>
+
       <!-- Group mode: the answer is the GROUP's, so there is no personal
            "I am finished" toggle here — the submission belongs to a subject
            this participant is only part of ([R30.39]). -->
-      <template v-if="activeType && isGroupMode">
+      <template v-else-if="activeType && isGroupMode">
         <p class="activity-panel__group-note">
           {{ t('activities.group.intro') }}
         </p>
@@ -308,8 +351,8 @@ onMounted(() => {
           :is-proposer="group.isProposer.value"
           :pending="group.pending.value"
           :can-vote="!!session.me?.id"
-          @vote="(approve) => group.vote(group.openProposal.value!.id, approve)"
-          @withdraw="group.withdraw(group.openProposal.value!.id)"
+          @vote="(approve) => onVote(approve)"
+          @withdraw="onWithdraw"
         />
         <template v-else>
           <SSelect
