@@ -133,10 +133,13 @@ class TestSeededDefinitions:
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
     def test_uses_filled_count_with_a_valid_config(self, course_type: CourseActivityType) -> None:
+        """observer-presentation-blocks Q-4: the four types opt into the coverage
+        variant so their submissions record *which* fields were answered. Same
+        verdict, same config contract — the config check below is the shared one."""
         from app.plugins.activity_validators import validate_filled_count_config
 
         assert course_type.validator_kind is ValidatorKind.IN_PROCESS
-        assert course_type.validator_config["validator_id"] == "filled_count"
+        assert course_type.validator_config["validator_id"] == "filled_count_coverage"
         validate_filled_count_config(course_type.validator_config)
 
     def test_mandala_is_a_nine_field_schema_with_a_center(self) -> None:

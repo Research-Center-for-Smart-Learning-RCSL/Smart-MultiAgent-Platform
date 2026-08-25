@@ -8,7 +8,7 @@
       "name": "單元二 時空旅人（曼陀羅九宮格）",
       "validator_kind": "in_process",
       "validator_config": {
-        "validator_id": "filled_count",
+        "validator_id": "filled_count_coverage",
         "min_filled": 4
       },
       "retention_days": null,
@@ -73,7 +73,7 @@
       "name": "單元二 為了與你相遇",
       "validator_kind": "in_process",
       "validator_config": {
-        "validator_id": "filled_count",
+        "validator_id": "filled_count_coverage",
         "min_filled": 1
       },
       "retention_days": null,
@@ -99,7 +99,7 @@
       "name": "單元四 情緒播報台（三種情緒）",
       "validator_kind": "in_process",
       "validator_config": {
-        "validator_id": "filled_count",
+        "validator_id": "filled_count_coverage",
         "min_filled": 2
       },
       "retention_days": null,
@@ -150,7 +150,7 @@
       "name": "單元四 情緒列車（六頂思考帽）",
       "validator_kind": "in_process",
       "validator_config": {
-        "validator_id": "filled_count",
+        "validator_id": "filled_count_coverage",
         "min_filled": 3
       },
       "retention_days": null,
