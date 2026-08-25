@@ -7,6 +7,13 @@ supplies one, a compact, length-capped JSON dump of the raw payload stands in â€
 this covers a schema-form-driven activity type for free with no validator changes,
 while giving a high-freedom plugin type (e.g. a canvas) an escape hatch to
 describe itself in words instead of dumping raw coordinates.
+
+In ``domain`` rather than ``application`` because both sides of the layer need it:
+``submission_service`` builds the digest on write, and ``submission_repo``
+reconstructs the fallback on read to answer whether a stored digest came from a
+validator ``detail`` or from the payload. A pure, framework-free rendering rule
+over a submission belongs here anyway; the alternative was an infrastructure
+module importing an application one.
 """
 
 from __future__ import annotations

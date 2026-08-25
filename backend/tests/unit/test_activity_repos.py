@@ -132,7 +132,7 @@ class TestSubmissionRepoScoping:
         comparing, so it is exact for rows written before the distinction existed
         — which no backfilled column could be. The payload is read to answer the
         question and dropped; it never reaches `RecentActivityRow`."""
-        from contexts.activities.application.agent_digest import build_agent_digest
+        from contexts.activities.domain.agent_digest import build_agent_digest
 
         payload = {"home": "a house by the sea", "work": ""}
         db = AsyncMock()
