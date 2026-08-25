@@ -34,6 +34,7 @@ _SESSION_COLS = (
     t.activity_sessions.c.created_at,
     t.activity_sessions.c.closed_at,
     t.activity_sessions.c.completed_at,
+    t.activity_sessions.c.subject_member_group_id,
 )
 
 
@@ -48,6 +49,7 @@ def _row_to_session(row: object) -> ActivitySession:
         closed_at=row.closed_at,  # type: ignore[attr-defined]
         activation_id=row.activation_id,  # type: ignore[attr-defined]
         completed_at=row.completed_at,  # type: ignore[attr-defined]
+        subject_member_group_id=row.subject_member_group_id,  # type: ignore[attr-defined]
     )
 
 
@@ -83,6 +85,60 @@ class ActivitySessionRepository:
             )
         ).first()
         return _row_to_session(row) if row is not None else None
+
+    async def get_for_activation_group(
+        self, *, activation_id: uuid.UUID, member_group_id: uuid.UUID
+    ) -> ActivitySession | None:
+        """This group's session for one round, or ``None``.
+
+        The group-subject twin of :meth:`get_for_activation`, backed by
+        ``uq_activity_sessions_activation_group`` (0081). Kept as a separate
+        method rather than an optional argument on that one: the two are backed
+        by different uniques, and a caller that passed both would be describing a
+        session the CHECK makes unrepresentable.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(*_SESSION_COLS).where(
+                    sa.and_(
+                        t.activity_sessions.c.activation_id == activation_id,
+                        t.activity_sessions.c.subject_member_group_id == member_group_id,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_session(row) if row is not None else None
+
+    async def create_open_for_group(
+        self,
+        *,
+        activity_type_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        member_group_id: uuid.UUID,
+        activation_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Open a group's session for one round, or ``None`` if a concurrent open won.
+
+        ``subject_user_id`` is left unset, which is what makes this a group
+        session under ``ck_activity_sessions_one_subject``. The conflict target is
+        the group unique; ``ON CONFLICT DO NOTHING`` without an explicit target
+        covers it, and the caller re-selects the winner via
+        :meth:`get_for_activation_group`.
+        """
+        result = await self._db.execute(
+            pg_insert(t.activity_sessions)
+            .values(
+                activity_type_id=activity_type_id,
+                chatroom_id=chatroom_id,
+                subject_member_group_id=member_group_id,
+                activation_id=activation_id,
+                status=SessionStatus.OPEN.value,
+            )
+            .on_conflict_do_nothing()
+            .returning(t.activity_sessions.c.id)
+        )
+        row = result.first()
+        return row.id if row is not None else None
 
     async def create_open(
         self,

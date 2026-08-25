@@ -31,6 +31,18 @@ def subject_code(subject_user_id: uuid.UUID) -> str:
     return f"u:{str(subject_user_id)[:_CODE_CHARS]}"
 
 
+def group_subject_code(member_group_id: uuid.UUID) -> str:
+    """The code for a Member Group subject ([R30.43]).
+
+    A distinct prefix rather than a longer truncation of the same space: a group
+    row is one submission by several people, and a reader that cannot tell it
+    from a person's row will count it as a person. The two prefixes also mean the
+    code spaces cannot collide even when a group id and a user id share their
+    first eight characters.
+    """
+    return f"g:{str(member_group_id)[:_CODE_CHARS]}"
+
+
 def outcome_word(status: ValidationStatus, is_valid: bool | None) -> str:
     """One of ``pending`` / ``error`` / ``valid`` / ``invalid``.
 
@@ -44,4 +56,4 @@ def outcome_word(status: ValidationStatus, is_valid: bool | None) -> str:
     return "valid" if is_valid else "invalid"
 
 
-__all__ = ["outcome_word", "subject_code"]
+__all__ = ["group_subject_code", "outcome_word", "subject_code"]

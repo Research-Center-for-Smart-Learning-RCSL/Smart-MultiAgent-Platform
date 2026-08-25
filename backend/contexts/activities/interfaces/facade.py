@@ -772,6 +772,23 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id, session_id=session_id, subject_user_id=subject_user_id
         )
 
+    async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Group id -> group name, for the context block's legend ([R30.43]).
+
+        Read through ``TenancyFacade`` rather than by joining ``member_groups``:
+        that table belongs to another context and [R30.09] keeps the query on the
+        owning side. A group that has since been deleted is simply absent from
+        the result, so its rows keep their bare code -- which is the correct
+        reading of "the group that answered this is gone", and the same shape the
+        label resolver already has for a departed user.
+
+        Imported inside the method so the tenancy context stays off this module's
+        import graph until a room actually has a group subject.
+        """
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        return await TenancyFacade(self._db).member_group_names(group_ids)
+
     async def list_recent_activity(self, chatroom_id: uuid.UUID, limit: int) -> Sequence[RecentActivityRow]:
         """Bounded, most-recent-first activity for the observer context provider
         (R30.10). Positional signature matches the observer dossier's call."""

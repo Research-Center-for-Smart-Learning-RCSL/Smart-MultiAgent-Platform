@@ -100,6 +100,41 @@ _MAP: ErrorMap = {
         404,
         "No shipped course with that key",
     ),
+    errors.GroupConfigInvalid: (
+        "activities/group-config-invalid",
+        422,
+        "The group consent configuration is invalid",
+    ),
+    errors.ActivityTypeNotGroupSubmittable: (
+        "activities/type-not-group-submittable",
+        409,
+        "This activity type is not submittable by a group",
+    ),
+    errors.GroupProposalNotFound: (
+        "activities/group-proposal-not-found",
+        404,
+        "Group proposal not found",
+    ),
+    errors.GroupProposalAlreadyOpen: (
+        "activities/group-proposal-already-open",
+        409,
+        "This group already has an open proposal for this activity",
+    ),
+    errors.GroupProposalResolved: (
+        "activities/group-proposal-resolved",
+        409,
+        "This group proposal has already been decided",
+    ),
+    errors.NotAGroupMember: (
+        "activities/not-a-group-member",
+        403,
+        "You do not belong to that member group",
+    ),
+    errors.MemberGroupNotBoundToRoom: (
+        "activities/member-group-not-bound",
+        403,
+        "That member group is not available in this chatroom",
+    ),
 }
 
 

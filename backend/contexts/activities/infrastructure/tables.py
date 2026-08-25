@@ -48,6 +48,11 @@ activity_types = sa.Table(
     sa.Column("expose_payload_to_agent", sa.Boolean, nullable=False, server_default=sa.text("true")),
     sa.Column("echo_includes_content", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # NULL means individual-only, which is every type that predates 0081 ([R30.40]).
+    # A behavioural definition field like payload_schema: an edit bumps `version`
+    # and is refused while an activation of the type is live, so a consent
+    # threshold never changes under a vote in progress.
+    sa.Column("group_config", pg.JSONB, nullable=True),
 )
 
 activity_sessions = sa.Table(
@@ -66,12 +71,19 @@ activity_sessions = sa.Table(
         sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
         nullable=False,
     ),
+    # Exactly one of the two subject columns is set -- 0081's
+    # ck_activity_sessions_one_subject, which replaced this column's NOT NULL
+    # rather than merely removing it ([R30.39]).
     sa.Column(
         "subject_user_id",
         pg.UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     ),
+    # Deliberately NO ForeignKey to `member_groups`: that table belongs to the
+    # tenancy context and [R30.09] forbids the cross-context join a constraint
+    # would invite (the shape `activity_activations.started_by_agent_id` uses).
+    sa.Column("subject_member_group_id", pg.UUID(as_uuid=True), nullable=True),
     # The round this session was answered under -- 0077. NULL only for
     # pre-0077 rows; every writer sets it, which is a writer invariant rather
     # than a schema one (a NOT NULL would need activations invented for history).
@@ -228,8 +240,80 @@ project_activity_type_optins = sa.Table(
 )
 
 
+activity_group_proposals = sa.Table(
+    "activity_group_proposals",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "activation_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_activations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "activity_type_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_types.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # No FK, for the reason activity_sessions.subject_member_group_id carries none.
+    sa.Column("member_group_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column(
+        "proposer_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("payload", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    # The voter set pinned at creation, and the bar computed from it ([R30.41]).
+    # Both stored, so resolution needs no membership re-read and a mid-vote
+    # membership change moves neither.
+    sa.Column("voter_user_ids", pg.JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
+    sa.Column("required_approvals", sa.Integer, nullable=False),
+    # Text + CHECK rather than a PG ENUM, matching activity_types.scope: adding a
+    # terminal status stays a code change, not a migration against a shared type.
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'open'")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
+    sa.Column("resolved_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column(
+        "submission_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_submissions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+)
+
+activity_group_proposal_votes = sa.Table(
+    "activity_group_proposal_votes",
+    metadata,
+    sa.Column(
+        "proposal_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_group_proposals.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column(
+        "user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column("choice", sa.Text, nullable=False),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
+
 __all__ = [
     "activity_activations",
+    "activity_group_proposal_votes",
+    "activity_group_proposals",
     "activity_policies",
     "activity_sessions",
     "activity_submissions",

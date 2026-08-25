@@ -382,8 +382,8 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ### From the 2026-08-24 group-submission work
 
-- (moved to Ready now on 2026-08-24, unblocked by the implemented
-  `2026-08-24-observer-presentation-blocks` — its last unmet dependency.
+- (moved to In progress on 2026-08-25. Earlier: moved to Ready now on 2026-08-24, unblocked by
+  the implemented `2026-08-24-observer-presentation-blocks` — its last unmet dependency.
   **Read its §4.4 alongside that dossier's `subject_code` move**: the helper it plans to give
   a group form, `g:1a2b3c4d`, is no longer private to `activity_context_provider` — it lives
   in `contexts/activities/domain/subject_code.py` beside `outcome_word`, and the observation
