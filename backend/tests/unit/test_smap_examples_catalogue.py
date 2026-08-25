@@ -93,7 +93,11 @@ NEXT_STEPS: dict[str, Any] = {
     "key": "time-traveler-next-steps",
     "name": "單元二 為了與你相遇",
     "validator_kind": "in_process",
-    "validator_config": {"validator_id": "filled_count_coverage", "min_filled": 1},
+    # Deliberately NOT the coverage variant. A one-field worksheet's coverage
+    # figure only ever reads "1/1 fields answered", and adopting it would cost the
+    # agents the answer text `2026-08-24-example-agents-quote-unit-two` made
+    # quotable — see D-7 of the presentation-blocks dossier.
+    "validator_config": {"validator_id": "filled_count", "min_filled": 1},
     "retention_days": None,
     "expose_payload_to_agent": True,
     "echo_includes_content": False,

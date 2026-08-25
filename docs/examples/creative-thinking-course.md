@@ -68,11 +68,12 @@ sections are the lesson plan's 準備活動 and 總結活動 and are scored on d
 | `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 |
 | `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 |
 
-All four set `validator_kind: in_process` with `filled_count_coverage`,
-`retention_days: null`, `expose_payload_to_agent: true`, and
-`echo_includes_content: false`. That validator produces `filled_count`'s verdict and adds a
-per-field record of what was answered; see
-[The four types use `filled_count_coverage`](#the-four-types-use-filled_count_coverage-not-filled_count).
+All four set `validator_kind: in_process`, `retention_days: null`,
+`expose_payload_to_agent: true`, and `echo_includes_content: false`. Three of them use
+`filled_count_coverage`; `time-traveler-next-steps` uses `filled_count`. Both produce the
+same verdict and the split is deliberate, because adopting the coverage variant costs a type
+its answer text — see
+[Which types record per-field coverage, and what that costs](#which-types-record-per-field-coverage-and-what-that-costs).
 
 ### Field order is declared, not implied
 
@@ -184,13 +185,20 @@ These are asserted by `backend/tests/unit/test_agent_example_packs.py` over the 
 files, not left to review.
 
 1. **Quoting a submission is allowed for unit 2 and forbidden for unit 4, and the rule is
-   keyed on the activity type.** `mandala-9grid` and `time-traveler-next-steps` answers may
+   keyed on the activity type.** `time-traveler-next-steps` answers may
    be quoted, paraphrased and built on; `emotion-desk-three-emotions` and
    `six-hats-emotion-desk` answers may not be, to anyone, including their own author and
    including in AA's teacher-only notes. **A type named in neither column is unquotable** —
    the prompts close the enumeration rather than leaving a new type ungoverned. And a
    quotable answer is never *volunteered*: an agent quotes in response, and does not open a
    turn with someone's answer or read the class's answers out as a survey.
+
+   `mandala-9grid` is a third case and its prompt clause says so: since it adopted
+   `filled_count_coverage` its answers are not in any agent's context at all, so the agents
+   are told they cannot see the cells and must ask the student to say it themselves. That is
+   not a quoting rule — there is nothing to quote — and conflating it with one is what
+   produces a fabrication instead of a refusal. See
+   [Which types record per-field coverage](#which-types-record-per-field-coverage-and-what-that-costs).
 
    The rule names type keys rather than "unit 2" and "unit 4" because `type_key` is what the
    activity context block puts on every row; the unit names appear nowhere in an agent's
@@ -402,22 +410,29 @@ To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
 `/admin/activities` first**, then install the course again. Deleting a platform type ends
 its active activations across every tenant, so do it between classes.
 
-**The `filled_count_coverage` change has the same shape and now applies to all four types.**
-`validator_config` is outside the set of fields a platform admin may edit, and install never
-updates an existing row, so an environment installed before the change keeps `filled_count`
-on every type indefinitely. Nothing breaks: those types validate exactly as they did, and
-the only visible difference is that their submissions record no per-field coverage, so AA
-cannot draw a `field_coverage` or `mandala_grid` figure over them and the tool tells it so
-rather than drawing an empty one (see
+**The `filled_count_coverage` change has the same shape and applies to three of the four
+types.** `validator_config` is outside the set of fields a platform admin may edit, and
+install never updates an existing row, so an environment installed before the change keeps
+`filled_count` everywhere indefinitely. Nothing breaks: those types validate exactly as they
+did, and the only visible difference is that their submissions record no per-field coverage,
+so AA cannot draw a `field_coverage` or `mandala_grid` figure over them and the tool tells it
+so rather than drawing an empty one (see
 [Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes)). Upgrading means
 the same delete-then-reinstall pass, with the same cost: **every project's opt-in is
 revoked, every type gets a new id, and each Project Owner must enable the example again**.
 Tell them before deleting, not after, and do it between classes.
 
-Upgrading only some of the four is supported and produces mixed data within one room. The
-coverage aggregate counts only submissions that carry the per-field record and reports that
-number as its denominator, so a figure over a partly-upgraded room is a figure about the
-submissions it names rather than a silent undercount.
+Note what the upgrade also does on the way in: `mandala-9grid`'s answers stop reaching the
+agents at all, because the coverage validator's `detail` displaces the payload dump. That is
+the trade the table in
+[Which types record per-field coverage](#which-types-record-per-field-coverage-and-what-that-costs)
+sets out, and it changes what TA and SA can do in unit 2. Read it before upgrading a running
+course rather than after.
+
+Upgrading only some types is supported and produces mixed data within one room. The coverage
+aggregate counts only submissions that carry the per-field record and reports that number as
+its denominator, so a figure over a partly-upgraded room is a figure about the submissions it
+names rather than a silent undercount.
 
 **Deleting also revokes every project's opt-in, and re-installing does not restore it.**
 Enabling an example is a per-project Project Owner act (see [Installing](#installing)), and
@@ -452,8 +467,8 @@ non-submission that AA had no evidence for.
 3. **Participants** join the active activity, which opens a per-subject session, and
    submit. Each participant gets their own monotonic attempt counter.
 4. **Each submission** is validated against the payload schema, then scored server-side by
-   `filled_count_coverage`. The verdict is authoritative and computed on the server;
-   nothing the client sends can influence it.
+   the type's own validator, `filled_count` or `filled_count_coverage`. The verdict is
+   authoritative and computed on the server; nothing the client sends can influence it.
 5. **The room transcript** gets a system-stamped echo that a submission happened, carrying
    no answer text.
 6. **Room agents** read a digest of recent structured activity, which is what lets TA
@@ -505,7 +520,7 @@ and this paragraph is a pointer to it rather than a second copy.
 
 All four types here are all-string, so none of this affects them.
 
-### The four types use `filled_count_coverage`, not `filled_count`
+### Which types record per-field coverage, and what that costs
 
 The two validators produce the same verdict for the same payload and the same `min_filled`;
 `filled_count_coverage` adds two things. It records **which** declared fields were answered
@@ -519,21 +534,38 @@ the participants' own words. See
 [Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes) for what consumes
 it.
 
-**The agents see less answer text after this change, not more.** A submission digest is the
-validator's `detail` when there is one and a length-capped dump of the raw payload
-otherwise (`backend/contexts/activities/application/agent_digest.py`). Before the change
-these four types supplied no `detail`, so every agent in the room read the dump. Now they
-read a list of field names.
+**Adopting it costs the type its answer text, and that is why only three types do.** A
+submission digest is the validator's `detail` when there is one, and a length-capped dump of
+the raw payload otherwise
+(`backend/contexts/activities/domain/agent_digest.py`). `filled_count_coverage` always sets
+a `detail`, so a type that adopts it stops putting any student writing in front of any agent
+in the room. Whether that is a gain or a loss depends entirely on the unit:
+
+| Key | Validator | Effect |
+|---|---|---|
+| `mandala-9grid` | `filled_count_coverage` | Nine cells become a grid AA can draw. The cost is real: the agents can no longer quote or build on what a student wrote in a cell. |
+| `time-traveler-next-steps` | `filled_count` | One declared field, so coverage could only ever report `1/1 fields answered`. Keeping the dump keeps the answer quotable for nothing given up. |
+| `emotion-desk-three-emotions` | `filled_count_coverage` | Pure gain. The prompts already forbid quoting these answers, so replacing the dump with field names removes text no agent was allowed to use. |
+| `six-hats-emotion-desk` | `filled_count_coverage` | As above. |
+
+The unit-4 rows are the clear case and the unit-2 rows are the trade. `mandala-9grid` is the
+only nine-field type in the course, so it is the only possible subject of a `mandala_grid`
+block; the alternative was shipping that block kind dead. What the agents lose there is
+stated in their own prompts rather than left to be discovered: TA and SA are told they
+cannot see the mandala's content, that they know only which cells were filled, and to ask
+the student to say it themselves. AA is told to show the pattern as a figure and not to
+claim it knows what any cell says.
 
 That also moves where the digest appears on an activity-feed row. A digest quoted from the
 participant still follows an em dash; a server-computed one follows `::`, and the block
 carries a different sentence for each. Both markers are named in the shipped prompts,
 because a prompt promising that the trailing text is the student's own writing would be
-false for these four types on every row. The rule is asserted over the shipped files by
-`backend/tests/unit/test_agent_example_packs.py`.
+false for a coverage type on every row. A row carries at most one marker and it is the first
+one on the line, so a `::` inside a quoted answer means nothing. All of this is asserted over
+the shipped files by `backend/tests/unit/test_agent_example_packs.py`.
 
-**Existing installs keep `filled_count` until the types are re-installed**, with the
-consequences in
+**Existing installs keep `filled_count` on all four until the types are re-installed**, with
+the consequences in
 [Upgrading an environment installed before this correction](#upgrading-an-environment-installed-before-this-correction).
 A room whose types still use `filled_count` records no `filled_fields`, so a coverage figure
 over it has nothing to count and the tool refuses the block with a message the agent can act
@@ -665,11 +697,16 @@ no test can assert.
   notes to the teacher. This is the item the split rule is most likely to break: the model now
   has to evaluate a condition where it used to follow an absolute, and getting it wrong means
   a 13-year-old's account of a difficult event read out to the class.
-- [ ] **A unit 2 quote is a response, never an opening.** `mandala-9grid` and
-  `time-traveler-next-steps` answers may be quoted, so watch for the other failure: an agent
-  that opens a turn with someone's answer, reads several people's answers out in a row, or
-  uses a quote to restart a stalled discussion. Check SA in particular — it runs at
-  `temperature: 0.9` and is the agent most likely to quote conversationally.
+- [ ] **A unit 2 quote is a response, never an opening.** `time-traveler-next-steps` answers
+  may be quoted, so watch for the other failure: an agent that opens a turn with someone's
+  answer, reads several people's answers out in a row, or uses a quote to restart a stalled
+  discussion. Check SA in particular — it runs at `temperature: 0.9` and is the agent most
+  likely to quote conversationally.
+- [ ] **An agent asked about a mandala cell says it cannot see one.** `mandala-9grid` uses
+  `filled_count_coverage`, so no agent has its text. Ask TA and SA what a named student wrote
+  in 家 or 工作 and confirm they say they can see only which cells were filled and hand the
+  question back to the student. **A confident answer here is a fabrication**, not a quoting
+  violation, and it is the failure this type's move to coverage most likely produces.
 - [ ] **An activity type in neither column is treated as unquotable.** Run any activity the
   prompts do not name and confirm the agents decline to quote it rather than deciding for
   themselves whether the topic looks sensitive.

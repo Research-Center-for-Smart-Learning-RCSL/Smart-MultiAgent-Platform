@@ -133,13 +133,24 @@ class TestSeededDefinitions:
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
     def test_uses_filled_count_with_a_valid_config(self, course_type: CourseActivityType) -> None:
-        """observer-presentation-blocks Q-4: the four types opt into the coverage
-        variant so their submissions record *which* fields were answered. Same
-        verdict, same config contract — the config check below is the shared one."""
+        """observer-presentation-blocks Q-4 and D-7. Three of the four opt into the
+        coverage variant so their submissions record *which* fields were answered;
+        both validators produce the same verdict and register the same config
+        rules, which is why the check below is the shared one.
+
+        ``time-traveler-next-steps`` deliberately stays on ``filled_count``: it
+        declares one field, so its coverage figure could only ever read "1/1 fields
+        answered", and adopting the variant would set a ``detail`` that displaces
+        the payload dump — costing the agents the answer text
+        ``2026-08-24-example-agents-quote-unit-two`` exists to make quotable.
+        """
         from app.plugins.activity_validators import validate_filled_count_config
 
+        expected = (
+            "filled_count" if course_type.key == "time-traveler-next-steps" else "filled_count_coverage"
+        )
         assert course_type.validator_kind is ValidatorKind.IN_PROCESS
-        assert course_type.validator_config["validator_id"] == "filled_count_coverage"
+        assert course_type.validator_config["validator_id"] == expected
         validate_filled_count_config(course_type.validator_config)
 
     def test_mandala_is_a_nine_field_schema_with_a_center(self) -> None:
