@@ -721,6 +721,28 @@ blocks**, placed after §28.5:
   The defect predates this task — a model could always write a multi-line reply — but this
   change makes multi-line the normal case rather than the occasional one.
 
+- **D-7. Only three of the four example types adopted the coverage validator, and the two
+  unit-2 prompts split.** §6 moves all four; a post-build `/code-review` found that doing so
+  silently reverses `2026-08-24-example-agents-quote-unit-two`, which is `implemented` and
+  whose entire purpose was making unit-2 answers quotable. `filled_count_coverage` always
+  sets a `detail`, and `build_agent_digest` prefers `detail` over the payload dump, so every
+  adopting type stops putting any student writing in front of any agent. Q-4 called that "a
+  privacy improvement" without noticing the collision. The user chose the split:
+
+  | Key | Validator | Why |
+  |---|---|---|
+  | `mandala-9grid` | `filled_count_coverage` | The course's only nine-field type, so the only possible subject of a `mandala_grid` block. Without it that kind ships dead. |
+  | `time-traveler-next-steps` | `filled_count` | One declared field: coverage could only ever read `1/1 fields answered`, so adopting it would cost the answer text for nothing. |
+  | `emotion-desk-three-emotions` | `filled_count_coverage` | Never quotable, so replacing the dump with field names removes text no agent was allowed to use. |
+  | `six-hats-emotion-desk` | `filled_count_coverage` | As above. |
+
+  The residual cost is real and is stated rather than hidden: TA and SA can no longer quote
+  or build on a mandala cell. All three room prompts now say they cannot see that type's
+  content, know only which cells were filled, and should hand the question back to the
+  student — a *third* case beside quotable and unquotable, because an agent that treats "I
+  may not quote this" and "I cannot see this" as the same rule answers with a fabrication
+  rather than a refusal. The guide's dry-run checklist gains an item for exactly that.
+
 - **D-6. The authoring form's `min_filled` sub-form covers both validator ids.** Not in §6 at
   all. `GET /api/activity-validators` lists every registered validator, so
   `filled_count_coverage` appears in the picker the moment it registers; the form's sub-form

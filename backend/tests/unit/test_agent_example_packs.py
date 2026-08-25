@@ -326,6 +326,29 @@ class TestPromptConstraints:
             f"{agent.key} does not say the computed digest is not the participant's words"
         )
 
+    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
+    def test_the_two_unit_two_types_no_longer_share_one_quoting_clause(self, agent_key: str) -> None:
+        """D-7. `mandala-9grid` moved to `filled_count_coverage`, whose `detail`
+        displaces the payload dump, so its answer text is not in any agent's
+        context any more — while `time-traveler-next-steps` stayed on
+        `filled_count` and is still quotable.
+
+        A prompt that keeps them in one "可以引述" bullet tells the agent it may
+        quote something it cannot see, which is the shape that produces a
+        fabrication rather than a refusal. Each prompt must say plainly that the
+        mandala's content is not visible.
+        """
+        prompt = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key).system_prompt
+
+        assert "`mandala-9grid`、`time-traveler-next-steps`" not in prompt, (
+            f"{agent_key} still treats the two unit 2 types as one quoting case"
+        )
+        assert "你看不到這個活動的作答內容" in prompt, (
+            f"{agent_key} does not say the mandala's answers are invisible to it"
+        )
+        # And the one that is still quotable still says so.
+        assert "`time-traveler-next-steps`：可以" in prompt
+
     def test_the_analyst_is_told_how_to_arrange_its_own_observation(self) -> None:
         """AC-12's prompt half ([R28.16]). The tool is offered on every observer
         turn whether or not the prompt mentions it; what the prompt has to carry is
