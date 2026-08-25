@@ -192,6 +192,27 @@
       "emptyText": "觀察者分析對話後會將結果寫在這裡，只有你看得到。",
       "noObserverBoundTitle": "目前沒有綁定的觀察者",
       "noObserverBoundText": "這些是先前綁定的觀察者留下的分析，該觀察者已不再綁定此聊天室。你仍然可以釋出或刪除它們。",
+      "basis": {
+        "server_facts": "依據：由伺服器統計本聊天室的提交紀錄。計算的是提交次數而非人數，也無法說明誰沒有提交。",
+        "recent_window": "依據：取自最近活動視窗，該視窗只保留最新的事件，不是完整紀錄。",
+        "transcript": "依據：取自聊天室裡實際說過的話。這是對討論的描述，不是量測結果。"
+      },
+      "blocks": {
+        "nextStep": "建議的下一步：",
+        "submissionsCounted": "已計入的提交筆數：{n}",
+        "participant": "代號",
+        "attempts": "嘗試次數",
+        "submissions": "提交數",
+        "latest": "最近一次",
+        "truncated": "只顯示最近 {n} 筆，這間聊天室還有更多。",
+        "outcome": {
+          "valid": "通過",
+          "invalid": "未通過",
+          "pending": "待驗證",
+          "error": "驗證錯誤"
+        },
+        "cannotDisplay": "這個區塊需要較新版本的介面才能顯示。"
+      },
       "loadEarlier": "載入較早的內容",
       "expand": "顯示更多",
       "collapse": "顯示較少",

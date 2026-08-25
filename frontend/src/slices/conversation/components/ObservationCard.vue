@@ -10,10 +10,34 @@
       <span class="obs-card__trigger">{{ triggerLabel }}</span>
     </div>
 
+    <!-- R28.15: blocks when the turn assembled any, the markdown body otherwise.
+         Every observation recorded before presentation blocks existed, and every
+         turn that did not call the tool, takes the second path unchanged. -->
+    <div
+      v-if="blocks.length"
+      class="obs-card__body"
+      :class="{ 'obs-card__body--clamped': clamped }"
+    >
+      <ObservationBlocks :blocks="blocks">
+        <template #prose="{ block }">
+          <!-- The one sanitised markdown site on this path. A prose block can sit
+               at any position, so the binding is handed down as a scoped slot
+               rather than reimplemented in a second file: gate #4's allowlist
+               holds this file and adding another would need a security review. -->
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div
+            class="obs-card__prose"
+            v-html="proseHtml(block)"
+          />
+        </template>
+      </ObservationBlocks>
+    </div>
+
     <!-- Rendered through the shared DOMPurify pipeline; this file is on the
          v-html allowlist in eslint.config.js. -->
     <!-- eslint-disable-next-line vue/no-v-html -->
     <div
+      v-else
       class="obs-card__body"
       :class="{ 'obs-card__body--clamped': clamped }"
       v-html="renderedHtml"
@@ -61,8 +85,9 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { TrashIcon } from '@heroicons/vue/24/outline'
 import { SButton, SRelativeTime } from '@shared/ui'
+import ObservationBlocks from './observation-blocks/ObservationBlocks.vue'
 import { renderMarkdown } from '../utils/renderMarkdown'
-import type { Observation } from '../types'
+import type { Observation, ObservationBlock } from '../types'
 
 const props = defineProps<{
   observation: Observation
@@ -76,8 +101,23 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const blocks = computed<ObservationBlock[]>(() => props.observation.blocks ?? [])
+
 const renderedHtml = computed(() => renderMarkdown(props.observation.content_md))
-const canClamp = computed(() => props.observation.content_md.length > 600)
+
+function proseHtml(block: ObservationBlock): string {
+  return renderMarkdown(block.kind === 'prose' ? block.text : '')
+}
+
+// Character count is the wrong measure of height once an observation is a stack
+// of figures: a nine-cell grid is three rows tall and barely a hundred
+// characters. Whichever measure trips first decides.
+const CLAMP_CHARS = 600
+const CLAMP_BLOCKS = 3
+
+const canClamp = computed(
+  () => blocks.value.length > CLAMP_BLOCKS || props.observation.content_md.length > CLAMP_CHARS,
+)
 const clamped = ref(canClamp.value)
 
 const triggerLabel = computed(() => {
@@ -131,6 +171,12 @@ const releaseChip = computed<string | null>(() => {
 .obs-card__body {
   font-size: var(--font-size-code);
   color: var(--color-fg);
+  overflow-wrap: anywhere;
+}
+
+/* The card's own markdown typography applies to a prose block too, so a `prose`
+   at position 3 reads the same as one at position 1. */
+.obs-card__prose {
   overflow-wrap: anywhere;
 }
 

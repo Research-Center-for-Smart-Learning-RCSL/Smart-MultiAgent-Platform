@@ -31,6 +31,7 @@ import type {
   ExportStatus,
   Message,
   Observation,
+  ObservationBlock,
   ReleaseTarget,
   SearchResponse,
   Workspace,
@@ -256,8 +257,18 @@ export async function removeChatroomAgent(
 // runtime value is the discriminated ReleaseTarget the backend emits, so we
 // re-type that one field. Remove this helper when FU-13 gives the field a nested
 // model.
+//
+// `blocks` is the same bridge for the same reason ([R28.15]): the column is JSONB
+// and the generated client types it as `Record<string, any>[]`. The re-type is a
+// claim about what the server writes, not a guarantee — which is exactly why the
+// renderer switches on `kind` exhaustively and falls back for anything else, so a
+// row written by a newer release still renders (AC-13).
 function toObservation(o: ObservationOut): Observation {
-  return { ...o, release_target: o.release_target as ReleaseTarget | null }
+  return {
+    ...o,
+    release_target: o.release_target as ReleaseTarget | null,
+    blocks: (o.blocks ?? []) as ObservationBlock[],
+  }
 }
 
 export async function listObservations(
