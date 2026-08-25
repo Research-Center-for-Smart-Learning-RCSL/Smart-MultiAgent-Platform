@@ -382,13 +382,7 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ### From the 2026-08-24 group-submission work
 
-- (moved to In progress on 2026-08-25. Earlier: moved to Ready now on 2026-08-24, unblocked by
-  the implemented `2026-08-24-observer-presentation-blocks` — its last unmet dependency.
-  **Read its §4.4 alongside that dossier's `subject_code` move**: the helper it plans to give
-  a group form, `g:1a2b3c4d`, is no longer private to `activity_context_provider` — it lives
-  in `contexts/activities/domain/subject_code.py` beside `outcome_word`, and the observation
-  aggregates and the submission repository read it too, so a group form has three consumers
-  from the moment it lands, not one.)
+- (implemented 2026-08-25; see the note under In progress)
   `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
   — the original entry, kept here for its detail; it waited on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
@@ -423,6 +417,43 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-25 after implementation:
+`2026-08-24-group-activity-submissions` (a project Member Group may be the subject of an
+`ActivitySession`, through a proposal one member makes and the group votes on; the consent
+fraction is declared by the activity type, not by the platform). Migration 0081, four new
+room-scoped endpoints, one new example type. **Four things a later reader needs.**
+
+**A participant contract is not the owner's contract, and §6 forgot which one the panel
+sees.** The dossier enumerated the four models that gain `group_config` and missed
+`ActivityTypePublicOut` — the only type shape a participant ever receives, and the one
+`ActivityActivationOut` embeds. It also assumed a student could read the room's bound
+groups, which is `PROJECT_MEMBER_MANAGE`-gated. Both were added at the start of the
+frontend milestone (D-10). The lesson generalises: **when a dossier says "the panel shows
+X when the type carries Y", check that Y is on the shape the panel is handed**, not merely
+on the model with the same-sounding name.
+
+**Group mode has three client states, not two** (D-11). "Has a group" and "the read has not
+answered yet" both read as false on any `canPropose`-shaped boolean, and conflating them
+shows a group participant the *individual* worksheet until the request lands. Any surface
+that switches on a server-answered capability wants the same third state.
+
+**The room broadcast is counts, and must never become authorization.**
+`activity.proposal.*` reaches every participant, including members of groups the reader may
+not see. The client store therefore updates only a proposal the authorization-narrowed HTTP
+read already returned and refuses to insert an unknown one, recording its group id so the
+composable can decide whether re-reading is that caller's business. A client that trusted
+the event would have rendered another group's vote from a payload carrying no evidence it
+was entitled to it.
+
+**Its AC-18 warning is the one guard against a confused first setup.** `allow_member_groups`
+excluding `allow_project_members` ([R13.04]) is deliberate, so nothing can prevent the
+lockout except saying so at the moment of the change — which is why the confirm lives in
+`useChatroomSettings.setFlag`, before the patch, and covers every caller rather than one
+view. FU-5 stands: the group flow has never been run end-to-end (it needs three sessions in
+one room and a full compose stack), so the four routes are covered by unit and service tests
+and by nothing that exercised them against a running server.
+
 Removed on 2026-08-24 after implementation:
 `2026-08-24-observer-presentation-blocks` (an observer agent assembles its analysis from a
 closed set of platform-defined blocks through one structured tool call; the three quantitative

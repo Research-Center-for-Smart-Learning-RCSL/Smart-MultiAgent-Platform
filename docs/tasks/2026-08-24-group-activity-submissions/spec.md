@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-24
 requirements: [R5.06, R13.04, R13.28, R13.29, R13.30, R13.31, R30.01, R30.03, R30.08, R30.10, R30.21, R30.22, R30.23, R30.26, R30.27, R30.38]
 depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks, 2026-08-24-example-agents-quote-unit-two]
@@ -508,15 +508,26 @@ processing.
 - [x] AC-17: The guide documents the new unit, both consequences of the
       `allow_member_groups` exclusivity, the guest gap, and what a 2/3 threshold means for a
       member who disagrees.
-- [ ] AC-18: The settings UI warns, at the moment of the change, that enabling
+- [x] AC-18: The settings UI warns, at the moment of the change, that enabling
       `allow_member_groups` removes `allow_project_members` access.
-- [ ] AC-19: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
+      *`useChatroomSettings.setFlag` asks before the patch, not after it — after it the
+      students are already locked out. Placed in the composable rather than the view so it
+      covers every caller, and skipped when project-member access is already off.
+      `useChatroomSettings.test.ts`, three cases: warns and then patches both flags,
+      declines and patches nothing, and stays silent when there is nothing to remove.*
+- [x] AC-19: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`,
       `check:boundaries-enforced`.
-      *Backend half done: `pytest -q` (7522 unit, plus 14 `db`-tier and 53 neighbouring
-      `db` tests against a real PostgreSQL 17), `ruff check`, `ruff format --check`, `mypy`.
-      `alembic upgrade head` applies 0081 and the downgrade reverses it. `gen:api` rerun and
-      committed; `pnpm typecheck` passes. The frontend half is not started.*
+      *Backend: `pytest -q` (7532 unit, plus 14 `db`-tier and 53 neighbouring `db` tests
+      against a real PostgreSQL 17), `ruff check`, `ruff format --check`, `mypy` (984
+      files). `alembic upgrade head` applies 0081 and the downgrade reverses it.
+      Frontend: `pnpm test` (1622 tests, 224 files), `pnpm lint`, `pnpm typecheck`,
+      `pnpm build`, `check:boundaries-enforced`. `check:openapi-drift` could not run as
+      written — WSL bash has no `python` on PATH — so its three steps were run directly
+      (`python -m scripts.export_openapi`, `pnpm run gen:api`, `git status` over both
+      outputs) and reported in sync; the script's own `.tmp`-then-`mv` guard held, leaving
+      the committed spec intact when it aborted. See FU-9 for the flake the full suite
+      showed on this host.*
 
 ## 12. Test Plan
 
@@ -666,6 +677,32 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   line in a function this task already edits, and a known injection hole three lines away is
   worse than the scope purity.
 
+- **D-10. §6's frontend plan needed two backend reads that did not exist, and both were
+  added.** The panel was to enter group mode "when the active type carries `group_config`"
+  and let the caller "pick the group". Neither was reachable: `ActivityTypePublicOut` is
+  the only type contract a participant ever sees (it is what `ActivityActivationOut`
+  embeds) and §6 enumerated the four models that gain the field while missing that one;
+  and the room's bound-group list is `PROJECT_MEMBER_MANAGE`-gated and returns ids without
+  names, so no student could populate a picker. Q-3 had already settled the visibility
+  question — participants must see the threshold they are voting against — so
+  `group_config` joined the public contract through `activity_type_public_payload`, which
+  puts it on the room broadcast too and spares the panel a round trip. For the groups,
+  `list_open_for_caller` became `list_round_for_caller`, returning the proposals and the
+  caller's own bound groups together: both derive from the same intersection, and
+  answering them in two reads would let the picker offer a group whose proposal the caller
+  was not allowed to see. The eligible set is the caller's own membership even for the
+  room creator, because a teacher who reads every group's vote still cannot propose for a
+  group they are not in. Put to the user at the start of the frontend milestone; they
+  chose to add both.
+
+- **D-11. Group mode has three states on the client, not two.** §6 implies a boolean:
+  group-submittable or not. `canPropose` is false both for a caller in no group and for
+  one whose round read has not returned, and a panel that treats those the same shows the
+  INDIVIDUAL worksheet to a group participant until the request lands — long enough to
+  type an answer into a surface about to be replaced. `roundResolved` is the third state,
+  rendered as a pending branch with an error-and-retry rather than a silent fall-through.
+  Found by the quality gate, not by a test.
+
 - **D-6. `ActivityTypeIn`/`ActivityTypeUpdateIn` do not validate `group_config` at the API
   boundary.** They accept `dict | None` and the shape check runs in the type service. §6
   implies boundary validation; putting it there would have meant two copies of the rule,
@@ -715,6 +752,29 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   backstop should not disagree about what they announce. Deferred rather than plumbed up
   through `ActivityActivationEndResult`, which four callers share, for a client that does not
   exist yet. Raised by the post-build `/code-review`.
+
+- **FU-9. Two CodeMirror specs flake under full-suite load on the Windows dev host.**
+  `SFormField.test.ts` and `AgentToolsView.test.ts` each failed once across three
+  consecutive `pnpm test` runs — a different one each time, both passing in isolation, and
+  neither file touched anywhere in this task's diff. The third full run was clean at
+  1622/1622. Consistent with the recorded expectation that this host has failure modes CI
+  does not; CI is the arbiter. Worth a look only if it reproduces there.
+
+- **FU-10. The proposal card renders the payload uncapped.** `GroupProposalCard.vue`
+  prints every filled field in full, bounded only by nginx's 10 MB body cap. A group
+  member could make a card that janks their own two groupmates' rail. Raised by the
+  security gate as hardening rather than a finding: same property as the existing
+  submission echo, and the attacker is inside the group they would be attacking. A
+  per-field display truncation closes it.
+
+- **FU-11. `app/api/v1/activities.py` imports domain models directly.**
+  `GroupProposalTally`, `ProposalStatus`, `ActivityType` and others reach the route layer
+  rather than only the facade's return types, which is the layer rule in `backend/CLAUDE.md`.
+  Pre-existing and the file's established pattern — this task added no new such import —
+  but the file is now large enough that the pattern is load-bearing. Related: the same
+  audit noted `GroupProposalService` instantiating `TenancyFacade`/`ConversationFacade`
+  concretely inside methods rather than receiving them, which is the same shape as its
+  pre-existing create and vote paths.
 
 - **FU-7. `_echo_text` does not collapse `activity_type.name`.** The group name added by D-5
   goes through a one-line collapse; the type name beside it, which has the same exposure and
