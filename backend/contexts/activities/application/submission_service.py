@@ -152,12 +152,24 @@ class SubmissionService:
 
         ``producer_user_id`` is the proposer. The other members approved the text;
         they did not write it, and the record says which.
+
+        ACCEPTANCE IS THE GROUP'S "I AM FINISHED". [R30.22]'s declaration is a
+        per-subject fact and ``count_for_activation`` splits the facilitator's
+        progress line on it -- but a group subject can never reach the toggle that
+        sets it: ``set_completed``'s only route runs through
+        ``_ensure_subject_is_caller``, which a group session is refused by
+        construction, and the panel hides the control in group mode for the same
+        reason. Left unstamped, every group that had already answered was reported
+        as "still working" for the rest of the round and the count never converged.
+        A group has no equivalent of "declared done, then kept working", so the
+        accepted proposal is the declaration -- which is the decision the dossier's
+        FU-4 left open.
         """
         errors = payload_errors(activity_type.payload_schema, dict(payload))
         if errors:
             raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
         session = await self._resolve_group_session(activation=activation, member_group_id=member_group_id)
-        return await self._record(
+        recorded = await self._record(
             activity_type=activity_type,
             session=session,
             chatroom_id=activation.chatroom_id,
@@ -168,6 +180,10 @@ class SubmissionService:
             request_id=request_id,
             subject_label=group_name,
         )
+        # After `_record`, not before: it clears the declaration on any session
+        # that carried one, and stamping first would have it cleared again.
+        await self._session_repo.set_completed(session.id, completed=True)
+        return recorded
 
     async def _record(
         self,

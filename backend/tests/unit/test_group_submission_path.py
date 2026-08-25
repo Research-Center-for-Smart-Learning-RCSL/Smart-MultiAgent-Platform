@@ -236,6 +236,50 @@ class TestItReachesTheSameRepositoryCalls:
         assert opened["activation_id"] == activation.id
 
 
+class TestTheGroupsSessionIsMarkedFinished:
+    """/code-review. [R30.22]'s declaration is per subject and
+    ``count_for_activation`` splits the facilitator's progress line on it -- but a
+    group subject can never reach the toggle that sets it: ``set_completed``'s
+    only route runs through ``_ensure_subject_is_caller``, which refuses a group
+    session by construction, and the panel hides the control in group mode for the
+    same reason."""
+
+    async def test_acceptance_records_the_group_as_finished(self) -> None:
+        # Left unstamped, six groups that had all answered rendered to the teacher
+        # as `0 completed, 6 in progress` for the rest of the round, and the count
+        # never converged.
+        activity_type = _type()
+        svc, _sub_repo, activation, session = _wire(activity_type)
+
+        await _submit(svc, activity_type, activation)
+
+        svc._session_repo.set_completed.assert_awaited_once_with(  # type: ignore[attr-defined]
+            session.id, completed=True
+        )
+
+    async def test_it_is_stamped_after_the_record_that_would_clear_it(self) -> None:
+        """``_record`` clears the declaration on any session carrying one, so
+        stamping first would have it cleared again on the very next submission."""
+        activity_type = _type()
+        svc, sub_repo, activation, _session = _wire(activity_type)
+        order: list[str] = []
+
+        async def _record_insert(*_a: object, **_k: object) -> uuid.UUID:
+            order.append("insert")
+            return uuid.uuid4()
+
+        async def _record_completed(*_a: object, **_k: object) -> bool:
+            order.append("set_completed")
+            return True
+
+        sub_repo.insert.side_effect = _record_insert
+        svc._session_repo.set_completed.side_effect = _record_completed  # type: ignore[attr-defined]
+
+        await _submit(svc, activity_type, activation)
+
+        assert order == ["insert", "set_completed"]
+
+
 class TestTheEchoNamesTheGroup:
     async def test_the_echo_carries_the_groups_name(self) -> None:
         at = _type()

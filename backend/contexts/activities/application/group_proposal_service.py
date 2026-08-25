@@ -276,15 +276,29 @@ class GroupProposalService:
     ) -> GroupProposalResolution:
         """Record one pinned voter's decision and resolve if it settles the vote.
 
-        The proposal row is locked ``FOR UPDATE`` first, so two votes arriving
-        together cannot both read "one short of the bar" and both conclude the
-        proposal is still open -- which would lose an acceptance, or produce two
-        submissions for one group.
+        The proposal row is locked ``FOR UPDATE``, so two votes arriving together
+        cannot both read "one short of the bar" and both conclude the proposal is
+        still open -- which would lose an acceptance, or produce two submissions
+        for one group.
+
+        LOCK ORDER: ACTIVATION BEFORE PROPOSAL, always, even though this path only
+        needs the activation when the vote turns out to settle it. ``create`` takes
+        the activation first (it has to, to know the round is live), and
+        ``ActivationService.end`` writes the activation row and then the round's
+        proposals. Acquiring them the other way here made ``vote`` the only path
+        running against that order: a teacher ending the round while the deciding
+        vote was in flight left one transaction holding the proposal and waiting on
+        the activation while the other held the activation and waited on the
+        proposal, and PostgreSQL resolved it by aborting one of them with a 500.
+        The window was three round-trips wide -- cast, audit, count -- not
+        instantaneous. Taking it up front costs a row lock on a vote that does not
+        settle, which is cheaper than a deadlock at the end of every lesson.
 
         A vote on a proposal that has already been decided is a 409 and the client
         refetches: the request was legal when it was rendered, and what changed is
         the group's state.
         """
+        await self._activation_repo.get_active_for_update(chatroom_id)
         proposal = await self._locked(
             chatroom_id=chatroom_id, proposal_id=proposal_id, caller_user_id=voter_user_id
         )
@@ -544,7 +558,9 @@ class GroupProposalService:
         eligible = live_bound & mine
         visible = live_bound if caller_is_room_creator else eligible
         proposals = await self._proposals.list_open_for_groups(
-            activation_id=activation_id, member_group_ids=sorted(visible)
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            member_group_ids=sorted(visible),
         )
         names = await tenancy.member_group_names(sorted(eligible))
         return GroupRoundView(

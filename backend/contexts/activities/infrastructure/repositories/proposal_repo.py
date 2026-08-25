@@ -190,7 +190,11 @@ class GroupProposalRepository:
         return _row_to_proposal(row) if row is not None else None
 
     async def list_open_for_groups(
-        self, *, activation_id: uuid.UUID, member_group_ids: Sequence[uuid.UUID]
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        member_group_ids: Sequence[uuid.UUID],
     ) -> Sequence[GroupProposal]:
         """Every live proposal of this round belonging to one of ``member_group_ids``.
 
@@ -198,6 +202,16 @@ class GroupProposalRepository:
         in a room, and the panel has to show whichever of them is deciding. An
         empty id list returns nothing rather than everything -- the degenerate
         case of a caller in no group must not widen into the whole room.
+
+        SEC: ``chatroom_id`` is load-bearing, not a redundant narrowing of
+        ``activation_id``. The caller's group set is derived from the bindings of
+        the room in the URL, but ``activation_id`` is a query parameter -- and one
+        group may be bound to several rooms of the same project. Without this
+        predicate, the creator of room A passing room B's activation id reads B's
+        proposal complete with its payload and its per-person votes, which is the
+        exact record [R30.42] restricts to B's own voters and B's creator.
+        ``get`` and ``lock_for_update`` have always been checked against the room
+        by their service; a listing must not be the looser surface.
         """
         groups = list(member_group_ids)
         if not groups:
@@ -207,6 +221,7 @@ class GroupProposalRepository:
                 sa.select(*_PROP_COLS)
                 .where(
                     sa.and_(
+                        _PROP.c.chatroom_id == chatroom_id,
                         _PROP.c.activation_id == activation_id,
                         _PROP.c.member_group_id.in_(groups),
                         _PROP.c.status == ProposalStatus.OPEN.value,
@@ -296,6 +311,14 @@ class GroupProposalRepository:
         Returns ``(proposal_id, chatroom_id, member_group_id)`` per expired row so
         the worker can broadcast per room. Bounded by ``limit`` so one sweep
         cannot hold a lock over an unbounded set; the next tick takes the rest.
+
+        The ``status = 'open'`` predicate is repeated on the UPDATE itself and not
+        left to the subquery, for the reason ``resolve`` states: an expiry sweep
+        racing an acceptance must not un-accept it. Under a concurrent accept the
+        subquery's rows are re-evaluated by EvalPlanQual, and resting correctness
+        on how that treats a ``LIMIT``-bearing subplan is a bet this does not need
+        to take -- a proposal stamped ``expired`` while its submission exists and
+        ``submission_id`` points at it is not a state any reader can interpret.
         """
         due = (
             sa.select(_PROP.c.id)
@@ -306,7 +329,7 @@ class GroupProposalRepository:
         )
         result = await self._db.execute(
             _PROP.update()
-            .where(_PROP.c.id.in_(due))
+            .where(sa.and_(_PROP.c.id.in_(due), _PROP.c.status == ProposalStatus.OPEN.value))
             .values(status=ProposalStatus.EXPIRED.value, resolved_at=now())
             .returning(_PROP.c.id, _PROP.c.chatroom_id, _PROP.c.member_group_id)
         )

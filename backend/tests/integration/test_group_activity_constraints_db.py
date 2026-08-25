@@ -25,6 +25,7 @@ is one both racers pass.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import timedelta
 
@@ -34,6 +35,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from contexts.activities.infrastructure import tables as at
+from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
@@ -309,6 +311,120 @@ class TestOneOpenProposalPerGroupAndRound:
             )
             await session.execute(at.activity_group_proposals.insert().values(**_proposal_values(**values)))
             await session.commit()
+
+    async def test_the_listing_will_not_cross_a_room(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        room_round: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    ) -> None:
+        """/code-review. The caller's group set is derived from the bindings of
+        the room in the URL, but the round is a query parameter -- and one group
+        can be bound to several rooms of the same project. A `db`-tier test
+        because the missing predicate is in the SQL, which the unit tier compiles
+        without executing (backend/CLAUDE.md).
+        """
+        activation_id, type_id, user_id = room_round
+        group_id = uuid.uuid4()
+        other_room = uuid.uuid4()
+        async with sessionmaker() as session:
+            chatroom_id = await _chatroom_of(session, activation_id)
+            # The same group and the same round, in two rooms. Only the FK on
+            # `activation_id` ties a row to a round; nothing tied it to a room.
+            await session.execute(
+                at.activity_group_proposals.insert().values(
+                    **_proposal_values(
+                        activation_id=activation_id,
+                        type_id=type_id,
+                        chatroom_id=chatroom_id,
+                        group_id=group_id,
+                        user_id=user_id,
+                    )
+                )
+            )
+            await session.commit()
+
+            repo = GroupProposalRepository(session)
+            crossed = await repo.list_open_for_groups(
+                chatroom_id=other_room,
+                activation_id=activation_id,
+                member_group_ids=[group_id],
+            )
+            own = await repo.list_open_for_groups(
+                chatroom_id=chatroom_id,
+                activation_id=activation_id,
+                member_group_ids=[group_id],
+            )
+
+        # Without the room predicate the first call returned the row, payload and
+        # all. The second is what keeps this from passing vacuously: the row is
+        # there and readable, and the room is the only thing withholding it.
+        assert crossed == []
+        assert [p.id for p in own] == [p.id for p in own if p.chatroom_id == chatroom_id]
+        assert len(own) == 1
+
+    async def test_the_expiry_sweep_cannot_un_accept_a_proposal_it_raced(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        room_round: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    ) -> None:
+        """/code-review. `expire_due` put `status = 'open'` only in its subquery,
+        leaving correctness under a concurrent accept to how PostgreSQL
+        re-evaluates a `LIMIT`-bearing subplan under EvalPlanQual.
+
+        The race is the whole finding, so the test stages it rather than asserting
+        selectivity on quiescent rows -- which passes with or without the guard and
+        would have vouched for nothing. The accepting transaction takes the row
+        lock and holds it; the sweep's UPDATE blocks on that lock; the accept
+        commits; the sweep wakes and re-evaluates. A proposal stamped `expired`
+        while its submission exists and `submission_id` points at it is not a
+        state any reader can interpret.
+        """
+        activation_id, type_id, user_id = room_round
+        proposal_id = uuid.uuid4()
+        async with sessionmaker() as setup:
+            chatroom_id = await _chatroom_of(setup, activation_id)
+            values = _proposal_values(
+                activation_id=activation_id,
+                type_id=type_id,
+                chatroom_id=chatroom_id,
+                group_id=uuid.uuid4(),
+                user_id=user_id,
+            )
+            values["id"] = proposal_id
+            values["expires_at"] = now() - timedelta(hours=1)
+            await setup.execute(at.activity_group_proposals.insert().values(**values))
+            await setup.commit()
+
+        async with sessionmaker() as accepting, sessionmaker() as sweeping:
+            # The last vote lands: the row is accepted but not yet committed, so
+            # the sweep that follows must wait on this lock rather than read
+            # around it.
+            await accepting.execute(
+                at.activity_group_proposals.update()
+                .where(at.activity_group_proposals.c.id == proposal_id)
+                .values(status="accepted", resolved_at=now())
+            )
+
+            sweep = asyncio.create_task(GroupProposalRepository(sweeping).expire_due(cutoff=now(), limit=50))
+            # Long enough for the sweep to reach the UPDATE and block on the lock;
+            # if it has not, the race this test exists for never happened.
+            await asyncio.sleep(0.5)
+            assert not sweep.done()
+
+            await accepting.commit()
+            swept = await sweep
+            await sweeping.commit()
+
+        assert proposal_id not in [row[0] for row in swept]
+        async with sessionmaker() as read:
+            status = (
+                await read.execute(
+                    sa.select(at.activity_group_proposals.c.status).where(
+                        at.activity_group_proposals.c.id == proposal_id
+                    )
+                )
+            ).scalar_one()
+        assert status == "accepted"
 
     async def test_an_unknown_status_is_refused(
         self,
