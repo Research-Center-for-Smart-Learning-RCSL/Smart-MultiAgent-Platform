@@ -780,6 +780,120 @@ class TestFilledCountValidator:
             validate_filled_count_config(bad)
 
 
+class TestFilledCountCoverageValidator:
+    """``filled_count_coverage``: same verdict, plus the field list (AC-11).
+
+    Every payload value below is a distinctive string, so a leak of participant
+    text into ``sub_scores`` or ``detail`` shows up as that string rather than as a
+    subtle shape difference.
+    """
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    @staticmethod
+    def _type(config: dict[str, Any], declared: list[str], validator_id: str) -> Any:
+        return _make_type(
+            payload_schema={"type": "object", "properties": {n: {"type": "string"} for n in declared}},
+            validator_config={"validator_id": validator_id, **config},
+        )
+
+    def _score(
+        self,
+        config: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        declared: list[str] | None = None,
+    ) -> ValidationResult:
+        from app.plugins.activity_validators import filled_count_coverage_scorer
+
+        names = declared if declared is not None else list(payload)
+        return filled_count_coverage_scorer(
+            payload, self._type(config, names, "filled_count_coverage"), db=MagicMock()
+        )
+
+    @pytest.mark.parametrize(
+        ("config", "payload", "declared"),
+        [
+            ({"min_filled": 2}, {"a": "SECRET-A", "b": "SECRET-B", "c": ""}, None),
+            ({"min_filled": 3}, {"a": "SECRET-A", "b": "", "c": None}, None),
+            ({"min_filled": 0}, {"a": "   ", "b": "\n\t"}, None),
+            ({"min_filled": 0}, {"a": 0, "b": False, "c": True}, None),
+            ({}, {"a": ""}, None),
+            ({"min_filled": 4}, {"center": "SECRET", "zz1": "pad"}, ["center", "c1", "c2", "c3"]),
+        ],
+        ids=["meets", "below", "whitespace", "scalars", "no-threshold", "undeclared-keys"],
+    )
+    def test_verdict_matches_filled_count_exactly(
+        self, config: dict[str, Any], payload: dict[str, Any], declared: list[str] | None
+    ) -> None:
+        """AC-11's parity half: a type may move between the two validators without
+        any submission changing outcome."""
+        from app.plugins.activity_validators import filled_count_coverage_scorer, filled_count_scorer
+
+        names = declared if declared is not None else list(payload)
+        base = filled_count_scorer(payload, self._type(config, names, "filled_count"), db=MagicMock())
+        coverage = filled_count_coverage_scorer(
+            payload, self._type(config, names, "filled_count_coverage"), db=MagicMock()
+        )
+        assert coverage.is_valid is base.is_valid
+        assert coverage.error_class == base.error_class
+        assert coverage.sub_scores["filled"] == base.sub_scores["filled"]
+
+    def test_filled_fields_lists_declared_names_in_declared_order(self) -> None:
+        r = self._score(
+            {"min_filled": 1},
+            {"c": "SECRET-C", "a": "SECRET-A"},
+            declared=["a", "b", "c"],
+        )
+        assert r.sub_scores["filled_fields"] == ["a", "c"]
+        assert r.sub_scores["filled"] == 2
+
+    def test_undeclared_keys_never_reach_the_field_list(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": "x", "zz": "pad"}, declared=["a", "b"])
+        assert r.sub_scores["filled_fields"] == ["a"]
+
+    def test_detail_carries_names_and_no_values(self) -> None:
+        r = self._score({"min_filled": 1}, {"home": "SECRET-HOME", "work": ""}, declared=["home", "work"])
+        assert r.detail == "1/2 fields answered: home"
+        assert "SECRET" not in (r.detail or "")
+
+    def test_detail_with_nothing_answered_does_not_dangle(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": "", "b": None}, declared=["a", "b"])
+        assert r.detail == "0/2 fields answered"
+
+    def test_no_payload_value_reaches_sub_scores_or_detail(self) -> None:
+        """AC-7's validator half. Values are read only through ``_is_filled``."""
+        payload = {"a": "DISTINCTIVE-VALUE-1", "b": ["DISTINCTIVE-VALUE-2"], "c": {"k": "V3"}}
+        r = self._score({"min_filled": 0}, payload, declared=["a", "b", "c"])
+        rendered = f"{r.sub_scores}{r.detail}"
+        assert "DISTINCTIVE" not in rendered
+        assert "V3" not in rendered
+
+    def test_a_declared_but_absent_field_is_not_listed(self) -> None:
+        r = self._score({"min_filled": 0}, {"a": "x"}, declared=["a", "b", "c"])
+        assert r.sub_scores["filled_fields"] == ["a"]
+        assert r.detail == "1/3 fields answered: a"
+
+    def test_registered_under_its_own_id_with_the_shared_config_hooks(self) -> None:
+        """`filled_count`'s own registration is untouched, and both share one config
+        contract — they must never disagree about which `min_filled` is legal."""
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        ids = {v.validator_id for v in registry.list_registered()}
+        assert {"filled_count", "filled_count_coverage"} <= ids
+
+        config_check = registry.get_config_validator("filled_count_coverage")
+        schema_check = registry.get_schema_config_validator("filled_count_coverage")
+        assert config_check is not None
+        assert schema_check is not None
+        with pytest.raises(ValidatorConfigInvalid):
+            config_check({"min_filled": -1})
+        with pytest.raises(ValidatorConfigInvalid):
+            schema_check({"min_filled": 3}, {"properties": {"a": {}}})
+
+
 class TestIsFilledRule:
     """The whole of ``_is_filled``, in one executable statement of the rule.
 

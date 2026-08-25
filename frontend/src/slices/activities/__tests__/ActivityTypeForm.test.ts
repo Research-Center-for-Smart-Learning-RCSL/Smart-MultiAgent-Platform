@@ -443,6 +443,36 @@ describe('ActivityTypeForm', () => {
     expect(wrapper.find('[data-testid="type-exact-match-field"]').exists()).toBe(false)
   })
 
+  it('offers the same min_filled sub-form for filled_count_coverage', async () => {
+    // The two share one config contract on the backend, so a picker entry whose
+    // config the form cannot produce would 422 on every save.
+    listValidatorsMock.mockResolvedValue([
+      { id: 'filled_count', title: 'Filled count' },
+      { id: 'filled_count_coverage', title: 'Filled count with field coverage' },
+    ])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count_coverage')
+    expect(wrapper.find('[data-testid="type-filled-count-min"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="type-key"]').setValue('coverage-type')
+    await wrapper.find('[data-testid="type-name"]').setValue('Coverage')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('idea')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('1')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        validator_config: { validator_id: 'filled_count_coverage', min_filled: 1 },
+      }),
+    )
+  })
+
   it('swaps the sub-form between webhook and mcp (AC-3, AC-4)', async () => {
     const wrapper = await mountForm()
     expect(wrapper.find('[data-testid="type-webhook-url"]').exists()).toBe(true)
