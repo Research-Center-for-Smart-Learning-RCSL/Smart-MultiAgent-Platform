@@ -10,6 +10,7 @@ room-channel traffic across a full observer turn.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import ClassVar
@@ -877,6 +878,64 @@ async def test_release_to_room_creates_system_message(monkeypatch) -> None:
     assert "message_id" in obs_repo.message_target
     assert result.message is not None
     assert pushes == []
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_block_carrying_observation_is_the_same_message(monkeypatch) -> None:
+    """AC-10. Blocks do not reach the room ([R28.15] Q-6): release still reads
+    `content_md`, which for a block-carrying observation is the serialisation the
+    creator was shown. The message shape, the metadata and the disclosure rule are
+    the ones that already shipped, and the release dialog's plain-text override
+    still edits plain text."""
+    observer_id = uuid.uuid4()
+    obs = replace(
+        _observation(uuid.uuid4(), observer_id),
+        content_md="### Three things\n\n- one\n\n_Basis: read off what was said._",
+        blocks=[{"kind": "key_points", "basis": "transcript", "points": [{"text": "one"}]}],
+    )
+    service, room_id, _repo, messages, _audits, _pushes = _wire_service(
+        monkeypatch, observation=obs, disclose=True
+    )
+
+    await service.release(
+        chatroom_id=room_id,
+        observation_id=obs.id,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+        target_room=True,
+    )
+
+    created = messages.created[0]
+    assert created["sender_type"] is SenderType.SYSTEM
+    assert created["content_md"] == obs.content_md
+    assert created["metadata"]["type"] == "released_observation"
+    # Nothing block-shaped crosses into `messages`.
+    assert "blocks" not in created["metadata"]
+    assert "kind" not in created["metadata"]
+
+
+@pytest.mark.asyncio
+async def test_a_release_override_replaces_the_serialisation(monkeypatch) -> None:
+    """AC-10's second half: the override is still plain text over `content_md`."""
+    obs = replace(
+        _observation(uuid.uuid4(), uuid.uuid4()),
+        content_md="### Three things\n\n- one",
+        blocks=[{"kind": "key_points", "basis": "transcript", "points": [{"text": "one"}]}],
+    )
+    service, room_id, _repo, messages, _audits, _pushes = _wire_service(
+        monkeypatch, observation=obs, disclose=False
+    )
+
+    await service.release(
+        chatroom_id=room_id,
+        observation_id=obs.id,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+        target_room=True,
+        content_override="what I actually want the class to read",
+    )
+
+    assert messages.created[0]["content_md"] == "what I actually want the class to read"
 
 
 @pytest.mark.asyncio
