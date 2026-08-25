@@ -196,6 +196,12 @@ class TestPacksResolveAgainstTheirCourse:
 
 UNIT_FOUR_TYPES = ("emotion-desk-three-emotions", "six-hats-emotion-desk")
 
+# Every type the room pack's course ships, so the "unlisted type" default clause
+# can be checked against the real count rather than a number copied into a test.
+COURSE_TYPE_KEYS = tuple(t.key for t in load_course("creative-thinking").activity_types)
+
+_CJK_NUMERALS = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九"}
+
 # `；` is in the separator set because the design agent packs both halves of the split
 # rule into one sentence — "...可以引述、轉述、延伸；`emotion-desk-...` 不得唸出、引述或
 # 轉述..." — so splitting on `。` alone leaves the permissive half inside the window and
@@ -348,6 +354,52 @@ class TestPromptConstraints:
         )
         # And the one that is still quotable still says so.
         assert "`time-traveler-next-steps`：可以" in prompt
+
+    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
+    def test_every_room_agent_binds_the_group_task(self, agent_key: str) -> None:
+        """group-activity-submissions AC-16. A binding an agent does not hold is a
+        unit it cannot be asked about — and this one is the only group task in the
+        course."""
+        agent = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key)
+        assert "six-hats-shared-case" in agent.binds_activity_types
+
+    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
+    def test_a_group_answer_is_not_attributed_to_one_student(self, agent_key: str) -> None:
+        """group-activity-submissions AC-16, and it is the one thing about this
+        unit an agent can get wrong in a way that hurts somebody: a 2/3 answer may
+        carry text a member voted against, so naming a student as its author
+        attributes to them a position they refused."""
+        prompt = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key).system_prompt
+
+        assert "`six-hats-shared-case`" in prompt, f"{agent_key} does not name the group type"
+        assert "這一組" in prompt or "那一組" in prompt, (
+            f"{agent_key} never says to speak of the group rather than a member"
+        )
+        assert "g:" in prompt, f"{agent_key} does not name the group code space"
+
+    def test_a_counted_default_clause_counts_the_types_it_names(self) -> None:
+        """A prompt that says "these N" has to move its N with its list.
+
+        Saying "these four" while naming five leaves the fifth inside a sentence
+        that contradicts itself, and the reading an agent resolves an ambiguous
+        rule with is not reliably the safe one.
+
+        Only the room agents phrase it as a count; DA writes the count-free form
+        ("清單上沒有的活動類型"), which is why the guard below keys on the
+        counted shape rather than on the shared trailing words.
+        """
+        counted = re.compile(r"這(.)個代號以外")
+        checked = 0
+        for _pack, agent in SHIPPED_AGENTS:
+            match = counted.search(agent.system_prompt)
+            if match is None:
+                continue
+            checked += 1
+            named = sum(f"`{key}`" in agent.system_prompt for key in COURSE_TYPE_KEYS)
+            assert match.group(1) == _CJK_NUMERALS[named], (
+                f"{agent.key} names {named} types but its default clause says 這{match.group(1)}個"
+            )
+        assert checked == 3, "expected the three room agents to carry a counted default clause"
 
     def test_the_analyst_is_told_how_to_arrange_its_own_observation(self) -> None:
         """AC-12's prompt half ([R28.16]). The tool is offered on every observer
