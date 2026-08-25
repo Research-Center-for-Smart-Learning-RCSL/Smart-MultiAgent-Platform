@@ -290,6 +290,31 @@ class TestInvocation:
         assert [b["text"] for b in sink] == ["final"]
         assert "replaces" in result.content
 
+    async def test_a_refusal_after_a_good_call_says_the_earlier_blocks_still_stand(self) -> None:
+        """/code-review. A refusal leaves the sink untouched, so "nothing was
+        recorded" is false once an earlier call succeeded — and false in the
+        direction that costs most: the model takes its analysis as lost, falls back
+        to prose, and the engine then records the superseded layout and discards
+        that prose entirely."""
+        sink: list[dict[str, Any]] = []
+        tool = ot.build_present_observation_tool(_session(), presentation=_presentation(), block_sink=sink)
+        ok = await tool.invoke({"blocks": [{"kind": "prose", "text": "the good layout"}]})
+        assert ok.is_error is False
+
+        refused = await tool.invoke({"blocks": [{"kind": "prose", "text": "   "}]})
+
+        assert refused.is_error is True
+        assert "previous call still stand" in refused.content
+        assert "Nothing was recorded" not in refused.content
+        # And they do still stand.
+        assert [b["text"] for b in sink] == ["the good layout"]
+
+    async def test_the_first_refusal_of_a_turn_still_says_nothing_was_recorded(self) -> None:
+        sink: list[dict[str, Any]] = []
+        tool = ot.build_present_observation_tool(_session(), presentation=_presentation(), block_sink=sink)
+        result = await tool.invoke({"blocks": [{"kind": "prose", "text": "   "}]})
+        assert "Nothing was recorded" in result.content
+
     async def test_a_duplicate_computed_block_records_nothing(self) -> None:
         _FakeActivitiesFacade.coverage = _coverage()
         sink: list[dict[str, Any]] = []
