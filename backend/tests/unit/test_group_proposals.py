@@ -646,7 +646,7 @@ class TestVoteVisibility:
         tenancy, conversation, emit = _wired(svc)
 
         with tenancy, conversation, emit:
-            await svc.list_open_for_caller(
+            await svc.list_round_for_caller(
                 project_id=_PROJECT,
                 chatroom_id=_ROOM,
                 activation_id=_ACTIVATION,
@@ -667,7 +667,7 @@ class TestVoteVisibility:
         tenancy, conversation, emit = _wired(svc)
 
         with tenancy, conversation, emit:
-            await svc.list_open_for_caller(
+            await svc.list_round_for_caller(
                 project_id=_PROJECT,
                 chatroom_id=_ROOM,
                 activation_id=_ACTIVATION,
@@ -678,3 +678,70 @@ class TestVoteVisibility:
         assert set(
             svc._proposals.list_open_for_groups.await_args.kwargs["member_group_ids"]  # type: ignore[attr-defined]
         ) == {_GROUP, other}
+
+
+class TestEligibleGroups:
+    """The picker's source: what this caller could propose FOR (AC-5).
+
+    Distinct from what they may READ, which is why the round view carries both.
+    """
+
+    async def test_it_is_the_callers_own_bound_groups_with_their_names(self) -> None:
+        svc = _service(caller_groups={_GROUP, uuid.uuid4()}, bound_groups={_GROUP})
+        tenancy, conversation, emit = _wired(svc)
+
+        with tenancy, conversation, emit:
+            view = await svc.list_round_for_caller(
+                project_id=_PROJECT,
+                chatroom_id=_ROOM,
+                activation_id=_ACTIVATION,
+                caller_user_id=_BOB,
+                caller_is_room_creator=False,
+            )
+
+        assert [(g.id, g.name) for g in view.eligible_groups] == [(_GROUP, "Group A")]
+
+    async def test_a_room_creator_in_no_group_may_read_every_vote_and_propose_for_none(
+        self,
+    ) -> None:
+        """A teacher is not part of a student group (§4.3). Offering them a
+        picker would produce ``NotAGroupMember`` in front of the class."""
+        other = uuid.uuid4()
+        svc = _service(
+            bound_groups={_GROUP, other},
+            live_groups={_GROUP, other},
+            caller_groups=set(),
+        )
+        tenancy, conversation, emit = _wired(svc)
+
+        with tenancy, conversation, emit:
+            view = await svc.list_round_for_caller(
+                project_id=_PROJECT,
+                chatroom_id=_ROOM,
+                activation_id=_ACTIVATION,
+                caller_user_id=_STRANGER,
+                caller_is_room_creator=True,
+            )
+
+        assert view.eligible_groups == ()
+        assert set(
+            svc._proposals.list_open_for_groups.await_args.kwargs["member_group_ids"]  # type: ignore[attr-defined]
+        ) == {_GROUP, other}
+
+    async def test_a_group_this_room_is_not_bound_to_is_not_offered(self) -> None:
+        """The same three gates the proposal itself runs, so the picker cannot
+        offer a choice the create call would refuse."""
+        mine_only = uuid.uuid4()
+        svc = _service(caller_groups={mine_only}, bound_groups={_GROUP}, live_groups={_GROUP})
+        tenancy, conversation, emit = _wired(svc)
+
+        with tenancy, conversation, emit:
+            view = await svc.list_round_for_caller(
+                project_id=_PROJECT,
+                chatroom_id=_ROOM,
+                activation_id=_ACTIVATION,
+                caller_user_id=_BOB,
+                caller_is_room_creator=False,
+            )
+
+        assert view.eligible_groups == ()

@@ -222,12 +222,17 @@ export class ActivitiesService {
     }
     /**
      * List Activity Group Proposals
-     * The live proposals this caller may see for one round (AC-12).
+     * The live proposals this caller may see for one round, and the groups they
+     * may propose for (AC-12).
      *
      * Room access is necessary and not sufficient: the service narrows to the
      * caller's own bound groups, or to every bound group for the room creator. A
      * room member in no group sees an empty list rather than a 403 — there is
      * nothing being withheld from them, there is simply nothing of theirs.
+     *
+     * Both halves in one response because the participant panel needs both to
+     * render anything at all, and two reads could disagree about which groups this
+     * caller is in.
      * @returns ActivityGroupProposalsOut Successful Response
      * @throws ApiError
      */

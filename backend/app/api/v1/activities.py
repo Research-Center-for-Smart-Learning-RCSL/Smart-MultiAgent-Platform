@@ -160,14 +160,20 @@ class ActivityTypeOptInResultOut(BaseModel):
 
 class ActivityTypePublicOut(BaseModel):
     """The participant rendering contract (R30.26): identity, key, display
-    name, and payload schema, and nothing else. No `validator_config` — that
-    field is confidential to Project Owners (R30.25). Reachable through the
-    room-access chain, never through project membership."""
+    name, payload schema, and the consent fraction — and nothing else. No
+    `validator_config`, which is confidential to Project Owners (R30.25).
+    Reachable through the room-access chain, never through project membership."""
 
     id: uuid.UUID
     key: str
     name: str
     payload_schema: dict[str, Any]
+    # The consent fraction, and nothing else about the type's behaviour. It is
+    # here for the same reason `validator_config` is not (Q-3): a participant is
+    # being asked to vote against this threshold, so withholding it would leave
+    # them approving a payload without knowing what carries it. `None` means the
+    # type is individual-only, which is what the participant surface branches on.
+    group_config: dict[str, Any] | None = None
 
 
 class ActivityValidatorOut(BaseModel):
@@ -321,8 +327,29 @@ class ActivityGroupProposalOut(BaseModel):
     submission_id: uuid.UUID | None
 
 
+class ActivityMemberGroupRefOut(BaseModel):
+    """A group the caller may propose for, named so a picker can render it.
+
+    Not a tenancy read: the caller already belongs to every group in this list,
+    so it discloses no grouping they could not see elsewhere, and it carries
+    nothing about who else is in one.
+    """
+
+    id: uuid.UUID
+    name: str
+
+
 class ActivityGroupProposalsOut(BaseModel):
+    """One round's group state for one caller.
+
+    ``eligible_groups`` is the caller's own bound-group membership, which is
+    also the participant surface's only signal that group mode applies at all —
+    an empty list means this caller submits individually, whatever the type
+    declares.
+    """
+
     items: list[ActivityGroupProposalOut]
+    eligible_groups: list[ActivityMemberGroupRefOut] = Field(default_factory=list)
 
 
 class ActivityAggregateOut(BaseModel):
@@ -1253,23 +1280,31 @@ async def list_activity_group_proposals(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ActivityGroupProposalsOut:
-    """The live proposals this caller may see for one round (AC-12).
+    """The live proposals this caller may see for one round, and the groups they
+    may propose for (AC-12).
 
     Room access is necessary and not sufficient: the service narrows to the
     caller's own bound groups, or to every bound group for the room creator. A
     room member in no group sees an empty list rather than a 403 — there is
     nothing being withheld from them, there is simply nothing of theirs.
+
+    Both halves in one response because the participant panel needs both to
+    render anything at all, and two reads could disagree about which groups this
+    caller is in.
     """
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    tallies = await ActivitiesFacade(db).list_group_proposals(
+    view = await ActivitiesFacade(db).list_group_proposals(
         project_id=access.project_id,
         chatroom_id=chatroom_id,
         activation_id=activation_id,
         caller_user_id=principal.user_id,
         caller_is_room_creator=is_room_creator(access, principal=principal),
     )
-    return ActivityGroupProposalsOut(items=[_proposal_out(t) for t in tallies])
+    return ActivityGroupProposalsOut(
+        items=[_proposal_out(t) for t in view.proposals],
+        eligible_groups=[ActivityMemberGroupRefOut(id=g.id, name=g.name) for g in view.eligible_groups],
+    )
 
 
 @chatroom_router.get("/{chatroom_id}/activity-proposals/{proposal_id}")

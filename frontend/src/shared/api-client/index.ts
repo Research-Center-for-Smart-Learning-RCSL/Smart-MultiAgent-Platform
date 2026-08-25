@@ -18,6 +18,7 @@ export type { ActivityGroupProposalOut } from './models/ActivityGroupProposalOut
 export type { ActivityGroupProposalsOut } from './models/ActivityGroupProposalsOut';
 export type { ActivityGroupVoteIn } from './models/ActivityGroupVoteIn';
 export type { ActivityGroupVoteOut } from './models/ActivityGroupVoteOut';
+export type { ActivityMemberGroupRefOut } from './models/ActivityMemberGroupRefOut';
 export type { ActivityPolicyPublicOut } from './models/ActivityPolicyPublicOut';
 export type { ActivitySessionCompletionIn } from './models/ActivitySessionCompletionIn';
 export type { ActivitySessionOpenIn } from './models/ActivitySessionOpenIn';

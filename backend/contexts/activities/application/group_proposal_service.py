@@ -53,6 +53,8 @@ from contexts.activities.domain.models import (
     GroupProposal,
     GroupProposalResolution,
     GroupProposalTally,
+    GroupRoundView,
+    MemberGroupRef,
     ProposalStatus,
     VoteChoice,
 )
@@ -508,7 +510,7 @@ class GroupProposalService:
 
     # -- Reads --------------------------------------------------------------
 
-    async def list_open_for_caller(
+    async def list_round_for_caller(
         self,
         *,
         project_id: uuid.UUID,
@@ -516,36 +518,60 @@ class GroupProposalService:
         activation_id: uuid.UUID,
         caller_user_id: uuid.UUID,
         caller_is_room_creator: bool,
-    ) -> Sequence[GroupProposalTally]:
-        """The live proposals this caller may see for one round ([R30.42]).
+    ) -> GroupRoundView:
+        """The live proposals this caller may see for one round, and the groups
+        they could propose for ([R30.41], [R30.42]).
 
         A participant sees their own groups' proposals; the room creator sees
         every group's, because the vote record is an accountability record for
         the group AND the teacher. Nobody else sees any, and an agent never calls
         this at all.
 
+        ``eligible_groups`` is the caller's OWN membership either way, not the
+        visible set: a teacher reading every group's vote still cannot propose
+        for a group they do not belong to, and offering them one would produce a
+        refusal at the only point where a class is watching. It is also the panel's
+        only way to know it may offer group mode at all, so it must answer the
+        proposal gates' question and not a looser one.
+
         Votes are attached only for a caller entitled to them, by the same rule
         the single read uses -- so a listing can never be the looser surface.
         """
-        if caller_is_room_creator:
-            bound = await ConversationFacade(self._db).chatroom_member_group_ids(chatroom_id)
-            visible = await TenancyFacade(self._db).live_member_group_ids(list(bound), project_id=project_id)
-        else:
-            mine = await TenancyFacade(self._db).member_group_ids_for_user(caller_user_id)
-            bound = await ConversationFacade(self._db).chatroom_member_group_ids(chatroom_id)
-            visible = mine & bound
+        tenancy = TenancyFacade(self._db)
+        bound = await ConversationFacade(self._db).chatroom_member_group_ids(chatroom_id)
+        live_bound = await tenancy.live_member_group_ids(list(bound), project_id=project_id)
+        mine = await tenancy.member_group_ids_for_user(caller_user_id)
+        eligible = live_bound & mine
+        visible = live_bound if caller_is_room_creator else eligible
         proposals = await self._proposals.list_open_for_groups(
             activation_id=activation_id, member_group_ids=sorted(visible)
         )
-        return [
-            await self._tally(
-                p.id,
-                include_votes_for=caller_user_id,
-                caller_is_room_creator=caller_is_room_creator,
-                proposal=p,
-            )
-            for p in proposals
-        ]
+        names = await tenancy.member_group_names(sorted(eligible))
+        return GroupRoundView(
+            proposals=tuple(
+                [
+                    await self._tally(
+                        p.id,
+                        include_votes_for=caller_user_id,
+                        caller_is_room_creator=caller_is_room_creator,
+                        proposal=p,
+                    )
+                    for p in proposals
+                ]
+            ),
+            # Built from `eligible`, with `names` only as a lookup: the name read
+            # answers "what is this group called", never "which groups are mine".
+            # An id it cannot name is dropped rather than shown as a bare uuid --
+            # a group that vanished between the two reads is not a choice.
+            # Sorted by name so the picker's order is stable across requests and
+            # reads the way a teacher wrote the groups, not by uuid.
+            eligible_groups=tuple(
+                sorted(
+                    (MemberGroupRef(id=gid, name=names[gid]) for gid in eligible if gid in names),
+                    key=lambda g: (g.name, str(g.id)),
+                )
+            ),
+        )
 
     async def get_tally(
         self,

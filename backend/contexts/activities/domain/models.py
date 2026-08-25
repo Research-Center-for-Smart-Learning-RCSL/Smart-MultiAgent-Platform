@@ -383,6 +383,35 @@ class GroupProposalTally:
 
 
 @dataclass(frozen=True, slots=True)
+class MemberGroupRef:
+    """A group named to a participant so they can choose it ([R30.41]).
+
+    Id and display name only. Membership of a group other than the caller's own
+    is not disclosed by this shape, and it is deliberately not the tenancy
+    context's ``MemberGroup`` -- the activities context has no business holding
+    that row, only enough of it to render a picker.
+    """
+
+    id: uuid.UUID
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class GroupRoundView:
+    """One round's group state as a single caller sees it.
+
+    Two answers that must agree with each other: the proposals this caller may
+    read, and the groups this caller could propose FOR. Computed together
+    because both derive from the same intersection (live group of the room's
+    project, bound to this room, caller is a member) -- answering them in two
+    reads let the panel offer a group whose proposal it was not allowed to see.
+    """
+
+    proposals: tuple[GroupProposalTally, ...]
+    eligible_groups: tuple[MemberGroupRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GroupProposalResolution:
     """What resolving a proposal produced.
 

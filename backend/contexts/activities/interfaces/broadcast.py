@@ -62,8 +62,10 @@ class InitiatingAgent:
 def activity_type_public_payload(activity_type: ActivityType) -> dict[str, Any]:
     """The participant rendering contract as a JSON-ready dict ([R30.26]).
 
-    Identity, key, display name and payload schema — never ``validator_config``,
-    which is confidential to Project Owners ([R30.25]).
+    Identity, key, display name, payload schema and the consent fraction — never
+    ``validator_config``, which is confidential to Project Owners ([R30.25]).
+    ``group_config`` is on the other side of that line by Q-3: a participant is
+    asked to vote against the threshold it carries, so it is theirs to see.
 
     The single authority for this projection. ``ActivityTypePublicOut`` in the route
     layer is constructed **from** this dict rather than beside it, so the HTTP
@@ -75,6 +77,7 @@ def activity_type_public_payload(activity_type: ActivityType) -> dict[str, Any]:
         "key": activity_type.key,
         "name": activity_type.name,
         "payload_schema": activity_type.payload_schema,
+        "group_config": activity_type.group_config,
     }
 
 
