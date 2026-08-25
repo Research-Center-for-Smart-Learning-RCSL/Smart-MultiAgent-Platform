@@ -540,6 +540,33 @@ export function useChatroomSocket(roomId: string) {
       case 'activity.activation.ended': {
         activationGeneration += 1
         activitiesStore.clearActivation(roomId, ev.activation_id as string)
+        // Ending a round expires every open proposal for it ([R30.41]/AC-9), and
+        // the end broadcast is the only announcement of that (dossier FU-8) — so
+        // the cards go with the activation rather than waiting for a per-proposal
+        // event that this path deliberately does not send.
+        activitiesStore.clearProposals(roomId)
+        break
+      }
+      // Group proposals ([R30.42]): ids, a status and counts — never the payload
+      // and never a per-person vote. The store updates only a proposal this
+      // client was already authorised to see; an unrecognised one is recorded by
+      // group id for the panel to decide whether re-reading is its business.
+      case 'activity.proposal.opened':
+      case 'activity.proposal.voted':
+      case 'activity.proposal.resolved': {
+        const proposalId = ev.proposal_id as string
+        if (proposalId) {
+          activitiesStore.applyProposalEvent(roomId, {
+            proposalId,
+            memberGroupId: (ev.member_group_id as string | undefined) ?? null,
+            status: ev.status as string,
+            requiredApprovals: (ev.required_approvals as number | undefined) ?? null,
+            approvals: (ev.approvals as number | undefined) ?? null,
+            rejections: (ev.rejections as number | undefined) ?? null,
+            undecided: (ev.undecided as number | undefined) ?? null,
+            voterCount: (ev.voter_count as number | undefined) ?? null,
+          })
+        }
         break
       }
       default:
