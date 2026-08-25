@@ -31,6 +31,7 @@ from contexts.conversation.infrastructure.drafts import (
     COMPOSER,
     MAX_CONTENT_CHARS,
     MAX_USER_CHARS,
+    MAX_USER_ENTRIES,
     TRUNCATION_MARKER,
     DraftStore,
     normalise_key,
@@ -270,6 +271,40 @@ class TestCaps:
 
         surfaces = {(e.surface, e.key) for e in await store.list_for_room(ROOM)}
         assert surfaces == {("activity", f"t{i}") for i in range(MAX_USER_CHARS // MAX_CONTENT_CHARS)}
+
+    async def test_a_participant_cannot_mint_unbounded_entries(self, store: DraftStore) -> None:
+        """Security gate finding, Introduced/MEDIUM. The regression for it.
+
+        The byte budget does not bound entry *count*: a thousand one-character
+        drafts under a thousand distinct activity keys sit well inside it. Each is
+        its own Redis key and its own index member, so without a count cap a
+        hostile client mints entries at the throttle rate for a whole TTL window
+        and makes `list_for_room`'s MGET enormous on every agent turn.
+        """
+        for index in range(MAX_USER_ENTRIES):
+            assert await store.put(
+                room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key=f"t{index}", content="x"
+            )
+
+        assert (
+            await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key="one-more", content="x")
+            is False
+        )
+        assert len(await store.list_for_room(ROOM)) == MAX_USER_ENTRIES
+
+    async def test_the_count_cap_never_blocks_editing_an_existing_draft(self, store: DraftStore) -> None:
+        """Measured against the participant's *other* entries, so a student sitting
+        at the cap can still edit the worksheet in front of them."""
+        for index in range(MAX_USER_ENTRIES):
+            await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key=f"t{index}", content="x")
+
+        assert await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key="t0", content="edited")
+
+    async def test_the_count_cap_is_per_user(self, store: DraftStore) -> None:
+        for index in range(MAX_USER_ENTRIES):
+            await store.put(room_id=ROOM, user_id=ALICE, surface=ACTIVITY, key=f"t{index}", content="x")
+
+        assert await store.put(room_id=ROOM, user_id=BOB, surface=COMPOSER, key=None, content="mine")
 
     async def test_the_budget_is_per_user_not_per_room(self, store: DraftStore) -> None:
         """One participant filling their own budget must not stop the rest of the

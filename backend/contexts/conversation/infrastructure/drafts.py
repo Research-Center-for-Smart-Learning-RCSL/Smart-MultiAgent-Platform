@@ -65,6 +65,18 @@ _INDEX_TTL_SECONDS: Final = DRAFT_TTL_SECONDS * 2
 MAX_CONTENT_CHARS: Final = 4_000
 MAX_USER_CHARS: Final = 16_000
 
+# The byte budget above bounds how much one participant can store; it does **not**
+# bound how many keys they can create, because a thousand one-character drafts fit
+# inside it comfortably. Each distinct activity key is its own entry and its own
+# index member, so without a count cap a hostile client can mint entries at the
+# throttle rate for a whole TTL window (~450 per connection, times the per-user
+# connection cap) and make `list_for_room`'s MGET enormous on every agent turn.
+#
+# Two is the honest working number -- a room runs one activity at a time, so a
+# participant has a composer draft and one worksheet. Eight leaves room for stale
+# entries from earlier rounds that the client's own clears missed.
+MAX_USER_ENTRIES: Final = 8
+
 #: Appended to a clipped draft. The agent has to be able to tell "they stopped there"
 #: from "we stopped showing it" -- the first is a fact about the participant and the
 #: second is a fact about this module, and an agent that confuses them reports a
@@ -205,9 +217,13 @@ class DraftStore:
                 # evicting an older surface: evicting would let a participant's chat
                 # draft silently delete their worksheet draft, which is a data loss the
                 # participant cannot see and did not cause.
+                # Room only, never the user. [R32.06] puts participant identifiers
+                # off the log trail as well as off the audit trail, and a user id
+                # here would say "this person is typing a lot in this room" to
+                # anyone with log access — which is most of what the feature is
+                # supposed to require a grant for.
                 logger.info(
-                    "draft update for user %s in room %s exceeds the per-user budget; not stored",
-                    user_id,
+                    "a draft update in room %s exceeded the per-user budget; not stored",
                     room_id,
                 )
                 return False
@@ -224,10 +240,16 @@ class DraftStore:
     async def _over_user_budget(
         self, r: Redis[str], room_id: uuid.UUID, user_id: uuid.UUID, entry_key: str, incoming: int
     ) -> bool:
-        """Would this write push one participant past ``MAX_USER_CHARS`` in this room?
+        """Would this write push one participant past their budget in this room?
+
+        Two ceilings, and both are needed: ``MAX_USER_CHARS`` bounds how much they
+        can store, ``MAX_USER_ENTRIES`` bounds how many keys they can create. The
+        second is not implied by the first — a thousand one-character drafts under a
+        thousand distinct activity keys sit well inside the byte budget while making
+        the read path's MGET a thousand keys wide.
 
         Measured against the participant's *other* surfaces, so replacing a draft with
-        a longer one of the same size class never trips it ??otherwise a student whose
+        a longer one of the same size class never trips it — otherwise a student whose
         worksheet already fills the budget could never edit it again.
 
         Fails **open** (returns False) on a read error: the per-surface cap already
@@ -242,6 +264,13 @@ class DraftStore:
         others = [m for m in members if m.startswith(prefix) and m != entry_key]
         if not others:
             return incoming > MAX_USER_CHARS
+        # Counted before the values are fetched: the count cap is what stops a
+        # client minting entries, and reading a thousand of them to decide to
+        # refuse the thousand-and-first would be doing the work the cap exists to
+        # prevent. `others` excludes `entry_key`, so replacing an existing draft is
+        # never refused by this -- only a genuinely new key is.
+        if len(others) >= MAX_USER_ENTRIES:
+            return True
         try:
             values = await r.mget(others)
         except Exception:
@@ -307,7 +336,7 @@ class DraftStore:
         `presence._reconcile_roster`: an entry may expire or be evicted (`allkeys-lru`)
         while its index member remains, and a member with no value is dropped from the
         set here rather than accumulating until the index's own TTL. An evicted draft
-        therefore reads as absent, never as stale ??which is the property that makes
+        therefore reads as absent, never as stale — which is the property that makes
         eviction a bounded loss rather than wrong data.
         """
         try:
@@ -374,7 +403,7 @@ def _parse_key(member: str, room_id: uuid.UUID) -> tuple[uuid.UUID, str, str | N
     """``(user_id, surface, key)`` from an index member, or ``None``.
 
     The member is a key this module composed, so this is a decode rather than a parse
-    of foreign input ??but it is validated anyway, because the index is the one place
+    of foreign input — but it is validated anyway, because the index is the one place
     a key from an older format or another room could survive a deploy, and a
     mis-attributed draft is worse than a dropped one.
     """
@@ -419,6 +448,7 @@ __all__ = [
     "DRAFT_TTL_SECONDS",
     "MAX_CONTENT_CHARS",
     "MAX_USER_CHARS",
+    "MAX_USER_ENTRIES",
     "SURFACES",
     "TRUNCATION_MARKER",
     "DraftEntry",
