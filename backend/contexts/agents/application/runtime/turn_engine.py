@@ -1494,6 +1494,11 @@ class TurnEngine:
         possible split. Defaulting to ``False`` keeps every headless and A2A caller
         correct without naming it.
 
+        ``read_drafts`` ([R32.03]) is resolved here too and needs neither a flag nor
+        a sink: its authority is a per-room grant like ``activity_control``'s, and it
+        writes nothing the engine has to drain. A headless turn has no room, so it
+        is never offered.
+
         Best-effort: a wiring fault (no Docker daemon in a dev run, etc.) must
         not abort the turn — the agent simply runs without those tools. Each
         tool's own ``invoke`` already degrades a runtime fault to an ``is_error``
@@ -1506,11 +1511,12 @@ class TurnEngine:
                 build_agent_tools,
                 default_builtin_deps,
             )
+            from contexts.agents.application.runtime.draft_tools import resolve_draft_access
             from contexts.agents.application.runtime.observer_tools import (
                 resolve_observation_presentation,
             )
 
-            # Both resolvers fail closed on their own (returning None on any
+            # All three resolvers fail closed on their own (returning None on any
             # error), so a grant or a room that cannot be read yields no tools
             # rather than an exception this method's catch-all would turn into "no
             # tools at all", MCP bindings included.
@@ -1526,6 +1532,11 @@ class TurnEngine:
                     self._db, chatroom_id=chatroom_id, is_observer=is_observer
                 )
             )
+            # No `chatroom_id is None` guard of its own: unlike the two above,
+            # `resolve_draft_access` takes the optional id and answers None for a
+            # headless turn itself, so "a room is required" is stated once, in the
+            # resolver, rather than repeated at every call site.
+            draft_access = await resolve_draft_access(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
             # `_persist_artifacts` falls back through `_sandbox()`, and an
@@ -1547,6 +1558,7 @@ class TurnEngine:
                 activation_event_sink=activation_event_sink,
                 observation_presentation=observation_presentation,
                 observation_block_sink=observation_block_sink,
+                draft_access=draft_access,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
