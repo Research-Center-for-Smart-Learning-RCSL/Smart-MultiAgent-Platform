@@ -395,9 +395,7 @@ class TestAParticipantCannotForgeAnotherParticipantsHeader:
         ["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x85", " ", " "],
         ids=["lf", "cr", "crlf", "vt", "ff", "fs", "nel", "ls", "ps"],
     )
-    async def test_no_line_terminator_escapes_the_prefix(
-        self, emitted: list[Any], terminator: str
-    ) -> None:
+    async def test_no_line_terminator_escapes_the_prefix(self, emitted: list[Any], terminator: str) -> None:
         """`/code-review` finding. `split("\\n")` made the guarantee true of exactly
         one of these; the other eight passed through and left every segment after
         the first unprefixed, which is the forgery the prefix exists to stop.
@@ -412,9 +410,7 @@ class TestAParticipantCannotForgeAnotherParticipantsHeader:
         result = await tool.invoke({})
 
         for line in result.content.splitlines()[1:]:
-            assert line.startswith(dt_mod._CONTENT_PREFIX), (
-                f"{terminator!r} escaped the prefix: {line!r}"
-            )
+            assert line.startswith(dt_mod._CONTENT_PREFIX), f"{terminator!r} escaped the prefix: {line!r}"
 
     async def test_every_content_line_of_a_multi_line_worksheet_is_prefixed(self, emitted: list[Any]) -> None:
         """The prefix cannot be applied to the first line only: a nine-cell grid is
