@@ -29,10 +29,10 @@ import {
 import { activityKeys } from '../queries'
 import {
   EXACT_MATCH_VALIDATOR_ID,
-  FILLED_COUNT_VALIDATOR_ID,
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
   assembleValidatorConfig,
+  usesMinFilled,
   type ActivityTypeCreateInput,
   type ValidatorKindOption,
 } from '../types/schemas'
@@ -225,7 +225,7 @@ const isExactMatch = computed(
 )
 
 const isFilledCount = computed(
-  () => validatorKind.value === 'in_process' && inProcessValidatorId.value === FILLED_COUNT_VALIDATOR_ID,
+  () => validatorKind.value === 'in_process' && usesMinFilled(inProcessValidatorId.value),
 )
 
 // Rendered as a text input, NOT type="number": SInput coerces a numeric input's

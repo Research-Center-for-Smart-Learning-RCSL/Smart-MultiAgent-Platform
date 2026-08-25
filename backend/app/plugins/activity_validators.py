@@ -7,14 +7,17 @@ a startup side effect) and explicitly by the bootstrap step, so it is idempotent
 design — re-registering the same id overwrites the identical entry. Tests that
 ``clear_registry()`` call it again to restore the shipped set.
 
-Two validators ship today, neither of which knows anything about a project's domain:
+Three validators ship today, none of which knows anything about a project's domain:
 
 - ``exact_match`` — a deterministic scorer comparing one payload field to an expected
   answer held in the type's ``validator_config``.
 - ``filled_count`` — scores *completeness* rather than correctness, for activities whose
   responses have no answer key ([R30.27]).
+- ``filled_count_coverage`` — the same verdict, plus *which* declared fields carry an
+  answer ([R28.17]). A type opts into it to make per-field coverage a server-computed
+  fact; ``filled_count`` is deliberately left alone.
 
-Neither needs a DB session, but both keep the standard scorer signature.
+None needs a DB session, but all keep the standard scorer signature.
 """
 
 from __future__ import annotations
@@ -30,6 +33,12 @@ _MISMATCH = "mismatch"
 
 FILLED_COUNT_ID = "filled_count"
 _TOO_FEW_FILLED = "too_few_filled"
+
+FILLED_COUNT_COVERAGE_ID = "filled_count_coverage"
+#: ``sub_scores`` key carrying the declared property *names* that were answered.
+#: Read by the room-scoped coverage aggregates ([R28.17]); a type whose submissions
+#: do not carry it has no coverage to report and the tool refuses the block.
+FILLED_FIELDS_KEY = "filled_fields"
 
 
 def exact_match_scorer(payload: dict[str, Any], activity_type: ActivityType, *, db: Any) -> ValidationResult:
@@ -116,6 +125,52 @@ def filled_count_scorer(payload: dict[str, Any], activity_type: ActivityType, *,
     return ValidationResult(is_valid=False, error_class=_TOO_FEW_FILLED, sub_scores=sub_scores)
 
 
+def filled_count_coverage_scorer(
+    payload: dict[str, Any], activity_type: ActivityType, *, db: Any
+) -> ValidationResult:
+    """``filled_count``'s verdict, plus which declared fields were answered ([R28.17]).
+
+    The verdict, the ``error_class`` and the ``filled`` sub-score are identical to
+    :func:`filled_count_scorer` for the same payload and config — a type may move
+    between the two without any submission changing outcome. What is added is
+    ``sub_scores['filled_fields']`` and a ``detail``.
+
+    **Field names, never field values.** The names come from the owner-authored
+    ``payload_schema``; the participant's own words are read only through
+    :func:`_is_filled`, which returns a boolean. Setting ``detail`` also means
+    ``build_agent_digest`` stops falling back to a JSON dump of the payload for this
+    type, so an agent reading the recent-activity window sees *less* participant text
+    after a type adopts this validator than before.
+
+    Declared order is preserved, so a caller rendering the list beside the schema's
+    own field order does not have to re-sort it.
+    """
+    min_filled = int(activity_type.validator_config.get("min_filled", 0))
+    declared = activity_type.payload_schema.get("properties") or {}
+    filled_fields = [name for name in declared if _is_filled(payload.get(name))]
+    sub_scores: dict[str, Any] = {"filled": len(filled_fields), FILLED_FIELDS_KEY: filled_fields}
+    detail = _coverage_detail(filled_fields, len(declared))
+
+    if len(filled_fields) >= min_filled:
+        return ValidationResult(is_valid=True, sub_scores=sub_scores, detail=detail)
+    return ValidationResult(
+        is_valid=False, error_class=_TOO_FEW_FILLED, sub_scores=sub_scores, detail=detail
+    )
+
+
+def _coverage_detail(filled_fields: list[str], declared_count: int) -> str:
+    """``"3/9 fields answered: home, work, leisure"``, or the no-answer form.
+
+    Ends without a trailing colon when nothing is filled: a dangling ``answered:``
+    reads as a truncated line, and this string is shown to an agent as a submission
+    digest where "the rest was cut off" is the wrong inference to invite.
+    """
+    counts = f"{len(filled_fields)}/{declared_count} fields answered"
+    if not filled_fields:
+        return counts
+    return f"{counts}: {', '.join(filled_fields)}"
+
+
 def validate_filled_count_config(config: dict[str, Any]) -> None:
     """Reject a malformed ``filled_count`` config at registration/edit time.
 
@@ -167,6 +222,17 @@ def register_first_party_validators() -> None:
         config_validator=validate_filled_count_config,
         schema_config_validator=validate_filled_count_against_schema,
     )
+    # Same config contract as `filled_count`, so both hooks are registered
+    # unchanged rather than copied: the two must never disagree about which
+    # `min_filled` is legal, or moving a type between them would change whether
+    # it can be saved.
+    register_in_process_validator(
+        FILLED_COUNT_COVERAGE_ID,
+        filled_count_coverage_scorer,
+        title="Filled count with field coverage",
+        config_validator=validate_filled_count_config,
+        schema_config_validator=validate_filled_count_against_schema,
+    )
 
 
 register_first_party_validators()
@@ -174,8 +240,11 @@ register_first_party_validators()
 
 __all__ = [
     "EXACT_MATCH_ID",
+    "FILLED_COUNT_COVERAGE_ID",
     "FILLED_COUNT_ID",
+    "FILLED_FIELDS_KEY",
     "exact_match_scorer",
+    "filled_count_coverage_scorer",
     "filled_count_scorer",
     "register_first_party_validators",
     "validate_exact_match_config",
