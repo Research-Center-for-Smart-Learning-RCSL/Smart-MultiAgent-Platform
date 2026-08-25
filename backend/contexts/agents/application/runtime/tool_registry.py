@@ -131,6 +131,10 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         # this set bounds is the runtime namespace, not the configuration table.
         "start_activity",
         "end_activity",
+        # The observer's presentation tool ([R28.16]). Same terms again: its source
+        # is the binding's *role* rather than an `agent_tools` row, and what this
+        # set bounds is the runtime namespace.
+        "present_observation",
     }
 )
 
