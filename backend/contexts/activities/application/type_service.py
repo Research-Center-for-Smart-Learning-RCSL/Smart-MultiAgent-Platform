@@ -24,9 +24,11 @@ from contexts.activities.application.validators.schema import validate_schema_we
 from contexts.activities.domain.errors import (
     ActivityTypeActive,
     ActivityTypeNotFound,
+    GroupConfigInvalid,
     PlatformActivityTypeReadOnly,
     ValidatorConfigInvalid,
 )
+from contexts.activities.domain.group_consent import validate_group_config
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.optin_repo import (
@@ -53,6 +55,21 @@ class TypeRegistration:
     shadowed_by_platform: bool
 
 
+def _assert_group_config(raw: dict[str, Any] | None) -> None:
+    """The consent-fraction gate both write paths run ([R30.40]).
+
+    Lifts the domain's ``ValueError`` into the context's own error so the API
+    answers 422 with a slug rather than a 500 -- the shape
+    ``_validate_validator_config`` already uses for the validator half.
+    """
+    if raw is None:
+        return
+    try:
+        validate_group_config(raw)
+    except ValueError as exc:
+        raise GroupConfigInvalid(str(exc)) from exc
+
+
 class ActivityTypeService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -76,6 +93,7 @@ class ActivityTypeService:
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
+        group_config: dict[str, Any] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> TypeRegistration:
         if (project_id is None) is (scope is ActivityTypeScope.PROJECT):
@@ -84,6 +102,7 @@ class ActivityTypeService:
             raise ValueError(f"scope {scope.value!r} does not agree with project_id={project_id!r}")
         validate_schema_wellformed(payload_schema)
         self._validate_validator_config(validator_kind, validator_config, payload_schema=payload_schema)
+        _assert_group_config(group_config)
         # [R30.30] first gate: reject a violating type at authoring time so the
         # activation-time gate seldom has to fire in front of a class.
         await self._policy.assert_allows(
@@ -111,6 +130,7 @@ class ActivityTypeService:
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
             scope=scope,
+            group_config=group_config,
         )
         await audit.emit(
             self._db,
@@ -161,13 +181,15 @@ class ActivityTypeService:
         actor_ip: str | None,
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
+        group_config: dict[str, Any] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> ActivityType:
         """Edit an existing type's fields (``key`` is never editable, R30.23).
 
         Safe metadata (``name``, ``retention_days``, ``expose_payload_to_agent``,
         ``echo_includes_content``) may change any time. A change to a behavioral
-        field (``payload_schema``/``validator_kind``/``validator_config``) re-runs
+        field (``payload_schema``/``validator_kind``/``validator_config``/
+        ``group_config``) re-runs
         registration's validators, bumps ``version``, and is rejected while any
         active activation references the type — otherwise an in-flight activation
         would desync. The ``project_id`` guard keeps this tenant-safe (mirrors
@@ -188,14 +210,19 @@ class ActivityTypeService:
         if existing.project_id != project_id:
             raise ActivityTypeNotFound(str(type_id))
 
+        # `group_config` joins the behavioural set rather than the safe-metadata
+        # one ([R30.40]): it governs a vote, and a threshold that moved under an
+        # open proposal would change what a group already agreed to clear.
         behavioral_changed = (
             payload_schema != existing.payload_schema
             or validator_kind != existing.validator_kind
             or validator_config != existing.validator_config
+            or group_config != existing.group_config
         )
         if behavioral_changed:
             validate_schema_wellformed(payload_schema)
             self._validate_validator_config(validator_kind, validator_config, payload_schema=payload_schema)
+            _assert_group_config(group_config)
             if await self._activation_repo.list_active_for_type(type_id):
                 raise ActivityTypeActive(str(type_id))
 
@@ -220,6 +247,7 @@ class ActivityTypeService:
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
             bump_version=behavioral_changed,
+            group_config=group_config,
         )
         await audit.emit(
             self._db,
@@ -290,6 +318,11 @@ class ActivityTypeService:
             retention_days=retention_days,
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
+            # Carried through unchanged, exactly like `payload_schema` above:
+            # `group_config` is a behavioural definition field, and the admin
+            # install surface deliberately does not author those (§6 of the
+            # dossier). Omitting it would null the fraction on every admin edit.
+            group_config=existing.group_config,
             # No behavioral field can change here, so `version` never moves — and
             # the "rejected while an activation is live" rule that guards a
             # behavioral edit does not apply either. A governance flag must stay

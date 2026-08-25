@@ -48,6 +48,17 @@ def _activation(room_id: uuid.UUID, type_id: uuid.UUID) -> ActivityActivation:
     )
 
 
+def _expirer(expired: list[uuid.UUID] | None = None) -> MagicMock:
+    """A ``GroupProposalExpirer`` double.
+
+    Ending a round now also expires the proposals open under it (AC-9 of the
+    group-submission dossier), so a test double for `end` has one more
+    collaborator than it did. Defaults to "nothing was open", which is what every
+    test written before group submissions existed was describing.
+    """
+    return MagicMock(expire_open_for_activation=AsyncMock(return_value=expired or []))
+
+
 def _no_policy(svc: ActivationService) -> ActivationService:
     """No platform policy row, so the activation gate falls back to permissive.
 
@@ -169,7 +180,13 @@ class TestActivationService:
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=3))
         svc = _no_policy(
-            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=closer,
+                proposal_repo=_expirer(),
+            )
         )
 
         with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
@@ -184,6 +201,64 @@ class TestActivationService:
         closer.close_open_for_activation.assert_awaited_once_with(activation.id)
         assert emit.await_args.args[1].metadata["sessions_closed"] == "3"
 
+    async def test_end_expires_every_proposal_still_open_under_the_round(self) -> None:
+        """AC-9 of the group-submission dossier, and it is correctness rather than
+        housekeeping: a proposal that outlived its activation would accept later
+        and write a submission into a round the class has already left."""
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(
+            get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
+        )
+        closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
+        expirer = _expirer([uuid.uuid4(), uuid.uuid4()])
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=closer,
+                proposal_repo=expirer,
+            )
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
+            await svc.end(
+                chatroom_id=room_id,
+                activation_id=activation.id,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+        expirer.expire_open_for_activation.assert_awaited_once_with(activation.id)
+        assert emit.await_args.args[1].metadata["proposals_expired"] == "2"
+
+    async def test_a_double_end_does_not_re_expire_proposals(self) -> None:
+        """The same guard the session close has: a second end changed nothing, so
+        it must not restamp `resolved_at` on rows this call did not resolve."""
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=False))
+        expirer = _expirer()
+        svc = _no_policy(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=MagicMock(close_open_for_activation=AsyncMock(return_value=0)),
+                proposal_repo=expirer,
+            )
+        )
+
+        await svc.end(
+            chatroom_id=room_id,
+            activation_id=activation.id,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
+        )
+
+        expirer.expire_open_for_activation.assert_not_awaited()
+
     async def test_end_closes_sessions_before_it_audits(self) -> None:
         """The count on the trail is a fact about what happened, not a prediction:
         if the close raised, no event claiming a number may have been written."""
@@ -192,7 +267,13 @@ class TestActivationService:
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=True))
         closer = MagicMock(close_open_for_activation=AsyncMock(side_effect=RuntimeError("close blew up")))
         svc = _no_policy(
-            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=closer,
+                proposal_repo=_expirer(),
+            )
         )
 
         with (
@@ -300,7 +381,13 @@ class TestDelegatedActivation:
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
         svc = _no_policy(
-            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=closer,
+                proposal_repo=_expirer(),
+            )
         )
 
         with patch.object(activation_service.audit, "emit", new=AsyncMock()) as emit:
@@ -335,7 +422,13 @@ class TestDelegatedActivation:
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
         svc = _no_policy(
-            ActivationService(MagicMock(), activation_repo=repo, type_repo=MagicMock(), session_repo=closer)
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(),
+                session_repo=closer,
+                proposal_repo=_expirer(),
+            )
         )
 
         with patch.object(activation_service.audit, "emit", new=AsyncMock()):

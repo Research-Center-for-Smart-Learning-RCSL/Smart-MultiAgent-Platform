@@ -4,6 +4,7 @@
 /* eslint-disable */
 export type ObservationOut = {
     agent_id: string;
+    blocks: Array<Record<string, any>>;
     chatroom_id: string;
     content_md: string;
     created_at: (string | null);

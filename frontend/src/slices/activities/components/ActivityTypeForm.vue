@@ -29,10 +29,10 @@ import {
 import { activityKeys } from '../queries'
 import {
   EXACT_MATCH_VALIDATOR_ID,
-  FILLED_COUNT_VALIDATOR_ID,
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
   assembleValidatorConfig,
+  usesMinFilled,
   type ActivityTypeCreateInput,
   type ValidatorKindOption,
 } from '../types/schemas'
@@ -225,7 +225,7 @@ const isExactMatch = computed(
 )
 
 const isFilledCount = computed(
-  () => validatorKind.value === 'in_process' && inProcessValidatorId.value === FILLED_COUNT_VALIDATOR_ID,
+  () => validatorKind.value === 'in_process' && usesMinFilled(inProcessValidatorId.value),
 )
 
 // Rendered as a text input, NOT type="number": SInput coerces a numeric input's
@@ -433,7 +433,13 @@ const onSubmit = handleSubmit((formValues) => {
     echo_includes_content: formValues.echo_includes_content,
   }
   if (isEdit.value && props.editType) {
-    updateMutation.mutate(shared)
+    // `group_config` is round-tripped, not edited here. The PATCH body is a
+    // FULL editable representation -- the backend diffs it against the stored
+    // row -- so a field this form does not resubmit is a field it clears. This
+    // form has no group-consent control, and omitting the value would turn a
+    // group-submittable type individual-only on an unrelated rename, and bump
+    // its version (a behavioural change) while a round is live.
+    updateMutation.mutate({ ...shared, group_config: props.editType.group_config ?? null })
     return
   }
   createMutation.mutate({ key: formValues.key, ...shared })

@@ -48,6 +48,86 @@ export type ReleaseTarget =
   | { kind: 'room'; message_id?: string }
   | { kind: 'agents'; agent_ids: string[]; woken: boolean }
 
+// R28.19 — which platform-authored sentence a block renders as its footnote.
+// The agent picks one; it never writes one, and no field suppresses it.
+export type ObservationBasis = 'server_facts' | 'recent_window' | 'transcript'
+
+// R28.18 — one declared schema field and how many counted submissions answered
+// it. `title` is owner-authored; neither field ever carries a submission value.
+export interface ObservationCoverageCell {
+  name: string
+  title: string
+  filled: number
+}
+
+export interface ObservationAttemptRow {
+  subject_code: string
+  attempts: number
+  submissions: number
+  latest_outcome: 'valid' | 'invalid' | 'pending' | 'error' | string
+  latest_error_class: string | null
+}
+
+interface ObservationBlockBase {
+  title?: string
+  caveat?: string
+}
+
+// R28.17 — the server measured every value on these; the agent supplied only
+// the selection and the framing.
+interface ObservationComputedBlock extends ObservationBlockBase {
+  basis: ObservationBasis
+  type_key?: string
+  type_name?: string
+  submissions_counted: number
+}
+
+export interface ObservationProseBlock {
+  kind: 'prose'
+  text: string
+}
+
+export interface ObservationKeyPointsBlock extends ObservationBlockBase {
+  kind: 'key_points'
+  basis: ObservationBasis
+  points: { text: string; evidence?: string }[]
+  next_step?: string
+}
+
+export interface ObservationTimelineBlock extends ObservationBlockBase {
+  kind: 'timeline'
+  basis: ObservationBasis
+  entries: { label: string; detail?: string }[]
+}
+
+export interface ObservationFieldCoverageBlock extends ObservationComputedBlock {
+  kind: 'field_coverage'
+  cells: ObservationCoverageCell[]
+}
+
+export interface ObservationMandalaGridBlock extends ObservationComputedBlock {
+  kind: 'mandala_grid'
+  rows: ObservationCoverageCell[][]
+}
+
+export interface ObservationAttemptTableBlock extends ObservationComputedBlock {
+  kind: 'attempt_table'
+  rows: ObservationAttemptRow[]
+  truncated: boolean
+}
+
+// R28.15 — the block kinds this build knows. Deliberately closed: the renderer
+// switches on it exhaustively and falls back for anything else, because a stored
+// observation must survive a rollback of this frontend past the release that
+// introduced its kinds.
+export type ObservationBlock =
+  | ObservationProseBlock
+  | ObservationKeyPointsBlock
+  | ObservationTimelineBlock
+  | ObservationFieldCoverageBlock
+  | ObservationMandalaGridBlock
+  | ObservationAttemptTableBlock
+
 // R28.03 — observer output. Never a Message; delivered creator-only.
 export interface Observation {
   id: string
@@ -55,6 +135,10 @@ export interface Observation {
   agent_id: string
   content_md: string
   metadata: Record<string, unknown>
+  // R28.15. Empty for every observation recorded before presentation blocks
+  // existed and for any turn that did not call `present_observation`; the card
+  // renders `content_md` in that case, exactly as it always did.
+  blocks: ObservationBlock[]
   trigger: 'every_n_messages' | 'silence_minutes' | string
   trigger_message_id: string | null
   released_at: string | null

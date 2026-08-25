@@ -228,6 +228,7 @@ class ActivityExampleService:
                 retention_days=course_type.retention_days,
                 expose_payload_to_agent=course_type.expose_payload_to_agent,
                 echo_includes_content=course_type.echo_includes_content,
+                group_config=course_type.group_config,
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 request_id=request_id,

@@ -96,6 +96,13 @@ def _activity_control() -> object:
     )
 
 
+def _observation_presentation() -> object:
+    """A minimal observer presentation context, for the drift guard above."""
+    from contexts.agents.application.runtime.observer_tools import ObservationPresentationContext
+
+    return ObservationPresentationContext(chatroom_id=uuid.uuid4(), project_id=uuid.uuid4(), types_by_key={})
+
+
 def _singletons(
     *,
     web_search: bool = True,
@@ -193,10 +200,13 @@ def test_hosted_builtin_names_are_all_reserved() -> None:
         # that passes only rows — and the drift guard would silently stop covering
         # them. Their source differs; the namespace they occupy does not.
         activity_control=_activity_control(),
+        # Same again for the observer's presentation tool, whose source is the
+        # binding's role ([R28.16]).
+        observation_presentation=_observation_presentation(),
     )
     hosted = [t.name for t in tools if not t.name.startswith("mcp__")]
     assert hosted, "expected hosted built-in tools to be built"
-    assert {"start_activity", "end_activity"} <= set(hosted)
+    assert {"start_activity", "end_activity", "present_observation"} <= set(hosted)
     for name in hosted:
         assert name in BUILTIN_TOOL_NAMES, f"built-in {name!r} not in BUILTIN_TOOL_NAMES (drift)"
 

@@ -192,6 +192,27 @@
       "emptyText": "Observers write here after they analyze the conversation. Only you can see these.",
       "noObserverBoundTitle": "No observer currently bound",
       "noObserverBoundText": "These are past analyses from an observer that is no longer bound to this room. You can still release or delete them.",
+      "basis": {
+        "server_facts": "Basis: computed by the server over this room's submissions. It counts submissions, not participants, and says nothing about who did not submit.",
+        "recent_window": "Basis: read off the recent-activity window, which holds only the most recent events and is not a complete record of the room.",
+        "transcript": "Basis: read off what was said in the room. A description of the discussion, not a measurement."
+      },
+      "blocks": {
+        "nextStep": "Suggested next step:",
+        "submissionsCounted": "Submissions counted: {n}",
+        "participant": "Code",
+        "attempts": "Attempts",
+        "submissions": "Submissions",
+        "latest": "Latest",
+        "truncated": "Showing the {n} most recent; this room has more.",
+        "outcome": {
+          "valid": "Valid",
+          "invalid": "Invalid",
+          "pending": "Pending",
+          "error": "Error"
+        },
+        "cannotDisplay": "This block needs a newer version of the interface to display."
+      },
       "loadEarlier": "Load earlier",
       "expand": "Show more",
       "collapse": "Show less",
@@ -287,6 +308,9 @@
       "activityControlNeedsTypes": "Pick at least one activity before granting control.",
       "allowMemberGroups": "Specific member groups",
       "allowMemberGroupsDesc": "Only members of the groups selected below. Turning this on closes the room to the rest of the project.",
+      "memberGroupsExclusiveTitle": "This changes who can enter the room",
+      "memberGroupsExclusiveWarning": "Access for all project members will be turned off, because a room cannot use both tiers. From then on, only people in a group you select below can reach this room — anyone in no group loses access immediately, including guests, who cannot belong to a group at all. Add every participant to a group before you continue.",
+      "memberGroupsExclusiveConfirm": "Switch to group access",
       "boundGroups": "Groups with access",
       "boundGroupsDesc": "Members of any selected group can read and send here.",
       "boundGroupsSaved": "Access updated ({count} groups)",

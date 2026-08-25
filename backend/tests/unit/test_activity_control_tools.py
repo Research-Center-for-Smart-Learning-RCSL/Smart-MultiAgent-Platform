@@ -551,6 +551,10 @@ class TestPostCommitDrain:
             chatroom_id: uuid.UUID | None = None,
             artifact_sink: list[dict[str, Any]] | None = None,
             activation_event_sink: list[dict[str, Any]] | None = None,
+            # Accepted and ignored: these three tests are about a normal-role
+            # turn, which is never offered `present_observation` ([R28.16]).
+            is_observer: bool = False,
+            observation_block_sink: list[dict[str, Any]] | None = None,
         ) -> list[Any]:
             # Stands in for the model actually calling `start_activity` mid-turn:
             # what the engine sees afterwards is a filled sink, however it got there.
@@ -660,6 +664,10 @@ class TestPostCommitDrain:
             chatroom_id: uuid.UUID | None = None,
             artifact_sink: list[dict[str, Any]] | None = None,
             activation_event_sink: list[dict[str, Any]] | None = None,
+            # Accepted and ignored: these three tests are about a normal-role
+            # turn, which is never offered `present_observation` ([R28.16]).
+            is_observer: bool = False,
+            observation_block_sink: list[dict[str, Any]] | None = None,
         ) -> list[Any]:
             assert activation_event_sink is not None
             activation_event_sink.append(
@@ -736,6 +744,10 @@ class TestPostCommitDrain:
             chatroom_id: uuid.UUID | None = None,
             artifact_sink: list[dict[str, Any]] | None = None,
             activation_event_sink: list[dict[str, Any]] | None = None,
+            # Accepted and ignored: these three tests are about a normal-role
+            # turn, which is never offered `present_observation` ([R28.16]).
+            is_observer: bool = False,
+            observation_block_sink: list[dict[str, Any]] | None = None,
         ) -> list[Any]:
             assert activation_event_sink is not None
             activation_event_sink.append(

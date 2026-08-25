@@ -111,13 +111,29 @@ def _facade(
 
 class TestSeededDefinitions:
     def test_seeds_the_course_units_in_file_order(self) -> None:
-        """One type per worksheet section of the two modelled units."""
+        """One type per worksheet section of the two modelled units, plus the one
+        group task the course adds beside them."""
         assert COURSE_KEYS == [
             "mandala-9grid",
             "time-traveler-next-steps",
             "emotion-desk-three-emotions",
             "six-hats-emotion-desk",
+            "six-hats-shared-case",
         ]
+
+    def test_only_the_shared_case_is_group_submittable(self) -> None:
+        """The course's own record of the dossier's §4.4 decision: the four
+        first-person worksheets are NOT made collective, because a consensus
+        answer erases the very spread units 2 and 4 exist to surface. A group
+        variant is added beside them instead."""
+        group_keys = [t.key for t in COURSE_TYPES if t.group_config is not None]
+        assert group_keys == ["six-hats-shared-case"]
+
+    def test_the_shared_case_asks_for_two_thirds(self) -> None:
+        """Two integers, not a float: the required count is exact integer
+        arithmetic rather than an argument about how many digits of 2/3 were
+        stored."""
+        assert BY_KEY["six-hats-shared-case"].group_config == {"consent": {"numerator": 2, "denominator": 3}}
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
     def test_payload_schema_is_wellformed(self, course_type: CourseActivityType) -> None:
@@ -133,10 +149,24 @@ class TestSeededDefinitions:
 
     @pytest.mark.parametrize("course_type", COURSE_TYPES, ids=lambda t: t.key)
     def test_uses_filled_count_with_a_valid_config(self, course_type: CourseActivityType) -> None:
+        """observer-presentation-blocks Q-4 and D-7. Three of the four opt into the
+        coverage variant so their submissions record *which* fields were answered;
+        both validators produce the same verdict and register the same config
+        rules, which is why the check below is the shared one.
+
+        ``time-traveler-next-steps`` deliberately stays on ``filled_count``: it
+        declares one field, so its coverage figure could only ever read "1/1 fields
+        answered", and adopting the variant would set a ``detail`` that displaces
+        the payload dump — costing the agents the answer text
+        ``2026-08-24-example-agents-quote-unit-two`` exists to make quotable.
+        """
         from app.plugins.activity_validators import validate_filled_count_config
 
+        expected = (
+            "filled_count" if course_type.key == "time-traveler-next-steps" else "filled_count_coverage"
+        )
         assert course_type.validator_kind is ValidatorKind.IN_PROCESS
-        assert course_type.validator_config["validator_id"] == "filled_count"
+        assert course_type.validator_config["validator_id"] == expected
         validate_filled_count_config(course_type.validator_config)
 
     def test_mandala_is_a_nine_field_schema_with_a_center(self) -> None:

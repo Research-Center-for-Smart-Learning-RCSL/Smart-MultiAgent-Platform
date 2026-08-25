@@ -312,8 +312,8 @@ blocked on `2026-08-24-traceability-extraction-gate`, which is **implemented as 
 2026-08-24**. The first is therefore **Ready now**; the second still waits on the first. Read
 each row for its own list — the frontmatter wins over this preamble.
 
-- (moved to Ready now on 2026-08-24, unblocked by the implemented
-  `2026-08-24-traceability-extraction-gate`) The original entry, kept here for its detail.
+- (implemented 2026-08-24; see the note under In progress) The original entry, kept here for
+  its detail.
   **One thing changed under it while it waited**: the gate regenerated all 306 existing rows
   *and* backfilled 115 rather than 83, so `docs/traceability.csv` is now generated — its five
   new `[R28.15]`-`[R28.19]` rows are produced by `python scripts/traceability.py`, never
@@ -346,10 +346,20 @@ each row for its own list — the frontmatter wins over this preamble.
   Its §6 also corrects `_CONTENT_NOTE`, which would otherwise vouch for a server-computed
   digest as the participant's own words once the example moves to `filled_count_coverage`.
 
-- `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**) — waiting on
+- (moved to Ready now on 2026-08-24, unblocked by the implemented
+  `2026-08-24-observer-presentation-blocks` — its last unmet dependency)
+  `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**).
+  **Two things changed under it while it waited.** The three seams its Q-10 names for adding a
+  runtime tool are all now occupied by a second example, so follow `present_observation`
+  rather than only `start_activity`: `BUILTIN_TOOL_NAMES` has a third grant-sourced entry,
+  `build_agent_tools` takes a second `(context, sink)` pair, and `_builtin_tools` now carries
+  an `is_observer` flag threaded from `run_turn` — a role-sourced tool has a worked precedent
+  where before there was only a grant-sourced one. And the activity feed grew a second row
+  marker: a server-computed digest follows `::`, not the em dash, which its AC-16 prompt edits
+  must not contradict. The original entry, kept here for its detail:
+  `2026-08-24-agent-readable-live-drafts` — waiting on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two` — **the quoting dossier and the traceability gate
-  are both `implemented` as of 2026-08-24**, so only `observer-presentation-blocks` remains.
+  `2026-08-24-example-agents-quote-unit-two`.
   The quoting dossier was a **logical** prerequisite
   (its Q-10): its AC-16 writes the draft rule into prompts whose submission rule the quoting
   dossier splits by activity type, and written second it says the sharper thing — unit 2
@@ -372,11 +382,11 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ### From the 2026-08-24 group-submission work
 
-- `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
-  — waiting on
+- (implemented 2026-08-25; see the note under In progress)
+  `2026-08-24-group-activity-submissions` (feature, **approved 2026-08-24**, SRS Delta applied)
+  — the original entry, kept here for its detail; it waited on
   `2026-08-24-traceability-extraction-gate`, `2026-08-24-observer-presentation-blocks` and
-  `2026-08-24-example-agents-quote-unit-two` — **the quoting dossier and the traceability gate
-  are both `implemented` as of 2026-08-24**, so only `observer-presentation-blocks` remains.
+  `2026-08-24-example-agents-quote-unit-two`.
   **The largest of the series.** Lets a project
   Member Group ([R13.28]) be the subject of an `ActivitySession`, via a proposal one member
   makes and the group votes on. The platform does **not** hard-code unanimity: an activity
@@ -407,6 +417,93 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-25 after implementation:
+`2026-08-24-group-activity-submissions` (a project Member Group may be the subject of an
+`ActivitySession`, through a proposal one member makes and the group votes on; the consent
+fraction is declared by the activity type, not by the platform). Migration 0081, four new
+room-scoped endpoints, one new example type. **Four things a later reader needs.**
+
+**A participant contract is not the owner's contract, and §6 forgot which one the panel
+sees.** The dossier enumerated the four models that gain `group_config` and missed
+`ActivityTypePublicOut` — the only type shape a participant ever receives, and the one
+`ActivityActivationOut` embeds. It also assumed a student could read the room's bound
+groups, which is `PROJECT_MEMBER_MANAGE`-gated. Both were added at the start of the
+frontend milestone (D-10). The lesson generalises: **when a dossier says "the panel shows
+X when the type carries Y", check that Y is on the shape the panel is handed**, not merely
+on the model with the same-sounding name.
+
+**Group mode has three client states, not two** (D-11). "Has a group" and "the read has not
+answered yet" both read as false on any `canPropose`-shaped boolean, and conflating them
+shows a group participant the *individual* worksheet until the request lands. Any surface
+that switches on a server-answered capability wants the same third state.
+
+**The room broadcast is counts, and must never become authorization.**
+`activity.proposal.*` reaches every participant, including members of groups the reader may
+not see. The client store therefore updates only a proposal the authorization-narrowed HTTP
+read already returned and refuses to insert an unknown one, recording its group id so the
+composable can decide whether re-reading is that caller's business. A client that trusted
+the event would have rendered another group's vote from a payload carrying no evidence it
+was entitled to it.
+
+**Its AC-18 warning is the one guard against a confused first setup.** `allow_member_groups`
+excluding `allow_project_members` ([R13.04]) is deliberate, so nothing can prevent the
+lockout except saying so at the moment of the change — which is why the confirm lives in
+`useChatroomSettings.setFlag`, before the patch, and covers every caller rather than one
+view. FU-5 stands: the group flow has never been run end-to-end (it needs three sessions in
+one room and a full compose stack), so the four routes are covered by unit and service tests
+and by nothing that exercised them against a running server.
+
+Removed on 2026-08-24 after implementation:
+`2026-08-24-observer-presentation-blocks` (an observer agent assembles its analysis from a
+closed set of platform-defined blocks through one structured tool call; the three quantitative
+kinds are filled in by the server). **It unblocked two dossiers**, both of which listed it as
+their last unmet dependency: `2026-08-24-agent-readable-live-drafts` and
+`2026-08-24-group-activity-submissions` move to Ready. Migration 0080, one API field, one new
+runtime tool. **Six things a later reader needs.**
+
+**Its §5.5 was the correction that made the feature work, and its own claim was still wrong.**
+The spec caught that a text-only empty-turn guard discards every block from a model that
+delivers its analysis as structured blocks and says nothing in prose — the ordinary shape of
+the feature. It then argued the widened guard is safe because the blocks serialise to a
+non-empty `content_md` "by construction". They do not: `minLength: 1` accepts a single space
+and `schema_violations` strips `pattern` outright, so a whitespace-only prose block is
+schema-valid and renders to nothing. The guard now tests the **serialisation** rather than the
+sink, and the tool refuses such an array on its own (D-4). **An invariant asserted as
+"by construction" is worth checking against the validator that is supposed to enforce it.**
+
+**The safety argument is structural, not a convention, and that is the part to preserve.** A
+computed block's schema branch declares no value property and closes with
+`additionalProperties: false`, so a call carrying its own counts is rejected before `invoke`
+runs; the server fills those fields and stamps `server_facts` on them, so a computed block
+cannot be mislabelled by its caller either. A participant can persuade the agent to *include*
+a coverage figure and cannot change a number in one, because the model is never asked for one.
+Every denominator is submissions counted, never a share of a class.
+
+**AC-18 needed a fact the spec said would not exist** (D-1). Nothing records whether a stored
+`agent_digest` came from a validator `detail` or from the payload dump — one `TEXT` column
+holds both. It is derived now, by rebuilding the deterministic fallback and comparing, which
+is exact for rows written before the distinction existed; a backfilled column could only have
+guessed, and the wrong guess is the unsafe one.
+
+**The computed digest took a new row marker and all four shipped prompts moved with it**
+(D-2). TA, SA, AA and DA all state the em-dash rule verbatim, and it becomes false for the
+example's four types the moment they adopt `filled_count_coverage`. The em dash keeps its
+meaning; a computed digest follows `::`. The security gate then found the note had to say
+**which** marker counts: a participant whose quotable answer reaches the row can write `::`
+into it, so the rule is "one marker per row, the first one on the line", mirroring the clause
+the participant-text note already carried.
+
+**The quality gate found the layering, not the linter.** `submission_repo` was importing an
+application module, and `attempt_summary_rows` was handing raw SQLAlchemy `Row`s to the
+application layer. `lint-imports` passes on both: its contracts enforce domain purity, not the
+application/infrastructure direction. `agent_digest` and `subject_code` now live in `domain/`,
+which is where two pure rules both layers need belong anyway.
+
+**AC-15 is deliberately unticked and §17 of the dossier says exactly what was not run.** The
+`db` tier's 10 tests, `alembic upgrade head`, and `check:openapi-drift` all need a Docker
+daemon this host does not have; the drift check's two steps were run by hand and their outputs
+committed, which is not the same as the gate going green. The browser pass was not performed.
 Removed on 2026-08-24 after implementation:
 `2026-08-24-traceability-extraction-gate` (`docs/traceability.csv` is generated by
 `scripts/traceability.py`, `repo-gates` rejects a commit where it disagrees with

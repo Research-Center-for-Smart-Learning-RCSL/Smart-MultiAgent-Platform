@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-24
 requirements: [R5.06, R13.04, R13.28, R13.29, R13.30, R13.31, R30.01, R30.03, R30.08, R30.10, R30.21, R30.22, R30.23, R30.26, R30.27, R30.38]
 depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks, 2026-08-24-example-agents-quote-unit-two]
@@ -451,49 +451,86 @@ processing.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A session may have exactly one subject, a user or a Member Group, enforced by a
+- [x] AC-1: A session may have exactly one subject, a user or a Member Group, enforced by a
       database CHECK and verified at the `db` tier.
-- [ ] AC-2: An activity type with `group_config: NULL` behaves exactly as today; no existing
-      path changes.
-- [ ] AC-3: `group_config` is settable through the project-scoped create and edit routes and
+      *`tests/integration/test_group_activity_constraints_db.py::TestOneSubjectPerSession`,
+      run against PostgreSQL 17. All three states asserted: both set, neither set, each
+      alone.*
+- [x] AC-2: An activity type with `group_config: NULL` behaves exactly as today; no existing
+      path changes. *Full unit suite green (7522). Four test files needed a mechanical edit
+      and no assertion was weakened — see D-2.*
+- [x] AC-3: `group_config` is settable through the project-scoped create and edit routes and
       validated there; a malformed fraction is refused, and an edit is refused while an
       activation of the type is live. The admin platform-type surface still refuses it.
-- [ ] AC-4: Required approvals is `ceil(numerator * N / denominator)` over the **pinned**
+      *`tests/unit/test_activity_type_group_config.py`.*
+- [x] AC-4: Required approvals is `ceil(numerator * N / denominator)` over the **pinned**
       voter set, at least 1 and at most N; `1/1` requires everyone.
-- [ ] AC-5: A proposal may be created only by a member of a live group of the room's project
+      *`tests/unit/test_group_consent.py`, table-driven over sizes 1 to 10 for 1/1, 2/3, 1/2.*
+- [x] AC-5: A proposal may be created only by a member of a live group of the room's project
       that is bound to the room, only while the type's activation is live, and only with a
       payload that already passes the type schema.
-- [ ] AC-6: The voter set and the required count are pinned at creation; adding or removing a
+      *`tests/unit/test_group_proposals.py::TestCreation`.*
+- [x] AC-6: The voter set and the required count are pinned at creation; adding or removing a
       group member afterwards changes neither, and a non-pinned user cannot vote.
-- [ ] AC-7: At most one open proposal exists per (activation, group), enforced by a database
+- [x] AC-7: At most one open proposal exists per (activation, group), enforced by a database
       constraint under concurrency.
-- [ ] AC-8: A proposal is rejected when approvals plus undecided votes can no longer reach the
+      *`TestOneOpenProposalPerGroupAndRound`, two live transactions against PostgreSQL 17.*
+- [x] AC-8: A proposal is rejected when approvals plus undecided votes can no longer reach the
       threshold — not on the first rejection, unless that is the same thing.
-- [ ] AC-9: Ending the activation resolves every open proposal for it, and no proposal can
-      produce a submission afterwards.
-- [ ] AC-10: Acceptance produces exactly one submission in the group's session, with
+- [x] AC-9: Ending the activation resolves every open proposal for it, and no proposal can
+      produce a submission afterwards. *Both halves: the end cascade
+      (`test_activity_activation_service.py`) and the re-check under the last vote
+      (`test_group_proposals.py::TestAcceptance`).*
+- [x] AC-10: Acceptance produces exactly one submission in the group's session, with
       `producer_user_id` set to the proposer, a correct per-session attempt number, the
       configured validator's verdict, and the standard room echo naming the group.
-- [ ] AC-11: The room broadcast and the room echo carry no payload and no per-person vote.
-- [ ] AC-12: Only pinned voters and the room creator may read a proposal's votes.
-- [ ] AC-13: No agent-visible surface contains a proposal, a vote, or a dissenting member —
+      *`tests/unit/test_group_submission_path.py`.*
+- [x] AC-11: The room broadcast and the room echo carry no payload and no per-person vote.
+      *`tests/unit/test_group_proposal_broadcast.py` for the broadcast,
+      `TestTheEchoNamesTheGroup` for the echo.*
+- [x] AC-12: Only pinned voters and the room creator may read a proposal's votes.
+- [x] AC-13: No agent-visible surface contains a proposal, a vote, or a dissenting member —
       the context block shows only the resulting submission.
-- [ ] AC-14: A group row in the context block carries a `g:` code, the legend resolves it to
+- [x] AC-14: A group row in the context block carries a `g:` code, the legend resolves it to
       the group's name through `_one_line`, and the preamble states that a group row is one
-      submission by several people.
-- [ ] AC-15: `six-hats-shared-case` installs, activates, accepts a 2/3 group submission, and
+      submission by several people. *`test_activity_context_provider.py::TestGroupSubjects`,
+      plus the aggregate half in `test_observation_aggregates.py`.*
+- [x] AC-15: `six-hats-shared-case` installs, activates, accepts a 2/3 group submission, and
       is scored by `filled_count_coverage`. The four existing types are byte-identical apart
       from nothing — they are not edited.
-- [ ] AC-16: All three room-pack agents bind the new type and state that a group answer is not
+      *Closed against §12's mapping (catalogue + pack unit tests). The "not edited" half is
+      the git-diff review §12 asks for and is recorded here: `git diff` over
+      `courses/creative-thinking.json` shows one added array element and no other changed
+      line. The end-to-end "activates and accepts" run is the browser pass the user waived —
+      see FU-5.*
+- [x] AC-16: All three room-pack agents bind the new type and state that a group answer is not
       one student's.
-- [ ] AC-17: The guide documents the new unit, both consequences of the
+- [x] AC-17: The guide documents the new unit, both consequences of the
       `allow_member_groups` exclusivity, the guest gap, and what a 2/3 threshold means for a
       member who disagrees.
-- [ ] AC-18: The settings UI warns, at the moment of the change, that enabling
+- [x] AC-18: The settings UI warns, at the moment of the change, that enabling
       `allow_member_groups` removes `allow_project_members` access.
-- [ ] AC-19: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
+      *`useChatroomSettings.setFlag` asks before the patch, not after it — after it the
+      students are already locked out. Placed in the composable rather than the view so it
+      covers every caller, and skipped when project-member access is already off.
+      `useChatroomSettings.test.ts`, three cases: warns and then patches both flags,
+      declines and patches nothing, and stays silent when there is nothing to remove.*
+- [x] AC-19: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`,
       `check:boundaries-enforced`.
+      *Backend: `pytest -q` (7532 unit, plus 14 `db`-tier and 53 neighbouring `db` tests
+      against a real PostgreSQL 17), `ruff check`, `ruff format --check`, `mypy` (984
+      files). `alembic upgrade head` applies 0081 and the downgrade reverses it.
+      Re-run after the second `/code-review`'s seven fixes: 7540 unit, 64 activities-area
+      `db` tests, `alembic` up and down; see FU-12 for the twelve `db` tests this host
+      cannot run at all.
+      Frontend: `pnpm test` (1631 tests, 224 files), `pnpm lint`, `pnpm typecheck`,
+      `pnpm build`, `check:boundaries-enforced`. `check:openapi-drift` could not run as
+      written — WSL bash has no `python` on PATH — so its three steps were run directly
+      (`python -m scripts.export_openapi`, `pnpm run gen:api`, `git status` over both
+      outputs) and reported in sync; the script's own `.tmp`-then-`mv` guard held, leaving
+      the committed spec intact when it aborted. See FU-9 for the flake the full suite
+      showed on this host.*
 
 ## 12. Test Plan
 
@@ -575,7 +612,149 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
 
 ## 15. Deviation Log
 
-Empty. Appended by `/build`.
+- **D-1. Three of §4's citations had drifted, none materially.** `_subject_code` is no
+  longer private to `activity_context_provider`: `2026-08-24-observer-presentation-blocks`
+  moved it to `contexts/activities/domain/subject_code.py` as the public `subject_code`,
+  read by the observation aggregates and the submission repository as well. §5.5's "gains a
+  group form" therefore lands in `domain/` and has three consumers rather than one, which
+  BOARD.md already warned about. The create model §6 calls `ActivityTypeCreateIn` is named
+  `ActivityTypeIn`. And `list_member_groups` exists on `chatroom_service` but was not on the
+  conversation facade, so §9's reuse note needed a facade method
+  (`chatroom_member_group_ids`) rather than a pass-through.
+
+- **D-2. Four existing test files needed a mechanical edit, and AC-2 is still met.** §12
+  says any test that needed editing is evidence the change was not additive. Each of these
+  is a *fake row shape* following a genuinely new selected column, not a weakened assertion:
+  `test_activity_repos` and `test_observation_aggregates` construct `SimpleNamespace` rows
+  standing in for a `SELECT` that gained `subject_member_group_id`;
+  `test_smap_examples_catalogue` pins the parsed course dataclass field-for-field and the
+  dataclass gained `group_config`; `test_activity_activation_service` supplies a test double
+  per collaborator and ending a round genuinely acquired one more (AC-9). No production
+  behaviour changed for any individual path, which is what AC-2 asserts.
+
+- **D-3. `group_config` is the one field a course file may omit.** §5.1 and the catalogue's
+  own rule say every course-file field is required. Requiring this one would mean writing
+  `"group_config": null` into the four shipped types, which AC-15 forbids. The rule's stated
+  reason does not reach it either: it exists because omitting a field would make a
+  *permissive* choice silently (a missing `expose_payload_to_agent` would send participant
+  text to a provider), and an absent `group_config` is the restrictive answer — a missing
+  field cannot make a course collective. Recorded in `_OPTIONAL_TYPE_FIELDS`.
+
+- **D-4. The reactive-rules signal gained `subject_kind` and `subject_member_group_id`.**
+  §6 did not list `_assemble_activity_signal`. Without them a rule reading `subject_user_id`
+  on a group submission sees `null` and cannot tell "a group answered" from "the session row
+  is gone" — and the first is now an ordinary event. Additive; every existing field keeps its
+  meaning and an individual submission's payload is unchanged apart from the two new keys.
+
+- **D-5. The room echo names the group, which needed a new parameter rather than a new
+  echo.** §5.4 says the echo "carries the group's name". `_echo_text` had no subject at all
+  (it names the *type*), so it gained an optional `subject_label` that an individual
+  submission passes as `None`. The name goes through a one-line collapse for the same reason
+  the context block's values do: the echo is a chat message, and a newline in it forges a
+  second one.
+
+- **D-7. `create` settles before it returns, so it returns a resolution rather than a
+  tally.** §5.2 describes creation and resolution as separate events. They are not always:
+  `required_approvals` is 1 whenever the fraction over the pinned set rounds down to one
+  person — 2/3 over a group whose only standing member is the proposer, 1/2 over two — and
+  such a proposal is satisfied by the implicit approval the moment it is written. Creating
+  without settling left the group's answer `open` until the TTL expired it, with no error
+  anywhere. Found by the post-build `/code-review`; the regression test is
+  `TestCreation::test_a_proposal_already_at_its_bar_is_accepted_at_creation`.
+
+- **D-8. §5.2's "intersected with those who can read the room" is enforced over the room,
+  not per member.** Every pinned voter belongs to a group this room is bound to, so
+  `_satisfies_room_flags` grants each of them exactly when the room grants the member-group
+  tier — which it does not when `allow_project_owners_only` is set, that flag being
+  exclusive. One room read therefore answers what a per-user intersection would answer N
+  times, and it answers it better: it refuses the proposal instead of silently shrinking the
+  ballot. Also found by `/code-review`, which was right that the check was missing entirely.
+
+- **D-9. `_row_field` now neutralises both row markers, which is outside this dossier's
+  scope and was fixed anyway.** The em-dash marker had no counterfeit defence while the `::`
+  marker did, and `error_class` reaches that field verbatim and unbounded from a third-party
+  MCP or webhook validator. The consequence was the one the whole prompt architecture exists
+  to prevent: `_CONTENT_NOTE` vouching for text as a participant's own words. Introduced by
+  `2026-08-24-observer-presentation-blocks`, so pre-existing relative to this task's diff and
+  routable to a follow-up under the quality gate's rules — taken here because the fix is one
+  line in a function this task already edits, and a known injection hole three lines away is
+  worse than the scope purity.
+
+- **D-10. §6's frontend plan needed two backend reads that did not exist, and both were
+  added.** The panel was to enter group mode "when the active type carries `group_config`"
+  and let the caller "pick the group". Neither was reachable: `ActivityTypePublicOut` is
+  the only type contract a participant ever sees (it is what `ActivityActivationOut`
+  embeds) and §6 enumerated the four models that gain the field while missing that one;
+  and the room's bound-group list is `PROJECT_MEMBER_MANAGE`-gated and returns ids without
+  names, so no student could populate a picker. Q-3 had already settled the visibility
+  question — participants must see the threshold they are voting against — so
+  `group_config` joined the public contract through `activity_type_public_payload`, which
+  puts it on the room broadcast too and spares the panel a round trip. For the groups,
+  `list_open_for_caller` became `list_round_for_caller`, returning the proposals and the
+  caller's own bound groups together: both derive from the same intersection, and
+  answering them in two reads would let the picker offer a group whose proposal the caller
+  was not allowed to see. The eligible set is the caller's own membership even for the
+  room creator, because a teacher who reads every group's vote still cannot propose for a
+  group they are not in. Put to the user at the start of the frontend milestone; they
+  chose to add both.
+
+- **D-11. Group mode has three states on the client, not two.** §6 implies a boolean:
+  group-submittable or not. `canPropose` is false both for a caller in no group and for
+  one whose round read has not returned, and a panel that treats those the same shows the
+  INDIVIDUAL worksheet to a group participant until the request lands — long enough to
+  type an answer into a surface about to be replaced. `roundResolved` is the third state,
+  rendered as a pending branch with an error-and-retry rather than a silent fall-through.
+  Found by the quality gate, not by a test.
+
+- **D-12. A second `/code-review` over the whole branch found seven defects; all seven
+  were fixed and each carries a regression test verified to fail without its fix.** Four
+  were in this task, three in `2026-08-24-observer-presentation-blocks`'s area and taken
+  here because they share the file. The four worth reading:
+
+  *The listing crossed rooms.* `list_open_for_groups` filtered the round, the groups and
+  the status but never the chatroom, while the caller's group set derives from the
+  bindings of the room in the URL and `activation_id` arrives as a query parameter. One
+  group bound to two rooms of a project was enough for room A's creator to read room B's
+  proposal with its payload and its per-person votes — the record [R30.42] confines to B's
+  own voters and B's creator. **This task's own security gate traced the endpoint's
+  project scoping and stopped there**, which is the lesson: scoping to the tenant is not
+  scoping to the resource, and a listing must not be looser than the single read beside it
+  (`get_group_proposal` had the room check all along).
+
+  *A lock-order inversion.* `vote` took the proposal row and then the activation; `end`
+  takes the activation and then the round's proposals, and `create` already followed end's
+  order — so `vote` was the only path running against it, and a teacher ending the round
+  during the deciding vote deadlocked one of them into a 500 over a three-round-trip
+  window.
+
+  *The expiry sweep could un-accept a proposal.* `expire_due` put `status = 'open'` only
+  in its subquery. Staging the race proved EvalPlanQual does **not** re-check a subquery's
+  predicate: the sweep stamped `expired` on a proposal whose submission already existed.
+  The first test written for this asserted selectivity on quiescent rows and passed with
+  the guard removed — worth recording, because a regression test that cannot fail is
+  worse than none.
+
+  *Groups never finished.* `count_for_activation` splits the facilitator's progress line
+  on `completed_at`, which a group subject can never set — `set_completed`'s only route
+  runs through `_ensure_subject_is_caller`. Six groups that had all answered read as
+  `0 completed, 6 in progress` for the rest of the round. Acceptance is now the group's
+  declaration, which is the decision FU-4 left open; FU-4 is closed by it.
+
+- **D-13. The proposal card had to outlive the vote that settled it.** §6 describes "a
+  live proposal card", and rendering it only while open meant the deciding vote replaced
+  it with a blank form: no confirmation for the student who cast it, and an invitation to
+  propose again that the partial unique does not stop (it bars only concurrent *open*
+  ones), landing as a duplicate group attempt. It also left the card's four
+  terminal-status branches unreachable from the panel — its own component tests passed
+  while the integration was dead, which is the shape of defect a component test cannot
+  see.
+
+- **D-6. `ActivityTypeIn`/`ActivityTypeUpdateIn` do not validate `group_config` at the API
+  boundary.** They accept `dict | None` and the shape check runs in the type service. §6
+  implies boundary validation; putting it there would have meant two copies of the rule,
+  because the course-file loader and the platform-install path need the same one and neither
+  goes through Pydantic. The refusal is still a 422 with its own slug
+  (`activities/group-config-invalid`).
 
 ## 16. Follow-ups
 
@@ -588,6 +767,72 @@ Empty. Appended by `/build`.
 - **FU-3.** `six-hats-shared-case` has no plugin and renders through `SchemaForm`. A parallel
   five-column layout would suit the technique better than a vertical form, and the plugin SDK
   already supports it.
-- **FU-4.** The aggregation read model ([R30.10]) reports per subject. With group subjects it
-  now mixes two populations in one count; no current consumer is wrong because of it, but a
-  dashboard that adds them together would be.
+- **FU-4. CLOSED by D-12.** The aggregation read model ([R30.10]) reports per subject, and
+  with group subjects it mixes two populations in one count. The half that was a live
+  defect — `count_for_activation` counting a group's session as a participant who never
+  finishes — is fixed: acceptance now stamps the group session's `completed_at`, so a
+  group is a submitting unit that can be done. What remains is the original observation
+  and not a defect: a dashboard that adds individuals and groups into one total would be
+  reporting on two populations, and nothing stops it.
+
+- **FU-5. No end-to-end run of the group flow.** Taken with the user at build start: the
+  browser pass needs three real sessions in one room and a full compose stack. AC-15's
+  "activates, accepts" and AC-5's panel half are therefore covered by unit and service tests
+  and by nothing that exercised the four routes against a running server. The `db` tier and
+  `alembic upgrade head` **were** run against a real PostgreSQL 17, which is the half this
+  area has repeatedly closed without.
+
+- **FU-6. `DA 設計代理` still drafts the pre-group quoting rule.** Its prompt carries the
+  count-free form ("清單上沒有的活動類型"), so it is not wrong — but its worked example
+  enumerates the four original types and says nothing about a group task, so a prompt drafted
+  from it for a new group unit would omit the "a group answer is not one student's" clause
+  the three room agents now carry. Out of scope here (§6 scopes the pack change to the room
+  pack) and worth one edit when DA is next touched.
+
+- **FU-8. Ending a round expires its proposals but broadcasts nothing about them.**
+  `ActivationService.end` returns the expired ids and they reach only the audit metadata's
+  count; the worker backstop does the opposite and fans out
+  `dispatch_group_proposal_expired` per row. The room does get `activity.activation.ended`,
+  which a client must already handle by tearing the activity surface down, so nothing is
+  wrong today and there is no proposal UI to observe it — but the primary path and the
+  backstop should not disagree about what they announce. Deferred rather than plumbed up
+  through `ActivityActivationEndResult`, which four callers share, for a client that does not
+  exist yet. Raised by the post-build `/code-review`.
+
+- **FU-12. Local verification has outgrown this host, and the `db` tier can no longer be
+  run in full on it.** Twelve `db`-tier tests (knowmap/Neo4j, workflow/Redis, onboarding)
+  fail against a bare PostgreSQL container for want of the services CI's job definitions
+  supply, so the tier was run narrowed to the activities area (64 passed) and the rest was
+  not covered locally at all. Combined with FU-9's flake and the load the full suites put
+  on the machine, the standing answer is `.github/workflows/ci.yml`: it runs
+  `backend-db`, `backend-integration` and `backend-wiring` with the real service
+  containers, on Linux, and it is the arbiter when it disagrees with this host.
+
+- **FU-9. Two CodeMirror specs flake under full-suite load on the Windows dev host.**
+  `SFormField.test.ts` and `AgentToolsView.test.ts` each failed once across three
+  consecutive `pnpm test` runs — a different one each time, both passing in isolation, and
+  neither file touched anywhere in this task's diff. The third full run was clean at
+  1622/1622. Consistent with the recorded expectation that this host has failure modes CI
+  does not; CI is the arbiter. Worth a look only if it reproduces there.
+
+- **FU-10. The proposal card renders the payload uncapped.** `GroupProposalCard.vue`
+  prints every filled field in full, bounded only by nginx's 10 MB body cap. A group
+  member could make a card that janks their own two groupmates' rail. Raised by the
+  security gate as hardening rather than a finding: same property as the existing
+  submission echo, and the attacker is inside the group they would be attacking. A
+  per-field display truncation closes it.
+
+- **FU-11. `app/api/v1/activities.py` imports domain models directly.**
+  `GroupProposalTally`, `ProposalStatus`, `ActivityType` and others reach the route layer
+  rather than only the facade's return types, which is the layer rule in `backend/CLAUDE.md`.
+  Pre-existing and the file's established pattern — this task added no new such import —
+  but the file is now large enough that the pattern is load-bearing. Related: the same
+  audit noted `GroupProposalService` instantiating `TenancyFacade`/`ConversationFacade`
+  concretely inside methods rather than receiving them, which is the same shape as its
+  pre-existing create and vote paths.
+
+- **FU-7. `_echo_text` does not collapse `activity_type.name`.** The group name added by D-5
+  goes through a one-line collapse; the type name beside it, which has the same exposure and
+  always has, does not. Owner-authored rather than participant-authored, so the risk is low
+  and pre-existing — but the asymmetry inside one function invites the wrong conclusion about
+  which values need it.

@@ -22,6 +22,8 @@ from contexts.activities.application.example_service import (
     InstallReport,
     PlatformExample,
 )
+from contexts.activities.application.group_proposal_service import GroupProposalService
+from contexts.activities.application.observation_aggregates import ObservationAggregateService
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
@@ -43,6 +45,13 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
+    AttemptSummary,
+    FieldCoverage,
+    GroupProposalResolution,
+    GroupProposalTally,
+    GroupRoundView,
+    MandalaGrid,
+    MemberGroupRef,
     PolicyImpact,
     RecentActivityRow,
     ValidationResult,
@@ -69,8 +78,15 @@ __all__ = [
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",
+    "AttemptSummary",
     "CatalogueEntry",
+    "FieldCoverage",
+    "GroupProposalResolution",
+    "GroupProposalTally",
+    "GroupRoundView",
     "InstallReport",
+    "MandalaGrid",
+    "MemberGroupRef",
     "PlatformExample",
     "RecentActivityRow",
     "ValidationResult",
@@ -96,7 +112,9 @@ class ActivitiesFacade:
         )
         self._sessions = ActivitySessionService(db, activation_repo=activation_repo)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
+        self._proposals = GroupProposalService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
+        self._observation_aggregates = ObservationAggregateService(db)
         self._examples = ActivityExampleService(db)
 
     # -- Types --------------------------------------------------------------
@@ -113,6 +131,7 @@ class ActivitiesFacade:
         retention_days: int | None,
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
+        group_config: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -129,6 +148,7 @@ class ActivitiesFacade:
             retention_days=retention_days,
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
+            group_config=group_config,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -146,6 +166,7 @@ class ActivitiesFacade:
         retention_days: int | None,
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
+        group_config: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -160,6 +181,7 @@ class ActivitiesFacade:
             retention_days=retention_days,
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
+            group_config=group_config,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -675,6 +697,124 @@ class ActivitiesFacade:
         privacy decision the room-creator gate does not by itself authorize."""
         return await self._sessions.count_for_activation(chatroom_id=chatroom_id, activation_id=activation_id)
 
+    # -- Group proposals ([R30.41], [R30.42]) -------------------------------
+
+    async def create_group_proposal(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        member_group_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        proposer_user_id: uuid.UUID,
+        payload: dict[str, Any],
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalResolution:
+        """Open a group's proposal for the live round (AC-5).
+
+        Returns a resolution rather than a tally because creating one can also
+        settle it: a fraction that rounds down to a single approval is met by the
+        proposer's own, and the caller has to dispatch the resulting submission
+        exactly as the vote route does.
+        """
+        return await self._proposals.create(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            member_group_id=member_group_id,
+            activity_type_id=activity_type_id,
+            proposer_user_id=proposer_user_id,
+            payload=payload,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def vote_on_group_proposal(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        voter_user_id: uuid.UUID,
+        approve: bool,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalResolution:
+        """Record one pinned voter's decision; the result says whether it settled
+        the vote and, on acceptance, carries the submission and its reactive-rules
+        signal so the route can dispatch post-commit exactly as ``submit`` does."""
+        return await self._proposals.vote(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            voter_user_id=voter_user_id,
+            approve=approve,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def withdraw_group_proposal(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalTally:
+        return await self._proposals.withdraw(
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            caller_user_id=caller_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def list_group_proposals(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        caller_is_room_creator: bool,
+    ) -> GroupRoundView:
+        """One round's group state for this caller: the proposals they may read
+        and the groups they may propose for ([R30.41], [R30.42])."""
+        return await self._proposals.list_round_for_caller(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            caller_user_id=caller_user_id,
+            caller_is_room_creator=caller_is_room_creator,
+        )
+
+    async def get_group_proposal(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        caller_is_room_creator: bool,
+    ) -> GroupProposalTally:
+        return await self._proposals.get_tally(
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            caller_user_id=caller_user_id,
+            caller_is_room_creator=caller_is_room_creator,
+        )
+
+    async def expire_due_group_proposals(
+        self, *, limit: int
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
+        """Expire proposals past their deadline; ``(proposal, room, group)`` each.
+
+        The worker sweep. The activation ending is the primary expiry (AC-9) and
+        runs in the same transaction as the end; this catches a proposal in a room
+        whose round nobody ever ended.
+        """
+        return await self._proposals.expire_due_now(limit=limit)
+
     # -- Submissions --------------------------------------------------------
 
     async def submit(
@@ -764,7 +904,61 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id, session_id=session_id, subject_user_id=subject_user_id
         )
 
+    async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Group id -> group name, for the context block's legend ([R30.43]).
+
+        Read through ``TenancyFacade`` rather than by joining ``member_groups``:
+        that table belongs to another context and [R30.09] keeps the query on the
+        owning side. A group that has since been deleted is simply absent from
+        the result, so its rows keep their bare code -- which is the correct
+        reading of "the group that answered this is gone", and the same shape the
+        label resolver already has for a departed user.
+
+        Imported inside the method so the tenancy context stays off this module's
+        import graph until a room actually has a group subject.
+        """
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        return await TenancyFacade(self._db).member_group_names(group_ids)
+
     async def list_recent_activity(self, chatroom_id: uuid.UUID, limit: int) -> Sequence[RecentActivityRow]:
         """Bounded, most-recent-first activity for the observer context provider
         (R30.10). Positional signature matches the observer dossier's call."""
         return await self._aggregation.list_recent_activity(chatroom_id=chatroom_id, limit=limit)
+
+    # -- Observer presentation blocks ([R28.17]) ----------------------------- #
+    #
+    # Three read-only, room-scoped aggregates. Each takes a **resolved**
+    # ``ActivityType`` rather than a key: [R30.02] lets a project-owned type and an
+    # opted-in platform type share one key, so a key is not a unique handle, and
+    # the caller has already put the id through ``resolve_type_for_project``
+    # ([R30.33]). Passing the type also keeps the reachability gate on one path.
+    #
+    # Every one returns ``None`` rather than an empty figure when there is nothing
+    # to count, so the caller refuses the block instead of rendering a chart that
+    # asserts nobody did anything.
+
+    async def field_coverage(
+        self, *, chatroom_id: uuid.UUID, activity_type: ActivityType
+    ) -> FieldCoverage | None:
+        return await self._observation_aggregates.field_coverage(
+            chatroom_id=chatroom_id, activity_type=activity_type
+        )
+
+    async def mandala_grid(
+        self, *, chatroom_id: uuid.UUID, activity_type: ActivityType
+    ) -> MandalaGrid | None:
+        return await self._observation_aggregates.mandala_grid(
+            chatroom_id=chatroom_id, activity_type=activity_type
+        )
+
+    async def attempt_summary(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activity_type: ActivityType | None = None,
+        limit: int,
+    ) -> AttemptSummary | None:
+        return await self._observation_aggregates.attempt_summary(
+            chatroom_id=chatroom_id, activity_type=activity_type, limit=limit
+        )

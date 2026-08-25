@@ -5,6 +5,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { deferred, renderView } from '../../../../tests/utils'
+import { useConfirmDialog } from '@shared/composables'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import type { Chatroom } from '../types'
 
@@ -269,6 +270,89 @@ describe('useChatroomSettings.setFlag', () => {
     expect(await setUpGroupTierOff({ allow_project_owners_only: true })).toEqual({
       allow_member_groups: false,
     })
+  })
+
+  // AC-18. Enabling the group tier is not a submission setting, it is a change
+  // to who can enter the room: R13.04 makes the pair exclusive, so every project
+  // member in no bound group loses access the moment this lands — guests
+  // permanently, since they cannot belong to a group at all (OQ-1). The server
+  // refusal it mirrors is `chatroom_service.py::_assert_flag_exclusivity`.
+  async function enableGroupTier(
+    room: Partial<Chatroom> = {},
+  ): Promise<{
+    body: Record<string, unknown> | null
+    dialog: ReturnType<typeof useConfirmDialog>
+    start: () => Promise<void>
+    flags: () => Record<string, boolean>
+  }> {
+    const captured: { body: Record<string, unknown> | null } = { body: null }
+    server.use(
+      http.get('/api/chatrooms/:id', () =>
+        HttpResponse.json(makeChatroom({ allow_project_members: true, ...room })),
+      ),
+      http.patch('/api/chatrooms/:id', async ({ request }) => {
+        captured.body = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(
+          makeChatroom({ allow_project_members: false, allow_member_groups: true, version: 2 }),
+        )
+      }),
+    )
+    const wrapper = await renderView(Host, { props: { chatroomId: 'cr_1' } })
+    await wrapper.vm.loadRoom()
+    return {
+      get body() {
+        return captured.body
+      },
+      dialog: useConfirmDialog(),
+      start: () => wrapper.vm.setFlag('allow_member_groups', true),
+      flags: () => wrapper.vm.flags as Record<string, boolean>,
+    }
+  }
+
+  it('warns before switching the room to group access, not after', async () => {
+    const ctx = await enableGroupTier()
+
+    const pending = ctx.start()
+    await flushPromises()
+
+    // Asked BEFORE the patch: after it, the students are already locked out.
+    expect(ctx.dialog.state.open).toBe(true)
+    expect(ctx.dialog.state.message).toBe(
+      'conversation.settings.memberGroupsExclusiveWarning',
+    )
+    expect(ctx.body).toBeNull()
+
+    ctx.dialog.handleConfirm()
+    await pending
+    await flushPromises()
+
+    expect(ctx.body).toEqual({ allow_member_groups: true, allow_project_members: false })
+  })
+
+  it('changes nothing when the warning is declined', async () => {
+    const ctx = await enableGroupTier()
+
+    const pending = ctx.start()
+    await flushPromises()
+    ctx.dialog.handleCancel()
+    await pending
+    await flushPromises()
+
+    expect(ctx.body).toBeNull()
+    expect(ctx.flags().allow_member_groups).toBe(false)
+    expect(ctx.flags().allow_project_members).toBe(true)
+  })
+
+  it('does not warn when there is no project-member access to remove', async () => {
+    // An org-wide or owners-only room loses nothing here, and a warning about a
+    // tier that is already off is the kind of prompt people learn to click past.
+    const ctx = await enableGroupTier({ allow_project_members: false, allow_org_members: true })
+
+    await ctx.start()
+    await flushPromises()
+
+    expect(ctx.dialog.state.open).toBe(false)
+    expect(ctx.body).toEqual({ allow_member_groups: true, allow_project_members: false })
   })
 
   it('does not count a guest link as a member tier', async () => {

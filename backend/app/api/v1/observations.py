@@ -79,6 +79,10 @@ class ObservationOut(BaseModel):
     agent_id: uuid.UUID
     content_md: str
     metadata: dict[str, Any]
+    # [R28.15]. A typed column rather than another `metadata` key: the client
+    # switches on `kind` to pick a renderer, and an unknown kind must survive a
+    # frontend rollback, so the shape is part of the contract.
+    blocks: list[dict[str, Any]]
     trigger: str
     trigger_message_id: uuid.UUID | None
     released_at: str | None
@@ -94,6 +98,7 @@ def _to_out(o: AgentObservation) -> ObservationOut:
         agent_id=o.agent_id,
         content_md=o.content_md,
         metadata=o.metadata,
+        blocks=o.blocks,
         trigger=o.trigger,
         trigger_message_id=o.trigger_message_id,
         released_at=o.released_at.isoformat() if o.released_at else None,

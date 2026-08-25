@@ -6,6 +6,7 @@ import type { ValidatorKind } from './ValidatorKind';
 export type ActivityTypeIn = {
     echo_includes_content?: boolean;
     expose_payload_to_agent?: boolean;
+    group_config?: (Record<string, any> | null);
     key: string;
     name: string;
     payload_schema: Record<string, any>;

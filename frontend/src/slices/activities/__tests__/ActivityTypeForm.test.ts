@@ -443,6 +443,36 @@ describe('ActivityTypeForm', () => {
     expect(wrapper.find('[data-testid="type-exact-match-field"]').exists()).toBe(false)
   })
 
+  it('offers the same min_filled sub-form for filled_count_coverage', async () => {
+    // The two share one config contract on the backend, so a picker entry whose
+    // config the form cannot produce would 422 on every save.
+    listValidatorsMock.mockResolvedValue([
+      { id: 'filled_count', title: 'Filled count' },
+      { id: 'filled_count_coverage', title: 'Filled count with field coverage' },
+    ])
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-validator"]').setValue('in_process')
+    await wrapper.find('[data-testid="type-in-process-validator"]').setValue('filled_count_coverage')
+    expect(wrapper.find('[data-testid="type-filled-count-min"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="type-key"]').setValue('coverage-type')
+    await wrapper.find('[data-testid="type-name"]').setValue('Coverage')
+    await wrapper.find('[data-testid="schema-field-name"]').setValue('idea')
+    await wrapper.find('[data-testid="type-filled-count-min"]').setValue('1')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        validator_config: { validator_id: 'filled_count_coverage', min_filled: 1 },
+      }),
+    )
+  })
+
   it('swaps the sub-form between webhook and mcp (AC-3, AC-4)', async () => {
     const wrapper = await mountForm()
     expect(wrapper.find('[data-testid="type-webhook-url"]').exists()).toBe(true)
@@ -595,6 +625,40 @@ describe('ActivityTypeForm', () => {
     expect(registerMock).not.toHaveBeenCalled()
     await flushPromises()
     expect(wrapper.emitted('updated')).toBeTruthy()
+  })
+
+  it('round-trips group_config on an edit rather than clearing it', async () => {
+    // The PATCH body is a FULL editable representation, so a field this form
+    // does not resubmit is a field it clears. This form has no group-consent
+    // control, so renaming a group-submittable type would otherwise turn it
+    // individual-only -- and, because the consent fraction is a behavioural
+    // field, bump its version and be refused outright while a round is live.
+    updateMock.mockResolvedValue({ id: 't1' })
+    const consent = { consent: { numerator: 2, denominator: 3 } }
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: { ...EDIT_TYPE, group_config: consent } },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Shared case v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2]).toMatchObject({ group_config: consent })
+  })
+
+  it('sends a null group_config for a type that never had one', async () => {
+    updateMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Quiz v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2].group_config).toBeNull()
   })
 })
 

@@ -45,6 +45,39 @@ class ValidationStatus(str, enum.Enum):
     ERROR = "error"
 
 
+class SubjectKind(str, enum.Enum):
+    """What kind of thing an :class:`ActivitySession` belongs to ([R30.39]).
+
+    Not a column: it is derived from which of the two subject fields is set, and
+    the database CHECK (0081) guarantees exactly one of them is. Deriving rather
+    than storing means the two can never disagree.
+    """
+
+    USER = "user"
+    MEMBER_GROUP = "member_group"
+
+
+class ProposalStatus(str, enum.Enum):
+    """A group proposal's lifecycle ([R30.41]).
+
+    ``OPEN`` is the only non-terminal value; once a proposal leaves it, it can
+    never produce a submission. ``REJECTED`` means the threshold became
+    unreachable, which is not the same as "somebody voted no" unless the
+    configured fraction makes it so (``domain/group_consent.py``).
+    """
+
+    OPEN = "open"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
+    EXPIRED = "expired"
+
+
+class VoteChoice(str, enum.Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
 class ActivityTypeScope(str, enum.Enum):
     """Who owns an ``ActivityType`` ([R30.02]).
 
@@ -90,6 +123,12 @@ class ActivityType:
     # Defaulted rather than positional so the ~150 existing construction sites
     # (tests included) keep describing the case they always described.
     scope: ActivityTypeScope = ActivityTypeScope.PROJECT
+    # The consent fraction this type requires of a group ([R30.40]); ``None``
+    # means individual-only, which is every type that predates 0081. Shape and
+    # arithmetic live in ``domain/group_consent.py`` -- deliberately NOT in
+    # ``validator_config``, which is owner-confidential ([R30.25]) while the
+    # people voting must be able to see the bar they are voting against.
+    group_config: dict[str, Any] | None = None
 
     def is_visible_to(self, project_id: uuid.UUID, *, opted_in: bool) -> bool:
         """Whether this type may be used from ``project_id`` ([R30.09], [R30.33]).
@@ -172,10 +211,21 @@ PERMISSIVE_POLICY = ActivityPolicy(
 
 @dataclass(frozen=True, slots=True)
 class ActivitySession:
+    """A subject's run of a type in one round; the subject is a user or a group.
+
+    ``subject_user_id`` and ``subject_member_group_id`` are polymorphic and
+    mutually exclusive ([R30.39]): exactly one is set, enforced by the database
+    CHECK ``ck_activity_sessions_one_subject`` (0081) rather than by convention
+    here. Read the pair through :attr:`subject_kind`, which cannot be made to
+    disagree with them.
+    """
+
     id: uuid.UUID
     activity_type_id: uuid.UUID
     chatroom_id: uuid.UUID
-    subject_user_id: uuid.UUID
+    # Optional since 0081. ``None`` exactly when this is a group session -- never
+    # "unknown", which the CHECK makes unrepresentable.
+    subject_user_id: uuid.UUID | None
     status: SessionStatus
     created_at: dt.datetime
     closed_at: dt.datetime | None = None
@@ -187,6 +237,15 @@ class ActivitySession:
     # the participant sets and clears this, the facilitator's end-of-round sets
     # ``status``. A submission clears it (submission_service.py::submit).
     completed_at: dt.datetime | None = None
+    # Set exactly when ``subject_user_id`` is not (0081). Defaulted rather than
+    # positional so the existing construction sites keep describing the personal
+    # case they always described.
+    subject_member_group_id: uuid.UUID | None = None
+
+    @property
+    def subject_kind(self) -> SubjectKind:
+        """Whether this session belongs to a person or to a group."""
+        return SubjectKind.MEMBER_GROUP if self.subject_member_group_id is not None else SubjectKind.USER
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +314,120 @@ class ActivitySubmission:
 
 
 @dataclass(frozen=True, slots=True)
+class ProposalVote:
+    """One pinned voter's decision on one proposal ([R30.42]).
+
+    Readable only by the proposal's pinned voters and the room creator, and never
+    by any agent: the record names people and records dissent, which is an
+    accountability record for the group and the teacher rather than class
+    material.
+    """
+
+    proposal_id: uuid.UUID
+    user_id: uuid.UUID
+    choice: VoteChoice
+    created_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class GroupProposal:
+    """A payload one group member proposes and the group votes on ([R30.41]).
+
+    ``voter_user_ids`` and ``required_approvals`` are BOTH pinned at creation and
+    stored. A person added to the group mid-vote cannot be bound by a proposal
+    they never saw, and a person removed does not lower a bar the group already
+    agreed to clear -- so resolution reads neither the membership nor the
+    fraction again.
+
+    ``payload`` is the proposer's own text. The other members approved it; they
+    did not write it, which is why the resulting submission records the proposer
+    as its ``producer_user_id``.
+    """
+
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    activation_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    member_group_id: uuid.UUID
+    proposer_user_id: uuid.UUID
+    payload: dict[str, Any]
+    voter_user_ids: tuple[uuid.UUID, ...]
+    required_approvals: int
+    status: ProposalStatus
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    resolved_at: dt.datetime | None = None
+    submission_id: uuid.UUID | None = None
+
+    def may_vote(self, user_id: uuid.UUID) -> bool:
+        """Whether this user holds a ballot. Membership of the group today is not
+        the question -- the pin is ([R30.41])."""
+        return user_id in self.voter_user_ids
+
+
+@dataclass(frozen=True, slots=True)
+class GroupProposalTally:
+    """A proposal plus its vote counts, and the votes themselves.
+
+    ``votes`` is empty for a caller who may not see them, so one read model
+    serves both the counts (which the room may learn) and the per-person record
+    (which only the pinned voters and the room creator may) without a second
+    shape that could drift from this one.
+    """
+
+    proposal: GroupProposal
+    approvals: int
+    rejections: int
+    undecided: int
+    votes: tuple[ProposalVote, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MemberGroupRef:
+    """A group named to a participant so they can choose it ([R30.41]).
+
+    Id and display name only. Membership of a group other than the caller's own
+    is not disclosed by this shape, and it is deliberately not the tenancy
+    context's ``MemberGroup`` -- the activities context has no business holding
+    that row, only enough of it to render a picker.
+    """
+
+    id: uuid.UUID
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class GroupRoundView:
+    """One round's group state as a single caller sees it.
+
+    Two answers that must agree with each other: the proposals this caller may
+    read, and the groups this caller could propose FOR. Computed together
+    because both derive from the same intersection (live group of the room's
+    project, bound to this room, caller is a member) -- answering them in two
+    reads let the panel offer a group whose proposal it was not allowed to see.
+    """
+
+    proposals: tuple[GroupProposalTally, ...]
+    eligible_groups: tuple[MemberGroupRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GroupProposalResolution:
+    """What resolving a proposal produced.
+
+    ``submission`` is set only on acceptance; ``transitioned`` is false when the
+    call found the proposal already resolved, so a repeat vote does not replay a
+    broadcast claiming the count moved (the shape
+    :class:`ActivityActivationEndResult` already uses).
+    """
+
+    tally: GroupProposalTally
+    transitioned: bool
+    submission: ActivitySubmission | None = None
+    signal_payload: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ValidationResult:
     """A validator's verdict for one submission (not persisted verbatim)."""
 
@@ -271,7 +444,10 @@ class RecentActivityRow:
     submission + session + type."""
 
     created_at: dt.datetime
-    subject_user_id: uuid.UUID
+    # Polymorphic with ``subject_member_group_id`` below, exactly as the session
+    # row it is joined from ([R30.39]): ``None`` here means the row belongs to a
+    # group, never that the subject is unknown.
+    subject_user_id: uuid.UUID | None
     attempt_no: int
     type_key: str
     validation_status: ValidationStatus
@@ -279,6 +455,21 @@ class RecentActivityRow:
     error_class: str | None
     agent_digest: str | None = None
     expose_payload_to_agent: bool = True
+    # Whether ``agent_digest`` came from a validator's ``detail`` rather than from
+    # the payload-dump fallback. Load-bearing for the context block, which tells
+    # the model that a row's trailing text is the participant's own words: once a
+    # type adopts a validator that describes the submission instead of quoting it,
+    # that promise would be false for those rows. Derived at read time rather than
+    # stored, so it is also correct for every row written before the distinction
+    # existed. Carries no submission content either way.
+    digest_is_computed: bool = False
+    # Set exactly when ``subject_user_id`` is not. Defaulted so every existing
+    # construction site keeps describing a personal row.
+    subject_member_group_id: uuid.UUID | None = None
+
+    @property
+    def subject_kind(self) -> SubjectKind:
+        return SubjectKind.MEMBER_GROUP if self.subject_member_group_id is not None else SubjectKind.USER
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +507,104 @@ class ActivityAggregate:
     latency_max_ms: int | None
 
 
+#: ``sub_scores`` key under which a validator records **which** declared properties
+#: a submission answered, as a JSON array of property names ([R28.17]). Declared
+#: here rather than beside the validator that writes it: the coverage aggregates
+#: read the key in SQL, and ``contexts/activities`` must not import ``app.plugins``.
+#: A submission without it has no coverage to report — which is the mid-course
+#: upgrade case, not an error.
+FILLED_FIELDS_SUB_SCORE = "filled_fields"
+
+#: Upper bound on the declared properties a coverage aggregate will tally. The
+#: query builds one aggregate per field, so an unbounded schema would build an
+#: unbounded statement. Well above any worksheet: the shipped nine-cell mandala is
+#: the widest example type, and a form with more boxes than this is not something a
+#: single figure could render legibly anyway.
+MAX_COVERAGE_FIELDS = 64
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCoverageCell:
+    """One declared property and how many counted submissions answered it.
+
+    ``title`` is the owner-authored schema title, falling back to the property
+    name. Both are owner-authored; **no participant value is carried here** —
+    the aggregate that builds these reads field *names* only ([R28.18]).
+    """
+
+    name: str
+    title: str
+    filled: int
+
+
+@dataclass(frozen=True, slots=True)
+class FieldCoverage:
+    """Per-field answer counts for one activity type in one room ([R28.17]).
+
+    ``submissions_counted`` is the denominator and it counts **submissions, not
+    participants**: a coverage figure over this data cannot say what fraction of a
+    class did anything, because only submissions carrying ``filled_fields`` are in
+    scope at all and the room has no roster ([R28.18]).
+
+    ``cells`` is in the schema's declared order (``x-order`` where present).
+    """
+
+    type_key: str
+    type_name: str
+    submissions_counted: int
+    cells: tuple[FieldCoverageCell, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MandalaGrid:
+    """:class:`FieldCoverage` for a nine-property type, laid out three by three.
+
+    A separate read model rather than a flag on ``FieldCoverage`` because the
+    nine-property requirement is an invariant of *this* shape: ``rows`` is always
+    three rows of three, so a renderer never has to handle a ragged grid.
+    """
+
+    type_key: str
+    type_name: str
+    submissions_counted: int
+    rows: tuple[tuple[FieldCoverageCell, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptSummaryRow:
+    """One participant's attempt record, addressed by truncated code ([R28.18]).
+
+    ``attempts`` is the highest attempt number reached within a **single** session,
+    not a total across sessions: attempt numbers are per session, so a participant
+    who tried twice in each of two rounds reports 2, not 4.
+    """
+
+    subject_code: str
+    attempts: int
+    submissions: int
+    latest_outcome: str
+    latest_error_class: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptSummary:
+    """Room-scoped attempt records, newest activity first ([R28.17]).
+
+    ``truncated`` says the limit cut the listing short. Reported rather than
+    silently dropped: a table that stops at its cap with no sign of it reads as a
+    complete record of the room, which is the one thing this data is not.
+    """
+
+    type_key: str | None
+    type_name: str | None
+    submissions_counted: int
+    rows: tuple[AttemptSummaryRow, ...]
+    truncated: bool
+
+
 __all__ = [
+    "FILLED_FIELDS_SUB_SCORE",
+    "MAX_COVERAGE_FIELDS",
     "PERMISSIVE_POLICY",
     "PLATFORM_SCOPE",
     "ActivationStatus",
@@ -329,11 +617,23 @@ __all__ = [
     "ActivitySubmission",
     "ActivityType",
     "ActivityTypeScope",
+    "AttemptSummary",
+    "AttemptSummaryRow",
+    "FieldCoverage",
+    "FieldCoverageCell",
+    "GroupProposal",
+    "GroupProposalResolution",
+    "GroupProposalTally",
+    "MandalaGrid",
     "PolicyImpact",
     "ProjectActivityTypeOptIn",
+    "ProposalStatus",
+    "ProposalVote",
     "RecentActivityRow",
     "SessionStatus",
+    "SubjectKind",
     "ValidationResult",
     "ValidationStatus",
     "ValidatorKind",
+    "VoteChoice",
 ]

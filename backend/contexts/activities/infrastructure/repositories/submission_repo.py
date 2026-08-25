@@ -8,19 +8,26 @@ single-query aggregate. All writes keep the caller's :class:`AsyncSession`.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.domain.agent_digest import build_agent_digest
 from contexts.activities.domain.models import (
+    FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
     ActivitySubmission,
+    AttemptSummaryRow,
     RecentActivityRow,
     ValidationStatus,
+    ValidatorKind,
 )
+from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.db.rowcount import rowcount
 
@@ -47,6 +54,70 @@ _SUB_COLS = (
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
 )
+
+
+def _digest_is_computed(
+    agent_digest: str | None,
+    payload: dict[str, Any] | None,
+    validator_kind: str | None,
+) -> bool:
+    """Is this row's digest text the PLATFORM's, rather than possibly the
+    participant's?
+
+    Two conditions, and the second is the security-bearing one.
+
+    First, the digest must differ from the payload-dump fallback, which is
+    deterministic (``build_agent_digest`` with no ``detail``) — so the comparison
+    is exact, and unlike a stored column it is exact for every row written before
+    the distinction existed. A stored flag would have to be backfilled to a guess,
+    and the wrong guess is the unsafe one.
+
+    Second, and this is what "differs from the fallback" cannot answer: the
+    detail must have come from a validator the platform WROTE. Inequality alone
+    only proves *some* ``detail`` was used, and ``submission_service`` stores an
+    mcp or webhook validator's ``detail`` verbatim. That text is third-party — a
+    validator returning ``"looks good: <the answer>"`` would have been marked
+    ``::``, and ``_COMPUTED_NOTE`` tells the model that ``::`` text "is a fact
+    about the submission, not the participant's words, and it never contains
+    them", with the shipped AA prompt going further and declaring it quotable
+    even for unit 4. That is the exact promise the whole marker architecture
+    exists to keep, and string inequality was not evidence for it.
+
+    ``in_process`` is the trust boundary the validator registry already draws:
+    "an in-process validator is first-party backend code running in the app
+    process... Register only validators you ship; untrusted validators use the
+    MCP sandbox" (``validators/registry.py``). An unknown or absent kind falls to
+    ``False``, which shows the text under the participant marker — the safe
+    direction, since that marker forbids quoting rather than licensing it.
+
+    Reads the payload and returns a boolean; nothing about the payload survives
+    the call.
+    """
+    if not agent_digest:
+        return False
+    if validator_kind != ValidatorKind.IN_PROCESS.value:
+        return False
+    return agent_digest != build_agent_digest(payload=dict(payload or {}), detail=None)
+
+
+def _row_to_attempt_summary(row: Any) -> AttemptSummaryRow:
+    """One subject's attempt record, addressed by its code.
+
+    The subject is polymorphic ([R30.39]) and the database CHECK guarantees
+    exactly one of the two columns is set, so the branch is exhaustive rather
+    than defensive.
+    """
+    return AttemptSummaryRow(
+        subject_code=(
+            group_subject_code(row.subject_member_group_id)
+            if row.subject_member_group_id is not None
+            else subject_code(row.subject_user_id)
+        ),
+        attempts=int(row.attempts or 0),
+        submissions=int(row.submissions or 0),
+        latest_outcome=outcome_word(ValidationStatus(row.validation_status), row.is_valid),
+        latest_error_class=row.error_class,
+    )
 
 
 def _row_to_submission(row: object) -> ActivitySubmission:
@@ -266,12 +337,18 @@ class ActivitySubmissionRepository:
                 sa.select(
                     _SUB.c.created_at,
                     _SESS.c.subject_user_id,
+                    _SESS.c.subject_member_group_id,
                     _SUB.c.attempt_no,
                     _TYPE.c.key.label("type_key"),
                     _SUB.c.validation_status,
                     _SUB.c.is_valid,
                     _SUB.c.error_class,
                     _SUB.c.agent_digest,
+                    # Both read only to answer where the digest came from, and
+                    # dropped here — no payload value reaches `RecentActivityRow`,
+                    # and the kind is a trust question, not a fact about the row.
+                    _SUB.c.payload,
+                    _TYPE.c.validator_kind,
                     _TYPE.c.expose_payload_to_agent,
                 )
                 .select_from(
@@ -288,6 +365,7 @@ class ActivitySubmissionRepository:
             RecentActivityRow(
                 created_at=r.created_at,
                 subject_user_id=r.subject_user_id,
+                subject_member_group_id=r.subject_member_group_id,
                 attempt_no=r.attempt_no,
                 type_key=r.type_key,
                 validation_status=ValidationStatus(r.validation_status),
@@ -295,6 +373,7 @@ class ActivitySubmissionRepository:
                 error_class=r.error_class,
                 agent_digest=r.agent_digest,
                 expose_payload_to_agent=r.expose_payload_to_agent,
+                digest_is_computed=_digest_is_computed(r.agent_digest, r.payload, r.validator_kind),
             )
             for r in rows
         ]
@@ -390,6 +469,121 @@ class ActivitySubmissionRepository:
             latency_min_ms=int(row.latency_min) if row.latency_min is not None else None,
             latency_max_ms=int(row.latency_max) if row.latency_max is not None else None,
         )
+
+    # -- Presentation-block aggregates ([R28.17]) ---------------------------- #
+
+    async def count_field_fills(
+        self, *, chatroom_id: uuid.UUID, activity_type_id: uuid.UUID, field_names: Sequence[str]
+    ) -> tuple[int, dict[str, int]]:
+        """``(submissions counted, {field name: how many answered it})``.
+
+        Only submissions whose ``sub_scores`` carries a ``filled_fields`` **array**
+        are in scope, for both the denominator and every tally. A room that adopted
+        the coverage validator mid-course therefore reports the population the
+        figure is actually about, rather than silently reading every earlier
+        submission as "answered nothing".
+
+        One ``count(*) FILTER`` per declared field rather than a set-returning
+        function over the array. ``jsonb_array_elements_text`` raises on a value
+        that is not an array, and a comma-join SRF is expanded before ``WHERE``
+        runs, so the guard could not protect it; ``@>`` is simply false for a
+        non-array and needs no guard at all.
+
+        ``@>`` against a one-element array — ``'["home"]'`` — is the containment
+        form for "this array holds this string". PostgreSQL-specific, hence the
+        ``db``-tier test (backend/CLAUDE.md).
+        """
+        scoped = sa.and_(
+            _SUB.c.chatroom_id == chatroom_id,
+            _SUB.c.activity_type_id == activity_type_id,
+            _SUB.c.deleted_at.is_(None),
+            sa.func.jsonb_typeof(_SUB.c.sub_scores[FILLED_FIELDS_SUB_SCORE]) == "array",
+        )
+        filled_fields = sa.type_coerce(_SUB.c.sub_scores[FILLED_FIELDS_SUB_SCORE], pg.JSONB)
+        columns: list[sa.ColumnElement[Any]] = [sa.func.count().label("submissions")]
+        # Positional labels: a property name is owner-authored and may be anything,
+        # including something that collides with `submissions` or another field's
+        # name after SQL identifier folding.
+        columns.extend(
+            sa.func.count()
+            .filter(filled_fields.contains(sa.cast(sa.literal(json.dumps([name])), pg.JSONB)))
+            .label(f"f{i}")
+            for i, name in enumerate(field_names)
+        )
+        row = (await self._db.execute(sa.select(*columns).where(scoped))).one()
+        counted = int(row.submissions or 0)
+        return counted, {name: int(getattr(row, f"f{i}") or 0) for i, name in enumerate(field_names)}
+
+    async def attempt_summary_rows(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activity_type_id: uuid.UUID | None,
+        limit: int,
+    ) -> tuple[int, list[AttemptSummaryRow], bool]:
+        """``(submissions in scope, one row per subject, was the listing cut short)``.
+
+        Newest activity first. ``limit + 1`` rows are fetched so the caller can say
+        the listing was truncated instead of presenting a short table as the whole
+        room; the extra row is dropped here rather than handed up, so no caller has
+        to know about the off-by-one.
+
+        Ordering is by the subject's most recent submission, not by attempt count:
+        a table sorted by tries reads as a ranking, and this data does not support
+        one.
+
+        Returns domain rows, like :meth:`list_recent_for_room` — a SQLAlchemy
+        ``Row`` must not reach the application layer. The code is applied here for
+        the same reason: it is the only form of the subject that leaves this method.
+        """
+        scoped = sa.and_(_SUB.c.chatroom_id == chatroom_id, _SUB.c.deleted_at.is_(None))
+        if activity_type_id is not None:
+            scoped = sa.and_(scoped, _SUB.c.activity_type_id == activity_type_id)
+
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        # The subject is the PAIR, not either column ([R30.39]). Partitioning on
+        # `subject_user_id` alone would collapse every group's rows into one NULL
+        # bucket -- several groups reported as a single participant, with a code
+        # that cannot be built. Both PostgreSQL constructs used here (DISTINCT ON
+        # and the window PARTITION BY) treat NULLs as equal, so a personal row
+        # keys on `(uid, NULL)` and a group row on `(NULL, gid)`, and the two
+        # populations never meet.
+        subject = (_SESS.c.subject_user_id, _SESS.c.subject_member_group_id)
+        latest = (
+            sa.select(
+                *subject,
+                _SUB.c.validation_status,
+                _SUB.c.is_valid,
+                _SUB.c.error_class,
+                _SUB.c.created_at.label("last_at"),
+                sa.func.max(_SUB.c.attempt_no).over(partition_by=subject).label("attempts"),
+                sa.func.count().over(partition_by=subject).label("submissions"),
+            )
+            .select_from(joined)
+            .where(scoped)
+            # Window functions are evaluated before DISTINCT ON, so `attempts` and
+            # `submissions` cover the subject's whole set even though only their
+            # newest row survives.
+            .distinct(*subject)
+            .order_by(*subject, _SUB.c.created_at.desc(), _SUB.c.id.desc())
+            .subquery()
+        )
+        rows = (
+            await self._db.execute(
+                sa.select(latest)
+                .order_by(
+                    latest.c.last_at.desc(),
+                    latest.c.subject_user_id,
+                    latest.c.subject_member_group_id,
+                )
+                .limit(limit + 1)
+            )
+        ).all()
+
+        total = (
+            await self._db.execute(sa.select(sa.func.count()).select_from(joined).where(scoped))
+        ).scalar_one()
+        return int(total or 0), [_row_to_attempt_summary(r) for r in rows[:limit]], len(rows) > limit
 
 
 __all__ = ["ActivitySubmissionRepository"]

@@ -21,6 +21,16 @@ export type ValidatorKindOption = (typeof VALIDATOR_KINDS)[number]
 // necessarily hand-written here.
 export const EXACT_MATCH_VALIDATOR_ID = 'exact_match'
 export const FILLED_COUNT_VALIDATOR_ID = 'filled_count'
+// Same `min_filled` config contract as `filled_count`, so it shares that
+// sub-form. Without this the picker would offer a validator whose only legal
+// config the form cannot produce, and the backend would 422 every save.
+export const FILLED_COUNT_COVERAGE_VALIDATOR_ID = 'filled_count_coverage'
+
+export function usesMinFilled(validatorId: string): boolean {
+  return (
+    validatorId === FILLED_COUNT_VALIDATOR_ID || validatorId === FILLED_COUNT_COVERAGE_VALIDATOR_ID
+  )
+}
 
 // The flat scalar field types the guided builder can author. Nested objects and
 // arrays are the raw-JSON escape hatch's job (FU-5), not the builder's.
@@ -127,7 +137,7 @@ export const activityTypeCreateSchema = z
             message: 'required',
           })
         }
-      } else if (val.in_process_validator_id === FILLED_COUNT_VALIDATOR_ID) {
+      } else if (usesMinFilled(val.in_process_validator_id)) {
         const min = val.filled_count_min
         if (min === null || !Number.isInteger(min) || min < 0) {
           ctx.addIssue({
@@ -168,7 +178,7 @@ export function assembleValidatorConfig(
         schemaFieldType(values.payload_schema, values.exact_match_field),
       )
       config.case_sensitive = values.exact_match_case_sensitive
-    } else if (values.in_process_validator_id === FILLED_COUNT_VALIDATOR_ID) {
+    } else if (usesMinFilled(values.in_process_validator_id)) {
       config.min_filled = values.filled_count_min ?? 0
     }
     return config

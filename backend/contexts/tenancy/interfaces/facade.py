@@ -51,6 +51,34 @@ class TenancyFacade:
         """
         return await self._member_groups.live_ids_in_project(group_ids, project_id=project_id)
 
+    async def member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Live group names for a set of ids, keyed by id.
+
+        For a caller that already holds group ids off its own rows and needs to
+        say which group a row belongs to -- the activity context block's legend
+        ([R30.43]). Names only: this is a display read, not a way to enumerate a
+        project's grouping, and it answers nothing about membership.
+
+        A deleted or unknown id is absent rather than an error. The caller then
+        shows the bare code, which is the correct reading of "the group that
+        answered this is gone".
+        """
+        return await self._member_groups.names_by_id(group_ids)
+
+    async def member_group_user_ids(self, group_id: uuid.UUID) -> set[uuid.UUID]:
+        """Every current member of one live group ([R13.28]).
+
+        The inverse of :meth:`member_group_ids_for_user`, and the read a group
+        activity proposal pins its ballot from. It answers membership as of NOW;
+        the pinning -- so that a later change moves neither the ballot nor the
+        bar -- is the caller's, because only the caller knows a vote is starting.
+
+        Empty for a deleted or unknown group, which is the same answer as a group
+        with no members: neither can produce a proposal, and distinguishing them
+        would confirm the existence of a group the caller may not know about.
+        """
+        return await self._member_groups.member_ids(group_id)
+
     async def member_group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         """Every live Member Group this user belongs to, across every project.
 

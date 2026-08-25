@@ -55,10 +55,11 @@ MANDALA: dict[str, Any] = {
     "key": "mandala-9grid",
     "name": "單元二 時空旅人（曼陀羅九宮格）",
     "validator_kind": "in_process",
-    "validator_config": {"validator_id": "filled_count", "min_filled": 4},
+    "validator_config": {"validator_id": "filled_count_coverage", "min_filled": 4},
     "retention_days": None,
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
+    "group_config": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -93,10 +94,15 @@ NEXT_STEPS: dict[str, Any] = {
     "key": "time-traveler-next-steps",
     "name": "單元二 為了與你相遇",
     "validator_kind": "in_process",
+    # Deliberately NOT the coverage variant. A one-field worksheet's coverage
+    # figure only ever reads "1/1 fields answered", and adopting it would cost the
+    # agents the answer text `2026-08-24-example-agents-quote-unit-two` made
+    # quotable — see D-7 of the presentation-blocks dossier.
     "validator_config": {"validator_id": "filled_count", "min_filled": 1},
     "retention_days": None,
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
+    "group_config": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -115,10 +121,11 @@ THREE_EMOTIONS: dict[str, Any] = {
     "key": "emotion-desk-three-emotions",
     "name": "單元四 情緒播報台（三種情緒）",
     "validator_kind": "in_process",
-    "validator_config": {"validator_id": "filled_count", "min_filled": 2},
+    "validator_config": {"validator_id": "filled_count_coverage", "min_filled": 2},
     "retention_days": None,
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
+    "group_config": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -142,10 +149,11 @@ SIX_HATS: dict[str, Any] = {
     "key": "six-hats-emotion-desk",
     "name": "單元四 情緒列車（六頂思考帽）",
     "validator_kind": "in_process",
-    "validator_config": {"validator_id": "filled_count", "min_filled": 3},
+    "validator_config": {"validator_id": "filled_count_coverage", "min_filled": 3},
     "retention_days": None,
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
+    "group_config": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -170,7 +178,53 @@ SIX_HATS: dict[str, Any] = {
     },
 }
 
-CREATIVE_THINKING_TYPES: tuple[dict[str, Any], ...] = (MANDALA, NEXT_STEPS, THREE_EMOTIONS, SIX_HATS)
+# The one group task in the course, and the only type carrying `group_config`.
+# It returns de Bono's hats to their original use — parallel thinking over a case
+# a group shares — which this course's self-development theme axis deliberately
+# turned inward for `six-hats-emotion-desk`. That is also what makes it safe to
+# submit collectively: `case` is a shared scenario, so the worksheet carries no
+# personal disclosure at all. See the dossier's §4.4 for why none of the four
+# above could have been made group-submittable instead.
+SHARED_CASE: dict[str, Any] = {
+    "key": "six-hats-shared-case",
+    "name": "單元四延伸 共同情境六頂思考帽（小組）",
+    "validator_kind": "in_process",
+    "validator_config": {"validator_id": "filled_count_coverage", "min_filled": 4},
+    "retention_days": None,
+    "expose_payload_to_agent": True,
+    "echo_includes_content": False,
+    "group_config": {"consent": {"numerator": 2, "denominator": 3}},
+    "payload_schema": {
+        "type": "object",
+        "properties": {
+            "case": {
+                "type": "string",
+                "title": "共同情境",
+                "description": "小組一起討論的那件事。可以由老師指定，也可以由小組自己選；它不是任何一個人的私事。",
+                "x-order": 1,
+            },
+            "hat_white": {"type": "string", "title": "白帽", "description": "中立、客觀、事實", "x-order": 2},
+            "hat_red": {"type": "string", "title": "紅帽", "description": "情緒、直覺、預感", "x-order": 3},
+            "hat_black": {"type": "string", "title": "黑帽", "description": "悲觀、負面、謹慎", "x-order": 4},
+            "hat_yellow": {
+                "type": "string",
+                "title": "黃帽",
+                "description": "樂觀、正面、積極",
+                "x-order": 5,
+            },
+            "hat_blue": {"type": "string", "title": "藍帽", "description": "指揮、控制、結論", "x-order": 6},
+        },
+        "required": ["case"],
+    },
+}
+
+CREATIVE_THINKING_TYPES: tuple[dict[str, Any], ...] = (
+    MANDALA,
+    NEXT_STEPS,
+    THREE_EMOTIONS,
+    SIX_HATS,
+    SHARED_CASE,
+)
 
 SHIPPED_TYPES = load_course("creative-thinking").activity_types
 

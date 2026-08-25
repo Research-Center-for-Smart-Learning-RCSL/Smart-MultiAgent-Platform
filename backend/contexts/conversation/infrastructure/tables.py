@@ -119,6 +119,10 @@ agent_observations = sa.Table(
     ),
     sa.Column("content_md", sa.Text, nullable=False),
     sa.Column("metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    # [R28.15] — the ordered presentation blocks, separate from `metadata` on
+    # purpose: that column holds engine telemetry, and mixing agent-chosen content
+    # into it makes every future reader guess which keys are which.
+    sa.Column("blocks", pg.JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
     sa.Column("trigger", sa.Text, nullable=False),
     sa.Column("trigger_message_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("released_at", sa.TIMESTAMP(timezone=True), nullable=True),
