@@ -113,6 +113,86 @@ class ActivityTypeNotOptedIn(ActivitiesError):
     code = "activities/type-not-opted-in"
 
 
+class GroupConfigInvalid(ActivitiesError):
+    """A type's ``group_config`` is not a usable consent fraction (422).
+
+    Separate from ``ValidatorConfigInvalid`` because the two are read by
+    different audiences: a validator config is owner-confidential ([R30.25]),
+    while the consent fraction is shown to every person being asked to vote
+    against it.
+    """
+
+    code = "activities/group-config-invalid"
+
+
+class ActivityTypeNotGroupSubmittable(ActivitiesError):
+    """A group proposal was made against a type carrying no ``group_config`` (409).
+
+    Not a 404: the type is legitimately visible to this participant -- the round
+    is running and its schema is on their screen. What it is not is a group task.
+    """
+
+    code = "activities/type-not-group-submittable"
+
+
+class GroupProposalNotFound(ActivitiesError):
+    """No such proposal, or none this caller may see (404).
+
+    Collapses "does not exist", "belongs to another room" and "you are not a
+    pinned voter" into one answer, the way ``SessionNotFound`` already does for a
+    non-subject: a vote record names people, so a non-voter must not be able to
+    confirm one exists.
+    """
+
+    code = "activities/group-proposal-not-found"
+
+
+class GroupProposalAlreadyOpen(ActivitiesError):
+    """This group already has an open proposal for this round (409).
+
+    Two competing proposals would split the group's votes and neither could
+    pass, so at most one is open per (activation, group) -- enforced by a partial
+    unique index, which is also what makes a concurrent double-propose land here
+    rather than produce two.
+    """
+
+    code = "activities/group-proposal-already-open"
+
+
+class GroupProposalResolved(ActivitiesError):
+    """The proposal has already been decided (409).
+
+    The client refetches rather than showing a stale count: the request was
+    legal when it was rendered, and what changed is the group's state.
+    """
+
+    code = "activities/group-proposal-resolved"
+
+
+class NotAGroupMember(ActivitiesError):
+    """The caller does not belong to the Member Group they acted for (403).
+
+    Distinct from ``GroupProposalNotFound``, and deliberately so: this is raised
+    on *creation*, where the caller named the group themselves, so there is
+    nothing to conceal. Voting uses the 404 instead, because there the caller
+    named a proposal that may be another group's.
+    """
+
+    code = "activities/not-a-group-member"
+
+
+class MemberGroupNotBoundToRoom(ActivitiesError):
+    """The Member Group is not a live group of this room's project, or is not
+    bound to this room (403).
+
+    One error for both halves on purpose: a group id from another project is
+    indistinguishable here from one that exists but was never bound, and telling
+    the two apart would confirm the existence of another tenant's group.
+    """
+
+    code = "activities/member-group-not-bound"
+
+
 class ExampleCourseNotFound(ActivitiesError):
     """No shipped course with that key ([R30.32]).
 
@@ -136,9 +216,16 @@ __all__ = [
     "ActivityTypeActive",
     "ActivityTypeKeyConflict",
     "ActivityTypeNotFound",
+    "ActivityTypeNotGroupSubmittable",
     "ActivityTypeNotOptedIn",
     "ActivityTypeViolatesPolicy",
     "ExampleCourseNotFound",
+    "GroupConfigInvalid",
+    "GroupProposalAlreadyOpen",
+    "GroupProposalNotFound",
+    "GroupProposalResolved",
+    "MemberGroupNotBoundToRoom",
+    "NotAGroupMember",
     "PayloadSchemaInvalid",
     "PlatformActivityTypeReadOnly",
     "SessionNotFound",

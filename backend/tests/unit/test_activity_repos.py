@@ -141,6 +141,7 @@ class TestSubmissionRepoScoping:
             SimpleNamespace(
                 created_at=datetime(2026, 8, 24, tzinfo=UTC),
                 subject_user_id=uuid.uuid4(),
+                subject_member_group_id=None,
                 attempt_no=1,
                 type_key="mandala-9grid",
                 validation_status="validated",
@@ -153,6 +154,7 @@ class TestSubmissionRepoScoping:
             SimpleNamespace(
                 created_at=datetime(2026, 8, 24, tzinfo=UTC),
                 subject_user_id=uuid.uuid4(),
+                subject_member_group_id=None,
                 attempt_no=2,
                 type_key="mandala-9grid",
                 validation_status="validated",
@@ -177,6 +179,7 @@ class TestSubmissionRepoScoping:
             SimpleNamespace(
                 created_at=datetime(2026, 8, 24, tzinfo=UTC),
                 subject_user_id=uuid.uuid4(),
+                subject_member_group_id=None,
                 attempt_no=1,
                 type_key="k",
                 validation_status="pending",

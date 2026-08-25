@@ -691,6 +691,29 @@ class MemberGroupRepository:
         ).all()
         return {r.id for r in rows}
 
+    async def names_by_id(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Live group names for a candidate set, keyed by id.
+
+        One query rather than an N+1 of `get()`, the shape
+        :meth:`live_ids_in_project` already uses. Deliberately NOT scoped to a
+        project: the caller is naming groups it has already read off its own
+        rows, and it holds no project to scope by. Nothing about the group beyond
+        its name leaves here, and a deleted or unknown id is simply absent.
+        """
+        if not group_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.member_groups.c.id, t.member_groups.c.name).where(
+                    sa.and_(
+                        t.member_groups.c.id.in_(list(group_ids)),
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.id: r.name for r in rows}
+
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[MemberGroup]:
         rows = (
             await self._db.execute(

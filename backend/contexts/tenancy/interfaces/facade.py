@@ -51,6 +51,20 @@ class TenancyFacade:
         """
         return await self._member_groups.live_ids_in_project(group_ids, project_id=project_id)
 
+    async def member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Live group names for a set of ids, keyed by id.
+
+        For a caller that already holds group ids off its own rows and needs to
+        say which group a row belongs to -- the activity context block's legend
+        ([R30.43]). Names only: this is a display read, not a way to enumerate a
+        project's grouping, and it answers nothing about membership.
+
+        A deleted or unknown id is absent rather than an error. The caller then
+        shows the bare code, which is the correct reading of "the group that
+        answered this is gone".
+        """
+        return await self._member_groups.names_by_id(group_ids)
+
     async def member_group_ids_for_user(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         """Every live Member Group this user belongs to, across every project.
 

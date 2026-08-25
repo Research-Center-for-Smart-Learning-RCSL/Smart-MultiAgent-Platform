@@ -35,6 +35,7 @@ _TYPE_COLS = (
     t.activity_types.c.expose_payload_to_agent,
     t.activity_types.c.echo_includes_content,
     t.activity_types.c.deleted_at,
+    t.activity_types.c.group_config,
 )
 
 
@@ -54,6 +55,13 @@ def _row_to_type(row: object) -> ActivityType:
         echo_includes_content=row.echo_includes_content,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
         scope=ActivityTypeScope(row.scope),  # type: ignore[attr-defined]
+        # Not coerced to `{}` like the other JSONB columns: NULL is meaningful
+        # here (individual-only), and an empty object is not the same claim.
+        group_config=(
+            dict(row.group_config)  # type: ignore[attr-defined]
+            if row.group_config is not None  # type: ignore[attr-defined]
+            else None
+        ),
     )
 
 
@@ -74,6 +82,7 @@ class ActivityTypeRepository:
         expose_payload_to_agent: bool,
         echo_includes_content: bool,
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
+        group_config: dict[str, Any] | None = None,
     ) -> uuid.UUID:
         """Insert a type and return its id (caller owns commit).
 
@@ -103,6 +112,7 @@ class ActivityTypeRepository:
                     retention_days=retention_days,
                     expose_payload_to_agent=expose_payload_to_agent,
                     echo_includes_content=echo_includes_content,
+                    group_config=group_config,
                 )
                 .returning(t.activity_types.c.id)
             )
@@ -292,6 +302,7 @@ class ActivityTypeRepository:
         expose_payload_to_agent: bool,
         echo_includes_content: bool,
         bump_version: bool,
+        group_config: dict[str, Any] | None = None,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
         ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op
@@ -305,6 +316,7 @@ class ActivityTypeRepository:
             "retention_days": retention_days,
             "expose_payload_to_agent": expose_payload_to_agent,
             "echo_includes_content": echo_includes_content,
+            "group_config": group_config,
         }
         if bump_version:
             values["version"] = t.activity_types.c.version + 1

@@ -289,6 +289,7 @@ class TestCompiledSql:
         rows_result.all.return_value = [
             SimpleNamespace(
                 subject_user_id=_SUBJECT,
+                subject_member_group_id=None,
                 validation_status="validated",
                 is_valid=False,
                 error_class="too_few_filled",
@@ -297,6 +298,7 @@ class TestCompiledSql:
             ),
             SimpleNamespace(
                 subject_user_id=uuid.uuid4(),
+                subject_member_group_id=None,
                 validation_status="pending",
                 is_valid=None,
                 error_class=None,
@@ -318,3 +320,37 @@ class TestCompiledSql:
         assert rows[0].latest_outcome == "invalid"
         assert rows[0].latest_error_class == "too_few_filled"
         assert str(_SUBJECT) not in repr(rows)
+
+    async def test_a_group_subject_gets_a_group_code(self) -> None:
+        """AC-14's aggregate half: the figure and the context block must address
+        the same subject the same way, or a teacher reading both connects two
+        rows that are about different things."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from contexts.activities.domain.subject_code import group_subject_code
+
+        group_id = uuid.uuid4()
+        db = AsyncMock()
+        rows_result, count_result = MagicMock(), MagicMock()
+        rows_result.all.return_value = [
+            SimpleNamespace(
+                subject_user_id=None,
+                subject_member_group_id=group_id,
+                validation_status="validated",
+                is_valid=True,
+                error_class=None,
+                attempts=1,
+                submissions=1,
+            )
+        ]
+        count_result.scalar_one.return_value = 1
+        db.execute.side_effect = [rows_result, count_result]
+
+        _counted, rows, _truncated = await ActivitySubmissionRepository(db).attempt_summary_rows(
+            chatroom_id=_ROOM, activity_type_id=None, limit=10
+        )
+
+        assert rows[0].subject_code == group_subject_code(group_id)
+        assert rows[0].subject_code.startswith("g:")
+        assert str(group_id) not in repr(rows)

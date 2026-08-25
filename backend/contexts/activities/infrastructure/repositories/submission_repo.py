@@ -26,7 +26,7 @@ from contexts.activities.domain.models import (
     RecentActivityRow,
     ValidationStatus,
 )
-from contexts.activities.domain.subject_code import outcome_word, subject_code
+from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.db.rowcount import rowcount
 
@@ -74,8 +74,18 @@ def _digest_is_computed(agent_digest: str | None, payload: dict[str, Any] | None
 
 
 def _row_to_attempt_summary(row: Any) -> AttemptSummaryRow:
+    """One subject's attempt record, addressed by its code.
+
+    The subject is polymorphic ([R30.39]) and the database CHECK guarantees
+    exactly one of the two columns is set, so the branch is exhaustive rather
+    than defensive.
+    """
     return AttemptSummaryRow(
-        subject_code=subject_code(row.subject_user_id),
+        subject_code=(
+            group_subject_code(row.subject_member_group_id)
+            if row.subject_member_group_id is not None
+            else subject_code(row.subject_user_id)
+        ),
         attempts=int(row.attempts or 0),
         submissions=int(row.submissions or 0),
         latest_outcome=outcome_word(ValidationStatus(row.validation_status), row.is_valid),
@@ -300,6 +310,7 @@ class ActivitySubmissionRepository:
                 sa.select(
                     _SUB.c.created_at,
                     _SESS.c.subject_user_id,
+                    _SESS.c.subject_member_group_id,
                     _SUB.c.attempt_no,
                     _TYPE.c.key.label("type_key"),
                     _SUB.c.validation_status,
@@ -325,6 +336,7 @@ class ActivitySubmissionRepository:
             RecentActivityRow(
                 created_at=r.created_at,
                 subject_user_id=r.subject_user_id,
+                subject_member_group_id=r.subject_member_group_id,
                 attempt_no=r.attempt_no,
                 type_key=r.type_key,
                 validation_status=ValidationStatus(r.validation_status),
@@ -500,10 +512,17 @@ class ActivitySubmissionRepository:
             scoped = sa.and_(scoped, _SUB.c.activity_type_id == activity_type_id)
 
         joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
-        subject = _SESS.c.subject_user_id
+        # The subject is the PAIR, not either column ([R30.39]). Partitioning on
+        # `subject_user_id` alone would collapse every group's rows into one NULL
+        # bucket -- several groups reported as a single participant, with a code
+        # that cannot be built. Both PostgreSQL constructs used here (DISTINCT ON
+        # and the window PARTITION BY) treat NULLs as equal, so a personal row
+        # keys on `(uid, NULL)` and a group row on `(NULL, gid)`, and the two
+        # populations never meet.
+        subject = (_SESS.c.subject_user_id, _SESS.c.subject_member_group_id)
         latest = (
             sa.select(
-                subject,
+                *subject,
                 _SUB.c.validation_status,
                 _SUB.c.is_valid,
                 _SUB.c.error_class,
@@ -516,13 +535,19 @@ class ActivitySubmissionRepository:
             # Window functions are evaluated before DISTINCT ON, so `attempts` and
             # `submissions` cover the subject's whole set even though only their
             # newest row survives.
-            .distinct(_SESS.c.subject_user_id)
-            .order_by(_SESS.c.subject_user_id, _SUB.c.created_at.desc(), _SUB.c.id.desc())
+            .distinct(*subject)
+            .order_by(*subject, _SUB.c.created_at.desc(), _SUB.c.id.desc())
             .subquery()
         )
         rows = (
             await self._db.execute(
-                sa.select(latest).order_by(latest.c.last_at.desc(), latest.c.subject_user_id).limit(limit + 1)
+                sa.select(latest)
+                .order_by(
+                    latest.c.last_at.desc(),
+                    latest.c.subject_user_id,
+                    latest.c.subject_member_group_id,
+                )
+                .limit(limit + 1)
             )
         ).all()
 

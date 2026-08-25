@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.models import RecentActivityRow
-from contexts.activities.domain.subject_code import outcome_word, subject_code
+from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 
 if TYPE_CHECKING:
     # Type-only: `from __future__ import annotations` keeps the annotation a
@@ -55,7 +55,11 @@ _PREAMBLE = (
     "Structured activity events in this room, newest first, capped at a few dozen rows. "
     "An incomplete window, not a roster: a participant absent from it may simply have been "
     "pushed out by later rows. Attempt number, valid/invalid and error class are "
-    "server-computed facts about the submission."
+    "server-computed facts about the submission. "
+    # Without this sentence a `g:` row reads as one more participant, and an
+    # agent counting rows reports a group of five as a single quiet student.
+    "A row whose code begins g: belongs to a group rather than to one person: it is one "
+    "submission several people agreed on, not several submissions."
 )
 
 # Appended only when the row content is actually present. Stated unconditionally
@@ -119,13 +123,14 @@ class ActivityContextProvider:
             return None
         digests_allowed = await self._digests_allowed(facade)
         labels = await self._labels(rows, resolve_labels)
+        group_labels = await self._group_labels(rows, facade)
         parts = ["[Recent room activity]", _PREAMBLE]
         shown = [r for r in rows if digests_allowed and r.expose_payload_to_agent and r.agent_digest]
         if any(not r.digest_is_computed for r in shown):
             parts.append(_CONTENT_NOTE)
         if any(r.digest_is_computed for r in shown):
             parts.append(_COMPUTED_NOTE)
-        legend = _legend(rows, labels)
+        legend = _legend(rows, labels, group_labels)
         if legend:
             parts.append(legend)
         parts.extend(_format_row(r, digests_allowed=digests_allowed) for r in rows)
@@ -144,9 +149,34 @@ class ActivityContextProvider:
         if resolve_labels is None:
             return {}
         try:
-            return await resolve_labels(sorted({r.subject_user_id for r in rows}))
+            return await resolve_labels(
+                sorted({r.subject_user_id for r in rows if r.subject_user_id is not None})
+            )
         except Exception:
             _log.warning("activity label resolution failed; block keeps bare codes", exc_info=True)
+            return {}
+
+    @staticmethod
+    async def _group_labels(
+        rows: Sequence[RecentActivityRow], facade: ActivitiesFacade
+    ) -> Mapping[uuid.UUID, str]:
+        """Group names for the group subjects in this window, or empty on failure.
+
+        Resolved through the facade rather than through the injected
+        ``resolve_labels``: a group name is a teacher-authored label owned by the
+        tenancy context, not a chat label, and the turn engine has no reason to
+        learn about groups to hand one over.
+
+        Best-effort like :meth:`_labels`: a lookup that fails costs the legend,
+        not the block.
+        """
+        group_ids = sorted({r.subject_member_group_id for r in rows if r.subject_member_group_id})
+        if not group_ids:
+            return {}
+        try:
+            return await facade.resolve_member_group_names(group_ids)
+        except Exception:
+            _log.warning("activity group-name resolution failed; block keeps bare codes", exc_info=True)
             return {}
 
     async def _digests_allowed(self, facade: ActivitiesFacade) -> bool:
@@ -194,7 +224,11 @@ def _one_line(text: str) -> str:
     return " ".join(text.replace('"', "").split())
 
 
-def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) -> str | None:
+def _legend(
+    rows: Sequence[RecentActivityRow],
+    labels: Mapping[uuid.UUID, str],
+    group_labels: Mapping[uuid.UUID, str] | None = None,
+) -> str | None:
     """One ``u:1a2b3c4d = "Alice Chen"`` per line, for the subjects in this window.
 
     The rows keep their codes rather than being rewritten to names, because the
@@ -211,13 +245,27 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
     classmate's submission under the wrong name. A line holds one pair and a label
     cannot contain a newline or a quote (``_one_line``), so neither delimiter is
     reachable from inside a name.
+
+    A group code resolves to the group's **name** ([R30.43]). That is a
+    teacher-authored label rather than self-chosen text, so it is a weaker
+    injection surface than a display name -- and it goes through ``_one_line``
+    anyway, because a rule that holds only for the values someone remembered to
+    sanitise is not a rule.
     """
-    if not labels:
+    groups = group_labels or {}
+    if not labels and not groups:
         return None
     seen: dict[uuid.UUID, None] = {}
+    seen_groups: dict[uuid.UUID, None] = {}
     for row in rows:
-        seen.setdefault(row.subject_user_id, None)
+        if row.subject_member_group_id is not None:
+            seen_groups.setdefault(row.subject_member_group_id, None)
+        elif row.subject_user_id is not None:
+            seen.setdefault(row.subject_user_id, None)
     pairs = [f'{subject_code(uid)} = "{_one_line(labels[uid])}"' for uid in seen if uid in labels]
+    pairs += [
+        f'{group_subject_code(gid)} = "{_one_line(groups[gid])}"' for gid in seen_groups if gid in groups
+    ]
     if not pairs:
         return None
     return "Codes, one per line:\n" + "\n".join(pairs)
@@ -248,9 +296,25 @@ def _row_field(text: str) -> str:
     return out
 
 
+#: What a row shows when neither subject column is set. Unreachable under
+#: ``ck_activity_sessions_one_subject`` (0081), and it still has to be *something*
+#: -- a blank here would silently merge two rows into one line, which is worse
+#: than an obviously broken code an operator can grep for.
+_UNKNOWN_SUBJECT = "u:????????"
+
+
+def _subject_code(row: RecentActivityRow) -> str:
+    """This row's code, in whichever space its subject belongs to ([R30.43])."""
+    if row.subject_member_group_id is not None:
+        return group_subject_code(row.subject_member_group_id)
+    if row.subject_user_id is not None:
+        return subject_code(row.subject_user_id)
+    return _UNKNOWN_SUBJECT
+
+
 def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     ts = row.created_at.isoformat() if row.created_at else "?"
-    subject = subject_code(row.subject_user_id)
+    subject = _subject_code(row)
     outcome = outcome_word(row.validation_status, row.is_valid)
     suffix = f" [{_row_field(row.error_class)}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {_row_field(row.type_key)}: {outcome}{suffix}"
