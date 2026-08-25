@@ -21,6 +21,10 @@ const setActivationCompletionMock = vi.hoisted(() => vi.fn())
 const getActivationProgressMock = vi.hoisted(() => vi.fn())
 const getOwnRoundSessionMock = vi.hoisted(() => vi.fn())
 const submitActivityMock = vi.hoisted(() => vi.fn())
+const listGroupProposalsMock = vi.hoisted(() => vi.fn())
+const createGroupProposalMock = vi.hoisted(() => vi.fn())
+const voteOnGroupProposalMock = vi.hoisted(() => vi.fn())
+const withdrawGroupProposalMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   getActiveActivation: getActiveActivationMock,
   listActivityTypes: listActivityTypesMock,
@@ -31,6 +35,10 @@ vi.mock('../api', () => ({
   getActivationProgress: getActivationProgressMock,
   getOwnRoundSession: getOwnRoundSessionMock,
   submitActivity: submitActivityMock,
+  listGroupProposals: listGroupProposalsMock,
+  createGroupProposal: createGroupProposalMock,
+  voteOnGroupProposal: voteOnGroupProposalMock,
+  withdrawGroupProposal: withdrawGroupProposalMock,
 }))
 
 // The panel subscribes to the facilitator's own user channel for progress
@@ -90,6 +98,7 @@ beforeEach(() => {
   sessionMe.value = null
   getOwnRoundSessionMock.mockResolvedValue(null)
   getActivationProgressMock.mockResolvedValue({ completed: 0, in_progress: 0 })
+  listGroupProposalsMock.mockResolvedValue({ items: [], eligible_groups: [] })
 })
 
 afterEach(() => {
@@ -102,7 +111,145 @@ afterEach(() => {
   getActivationProgressMock.mockReset()
   getOwnRoundSessionMock.mockReset()
   submitActivityMock.mockReset()
+  listGroupProposalsMock.mockReset()
+  createGroupProposalMock.mockReset()
+  voteOnGroupProposalMock.mockReset()
+  withdrawGroupProposalMock.mockReset()
   for (const key of Object.keys(wsHandlers)) delete wsHandlers[key]
+})
+
+describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
+  const GROUP_CONFIG = { consent: { numerator: 2, denominator: 3 } }
+
+  async function panel(over: {
+    groupConfig?: Record<string, unknown> | null
+    eligible?: Array<{ id: string; name: string }>
+    items?: unknown[]
+  } = {}) {
+    sessionMe.value = { id: 'u_bob' }
+    getActiveActivationMock.mockResolvedValue(
+      activeActivation({
+        // `??` would fold an explicit null back to the default, which is the
+        // exact case these tests exist to distinguish.
+        activity_type: publicType({
+          group_config: 'groupConfig' in over ? over.groupConfig : GROUP_CONFIG,
+        }),
+      }),
+    )
+    listActivityTypesMock.mockResolvedValue([])
+    listGroupProposalsMock.mockResolvedValue({
+      items: over.items ?? [],
+      eligible_groups: over.eligible ?? [{ id: 'g1', name: 'Group A' }],
+    })
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('offers the group form when the type declares a fraction and the caller has a group', async () => {
+    const wrapper = await panel()
+
+    expect(wrapper.text()).toContain('activities.group.intro')
+    expect(wrapper.find('form').exists()).toBe(true)
+    // No personal "I am finished": the answer belongs to a subject this
+    // participant is only part of ([R30.39]).
+    expect(wrapper.text()).not.toContain('activities.panel.markDone')
+  })
+
+  it('stays on the individual path for a type with no fraction', async () => {
+    // AC-2 in the panel: an individual-only type behaves exactly as before, and
+    // the group read is not even issued.
+    const wrapper = await panel({ groupConfig: null })
+
+    expect(wrapper.text()).not.toContain('activities.group.intro')
+    expect(wrapper.text()).toContain('activities.panel.markDone')
+    expect(listGroupProposalsMock).not.toHaveBeenCalled()
+  })
+
+  it('stays on the individual path for a caller the server put in no group', async () => {
+    // A guest can never belong to a Member Group (OQ-1), and a student in a
+    // group-submission room who somehow is not grouped must still be able to
+    // answer rather than face a picker with nothing in it.
+    const wrapper = await panel({ eligible: [] })
+
+    expect(wrapper.text()).not.toContain('activities.group.intro')
+    expect(wrapper.text()).toContain('activities.panel.markDone')
+  })
+
+  it('ignores a group_config whose shape this client does not understand', async () => {
+    const wrapper = await panel({ groupConfig: { consent: { numerator: 'two' } } })
+
+    expect(wrapper.text()).not.toContain('activities.group.intro')
+    expect(listGroupProposalsMock).not.toHaveBeenCalled()
+  })
+
+  it('preselects the single group rather than asking for a click that carries no decision', async () => {
+    const wrapper = await panel()
+
+    expect(wrapper.findAll('select')).toHaveLength(0)
+    expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('asks which group when the caller belongs to more than one', async () => {
+    const wrapper = await panel({
+      eligible: [
+        { id: 'g1', name: 'Group A' },
+        { id: 'g2', name: 'Group B' },
+      ],
+    })
+
+    expect(wrapper.findAll('select')).toHaveLength(1)
+    // Nothing is preselected, so the form cannot post to an arbitrary group.
+    expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('proposes for the preselected group', async () => {
+    createGroupProposalMock.mockResolvedValue({})
+    const wrapper = await panel()
+
+    await wrapper.find('form input').setValue('our answer')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createGroupProposalMock).toHaveBeenCalledWith('c1', {
+      activity_type_id: 'at_1',
+      member_group_id: 'g1',
+      payload: { answer: 'our answer' },
+    })
+    expect(submitActivityMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the card instead of the form once a proposal is open', async () => {
+    const wrapper = await panel({
+      items: [
+        {
+          id: 'p_1',
+          chatroom_id: 'c1',
+          activation_id: 'act_1',
+          activity_type_id: 'at_1',
+          member_group_id: 'g1',
+          proposer_user_id: 'u_alice',
+          payload: { answer: 'ours' },
+          status: 'open',
+          required_approvals: 2,
+          approvals: 1,
+          rejections: 0,
+          undecided: 2,
+          voter_count: 3,
+          votes: [],
+          created_at: null,
+          expires_at: null,
+          resolved_at: null,
+          submission_id: null,
+        },
+      ],
+    })
+
+    expect(wrapper.find('[data-testid="group-proposal-card"]').exists()).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(false)
+  })
 })
 
 describe('ActivityPanel — platform policy refusal (AC-14)', () => {

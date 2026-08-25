@@ -3,6 +3,9 @@
 
 import type {
   ActivityActivationProgressOut,
+  ActivityGroupProposalOut,
+  ActivityGroupVoteOut,
+  ActivityMemberGroupRefOut,
   ActivitySessionOut,
   ActivitySubmissionOut,
   ActivityTypeOut,
@@ -38,6 +41,51 @@ export interface ActivationView {
    *  since been deleted, which is why they are two fields and not one. */
   startedByAgentId?: string | null
   startedByAgentName?: string | null
+}
+
+/** A group's proposal and where its vote stands ([R30.41]). Carries the payload,
+ *  because its readers are the people being asked to approve it — unlike the
+ *  room broadcast, which is counts only. */
+export type ActivityGroupProposal = ActivityGroupProposalOut
+/** One pinned voter's decision. Empty for a caller not entitled to the
+ *  per-person record ([R30.42]); the counts on the proposal are still there. */
+export type ActivityGroupVote = ActivityGroupVoteOut
+/** A group the caller may propose for: id and display name, nothing else. */
+export type ActivityMemberGroupRef = ActivityMemberGroupRefOut
+
+/** A proposal's lifecycle. `open` is the only state that accepts a vote; every
+ *  other one is terminal ([R30.41]). */
+export type ProposalStatus = 'open' | 'accepted' | 'rejected' | 'withdrawn' | 'expired'
+
+const TERMINAL_PROPOSAL_STATUSES = new Set(['accepted', 'rejected', 'withdrawn', 'expired'])
+
+/** Whether a proposal has settled. An unrecognized status is treated as open,
+ *  matching `normalizeValidationStatus`'s bias: the client keeps showing a card
+ *  it cannot classify rather than silently hiding a live vote. */
+export function isProposalOpen(status: string): boolean {
+  return !TERMINAL_PROPOSAL_STATUSES.has(status)
+}
+
+/** The consent fraction a type declares ([R30.40]). `group_config` is a bare
+ *  JSON object on the wire; this is the only shape the panel reads out of it. */
+export interface GroupConsent {
+  numerator: number
+  denominator: number
+}
+
+/** Read the consent fraction off a type's `group_config`, or null when the type
+ *  is individual-only or its config is not the shape this client understands.
+ *
+ *  Null is the safe answer in both cases: the panel falls back to the individual
+ *  path, and the server is the authority on whether a group submission is
+ *  possible at all. */
+export function readGroupConsent(groupConfig: Record<string, unknown> | null | undefined): GroupConsent | null {
+  const consent = (groupConfig ?? {}).consent
+  if (!consent || typeof consent !== 'object') return null
+  const { numerator, denominator } = consent as Record<string, unknown>
+  if (!Number.isInteger(numerator) || !Number.isInteger(denominator)) return null
+  if ((numerator as number) <= 0 || (denominator as number) <= 0) return null
+  return { numerator: numerator as number, denominator: denominator as number }
 }
 
 export type { ActivityValidationStatus, ActivitySubmissionResult } from '../sdk/types'

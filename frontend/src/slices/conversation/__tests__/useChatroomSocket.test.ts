@@ -416,6 +416,70 @@ describe('useChatroomSocket agent streaming', () => {
     expect(activities.getActivation(ROOM)).toBeNull()
   })
 
+  it('routes a proposal broadcast into the store as counts', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    activities.setRound(ROOM, {
+      activationId: 'activation_1',
+      proposals: [
+        {
+          id: 'p_1',
+          chatroom_id: ROOM,
+          activation_id: 'activation_1',
+          activity_type_id: 'type_1',
+          member_group_id: 'g1',
+          proposer_user_id: 'u1',
+          payload: { answer: 'ours' },
+          status: 'open',
+          required_approvals: 2,
+          approvals: 1,
+          rejections: 0,
+          undecided: 2,
+          voter_count: 3,
+          votes: [],
+          created_at: null,
+          expires_at: null,
+          resolved_at: null,
+          submission_id: null,
+        },
+      ],
+      eligibleGroups: [{ id: 'g1', name: 'Group A' }],
+    })
+
+    emit({
+      type: 'activity.proposal.voted',
+      proposal_id: 'p_1',
+      member_group_id: 'g1',
+      status: 'open',
+      approvals: 2,
+      rejections: 0,
+      undecided: 1,
+      required_approvals: 2,
+      voter_count: 3,
+    })
+
+    expect(activities.getProposalRoom(ROOM)?.proposals.p_1?.approvals).toBe(2)
+  })
+
+  it('drops every proposal card when the round ends (AC-9)', () => {
+    // Ending a round expires its open proposals server-side, and the end
+    // broadcast is the only announcement of that (FU-8) — so the cards go with
+    // the activation rather than waiting for an event that never comes.
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    activities.setRound(ROOM, {
+      activationId: 'activation_1',
+      proposals: [],
+      eligibleGroups: [{ id: 'g1', name: 'Group A' }],
+    })
+
+    emit({ type: 'activity.activation.ended', activation_id: 'activation_1' })
+
+    expect(activities.getProposalRoom(ROOM)).toBeUndefined()
+  })
+
   it('hydrates the current activation after reconnecting', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper

@@ -136,3 +136,120 @@ describe('activities store', () => {
     expect(store.getActivation('c1')?.activityType).toBeNull()
   })
 })
+
+describe('group proposal state ([R30.42])', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  const round = {
+    activationId: 'act_1',
+    proposals: [
+      {
+        id: 'p_1',
+        chatroom_id: 'c1',
+        activation_id: 'act_1',
+        activity_type_id: 'at_1',
+        member_group_id: 'g1',
+        proposer_user_id: 'u1',
+        payload: { answer: 'ours' },
+        status: 'open',
+        required_approvals: 2,
+        approvals: 1,
+        rejections: 0,
+        undecided: 2,
+        voter_count: 3,
+        votes: [],
+        created_at: null,
+        expires_at: null,
+        resolved_at: null,
+        submission_id: null,
+      },
+    ],
+    eligibleGroups: [{ id: 'g1', name: 'Group A' }],
+  }
+
+  it('adopts a round wholesale, replacing rather than merging', () => {
+    // The read IS the authorization boundary: a proposal it stopped returning
+    // is one this caller may no longer see, and keeping it would leave a card
+    // the server has stopped vouching for.
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+    store.setRound('c1', { ...round, proposals: [] })
+
+    expect(store.getProposalRoom('c1')?.proposals).toEqual({})
+  })
+
+  it('never inserts a proposal it only heard about over the room channel', () => {
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+
+    store.applyProposalEvent('c1', {
+      proposalId: 'p_other',
+      memberGroupId: 'g2',
+      status: 'open',
+      approvals: 1,
+    })
+
+    expect(Object.keys(store.getProposalRoom('c1')?.proposals ?? {})).toEqual(['p_1'])
+    expect(store.getProposalRoom('c1')?.unseenGroupIds).toEqual(['g2'])
+  })
+
+  it('records an unseen group once, however many events it sends', () => {
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+
+    for (const status of ['opened', 'voted']) {
+      store.applyProposalEvent('c1', {
+        proposalId: `p_${status}`,
+        memberGroupId: 'g2',
+        status: 'open',
+      })
+    }
+
+    expect(store.getProposalRoom('c1')?.unseenGroupIds).toEqual(['g2'])
+  })
+
+  it('keeps every count the expiry sweep did not send', () => {
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+
+    store.applyProposalEvent('c1', {
+      proposalId: 'p_1',
+      memberGroupId: 'g1',
+      status: 'expired',
+    })
+
+    const stored = store.getProposalRoom('c1')?.proposals.p_1
+    expect(stored?.status).toBe('expired')
+    expect(stored?.approvals).toBe(1)
+    expect(stored?.undecided).toBe(2)
+    expect(stored?.required_approvals).toBe(2)
+  })
+
+  it('adopts a zero count the broadcast did send', () => {
+    // `?? known` and not `|| known`: 0 rejections is a real answer and the one
+    // a group is most often at.
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+
+    store.applyProposalEvent('c1', {
+      proposalId: 'p_1',
+      memberGroupId: 'g1',
+      status: 'open',
+      undecided: 0,
+      approvals: 3,
+    })
+
+    expect(store.getProposalRoom('c1')?.proposals.p_1?.undecided).toBe(0)
+  })
+
+  it('clears the group state with the room and with the session', () => {
+    const store = useActivitiesStore()
+    store.setRound('c1', round)
+    store.resetRoom('c1')
+    expect(store.getProposalRoom('c1')).toBeUndefined()
+
+    store.setRound('c2', round)
+    store.clearAll()
+    expect(store.getProposalRoom('c2')).toBeUndefined()
+  })
+})

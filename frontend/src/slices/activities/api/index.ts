@@ -7,6 +7,8 @@
 import { ActivitiesService } from '@shared/api-client'
 import type {
   ActivityActivationProgressOut,
+  ActivityGroupProposalOut,
+  ActivityGroupProposalsOut,
   ActivityPolicyPublicOut,
   ActivitySessionOpenIn,
   ActivitySessionOut,
@@ -207,6 +209,57 @@ export async function submitActivity(
     chatroomId,
     requestBody: body,
   })
+}
+
+/** One round's group state for the caller ([R30.41], [R30.42]).
+ *
+ *  Two answers in one response on purpose: the proposals this caller may read,
+ *  and the groups they may propose for. `eligible_groups` being empty is also
+ *  the panel's signal that this caller submits individually — the server has
+ *  already applied the three gates a proposal would run, so the client never
+ *  decides eligibility itself. */
+export async function listGroupProposals(
+  chatroomId: string,
+  activationId: string,
+): Promise<ActivityGroupProposalsOut> {
+  return ActivitiesService.listActivityGroupProposalsApiChatroomsChatroomIdActivityProposalsGet({
+    chatroomId,
+    activationId,
+  })
+}
+
+/** Open a proposal for one group's answer. The server refuses a payload that
+ *  does not already satisfy the type schema, so a proposal nobody could accept
+ *  fails here rather than after three people have voted for it. */
+export async function createGroupProposal(
+  chatroomId: string,
+  body: { activity_type_id: string; member_group_id: string; payload: Record<string, unknown> },
+): Promise<ActivityGroupProposalOut> {
+  return ActivitiesService.createActivityGroupProposalApiChatroomsChatroomIdActivityProposalsPost({
+    chatroomId,
+    requestBody: body,
+  })
+}
+
+/** Record this caller's vote. The response is the whole tally after it, which
+ *  may already be `accepted` — the vote that reaches the threshold submits. */
+export async function voteOnGroupProposal(
+  chatroomId: string,
+  proposalId: string,
+  approve: boolean,
+): Promise<ActivityGroupProposalOut> {
+  return ActivitiesService.voteOnActivityGroupProposalApiChatroomsChatroomIdActivityProposalsProposalIdVotesPost(
+    { chatroomId, proposalId, requestBody: { approve } },
+  )
+}
+
+export async function withdrawGroupProposal(
+  chatroomId: string,
+  proposalId: string,
+): Promise<ActivityGroupProposalOut> {
+  return ActivitiesService.withdrawActivityGroupProposalApiChatroomsChatroomIdActivityProposalsProposalIdWithdrawPost(
+    { chatroomId, proposalId },
+  )
 }
 
 export interface ListSubmissionsParams {
