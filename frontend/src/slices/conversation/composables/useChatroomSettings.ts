@@ -236,6 +236,24 @@ export function useChatroomSettings(chatroomId: string) {
    *  would be its own unasked-for change. */
   async function setFlag(key: AccessFlag, value: boolean): Promise<void> {
     if (value && key === 'allow_member_groups') {
+      // AC-18. The exclusivity above is not a detail of the request, it is a
+      // change to who can enter the room: every project member who is in no
+      // bound group loses access the moment this lands. A teacher enabling
+      // group submission is thinking about submitting, not about the door, and
+      // R13.04 is deliberate — so nothing but saying it here can prevent the
+      // confused first setup this is the single most likely source of (OQ-2).
+      // Asked before the patch rather than explained after it, because after it
+      // the students are already locked out.
+      if (flags.value.allow_project_members) {
+        const ok = await confirm({
+          title: t('conversation.settings.memberGroupsExclusiveTitle'),
+          message: t('conversation.settings.memberGroupsExclusiveWarning'),
+          confirmLabel: t('conversation.settings.memberGroupsExclusiveConfirm'),
+          cancelLabel: t('app.cancel'),
+          variant: 'warning',
+        })
+        if (!ok) return
+      }
       await patchFlag({ allow_member_groups: true, allow_project_members: false })
       return
     }

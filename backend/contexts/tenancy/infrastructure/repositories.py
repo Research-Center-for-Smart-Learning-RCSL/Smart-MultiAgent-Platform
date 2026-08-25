@@ -691,6 +691,29 @@ class MemberGroupRepository:
         ).all()
         return {r.id for r in rows}
 
+    async def names_by_id(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Live group names for a candidate set, keyed by id.
+
+        One query rather than an N+1 of `get()`, the shape
+        :meth:`live_ids_in_project` already uses. Deliberately NOT scoped to a
+        project: the caller is naming groups it has already read off its own
+        rows, and it holds no project to scope by. Nothing about the group beyond
+        its name leaves here, and a deleted or unknown id is simply absent.
+        """
+        if not group_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.member_groups.c.id, t.member_groups.c.name).where(
+                    sa.and_(
+                        t.member_groups.c.id.in_(list(group_ids)),
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.id: r.name for r in rows}
+
     async def list_for_project(self, project_id: uuid.UUID) -> Sequence[MemberGroup]:
         rows = (
             await self._db.execute(
@@ -802,6 +825,49 @@ class MemberGroupRepository:
             )
         ).all()
         return {r.member_group_id for r in rows}
+
+    async def member_ids(self, group_id: uuid.UUID) -> set[uuid.UUID]:
+        """Every user in one live group **who still has standing in its project**.
+
+        The inverse of :meth:`group_ids_for_user`, and it carries that method's
+        `project_members` join for the same load-bearing reason (read its SEC
+        note): `project_members` rows are deleted straight at the repository
+        layer by paths that know nothing about groups, so a lapsed membership can
+        leave a `member_group_members` row behind. Asking the question this way
+        makes such a row inert by construction.
+
+        That matters more here than in the room ACL. This set is pinned as a
+        ballot: a leftover row would hand a departed member a vote, and their
+        silence would then hold the group's threshold hostage for the rest of the
+        round.
+
+        Empty for a deleted or unknown group, which is also what a group with no
+        standing members returns.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.member_group_members.c.user_id)
+                .select_from(
+                    t.member_group_members.join(
+                        t.member_groups,
+                        t.member_groups.c.id == t.member_group_members.c.member_group_id,
+                    ).join(
+                        t.project_members,
+                        sa.and_(
+                            t.project_members.c.project_id == t.member_groups.c.project_id,
+                            t.project_members.c.user_id == t.member_group_members.c.user_id,
+                        ),
+                    )
+                )
+                .where(
+                    sa.and_(
+                        t.member_group_members.c.member_group_id == group_id,
+                        t.member_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.user_id for r in rows}
 
     async def rename(self, *, group_id: uuid.UUID, new_name: str, expected_version: int) -> MemberGroup:
         stmt = (

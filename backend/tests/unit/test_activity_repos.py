@@ -127,6 +127,99 @@ class TestSubmissionRepoScoping:
         assert "activity_submissions.agent_digest" in compiled
         assert "activity_types.expose_payload_to_agent" in compiled
 
+    @staticmethod
+    def _recent_row(**over: object) -> SimpleNamespace:
+        """One joined row of `list_recent_for_room`'s SELECT."""
+        base: dict[str, object] = {
+            "created_at": datetime(2026, 8, 24, tzinfo=UTC),
+            "subject_user_id": uuid.uuid4(),
+            "subject_member_group_id": None,
+            "attempt_no": 1,
+            "type_key": "mandala-9grid",
+            "validation_status": "validated",
+            "is_valid": True,
+            "error_class": None,
+            "agent_digest": None,
+            "payload": {},
+            "validator_kind": "in_process",
+            "expose_payload_to_agent": True,
+        }
+        base.update(over)
+        return SimpleNamespace(**base)
+
+    async def test_recent_rows_say_where_each_digest_came_from(self) -> None:
+        """AC-18. Derived by rebuilding the deterministic payload fallback and
+        comparing, so it is exact for rows written before the distinction existed
+        — which no backfilled column could be. The payload is read to answer the
+        question and dropped; it never reaches `RecentActivityRow`."""
+        from contexts.activities.domain.agent_digest import build_agent_digest
+
+        payload = {"home": "a house by the sea", "work": ""}
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            self._recent_row(agent_digest=build_agent_digest(payload=payload, detail=None), payload=payload),
+            self._recent_row(attempt_no=2, agent_digest="1/2 fields answered: home", payload=payload),
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert [r.digest_is_computed for r in rows] == [False, True]
+        assert "a house by the sea" not in repr([r for r in rows if r.digest_is_computed])
+
+    async def test_a_row_with_no_digest_is_not_reported_as_computed(self) -> None:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            self._recent_row(validation_status="pending", is_valid=None, type_key="k", payload={"a": "b"})
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert rows[0].digest_is_computed is False
+
+    @pytest.mark.parametrize("kind", ["webhook", "mcp"])
+    async def test_a_third_party_validators_detail_is_never_vouched_for(self, kind: str) -> None:
+        """The `::` marker is a promise that the text "never contains" the
+        participant's words, and the shipped AA prompt makes it quotable even for
+        the unit whose answers must never be quoted.
+
+        "Differs from the payload fallback" only proves SOME detail was used, and
+        `submission_service` stores an mcp or webhook validator's detail verbatim.
+        A remote validator echoing the answer back in its detail would otherwise
+        have lifted that answer straight out of a no-quote activity type.
+        """
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            self._recent_row(
+                agent_digest="looks good: a house by the sea",
+                payload={"home": "a house by the sea"},
+                validator_kind=kind,
+            )
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert rows[0].digest_is_computed is False
+
+    async def test_an_unknown_validator_kind_falls_to_the_participant_marker(self) -> None:
+        """The safe direction: that marker forbids quoting rather than licensing
+        it, so a kind this code does not recognise costs caution, not silence."""
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            self._recent_row(agent_digest="anything at all", payload={"a": "b"}, validator_kind=None)
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert rows[0].digest_is_computed is False
+
     async def test_record_validation_transitions_only_from_pending(self) -> None:
         db = AsyncMock()
         result = MagicMock()

@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-24
 requirements: [R28.01, R28.03, R28.05, R28.06, R28.08, R28.12, R28.13, R30.15, R30.27, R30.37]
 depends_on: [2026-08-24-traceability-extraction-gate]
@@ -507,49 +507,87 @@ creator-only UI.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: An observer turn that calls `present_observation` with a valid block array stores
+- [x] AC-1: An observer turn that calls `present_observation` with a valid block array stores
       those blocks on `agent_observations.blocks` and a markdown serialisation on
       `content_md`; nothing is written to `messages`.
-- [ ] AC-2: A normal-role agent's turn is never offered `present_observation`, in any room,
+      *`test_observer_agents.py::test_an_observer_turn_records_its_blocks_and_their_serialisation`.*
+- [x] AC-2: A normal-role agent's turn is never offered `present_observation`, in any room,
       including one where it holds an activity-control grant.
-- [ ] AC-3: An observer turn that does not call the tool stores `blocks = []` and
+      *`test_observer_presentation_tools.py::TestResolution::test_a_normal_role_binding_resolves_nothing`
+      and `TestAssembly::test_a_normal_role_turn_is_never_offered_the_tool`. The engine half
+      asserts `is_observer` is threaded from the role `run_turn` already resolved.*
+- [x] AC-3: An observer turn that does not call the tool stores `blocks = []` and
       `content_md = final_text`, byte-identical to today.
-- [ ] AC-4: A block array that violates the schema is rejected with a violation list, the
+      *`test_an_observer_turn_that_never_calls_the_tool_is_byte_identical_to_before`, plus
+      `test_create_without_blocks_writes_an_empty_array` at the repository.*
+- [x] AC-4: A block array that violates the schema is rejected with a violation list, the
       model may retry within the turn's tool-round cap, and a turn whose blocks never validate
       still records the prose.
-- [ ] AC-5: `type_key` outside the room's reachable types is unrepresentable — the tool's
+      *`test_observation_blocks.py::TestSchema` asserts through `schema_violations`, the same
+      function `ToolRegistry.call` runs before `invoke`. Every refusal test asserts the sink is
+      left empty, which is what leaves the prose to be recorded.*
+- [x] AC-5: `type_key` outside the room's reachable types is unrepresentable — the tool's
       `input_schema` carries an enum, and the invoke path rejects a value not in it.
-- [ ] AC-6: A `field_coverage` / `mandala_grid` / `attempt_table` block's numbers come from
+      *`test_the_type_enum_is_exactly_the_rooms_reachable_set` and
+      `test_a_type_key_not_in_the_mapping_is_refused_rather_than_queried`.*
+- [x] AC-6: A `field_coverage` / `mandala_grid` / `attempt_table` block's numbers come from
       the server aggregate. A tool call that supplies its own counts is rejected as an
       unknown property.
-- [ ] AC-7: No aggregate output contains a participant display name, a login email, or any
+      *`test_a_computed_block_that_supplies_its_own_numbers_is_rejected`, four shapes. **The
+      SQL half runs on CI** — see §17.*
+- [x] AC-7: No aggregate output contains a participant display name, a login email, or any
       payload value — only `u:` codes, declared field names, and counts.
-- [ ] AC-8: Every rendered non-prose block shows a basis sentence from the platform's i18n
+      *Unit: `test_no_payload_value_reaches_sub_scores_or_detail`,
+      `test_rows_carry_codes_and_the_denominator_is_submissions`,
+      `test_the_repository_maps_to_domain_rows_and_owns_the_off_by_one`. **The
+      over-real-data half runs on CI** — see §17.*
+- [x] AC-8: Every rendered non-prose block shows a basis sentence from the platform's i18n
       catalogue, and every computed block shows a submissions-counted denominator. Neither is
       suppressible by a tool argument.
-- [ ] AC-9: No computed block renders a percentage of participants, a rate, or any label that
+      *`ObservationBlocks.test.ts`. Both live on the shared block frame, so no computed kind
+      can ship without either, and the schema rejects a `basis` on a computed block outright.*
+- [x] AC-9: No computed block renders a percentage of participants, a rate, or any label that
       reads as coverage of a class.
-- [ ] AC-10: Releasing a block-carrying observation to the room produces the same
+      *`test_renders_no_percentage_and_no_participant_denominator`, and the markdown side in
+      `test_a_computed_block_renders_a_table_and_a_submissions_denominator`.*
+- [x] AC-10: Releasing a block-carrying observation to the room produces the same
       `sender_type=system` message shape as today, with the serialised markdown as the body;
       the release dialog's override still edits plain text.
-- [ ] AC-11: `filled_count_coverage` produces the same valid/invalid verdict as `filled_count`
+      *`test_releasing_a_block_carrying_observation_is_the_same_message` and
+      `test_a_release_override_replaces_the_serialisation`.*
+- [x] AC-11: `filled_count_coverage` produces the same valid/invalid verdict as `filled_count`
       for the same payload and config, adds `filled_fields`, and sets a `detail` containing
       field names and no field values. `filled_count`'s own behaviour is unchanged.
-- [ ] AC-12: `docs/examples/creative-thinking-course.md` documents the new blocks, the
+      *`TestFilledCountCoverageValidator`, including a six-case parity table run through both
+      scorers.*
+- [x] AC-12: `docs/examples/creative-thinking-course.md` documents the new blocks, the
       validator change, and the delete-then-reinstall upgrade path for an existing install.
-- [ ] AC-13: An observation whose `blocks` contains an unknown `kind` renders its title and a
+- [x] AC-13: An observation whose `blocks` contains an unknown `kind` renders its title and a
       "cannot display" line; the panel does not throw and the other blocks still render.
-- [ ] AC-14: `pnpm lint` passes with no new file added to the gate #4 `v-html` allowlist.
-- [ ] AC-16: An observer turn that calls `present_observation` with valid blocks and then
+      *`test_renders_an_unknown_kind_as_a_cannot_display_line_without_throwing`.*
+- [x] AC-14: `pnpm lint` passes with no new file added to the gate #4 `v-html` allowlist.
+      *`eslint.config.js` is not in the task diff; a prose block reaches the card's existing
+      binding through a scoped slot.*
+- [x] AC-16: An observer turn that calls `present_observation` with valid blocks and then
       produces **no prose** records the observation, with `content_md` set to the blocks'
       serialisation. It is not reported as `observation.skipped`, and no block is lost.
-- [ ] AC-17: The same turn with `synthesis_failed` also records, keeps `synthesis_meta` on the
+      *`test_blocks_with_no_prose_are_recorded_rather_than_skipped`, mutation-probed against
+      the old text-only guard.*
+- [x] AC-17: The same turn with `synthesis_failed` also records, keeps `synthesis_meta` on the
       observation, and is not filed as `empty_reply`. An observer turn with neither text nor
       blocks is still a skip, and a normal-role turn's empty-text behaviour is unchanged.
-- [ ] AC-18: A row whose digest came from a validator `detail` is not described by the context
+      *`test_blocks_survive_a_failed_synthesis_and_are_marked_not_filed_as_empty`,
+      `test_neither_text_nor_blocks_is_still_a_skip`, and D-4's
+      `test_blocks_that_render_to_nothing_are_still_an_empty_turn`.*
+- [x] AC-18: A row whose digest came from a validator `detail` is not described by the context
       block as the participant's own words; a payload-fallback digest still is.
+      *`TestDigestProvenance`, mutation-probed against a single shared marker.*
 - [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`.
+      **Unticked pending CI**, and deliberately so. Everything runnable on this host is green:
+      the `pytest` unit tier (7397 passed, 6 skipped), `ruff check`, `ruff format --check`,
+      `mypy`, `lint-imports`, `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`. What
+      is left needs infrastructure this host does not have — see §17.
 
 ## 12. Test Plan
 
@@ -633,7 +671,84 @@ blocks**, placed after §28.5:
 
 ## 15. Deviation Log
 
-Empty. Appended by `/build`.
+- **D-1. AC-18 needed a fact §6 said would not exist, so `RecentActivityRow` gained one
+  field.** §6 states "no change to `RecentActivityRow`", and AC-18 requires the context block
+  to tell a validator-`detail` digest from a payload-fallback one per row. No such
+  distinction is stored: `activity_submissions.agent_digest` is one `TEXT` column written
+  either way (`submission_service.py:182`, `:284`). The row gains
+  `digest_is_computed: bool`, **derived** in `list_recent_for_room` by rebuilding the
+  deterministic fallback and comparing, not stored. Derivation was chosen over a column
+  because it is also correct for every row written before the distinction existed, which a
+  backfilled column could not be — and the wrong guess is the unsafe direction, since it
+  would let the block vouch for computed text as the participant's own words. The payload is
+  read inside the repository to answer the question and dropped; nothing about it reaches the
+  read model, so the non-goal's actual intent (do not widen the agent-visible surface) holds.
+
+- **D-2. The computed digest took a new row marker, `::`, and all four shipped prompts moved
+  with it.** §6 scoped the prompt edit to AA and said "TA and SA are not touched". Splitting
+  `_CONTENT_NOTE` in place would have left a note saying "some rows are computed" with nothing
+  marking which, and — worse — TA's, SA's and DA's prompts all state the em-dash rule verbatim
+  ("破折號後面的文字是學生自己寫的作答"), which becomes false for these four types on every row
+  once they adopt `filled_count_coverage`. The em dash keeps its shipped meaning and the
+  computed case takes `::`, so each prompt's existing sentence stays true and gains one more.
+  DA is included because it drafts TA and SA prompt text: leaving it out would ship a designer
+  that writes the stale rule into every new unit's prompt.
+
+- **D-3. Two read models and two pure helpers landed in `domain/`, not `application/`.** §6
+  says the activities change is "three new read-only aggregate methods… no domain change".
+  The read models (`FieldCoverage`, `MandalaGrid`, `AttemptSummary` and their rows) sit beside
+  `RecentActivityRow` and `ActivityAggregate`, which is where this context already keeps read
+  models. `subject_code` and `agent_digest` moved there too, from `application/`: the
+  repository needs both — one to build an attempt row, one to answer D-1's question — and an
+  infrastructure module importing an application one is an upward dependency. Both are pure
+  and framework-free, so `domain/` is where they belong. `lint-imports` passes; it could not
+  have caught the original direction, since its contracts enforce domain purity only.
+
+- **D-4. §5.5's "non-empty by construction" was not true, and is now true by checking.** The
+  spec argues the blocks serialise to a non-empty `content_md` by construction, so the widened
+  empty-turn guard cannot persist an empty observation. It can: `minLength: 1` accepts a
+  single space and `schema_violations` strips `pattern` outright (`tool_registry.py:178`), so
+  a whitespace-only `prose` block is schema-valid and serialises to `""`. With no prose in the
+  turn either, the observer branch recorded an empty observation. The tool now refuses such an
+  array with a reason the model can act on, and the engine's guard tests the **serialisation**
+  rather than the sink, so the invariant holds either way.
+
+- **D-5. `_observer_memory_block` had to learn that a body is multi-line.** Q-1 names the
+  observer's own memory window ([R28.05]) as a consumer of the serialisation, and that window
+  renders one observation per `- (timestamp)` line. A serialised block array is a whole
+  markdown document, so its own `- ` lines read as new memory entries and its headings land at
+  the top level of the system prompt. Continuation lines are indented under their entry now.
+  The defect predates this task — a model could always write a multi-line reply — but this
+  change makes multi-line the normal case rather than the occasional one.
+
+- **D-7. Only three of the four example types adopted the coverage validator, and the two
+  unit-2 prompts split.** §6 moves all four; a post-build `/code-review` found that doing so
+  silently reverses `2026-08-24-example-agents-quote-unit-two`, which is `implemented` and
+  whose entire purpose was making unit-2 answers quotable. `filled_count_coverage` always
+  sets a `detail`, and `build_agent_digest` prefers `detail` over the payload dump, so every
+  adopting type stops putting any student writing in front of any agent. Q-4 called that "a
+  privacy improvement" without noticing the collision. The user chose the split:
+
+  | Key | Validator | Why |
+  |---|---|---|
+  | `mandala-9grid` | `filled_count_coverage` | The course's only nine-field type, so the only possible subject of a `mandala_grid` block. Without it that kind ships dead. |
+  | `time-traveler-next-steps` | `filled_count` | One declared field: coverage could only ever read `1/1 fields answered`, so adopting it would cost the answer text for nothing. |
+  | `emotion-desk-three-emotions` | `filled_count_coverage` | Never quotable, so replacing the dump with field names removes text no agent was allowed to use. |
+  | `six-hats-emotion-desk` | `filled_count_coverage` | As above. |
+
+  The residual cost is real and is stated rather than hidden: TA and SA can no longer quote
+  or build on a mandala cell. All three room prompts now say they cannot see that type's
+  content, know only which cells were filled, and should hand the question back to the
+  student — a *third* case beside quotable and unquotable, because an agent that treats "I
+  may not quote this" and "I cannot see this" as the same rule answers with a fabrication
+  rather than a refusal. The guide's dry-run checklist gains an item for exactly that.
+
+- **D-6. The authoring form's `min_filled` sub-form covers both validator ids.** Not in §6 at
+  all. `GET /api/activity-validators` lists every registered validator, so
+  `filled_count_coverage` appears in the picker the moment it registers; the form's sub-form
+  was gated on the literal `filled_count`, so selecting the new one produced a config with no
+  `min_filled` and the backend refused every save. Shipping a picker entry whose only legal
+  config the form cannot produce is a defect this change would have introduced.
 
 ## 16. Follow-ups
 
@@ -650,3 +765,55 @@ Empty. Appended by `/build`.
 - **FU-4.** `filled_count` and `filled_count_coverage` will differ only in their extra
   outputs. If the platform ever decides the coverage fact is universally wanted, they should
   merge — but that is the platform change this task was explicitly scoped away from (Q-4).
+
+- **FU-5.** `observation_blocks.py` is ~680 lines carrying the schema builder, the
+  materialiser and the serialiser. That is past the file-size calibration and it was a
+  deliberate call: adding a seventh block kind means editing all three, and keeping them
+  adjacent is what makes an omission obvious. Worth revisiting if a second layout hint
+  arrives (see FU-3), which is the change that would split them along a real seam.
+
+- **FU-6.** `ObservationAggregateService` instantiates `ActivitySubmissionRepository`
+  directly, as `AggregationService` does two files over. Consistent with the context and
+  wrong by dimension 7; it belongs to whoever inverts that dependency for the context as a
+  whole, not to one new service.
+
+- **FU-7.** The intermittent `AgentToolsView.test.ts` CodeMirror failure reproduced once
+  during a full `pnpm test` on this host and passed in isolation immediately after. It is
+  the same failure `2026-08-22-visual-refinement-phase3-verification-and-debt` recorded as
+  host-wide thin headroom rather than a file-specific timeout, and it is untouched by this
+  task.
+
+- **FU-8.** `resolve_observation_presentation` offers every type reachable from the room's
+  **project**, not only those ever activated in this room. No data crosses: the aggregates
+  are room-scoped, so an unused type yields nothing and the tool refuses the block. But the
+  enum names worksheets the room has never run, which is noise in the tool description. A
+  room-scoped type list would be a second query per turn; worth it only if the enum gets long.
+
+## 17. What has not been verified on this host
+
+Recorded rather than closed by reasoning. Each item below has a written test that runs, or a
+command that exists; none of them has been *executed*, and the reason is the same in every
+case: this host has no Docker daemon, so the compose network the `db`, `integration` and
+`wiring` tiers bind to does not exist (`get_settings().database.dsn` resolves to the compose
+hostname `postgres`, which does not answer here).
+
+- **The `db` tier.** `backend/tests/integration/test_observation_aggregates_db.py` — 10 tests
+  covering exactly what the unit tier structurally cannot see (`backend/CLAUDE.md`): that
+  `@>` is **false** rather than an error for a submission carrying no `filled_fields`, which
+  is the mid-course upgrade case the whole design turns on; that window functions are
+  evaluated before `DISTINCT ON`, so each subject's `attempts` covers their whole set; and
+  that the `jsonb` cast of a bound text parameter resolves at all. It collects cleanly. AC-6
+  and AC-7 are ticked on their unit halves; this is the other half.
+- **`alembic upgrade head` and its downgrade.** Migration 0080 adds one JSONB column with a
+  server default and drops it on the way down. The chain is linear (only 0080 revises 0079)
+  and `test_migration_autocommit_ordering.py` passes, but neither direction has been run
+  against a real database.
+- **`pnpm check:openapi-drift`.** A bash script, and this host is PowerShell — the same
+  blocker three earlier dossiers recorded for `check:bundle-size`, `check:type-coverage` and
+  `check:boundaries-enforced`. Its two steps *were* run by hand (`python -m
+  scripts.export_openapi` into `backend/openapi.json`, then `pnpm run gen:api`), and the only
+  drift was the intended `ObservationOut.blocks`; both outputs are committed. That is not the
+  same as the gate going green.
+- **The browser pass** (§12's last item). Not performed. Note the standing constraint from
+  `2026-08-19-chatroom-scroll-and-composer`'s D-5: `fake_provider.py` cannot produce a real
+  agent turn, so the panel half needs observation rows seeded directly.

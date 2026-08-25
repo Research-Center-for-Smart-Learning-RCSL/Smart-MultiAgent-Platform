@@ -54,22 +54,33 @@ Two units cover both techniques and both rendering paths. Unit 2's grid has a cu
 plugin; everything else deliberately has none, demonstrating that an activity type ships
 with zero frontend code.
 
-## The four activity types
+## The five activity types
 
-One type per worksheet section. The split is forced for unit 2: the bundled plugin lays
-out a 3x3 grid only for a schema of exactly nine fields, so the worksheet's second section
-could not simply become a tenth property. Unit 4 follows the same shape because its two
-sections are the lesson plan's 準備活動 and 總結活動 and are scored on different things.
+One type per worksheet section, plus one group task. The split is forced for unit 2: the
+bundled plugin lays out a 3x3 grid only for a schema of exactly nine fields, so the
+worksheet's second section could not simply become a tenth property. Unit 4 follows the
+same shape because its two sections are the lesson plan's 準備活動 and 總結活動 and are
+scored on different things.
 
-| Key | Name | Renderer | Fields | `min_filled` |
-|---|---|---|---|---|
-| `mandala-9grid` | 單元二 時空旅人（曼陀羅九宮格） | bundled plugin | 9 | 4 |
-| `time-traveler-next-steps` | 單元二 為了與你相遇 | generic form | 1 | 1 |
-| `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 |
-| `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 |
+| Key | Name | Renderer | Fields | `min_filled` | Submitted by |
+|---|---|---|---|---|---|
+| `mandala-9grid` | 單元二 時空旅人（曼陀羅九宮格） | bundled plugin | 9 | 4 | one person |
+| `time-traveler-next-steps` | 單元二 為了與你相遇 | generic form | 1 | 1 | one person |
+| `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 | one person |
+| `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 | one person |
+| `six-hats-shared-case` | 單元四延伸 共同情境六頂思考帽（小組） | generic form | 6 | 4 | a Member Group, 2/3 |
 
-All four set `validator_kind: in_process` with `filled_count`, `retention_days: null`,
-`expose_payload_to_agent: true`, and `echo_includes_content: false`.
+All five set `validator_kind: in_process`, `retention_days: null`,
+`expose_payload_to_agent: true`, and `echo_includes_content: false`. Four of them use
+`filled_count_coverage`; `time-traveler-next-steps` uses `filled_count`. Both produce the
+same verdict and the split is deliberate, because adopting the coverage variant costs a type
+its answer text — see
+[Which types record per-field coverage, and what that costs](#which-types-record-per-field-coverage-and-what-that-costs).
+
+The last row is the only one carrying `group_config`, and it is the only one a group
+submits together. The four above it are first-person by construction and are deliberately
+**not** group-submittable; the reasoning is in
+[Why only one unit is a group task](#why-only-one-unit-is-a-group-task).
 
 ### Field order is declared, not implied
 
@@ -102,9 +113,11 @@ Property keys are `home`, `work`, `abilities`, `appearance`, `center`, `leisure`
 `center` and splices it back into the middle, so that declared order produces the layout
 above.
 
-Keys are semantic rather than positional (`cell_1`…`cell_8`) because the agent digest
-carries **raw property keys and no titles**, so an agent reading a submission sees
-`{"work": "…"}` and can tell 工作 from 人際關係 only if the key says so.
+Keys are semantic rather than positional (`cell_1`…`cell_8`) because everything an agent
+reads about a submission is keyed by **raw property key and carries no title**: the digest
+reads `3/9 fields answered: home, work, leisure`, so an agent can tell 工作 from 人際關係
+only if the key says so. The creator's panel resolves titles from the schema; the agent's
+context never does.
 
 The centre cell is a printed question on the worksheet, not a blank, so `center` is
 optional; `min_filled: 4` carries the completeness floor instead. `filled_count` counts
@@ -135,6 +148,117 @@ most recent occasion for it) is `emotion-desk-three-emotions`.
 The unit's teaching frame, which the agents also carry: 情緒列車 is 事件 → 想法 → 情緒 →
 行為. The event is the locomotive, but what determines the feeling is the thought in
 between, which is why the same event produces different feelings in different people.
+
+### Unit 4 extension: 共同情境六頂思考帽 (a group task)
+
+The five hats again, but applied to a scenario the group shares rather than to one
+member's own difficulty. The fields are `case` plus the same five hats in the same order
+with the same descriptors; `case` is the only required one, and `min_filled` is 4.
+
+This returns the technique to its original use. De Bono's hats are a parallel-thinking
+method for a group, which this course deliberately turned inward for the self-development
+theme axis. Turning it back out is what makes the unit safe to submit collectively: `case`
+is a shared scenario the teacher sets or the group picks, so the worksheet carries no
+personal disclosure at all.
+
+#### Why only one unit is a group task
+
+None of the four individual types was made group-submittable, and the reason is
+pedagogical rather than technical.
+
+Units 2 and 4 are first-person by construction. Unit 2's stated teaching point is that
+value orderings differ between people: TA's prompt says the spread 不需要被統一成一種答案,
+and AA's says it 是這個單元最值得回報的觀察. A consensus answer erases exactly the signal
+those two agents exist to surface. Unit 4 is worse. Group consent over one member's
+distressing event either publishes that member's difficulty to the group or forces them to
+supply a fiction, and every safety clause the room-facing prompts carry for unit 4 exists
+because of that field.
+
+So the capability is worth having and those four are not where to demonstrate it. Nothing
+in the platform enforces this: a Project Owner may set `group_config` on any type,
+including a personal one. The platform cannot tell the difference, and this section is
+guidance rather than a gate.
+
+#### How a group submission is made
+
+A group submission is never a direct write. One member proposes a payload, the group's
+other members vote, and the submission is recorded the moment the type's declared consent
+fraction is met.
+
+- The group is a **project Member Group** bound to the room, and the proposer must belong
+  to it. There is no ad-hoc "pick some people" flow.
+- The **voter set and the required count are pinned when the proposal is made**. Adding
+  someone to the group mid-vote does not hand them a ballot, and removing someone does not
+  lower a bar the group already agreed to clear.
+- At most one proposal is open per (round, group) at a time. The proposer may withdraw it;
+  a group whose proposal was rejected may then propose something different in the same
+  round.
+- The proposal **fails when the remaining undecided votes can no longer reach the
+  threshold** — not on the first rejection. Under 2/3 those are different events.
+- Ending the round resolves every proposal still open under it. A proposal can never
+  produce a submission after its round has finished.
+- The room sees that a group is deciding, and counts. It never sees the proposed answer or
+  who voted which way, and neither does any agent.
+
+#### What a 2/3 threshold means when somebody disagrees
+
+The shipped fraction is two integers, `numerator: 2` and `denominator: 3`, so the required
+count is exact integer arithmetic: `ceil(2 * N / 3)`, at least 1 and at most N. For a group
+of three that is two approvals; for a group of five, four.
+
+Below unanimity has a cost, and a teacher should choose it knowingly. **A group's
+submission can carry an answer one of its members voted against.** What the platform does
+about that:
+
+- the submission is attributed to the **group**, never to an individual, and the room echo
+  names the group;
+- the vote record is kept and is readable by the group's own members and by the room
+  creator;
+- no agent can see it, so a disagreement never becomes something an agent discusses in
+  front of the class.
+
+What is not mitigated: a member of a group remains associated with an answer they rejected.
+That is inherent in any threshold short of unanimity. Unanimity is expressible — set the
+fraction to `1/1` — and its own cost is that one absent student blocks their group for the
+rest of the lesson.
+
+The proposal records who wrote the text (`producer_user_id` is the proposer) even though
+the submission belongs to the group. The others approved it; they did not write it, and the
+record says which.
+
+#### Setting the room up, and the two things that surprise a teacher
+
+Group submission needs the room to admit its students through Member Groups, which means
+enabling `allow_member_groups`. Two consequences follow that are worth stating before a
+first setup rather than discovering during one.
+
+**`allow_member_groups` and `allow_project_members` are mutually exclusive**, refused
+server-side ([R13.04]). So in such a room:
+
+1. **Every student must be in a bound group, or they cannot reach the room at all.** The
+   grouping is not merely how they submit together; it is the door. A student in no bound
+   group loses access to the room entirely, not just to the group task.
+2. **A guest can never take part in a group submission.** Guest links still work and a
+   guest is still a full activity participant, but group membership is restricted to
+   current Project Members ([R13.28]), so a guest submits individually and is invisible to
+   every group flow. This is a real gap rather than a designed behaviour, and the
+   alternative — a guest-inclusive ad-hoc group — was rejected because it would not be a
+   Member Group and would confer no accountability.
+
+Project Owners and Org Owners reach every room regardless ([R13.30]), so the teacher needs
+no group membership of their own — which is correct, since a teacher is not part of a
+student group.
+
+#### Changing the threshold
+
+`group_config` is a behavioural definition field, like `payload_schema`. Editing it bumps
+the type's version and is **refused while any activation of the type is live**, so a
+threshold can never move under a vote in progress. Plan the fraction before the lesson, not
+during it.
+
+A platform-scoped example's fraction is whatever the shipped catalogue says: the admin
+install surface does not author behavioural fields. A project that wants a different
+fraction installs a project-scoped copy with `python -m smap.examples` and edits that.
 
 ## The two agent packs
 
@@ -179,13 +303,20 @@ These are asserted by `backend/tests/unit/test_agent_example_packs.py` over the 
 files, not left to review.
 
 1. **Quoting a submission is allowed for unit 2 and forbidden for unit 4, and the rule is
-   keyed on the activity type.** `mandala-9grid` and `time-traveler-next-steps` answers may
+   keyed on the activity type.** `time-traveler-next-steps` answers may
    be quoted, paraphrased and built on; `emotion-desk-three-emotions` and
    `six-hats-emotion-desk` answers may not be, to anyone, including their own author and
    including in AA's teacher-only notes. **A type named in neither column is unquotable** —
    the prompts close the enumeration rather than leaving a new type ungoverned. And a
    quotable answer is never *volunteered*: an agent quotes in response, and does not open a
    turn with someone's answer or read the class's answers out as a survey.
+
+   `mandala-9grid` is a third case and its prompt clause says so: since it adopted
+   `filled_count_coverage` its answers are not in any agent's context at all, so the agents
+   are told they cannot see the cells and must ask the student to say it themselves. That is
+   not a quoting rule — there is nothing to quote — and conflating it with one is what
+   produces a fabrication instead of a refusal. See
+   [Which types record per-field coverage](#which-types-record-per-field-coverage-and-what-that-costs).
 
    The rule names type keys rather than "unit 2" and "unit 4" because `type_key` is what the
    activity context block puts on every row; the unit names appear nowhere in an agent's
@@ -397,6 +528,38 @@ To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
 `/admin/activities` first**, then install the course again. Deleting a platform type ends
 its active activations across every tenant, so do it between classes.
 
+**`six-hats-shared-case` is the one addition that is cheap to adopt.** Install is
+idempotent by key and never updates, which is what makes every change above a
+delete-and-reinstall — but a *new* key has nothing to collide with. Re-running the install
+on an existing deployment creates it and leaves every other row alone. Projects still have
+to enable it, like any other platform example.
+
+**The `filled_count_coverage` change has the same shape and applies to three of the four
+types that existed when it landed** (`six-hats-shared-case` was added later and has always
+shipped with the coverage validator, so a first install of it needs none of this).
+`validator_config` is outside the set of fields a platform admin may edit, and
+install never updates an existing row, so an environment installed before the change keeps
+`filled_count` everywhere indefinitely. Nothing breaks: those types validate exactly as they
+did, and the only visible difference is that their submissions record no per-field coverage,
+so AA cannot draw a `field_coverage` or `mandala_grid` figure over them and the tool tells it
+so rather than drawing an empty one (see
+[Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes)). Upgrading means
+the same delete-then-reinstall pass, with the same cost: **every project's opt-in is
+revoked, every type gets a new id, and each Project Owner must enable the example again**.
+Tell them before deleting, not after, and do it between classes.
+
+Note what the upgrade also does on the way in: `mandala-9grid`'s answers stop reaching the
+agents at all, because the coverage validator's `detail` displaces the payload dump. That is
+the trade the table in
+[Which types record per-field coverage](#which-types-record-per-field-coverage-and-what-that-costs)
+sets out, and it changes what TA and SA can do in unit 2. Read it before upgrading a running
+course rather than after.
+
+Upgrading only some types is supported and produces mixed data within one room. The coverage
+aggregate counts only submissions that carry the per-field record and reports that number as
+its denominator, so a figure over a partly-upgraded room is a figure about the submissions it
+names rather than a silent undercount.
+
 **Deleting also revokes every project's opt-in, and re-installing does not restore it.**
 Enabling an example is a per-project Project Owner act (see [Installing](#installing)), and
 the re-install creates a type with a **new id**, so the old opt-ins would not point at it
@@ -430,8 +593,8 @@ non-submission that AA had no evidence for.
 3. **Participants** join the active activity, which opens a per-subject session, and
    submit. Each participant gets their own monotonic attempt counter.
 4. **Each submission** is validated against the payload schema, then scored server-side by
-   `filled_count`. The verdict is authoritative and computed on the server; nothing the
-   client sends can influence it.
+   the type's own validator, `filled_count` or `filled_count_coverage`. The verdict is
+   authoritative and computed on the server; nothing the client sends can influence it.
 5. **The room transcript** gets a system-stamped echo that a submission happened, carrying
    no answer text.
 6. **Room agents** read a digest of recent structured activity, which is what lets TA
@@ -481,7 +644,107 @@ declaring a checkbox is enough will instead require that many boxes actually tic
 `_is_filled`'s docstring for the reasoning and the cost it accepts; it is the authority,
 and this paragraph is a pointer to it rather than a second copy.
 
-All four types here are all-string, so none of this affects them.
+All five types here are all-string, so none of this affects them.
+
+### Which types record per-field coverage, and what that costs
+
+The two validators produce the same verdict for the same payload and the same `min_filled`;
+`filled_count_coverage` adds two things. It records **which** declared fields were answered
+in `sub_scores.filled_fields`, and it sets a `ValidationResult.detail` reading
+`3/9 fields answered: home, work, leisure`. Field names only. No answer text is read at any
+point beyond the boolean `_is_filled` returns.
+
+The field list exists because nothing else on the platform records it, and a per-field
+figure drawn without it would have to come from an agent reading a truncated JSON dump of
+the participants' own words. See
+[Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes) for what consumes
+it.
+
+**Adopting it costs the type its answer text, and that is why only three types do.** A
+submission digest is the validator's `detail` when there is one, and a length-capped dump of
+the raw payload otherwise
+(`backend/contexts/activities/domain/agent_digest.py`). `filled_count_coverage` always sets
+a `detail`, so a type that adopts it stops putting any student writing in front of any agent
+in the room. Whether that is a gain or a loss depends entirely on the unit:
+
+| Key | Validator | Effect |
+|---|---|---|
+| `mandala-9grid` | `filled_count_coverage` | Nine cells become a grid AA can draw. The cost is real: the agents can no longer quote or build on what a student wrote in a cell. |
+| `time-traveler-next-steps` | `filled_count` | One declared field, so coverage could only ever report `1/1 fields answered`. Keeping the dump keeps the answer quotable for nothing given up. |
+| `emotion-desk-three-emotions` | `filled_count_coverage` | Pure gain. The prompts already forbid quoting these answers, so replacing the dump with field names removes text no agent was allowed to use. |
+| `six-hats-emotion-desk` | `filled_count_coverage` | As above. |
+
+The unit-4 rows are the clear case and the unit-2 rows are the trade. `mandala-9grid` is the
+only nine-field type in the course, so it is the only possible subject of a `mandala_grid`
+block; the alternative was shipping that block kind dead. What the agents lose there is
+stated in their own prompts rather than left to be discovered: TA and SA are told they
+cannot see the mandala's content, that they know only which cells were filled, and to ask
+the student to say it themselves. AA is told to show the pattern as a figure and not to
+claim it knows what any cell says.
+
+That also moves where the digest appears on an activity-feed row. A digest quoted from the
+participant still follows an em dash; a server-computed one follows `::`, and the block
+carries a different sentence for each. Both markers are named in the shipped prompts,
+because a prompt promising that the trailing text is the student's own writing would be
+false for a coverage type on every row. A row carries at most one marker and it is the first
+one on the line, so a `::` inside a quoted answer means nothing. All of this is asserted over
+the shipped files by `backend/tests/unit/test_agent_example_packs.py`.
+
+**Existing installs keep `filled_count` on all four of the original types until they are
+re-installed**, with
+the consequences in
+[Upgrading an environment installed before this correction](#upgrading-an-environment-installed-before-this-correction).
+A room whose types still use `filled_count` records no `filled_fields`, so a coverage figure
+over it has nothing to count and the tool refuses the block with a message the agent can act
+on. It does not render a chart of zeroes, which would assert that nobody answered anything.
+A room upgraded mid-course holds both kinds; the aggregate counts only the submissions that
+carry the key and reports that denominator.
+
+## Presentation blocks: how AA arranges its own notes
+
+An observer's note used to be one blob of markdown. AA can now deliver it as an ordered list
+of **presentation blocks** through a single tool call, `present_observation`, offered on
+observer turns only ([R28.16]). AA chooses which blocks, in what order, and writes their
+titles and text. Not calling the tool is a supported outcome: the turn records the prose as
+it always did.
+
+Six kinds ship, and the split between them is the whole design:
+
+| Kind | Who writes the content |
+|---|---|
+| `prose`, `key_points`, `timeline` | AA, as text |
+| `field_coverage`, `mandala_grid`, `attempt_table` | the **server**, at tool-invoke time |
+
+For a computed block AA supplies only a selection and a framing: which activity, an optional
+title, an optional caveat. Its schema has no field for a value, so a call carrying its own
+counts is rejected before it runs. A participant can therefore persuade AA to *include* a
+coverage figure and cannot change a number in one, because AA is never asked for one. That
+is what makes handing an agent control of the presentation safe to do at all.
+
+What a computed block may contain is bounded the same way the activity feed is: truncated
+participant codes, declared schema field names, and counts. Never a display name, never a
+login email, never an answer. The denominator is always **submissions counted**, never a
+share of a class, and no block renders a participation or coverage rate — which is the same
+bound [What AA is looking at, and what it cannot be asked](#what-aa-is-looking-at-and-what-it-cannot-be-asked)
+places on every question put to AA, expressed in the figures rather than only in the prompt.
+
+Every block except `prose` also carries a **basis label** drawn from a platform-authored
+catalogue, saying what the block rests on and what it cannot mean. AA picks which of three
+applies; it does not write one, and no argument suppresses it. Computed blocks are not
+offered the choice at all — the server stamps "computed over this room's submissions" on
+them, so a computed block cannot be mislabelled by its caller.
+
+**Nothing about this reaches the classroom.** Releasing a block-carrying observation to the
+room produces the same `sender_type=system` message it always did, carrying the blocks'
+markdown serialisation as the body, and the release dialog's plain-text override still edits
+that text. The basis label and the caveat are part of the serialisation, so a released
+observation carries its own limits into the room with it.
+
+**A figure still reads as a score, and the wording is the mitigation.** A teacher looking at
+a coverage bar can read it as an achievement measure, which is precisely what the source
+study's own dimensions do not support beyond fluency. That is why the block prints a
+submissions-counted denominator rather than a percentage, and why AA's prompt says in as
+many words not to restate the platform's numbers as scores.
 
 ## Limitations
 
@@ -561,11 +824,16 @@ no test can assert.
   notes to the teacher. This is the item the split rule is most likely to break: the model now
   has to evaluate a condition where it used to follow an absolute, and getting it wrong means
   a 13-year-old's account of a difficult event read out to the class.
-- [ ] **A unit 2 quote is a response, never an opening.** `mandala-9grid` and
-  `time-traveler-next-steps` answers may be quoted, so watch for the other failure: an agent
-  that opens a turn with someone's answer, reads several people's answers out in a row, or
-  uses a quote to restart a stalled discussion. Check SA in particular — it runs at
-  `temperature: 0.9` and is the agent most likely to quote conversationally.
+- [ ] **A unit 2 quote is a response, never an opening.** `time-traveler-next-steps` answers
+  may be quoted, so watch for the other failure: an agent that opens a turn with someone's
+  answer, reads several people's answers out in a row, or uses a quote to restart a stalled
+  discussion. Check SA in particular — it runs at `temperature: 0.9` and is the agent most
+  likely to quote conversationally.
+- [ ] **An agent asked about a mandala cell says it cannot see one.** `mandala-9grid` uses
+  `filled_count_coverage`, so no agent has its text. Ask TA and SA what a named student wrote
+  in 家 or 工作 and confirm they say they can see only which cells were filled and hand the
+  question back to the student. **A confident answer here is a fabrication**, not a quoting
+  violation, and it is the failure this type's move to coverage most likely produces.
 - [ ] **An activity type in neither column is treated as unquotable.** Run any activity the
   prompts do not name and confirm the agents decline to quote it rather than deciding for
   themselves whether the topic looks sensitive.
@@ -624,7 +892,9 @@ authoritatively for later analysis; agents simply cannot read them.
 
 | Piece | Path |
 |---|---|
-| `filled_count` validator | `backend/app/plugins/activity_validators.py` |
+| `filled_count` / `filled_count_coverage` validators | `backend/app/plugins/activity_validators.py` |
+| Presentation blocks: schema, serialiser, tool | `backend/contexts/agents/application/runtime/observation_blocks.py`, `observer_tools.py` |
+| The room-scoped aggregates behind a computed block | `backend/contexts/activities/application/observation_aggregates.py` |
 | **This course's activity content** | `backend/contexts/activities/infrastructure/examples/courses/creative-thinking.json` |
 | Course loader + validation | `backend/contexts/activities/infrastructure/examples/catalogue.py` |
 | **This course's agent packs** | `backend/contexts/agents/infrastructure/examples/packs/` |
@@ -643,8 +913,9 @@ Both are data files, and both loaders validate on read.
 A **course** is a JSON document under `courses/`, named for its `course_key`. Every field
 is required, including the visibility flags: defaulting `expose_payload_to_agent` would be
 the wrong way to decide whether student text reaches an LLM provider. The `payload_schema`
-must be a valid JSON Schema declaring at least one property, and a `filled_count`
-`min_filled` may not exceed the number of declared properties.
+must be a valid JSON Schema declaring at least one property, and a `min_filled` (on either
+`filled_count` or `filled_count_coverage`, which register the same config rules) may not
+exceed the number of declared properties.
 
 A **pack** is a JSON document under `packs/`, named for its `pack_key`, declaring the
 course it accompanies and, per agent, the activity type keys it is written against. Every

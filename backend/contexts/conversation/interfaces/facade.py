@@ -238,6 +238,22 @@ class ConversationFacade:
         """Live chatroom ids across the project's workspaces (workflow linter)."""
         return await self._rooms.list_ids_for_project(project_id)
 
+    async def chatroom_member_group_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+        """The Member Groups bound to a room ([R13.29]).
+
+        Exists so another context can ask "is this group reachable from this
+        room" without querying ``chatroom_member_groups`` itself -- the binding
+        belongs to this context, and [R30.09] keeps the query on the owning side.
+
+        Ids only, and it says nothing about whether each is still *live*: a
+        binding can outlive its group. The caller intersects this with
+        ``TenancyFacade.live_member_group_ids``, which is the half only tenancy
+        can answer.
+        """
+        from contexts.conversation.infrastructure.repositories import ChatroomMemberGroupRepository
+
+        return await ChatroomMemberGroupRepository(self._db).list_for_room(chatroom_id)
+
     async def chatroom_by_guest_token(self, token: str) -> Chatroom | None:
         return await self._rooms.get_by_guest_token(token)
 

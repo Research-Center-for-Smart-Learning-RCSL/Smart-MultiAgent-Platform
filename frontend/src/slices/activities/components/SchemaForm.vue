@@ -16,8 +16,12 @@ const props = withDefaults(
     schema: JSONSchema | null
     submitting?: boolean
     disabled?: boolean
+    /** Overrides "Submit" where the button does something else — the group path
+     *  opens a vote rather than recording an answer, and calling that "Submit"
+     *  would tell a participant their answer is already in. */
+    submitLabel?: string | null
   }>(),
-  { submitting: false, disabled: false },
+  { submitting: false, disabled: false, submitLabel: null },
 )
 
 const emit = defineEmits<{
@@ -171,7 +175,7 @@ function mapKeys(raw: Record<string, string>): Record<string, string> {
         :disabled="props.disabled || props.submitting"
         :loading="props.submitting"
       >
-        {{ $t('activities.form.submit') }}
+        {{ props.submitLabel ?? $t('activities.form.submit') }}
       </SButton>
     </div>
   </form>

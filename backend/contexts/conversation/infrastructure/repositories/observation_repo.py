@@ -26,6 +26,7 @@ def _row_to_observation(row: Any) -> AgentObservation:
         agent_id=row.agent_id,
         content_md=row.content_md,
         metadata=dict(row.metadata or {}),
+        blocks=list(row.blocks or []),
         trigger=row.trigger,
         trigger_message_id=row.trigger_message_id,
         released_at=row.released_at,
@@ -49,6 +50,7 @@ class ObservationRepository:
         trigger: str,
         trigger_message_id: uuid.UUID | None = None,
         metadata: dict[str, Any] | None = None,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> AgentObservation:
         row = (
             await self._db.execute(
@@ -60,6 +62,7 @@ class ObservationRepository:
                     trigger=trigger,
                     trigger_message_id=trigger_message_id,
                     metadata=metadata or {},
+                    blocks=blocks or [],
                 )
                 .returning(t.agent_observations)
             )

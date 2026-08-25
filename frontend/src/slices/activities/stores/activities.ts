@@ -8,13 +8,54 @@ import { defineStore } from 'pinia'
 import { reactive } from 'vue'
 import { registerCleanup } from '@shared/stores/useAppCleanup'
 import { normalizeValidationStatus } from '../types'
-import type { ActivationView, ActivityActivation, ActivityOutcome, ActivitySubmission } from '../types'
+import type {
+  ActivationView,
+  ActivityActivation,
+  ActivityGroupProposal,
+  ActivityMemberGroupRef,
+  ActivityOutcome,
+  ActivitySubmission,
+} from '../types'
+
+/** One room's group-proposal state for the current round.
+ *
+ *  `proposals` holds ONLY what the authorization-narrowed HTTP read returned.
+ *  The room broadcast reaches every participant, including members of groups
+ *  this caller may not read ([R30.42]), so a WS event never inserts — it
+ *  updates what is already here, and records an unrecognized group in
+ *  `unseenGroupIds` for the composable to decide whether a refetch is even
+ *  this caller's business. */
+export interface ProposalRoomState {
+  activationId: string | null
+  proposals: Record<string, ActivityGroupProposal>
+  eligibleGroups: ActivityMemberGroupRef[]
+  unseenGroupIds: string[]
+  version: number
+}
+
+/** A room broadcast's proposal payload: ids, a status, and counts. The worker's
+ *  expiry sweep holds no tally, so everything but the status is optional. */
+export interface ProposalEvent {
+  proposalId: string
+  memberGroupId: string | null
+  status: string
+  requiredApprovals?: number | null
+  approvals?: number | null
+  rejections?: number | null
+  undecided?: number | null
+  voterCount?: number | null
+}
+
+function emptyProposalRoom(): ProposalRoomState {
+  return { activationId: null, proposals: {}, eligibleGroups: [], unseenGroupIds: [], version: 0 }
+}
 
 export const useActivitiesStore = defineStore('activities', () => {
   // Map<roomId, Map<submissionId, ActivityOutcome>>
   const outcomes = reactive<Record<string, Record<string, ActivityOutcome>>>({})
   const activations = reactive<Record<string, ActivationView | null>>({})
   const activationVersions = reactive<Record<string, number>>({})
+  const proposalRooms = reactive<Record<string, ProposalRoomState>>({})
 
   function ensureRoom(roomId: string): Record<string, ActivityOutcome> {
     if (!outcomes[roomId]) outcomes[roomId] = {}
@@ -100,16 +141,106 @@ export const useActivitiesStore = defineStore('activities', () => {
     return activationVersions[roomId] ?? 0
   }
 
+  // ---- group proposals ([R30.41], [R30.42]) --------------------------------
+
+  function ensureProposalRoom(roomId: string): ProposalRoomState {
+    if (!proposalRooms[roomId]) proposalRooms[roomId] = emptyProposalRoom()
+    return proposalRooms[roomId]!
+  }
+
+  /** Adopt the server's answer for one round wholesale.
+   *
+   *  Replaces rather than merges: this read IS the authorization boundary, so a
+   *  proposal it did not return is one this caller may no longer see, and
+   *  keeping it would leave a card on screen that the server has stopped
+   *  vouching for. */
+  function setRound(
+    roomId: string,
+    round: {
+      activationId: string
+      proposals: ActivityGroupProposal[]
+      eligibleGroups: ActivityMemberGroupRef[]
+    },
+  ): void {
+    const room = ensureProposalRoom(roomId)
+    room.activationId = round.activationId
+    room.proposals = Object.fromEntries(round.proposals.map((p) => [p.id, p]))
+    room.eligibleGroups = round.eligibleGroups
+    room.unseenGroupIds = []
+    room.version += 1
+  }
+
+  /** Write back a proposal the caller's own request returned (propose, vote,
+   *  withdraw). Authoritative and complete, unlike a broadcast. */
+  function upsertProposal(roomId: string, proposal: ActivityGroupProposal): void {
+    const room = ensureProposalRoom(roomId)
+    room.proposals = { ...room.proposals, [proposal.id]: proposal }
+    room.unseenGroupIds = room.unseenGroupIds.filter((id) => id !== proposal.member_group_id)
+    room.version += 1
+  }
+
+  /** WS `activity.proposal.opened|voted|resolved`: ids and counts only.
+   *
+   *  Updates a known proposal in place; an unknown one is recorded by group id
+   *  and NOT inserted, because this channel is a blind relay to the whole room
+   *  and the payload carries no evidence the caller may read that group's vote.
+   *  Whether to refetch is the composable's call, made against the eligible set
+   *  the server returned. */
+  function applyProposalEvent(roomId: string, ev: ProposalEvent): void {
+    const room = ensureProposalRoom(roomId)
+    const known = room.proposals[ev.proposalId]
+    if (known) {
+      room.proposals = {
+        ...room.proposals,
+        [ev.proposalId]: {
+          ...known,
+          status: ev.status,
+          // Each count is adopted only when the event carried one: the worker's
+          // expiry sweep sends a status with no tally, and folding its absent
+          // counts in as 0 would report a settled vote as unanimous abstention.
+          required_approvals: ev.requiredApprovals ?? known.required_approvals,
+          approvals: ev.approvals ?? known.approvals,
+          rejections: ev.rejections ?? known.rejections,
+          undecided: ev.undecided ?? known.undecided,
+          voter_count: ev.voterCount ?? known.voter_count,
+        },
+      }
+    } else if (ev.memberGroupId && !room.unseenGroupIds.includes(ev.memberGroupId)) {
+      room.unseenGroupIds = [...room.unseenGroupIds, ev.memberGroupId]
+    }
+    room.version += 1
+  }
+
+  function getProposalRoom(roomId: string): ProposalRoomState | undefined {
+    return proposalRooms[roomId]
+  }
+
+  /** Drop a room's group state.
+   *
+   *  `activationId` guards it the way `clearActivation` is guarded: a stale
+   *  `activation.ended` for a round that has already been replaced would
+   *  otherwise wipe the CURRENT round's proposals while leaving its activation
+   *  in place — a panel that then waits forever for a read nothing will issue,
+   *  because the round it is keyed on never changed. Omit the id to clear
+   *  unconditionally (no round is running). */
+  function clearProposals(roomId: string, activationId?: string): void {
+    if (!activationId || proposalRooms[roomId]?.activationId === activationId) {
+      delete proposalRooms[roomId]
+    }
+  }
+
   function resetRoom(roomId: string): void {
     delete outcomes[roomId]
     delete activations[roomId]
     delete activationVersions[roomId]
+    delete proposalRooms[roomId]
   }
 
   function clearAll(): void {
     Object.keys(outcomes).forEach((k) => delete outcomes[k])
     Object.keys(activations).forEach((k) => delete activations[k])
     Object.keys(activationVersions).forEach((k) => delete activationVersions[k])
+    Object.keys(proposalRooms).forEach((k) => delete proposalRooms[k])
   }
 
   // Reset on session.clear() without the session store importing this one (H14).
@@ -118,6 +249,7 @@ export const useActivitiesStore = defineStore('activities', () => {
   return {
     outcomes,
     activations,
+    proposalRooms,
     upsertFromSubmission,
     applyCreated,
     applyValidated,
@@ -126,6 +258,11 @@ export const useActivitiesStore = defineStore('activities', () => {
     clearActivation,
     getActivation,
     getActivationVersion,
+    setRound,
+    upsertProposal,
+    applyProposalEvent,
+    getProposalRoom,
+    clearProposals,
     resetRoom,
     clearAll,
   }
