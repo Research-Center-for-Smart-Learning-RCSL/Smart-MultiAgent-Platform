@@ -500,6 +500,42 @@ class TestVoting:
         assert "approve" not in repr(metadata)
 
 
+class TestLockOrder:
+    """/code-review. Every path that touches both rows takes the ACTIVATION
+    before the PROPOSAL, so none of them can form a cycle with another."""
+
+    async def test_a_vote_locks_the_activation_before_the_proposal(self) -> None:
+        # `ActivationService.end` writes the activation row and then the round's
+        # proposals. `vote` reaching for them the other way made it the only path
+        # running against that order: a teacher ending the round while the
+        # deciding vote was in flight left each transaction holding what the
+        # other wanted, and PostgreSQL aborted one of them with a 500. The window
+        # was three round-trips wide -- cast, audit, count -- not instantaneous.
+        svc = _service()
+        order: list[str] = []
+
+        async def _record_activation(*_a: object, **_k: object) -> ActivityActivation:
+            order.append("activation")
+            return _activation()
+
+        original_lock = svc._proposals.lock_for_update
+
+        async def _record_lock(*args: object, **kwargs: object) -> object:
+            order.append("proposal")
+            return await original_lock(*args, **kwargs)
+
+        svc._activation_repo.get_active_for_update = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=_record_activation
+        )
+        svc._proposals.lock_for_update = AsyncMock(side_effect=_record_lock)  # type: ignore[attr-defined]
+
+        await _vote(svc, voter=_BOB)
+
+        assert order[0] == "activation"
+        assert "proposal" in order
+        assert order.index("activation") < order.index("proposal")
+
+
 class TestAcceptance:
     """AC-10."""
 
@@ -678,6 +714,32 @@ class TestVoteVisibility:
         assert set(
             svc._proposals.list_open_for_groups.await_args.kwargs["member_group_ids"]  # type: ignore[attr-defined]
         ) == {_GROUP, other}
+
+
+class TestTheListingIsScopedToItsRoom:
+    """/code-review. The caller's group set comes from the bindings of the room in
+    the URL, but ``activation_id`` is a query parameter -- and one group can be
+    bound to several rooms of the same project."""
+
+    async def test_the_query_is_narrowed_by_the_room_and_not_only_the_round(self) -> None:
+        # Without this, room A's creator passing room B's activation id reads B's
+        # proposal complete with its payload and its per-person votes -- the exact
+        # record [R30.42] confines to B's own voters and B's creator.
+        svc = _service()
+        tenancy, conversation, emit = _wired(svc)
+
+        with tenancy, conversation, emit:
+            await svc.list_round_for_caller(
+                project_id=_PROJECT,
+                chatroom_id=_ROOM,
+                activation_id=_ACTIVATION,
+                caller_user_id=_BOB,
+                caller_is_room_creator=True,
+            )
+
+        kwargs = svc._proposals.list_open_for_groups.await_args.kwargs  # type: ignore[attr-defined]
+        assert kwargs["chatroom_id"] == _ROOM
+        assert kwargs["activation_id"] == _ACTIVATION
 
 
 class TestEligibleGroups:
