@@ -58,6 +58,9 @@ export function useChatroomSettings(chatroomId: string) {
     // R28.09 — creator-only; the server rejects a non-creator patch of this
     // field, so the UI only exposes the toggle to the creator.
     disclose_observers: room.value?.disclose_observers ?? true,
+    // [R32.05] — the same terms. Defaults true while the room read is in flight,
+    // matching the column: the direction that over-discloses is the safe one.
+    disclose_drafts: room.value?.disclose_drafts ?? true,
   }))
 
   const loading = ref(true)
@@ -195,7 +198,7 @@ export function useChatroomSettings(chatroomId: string) {
    *  Takes a patch object rather than a key/value pair because R13.04's one
    *  exclusive pair has to move together: see `setFlag`. */
   async function patchFlag(
-    patch: Partial<Record<AccessFlag | 'disclose_observers', boolean>>,
+    patch: Partial<Record<AccessFlag | 'disclose_observers' | 'disclose_drafts', boolean>>,
   ): Promise<void> {
     if (!room.value || saving.value) return
     saving.value = true
@@ -285,6 +288,17 @@ export function useChatroomSettings(chatroomId: string) {
     await patchFlag({ disclose_observers: value })
   }
 
+  /** Creator-only patch of just `disclose_drafts` ([R32.05]).
+   *
+   *  Its own entry point for the same reason its observer sibling is: a generic
+   *  save carrying it would 403 a non-creator moderator editing the access flags.
+   *  Sent alone rather than paired with the observer flag, so turning one off
+   *  never silently moves the other.
+   */
+  async function saveDraftDisclosure(value: boolean): Promise<void> {
+    await patchFlag({ disclose_drafts: value })
+  }
+
   async function onDelete(): Promise<void> {
     const ok = await confirm({
       title: t('conversation.settings.deleteConfirmTitle'),
@@ -317,6 +331,7 @@ export function useChatroomSettings(chatroomId: string) {
     onSave,
     setFlag,
     saveDisclosure,
+    saveDraftDisclosure,
     onDelete,
   }
 }

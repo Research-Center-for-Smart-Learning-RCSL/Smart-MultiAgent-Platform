@@ -306,6 +306,7 @@
       "deleteFailed": "Failed to delete chatroom.",
       "activityControlFailed": "Could not update activity control for this agent.",
       "activityControlNeedsTypes": "Pick at least one activity before granting control.",
+      "draftAccessFailed": "Could not update unsent-text permission for this agent.",
       "allowMemberGroups": "Specific member groups",
       "allowMemberGroupsDesc": "Only members of the groups selected below. Turning this on closes the room to the rest of the project.",
       "memberGroupsExclusiveTitle": "This changes who can enter the room",
@@ -341,6 +342,21 @@
       "invalidToken": "This link is no longer valid. The chatroom may have been deleted or guest access may have been disabled.",
       "networkError": "Could not connect. Please check your connection and try again.",
       "retry": "Try Again"
+    },
+    "drafts": {
+      "discloseLabel": "Tell people when an agent can read what they are typing",
+      "discloseOnHelp": "Everyone in this room sees a small notice on the message box and the activity panel whenever an agent here can read unsent text.",
+      "discloseOffHelp": "Nobody is told. If you have also given an agent permission to read unsent text, people will be typing in front of it without knowing.",
+      "undisclosedCallout": "An agent in this room can read what people are typing before they send it, and this room does not tell them. Turning the notice back on is the only thing that does."
+    },
+    "draftAccess": {
+      "label": "May read unsent text",
+      "help": "Lets this agent read what people in this room are typing but have not sent: the message box, and any activity worksheet in progress. It reads only when it decides to, it never sees names, and nothing is saved. This applies to this room only and you can revoke it at any time.",
+      "undisclosedNote": "This room does not tell people it is happening. Turn the notice on above.",
+      "confirmTitle": "Let this agent read unsent text?",
+      "confirmBody": "This agent will be able to read what people in this room are typing before they send it, including half-finished activity answers. Everyone here will see a notice that it can. Only give this to an agent you would be comfortable telling your students about.",
+      "confirmBodyUndisclosed": "This agent will be able to read what people in this room are typing before they send it, including half-finished activity answers. This room currently does NOT tell them it is happening. Nobody in the room will know.",
+      "confirmAction": "Give permission"
     },
     "activityControl": {
       "label": "May start and end activities",
