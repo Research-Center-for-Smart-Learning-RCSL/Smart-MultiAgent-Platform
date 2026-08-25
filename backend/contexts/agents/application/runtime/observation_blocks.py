@@ -38,7 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from contexts.activities.domain.models import (
     ActivityType,
@@ -46,7 +46,13 @@ from contexts.activities.domain.models import (
     FieldCoverage,
     MandalaGrid,
 )
-from contexts.activities.interfaces.facade import ActivitiesFacade
+
+if TYPE_CHECKING:
+    # Type-only, so the activities facade stays off this module's runtime import
+    # graph until a turn actually calls a computed block — the same lazy shape
+    # ``activity_tools`` and ``activity_context_provider`` both use, and it matters
+    # more here because ``turn_engine`` imports the serialiser at module scope.
+    from contexts.activities.interfaces.facade import ActivitiesFacade
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +357,8 @@ async def materialise(
     caller reports the refusals to the model, which can drop the block and call
     again.
     """
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+
     facade = ActivitiesFacade(db)
     out: list[dict[str, Any]] = []
     refusals: list[str] = []
@@ -371,13 +379,26 @@ async def materialise(
             kind=kind,
             chatroom_id=chatroom_id,
             activity_type=activity_type,
-            limit=int(block.get("limit") or DEFAULT_TABLE_ROWS),
+            limit=_row_limit(block.get("limit")),
         )
         if filled is None:
             refusals.append(_no_data(kind, key))
             continue
         out.append({**block, **filled, "basis": SERVER_FACTS})
     return out, refusals
+
+
+def _row_limit(value: Any) -> int:
+    """The row cap, clamped rather than trusted.
+
+    The schema already bounds ``limit`` to 1..30, but ``schema_violations`` fails
+    **open** — a schema it cannot use costs the call its validation, not its turn.
+    That is the right posture there and the wrong thing to hang a ``LIMIT`` on, so
+    the bound is restated here where the query is built.
+    """
+    if not isinstance(value, int) or isinstance(value, bool):
+        return DEFAULT_TABLE_ROWS
+    return max(1, min(MAX_TABLE_ROWS, value))
 
 
 def _no_data(kind: str, key: Any) -> str:

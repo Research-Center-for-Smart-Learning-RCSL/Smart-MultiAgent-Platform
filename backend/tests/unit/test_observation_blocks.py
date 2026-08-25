@@ -61,7 +61,12 @@ def _activity_type(key: str, properties: dict[str, Any]) -> ActivityType:
 
 
 class _FakeFacade:
-    """Stands in for ``ActivitiesFacade`` at the module's own import site."""
+    """Stands in for ``ActivitiesFacade`` at its source module.
+
+    Patched there rather than on ``observation_blocks``: the facade is imported
+    lazily inside ``materialise`` so it stays off the runtime import graph, which
+    is the same seam ``test_activity_control_tools`` patches for the same reason.
+    """
 
     coverage: ClassVar[FieldCoverage | None] = None
     grid: ClassVar[MandalaGrid | None] = None
@@ -90,7 +95,7 @@ def facade(monkeypatch: pytest.MonkeyPatch) -> type[_FakeFacade]:
     _FakeFacade.grid = None
     _FakeFacade.summary = None
     _FakeFacade.calls = []
-    monkeypatch.setattr(ob, "ActivitiesFacade", _FakeFacade)
+    monkeypatch.setattr("contexts.activities.interfaces.facade.ActivitiesFacade", _FakeFacade)
     return _FakeFacade
 
 
@@ -313,6 +318,35 @@ class TestMaterialise:
         assert out == []
         assert len(refusals) == 1
         assert "mandala-9grid" in refusals[0]
+
+    @pytest.mark.parametrize(
+        ("supplied", "expected"),
+        [
+            (10, 10),
+            (0, 1),
+            (10**9, ob.MAX_TABLE_ROWS),
+            (-5, 1),
+            ("30", ob.DEFAULT_TABLE_ROWS),
+            (True, ob.DEFAULT_TABLE_ROWS),
+            (None, ob.DEFAULT_TABLE_ROWS),
+        ],
+        ids=["in-range", "zero", "huge", "negative", "string", "bool", "absent"],
+    )
+    async def test_the_row_limit_is_clamped_rather_than_trusted(
+        self, facade, supplied: Any, expected: int
+    ) -> None:
+        """Security audit finding. The schema bounds `limit` to 1..30, but
+        `schema_violations` fails **open** — a schema it cannot use costs the call
+        its validation, not its turn — and that is the wrong thing to hang a SQL
+        LIMIT on."""
+        facade.summary = AttemptSummary(
+            type_key=None, type_name=None, submissions_counted=1, rows=(), truncated=False
+        )
+        block: dict[str, Any] = {"kind": "attempt_table"}
+        if supplied is not None:
+            block["limit"] = supplied
+        await ob.materialise(object(), chatroom_id=_ROOM, blocks=[block], types_by_key={})
+        assert facade.calls == [("attempt_summary", expected)]
 
     async def test_an_attempt_table_defaults_its_limit(self, facade) -> None:
         facade.summary = AttemptSummary(
