@@ -474,14 +474,18 @@ grant is re-resolved on a 60s window instead. Worth knowing before writing anyth
 that wants to react to a settings change on an open socket: **no room event is published
 when a binding's grants change.**
 
-**AC-15 is deliberately unticked and §17 of the dossier says exactly what did not run.**
-The `db` tier for this diff, the migration up/down, and every mechanical gate ran green
-locally; nine assertions were mutation-probed. What did not happen is the browser pass —
-two sessions, the chip in both places and both disclosure states, the Redis keys checked
-after a send and a submit — and **no real model has ever called `read_drafts`**, since
+**Every criterion closed, and AC-15 on a real run**: CI `32862687028` on PR #167, 22 of 22
+jobs green including `backend-db`, `backend-wiring` and `frontend-e2e`. It took two runs —
+the first failed `backend-lint` because the task's last edit was followed by `ruff check`
+and `mypy` but not `ruff format`. **Running two of the three mechanical gates is running
+none of them**, since the one skipped is the one that fails.
+
+**What no gate covers is in §17 and is the part to read.** The browser pass never happened
+— two sessions, the chip in both places and both disclosure states, the Redis keys checked
+after a send and a submit — and **no real model has ever called `read_drafts`**, because
 `fake_provider.py` cannot produce an agent turn. Every claim about how a model reads the
-`| ` prefix rule rests on the description being clear, which no test can establish. The
-example guide's dry-run checklist carries the corresponding item.
+`| ` prefix rule therefore rests on the description being written clearly, which no test
+can establish. The example guide's dry-run checklist carries the corresponding item.
 
 Removed on 2026-08-25 after implementation:
 `2026-08-24-group-activity-submissions` (a project Member Group may be the subject of an

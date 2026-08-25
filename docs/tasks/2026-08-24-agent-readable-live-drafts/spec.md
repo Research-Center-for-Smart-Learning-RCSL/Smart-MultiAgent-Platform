@@ -577,10 +577,21 @@ processing, and it is the most privacy-sensitive surface in the product.
       `docs/examples/creative-thinking-course.md` carries the grant, the disclosure chip,
       the unit-4 caution and a dry-run checklist item. *(Mutation-probed: all three prompt
       assertions go red if the flatness clause is removed.)*
-- [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
+- [x] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`,
       `check:boundaries-enforced`.
-      **Deliberately unticked; see §17 for exactly what did and did not run.**
+      *Closed by **CI run `32862687028`** on PR #167: 22 of 22 jobs green, one skipped
+      (`compose-boot-prod`, which runs only on `main`). That run is what closes the gates
+      this host cannot execute — `backend-db`, `backend-wiring`, `backend-integration`,
+      `frontend-e2e`, `frontend-gate-openapi-drift`, `frontend-gate-boundaries`,
+      `frontend-gate-bundle`, `frontend-gate-type-coverage`, `frontend-csp-font`.*
+      **It took two runs.** The first (`32861505020`) failed `backend-lint` on
+      `ruff format --check` over `test_draft_tools.py`: the last edit of the task was
+      followed by `ruff check` and `mypy` but not `ruff format`. Nothing about the code,
+      everything about the discipline — running two of the three mechanical gates is
+      running none of them, because the one skipped is the one that fails.
+      **§17 still stands for what CI does not cover**: the browser pass, and the fact that
+      no real model has ever called `read_drafts`.
 
 ## 12. Test Plan
 
@@ -795,8 +806,8 @@ on demand through a tool; nothing about a draft is ever persisted, published, or
 
 ## 17. What was and was not verified
 
-Recorded because AC-15 is unticked, and an unticked criterion is only useful if it says
-what is missing.
+AC-15 is ticked by CI run `32862687028`, so this section is no longer about a missing
+gate — it is about the two things **no** gate covers, which is the more useful record.
 
 **Ran, locally, green:** the backend unit tier (7 672), `ruff check`, `ruff format
 --check`, `mypy`; the frontend suite (1 664), `pnpm lint` (all 12 gates), `pnpm
@@ -815,12 +826,16 @@ without it), the line-terminator coverage (red under `split("\n")` for six of ni
 terminators), the entry-count cap (red without it), and the null-payload emit (red under a
 `!== null` guard).
 
-**Ran remotely:** PR #167 carries the full 23-job CI matrix — `backend-db`,
-`backend-wiring`, `backend-integration`, `frontend-e2e`, `frontend-gate-boundaries`,
-`frontend-gate-openapi-drift`, `frontend-gate-bundle`, `frontend-gate-type-coverage`,
-`frontend-csp-font`, `compose-validate`. Local runs of these are not possible on this
-Windows host: `check:boundaries-enforced`, `check:openapi-drift` and `check:bundle-size`
-are bash scripts, and the `integration`/`wiring`/`e2e` tiers need neo4j, Vault and MinIO.
+**Ran remotely, green:** PR #167, CI run `32862687028` — 22 of 22 jobs, one skipped
+(`compose-boot-prod`, `main`-only). That includes everything this Windows host cannot
+execute: `check:boundaries-enforced`, `check:openapi-drift` and `check:bundle-size` are
+bash scripts, and the `integration` / `wiring` / `e2e` tiers need neo4j, Vault and MinIO.
+`backend-db` 2m37s, `backend-wiring` 1m52s, `frontend-e2e` 9m52s.
+
+The **first** run (`32861505020`) failed one job, and the reason is worth keeping: the
+final edit of the task was followed by `ruff check` and `mypy` but not `ruff format`, so
+`backend-lint` caught a wrapped line the formatter wanted collapsed. Running two of the
+three mechanical gates is running none of them — the one skipped is the one that fails.
 
 **Not run at all — the honest gap:**
 
