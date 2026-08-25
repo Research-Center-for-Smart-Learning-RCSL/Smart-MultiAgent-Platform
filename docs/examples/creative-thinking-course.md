@@ -68,8 +68,11 @@ sections are the lesson plan's 準備活動 and 總結活動 and are scored on d
 | `emotion-desk-three-emotions` | 單元四 情緒播報台（三種情緒） | generic form | 6 | 2 |
 | `six-hats-emotion-desk` | 單元四 情緒列車（六頂思考帽） | generic form | 6 | 3 |
 
-All four set `validator_kind: in_process` with `filled_count`, `retention_days: null`,
-`expose_payload_to_agent: true`, and `echo_includes_content: false`.
+All four set `validator_kind: in_process` with `filled_count_coverage`,
+`retention_days: null`, `expose_payload_to_agent: true`, and
+`echo_includes_content: false`. That validator produces `filled_count`'s verdict and adds a
+per-field record of what was answered; see
+[The four types use `filled_count_coverage`](#the-four-types-use-filled_count_coverage-not-filled_count).
 
 ### Field order is declared, not implied
 
@@ -102,9 +105,11 @@ Property keys are `home`, `work`, `abilities`, `appearance`, `center`, `leisure`
 `center` and splices it back into the middle, so that declared order produces the layout
 above.
 
-Keys are semantic rather than positional (`cell_1`…`cell_8`) because the agent digest
-carries **raw property keys and no titles**, so an agent reading a submission sees
-`{"work": "…"}` and can tell 工作 from 人際關係 only if the key says so.
+Keys are semantic rather than positional (`cell_1`…`cell_8`) because everything an agent
+reads about a submission is keyed by **raw property key and carries no title**: the digest
+reads `3/9 fields answered: home, work, leisure`, so an agent can tell 工作 from 人際關係
+only if the key says so. The creator's panel resolves titles from the schema; the agent's
+context never does.
 
 The centre cell is a printed question on the worksheet, not a blank, so `center` is
 optional; `min_filled: 4` carries the completeness floor instead. `filled_count` counts
@@ -397,6 +402,23 @@ To upgrade properly: **delete `mandala-9grid` and `six-hats-emotion-desk` from
 `/admin/activities` first**, then install the course again. Deleting a platform type ends
 its active activations across every tenant, so do it between classes.
 
+**The `filled_count_coverage` change has the same shape and now applies to all four types.**
+`validator_config` is outside the set of fields a platform admin may edit, and install never
+updates an existing row, so an environment installed before the change keeps `filled_count`
+on every type indefinitely. Nothing breaks: those types validate exactly as they did, and
+the only visible difference is that their submissions record no per-field coverage, so AA
+cannot draw a `field_coverage` or `mandala_grid` figure over them and the tool tells it so
+rather than drawing an empty one (see
+[Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes)). Upgrading means
+the same delete-then-reinstall pass, with the same cost: **every project's opt-in is
+revoked, every type gets a new id, and each Project Owner must enable the example again**.
+Tell them before deleting, not after, and do it between classes.
+
+Upgrading only some of the four is supported and produces mixed data within one room. The
+coverage aggregate counts only submissions that carry the per-field record and reports that
+number as its denominator, so a figure over a partly-upgraded room is a figure about the
+submissions it names rather than a silent undercount.
+
 **Deleting also revokes every project's opt-in, and re-installing does not restore it.**
 Enabling an example is a per-project Project Owner act (see [Installing](#installing)), and
 the re-install creates a type with a **new id**, so the old opt-ins would not point at it
@@ -430,8 +452,8 @@ non-submission that AA had no evidence for.
 3. **Participants** join the active activity, which opens a per-subject session, and
    submit. Each participant gets their own monotonic attempt counter.
 4. **Each submission** is validated against the payload schema, then scored server-side by
-   `filled_count`. The verdict is authoritative and computed on the server; nothing the
-   client sends can influence it.
+   `filled_count_coverage`. The verdict is authoritative and computed on the server;
+   nothing the client sends can influence it.
 5. **The room transcript** gets a system-stamped echo that a submission happened, carrying
    no answer text.
 6. **Room agents** read a digest of recent structured activity, which is what lets TA
@@ -482,6 +504,88 @@ declaring a checkbox is enough will instead require that many boxes actually tic
 and this paragraph is a pointer to it rather than a second copy.
 
 All four types here are all-string, so none of this affects them.
+
+### The four types use `filled_count_coverage`, not `filled_count`
+
+The two validators produce the same verdict for the same payload and the same `min_filled`;
+`filled_count_coverage` adds two things. It records **which** declared fields were answered
+in `sub_scores.filled_fields`, and it sets a `ValidationResult.detail` reading
+`3/9 fields answered: home, work, leisure`. Field names only. No answer text is read at any
+point beyond the boolean `_is_filled` returns.
+
+The field list exists because nothing else on the platform records it, and a per-field
+figure drawn without it would have to come from an agent reading a truncated JSON dump of
+the participants' own words. See
+[Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes) for what consumes
+it.
+
+**The agents see less answer text after this change, not more.** A submission digest is the
+validator's `detail` when there is one and a length-capped dump of the raw payload
+otherwise (`backend/contexts/activities/application/agent_digest.py`). Before the change
+these four types supplied no `detail`, so every agent in the room read the dump. Now they
+read a list of field names.
+
+That also moves where the digest appears on an activity-feed row. A digest quoted from the
+participant still follows an em dash; a server-computed one follows `::`, and the block
+carries a different sentence for each. Both markers are named in the shipped prompts,
+because a prompt promising that the trailing text is the student's own writing would be
+false for these four types on every row. The rule is asserted over the shipped files by
+`backend/tests/unit/test_agent_example_packs.py`.
+
+**Existing installs keep `filled_count` until the types are re-installed**, with the
+consequences in
+[Upgrading an environment installed before this correction](#upgrading-an-environment-installed-before-this-correction).
+A room whose types still use `filled_count` records no `filled_fields`, so a coverage figure
+over it has nothing to count and the tool refuses the block with a message the agent can act
+on. It does not render a chart of zeroes, which would assert that nobody answered anything.
+A room upgraded mid-course holds both kinds; the aggregate counts only the submissions that
+carry the key and reports that denominator.
+
+## Presentation blocks: how AA arranges its own notes
+
+An observer's note used to be one blob of markdown. AA can now deliver it as an ordered list
+of **presentation blocks** through a single tool call, `present_observation`, offered on
+observer turns only ([R28.16]). AA chooses which blocks, in what order, and writes their
+titles and text. Not calling the tool is a supported outcome: the turn records the prose as
+it always did.
+
+Six kinds ship, and the split between them is the whole design:
+
+| Kind | Who writes the content |
+|---|---|
+| `prose`, `key_points`, `timeline` | AA, as text |
+| `field_coverage`, `mandala_grid`, `attempt_table` | the **server**, at tool-invoke time |
+
+For a computed block AA supplies only a selection and a framing: which activity, an optional
+title, an optional caveat. Its schema has no field for a value, so a call carrying its own
+counts is rejected before it runs. A participant can therefore persuade AA to *include* a
+coverage figure and cannot change a number in one, because AA is never asked for one. That
+is what makes handing an agent control of the presentation safe to do at all.
+
+What a computed block may contain is bounded the same way the activity feed is: truncated
+participant codes, declared schema field names, and counts. Never a display name, never a
+login email, never an answer. The denominator is always **submissions counted**, never a
+share of a class, and no block renders a participation or coverage rate — which is the same
+bound [What AA is looking at, and what it cannot be asked](#what-aa-is-looking-at-and-what-it-cannot-be-asked)
+places on every question put to AA, expressed in the figures rather than only in the prompt.
+
+Every block except `prose` also carries a **basis label** drawn from a platform-authored
+catalogue, saying what the block rests on and what it cannot mean. AA picks which of three
+applies; it does not write one, and no argument suppresses it. Computed blocks are not
+offered the choice at all — the server stamps "computed over this room's submissions" on
+them, so a computed block cannot be mislabelled by its caller.
+
+**Nothing about this reaches the classroom.** Releasing a block-carrying observation to the
+room produces the same `sender_type=system` message it always did, carrying the blocks'
+markdown serialisation as the body, and the release dialog's plain-text override still edits
+that text. The basis label and the caveat are part of the serialisation, so a released
+observation carries its own limits into the room with it.
+
+**A figure still reads as a score, and the wording is the mitigation.** A teacher looking at
+a coverage bar can read it as an achievement measure, which is precisely what the source
+study's own dimensions do not support beyond fluency. That is why the block prints a
+submissions-counted denominator rather than a percentage, and why AA's prompt says in as
+many words not to restate the platform's numbers as scores.
 
 ## Limitations
 
@@ -624,7 +728,9 @@ authoritatively for later analysis; agents simply cannot read them.
 
 | Piece | Path |
 |---|---|
-| `filled_count` validator | `backend/app/plugins/activity_validators.py` |
+| `filled_count` / `filled_count_coverage` validators | `backend/app/plugins/activity_validators.py` |
+| Presentation blocks: schema, serialiser, tool | `backend/contexts/agents/application/runtime/observation_blocks.py`, `observer_tools.py` |
+| The room-scoped aggregates behind a computed block | `backend/contexts/activities/application/observation_aggregates.py` |
 | **This course's activity content** | `backend/contexts/activities/infrastructure/examples/courses/creative-thinking.json` |
 | Course loader + validation | `backend/contexts/activities/infrastructure/examples/catalogue.py` |
 | **This course's agent packs** | `backend/contexts/agents/infrastructure/examples/packs/` |
@@ -643,8 +749,9 @@ Both are data files, and both loaders validate on read.
 A **course** is a JSON document under `courses/`, named for its `course_key`. Every field
 is required, including the visibility flags: defaulting `expose_payload_to_agent` would be
 the wrong way to decide whether student text reaches an LLM provider. The `payload_schema`
-must be a valid JSON Schema declaring at least one property, and a `filled_count`
-`min_filled` may not exceed the number of declared properties.
+must be a valid JSON Schema declaring at least one property, and a `min_filled` (on either
+`filled_count` or `filled_count_coverage`, which register the same config rules) may not
+exceed the number of declared properties.
 
 A **pack** is a JSON document under `packs/`, named for its `pack_key`, declaring the
 course it accompanies and, per agent, the activity type keys it is written against. Every

@@ -299,6 +299,48 @@ class TestPromptConstraints:
         is a rule the model resolves by evading the question."""
         assert "看得到" in agent.system_prompt, f"{agent.key} never admits it can see the content"
 
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_the_computed_digest_marker_is_named_and_not_read_as_a_students_words(
+        self, pack: Any, agent: Any
+    ) -> None:
+        """observer-presentation-blocks D-3. The example course's four types now
+        use ``filled_count_coverage``, whose digest is a server-computed list of
+        field names rather than the participant's own text — so it lands after
+        ``::`` instead of after the em dash
+        (``activity_context_provider._format_row``).
+
+        Every prompt above states the em-dash rule verbatim, which is exactly why
+        the computed case could not share that marker: a prompt that promised the
+        trailing text was the student's writing would now be false for these four
+        types, on every row. Each prompt must name the new marker and say the text
+        after it is computed.
+
+        DA is included even though it never reads the feed: it drafts TA and SA
+        prompt text, and its constraint list is where a drafted prompt's version of
+        this rule comes from. Leaving it out would ship a designer that writes the
+        stale rule into every new unit's prompt.
+        """
+        prompt = agent.system_prompt
+        assert "`::` 後面" in prompt, f"{agent.key} does not locate the computed digest"
+        assert "不是學生寫的" in prompt or "不是同學寫的" in prompt, (
+            f"{agent.key} does not say the computed digest is not the participant's words"
+        )
+
+    def test_the_analyst_is_told_how_to_arrange_its_own_observation(self) -> None:
+        """AC-12's prompt half ([R28.16]). The tool is offered on every observer
+        turn whether or not the prompt mentions it; what the prompt has to carry is
+        the *split* — which blocks it writes and which the platform fills in — and
+        the rule that follows from it."""
+        aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-silent-analyst")
+
+        assert "present_observation" in aa.system_prompt
+        for kind in ("key_points", "field_coverage", "mandala_grid", "attempt_table"):
+            assert kind in aa.system_prompt, f"AA's prompt does not name {kind}"
+        # The load-bearing sentence: the numbers are measured, so restating them
+        # as a score is the one thing a coverage figure invites and must not do.
+        assert "不要在旁邊的文字裡把它們重述成分數" in aa.system_prompt
+        assert "提交筆數，不是班上的人數" in aa.system_prompt
+
     def test_the_analyst_disclaims_the_three_unscored_creativity_dimensions(self) -> None:
         """example-agents AC-10. filled_count operationalizes fluency alone; flexibility,
         originality and elaboration have no scorer and no delivered rubric."""
