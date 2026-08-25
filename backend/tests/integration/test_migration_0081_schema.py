@@ -241,8 +241,7 @@ def test_the_downgrade_clears_group_sessions_rather_than_aborting(
     # the same shortcut the shared `project` fixture takes.
     scratch_conn.execute(
         sa.text(
-            "INSERT INTO projects (id, name, owner_user_id, created_by_user_id) "
-            "VALUES (:i, 'p', :u, :u)"
+            "INSERT INTO projects (id, name, owner_user_id, created_by_user_id) VALUES (:i, 'p', :u, :u)"
         ),
         {"i": project_id, "u": user_id},
     )
