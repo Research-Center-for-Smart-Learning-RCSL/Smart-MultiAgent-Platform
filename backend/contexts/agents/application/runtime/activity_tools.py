@@ -144,7 +144,7 @@ async def _resolve_allowed_types(
     return tuple(resolved)
 
 
-def _enum_values(allowed_types: tuple[ActivityType, ...]) -> dict[str, ActivityType]:
+def type_enum_values(allowed_types: tuple[ActivityType, ...]) -> dict[str, ActivityType]:
     """``enum value -> type``, one entry per allowed type, values unique.
 
     The value is the type's ``key``. [R30.02] permits a project-owned type and an
@@ -188,7 +188,7 @@ def build_activity_control_tools(
     after its commit. Passing ``None`` builds working tools that broadcast nothing,
     which is only correct for a caller that has no post-commit seam.
     """
-    by_value = _enum_values(control.allowed_types)
+    by_value = type_enum_values(control.allowed_types)
     return [
         _build_start_tool(db, agent=agent, control=control, by_value=by_value, event_sink=event_sink),
         _build_end_tool(db, agent=agent, control=control, event_sink=event_sink),
@@ -446,4 +446,5 @@ __all__ = [
     "ActivityControlContext",
     "build_activity_control_tools",
     "resolve_activity_control",
+    "type_enum_values",
 ]

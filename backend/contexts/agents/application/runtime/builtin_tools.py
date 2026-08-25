@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     # call time, so a runtime import here would be a cycle. `from __future__ import
     # annotations` keeps the signature below a string.
     from contexts.agents.application.runtime.activity_tools import ActivityControlContext
+    from contexts.agents.application.runtime.observer_tools import ObservationPresentationContext
 
 logger = logging.getLogger(__name__)
 
@@ -870,6 +871,8 @@ def build_agent_tools(
     artifact_sink: list[dict[str, Any]] | None = None,
     activity_control: ActivityControlContext | None = None,
     activation_event_sink: list[dict[str, Any]] | None = None,
+    observation_presentation: ObservationPresentationContext | None = None,
+    observation_block_sink: list[dict[str, Any]] | None = None,
 ) -> list[Tool]:
     """Assemble the agent's enabled tools for one turn.
 
@@ -887,6 +890,14 @@ def build_agent_tools(
 
     ``activation_event_sink`` mirrors ``artifact_sink`` — the tools append, the
     turn engine drains after its commit.
+
+    ``observation_presentation`` is the second such exception ([R28.16]) and comes
+    from the binding's **role** rather than from a grant or a row: an observer-role
+    turn gets ``present_observation``, a normal-role turn never does, in any room.
+    The caller resolves it, so this function stays free of the role read.
+    ``observation_block_sink`` pairs with it exactly as the activation sink pairs
+    with ``activity_control``, except that the tool *replaces* the sink's contents
+    — the last call in a turn is the observation.
     """
     out: list[Tool] = []
     # User LOCAL_FUNCTION tools are collected separately and appended LAST, so the
@@ -946,6 +957,19 @@ def build_agent_tools(
                 agent=agent,
                 control=activity_control,
                 event_sink=activation_event_sink,
+            )
+        )
+    if observation_presentation is not None:
+        # Lazily imported for the same cycle reason as `activity_tools` above.
+        from contexts.agents.application.runtime.observer_tools import (
+            build_present_observation_tool,
+        )
+
+        out.append(
+            build_present_observation_tool(
+                db,
+                presentation=observation_presentation,
+                block_sink=observation_block_sink,
             )
         )
     return out + functions
