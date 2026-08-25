@@ -17,6 +17,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.agent_digest import build_agent_digest
 from contexts.activities.domain.models import (
     FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
@@ -50,6 +51,24 @@ _SUB_COLS = (
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
 )
+
+
+def _digest_is_computed(agent_digest: str | None, payload: dict[str, Any] | None) -> bool:
+    """Did this row's digest come from a validator ``detail``, or from the payload?
+
+    Derived by rebuilding the fallback and comparing, rather than stored. The
+    fallback is deterministic (``build_agent_digest`` with no ``detail``), so the
+    comparison is exact — and, unlike a column, it is exact for every row written
+    before the distinction existed. A stored flag would have to be backfilled to a
+    guess, and the wrong guess is the unsafe one: it would let the context block
+    vouch for a server-computed description as the participant's own words.
+
+    Reads the payload and returns a boolean; nothing about the payload survives
+    the call.
+    """
+    if not agent_digest:
+        return False
+    return agent_digest != build_agent_digest(payload=dict(payload or {}), detail=None)
 
 
 def _row_to_submission(row: object) -> ActivitySubmission:
@@ -275,6 +294,9 @@ class ActivitySubmissionRepository:
                     _SUB.c.is_valid,
                     _SUB.c.error_class,
                     _SUB.c.agent_digest,
+                    # Read only to answer where the digest came from, and dropped
+                    # here — no payload value reaches `RecentActivityRow`.
+                    _SUB.c.payload,
                     _TYPE.c.expose_payload_to_agent,
                 )
                 .select_from(
@@ -298,6 +320,7 @@ class ActivitySubmissionRepository:
                 error_class=r.error_class,
                 agent_digest=r.agent_digest,
                 expose_payload_to_agent=r.expose_payload_to_agent,
+                digest_is_computed=_digest_is_computed(r.agent_digest, r.payload),
             )
             for r in rows
         ]

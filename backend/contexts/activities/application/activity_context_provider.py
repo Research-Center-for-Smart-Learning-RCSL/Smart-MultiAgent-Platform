@@ -62,9 +62,27 @@ _PREAMBLE = (
 # it describes a format the block does not have — every row stops at its outcome
 # once the platform policy withholds digests — which teaches the model to look for
 # a separator that is not there.
+#
+# There are two kinds of trailing text and they carry opposite guarantees, so they
+# get **different separators** rather than one note hedging over both. A validator
+# that sets ``ValidationResult.detail`` describes the submission (which fields were
+# answered); one that sets none falls back to a dump of the participant's own
+# words. Once a type adopts a describing validator, a single note promising "this
+# is what the participant wrote" would vouch for computed text as their words —
+# the exact confusion the note exists to prevent. The shipped example prompts
+# state the em-dash rule verbatim, so the computed case had to take a new marker
+# rather than share that one.
+_COMPUTED_MARKER = "::"
+
 _CONTENT_NOTE = (
     "Text following the first — on a row is what that participant wrote themselves: "
     "quoted from them, not computed, and not vouched for by this block."
+)
+
+_COMPUTED_NOTE = (
+    f"Text following {_COMPUTED_MARKER} on a row is server-computed instead: a description of "
+    "that submission, such as which of the activity's fields were answered. It is a fact "
+    "about the submission, not the participant's words, and it never contains them."
 )
 
 
@@ -96,8 +114,11 @@ class ActivityContextProvider:
         digests_allowed = await self._digests_allowed(facade)
         labels = await self._labels(rows, resolve_labels)
         parts = ["[Recent room activity]", _PREAMBLE]
-        if digests_allowed and any(r.expose_payload_to_agent and r.agent_digest for r in rows):
+        shown = [r for r in rows if digests_allowed and r.expose_payload_to_agent and r.agent_digest]
+        if any(not r.digest_is_computed for r in shown):
             parts.append(_CONTENT_NOTE)
+        if any(r.digest_is_computed for r in shown):
+            parts.append(_COMPUTED_NOTE)
         legend = _legend(rows, labels)
         if legend:
             parts.append(legend)
@@ -203,7 +224,8 @@ def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     suffix = f" [{row.error_class}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
     if digests_allowed and row.expose_payload_to_agent and row.agent_digest:
-        line += f" — {_one_line(row.agent_digest)}"
+        marker = _COMPUTED_MARKER if row.digest_is_computed else "—"
+        line += f" {marker} {_one_line(row.agent_digest)}"
     return line
 
 

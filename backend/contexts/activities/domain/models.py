@@ -279,6 +279,14 @@ class RecentActivityRow:
     error_class: str | None
     agent_digest: str | None = None
     expose_payload_to_agent: bool = True
+    # Whether ``agent_digest`` came from a validator's ``detail`` rather than from
+    # the payload-dump fallback. Load-bearing for the context block, which tells
+    # the model that a row's trailing text is the participant's own words: once a
+    # type adopts a validator that describes the submission instead of quoting it,
+    # that promise would be false for those rows. Derived at read time rather than
+    # stored, so it is also correct for every row written before the distinction
+    # existed. Carries no submission content either way.
+    digest_is_computed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
