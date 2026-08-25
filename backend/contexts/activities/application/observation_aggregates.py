@@ -31,16 +31,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.application.subject_code import subject_code
 from contexts.activities.domain.models import (
     MAX_COVERAGE_FIELDS,
     ActivityType,
     AttemptSummary,
-    AttemptSummaryRow,
     FieldCoverage,
     FieldCoverageCell,
     MandalaGrid,
-    ValidationStatus,
 )
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
@@ -121,7 +118,7 @@ class ObservationAggregateService:
         numbers are per session, and summing them across types would report a
         number that exists nowhere.
         """
-        counted, rows = await self._repo.attempt_summary_rows(
+        counted, rows, truncated = await self._repo.attempt_summary_rows(
             chatroom_id=chatroom_id,
             activity_type_id=activity_type.id if activity_type else None,
             limit=limit,
@@ -132,32 +129,9 @@ class ObservationAggregateService:
             type_key=activity_type.key if activity_type else None,
             type_name=activity_type.name if activity_type else None,
             submissions_counted=counted,
-            rows=tuple(_attempt_row(r) for r in rows[:limit]),
-            truncated=len(rows) > limit,
+            rows=tuple(rows),
+            truncated=truncated,
         )
-
-
-def _attempt_row(row: Any) -> AttemptSummaryRow:
-    return AttemptSummaryRow(
-        subject_code=subject_code(row.subject_user_id),
-        attempts=int(row.attempts or 0),
-        submissions=int(row.submissions or 0),
-        latest_outcome=_outcome(ValidationStatus(row.validation_status), row.is_valid),
-        latest_error_class=row.error_class,
-    )
-
-
-def _outcome(status: ValidationStatus, is_valid: bool | None) -> str:
-    """The same four words ``activity_context_provider`` uses for a row's outcome.
-
-    Kept identical on purpose: an agent reading "invalid" in its context block and
-    "failed" in a table it asked for would have two vocabularies for one fact.
-    """
-    if status is ValidationStatus.PENDING:
-        return "pending"
-    if status is ValidationStatus.ERROR:
-        return "error"
-    return "valid" if is_valid else "invalid"
 
 
 def declared_fields(payload_schema: dict[str, Any]) -> list[tuple[str, str]]:

@@ -17,14 +17,16 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.application.agent_digest import build_agent_digest
+from contexts.activities.domain.agent_digest import build_agent_digest
 from contexts.activities.domain.models import (
     FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
     ActivitySubmission,
+    AttemptSummaryRow,
     RecentActivityRow,
     ValidationStatus,
 )
+from contexts.activities.domain.subject_code import outcome_word, subject_code
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.db.rowcount import rowcount
 
@@ -69,6 +71,16 @@ def _digest_is_computed(agent_digest: str | None, payload: dict[str, Any] | None
     if not agent_digest:
         return False
     return agent_digest != build_agent_digest(payload=dict(payload or {}), detail=None)
+
+
+def _row_to_attempt_summary(row: Any) -> AttemptSummaryRow:
+    return AttemptSummaryRow(
+        subject_code=subject_code(row.subject_user_id),
+        attempts=int(row.attempts or 0),
+        submissions=int(row.submissions or 0),
+        latest_outcome=outcome_word(ValidationStatus(row.validation_status), row.is_valid),
+        latest_error_class=row.error_class,
+    )
 
 
 def _row_to_submission(row: object) -> ActivitySubmission:
@@ -467,15 +479,21 @@ class ActivitySubmissionRepository:
         chatroom_id: uuid.UUID,
         activity_type_id: uuid.UUID | None,
         limit: int,
-    ) -> tuple[int, list[Any]]:
-        """``(submissions in scope, one row per subject)``, newest activity first.
+    ) -> tuple[int, list[AttemptSummaryRow], bool]:
+        """``(submissions in scope, one row per subject, was the listing cut short)``.
 
-        ``limit + 1`` rows are fetched so the caller can say the listing was cut
-        short instead of presenting a truncated table as the whole room.
+        Newest activity first. ``limit + 1`` rows are fetched so the caller can say
+        the listing was truncated instead of presenting a short table as the whole
+        room; the extra row is dropped here rather than handed up, so no caller has
+        to know about the off-by-one.
 
         Ordering is by the subject's most recent submission, not by attempt count:
         a table sorted by tries reads as a ranking, and this data does not support
         one.
+
+        Returns domain rows, like :meth:`list_recent_for_room` — a SQLAlchemy
+        ``Row`` must not reach the application layer. The code is applied here for
+        the same reason: it is the only form of the subject that leaves this method.
         """
         scoped = sa.and_(_SUB.c.chatroom_id == chatroom_id, _SUB.c.deleted_at.is_(None))
         if activity_type_id is not None:
@@ -511,7 +529,7 @@ class ActivitySubmissionRepository:
         total = (
             await self._db.execute(sa.select(sa.func.count()).select_from(joined).where(scoped))
         ).scalar_one()
-        return int(total or 0), list(rows)
+        return int(total or 0), [_row_to_attempt_summary(r) for r in rows[:limit]], len(rows) > limit
 
 
 __all__ = ["ActivitySubmissionRepository"]

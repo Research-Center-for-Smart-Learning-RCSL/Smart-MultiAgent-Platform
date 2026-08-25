@@ -26,8 +26,11 @@ from contexts.activities.domain.models import (
     MAX_COVERAGE_FIELDS,
     ActivityType,
     ActivityTypeScope,
+    AttemptSummaryRow,
+    ValidationStatus,
     ValidatorKind,
 )
+from contexts.activities.domain.subject_code import outcome_word, subject_code
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
@@ -66,7 +69,9 @@ class _FakeRepo:
         return self.counted, self.tallies
 
     async def attempt_summary_rows(self, *, chatroom_id, activity_type_id, limit):
-        return self.counted, self.rows[: limit + 1]
+        # The repository owns the limit+1 fetch and reports the cut, so the fake
+        # answers in the same shape rather than making the service do it.
+        return self.counted, self.rows[:limit], len(self.rows) > limit
 
 
 def _service(repo: _FakeRepo) -> ObservationAggregateService:
@@ -75,16 +80,13 @@ def _service(repo: _FakeRepo) -> ObservationAggregateService:
     return service
 
 
-def _attempt_row(*, attempts: int, submissions: int, status: str = "validated", is_valid: bool = True):
-    from types import SimpleNamespace
-
-    return SimpleNamespace(
-        subject_user_id=_SUBJECT,
-        validation_status=status,
-        is_valid=is_valid,
-        error_class=None,
+def _attempt_row(*, attempts: int, submissions: int, outcome: str = "valid") -> AttemptSummaryRow:
+    return AttemptSummaryRow(
+        subject_code=subject_code(_SUBJECT),
         attempts=attempts,
         submissions=submissions,
+        latest_outcome=outcome,
+        latest_error_class=None,
     )
 
 
@@ -196,33 +198,40 @@ class TestAttemptSummaryShaping:
         assert len(summary.rows) == 2
         assert summary.truncated is True
 
-    @pytest.mark.parametrize(
-        ("status", "is_valid", "expected"),
-        [
-            ("validated", True, "valid"),
-            ("validated", False, "invalid"),
-            ("pending", None, "pending"),
-            ("error", None, "error"),
-        ],
-    )
-    async def test_outcomes_use_the_context_block_s_own_four_words(
-        self, status: str, is_valid: bool | None, expected: str
-    ) -> None:
-        summary = await _service(
-            _FakeRepo(
-                counted=1,
-                rows=[_attempt_row(attempts=1, submissions=1, status=status, is_valid=is_valid)],
-            )
-        ).attempt_summary(chatroom_id=_ROOM, activity_type=None, limit=30)
-        assert summary is not None
-        assert summary.rows[0].latest_outcome == expected
-
     async def test_an_empty_room_refuses_rather_than_rendering_an_empty_table(self) -> None:
         assert (
             await _service(_FakeRepo(counted=0)).attempt_summary(
                 chatroom_id=_ROOM, activity_type=None, limit=30
             )
         ) is None
+
+
+class TestSharedVocabulary:
+    """The two rules an agent-facing surface must not restate for itself.
+
+    Both live in ``domain/subject_code.py`` because more than one layer needs
+    them: a code in a figure that does not match the code in the agent's own
+    context invites the reader to connect two rows about different people, and an
+    outcome called "invalid" in one place and "failed" in another gives the model
+    two vocabularies for one fact.
+    """
+
+    def test_the_code_is_the_truncation_both_surfaces_use(self) -> None:
+        assert subject_code(_SUBJECT) == f"u:{str(_SUBJECT)[:8]}"
+
+    @pytest.mark.parametrize(
+        ("status", "is_valid", "expected"),
+        [
+            (ValidationStatus.VALIDATED, True, "valid"),
+            (ValidationStatus.VALIDATED, False, "invalid"),
+            (ValidationStatus.PENDING, None, "pending"),
+            (ValidationStatus.ERROR, None, "error"),
+        ],
+    )
+    def test_the_four_outcome_words(
+        self, status: ValidationStatus, is_valid: bool | None, expected: str
+    ) -> None:
+        assert outcome_word(status, is_valid) == expected
 
 
 class TestCompiledSql:
@@ -268,3 +277,44 @@ class TestCompiledSql:
         assert "deleted_at IS NULL" in sql
         assert "DISTINCT ON" in sql
         assert "LIMIT 6" in sql
+
+    async def test_the_repository_maps_to_domain_rows_and_owns_the_off_by_one(self) -> None:
+        """A SQLAlchemy Row must not reach the application layer, and no caller
+        should have to know the query fetched one extra to detect the cut."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        db = AsyncMock()
+        rows_result, count_result = MagicMock(), MagicMock()
+        rows_result.all.return_value = [
+            SimpleNamespace(
+                subject_user_id=_SUBJECT,
+                validation_status="validated",
+                is_valid=False,
+                error_class="too_few_filled",
+                attempts=3,
+                submissions=5,
+            ),
+            SimpleNamespace(
+                subject_user_id=uuid.uuid4(),
+                validation_status="pending",
+                is_valid=None,
+                error_class=None,
+                attempts=1,
+                submissions=1,
+            ),
+        ]
+        count_result.scalar_one.return_value = 9
+        db.execute.side_effect = [rows_result, count_result]
+
+        counted, rows, truncated = await ActivitySubmissionRepository(db).attempt_summary_rows(
+            chatroom_id=_ROOM, activity_type_id=None, limit=1
+        )
+
+        assert counted == 9
+        assert truncated is True
+        assert [type(r) for r in rows] == [AttemptSummaryRow]
+        assert rows[0].subject_code == subject_code(_SUBJECT)
+        assert rows[0].latest_outcome == "invalid"
+        assert rows[0].latest_error_class == "too_few_filled"
+        assert str(_SUBJECT) not in repr(rows)

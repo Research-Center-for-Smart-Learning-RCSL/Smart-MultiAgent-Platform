@@ -20,12 +20,12 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.application.agent_digest import build_agent_digest
 from contexts.activities.application.ports import ActivityActivationRepository
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import _ensure_subject_is_caller
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
+from contexts.activities.domain.agent_digest import build_agent_digest
 from contexts.activities.domain.errors import (
     ActivityNotActive,
     SessionNotFound,

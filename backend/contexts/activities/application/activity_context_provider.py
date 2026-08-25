@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.application.subject_code import subject_code
-from contexts.activities.domain.models import RecentActivityRow, ValidationStatus
+from contexts.activities.domain.models import RecentActivityRow
+from contexts.activities.domain.subject_code import outcome_word, subject_code
 
 if TYPE_CHECKING:
     # Type-only: `from __future__ import annotations` keeps the annotation a
@@ -226,21 +226,13 @@ def _legend(rows: Sequence[RecentActivityRow], labels: Mapping[uuid.UUID, str]) 
 def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     ts = row.created_at.isoformat() if row.created_at else "?"
     subject = subject_code(row.subject_user_id)
-    outcome = _outcome(row.validation_status, row.is_valid)
+    outcome = outcome_word(row.validation_status, row.is_valid)
     suffix = f" [{row.error_class}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {row.type_key}: {outcome}{suffix}"
     if digests_allowed and row.expose_payload_to_agent and row.agent_digest:
         marker = _COMPUTED_MARKER if row.digest_is_computed else "—"
         line += f" {marker} {_one_line(row.agent_digest)}"
     return line
-
-
-def _outcome(status: ValidationStatus, is_valid: bool | None) -> str:
-    if status is ValidationStatus.PENDING:
-        return "pending"
-    if status is ValidationStatus.ERROR:
-        return "error"
-    return "valid" if is_valid else "invalid"
 
 
 __all__ = ["ActivityContextProvider", "LabelResolver", "subject_code"]
