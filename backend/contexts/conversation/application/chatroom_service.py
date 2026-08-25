@@ -120,6 +120,17 @@ class ChatroomService:
     ) -> set[uuid.UUID]:
         return await self._agents.rooms_with_observers(chatroom_ids)
 
+    async def rooms_with_draft_readers(
+        self,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """[R32.03] — which of these rooms have a binding that may read drafts.
+
+        Batched for the same reason its observer sibling is: the room listing asks it
+        once per page, not once per room.
+        """
+        return await self._agents.rooms_with_draft_readers(chatroom_ids)
+
     # ---- commands --------------------------------------------------------
 
     async def create(

@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
+import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
 import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
 import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
@@ -232,6 +233,50 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/activity-control',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Draft Access
+     * Let one bound agent read this room's unsent text ([R32.03]).
+     *
+     * ``ensure_room_creator``, matching every other authority decision about this
+     * room's bindings. It is the strictest gate available and this is the surface that
+     * most deserves it: what is being handed out is the ability to read text the people
+     * in this room have not chosen to send.
+     *
+     * **Its own route rather than a field on the role patch**, for the reason
+     * ``activity-control`` is: a different authority with a different meaning, so the
+     * audit trail carries one action per decision and a role change cannot silently
+     * carry a grant along with it.
+     *
+     * Unlike ``activity-control`` there is nothing to validate before writing — no
+     * allowlist, no cross-context resolution — because the read-time gates in
+     * ``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore
+     * exactly as narrow as the room's own activity types already are.
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentDraftAccessApiChatroomsChatroomIdAgentsAgentIdDraftAccessPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentDraftAccessIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/draft-access',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,

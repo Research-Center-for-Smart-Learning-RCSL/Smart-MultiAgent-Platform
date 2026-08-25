@@ -679,36 +679,46 @@ class ChatroomAgentRepository:
             return None
         return DraftReadGrant(agent_id=agent_id, granted_by_user_id=row.granted_by_user_id)
 
-    async def room_has_draft_reader(self, chatroom_id: uuid.UUID) -> bool:
-        """Does any binding in this room hold a live draft grant? ([R32.03])
+    async def rooms_with_draft_readers(self, chatroom_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of *chatroom_ids* have at least one live draft grant ([R32.03]).
 
-        Two callers, one question. The WS handler asks it to decide whether to store
-        anything at all — a room nobody may read stores nothing — and the chatroom
-        DTO asks it to drive the disclosure chip. Both need the *room's* answer
-        rather than one binding's, and neither may infer it from a listing that a
-        non-creator is not allowed to see.
+        Batched like :meth:`rooms_with_observers`, and for the same reason: the room
+        listing needs this per row, so a per-room query would make the chip an N+1.
 
-        ``granted_by_user_id`` is checked here too, so this agrees with
-        :meth:`draft_read_grant` by construction: a room whose only granted binding
-        has a deleted granter offers no tool, and must therefore also store no
-        drafts and show no chip. Deriving one from `may_read_drafts` alone would
-        make the chip claim a reader that does not exist.
+        ``granted_by_user_id`` is part of the predicate, so this agrees with
+        :meth:`draft_read_grant` by construction. A room whose only granted binding
+        has a deleted granter is offered no tool, and must therefore also store no
+        drafts and show no chip — deriving the answer from ``may_read_drafts`` alone
+        would make the chip claim a reader that does not exist.
         """
-        row = (
+        if not chatroom_ids:
+            return set()
+        rows = (
             await self._db.execute(
-                sa.select(sa.literal(1))
-                .select_from(t.chatroom_agents)
+                sa.select(t.chatroom_agents.c.chatroom_id)
+                .distinct()
                 .where(
                     sa.and_(
-                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.chatroom_id.in_(list(chatroom_ids)),
                         t.chatroom_agents.c.may_read_drafts.is_(True),
                         t.chatroom_agents.c.granted_by_user_id.isnot(None),
                     )
                 )
-                .limit(1)
             )
-        ).first()
-        return row is not None
+        ).all()
+        return {r.chatroom_id for r in rows}
+
+    async def room_has_draft_reader(self, chatroom_id: uuid.UUID) -> bool:
+        """Does this room have any binding holding a live draft grant? ([R32.03])
+
+        The WebSocket route's form of the question above — it decides whether to
+        store anything at all, since a room nobody may read stores nothing (AC-1).
+        Delegates rather than issuing its own EXISTS so there is one definition of
+        "has a reader": two queries would be two places for the null-grantor arm to
+        be dropped from, and the two answers disagreeing would mean a room storing
+        unsent text for a tool that is never offered.
+        """
+        return chatroom_id in await self.rooms_with_draft_readers([chatroom_id])
 
     async def rooms_with_observers(
         self,

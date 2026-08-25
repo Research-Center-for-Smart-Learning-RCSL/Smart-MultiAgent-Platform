@@ -11,7 +11,9 @@ export type ChatroomOut = {
     created_at: string;
     created_by_user_id: (string | null);
     deleted_at: (string | null);
+    disclose_drafts: boolean;
     disclose_observers: boolean;
+    drafts_readable: boolean;
     id: string;
     is_moderator?: boolean;
     name: string;
