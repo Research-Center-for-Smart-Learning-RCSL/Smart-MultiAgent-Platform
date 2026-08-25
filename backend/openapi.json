@@ -407,7 +407,15 @@
         "type": "object"
       },
       "ActivityGroupProposalsOut": {
+        "description": "One round's group state for one caller.\n\n``eligible_groups`` is the caller's own bound-group membership, which is\nalso the participant surface's only signal that group mode applies at all \u2014\nan empty list means this caller submits individually, whatever the type\ndeclares.",
         "properties": {
+          "eligible_groups": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityMemberGroupRefOut"
+            },
+            "title": "Eligible Groups",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/ActivityGroupProposalOut"
@@ -465,6 +473,26 @@
           "created_at"
         ],
         "title": "ActivityGroupVoteOut",
+        "type": "object"
+      },
+      "ActivityMemberGroupRefOut": {
+        "description": "A group the caller may propose for, named so a picker can render it.\n\nNot a tenancy read: the caller already belongs to every group in this list,\nso it discloses no grouping they could not see elsewhere, and it carries\nnothing about who else is in one.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ActivityMemberGroupRefOut",
         "type": "object"
       },
       "ActivityPolicyPublicOut": {
@@ -1042,8 +1070,20 @@
         "type": "object"
       },
       "ActivityTypePublicOut": {
-        "description": "The participant rendering contract (R30.26): identity, key, display\nname, and payload schema, and nothing else. No `validator_config` \u2014 that\nfield is confidential to Project Owners (R30.25). Reachable through the\nroom-access chain, never through project membership.",
+        "description": "The participant rendering contract (R30.26): identity, key, display\nname, payload schema, and the consent fraction \u2014 and nothing else. No\n`validator_config`, which is confidential to Project Owners (R30.25).\nReachable through the room-access chain, never through project membership.",
         "properties": {
+          "group_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Config"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -17575,7 +17615,7 @@
     },
     "/api/chatrooms/{chatroom_id}/activity-proposals": {
       "get": {
-        "description": "The live proposals this caller may see for one round (AC-12).\n\nRoom access is necessary and not sufficient: the service narrows to the\ncaller's own bound groups, or to every bound group for the room creator. A\nroom member in no group sees an empty list rather than a 403 \u2014 there is\nnothing being withheld from them, there is simply nothing of theirs.",
+        "description": "The live proposals this caller may see for one round, and the groups they\nmay propose for (AC-12).\n\nRoom access is necessary and not sufficient: the service narrows to the\ncaller's own bound groups, or to every bound group for the room creator. A\nroom member in no group sees an empty list rather than a 403 \u2014 there is\nnothing being withheld from them, there is simply nothing of theirs.\n\nBoth halves in one response because the participant panel needs both to\nrender anything at all, and two reads could disagree about which groups this\ncaller is in.",
         "operationId": "list_activity_group_proposals_api_chatrooms__chatroom_id__activity_proposals_get",
         "parameters": [
           {

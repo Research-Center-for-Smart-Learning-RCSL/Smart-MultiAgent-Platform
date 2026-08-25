@@ -49,7 +49,9 @@ from contexts.activities.domain.models import (
     FieldCoverage,
     GroupProposalResolution,
     GroupProposalTally,
+    GroupRoundView,
     MandalaGrid,
+    MemberGroupRef,
     PolicyImpact,
     RecentActivityRow,
     ValidationResult,
@@ -81,8 +83,10 @@ __all__ = [
     "FieldCoverage",
     "GroupProposalResolution",
     "GroupProposalTally",
+    "GroupRoundView",
     "InstallReport",
     "MandalaGrid",
+    "MemberGroupRef",
     "PlatformExample",
     "RecentActivityRow",
     "ValidationResult",
@@ -774,9 +778,10 @@ class ActivitiesFacade:
         activation_id: uuid.UUID,
         caller_user_id: uuid.UUID,
         caller_is_room_creator: bool,
-    ) -> Sequence[GroupProposalTally]:
-        """The live proposals this caller may see for one round ([R30.42])."""
-        return await self._proposals.list_open_for_caller(
+    ) -> GroupRoundView:
+        """One round's group state for this caller: the proposals they may read
+        and the groups they may propose for ([R30.41], [R30.42])."""
+        return await self._proposals.list_round_for_caller(
             project_id=project_id,
             chatroom_id=chatroom_id,
             activation_id=activation_id,
