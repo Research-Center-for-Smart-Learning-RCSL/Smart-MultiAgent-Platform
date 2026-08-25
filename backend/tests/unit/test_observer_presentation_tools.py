@@ -338,6 +338,19 @@ class TestInvocation:
         assert str(ob.MAX_BLOCKS_BYTES) in result.content
         assert sink == []
 
+    async def test_a_block_array_that_renders_to_nothing_is_refused(self) -> None:
+        """Self-audit. The engine records these blocks with their serialisation as
+        `content_md`, and an observer turn may carry no prose at all — so a block
+        array rendering to nothing would persist an empty observation, the one
+        thing the empty-turn guard exists to prevent. `minLength: 1` accepts a
+        space and `schema_violations` strips `pattern`, so the schema cannot."""
+        sink: list[dict[str, Any]] = []
+        tool = ot.build_present_observation_tool(_session(), presentation=_presentation(), block_sink=sink)
+        result = await tool.invoke({"blocks": [{"kind": "prose", "text": "   "}]})
+        assert result.is_error is True
+        assert "render to nothing" in result.content
+        assert sink == []
+
     async def test_a_sinkless_tool_still_validates_and_reports(self) -> None:
         """Only correct for a caller with no post-stream seam, and it must not
         blow up when one builds it that way."""

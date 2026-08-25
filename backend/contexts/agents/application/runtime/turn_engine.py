@@ -2987,22 +2987,33 @@ class TurnEngine:
             final_text, rounds = outcome.text, outcome.rounds
             synthesis_meta = _synthesis_meta(outcome)
 
-            if not final_text.strip() and not observation_blocks:
+            # The blocks' markdown, resolved before the guard rather than inside
+            # the observer branch below: what the guard has to decide is whether
+            # this turn produced anything *persistable*, and a block array that
+            # renders to nothing is not that. Empty for every normal-role turn,
+            # where the sink is never filled.
+            observation_md = serialise_blocks(observation_blocks) if observation_blocks else ""
+
+            if not final_text.strip() and not observation_md.strip():
                 # Nothing to say — never persist an empty agent message. When the
                 # synthesis failed, the reason is the failure and not the model
                 # choosing silence: recording it as `empty_reply` filed a provider
                 # outage as a benign skip.
                 #
-                # `observation_blocks` is the second arm ([R28.16]). An observer told
-                # to deliver its analysis as structured blocks, that calls
+                # `observation_md` is the second arm ([R28.16]). An observer told to
+                # deliver its analysis as structured blocks, that calls
                 # `present_observation` and then says nothing in prose, is the
                 # ordinary shape of that feature rather than an edge case — and
                 # under a text-only guard every block it built would be discarded
-                # here, before the observer branch below ever ran. The invariant is
-                # preserved rather than weakened: the blocks serialise to a
-                # non-empty `content_md` by construction, so nothing empty is
-                # persisted either way. The sink is only ever non-empty on an
-                # observer turn, so a normal-role turn's behaviour is unchanged.
+                # here, before the observer branch below ever ran.
+                #
+                # The invariant is preserved rather than weakened, and it is
+                # preserved by *checking* rather than by assuming: the guard tests
+                # the serialisation, not the sink, so a block array that renders to
+                # nothing is still an empty turn. The tool refuses one of those on
+                # its own, and this is what makes "never persist an empty message"
+                # true here regardless. The sink is only ever filled on an observer
+                # turn, so a normal-role turn's behaviour is unchanged.
                 skip_reason = (
                     (outcome.error_kind or _SYNTHESIS_FAILED) if outcome.synthesis_failed else "empty_reply"
                 )
@@ -3078,11 +3089,11 @@ class TurnEngine:
                 # analysis"), and a released observation would carry it into the
                 # room as the body. A model that wants prose in the observation has
                 # a `prose` block, at any position it likes.
-                observation_md = serialise_blocks(observation_blocks) if observation_blocks else final_text
+                content_md = observation_md or final_text
                 obs = await ObservationService(self._db).record(
                     chatroom_id=chatroom_id,
                     agent_id=agent.id,
-                    content_md=observation_md,
+                    content_md=content_md,
                     trigger=trigger,
                     trigger_message_id=trigger_message_id,
                     metadata=reply_meta,
@@ -3125,7 +3136,7 @@ class TurnEngine:
                     message_id=None,
                     # What was recorded, which is the serialisation when the turn
                     # delivered blocks. Identical to `final_text` when it did not.
-                    text=observation_md,
+                    text=content_md,
                     tool_rounds=rounds,
                     approvals_voted=len(voted_approvals),
                     voted_approval_ids=frozenset(voted_approvals),

@@ -433,6 +433,45 @@ class TestSerialiser:
         assert "- two" in md
         assert "Suggested next step: ask again" in md
 
+    def test_a_list_is_separated_from_what_follows_it(self) -> None:
+        """Self-audit. A markdown paragraph directly beneath a list is a lazy
+        continuation of its last item, so without the blank line the next step,
+        the caveat and the basis sentence all folded into the final bullet — on
+        the released copy too, where the basis label is the whole point."""
+        md = ob.serialise_blocks(
+            [
+                {
+                    "kind": "key_points",
+                    "basis": "transcript",
+                    "caveat": "a caveat",
+                    "points": [{"text": "one"}],
+                    "next_step": "ask again",
+                }
+            ]
+        )
+        lines = md.splitlines()
+        assert lines[0] == "- one"
+        assert lines[1] == ""
+        assert lines[2] == "Suggested next step: ask again"
+        assert lines[3] == ""
+        assert lines[4] == "a caveat"
+
+    def test_a_heading_is_separated_from_its_body(self) -> None:
+        md = ob.serialise_blocks(
+            [{"kind": "timeline", "title": "T", "basis": "transcript", "entries": [{"label": "a"}]}]
+        )
+        assert md.splitlines()[:3] == ["### T", "", "- a"]
+
+    def test_no_run_of_blank_lines_and_no_trailing_one(self) -> None:
+        md = ob.serialise_blocks([{"kind": "timeline", "basis": "transcript", "entries": [{"label": "a"}]}])
+        assert "\n\n\n" not in md
+        assert md == md.rstrip()
+
+    def test_a_whitespace_only_prose_block_serialises_to_nothing(self) -> None:
+        """The property the tool has to refuse on. `minLength: 1` accepts a space,
+        and `schema_violations` strips `pattern`, so the schema cannot catch it."""
+        assert ob.serialise_blocks([{"kind": "prose", "text": "   "}]) == ""
+
     def test_every_non_prose_block_carries_its_basis_sentence(self) -> None:
         """[R28.19]: the label travels with a released observation."""
         md = ob.serialise_blocks(
