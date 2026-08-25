@@ -109,7 +109,7 @@ class GroupProposalService:
         payload: dict[str, Any],
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> GroupProposalTally:
+    ) -> GroupProposalResolution:
         """Open a proposal for this group's answer to the live round (AC-5).
 
         Five gates, in an order chosen so a probe learns the least:
@@ -118,13 +118,21 @@ class GroupProposalService:
            cross-tenant id 404s here, before anything about the room is revealed;
         2. the type declares ``group_config``, or it is not a group task;
         3. the round is live and is this type's;
-        4. the group is a live group of this project, bound to this room, and the
-           proposer belongs to it;
+        4. the group is a live group of this project, bound to this room, the
+           room actually admits its members, and the proposer belongs to it;
         5. the payload already satisfies the schema.
 
         Gate 5 is last and is not an optimisation: a proposal nobody could accept
         should fail at proposal time rather than after three people have voted for
         it.
+
+        IT SETTLES BEFORE IT RETURNS, and that is not an optimisation either.
+        ``required_approvals`` is 1 whenever the fraction over the pinned set
+        rounds down to one person -- 2/3 over a group whose only standing member
+        is the proposer, 1/2 over two. Such a proposal is satisfied by the
+        implicit approval below the moment it is written, and a ``create`` that
+        only wrote it would leave the group's answer sitting `open` until the TTL
+        expired it, with no error anywhere to say so.
         """
         activity_type = await resolve_reachable_type(
             type_reader=self._type_repo,
@@ -181,7 +189,16 @@ class GroupProposalService:
                 "required_approvals": str(required),
             },
         )
-        return await self._tally(proposal_id, include_votes_for=proposer_user_id)
+        created = await self._proposals.get(proposal_id)
+        if created is None:  # pragma: no cover -- just inserted in this txn
+            raise GroupProposalNotFound(str(proposal_id))
+        return await self._settle(
+            project_id=project_id,
+            proposal=created,
+            actor_user_id=proposer_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def _pin_voters(
         self,
@@ -193,24 +210,39 @@ class GroupProposalService:
     ) -> tuple[uuid.UUID, ...]:
         """The group's members at this moment, pinned as the ballot ([R30.41]).
 
-        Three checks, all server-side, and each answered by the context that owns
+        Four checks, all server-side, and each answered by the context that owns
         the fact. "Live group of this project" and "who is in it" are tenancy's;
-        "bound to this room" is conversation's. No cross-context SQL join is used
-        for either, per [R30.09].
+        "bound to this room" and "does the room admit them" are conversation's.
+        No cross-context SQL join is used for any of them, per [R30.09].
 
         Liveness and binding collapse into one refusal on purpose: a group id
         from another project is indistinguishable here from one that exists but
         was never bound, and telling them apart would confirm another tenant's
         group exists.
 
-        The proposer is always in the returned set -- they are a member by gate 3
-        -- so the set is never empty and ``required_approvals`` always has a
-        positive size to work from.
+        THE ROOM-TIER CHECK IS THE SPEC'S "intersected with those who can read
+        the room" (§5.2), expressed once over the room instead of once per
+        member. Every pinned voter is a member of a group this room is bound to,
+        so `_satisfies_room_flags` grants each of them exactly when the room
+        grants the member-group tier at all -- which it does not when
+        `allow_project_owners_only` is set, because that flag is exclusive and no
+        other tier may widen it. A per-user intersection would answer the same
+        question N times and then silently shrink the ballot; refusing the whole
+        proposal says the true thing, which is that this room cannot host a group
+        submission.
+
+        The proposer is always in the returned set -- they are a member by the
+        membership gate -- so the set is never empty and ``required_approvals``
+        always has a positive size to work from.
         """
         tenancy = TenancyFacade(self._db)
+        conversation = ConversationFacade(self._db)
         live = await tenancy.live_member_group_ids([member_group_id], project_id=project_id)
-        bound = await ConversationFacade(self._db).chatroom_member_group_ids(chatroom_id)
+        bound = await conversation.chatroom_member_group_ids(chatroom_id)
         if member_group_id not in live or member_group_id not in bound:
+            raise MemberGroupNotBoundToRoom(str(member_group_id))
+        room = await conversation.get_chatroom(chatroom_id)
+        if room is None or not room.allow_member_groups or room.allow_project_owners_only:
             raise MemberGroupNotBoundToRoom(str(member_group_id))
         if member_group_id not in await tenancy.member_group_ids_for_user(proposer_user_id):
             raise NotAGroupMember(str(member_group_id))

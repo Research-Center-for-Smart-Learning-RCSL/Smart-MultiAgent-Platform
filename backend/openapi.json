@@ -17627,7 +17627,7 @@
         ]
       },
       "post": {
-        "description": "Propose this group's answer to the live round (AC-5).\n\n``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of\nsubmitting, and a reader who may not answer may not start a vote that would\nanswer for them either. The group gates are the service's \u2014 this route knows\nnothing about groups beyond forwarding the id the caller named.",
+        "description": "Propose this group's answer to the live round (AC-5).\n\n``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of\nsubmitting, and a reader who may not answer may not start a vote that would\nanswer for them either. The group gates are the service's \u2014 this route knows\nnothing about groups beyond forwarding the id the caller named.\n\nCreating one can also settle it, when the fraction over the pinned set rounds\ndown to the proposer's own approval. The post-commit fan-out is therefore the\nvote route's, not a shorter version of it.",
         "operationId": "create_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals_post",
         "parameters": [
           {
