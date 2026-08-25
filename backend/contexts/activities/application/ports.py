@@ -35,6 +35,18 @@ class ActivitySessionCloser(Protocol):
     async def close_open_for_activation(self, activation_id: uuid.UUID) -> int: ...
 
 
+class GroupProposalExpirer(Protocol):
+    """The one proposal write ending a round performs (AC-9, [R30.41]).
+
+    Narrowed for the same reason as :class:`ActivitySessionCloser`, and it is a
+    correctness requirement rather than housekeeping: a proposal that outlived
+    its activation would accept later and write a submission into a round that
+    has already finished.
+    """
+
+    async def expire_open_for_activation(self, activation_id: uuid.UUID) -> Sequence[uuid.UUID]: ...
+
+
 class ActivityActivationRepository(Protocol):
     async def get(self, activation_id: uuid.UUID) -> ActivityActivation | None: ...
 
@@ -61,4 +73,5 @@ __all__ = [
     "ActivitySessionCloser",
     "ActivityTypeOptInReader",
     "ActivityTypeReader",
+    "GroupProposalExpirer",
 ]

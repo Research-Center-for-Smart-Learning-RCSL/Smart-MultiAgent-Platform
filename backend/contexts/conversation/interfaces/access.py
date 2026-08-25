@@ -20,6 +20,7 @@ from contexts.conversation.application.access import (
     ensure_room_creator,
     filter_readable_by_room,
     is_moderator_roles,
+    is_room_creator,
     resolve_room_access,
 )
 from contexts.conversation.domain.errors import (
@@ -38,5 +39,10 @@ __all__ = [
     "ensure_room_creator",
     "filter_readable_by_room",
     "is_moderator_roles",
+    # The predicate form of ``ensure_room_creator``, for a caller that widens a
+    # read for the creator rather than refusing everyone else — a group
+    # proposal's votes are visible to the pinned voters AND the creator
+    # ([R30.42]), so the room-creator question is one input, not the gate.
+    "is_room_creator",
     "resolve_room_access",
 ]

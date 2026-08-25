@@ -34,7 +34,9 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     ActivityTypeScope,
+    GroupProposalTally,
     ValidatorKind,
+    VoteChoice,
 )
 from contexts.activities.interfaces.broadcast import (
     InitiatingAgent,
@@ -42,6 +44,7 @@ from contexts.activities.interfaces.broadcast import (
     dispatch_activation_ended,
     dispatch_activation_progress,
     dispatch_activation_started,
+    dispatch_group_proposal,
     dispatch_room_activation_progress,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -52,6 +55,7 @@ from contexts.conversation.interfaces.access import (
     ensure_can_read,
     ensure_can_send,
     ensure_room_creator,
+    is_room_creator,
     resolve_room_access,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
@@ -86,6 +90,11 @@ class ActivityTypeIn(BaseModel):
     retention_days: int | None = Field(default=None, ge=1)
     expose_payload_to_agent: bool = True
     echo_includes_content: bool = False
+    # The consent fraction a group must clear ([R30.40]); null means the type is
+    # individual-only, which is every type that predates 0081. Shape-checked in
+    # the service, not here: it is a domain rule and the platform-install path
+    # has to run the same one.
+    group_config: dict[str, Any] | None = None
 
 
 class ActivityTypeUpdateIn(BaseModel):
@@ -100,6 +109,11 @@ class ActivityTypeUpdateIn(BaseModel):
     retention_days: int | None = Field(default=None, ge=1)
     expose_payload_to_agent: bool = True
     echo_includes_content: bool = False
+    # Editable here and nowhere else. Without it the field would be settable only
+    # by hand-editing the shipped catalogue JSON, and no project could ever
+    # declare its own type group-submittable — see §6 of the dossier for why
+    # `AdminPlatformActivityTypeIn` deliberately does NOT gain it.
+    group_config: dict[str, Any] | None = None
 
 
 class ActivityTypeOut(BaseModel):
@@ -117,6 +131,10 @@ class ActivityTypeOut(BaseModel):
     expose_payload_to_agent: bool
     echo_includes_content: bool
     created_at: str | None
+    # Null for an individual-only type. Unlike `validator_config` this is NOT
+    # owner-confidential: the people being asked to vote have to see the bar they
+    # are voting against ([R30.40]), which is why it is a column of its own.
+    group_config: dict[str, Any] | None = None
 
 
 class ActivityTypeRegisteredOut(ActivityTypeOut):
@@ -193,7 +211,13 @@ class ActivitySessionOut(BaseModel):
     id: uuid.UUID
     activity_type_id: uuid.UUID
     chatroom_id: uuid.UUID
-    subject_user_id: uuid.UUID
+    # Exactly one of the two subject fields is set, and `subject_kind` says
+    # which ([R30.39]). A client must branch on the kind rather than on which id
+    # is null: the pair is the subject, and reading `subject_user_id` alone on a
+    # group session yields null with no explanation.
+    subject_user_id: uuid.UUID | None
+    subject_member_group_id: uuid.UUID | None = None
+    subject_kind: str = "user"
     # The round this session was answered under (0077). Null only on a pre-0077
     # row, which no live surface can reach.
     activation_id: uuid.UUID | None
@@ -243,6 +267,62 @@ class ActivitySubmissionOut(BaseModel):
     created_at: str | None
 
 
+class ActivityGroupProposalIn(BaseModel):
+    member_group_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    payload: dict[str, Any]
+
+
+class ActivityGroupVoteIn(BaseModel):
+    approve: bool
+
+
+class ActivityGroupVoteOut(BaseModel):
+    """One pinned voter's decision ([R30.42]).
+
+    Only ever populated for a caller entitled to the per-person record: the
+    proposal's pinned voters and the room creator. Every other reader gets the
+    counts and an empty list — and no agent reaches this surface at all.
+    """
+
+    user_id: uuid.UUID
+    approve: bool
+    created_at: str | None
+
+
+class ActivityGroupProposalOut(BaseModel):
+    """A group's proposal and where its vote stands.
+
+    ``payload`` is here because the people reading this are the ones being asked
+    to approve it; it is NOT on the room broadcast, which carries counts only
+    (AC-11). The two surfaces have different audiences and deliberately different
+    contents.
+    """
+
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    activation_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    member_group_id: uuid.UUID
+    proposer_user_id: uuid.UUID
+    payload: dict[str, Any]
+    status: str
+    required_approvals: int
+    approvals: int
+    rejections: int
+    undecided: int
+    voter_count: int
+    votes: list[ActivityGroupVoteOut]
+    created_at: str | None
+    expires_at: str | None
+    resolved_at: str | None
+    submission_id: uuid.UUID | None
+
+
+class ActivityGroupProposalsOut(BaseModel):
+    items: list[ActivityGroupProposalOut]
+
+
 class ActivityAggregateOut(BaseModel):
     total: int
     valid_count: int
@@ -273,6 +353,7 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
         expose_payload_to_agent=t.expose_payload_to_agent,
         echo_includes_content=t.echo_includes_content,
         created_at=t.created_at.isoformat() if t.created_at else None,
+        group_config=t.group_config,
     )
 
 
@@ -293,11 +374,50 @@ def _session_out(s: ActivitySession) -> ActivitySessionOut:
         activity_type_id=s.activity_type_id,
         chatroom_id=s.chatroom_id,
         subject_user_id=s.subject_user_id,
+        subject_member_group_id=s.subject_member_group_id,
+        subject_kind=s.subject_kind.value,
         activation_id=s.activation_id,
         status=s.status.value,
         created_at=s.created_at.isoformat() if s.created_at else None,
         closed_at=s.closed_at.isoformat() if s.closed_at else None,
         completed_at=s.completed_at.isoformat() if s.completed_at else None,
+    )
+
+
+def _proposal_out(tally: GroupProposalTally) -> ActivityGroupProposalOut:
+    """The HTTP face of a proposal, votes included only when the tally has them.
+
+    The entitlement decision is made once, in the service, and expressed as an
+    empty ``votes`` tuple. This function does not re-derive it: two places
+    deciding who may see a vote record is how one of them ends up wrong.
+    """
+    p = tally.proposal
+    return ActivityGroupProposalOut(
+        id=p.id,
+        chatroom_id=p.chatroom_id,
+        activation_id=p.activation_id,
+        activity_type_id=p.activity_type_id,
+        member_group_id=p.member_group_id,
+        proposer_user_id=p.proposer_user_id,
+        payload=p.payload,
+        status=p.status.value,
+        required_approvals=p.required_approvals,
+        approvals=tally.approvals,
+        rejections=tally.rejections,
+        undecided=tally.undecided,
+        voter_count=len(p.voter_user_ids),
+        votes=[
+            ActivityGroupVoteOut(
+                user_id=v.user_id,
+                approve=v.choice is VoteChoice.APPROVE,
+                created_at=v.created_at.isoformat() if v.created_at else None,
+            )
+            for v in tally.votes
+        ],
+        created_at=p.created_at.isoformat() if p.created_at else None,
+        expires_at=p.expires_at.isoformat() if p.expires_at else None,
+        resolved_at=p.resolved_at.isoformat() if p.resolved_at else None,
+        submission_id=p.submission_id,
     )
 
 
@@ -446,6 +566,7 @@ async def register_activity_type(
         retention_days=body.retention_days,
         expose_payload_to_agent=body.expose_payload_to_agent,
         echo_includes_content=body.echo_includes_content,
+        group_config=body.group_config,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -509,6 +630,7 @@ async def update_activity_type(
         retention_days=body.retention_days,
         expose_payload_to_agent=body.expose_payload_to_agent,
         echo_includes_content=body.echo_includes_content,
+        group_config=body.group_config,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -994,6 +1116,144 @@ async def submit_activity(
     await db.commit()
     await _dispatch_submission(chatroom_id, submission, signal_payload, db=db)
     return _submission_out(submission)
+
+
+# --------------------------------------------------------------------------- #
+# Group proposals (room-scoped) — [R30.41], [R30.42]                           #
+# --------------------------------------------------------------------------- #
+
+
+@chatroom_router.post("/{chatroom_id}/activity-proposals")
+async def create_activity_group_proposal(
+    body: ActivityGroupProposalIn,
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityGroupProposalOut:
+    """Propose this group's answer to the live round (AC-5).
+
+    ``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of
+    submitting, and a reader who may not answer may not start a vote that would
+    answer for them either. The group gates are the service's — this route knows
+    nothing about groups beyond forwarding the id the caller named.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    tally = await ActivitiesFacade(db).create_group_proposal(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        member_group_id=body.member_group_id,
+        activity_type_id=body.activity_type_id,
+        proposer_user_id=principal.user_id,
+        payload=body.payload,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    await dispatch_group_proposal("activity.proposal.opened", tally)
+    return _proposal_out(tally)
+
+
+@chatroom_router.post("/{chatroom_id}/activity-proposals/{proposal_id}/votes")
+async def vote_on_activity_group_proposal(
+    body: ActivityGroupVoteIn,
+    chatroom_id: uuid.UUID = Path(...),
+    proposal_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityGroupProposalOut:
+    """Record this caller's vote, and submit if it carries the proposal.
+
+    Everything after the commit is the submit path's own post-commit fan-out,
+    reached with the submission an acceptance produced — so a group submission
+    reaches the room, the validation worker and the reactive rules by exactly the
+    routes an individual one does.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    resolution = await ActivitiesFacade(db).vote_on_group_proposal(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        proposal_id=proposal_id,
+        voter_user_id=principal.user_id,
+        approve=body.approve,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    event = "activity.proposal.resolved" if resolution.transitioned else "activity.proposal.voted"
+    await dispatch_group_proposal(event, resolution.tally)
+    if resolution.submission is not None and resolution.signal_payload is not None:
+        await _dispatch_submission(chatroom_id, resolution.submission, resolution.signal_payload, db=db)
+    return _proposal_out(resolution.tally)
+
+
+@chatroom_router.post("/{chatroom_id}/activity-proposals/{proposal_id}/withdraw")
+async def withdraw_activity_group_proposal(
+    chatroom_id: uuid.UUID = Path(...),
+    proposal_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityGroupProposalOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    tally = await ActivitiesFacade(db).withdraw_group_proposal(
+        chatroom_id=chatroom_id,
+        proposal_id=proposal_id,
+        caller_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    await dispatch_group_proposal("activity.proposal.resolved", tally)
+    return _proposal_out(tally)
+
+
+@chatroom_router.get("/{chatroom_id}/activity-proposals")
+async def list_activity_group_proposals(
+    chatroom_id: uuid.UUID = Path(...),
+    activation_id: uuid.UUID = Query(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityGroupProposalsOut:
+    """The live proposals this caller may see for one round (AC-12).
+
+    Room access is necessary and not sufficient: the service narrows to the
+    caller's own bound groups, or to every bound group for the room creator. A
+    room member in no group sees an empty list rather than a 403 — there is
+    nothing being withheld from them, there is simply nothing of theirs.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    tallies = await ActivitiesFacade(db).list_group_proposals(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        activation_id=activation_id,
+        caller_user_id=principal.user_id,
+        caller_is_room_creator=is_room_creator(access, principal=principal),
+    )
+    return ActivityGroupProposalsOut(items=[_proposal_out(t) for t in tallies])
+
+
+@chatroom_router.get("/{chatroom_id}/activity-proposals/{proposal_id}")
+async def get_activity_group_proposal(
+    chatroom_id: uuid.UUID = Path(...),
+    proposal_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityGroupProposalOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    tally = await ActivitiesFacade(db).get_group_proposal(
+        chatroom_id=chatroom_id,
+        proposal_id=proposal_id,
+        caller_user_id=principal.user_id,
+        caller_is_room_creator=is_room_creator(access, principal=principal),
+    )
+    return _proposal_out(tally)
 
 
 @chatroom_router.get("/{chatroom_id}/activity-submissions")

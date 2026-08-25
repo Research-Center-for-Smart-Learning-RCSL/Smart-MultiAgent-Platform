@@ -36,7 +36,11 @@ from app.config.settings import get_settings
 from app.workers.agent_fs_gc import AGENT_FS_GC_TIMEOUT_S
 from app.workers.agent_fs_gc import sweep_once as _agent_fs_gc_sweep_once
 from app.workers.agent_fs_gc import sweep_report_dict as _agent_fs_gc_report_dict
-from app.workers.tasks.activities import activities_watchdog, validate_activity_submission
+from app.workers.tasks.activities import (
+    activities_watchdog,
+    expire_group_proposals,
+    validate_activity_submission,
+)
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import approval_gate_announce, drive_approver_turn
 from app.workers.tasks.conversation import (
@@ -325,6 +329,7 @@ class WorkerSettings:
         agent_turn_reaper,
         validate_activity_submission,
         activities_watchdog,
+        expire_group_proposals,
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
@@ -380,6 +385,16 @@ class WorkerSettings:
         # Every minute — activities validation watchdog (R30.06): sweep stalled
         # pending mcp/webhook validations (or dropped enqueues) to error.
         cron(activities_watchdog, minute=set(range(60)), run_at_startup=False),
+        # Every five minutes — group-proposal expiry ([R30.41]). The BACKSTOP
+        # only: ending a round expires its proposals in the same transaction as
+        # the end, so this catches the room whose round nobody ever ended. A
+        # per-minute tick would buy nothing, because the deadline it enforces is
+        # hours away.
+        cron(
+            expire_group_proposals,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=False,
+        ),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
         # 05:00 UTC daily — per-agent volume + workspace GC (E.10 / R12.03, 60-day

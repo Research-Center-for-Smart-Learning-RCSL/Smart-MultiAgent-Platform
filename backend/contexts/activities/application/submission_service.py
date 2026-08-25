@@ -113,6 +113,87 @@ class SubmissionService:
             subject_user_id=subject_user_id,
             session_id=session_id,
         )
+        return await self._record(
+            activity_type=activity_type,
+            session=session,
+            chatroom_id=chatroom_id,
+            producer_user_id=producer_user_id,
+            payload=payload,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def submit_for_group(
+        self,
+        *,
+        activity_type: ActivityType,
+        activation: ActivityActivation,
+        member_group_id: uuid.UUID,
+        group_name: str | None,
+        proposer_user_id: uuid.UUID,
+        payload: dict[str, object],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> tuple[ActivitySubmission, dict[str, Any]]:
+        """Record an accepted group proposal as this group's submission ([R30.41]).
+
+        Reached ONLY from the proposal service's accept path, which is what makes
+        the consent check structurally unavoidable rather than a rule this method
+        has to remember: there is no route that calls it.
+
+        The caller has already resolved the type, holds the activation row ``FOR
+        UPDATE``, and has established that the group is reachable from the room
+        and that the threshold was met -- so the tenancy and consent gates are
+        deliberately absent here rather than duplicated. What is NOT skipped is
+        the payload check: the type may have been edited between the proposal and
+        its acceptance, and re-running it costs one call.
+
+        ``producer_user_id`` is the proposer. The other members approved the text;
+        they did not write it, and the record says which.
+        """
+        errors = payload_errors(activity_type.payload_schema, dict(payload))
+        if errors:
+            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        session = await self._resolve_group_session(activation=activation, member_group_id=member_group_id)
+        return await self._record(
+            activity_type=activity_type,
+            session=session,
+            chatroom_id=activation.chatroom_id,
+            producer_user_id=proposer_user_id,
+            payload=payload,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            subject_label=group_name,
+        )
+
+    async def _record(
+        self,
+        *,
+        activity_type: ActivityType,
+        session: ActivitySession,
+        chatroom_id: uuid.UUID,
+        producer_user_id: uuid.UUID,
+        payload: dict[str, object],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+        subject_label: str | None = None,
+    ) -> tuple[ActivitySubmission, dict[str, Any]]:
+        """Lock, number, validate, insert, echo and audit one submission.
+
+        Everything both submit paths share, from a resolved session onwards. It
+        is one method rather than two so a group submission cannot drift from an
+        individual one in scoring, attempt numbering or audit -- the property
+        AC-10 asserts.
+
+        ``subject_label`` names the group in the room echo when there is one
+        ([R30.08]); an individual submission passes ``None`` and the echo reads
+        exactly as it always has.
+        """
+        activity_type_id = activity_type.id
         # Answering again retracts "I am finished" ([R30.22]): a participant who
         # declared themselves done and then kept working is not done, and making
         # them un-click first would be a second thing to get wrong. Guarded so the
@@ -217,6 +298,7 @@ class SubmissionService:
                 is_valid,
                 error_class,
                 echo_agent_digest,
+                subject_label=subject_label,
             ),
             message_type=_ECHO_TYPE,
             metadata={
@@ -256,6 +338,7 @@ class SubmissionService:
             activity_type_key=activity_type.key,
             activity_type_scope=activity_type.scope.value,
             subject_user_id=session.subject_user_id,
+            subject_member_group_id=session.subject_member_group_id,
             same_error_count=await self._same_error_count(submission, _ROLLING_WINDOW_SECONDS),
             window_seconds=_ROLLING_WINDOW_SECONDS,
         )
@@ -346,6 +429,7 @@ class SubmissionService:
             activity_type_key=activity_type.key if activity_type is not None else "",
             activity_type_scope=activity_type.scope.value if activity_type is not None else "",
             subject_user_id=session.subject_user_id if session is not None else None,
+            subject_member_group_id=session.subject_member_group_id if session is not None else None,
             same_error_count=await self._same_error_count(submission, window_seconds),
             window_seconds=window_seconds,
         )
@@ -410,6 +494,41 @@ class SubmissionService:
             raise SessionNotFound("could not open or resolve a session")
         return winner
 
+    async def _resolve_group_session(
+        self, *, activation: ActivityActivation, member_group_id: uuid.UUID
+    ) -> ActivitySession:
+        """This group's session for the round, opening one if none exists.
+
+        The group twin of :meth:`_resolve_session`, minus its ``session_id``
+        branch: a group session is never addressed by id from a client, because
+        the only way to write into one is an accepted proposal.
+
+        The same lazy-open race handling, backed by
+        ``uq_activity_sessions_activation_group`` -- so a group's second round of
+        voting continues its attempt sequence instead of starting a new one.
+        """
+        existing = await self._session_repo.get_for_activation_group(
+            activation_id=activation.id, member_group_id=member_group_id
+        )
+        if existing is not None:
+            return existing
+        new_id = await self._session_repo.create_open_for_group(
+            activity_type_id=activation.activity_type_id,
+            chatroom_id=activation.chatroom_id,
+            member_group_id=member_group_id,
+            activation_id=activation.id,
+        )
+        if new_id is not None:
+            opened = await self._session_repo.get(new_id)
+            if opened is not None:
+                return opened
+        winner = await self._session_repo.get_for_activation_group(
+            activation_id=activation.id, member_group_id=member_group_id
+        )
+        if winner is None:  # pragma: no cover — a winner must exist post-conflict
+            raise SessionNotFound("could not open or resolve a group session")
+        return winner
+
 
 def _assemble_activity_signal(
     *,
@@ -419,6 +538,7 @@ def _assemble_activity_signal(
     subject_user_id: uuid.UUID | None,
     same_error_count: int,
     window_seconds: int,
+    subject_member_group_id: uuid.UUID | None = None,
 ) -> dict[str, object]:
     """Build the reactive-rules ``activity`` signal payload (R30.12).
 
@@ -435,6 +555,12 @@ def _assemble_activity_signal(
     longer identifies one type: a project's usable set may hold its own type and
     an opted-in platform type under the same key ([R30.02]), and a rule matching
     on the key alone fires for both.
+
+    ``subject_kind`` is always present and ``subject_member_group_id`` joins
+    ``subject_user_id`` as the polymorphic half ([R30.39]). Without the kind, a
+    rule reading ``subject_user_id`` on a group submission would see ``None`` and
+    have no way to tell "a group answered" from "the session row is gone" -- and
+    the first is now an ordinary event.
     """
     return {
         "submission_id": str(submission.id),
@@ -444,6 +570,10 @@ def _assemble_activity_signal(
         "activity_type_scope": activity_type_scope,
         "session_id": str(submission.session_id),
         "subject_user_id": str(subject_user_id) if subject_user_id is not None else None,
+        "subject_member_group_id": (
+            str(subject_member_group_id) if subject_member_group_id is not None else None
+        ),
+        "subject_kind": "member_group" if subject_member_group_id is not None else "user",
         "attempt_no": submission.attempt_no,
         "validation_status": submission.validation_status.value,
         "is_valid": submission.is_valid,
@@ -456,6 +586,17 @@ def _assemble_activity_signal(
     }
 
 
+def _one_line_label(text: str) -> str:
+    """A group name, made unable to forge a second line in the room echo.
+
+    The echo is a chat message every participant and every agent reads. A name
+    carrying a newline would render as two messages, the second of which nothing
+    vouched for -- the same defence ``activity_context_provider._one_line`` makes
+    for the context block, and for the same reason.
+    """
+    return " ".join(text.split())
+
+
 def _echo_text(
     activity_type: ActivityType,
     attempt_no: int,
@@ -463,12 +604,25 @@ def _echo_text(
     is_valid: bool | None,
     error_class: str | None,
     agent_digest: str | None,
+    *,
+    subject_label: str | None = None,
 ) -> str:
     """Neutral for pending; renders the deterministic outcome for in-process.
 
     ``agent_digest`` is the caller's *already-gated* value (``None`` unless the
     type's ``echo_includes_content`` opts in) — this function does not re-check
-    the flag, it just appends what it is given."""
+    the flag, it just appends what it is given.
+
+    ``subject_label`` names the **group** on a group submission ([R30.08], §5.4
+    of the dossier) and is ``None`` for an individual one, whose echo has never
+    named anybody. It is the group's teacher-authored name, never a member's:
+    the submission is the group's, and attributing it to whoever happened to
+    propose it would publish a member's authorship of an answer the group owns.
+    Collapsed to one line for the same reason every other value on this surface
+    is — a newline here forges a second chat line."""
+    where = f"{activity_type.name}"
+    if subject_label:
+        where = f"{where} for {_one_line_label(subject_label)}"
     if status is ValidationStatus.VALIDATED:
         if is_valid:
             outcome = "valid"
@@ -476,9 +630,9 @@ def _echo_text(
             outcome = f"invalid ({error_class})"
         else:
             outcome = "invalid"
-        text = f"Submitted attempt #{attempt_no} to {activity_type.name}: {outcome}."
+        text = f"Submitted attempt #{attempt_no} to {where}: {outcome}."
     else:
-        text = f"Submitted attempt #{attempt_no} to {activity_type.name}."
+        text = f"Submitted attempt #{attempt_no} to {where}."
     if agent_digest:
         text = f"{text}\nContent: {agent_digest}"
     return text

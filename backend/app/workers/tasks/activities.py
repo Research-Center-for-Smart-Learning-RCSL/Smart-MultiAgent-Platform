@@ -31,6 +31,10 @@ from contexts.activities.domain.models import (
 # single safety net for a stalled worker OR a dropped post-commit enqueue.
 _PENDING_TTL_SECONDS = 900
 
+# Proposals expired per sweep tick. Bounded so one sweep cannot hold a lock over
+# an unbounded set; the next tick takes the rest.
+_EXPIRY_SWEEP_LIMIT = 200
+
 
 async def _run_remote_validator(
     db: Any, activity_type: ActivityType, submission: ActivitySubmission
@@ -230,4 +234,39 @@ async def activities_watchdog(ctx: dict[str, Any]) -> str:
     return f"swept={swept_count}"
 
 
-__all__ = ["activities_watchdog", "validate_activity_submission"]
+async def expire_group_proposals(ctx: dict[str, Any]) -> str:
+    """Expire group proposals past their deadline ([R30.41]).
+
+    THE BACKSTOP, NOT THE PRIMARY MECHANISM. Ending a round expires its
+    proposals in the same transaction as the end (AC-9), which is what makes
+    "a proposal can never produce a submission after its round finished" a
+    property rather than a schedule. This catches the other case: a room whose
+    facilitator never ended the round, where an open proposal would otherwise
+    stay acceptable indefinitely.
+
+    Bounded per tick, so one sweep cannot hold a lock over an unbounded set; the
+    next tick takes the rest. Not audited per row -- nobody performed this act,
+    and rows attributed to no actor are noise in an audit trail. The count is
+    this log line.
+    """
+    from contexts.activities.interfaces.broadcast import dispatch_group_proposal_expired
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+    from shared_kernel.db.session import async_session
+
+    async with async_session() as db:
+        expired = await ActivitiesFacade(db).expire_due_group_proposals(limit=_EXPIRY_SWEEP_LIMIT)
+        await db.commit()
+
+    # Post-commit, and each dispatch swallows its own failure, so one unreachable
+    # room cannot cost the others their event.
+    for proposal_id, chatroom_id, member_group_id in expired:
+        await dispatch_group_proposal_expired(chatroom_id, proposal_id, member_group_id)
+
+    count = len(expired)
+    logger.bind(event="group_proposal_expiry_done", expired=count).info(
+        f"group proposal sweep: expired {count} proposals"
+    )
+    return f"expired={count}"
+
+
+__all__ = ["activities_watchdog", "expire_group_proposals", "validate_activity_submission"]

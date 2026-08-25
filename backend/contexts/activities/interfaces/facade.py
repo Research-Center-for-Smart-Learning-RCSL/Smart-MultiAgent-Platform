@@ -22,6 +22,7 @@ from contexts.activities.application.example_service import (
     InstallReport,
     PlatformExample,
 )
+from contexts.activities.application.group_proposal_service import GroupProposalService
 from contexts.activities.application.observation_aggregates import ObservationAggregateService
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
@@ -46,6 +47,8 @@ from contexts.activities.domain.models import (
     ActivityTypeScope,
     AttemptSummary,
     FieldCoverage,
+    GroupProposalResolution,
+    GroupProposalTally,
     MandalaGrid,
     PolicyImpact,
     RecentActivityRow,
@@ -76,6 +79,8 @@ __all__ = [
     "AttemptSummary",
     "CatalogueEntry",
     "FieldCoverage",
+    "GroupProposalResolution",
+    "GroupProposalTally",
     "InstallReport",
     "MandalaGrid",
     "PlatformExample",
@@ -103,6 +108,7 @@ class ActivitiesFacade:
         )
         self._sessions = ActivitySessionService(db, activation_repo=activation_repo)
         self._submissions = SubmissionService(db, activation_repo=activation_repo)
+        self._proposals = GroupProposalService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
         self._observation_aggregates = ObservationAggregateService(db)
         self._examples = ActivityExampleService(db)
@@ -121,6 +127,7 @@ class ActivitiesFacade:
         retention_days: int | None,
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
+        group_config: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -137,6 +144,7 @@ class ActivitiesFacade:
             retention_days=retention_days,
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
+            group_config=group_config,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -154,6 +162,7 @@ class ActivitiesFacade:
         retention_days: int | None,
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
+        group_config: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -168,6 +177,7 @@ class ActivitiesFacade:
             retention_days=retention_days,
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
+            group_config=group_config,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -682,6 +692,117 @@ class ActivitiesFacade:
         read ([R30.22]). Counts only; the per-subject roster is a separate
         privacy decision the room-creator gate does not by itself authorize."""
         return await self._sessions.count_for_activation(chatroom_id=chatroom_id, activation_id=activation_id)
+
+    # -- Group proposals ([R30.41], [R30.42]) -------------------------------
+
+    async def create_group_proposal(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        member_group_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        proposer_user_id: uuid.UUID,
+        payload: dict[str, Any],
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalTally:
+        """Open a group's proposal for the live round (AC-5)."""
+        return await self._proposals.create(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            member_group_id=member_group_id,
+            activity_type_id=activity_type_id,
+            proposer_user_id=proposer_user_id,
+            payload=payload,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def vote_on_group_proposal(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        voter_user_id: uuid.UUID,
+        approve: bool,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalResolution:
+        """Record one pinned voter's decision; the result says whether it settled
+        the vote and, on acceptance, carries the submission and its reactive-rules
+        signal so the route can dispatch post-commit exactly as ``submit`` does."""
+        return await self._proposals.vote(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            voter_user_id=voter_user_id,
+            approve=approve,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def withdraw_group_proposal(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GroupProposalTally:
+        return await self._proposals.withdraw(
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            caller_user_id=caller_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def list_group_proposals(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        caller_is_room_creator: bool,
+    ) -> Sequence[GroupProposalTally]:
+        """The live proposals this caller may see for one round ([R30.42])."""
+        return await self._proposals.list_open_for_caller(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            caller_user_id=caller_user_id,
+            caller_is_room_creator=caller_is_room_creator,
+        )
+
+    async def get_group_proposal(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        proposal_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        caller_is_room_creator: bool,
+    ) -> GroupProposalTally:
+        return await self._proposals.get_tally(
+            chatroom_id=chatroom_id,
+            proposal_id=proposal_id,
+            caller_user_id=caller_user_id,
+            caller_is_room_creator=caller_is_room_creator,
+        )
+
+    async def expire_due_group_proposals(
+        self, *, limit: int
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
+        """Expire proposals past their deadline; ``(proposal, room, group)`` each.
+
+        The worker sweep. The activation ending is the primary expiry (AC-9) and
+        runs in the same transaction as the end; this catches a proposal in a room
+        whose round nobody ever ended.
+        """
+        return await self._proposals.expire_due_now(limit=limit)
 
     # -- Submissions --------------------------------------------------------
 

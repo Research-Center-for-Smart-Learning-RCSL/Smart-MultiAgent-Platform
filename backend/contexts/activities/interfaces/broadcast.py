@@ -19,7 +19,12 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from contexts.activities.domain.models import ActivityActivation, ActivityType
+from contexts.activities.domain.models import (
+    ActivityActivation,
+    ActivityType,
+    GroupProposalTally,
+    ProposalStatus,
+)
 from contexts.conversation.interfaces import room_channel
 from contexts.identity.interfaces import user_channel
 from shared_kernel.realtime.pubsub import Publisher
@@ -179,11 +184,72 @@ async def dispatch_room_activation_progress(facade: ActivitiesFacade, chatroom_i
     await dispatch_activation_progress(facade, activation)
 
 
+async def dispatch_group_proposal(event: str, tally: GroupProposalTally) -> None:
+    """Tell a room that one of its groups opened, moved, or settled a vote.
+
+    THE PAYLOAD IS IDS AND COUNTS. Never the proposed answer, and never a
+    per-person vote ([R30.42], AC-11). This channel is a blind relay to every
+    participant and to every agent reading the room, so anything on it is
+    effectively public to the class: the room learns that a group is deciding,
+    and only the group sees what and who.
+
+    ``required`` and the three counts are here because they are what a
+    participant's card renders, and withholding them would force the client to
+    refetch on every event -- which is more disclosure, not less, since the
+    refetch returns strictly more.
+
+    Post-commit and best-effort, like every other dispatch in this module.
+    """
+    proposal = tally.proposal
+    try:
+        await Publisher(room_channel(proposal.chatroom_id)).emit(
+            event,
+            {
+                "proposal_id": str(proposal.id),
+                "activation_id": str(proposal.activation_id),
+                "activity_type_id": str(proposal.activity_type_id),
+                "member_group_id": str(proposal.member_group_id),
+                "status": proposal.status.value,
+                "required_approvals": proposal.required_approvals,
+                "approvals": tally.approvals,
+                "rejections": tally.rejections,
+                "undecided": tally.undecided,
+                "voter_count": len(proposal.voter_user_ids),
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for group proposal %s", proposal.id, exc_info=True)
+
+
+async def dispatch_group_proposal_expired(
+    chatroom_id: uuid.UUID, proposal_id: uuid.UUID, member_group_id: uuid.UUID
+) -> None:
+    """The worker sweep's counterpart to :func:`dispatch_group_proposal`.
+
+    A separate function because the sweep holds no tally: it expired the row
+    without counting votes, and reading them back to fill a payload the client
+    only uses to stop showing a card would be work for nothing.
+    """
+    try:
+        await Publisher(room_channel(chatroom_id)).emit(
+            "activity.proposal.resolved",
+            {
+                "proposal_id": str(proposal_id),
+                "member_group_id": str(member_group_id),
+                "status": ProposalStatus.EXPIRED.value,
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for expired proposal %s", proposal_id, exc_info=True)
+
+
 __all__ = [
     "InitiatingAgent",
     "activity_type_public_payload",
     "dispatch_activation_ended",
     "dispatch_activation_progress",
     "dispatch_activation_started",
+    "dispatch_group_proposal",
+    "dispatch_group_proposal_expired",
     "dispatch_room_activation_progress",
 ]
