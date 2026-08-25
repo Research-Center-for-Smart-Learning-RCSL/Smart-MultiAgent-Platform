@@ -20,11 +20,15 @@ const props = defineProps<{
   pending: boolean
   /** No identity resolved yet: show the state, disable the controls. */
   canVote: boolean
+  /** This proposal settled without being accepted, so the group may try again.
+   *  False for an accepted one — that is the round's answer. */
+  canRetry?: boolean
 }>()
 
 const emit = defineEmits<{
   vote: [approve: boolean]
   withdraw: []
+  retry: []
 }>()
 
 const { t } = useI18n()
@@ -168,6 +172,22 @@ const answerRows = computed(() =>
         @click="emit('withdraw')"
       >
         {{ t('activities.group.withdraw') }}
+      </SButton>
+    </div>
+
+    <!-- Settled without accepting: the group may write another one. An accepted
+         proposal gets no such control — that is the round's answer, and a second
+         one would be a duplicate attempt for the same group. -->
+    <div
+      v-else-if="canRetry"
+      class="proposal-card__actions"
+    >
+      <SButton
+        variant="secondary"
+        data-testid="group-proposal-retry"
+        @click="emit('retry')"
+      >
+        {{ t('activities.group.proposeAgain') }}
       </SButton>
     </div>
   </section>

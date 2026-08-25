@@ -6,7 +6,7 @@
 // render another group's vote from a payload that carries no evidence the
 // caller is entitled to it.
 
-import { defineComponent, h, nextTick } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildGroupProposal, renderView } from '../../../../tests/utils'
@@ -42,6 +42,10 @@ function proposal(over: Partial<ActivityGroupProposal> = {}): ActivityGroupPropo
   })
 }
 
+/** The round in force, so a test can start a new one and assert what carries
+ *  over. Reset per test by `beforeEach`. */
+const activationRef = ref<string | null>(ACTIVATION)
+
 /** Mount the composable inside a real component so its watchers run. */
 async function mountComposable(
   opts: { viewerUserId?: string | null; isCreator?: boolean } = {},
@@ -53,7 +57,7 @@ async function mountComposable(
       store = useActivitiesStore()
       group = useGroupProposal({
         chatroomId: () => ROOM,
-        activationId: () => ACTIVATION,
+        activationId: () => activationRef.value,
         activityTypeId: () => 'at_1',
         viewerUserId: () => opts.viewerUserId ?? 'u_bob',
         isCreator: () => opts.isCreator ?? false,
@@ -67,6 +71,7 @@ async function mountComposable(
 }
 
 beforeEach(() => {
+  activationRef.value = ACTIVATION
   listGroupProposalsMock.mockResolvedValue({
     items: [proposal()],
     eligible_groups: [{ id: MY_GROUP, name: 'Group A' }],
@@ -247,6 +252,89 @@ describe('room broadcasts are counts, not authorization ([R30.42])', () => {
     expect(stored?.status).toBe('expired')
     expect(stored?.approvals).toBe(1)
     expect(stored?.voter_count).toBe(3)
+  })
+})
+
+describe('the outcome survives the vote that produced it', () => {
+  it('keeps showing a proposal that settled under this caller', async () => {
+    // The card disappearing the instant the vote lands is the worst moment to
+    // remove it: the student who cast the deciding vote gets no word that their
+    // group's answer went in, and a blank propose form returning in its place
+    // invites a second proposal the partial unique does not stop -- it bars only
+    // concurrent OPEN ones -- producing a duplicate attempt for the group.
+    const { group } = await mountComposable()
+    voteOnGroupProposalMock.mockResolvedValue(
+      proposal({ status: 'accepted', approvals: 2, submission_id: 'sub_1' }),
+    )
+
+    await group.vote('p_1', true)
+    await nextTick()
+
+    expect(group.openProposal.value).toBeNull()
+    expect(group.visibleProposal.value?.status).toBe('accepted')
+    expect(group.visibleProposal.value?.submission_id).toBe('sub_1')
+  })
+
+  it('survives a refetch, which returns open proposals only', async () => {
+    const { group } = await mountComposable()
+    voteOnGroupProposalMock.mockResolvedValue(proposal({ status: 'accepted' }))
+    await group.vote('p_1', true)
+    await nextTick()
+
+    listGroupProposalsMock.mockResolvedValue({
+      items: [],
+      eligible_groups: [{ id: MY_GROUP, name: 'Group A' }],
+    })
+    await group.refresh()
+    await nextTick()
+
+    // `setRound` replaces wholesale, so without holding the id the outcome would
+    // be taken off the screen by any unrelated refetch in the same round.
+    expect(group.visibleProposal.value).toBeNull()
+  })
+
+  it('lets the group put a failed outcome away and try again', async () => {
+    const { group } = await mountComposable()
+    voteOnGroupProposalMock.mockResolvedValue(proposal({ status: 'rejected' }))
+    await group.vote('p_1', false)
+    await nextTick()
+    expect(group.visibleProposal.value?.status).toBe('rejected')
+
+    group.dismissSettled()
+    await nextTick()
+
+    expect(group.visibleProposal.value).toBeNull()
+  })
+
+  it('does not carry an outcome into the next round', async () => {
+    const { group } = await mountComposable()
+    voteOnGroupProposalMock.mockResolvedValue(proposal({ status: 'accepted' }))
+    await group.vote('p_1', true)
+    await nextTick()
+
+    // The new round has nothing proposed in it yet, so anything on screen would
+    // be last round's answer shown under this round's question.
+    listGroupProposalsMock.mockResolvedValue({
+      items: [],
+      eligible_groups: [{ id: MY_GROUP, name: 'Group A' }],
+    })
+    activationRef.value = 'act_2'
+    await flushPromises()
+
+    expect(group.visibleProposal.value).toBeNull()
+  })
+
+  it('answers myVote and isProposer against the settled proposal', async () => {
+    // Both read the card's proposal, so after settling they must follow it or
+    // the card renders its own outcome with nobody's decision on it.
+    const { group } = await mountComposable({ viewerUserId: 'u_alice' })
+    voteOnGroupProposalMock.mockResolvedValue(proposal({ status: 'accepted' }))
+
+    await group.vote('p_1', true)
+    await nextTick()
+
+    expect(group.myVote.value).toBe(true)
+    expect(group.isProposer.value).toBe(true)
   })
 })
 

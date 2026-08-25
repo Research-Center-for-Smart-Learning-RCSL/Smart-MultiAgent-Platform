@@ -257,6 +257,42 @@ describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
     expect(wrapper.text()).toContain('activities.group.intro')
   })
 
+  it('keeps the card up after the vote that settled it, instead of a blank form', async () => {
+    // The deciding voter has to be told their group's answer went in. A blank
+    // SchemaForm returning in the card's place also invites a second proposal
+    // the database does not stop, which lands as a duplicate group attempt.
+    createGroupProposalMock.mockResolvedValue({})
+    voteOnGroupProposalMock.mockResolvedValue(
+      buildGroupProposal({ status: 'accepted', approvals: 2, submission_id: 'sub_1' }),
+    )
+    const wrapper = await panel({ items: [buildGroupProposal()] })
+
+    await wrapper.find('[data-testid="group-proposal-approve"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="group-proposal-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="group-proposal-status"]').text()).toContain(
+      'activities.group.statusAccepted',
+    )
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="group-proposal-retry"]').exists()).toBe(false)
+  })
+
+  it('lets the group write another answer after one fails, but not after one lands', async () => {
+    voteOnGroupProposalMock.mockResolvedValue(buildGroupProposal({ status: 'rejected' }))
+    const wrapper = await panel({ items: [buildGroupProposal()] })
+
+    await wrapper.find('[data-testid="group-proposal-reject"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="group-proposal-retry"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="group-proposal-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="group-proposal-card"]').exists()).toBe(false)
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+
   it('offers a retry rather than spinning forever when the round read fails', async () => {
     const { ApiError } = await import('@shared/errors')
     sessionMe.value = { id: 'u_bob' }
