@@ -639,6 +639,33 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   the context block's values do: the echo is a chat message, and a newline in it forges a
   second one.
 
+- **D-7. `create` settles before it returns, so it returns a resolution rather than a
+  tally.** §5.2 describes creation and resolution as separate events. They are not always:
+  `required_approvals` is 1 whenever the fraction over the pinned set rounds down to one
+  person — 2/3 over a group whose only standing member is the proposer, 1/2 over two — and
+  such a proposal is satisfied by the implicit approval the moment it is written. Creating
+  without settling left the group's answer `open` until the TTL expired it, with no error
+  anywhere. Found by the post-build `/code-review`; the regression test is
+  `TestCreation::test_a_proposal_already_at_its_bar_is_accepted_at_creation`.
+
+- **D-8. §5.2's "intersected with those who can read the room" is enforced over the room,
+  not per member.** Every pinned voter belongs to a group this room is bound to, so
+  `_satisfies_room_flags` grants each of them exactly when the room grants the member-group
+  tier — which it does not when `allow_project_owners_only` is set, that flag being
+  exclusive. One room read therefore answers what a per-user intersection would answer N
+  times, and it answers it better: it refuses the proposal instead of silently shrinking the
+  ballot. Also found by `/code-review`, which was right that the check was missing entirely.
+
+- **D-9. `_row_field` now neutralises both row markers, which is outside this dossier's
+  scope and was fixed anyway.** The em-dash marker had no counterfeit defence while the `::`
+  marker did, and `error_class` reaches that field verbatim and unbounded from a third-party
+  MCP or webhook validator. The consequence was the one the whole prompt architecture exists
+  to prevent: `_CONTENT_NOTE` vouching for text as a participant's own words. Introduced by
+  `2026-08-24-observer-presentation-blocks`, so pre-existing relative to this task's diff and
+  routable to a follow-up under the quality gate's rules — taken here because the fix is one
+  line in a function this task already edits, and a known injection hole three lines away is
+  worse than the scope purity.
+
 - **D-6. `ActivityTypeIn`/`ActivityTypeUpdateIn` do not validate `group_config` at the API
   boundary.** They accept `dict | None` and the shape check runs in the type service. §6
   implies boundary validation; putting it there would have meant two copies of the rule,
@@ -678,6 +705,16 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   from it for a new group unit would omit the "a group answer is not one student's" clause
   the three room agents now carry. Out of scope here (§6 scopes the pack change to the room
   pack) and worth one edit when DA is next touched.
+
+- **FU-8. Ending a round expires its proposals but broadcasts nothing about them.**
+  `ActivationService.end` returns the expired ids and they reach only the audit metadata's
+  count; the worker backstop does the opposite and fans out
+  `dispatch_group_proposal_expired` per row. The room does get `activity.activation.ended`,
+  which a client must already handle by tearing the activity surface down, so nothing is
+  wrong today and there is no proposal UI to observe it — but the primary path and the
+  backstop should not disagree about what they announce. Deferred rather than plumbed up
+  through `ActivityActivationEndResult`, which four callers share, for a client that does not
+  exist yet. Raised by the post-build `/code-review`.
 
 - **FU-7. `_echo_text` does not collapse `activity_type.name`.** The group name added by D-5
   goes through a one-line collapse; the type name beside it, which has the same exposure and
