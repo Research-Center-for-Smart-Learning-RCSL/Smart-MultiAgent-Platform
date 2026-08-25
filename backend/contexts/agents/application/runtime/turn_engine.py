@@ -3352,7 +3352,7 @@ class TurnEngine:
             return None
         if not rows:
             return None
-        lines = [f"- ({o.created_at.isoformat() if o.created_at else '?'}) {o.content_md}" for o in rows]
+        lines = [_memory_entry(o.created_at.isoformat() if o.created_at else "?", o.content_md) for o in rows]
         return "[Your previous observations]\n" + "\n".join(lines)
 
     async def _emit_observation_event(
@@ -4321,6 +4321,21 @@ def _expects_arguments(registry: Any, name: Any) -> bool:
         # caller is mid-loop with no handler of its own.
         _log.warning("could not read the schema for tool %r", name, exc_info=True)
         return True
+
+
+def _memory_entry(timestamp: str, content_md: str) -> str:
+    """One observation as a single markdown list item ([R28.05]).
+
+    An observation's body is a whole markdown document — headings, tables and
+    bullets of its own once a turn delivers presentation blocks ([R28.15]) — and
+    the memory block is a list of observations, one per entry. Interpolated flat, a
+    body's own ``- `` lines are indistinguishable from new entries and its headings
+    land at the top level of the system prompt, so the model reads one observation
+    as several. Continuation lines are indented instead, which keeps the boundary
+    between entries unambiguous and the body readable.
+    """
+    head, *rest = content_md.splitlines() or [""]
+    return "\n".join([f"- ({timestamp}) {head}", *(f"  {line}" for line in rest)])
 
 
 def _synthesis_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:

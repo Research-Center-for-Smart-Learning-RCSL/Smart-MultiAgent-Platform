@@ -1667,6 +1667,25 @@ async def test_blocks_survive_a_failed_synthesis_and_are_marked_not_filed_as_emp
     assert user_events[-1] == "observation.created"
 
 
+def test_a_multi_line_observation_stays_one_memory_entry() -> None:
+    """Self-audit ([R28.05]). A body is a whole markdown document once a turn
+    delivers blocks, and the memory block is one entry per observation. Flat, a
+    body's own `- ` lines read as new entries and its headings land at the top
+    level of the system prompt."""
+    entry = te._memory_entry("2026-08-24T10:00", "### Three things\n\n- one\n- two")
+
+    lines = entry.splitlines()
+    assert lines[0] == "- (2026-08-24T10:00) ### Three things"
+    # Everything else is indented under it, so no continuation line can be read
+    # as the start of another observation.
+    assert all(line.startswith("  ") or not line.strip() for line in lines[1:])
+    assert [line for line in lines if line.startswith("- (")] == [lines[0]]
+
+
+def test_a_single_line_observation_is_unchanged() -> None:
+    assert te._memory_entry("t", "just words") == "- (t) just words"
+
+
 @pytest.mark.asyncio
 async def test_blocks_that_render_to_nothing_are_still_an_empty_turn(monkeypatch) -> None:
     """Self-audit. The guard tests the serialisation, not the sink, so "never
