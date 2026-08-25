@@ -346,8 +346,21 @@ each row for its own list — the frontmatter wins over this preamble.
   Its §6 also corrects `_CONTENT_NOTE`, which would otherwise vouch for a server-computed
   digest as the participant's own words once the example moves to `filled_count_coverage`.
 
-- (moved to Ready now on 2026-08-24, unblocked by the implemented
-  `2026-08-24-observer-presentation-blocks` — its last unmet dependency)
+- (moved to In progress on 2026-08-25. Its freshness pass found four drifts and one new
+  surface, and two of them changed the build. **`chatroom.agents_changed` does not exist**:
+  §5.1 hangs mid-session grant re-resolution on an event the settings write is said to
+  already publish, and `set_agent_activity_grant` publishes nothing — `chatrooms.py`
+  constructs no `Publisher` at all. The connection-scoped flag now carries a 60s
+  re-resolve window instead, so the lag is a stated constant rather than a dependency on
+  an event that never fires. **AC-16's "both units" framing is stale**: the quoting
+  dossier's successor left a five-key per-*type* rule, not a two-unit split, so the draft
+  rule is written as "unquotable for every type". The reuse target `_subject_code` moved
+  to `contexts/activities/domain/subject_code.py`, and `useChatroomSocket.ts:615` is now
+  `:642`. **The new surface**: `2026-08-24-group-activity-submissions` added a second
+  worksheet path — `ActivityPanel.vue:378` renders `SchemaForm` directly for a group
+  proposal, bypassing `ActivityHost` — which Q-1 predates. Taken **into** scope at the
+  user's direction rather than deferred.)
+  The original entry, kept here for its detail:
   `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**).
   **Two things changed under it while it waited.** The three seams its Q-10 names for adding a
   runtime tool are all now occupied by a second example, so follow `present_observation`
