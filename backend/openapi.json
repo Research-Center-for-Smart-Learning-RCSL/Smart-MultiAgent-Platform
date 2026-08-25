@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -242,6 +242,231 @@
         "title": "ActivityAggregateOut",
         "type": "object"
       },
+      "ActivityGroupProposalIn": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "member_group_id": {
+            "format": "uuid",
+            "title": "Member Group Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "member_group_id",
+          "activity_type_id",
+          "payload"
+        ],
+        "title": "ActivityGroupProposalIn",
+        "type": "object"
+      },
+      "ActivityGroupProposalOut": {
+        "description": "A group's proposal and where its vote stands.\n\n``payload`` is here because the people reading this are the ones being asked\nto approve it; it is NOT on the room broadcast, which carries counts only\n(AC-11). The two surfaces have different audiences and deliberately different\ncontents.",
+        "properties": {
+          "activation_id": {
+            "format": "uuid",
+            "title": "Activation Id",
+            "type": "string"
+          },
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "approvals": {
+            "title": "Approvals",
+            "type": "integer"
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "title": "Chatroom Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "member_group_id": {
+            "format": "uuid",
+            "title": "Member Group Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "proposer_user_id": {
+            "format": "uuid",
+            "title": "Proposer User Id",
+            "type": "string"
+          },
+          "rejections": {
+            "title": "Rejections",
+            "type": "integer"
+          },
+          "required_approvals": {
+            "title": "Required Approvals",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          },
+          "undecided": {
+            "title": "Undecided",
+            "type": "integer"
+          },
+          "voter_count": {
+            "title": "Voter Count",
+            "type": "integer"
+          },
+          "votes": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityGroupVoteOut"
+            },
+            "title": "Votes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "chatroom_id",
+          "activation_id",
+          "activity_type_id",
+          "member_group_id",
+          "proposer_user_id",
+          "payload",
+          "status",
+          "required_approvals",
+          "approvals",
+          "rejections",
+          "undecided",
+          "voter_count",
+          "votes",
+          "created_at",
+          "expires_at",
+          "resolved_at",
+          "submission_id"
+        ],
+        "title": "ActivityGroupProposalOut",
+        "type": "object"
+      },
+      "ActivityGroupProposalsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityGroupProposalOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ActivityGroupProposalsOut",
+        "type": "object"
+      },
+      "ActivityGroupVoteIn": {
+        "properties": {
+          "approve": {
+            "title": "Approve",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approve"
+        ],
+        "title": "ActivityGroupVoteIn",
+        "type": "object"
+      },
+      "ActivityGroupVoteOut": {
+        "description": "One pinned voter's decision ([R30.42]).\n\nOnly ever populated for a caller entitled to the per-person record: the\nproposal's pinned voters and the room creator. Every other reader gets the\ncounts and an empty list \u2014 and no agent reaches this surface at all.",
+        "properties": {
+          "approve": {
+            "title": "Approve",
+            "type": "boolean"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "approve",
+          "created_at"
+        ],
+        "title": "ActivityGroupVoteOut",
+        "type": "object"
+      },
       "ActivityPolicyPublicOut": {
         "description": "The platform governance policy as an author needs to see it ([R30.29]).\n\nAny authenticated caller, like the validator listing above: the policy is\nplatform configuration, not a secret, and an owner would learn the same facts\nfrom a 409 on their first save. Reading it up front is what lets the authoring\nform pre-fill a default and disable a locked switch instead of letting the\nowner fill in a form that cannot be accepted.\n\nDeliberately omits ``updated_by_user_id`` \u2014 who set the policy is an admin\nconcern and is on the admin surface.",
         "properties": {
@@ -412,10 +637,34 @@
             "title": "Status",
             "type": "string"
           },
-          "subject_user_id": {
-            "format": "uuid",
-            "title": "Subject User Id",
+          "subject_kind": {
+            "default": "user",
+            "title": "Subject Kind",
             "type": "string"
+          },
+          "subject_member_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Member Group Id"
+          },
+          "subject_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject User Id"
           }
         },
         "required": [
@@ -604,6 +853,18 @@
             "title": "Expose Payload To Agent",
             "type": "boolean"
           },
+          "group_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Config"
+          },
           "key": {
             "maxLength": 128,
             "minLength": 1,
@@ -697,6 +958,18 @@
           "expose_payload_to_agent": {
             "title": "Expose Payload To Agent",
             "type": "boolean"
+          },
+          "group_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Config"
           },
           "id": {
             "format": "uuid",
@@ -821,6 +1094,18 @@
             "title": "Expose Payload To Agent",
             "type": "boolean"
           },
+          "group_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Config"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -917,6 +1202,18 @@
             "default": true,
             "title": "Expose Payload To Agent",
             "type": "boolean"
+          },
+          "group_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Config"
           },
           "name": {
             "maxLength": 256,
@@ -17271,6 +17568,282 @@
           }
         },
         "summary": "Get Activity Activation Progress",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-proposals": {
+      "get": {
+        "description": "The live proposals this caller may see for one round (AC-12).\n\nRoom access is necessary and not sufficient: the service narrows to the\ncaller's own bound groups, or to every bound group for the room creator. A\nroom member in no group sees an empty list rather than a 403 \u2014 there is\nnothing being withheld from them, there is simply nothing of theirs.",
+        "operationId": "list_activity_group_proposals_api_chatrooms__chatroom_id__activity_proposals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Activation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityGroupProposalsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Activity Group Proposals",
+        "tags": [
+          "activities"
+        ]
+      },
+      "post": {
+        "description": "Propose this group's answer to the live round (AC-5).\n\n``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of\nsubmitting, and a reader who may not answer may not start a vote that would\nanswer for them either. The group gates are the service's \u2014 this route knows\nnothing about groups beyond forwarding the id the caller named.",
+        "operationId": "create_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityGroupProposalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityGroupProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Create Activity Group Proposal",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}": {
+      "get": {
+        "operationId": "get_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals__proposal_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityGroupProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Activity Group Proposal",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}/votes": {
+      "post": {
+        "description": "Record this caller's vote, and submit if it carries the proposal.\n\nEverything after the commit is the submit path's own post-commit fan-out,\nreached with the submission an acceptance produced \u2014 so a group submission\nreaches the room, the validation worker and the reactive rules by exactly the\nroutes an individual one does.",
+        "operationId": "vote_on_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals__proposal_id__votes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityGroupVoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityGroupProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Vote On Activity Group Proposal",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}/withdraw": {
+      "post": {
+        "operationId": "withdraw_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals__proposal_id__withdraw_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityGroupProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Withdraw Activity Group Proposal",
         "tags": [
           "activities"
         ]

@@ -5,6 +5,10 @@
 import type { ActivityActivationOut } from '../models/ActivityActivationOut';
 import type { ActivityActivationProgressOut } from '../models/ActivityActivationProgressOut';
 import type { ActivityActivationStartIn } from '../models/ActivityActivationStartIn';
+import type { ActivityGroupProposalIn } from '../models/ActivityGroupProposalIn';
+import type { ActivityGroupProposalOut } from '../models/ActivityGroupProposalOut';
+import type { ActivityGroupProposalsOut } from '../models/ActivityGroupProposalsOut';
+import type { ActivityGroupVoteIn } from '../models/ActivityGroupVoteIn';
 import type { ActivityPolicyPublicOut } from '../models/ActivityPolicyPublicOut';
 import type { ActivitySessionCompletionIn } from '../models/ActivitySessionCompletionIn';
 import type { ActivitySessionOpenIn } from '../models/ActivitySessionOpenIn';
@@ -210,6 +214,151 @@ export class ActivitiesService {
             path: {
                 'chatroom_id': chatroomId,
                 'activation_id': activationId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Activity Group Proposals
+     * The live proposals this caller may see for one round (AC-12).
+     *
+     * Room access is necessary and not sufficient: the service narrows to the
+     * caller's own bound groups, or to every bound group for the room creator. A
+     * room member in no group sees an empty list rather than a 403 — there is
+     * nothing being withheld from them, there is simply nothing of theirs.
+     * @returns ActivityGroupProposalsOut Successful Response
+     * @throws ApiError
+     */
+    public static listActivityGroupProposalsApiChatroomsChatroomIdActivityProposalsGet({
+        chatroomId,
+        activationId,
+    }: {
+        chatroomId: string,
+        activationId: string,
+    }): CancelablePromise<ActivityGroupProposalsOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-proposals',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            query: {
+                'activation_id': activationId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Activity Group Proposal
+     * Propose this group's answer to the live round (AC-5).
+     *
+     * ``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of
+     * submitting, and a reader who may not answer may not start a vote that would
+     * answer for them either. The group gates are the service's — this route knows
+     * nothing about groups beyond forwarding the id the caller named.
+     * @returns ActivityGroupProposalOut Successful Response
+     * @throws ApiError
+     */
+    public static createActivityGroupProposalApiChatroomsChatroomIdActivityProposalsPost({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: ActivityGroupProposalIn,
+    }): CancelablePromise<ActivityGroupProposalOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/activity-proposals',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Activity Group Proposal
+     * @returns ActivityGroupProposalOut Successful Response
+     * @throws ApiError
+     */
+    public static getActivityGroupProposalApiChatroomsChatroomIdActivityProposalsProposalIdGet({
+        chatroomId,
+        proposalId,
+    }: {
+        chatroomId: string,
+        proposalId: string,
+    }): CancelablePromise<ActivityGroupProposalOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'proposal_id': proposalId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Vote On Activity Group Proposal
+     * Record this caller's vote, and submit if it carries the proposal.
+     *
+     * Everything after the commit is the submit path's own post-commit fan-out,
+     * reached with the submission an acceptance produced — so a group submission
+     * reaches the room, the validation worker and the reactive rules by exactly the
+     * routes an individual one does.
+     * @returns ActivityGroupProposalOut Successful Response
+     * @throws ApiError
+     */
+    public static voteOnActivityGroupProposalApiChatroomsChatroomIdActivityProposalsProposalIdVotesPost({
+        chatroomId,
+        proposalId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        proposalId: string,
+        requestBody: ActivityGroupVoteIn,
+    }): CancelablePromise<ActivityGroupProposalOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}/votes',
+            path: {
+                'chatroom_id': chatroomId,
+                'proposal_id': proposalId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Withdraw Activity Group Proposal
+     * @returns ActivityGroupProposalOut Successful Response
+     * @throws ApiError
+     */
+    public static withdrawActivityGroupProposalApiChatroomsChatroomIdActivityProposalsProposalIdWithdrawPost({
+        chatroomId,
+        proposalId,
+    }: {
+        chatroomId: string,
+        proposalId: string,
+    }): CancelablePromise<ActivityGroupProposalOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/activity-proposals/{proposal_id}/withdraw',
+            path: {
+                'chatroom_id': chatroomId,
+                'proposal_id': proposalId,
             },
             errors: {
                 422: `Request Validation Problem`,

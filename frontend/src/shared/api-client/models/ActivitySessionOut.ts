@@ -11,6 +11,8 @@ export type ActivitySessionOut = {
     created_at: (string | null);
     id: string;
     status: string;
-    subject_user_id: string;
+    subject_kind?: string;
+    subject_member_group_id?: (string | null);
+    subject_user_id: (string | null);
 };
 

@@ -228,7 +228,7 @@ def test_the_downgrade_clears_group_sessions_rather_than_aborting(
     _upgrade(scratch_conn)
 
     project_id, user_id = uuid.uuid4(), uuid.uuid4()
-    org_id, workspace_id, chatroom_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    workspace_id, chatroom_id = uuid.uuid4(), uuid.uuid4()
     type_id, activation_id = uuid.uuid4(), uuid.uuid4()
     personal_id, group_id = uuid.uuid4(), uuid.uuid4()
 
@@ -237,13 +237,14 @@ def test_the_downgrade_clears_group_sessions_rather_than_aborting(
         sa.text("INSERT INTO users (id, email, password_hash) VALUES (:i, :e, 'x')"),
         {"i": user_id, "e": f"{user_id}@example.test"},
     )
+    # No org row: `projects.org_id` is nullable (a user-owned project), which is
+    # the same shortcut the shared `project` fixture takes.
     scratch_conn.execute(
-        sa.text("INSERT INTO orgs (id, name, created_by_user_id) VALUES (:i, 'o', :u)"),
-        {"i": org_id, "u": user_id},
-    )
-    scratch_conn.execute(
-        sa.text("INSERT INTO projects (id, org_id, name, created_by_user_id) VALUES (:i, :o, 'p', :u)"),
-        {"i": project_id, "o": org_id, "u": user_id},
+        sa.text(
+            "INSERT INTO projects (id, name, owner_user_id, created_by_user_id) "
+            "VALUES (:i, 'p', :u, :u)"
+        ),
+        {"i": project_id, "u": user_id},
     )
     scratch_conn.execute(
         sa.text("INSERT INTO workspaces (id, project_id, name) VALUES (:i, :p, 'w')"),
