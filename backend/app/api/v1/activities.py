@@ -35,6 +35,7 @@ from contexts.activities.domain.models import (
     ActivityType,
     ActivityTypeScope,
     GroupProposalTally,
+    ProposalStatus,
     ValidatorKind,
     VoteChoice,
 )
@@ -1183,7 +1184,15 @@ async def vote_on_activity_group_proposal(
         request_id=ctx.request_id,
     )
     await db.commit()
-    event = "activity.proposal.resolved" if resolution.transitioned else "activity.proposal.voted"
+    # Keyed on the proposal's STATUS, not on whether this request is the one that
+    # moved it. A vote that lost the resolve race still finds the proposal
+    # decided, and announcing that as `voted` would tell a client the vote is
+    # still running while the payload beside it says otherwise.
+    event = (
+        "activity.proposal.voted"
+        if resolution.tally.proposal.status is ProposalStatus.OPEN
+        else "activity.proposal.resolved"
+    )
     await dispatch_group_proposal(event, resolution.tally)
     if resolution.submission is not None and resolution.signal_payload is not None:
         await _dispatch_submission(chatroom_id, resolution.submission, resolution.signal_payload, db=db)
