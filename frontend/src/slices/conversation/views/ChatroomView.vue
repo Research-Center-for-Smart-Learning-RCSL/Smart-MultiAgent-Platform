@@ -169,10 +169,15 @@
       </div>
     </div>
 
-    <ChatroomTypingIndicator
-      class="chatroom__typing"
-      :names="typingNames"
-    />
+    <!-- One grid cell (row 3) holding both notices, rather than a new row for the
+         chip: the grid's rows are numbered explicitly below, so inserting one
+         would renumber the composer and every breakpoint override of it. AC-11
+         wants the chip directly above the composer, which is where this row
+         already is. -->
+    <div class="chatroom__typing">
+      <ChatroomTypingIndicator :names="typingNames" />
+      <SDraftDisclosureChip v-if="draftsReadable" />
+    </div>
 
     <ChatroomComposer
       v-model="draft"
@@ -236,6 +241,9 @@
             :chatroom-id="chatroomId"
             :project-id="observerProjectId"
             :is-creator="observations.isCreator.value"
+            :drafts-readable="draftsReadable"
+            @draft="(key, payload) => drafts.reportActivity(key, payload)"
+            @draft-clear="(key) => drafts.clearActivity(key)"
           />
         </template>
       </STabs>
@@ -293,6 +301,9 @@
             :chatroom-id="chatroomId"
             :project-id="observerProjectId"
             :is-creator="observations.isCreator.value"
+            :drafts-readable="draftsReadable"
+            @draft="(key, payload) => drafts.reportActivity(key, payload)"
+            @draft-clear="(key) => drafts.clearActivity(key)"
           />
         </template>
       </STabs>
@@ -329,7 +340,16 @@ import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
 import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useResizablePanel, BP } from '@shared/composables'
-import { SAlert, SButton, SDrawer, SEmptyState, SResizeHandle, SSkeleton, STabs } from '@shared/ui'
+import {
+  SAlert,
+  SButton,
+  SDraftDisclosureChip,
+  SDrawer,
+  SEmptyState,
+  SResizeHandle,
+  SSkeleton,
+  STabs,
+} from '@shared/ui'
 import { ChatBubbleLeftRightIcon, EyeIcon, PlayCircleIcon, UsersIcon } from '@heroicons/vue/24/outline'
 import { ApiError, ValidationError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
@@ -340,6 +360,7 @@ import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
 import { useChatroomSocket } from '../composables/useChatroomSocket'
+import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
@@ -435,6 +456,11 @@ const roomQuery = useQuery({
   retry: false,
 })
 const roomName = computed(() => roomQuery.data.value?.name ?? `#${chatroomId.slice(0, 8)}`)
+// [R32.05]. The server has already folded the room's `disclose_drafts` into this,
+// so the client never has to combine two flags and cannot get the combination
+// wrong. Defaults to false while the room read is in flight: a chip that flashes
+// on and off would be worse than one that arrives a moment late.
+const draftsReadable = computed(() => roomQuery.data.value?.drafts_readable ?? false)
 
 const boundAgentsQuery = useQuery({
   queryKey: ['conversation', 'chatroom-agents', chatroomId],
@@ -807,7 +833,14 @@ async function send(): Promise<void> {
   } catch {
     toast.error(t('conversation.chatroom.sendFailed'))
   }
-  if (ok) clearAttachments()
+  if (ok) {
+    clearAttachments()
+    // AC-4. Only on success: a failed send leaves the text in the composer, and
+    // it is still unsent, so retracting it would hide a live draft. `onSend`
+    // itself clears `draft`, so the client-side state and the server-side entry
+    // are retired together.
+    drafts.clearComposer()
+  }
 }
 
 // ---- WebSocket + real-time state ------------------------------------------
@@ -823,6 +856,11 @@ const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
 
+// §32. The view owns the socket on the composer's and the activity panel's
+// behalf — the activities slice must never reach it (gate #1's SLICE_DEPS), and
+// `ChatroomComposer` already delegates its typing signal here.
+const drafts = useDraftReporting((frame) => wsChannel.send(frame))
+
 function emitTyping(): void {
   if (typingTimer === null) {
     wsChannel.send({ type: 'typing.start' })
@@ -833,6 +871,10 @@ function emitTyping(): void {
     wsChannel.send({ type: 'typing.stop' })
     typingTimer = null
   }, TYPING_DEBOUNCE_MS)
+  // Rides the existing burst timer rather than adding a second one (AC-3): the
+  // composer already calls this once per burst, so a draft costs the room the
+  // same frame rate the typing indicator always has.
+  drafts.reportComposer(draft.value)
 }
 
 function onKeyDown(e: KeyboardEvent): void {
@@ -1183,6 +1225,10 @@ function onExportSubmit(opts: ExportOptions): void {
 .chatroom__typing {
   grid-column: 2;
   grid-row: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .chatroom__composer {

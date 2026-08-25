@@ -135,6 +135,11 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         # is the binding's *role* rather than an `agent_tools` row, and what this
         # set bounds is the runtime namespace.
         "present_observation",
+        # Live draft reading ([R32.03]). A second grant-sourced name, on the same
+        # terms as the two above — and the one whose reservation matters most: a
+        # user LOCAL_FUNCTION allowed to shadow this one would be a tool the model
+        # calls expecting the platform's consent gates and reaching something else.
+        "read_drafts",
     }
 )
 

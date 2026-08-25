@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-24
 requirements: [R13.19, R28.02, R28.09, R30.15, R30.17, R30.19, R30.30, R30.37]
 depends_on: [2026-08-24-traceability-extraction-gate, 2026-08-24-observer-presentation-blocks, 2026-08-24-example-agents-quote-unit-two]
@@ -502,45 +502,96 @@ processing, and it is the most privacy-sensitive surface in the product.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: With no binding holding the grant, a `draft.update` frame writes nothing to Redis
+- [x] AC-1: With no binding holding the grant, a `draft.update` frame writes nothing to Redis
       and no agent in the room is offered `read_drafts`.
-- [ ] AC-2: A binding granted `may_read_drafts` by the room creator is offered `read_drafts`
+      *(`test_ws_chatroom_drafts.py::TestARoomNobodyMayReadStoresNothing`,
+      `test_draft_tools.py::TestWhoIsOfferedTheTool`, plus the `db`-tier
+      `test_draft_grant_repository.py::test_a_room_with_no_granted_binding_has_no_reader`.)*
+- [x] AC-2: A binding granted `may_read_drafts` by the room creator is offered `read_drafts`
       on its turns; revoking the grant, or unbinding the agent, removes it on the next turn.
       The grant confers nothing in any other room the same agent is bound to.
-- [ ] AC-3: The composer reports on the existing burst timer, not per keystroke, and the
+      *(`test_draft_tools.py::TestWhoIsOfferedTheTool`; the room-scoping and
+      dies-with-the-binding halves are `db`-tier —
+      `TestTheGrantIsScopedToOneRoom`.)*
+- [x] AC-3: The composer reports on the existing burst timer, not per keystroke, and the
       server applies the same throttle window the typing path uses.
-- [ ] AC-4: A successful send clears the composer draft; a successful submit clears that
+      *(`useDraftReporting.test.ts`, `test_ws_chatroom_drafts.py::TestTheThrottle` — which
+      also pins that the draft frame does not consume the typing window.)*
+- [x] AC-4: A successful send clears the composer draft; a successful submit clears that
       activity's draft; both also clear on unmount.
-- [ ] AC-5: A draft key expires after its TTL with no further updates, and every entry the
+      *(`useDraftReporting.test.ts`, `ActivityHostDrafts.test.ts`,
+      `ActivityPanelDrafts.test.ts`. A **failed** send deliberately does not clear.)*
+- [x] AC-5: A draft key expires after its TTL with no further updates, and every entry the
       tool returns carries its age.
-- [ ] AC-6: An activity draft is **not** returned when its type has
+      *(`db`-tier `test_draft_store_ttl.py` — the expiry is read back off the server, and
+      one key is expired for real; mutation-probed red without `EX`.)*
+- [x] AC-6: An activity draft is **not** returned when its type has
       `expose_payload_to_agent: false`, and **no** activity draft is returned while the
       platform payload lock is in force. A policy read that fails withholds rather than
       permits.
-- [ ] AC-7: `read_drafts` output contains no display name and no login email — only `u:`
+      *(`test_draft_tools.py::TestTheDraftIsNeverLooserThanTheSubmission`, seven cases
+      including a shared key and an unknown key. Mutation-probed: three go red if the
+      filter is widened.)*
+- [x] AC-7: `read_drafts` output contains no display name and no login email — only `u:`
       codes, surface labels, ages and content.
-- [ ] AC-8: Nothing about a draft reaches Postgres, the transcript, an export, a
+      *(`test_draft_tools.py::TestOutputNamesNobody`. See D-9: a participant could
+      originally forge another's code into the attribution header; now structurally
+      impossible.)*
+- [x] AC-8: Nothing about a draft reaches Postgres, the transcript, an export, a
       notification, or an audit payload. The audit event carries counts and surfaces only.
-- [ ] AC-9: A draft update neither wakes an agent, nor re-arms the silence clock, nor counts
+      *(`test_draft_tools.py::TestTheAuditTrail` asserts the absence, including that the
+      derived codes are omitted too; `test_chatroom_draft_grant_service.py` does the same
+      for the grant write. No table gained a draft column — 0082 adds two booleans.)*
+- [x] AC-9: A draft update neither wakes an agent, nor re-arms the silence clock, nor counts
       toward `every_n_messages`.
-- [ ] AC-10: A fourth `read_drafts` call in one turn returns an error result, not data.
-- [ ] AC-11: With `drafts_readable && disclose_drafts`, the composer and the activity panel
+      *(`test_ws_chatroom_drafts.py::TestNothingLeavesTheServer` — four behavioural cases
+      plus one that reads the handler's own source, since the behavioural ones can only see
+      the branches that exist today. Mutation-probed: all four go red if a publish is added.)*
+- [x] AC-10: A fourth `read_drafts` call in one turn returns an error result, not data.
+      *(`test_draft_tools.py::TestThePerTurnCap`, including that a refused call reads
+      nothing and writes no audit row, and that the cap is per turn rather than per tool
+      object.)*
+- [x] AC-11: With `drafts_readable && disclose_drafts`, the composer and the activity panel
       each show the chip; with disclosure off, neither does, and a guest's chatroom DTO
       carries neutral values.
-- [ ] AC-12: `disclose_drafts` is patchable by the room creator without
+      *(`test_chatroom_draft_api.py::TestTheDisclosurePredicate`,
+      `ActivityPanelDrafts.test.ts`. **See D-8** for what "neutral" resolves to for a guest
+      and why it differs from the observer path.)*
+- [x] AC-12: `disclose_drafts` is patchable by the room creator without
       `RESOURCE_CREATE_EDIT`, and by nobody else.
-- [ ] AC-13: The activities slice contains no import of the conversation slice and no socket
+      *(`test_chatroom_draft_api.py::TestTheCreatorOnlyCarveOut`, in both directions,
+      including that a mixed patch still needs both gates.)*
+- [x] AC-13: The activities slice contains no import of the conversation slice and no socket
       access; `pnpm lint` passes gate #1 and `check:boundaries-enforced` still enforces it.
-- [ ] AC-14: `ActivityRenderCtx` exposes exactly five members, asserted as an exact set; the
+      *(`pnpm lint` green locally. `check:boundaries-enforced` is a bash script this host
+      cannot run — it is a CI job, `frontend-gate-boundaries`, and passed on PR #167.)*
+- [x] AC-14: `ActivityRenderCtx` exposes exactly five members, asserted as an exact set; the
       `PluginToHostMessage` union carries the new `draft` kind.
-- [ ] AC-16: All three `creative-thinking-room` prompts state that a draft is unquotable in
-      **both** units and say why that differs from the per-type submission rule, asserted over
-      the shipped file by `backend/tests/unit/test_agent_example_packs.py` alongside the
-      constraints it already asserts, and `docs/examples/creative-thinking-course.md` carries
-      the grant, the disclosure chip and the unit-4 caution.
-- [ ] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
+      *(`sdk.test.ts` — the exact-set assertion moved from four to five deliberately and was
+      not relaxed to "at least". The bridge comment moved with it, per §9.)*
+- [x] AC-16: All three `creative-thinking-room` prompts state that a draft is unquotable
+      **for every activity type** and say why that differs from the per-type submission rule
+      (**see D-2** — the "both units" framing was stale), asserted over the shipped file by
+      `backend/tests/unit/test_agent_example_packs.py` alongside the constraints it already
+      asserts; AA additionally states a draft is not a submission and must not be counted.
+      `docs/examples/creative-thinking-course.md` carries the grant, the disclosure chip,
+      the unit-4 caution and a dry-run checklist item. *(Mutation-probed: all three prompt
+      assertions go red if the flatness clause is removed.)*
+- [x] AC-15: The full Definition of Done passes — `pytest -q`, `ruff`, `mypy`, `pnpm test`,
       `pnpm lint`, `pnpm typecheck`, `pnpm build`, `check:openapi-drift`,
       `check:boundaries-enforced`.
+      *Closed by **CI run `32862687028`** on PR #167: 22 of 22 jobs green, one skipped
+      (`compose-boot-prod`, which runs only on `main`). That run is what closes the gates
+      this host cannot execute — `backend-db`, `backend-wiring`, `backend-integration`,
+      `frontend-e2e`, `frontend-gate-openapi-drift`, `frontend-gate-boundaries`,
+      `frontend-gate-bundle`, `frontend-gate-type-coverage`, `frontend-csp-font`.*
+      **It took two runs.** The first (`32861505020`) failed `backend-lint` on
+      `ruff format --check` over `test_draft_tools.py`: the last edit of the task was
+      followed by `ruff check` and `mypy` but not `ruff format`. Nothing about the code,
+      everything about the discipline — running two of the three mechanical gates is
+      running none of them, because the one skipped is the one that fails.
+      **§17 still stands for what CI does not cover**: the browser pass, and the fact that
+      no real model has ever called `read_drafts`.
 
 ## 12. Test Plan
 
@@ -623,7 +674,89 @@ on demand through a tool; nothing about a draft is ever persisted, published, or
 
 ## 15. Deviation Log
 
-Empty. Appended by `/build`.
+- **D-1. `chatroom.agents_changed` does not exist.** §5.1 re-resolves the room's grant
+  mid-session "on the `chatroom.agents_changed` event the settings write already
+  publishes". No such event exists: `set_agent_activity_grant` writes an audit row and
+  publishes nothing, and `chatrooms.py` constructs no `Publisher` at all. Rather than
+  invent a broadcast for one reader, the connection-scoped flag carries the time it was
+  resolved and goes stale after **60s** (`_grant_ttl_s`). A grant revoked mid-session
+  stops new writes within that window and the draft TTL bounds what was already stored; a
+  grant added mid-session starts collecting at the same point. Both directions self-heal,
+  and the lag is a stated constant rather than a dependency on an event that never fires.
+  Taken with the user before implementation.
+
+- **D-2. AC-16's "both units" framing was stale, so the rule is written per type.** The
+  dossier assumed a unit-2/unit-4 split in the shipped prompts. Its predecessor left a
+  five-**key** rule instead (`time-traveler-next-steps` and `six-hats-shared-case`
+  quotable, `mandala-9grid` content-invisible, the two emotion-desk types forbidden), so
+  "unquotable in both units" no longer names anything. The prompts say the draft rule is
+  flat across **all five types** and say *why* it does not follow the per-type rule beside
+  it — a bare prohibition next to a per-type permission reads as an oversight to a model
+  looking for the applicable clause. `test_agent_example_packs.py` asserts the flatness
+  phrase and the "does not apply" clause in all three prompts.
+
+- **D-3. The group-proposal form was taken into scope.** `2026-08-24-group-activity-
+  submissions` landed a second worksheet surface after this dossier was written:
+  `ActivityPanel.vue` renders `SchemaForm` directly for a group proposal, bypassing
+  `ActivityHost`, so Q-1's two surfaces no longer enumerate the product. Reported under
+  the activity **type key**, so §5.4's read-time consent gate applies to it unchanged.
+  Taken with the user rather than deferred.
+
+- **D-4. The reuse target moved.** §9 cites `_subject_code` at
+  `activity_context_provider.py:146-147`; the observer dossier's quality gate moved it to
+  `contexts/activities/domain/subject_code.py::subject_code`, and the same-named function
+  left behind in the provider is now row-shaped. The tool uses the domain one.
+
+- **D-5. No new `ActivitiesFacade` method.** §6 asks for "a read for
+  `expose_payload_to_agent` by type key". `list_types(project_id)` already returns every
+  reachable type with that field, so the gate uses it rather than adding a second read
+  with the same answer.
+
+- **D-6. `DraftReadGrant` carries no allowlist**, unlike `ActivityControlGrant`. What a
+  granted agent may read is decided per call by the type's own consent flag and the
+  platform policy; a stored list would be a third gate to keep in step with those two, and
+  the state where they disagreed would be a draft readable on looser terms than its own
+  submission — the one thing AC-6 forbids. The grant route's body is therefore one field.
+
+- **D-7. `may_read_drafts` reuses `granted_by_user_id`.** Migration 0082 adds no second
+  grantor column: both reads ask the same question ("is anyone answerable for this?") and
+  two columns would admit a state where they disagree. The consequence is that a draft
+  revoke clears the grantor **only when the activity grant is also off** — a `db`-tier
+  test pins that, because clearing it unconditionally would silently make the room's
+  activity-control grant inert.
+
+- **D-8. Guests are not specially neutralised.** [R32.05] says "Guests receive neutral
+  values"; §8 of this dossier says the guest "sees the same disclosure chip" and receives
+  neutral values *when disclosure is off*. The two readings conflict and §8 is the more
+  specific, so `drafts_readable` is `disclose_drafts && has_readers` for everyone — a
+  guest's own unsent text is read on exactly a member's terms, so suppressing the chip
+  would withhold the disclosure from the person it is about. A guest still learns nothing
+  about *which* agent holds the grant. The observer fields beside it keep their guest
+  suppression, and a test asserts the asymmetry is deliberate rather than forgotten.
+
+- **D-9. Two gate findings changed the design after implementation**, both mine:
+  - The security gate found that a participant could **forge another participant's
+    attribution header** by embedding a look-alike line in their own draft (the code is
+    not secret — the typing indicator renders `uid[:8]`). Fixed structurally: every
+    content line carries a `| ` prefix and a header never does. `/code-review` then found
+    the first fix incomplete — `split("\n")` honours one of seven line terminators, so
+    CR, VT, FF, U+0085, U+2028 and U+2029 all escaped it. `splitlines()` closes it;
+    nine parametrised cases pin every terminator.
+  - The quality gate found both consumers importing
+    `contexts.conversation.infrastructure.drafts` **directly** — a route below the facade,
+    and one context's application layer reaching another's infrastructure. The draft
+    surface is re-exported from `contexts/conversation/interfaces/` on `PresenceTracker`'s
+    terms. `lint-imports` cannot see this (its contracts enforce domain purity only), so
+    an AST test asserts it.
+
+- **D-10. The per-user entry cap is new.** `MAX_USER_CHARS` bounds bytes and not key
+  count, so a thousand one-character drafts under distinct keys sat inside the budget
+  while making the read path's MGET a thousand keys wide. `MAX_USER_ENTRIES = 8` was added
+  at the security gate; `/code-review` then found the first version counted *index
+  members* rather than live entries, which would have silently and permanently refused a
+  legitimate participant once eight stale members accumulated (closing a tab fires no
+  unmount hook). It now counts live values and prunes the dead ones, which costs nothing
+  extra — the byte budget already fetches them — and makes the situation self-healing.
 
 ## 16. Follow-ups
 
@@ -637,4 +770,84 @@ Empty. Appended by `/build`.
   decision.
 - **FU-3.** `ChatroomView.vue` will own two socket-send responsibilities on one timer after
   this. If a third arrives, the timer belongs in a composable rather than in the view body
-  (§9).
+  (§9). *(Partly discharged: the draft half went into `useDraftReporting` rather than into
+  the view body, so the view now delegates rather than accumulating. The `typing.*` timer
+  itself is still module-level `let` state in the view.)*
+
+- **FU-4. The round-change cancel has no component-level test.** `cancelGroupDraft()` in
+  `ActivityPanel`'s activation watcher is what stops one round's pending values going out
+  under the next round's key, and therefore under the next type's consent gate. Two
+  attempts at a component test for it passed with the cancel deliberately removed — vacuous
+  once because a wire-shaped activation never reached the store, and once for a reason not
+  established. A test that cannot fail is worse than none, so neither was kept. The
+  cancel's own behaviour is pinned in `useDraftThrottle.test.ts`; what is unpinned is that
+  the watcher calls it. Worth a proper test by someone who has the panel's store harness
+  in their head.
+
+- **FU-5. `ws_chatroom` now carries eight connection-scoped closures.** The draft handling
+  added a third responsibility to a route body that was already long. The closures-over-
+  connection-state idiom is the file's own and the comments explain why that state cannot
+  be module-level, so extracting it needs a class holding `chatroom_id`, the store and two
+  flags rather than a simple move. Recorded rather than done here.
+
+- **FU-6. The 64 KiB WS frame cap's comment is now out of date.**
+  `shared_kernel/realtime/connection.py:60-64` says inbound frames "are tiny control
+  messages (ping / refresh / typing)". `draft.update` carries composer text, so that is no
+  longer true. The cap is still enforced and still generous — `DraftStore.clip` bounds
+  what is stored at 4 000 chars regardless — but the comment now explains the constant with
+  a premise that does not hold.
+
+- **FU-7. Draft reads have no per-agent rate limit across turns.** `MAX_CALLS_PER_TURN`
+  bounds one turn; an agent woken on `every_n_messages: 1` in a busy room can call
+  `read_drafts` three times per message indefinitely. Each call is audited, so the
+  behaviour is visible rather than silent, and the room's own message rate bounds it — but
+  nothing makes "this agent read the room's drafts four hundred times this lesson"
+  harder than the fourth read in one turn.
+
+## 17. What was and was not verified
+
+AC-15 is ticked by CI run `32862687028`, so this section is no longer about a missing
+gate — it is about the two things **no** gate covers, which is the more useful record.
+
+**Ran, locally, green:** the backend unit tier (7 672), `ruff check`, `ruff format
+--check`, `mypy`; the frontend suite (1 664), `pnpm lint` (all 12 gates), `pnpm
+typecheck`, `pnpm build`. The **`db` tier for this diff** — 16 tests against a real
+PostgreSQL and Redis inside the compose network: the TTL is asserted against a real
+`EXPIRE` rather than a fake clock, and the shared-grantor guard against real rows.
+Migration 0082 applied, downgraded and re-applied. `backend/openapi.json` regenerated
+inside the container (no BOM) and `pnpm run gen:api` rerun.
+
+**Nine assertions were mutation-probed** rather than assumed — each was made to fail
+before being trusted: the Redis TTL (red without `EX`), the shared-grantor guard (red when
+the clear goes unconditional), AC-9's no-publish tripwire (four red when a publish is
+added), AC-6's consent gate (three red when the filter is widened), AC-16's flatness
+clause (three red when the phrase is removed), the header-forgery prefix (three red
+without it), the line-terminator coverage (red under `split("\n")` for six of nine
+terminators), the entry-count cap (red without it), and the null-payload emit (red under a
+`!== null` guard).
+
+**Ran remotely, green:** PR #167, CI run `32862687028` — 22 of 22 jobs, one skipped
+(`compose-boot-prod`, `main`-only). That includes everything this Windows host cannot
+execute: `check:boundaries-enforced`, `check:openapi-drift` and `check:bundle-size` are
+bash scripts, and the `integration` / `wiring` / `e2e` tiers need neo4j, Vault and MinIO.
+`backend-db` 2m37s, `backend-wiring` 1m52s, `frontend-e2e` 9m52s.
+
+The **first** run (`32861505020`) failed one job, and the reason is worth keeping: the
+final edit of the task was followed by `ruff check` and `mypy` but not `ruff format`, so
+`backend-lint` caught a wrapped line the formatter wanted collapsed. Running two of the
+three mechanical gates is running none of them — the one skipped is the one that fails.
+
+**Not run at all — the honest gap:**
+
+- **The browser pass (§12's last item).** Two sessions, one typing in the composer and one
+  filling a mandala, the chip observed in both places and in both disclosure states, then
+  the Redis keys checked to confirm a send and a submit each cleared the right entry.
+  Nothing in CI substitutes for this, and the dossier asked for it specifically. The full
+  compose stack is what it needs, and this host could not carry it.
+- **`read_drafts` has never been called by a real model.** `fake_provider.py` cannot
+  produce a real agent turn (the standing constraint §12 records), so every claim about
+  what the tool *returns* rests on unit tests over a fake store, and every claim about how
+  a model *reads* the output — the `| ` prefix rule especially — rests on the description
+  being written clearly, which no test can establish. The example guide's dry-run checklist
+  now carries the corresponding item.
+- **AC-13's `check:boundaries-enforced`** passed on CI, not here.

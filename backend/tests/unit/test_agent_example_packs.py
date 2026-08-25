@@ -364,6 +364,56 @@ class TestPromptConstraints:
         assert "six-hats-shared-case" in agent.binds_activity_types
 
     @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
+    def test_an_unsent_draft_is_unquotable_for_every_activity_type(self, agent_key: str) -> None:
+        """agent-readable-live-drafts AC-16, and the one combination §10 of that
+        dossier says must never ship: the grant without the prompts.
+
+        The shipped prompts forbid quoting a *submission* and, before this, said
+        nothing at all about a draft — so an agent handed ``read_drafts`` would
+        have resolved the question from the nearest rule it had, which is a
+        per-type rule that permits quoting two of the five. That is the wrong
+        generalisation, and it is the natural one.
+
+        **The rule is flat across all five types**, which is where it departs from
+        the quoting rule beside it. What governs a submission is how sensitive the
+        activity is; what governs a draft is that its author has not chosen to send
+        it at all, and that is equally true of a mandala and of an emotion desk.
+        Each prompt must therefore say the rule *and* say why it does not follow
+        the per-type one — a bare prohibition sitting next to a per-type
+        permission reads as an oversight to a model looking for the applicable
+        clause.
+        """
+        prompt = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key).system_prompt
+
+        assert "read_drafts" in prompt, f"{agent_key} never names the tool"
+        assert "還沒送出" in prompt, f"{agent_key} does not describe what a draft is"
+        # The flatness: "all five, the same". Asserted by the phrase rather than by
+        # enumerating the keys, because enumerating them is exactly the shape this
+        # rule must NOT take.
+        assert "五個活動全部都一樣" in prompt, (
+            f"{agent_key} does not state that the draft rule is flat across every type"
+        )
+        # And the reason, without which the flat rule looks like a mistake beside
+        # the per-type one.
+        assert "完全不適用" in prompt, (
+            f"{agent_key} does not say the per-type quoting rule fails to apply to drafts"
+        )
+
+    def test_the_analyst_does_not_count_a_draft_as_a_submission(self) -> None:
+        """agent-readable-live-drafts AC-16, AA's own clause.
+
+        AA is the only one of the three that reports counts, and a draft looks
+        exactly like a submission to anything counting them: someone has typed an
+        answer. Counting one would make every participation figure it gives a
+        teacher wrong, in the direction that over-reports engagement — and a
+        teacher acting on "everyone has answered" is the harm.
+        """
+        aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-silent-analyst")
+
+        assert "草稿不是提交" in aa.system_prompt
+        assert "不可以拿來計數" in aa.system_prompt
+
+    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
     def test_a_group_answer_is_not_attributed_to_one_student(self, agent_key: str) -> None:
         """group-activity-submissions AC-16, and it is the one thing about this
         unit an agent can get wrong in a way that hurts somebody: a 2/3 answer may

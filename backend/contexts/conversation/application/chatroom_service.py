@@ -34,6 +34,10 @@ class ChatroomFlagsPatch:
     allow_guest_links: bool | None = None
     allow_member_groups: bool | None = None
     disclose_observers: bool | None = None
+    # §32 ([R32.05]). Creator-only on the same terms as `disclose_observers`, and
+    # gated at the route for the same reason: the capability check above it governs
+    # the access flags, and disclosure is not one of them.
+    disclose_drafts: bool | None = None
 
 
 def _assert_flag_exclusivity(*, allow_member_groups: bool, allow_project_members: bool) -> None:
@@ -115,6 +119,17 @@ class ChatroomService:
         chatroom_ids: Sequence[uuid.UUID],
     ) -> set[uuid.UUID]:
         return await self._agents.rooms_with_observers(chatroom_ids)
+
+    async def rooms_with_draft_readers(
+        self,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """[R32.03] — which of these rooms have a binding that may read drafts.
+
+        Batched for the same reason its observer sibling is: the room listing asks it
+        once per page, not once per room.
+        """
+        return await self._agents.rooms_with_draft_readers(chatroom_ids)
 
     # ---- commands --------------------------------------------------------
 
@@ -211,10 +226,20 @@ class ChatroomService:
             values["allow_guest_links"] = patch.allow_guest_links
         if patch.allow_member_groups is not None:
             values["allow_member_groups"] = patch.allow_member_groups
-        old_disclose: bool | None = None
-        if patch.disclose_observers is not None:
-            old_disclose = (await self.get(chatroom_id)).disclose_observers
-            values["disclose_observers"] = patch.disclose_observers
+        # The two disclosure flags are handled as a pair rather than as two copies of
+        # one branch: each gets its own audit event ([R28.09], [R32.06]), and the
+        # "old" value for both comes from the `current` row already read above. The
+        # earlier form re-read the room here, which was the same unchanged row a
+        # second time on every disclosure patch.
+        disclosure_changes: list[tuple[str, bool, bool]] = []
+        for field, old, new in (
+            ("disclose_observers", current.disclose_observers, patch.disclose_observers),
+            ("disclose_drafts", current.disclose_drafts, patch.disclose_drafts),
+        ):
+            if new is not None:
+                values[field] = new
+                if new != old:
+                    disclosure_changes.append((field, old, new))
         if not values:
             # Nothing to change; return existing row as-is.
             return await self.get(chatroom_id)
@@ -235,16 +260,24 @@ class ChatroomService:
                 request_id=request_id,
             ),
         )
-        if patch.disclose_observers is not None and patch.disclose_observers != old_disclose:
+        for field, old, new in disclosure_changes:
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
-                    action="chatroom.disclosure_changed",
+                    # Distinct actions rather than one event carrying the field name:
+                    # an operator asking "when did this room stop telling people their
+                    # unsent text is readable" must not have to filter one action's
+                    # metadata to find it.
+                    action=(
+                        "chatroom.disclosure_changed"
+                        if field == "disclose_observers"
+                        else "chatroom.draft_disclosure_changed"
+                    ),
                     actor_user_id=actor_user_id,
                     actor_ip=actor_ip,
                     resource_type="chatroom",
                     resource_id=chatroom_id,
-                    metadata={"old": old_disclose, "new": patch.disclose_observers},
+                    metadata={"old": old, "new": new},
                     request_id=request_id,
                 ),
             )
@@ -484,6 +517,57 @@ class ChatroomService:
                     # holds.
                     "activity_type_ids": [str(i) for i in activity_type_ids] if granted else [],
                 },
+                request_id=request_id,
+            ),
+        )
+        return True
+
+    async def set_agent_draft_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Grant or revoke one bound agent's live-draft reading ([R32.03]).
+
+        Returns whether a binding was updated; ``False`` means the agent is not bound
+        to this room and nothing was written.
+
+        No CAS loop, for the reason :meth:`set_agent_activity_grant` gives: the audit
+        event records the state written rather than a transition, so last write wins
+        and the trail says so honestly.
+
+        Unlike its sibling this takes no allowlist. What a granted agent may actually
+        read is decided per call by the activity type's own ``expose_payload_to_agent``
+        and by the platform payload policy ([R32.04]) — the same two gates a submitted
+        payload passes. A second list here would be a third gate the teacher had to
+        keep in step with the first two, and the state where they disagreed would be a
+        draft readable on looser terms than its own submission.
+        """
+        written = await self._agents.set_draft_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            granted_by_user_id=actor_user_id,
+        )
+        if not written:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.agent_draft_grant_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom_agent",
+                resource_id=chatroom_id,
+                # No draft content and no participant ids, here or anywhere on this
+                # trail ([R32.06]). What an operator needs from this row is who gave
+                # which agent the authority, and when.
+                metadata={"agent_id": str(agent_id), "granted": granted},
                 request_id=request_id,
             ),
         )

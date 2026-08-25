@@ -157,6 +157,8 @@ export interface BoundAgentRef {
   role?: ChatroomAgentRole
   may_control_activities?: boolean
   activity_type_allowlist?: string[]
+  // Live draft reading ([R32.03]), creator-only on the same terms again.
+  may_read_drafts?: boolean
 }
 
 export async function listChatroomAgents(
@@ -179,6 +181,10 @@ export async function listChatroomAgents(
     ...(r.activity_type_allowlist != null
       ? { activity_type_allowlist: r.activity_type_allowlist }
       : {}),
+    // Compared against null for the same reason `may_control_activities` is:
+    // `false` is a real answer a creator gets, and truth-testing it would render
+    // an ungranted binding as "you are not told".
+    ...(r.may_read_drafts != null ? { may_read_drafts: r.may_read_drafts } : {}),
   }))
 }
 
@@ -199,6 +205,27 @@ export async function setChatroomAgentActivityControl(
       chatroomId,
       agentId,
       requestBody: { granted, activity_type_ids: activityTypeIds },
+    },
+  )
+}
+
+/** Grant or revoke one bound agent's live-draft reading ([R32.03]).
+ *
+ *  Creator-only server-side, like the activity grant above and for a stronger
+ *  reason: what this hands out is the ability to read text the people in the room
+ *  have not chosen to send. There is no allowlist — what a granted agent may
+ *  actually read is decided per call by the activity type's own consent setting
+ *  and the platform payload policy ([R32.04]). */
+export async function setChatroomAgentDraftAccess(
+  chatroomId: string,
+  agentId: string,
+  granted: boolean,
+): Promise<void> {
+  await ChatroomsService.patchChatroomAgentDraftAccessApiChatroomsChatroomIdAgentsAgentIdDraftAccessPatch(
+    {
+      chatroomId,
+      agentId,
+      requestBody: { granted },
     },
   )
 }

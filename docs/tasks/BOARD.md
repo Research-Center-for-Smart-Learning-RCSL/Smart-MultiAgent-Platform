@@ -346,8 +346,25 @@ each row for its own list — the frontmatter wins over this preamble.
   Its §6 also corrects `_CONTENT_NOTE`, which would otherwise vouch for a server-computed
   digest as the participant's own words once the example moves to `filled_count_coverage`.
 
-- (moved to Ready now on 2026-08-24, unblocked by the implemented
-  `2026-08-24-observer-presentation-blocks` — its last unmet dependency)
+- (implemented 2026-08-25; see the note under In progress. Nothing lists it in
+  `depends_on` — the two dossiers that mention it do so in historical Q rows and are
+  themselves already implemented — so no row moves out of Blocked.)
+  The original entry, kept here for its detail:
+  (moved to In progress on 2026-08-25. Its freshness pass found four drifts and one new
+  surface, and two of them changed the build. **`chatroom.agents_changed` does not exist**:
+  §5.1 hangs mid-session grant re-resolution on an event the settings write is said to
+  already publish, and `set_agent_activity_grant` publishes nothing — `chatrooms.py`
+  constructs no `Publisher` at all. The connection-scoped flag now carries a 60s
+  re-resolve window instead, so the lag is a stated constant rather than a dependency on
+  an event that never fires. **AC-16's "both units" framing is stale**: the quoting
+  dossier's successor left a five-key per-*type* rule, not a two-unit split, so the draft
+  rule is written as "unquotable for every type". The reuse target `_subject_code` moved
+  to `contexts/activities/domain/subject_code.py`, and `useChatroomSocket.ts:615` is now
+  `:642`. **The new surface**: `2026-08-24-group-activity-submissions` added a second
+  worksheet path — `ActivityPanel.vue:378` renders `SchemaForm` directly for a group
+  proposal, bypassing `ActivityHost` — which Q-1 predates. Taken **into** scope at the
+  user's direction rather than deferred.)
+  The original entry, kept here for its detail:
   `2026-08-24-agent-readable-live-drafts` (feature, **approved 2026-08-24**).
   **Two things changed under it while it waited.** The three seams its Q-10 names for adding a
   runtime tool are all now occupied by a second example, so follow `present_observation`
@@ -417,6 +434,58 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-25 after implementation:
+`2026-08-24-agent-readable-live-drafts` (a granted binding may read a room's unsent
+composer and worksheet text on demand, through `read_drafts`; the text lives only in
+Redis under a 900s TTL and never reaches PostgreSQL). Nothing lists it in `depends_on`,
+so no row moved out of Blocked. Migration 0082, one new route, one new runtime tool, an
+SDK contract extension. **Five things a later reader needs.**
+
+**Its two most important guarantees were both wrong on the first attempt, and both were
+found by a gate rather than by a test.** The security gate found that a participant could
+**forge another participant's attribution header** — the tool renders a server-written
+`u:CODE …` line then the raw draft, so a student typing a look-alike header into their own
+composer got their words attributed to somebody else's code. The code is not secret: the
+typing indicator renders exactly `uid[:8]` on everyone's screen. The fix is structural —
+every content line carries a `| ` prefix and a header never does — and then `/code-review`
+found *that* incomplete, because `split("\n")` honours one of seven line terminators and
+CR, VT, FF, U+0085, U+2028 and U+2029 all walked straight through it. **The generalisable
+half: when a format's safety rests on "content can never look like a delimiter", the
+delimiter set is the whole claim, and `splitlines()` is not `split("\n")`.**
+
+**A cap that counts the wrong population is a denial of service against the person it was
+protecting.** `MAX_USER_ENTRIES` was added because the byte budget bounds storage and not
+key count. Its first version counted `SMEMBERS` — but the index deliberately outlives its
+entries and is reconciled only on the read path, and closing a browser tab fires no unmount
+hook, so eight stale members would accumulate in ordinary use and then silently refuse the
+participant's own chat draft forever. It counts live values now and prunes the dead ones,
+which costs nothing extra because the byte budget already fetches them.
+
+**Two consumers reached into `contexts.conversation.infrastructure` directly** — a route
+below the facade, and one context's application layer touching another's infrastructure —
+sitting inches from code doing it correctly (`PresenceTracker` via `interfaces`,
+`activity_tools` via the facade). `lint-imports` cannot see this: its contracts enforce
+domain purity, not the application/infrastructure direction. That is the second time this
+blind spot has produced a finding in this series; an AST test now guards this instance.
+
+**`chatroom.agents_changed` does not exist**, and the dossier's §5.1 was built on it. The
+grant is re-resolved on a 60s window instead. Worth knowing before writing anything else
+that wants to react to a settings change on an open socket: **no room event is published
+when a binding's grants change.**
+
+**Every criterion closed, and AC-15 on a real run**: CI `32862687028` on PR #167, 22 of 22
+jobs green including `backend-db`, `backend-wiring` and `frontend-e2e`. It took two runs —
+the first failed `backend-lint` because the task's last edit was followed by `ruff check`
+and `mypy` but not `ruff format`. **Running two of the three mechanical gates is running
+none of them**, since the one skipped is the one that fails.
+
+**What no gate covers is in §17 and is the part to read.** The browser pass never happened
+— two sessions, the chip in both places and both disclosure states, the Redis keys checked
+after a send and a submit — and **no real model has ever called `read_drafts`**, because
+`fake_provider.py` cannot produce an agent turn. Every claim about how a model reads the
+`| ` prefix rule therefore rests on the description being written clearly, which no test
+can establish. The example guide's dry-run checklist carries the corresponding item.
 
 Removed on 2026-08-25 after implementation:
 `2026-08-24-group-activity-submissions` (a project Member Group may be the subject of an

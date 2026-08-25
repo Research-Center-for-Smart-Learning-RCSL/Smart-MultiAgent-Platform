@@ -86,6 +86,9 @@ class Chatroom:
     # §13.2a. Defaulted so every existing construction site — tests included —
     # keeps compiling and keeps meaning "this room has no group tier".
     allow_member_groups: bool = False
+    # §32 ([R32.05]). True by default, matching `disclose_observers` and the column:
+    # a room that has never been configured tells its participants.
+    disclose_drafts: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,30 @@ class ChatroomAgent:
     may_control_activities: bool = False
     activity_type_allowlist: tuple[uuid.UUID, ...] = ()
     granted_by_user_id: uuid.UUID | None = None
+    # Live draft reading ([R32.03]). A second, independent authority sharing one
+    # grantor column — a binding may hold either, both, or neither, and the two are
+    # written by different routes. Never read one to infer the other.
+    may_read_drafts: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DraftReadGrant:
+    """A live delegation of unsent-text reading in one room ([R32.03]).
+
+    The same shape as :class:`ActivityControlGrant` and for the same reason: it is
+    only ever constructed for a binding whose ``may_read_drafts`` is true and whose
+    grantor is still on record, so holding one *is* the authorization.
+
+    It carries no type allowlist. What an agent may read is decided at read time by
+    the activity type's own ``expose_payload_to_agent`` and by the platform payload
+    policy ([R32.04]) — the same two gates a *submitted* payload passes — rather
+    than by a second list the teacher would have to keep in step with the first. A
+    draft is therefore never readable on looser terms than the submission it is
+    becoming, which is the rule this whole feature rests on.
+    """
+
+    agent_id: uuid.UUID
+    granted_by_user_id: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +233,7 @@ __all__ = [
     "ChatroomAgent",
     "ChatroomAgentRole",
     "ChatroomGuest",
+    "DraftReadGrant",
     "Message",
     "MessageAttachment",
     "MessageEdit",

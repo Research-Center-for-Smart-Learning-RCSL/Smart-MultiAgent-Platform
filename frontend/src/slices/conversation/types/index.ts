@@ -26,6 +26,11 @@ export interface Chatroom {
   // "You are notified that observers are enabled" — false whenever disclosure
   // is off, regardless of actual bindings (R28.09).
   observers_present: boolean
+  // §32 ([R32.05]). `disclose_drafts` is the room's setting; `drafts_readable` is
+  // what a participant is actually told, and is false whenever disclosure is off
+  // regardless of any live grant — so the client never combines the two itself.
+  disclose_drafts: boolean
+  drafts_readable: boolean
   // Advisory only (R5.05): true when the caller reached the room via a guest
   // link and holds no org/project role. Lets the UI hide guest-forbidden
   // controls; the server still enforces every action.

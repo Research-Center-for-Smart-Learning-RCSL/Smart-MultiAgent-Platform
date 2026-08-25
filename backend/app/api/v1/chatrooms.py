@@ -61,6 +61,13 @@ _MAX_ACTIVITY_ALLOWLIST = 100
 # either way the write should be refused rather than performed.
 _MAX_BOUND_GROUPS = 50
 
+#: The room flags that are the **creator's** call rather than any
+#: `RESOURCE_CREATE_EDIT` holder's ([R28.09], [R32.05]). Named once because
+#: `patch_chatroom` consults it twice, in two different ways — as the "this patch
+#: needs no capability at all" test and as the per-field creator gate — and the two
+#: drifting apart is how a disclosure flag ends up demanding the wrong permission.
+_DISCLOSURE_FIELDS: frozenset[str] = frozenset({"disclose_observers", "disclose_drafts"})
+
 
 # --------------------------------------------------------------------------- #
 # Schemas
@@ -88,6 +95,10 @@ class ChatroomPatchIn(BaseModel):
     # R28.09 — creator-only (per-field gate in the handler; the capability
     # check above it covers the other fields).
     disclose_observers: bool | None = None
+    # R32.05 — creator-only on exactly the same terms. Listed in
+    # `_DISCLOSURE_FIELDS` below so the "disclosure-only patch needs no
+    # RESOURCE_CREATE_EDIT" carve-out covers it without a second branch.
+    disclose_drafts: bool | None = None
 
 
 class ChatroomOut(BaseModel):
@@ -107,6 +118,12 @@ class ChatroomOut(BaseModel):
     # "You are notified that observers are enabled" — false whenever
     # disclosure is off, regardless of actual bindings (R28.09).
     observers_present: bool
+    # §32. The same pair, for the same reason ([R32.05]): `disclose_drafts` is the
+    # room's setting and `drafts_readable` is what a participant is actually told,
+    # so it is false whenever disclosure is off regardless of any live grant. Which
+    # agent holds the grant is never disclosed to a non-creator either way.
+    disclose_drafts: bool
+    drafts_readable: bool
     # Advisory only (R5.05): lets the client hide guest-forbidden controls
     # (export, settings, agent binding — docs/UI/07-conversation.md) rather than
     # offer a control that 403s. A pure guest holds a guest link but no
@@ -143,10 +160,30 @@ class AgentRef(BaseModel):
     # response model is FU-6 of the delegated-activity-control dossier.
     may_control_activities: bool | None = None
     activity_type_allowlist: list[uuid.UUID] | None = None
+    # Live draft reading ([R32.03]), creator-only for the same reason and on the
+    # same response-only terms as the two fields above. A bind that sends it
+    # succeeds and grants nothing; granting is its own route.
+    may_read_drafts: bool | None = None
 
 
 class AgentRolePatchIn(BaseModel):
     role: Literal["normal", "observer"]
+
+
+class AgentDraftAccessIn(BaseModel):
+    """Grant or revoke one bound agent's live-draft reading ([R32.03]).
+
+    One field, deliberately. Its sibling ``AgentActivityControlIn`` carries an
+    allowlist because activity control is authority over a *set* of worksheets the
+    teacher chooses; draft reading has no such set. What a granted agent may
+    actually read is decided per call by the activity type's own
+    ``expose_payload_to_agent`` and by the platform payload policy ([R32.04]) — the
+    same two gates a submitted payload passes. A list here would be a third gate to
+    keep in step with those two, and the state where they disagreed would be a draft
+    readable on looser terms than its own submission.
+    """
+
+    granted: bool
 
 
 class AgentActivityControlIn(BaseModel):
@@ -176,6 +213,7 @@ def _to_out(
     r,
     *,
     has_observers: bool = False,
+    has_draft_readers: bool = False,
     viewer_is_pure_guest: bool = False,
     is_moderator: bool = False,
 ) -> ChatroomOut:
@@ -200,6 +238,17 @@ def _to_out(
         created_by_user_id=None if viewer_is_pure_guest else r.created_by_user_id,
         disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
         observers_present=bool(not viewer_is_pure_guest and r.disclose_observers and has_observers),
+        # §32's neutral value for a guest is the same one every non-creator gets:
+        # `drafts_readable` is already false whenever disclosure is off, for
+        # everyone. There is deliberately no *extra* guest suppression of the kind
+        # `disclose_observers` carries above, and the two cases differ for a reason.
+        # An observer is a surface a guest is denied entirely, so a neutral value
+        # there hides something the guest has no stake in. A guest's own unsent text
+        # is read on exactly the same terms as a member's (§8), so suppressing the
+        # chip would withhold the disclosure from the person it is about. Either way
+        # a guest learns nothing about *which* agent holds the grant ([R32.05]).
+        disclose_drafts=r.disclose_drafts,
+        drafts_readable=bool(r.disclose_drafts and has_draft_readers),
         viewer_is_guest=viewer_is_pure_guest,
         is_moderator=bool(not viewer_is_pure_guest and is_moderator),
     )
@@ -285,8 +334,18 @@ async def list_chatrooms(
     )
     rows = visible[pagination.offset : pagination.offset + pagination.limit]
     service = ChatroomService(db)
-    with_observers = await service.rooms_with_observers([r.id for r in rows])
-    return [_to_out(r, has_observers=r.id in with_observers, is_moderator=moderator) for r in rows]
+    room_ids = [r.id for r in rows]
+    with_observers = await service.rooms_with_observers(room_ids)
+    with_draft_readers = await service.rooms_with_draft_readers(room_ids)
+    return [
+        _to_out(
+            r,
+            has_observers=r.id in with_observers,
+            has_draft_readers=r.id in with_draft_readers,
+            is_moderator=moderator,
+        )
+        for r in rows
+    ]
 
 
 @workspace_router.post(
@@ -354,9 +413,11 @@ async def read_chatroom(
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
     with_observers = await service.rooms_with_observers([chatroom_id])
+    with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
     return _to_out(
         room,
         has_observers=chatroom_id in with_observers,
+        has_draft_readers=chatroom_id in with_draft_readers,
         viewer_is_pure_guest=pure_guest,
         is_moderator=moderator,
     )
@@ -376,10 +437,14 @@ async def patch_chatroom(
     # set here is whatever the branch below already had to resolve, so only
     # the plain-flags path pays for an extra lookup.
     roles: frozenset[Role]
-    if fields == {"disclose_observers"}:
-        # O-6 (R28.09): a disclosure-only patch is the creator's call and must
-        # not additionally demand RESOURCE_CREATE_EDIT — a creator demoted
-        # below project owner keeps control of their observers' disclosure.
+    if fields and fields <= _DISCLOSURE_FIELDS:
+        # O-6 (R28.09) / [R32.05]: a disclosure-only patch is the creator's call
+        # and must not additionally demand RESOURCE_CREATE_EDIT — a creator
+        # demoted below project owner keeps control of their room's disclosures.
+        # A **subset** test rather than an exact-set one, so a patch naming either
+        # disclosure flag, or both, takes this path; the earlier exact form would
+        # have silently sent a `disclose_drafts`-only patch down the capability
+        # branch and demanded a permission [R32.05] says it must not.
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
         ensure_room_creator(access, principal=principal)
         roles = access.roles
@@ -391,8 +456,8 @@ async def patch_chatroom(
             project_id,
             Capability.RESOURCE_CREATE_EDIT,
         )
-        if body.disclose_observers is not None:
-            # R28.09: disclosure is the creator's call, not any
+        if fields & _DISCLOSURE_FIELDS:
+            # R28.09 / R32.05: disclosure is the creator's call, not any
             # RESOURCE_CREATE_EDIT holder's — per-field gate on top of the
             # capability check above.
             access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
@@ -418,9 +483,11 @@ async def patch_chatroom(
         request_id=ctx.request_id,
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
+    with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
     return _to_out(
         room,
         has_observers=chatroom_id in with_observers,
+        has_draft_readers=chatroom_id in with_draft_readers,
         is_moderator=moderator,
     )
 
@@ -596,6 +663,11 @@ async def list_chatroom_agents(
             # so a non-creator's response is shape-identical to the pre-grant API.
             may_control_activities=r.may_control_activities if creator else None,
             activity_type_allowlist=list(r.activity_type_allowlist) if creator else None,
+            # [R32.05]: *which* agent may read drafts is never disclosed to a
+            # non-creator, even in a room whose participants are all told that some
+            # agent can. The chip says "an agent here can read what you are typing";
+            # this field would say which one, and that is the creator's to know.
+            may_read_drafts=r.may_read_drafts if creator else None,
         )
         for r in rows
     ]
@@ -717,6 +789,51 @@ async def patch_chatroom_agent_activity_control(
         agent_id=agent_id,
         granted=body.granted,
         activity_type_ids=body.activity_type_ids,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if not written:
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    await db.commit()
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}/draft-access",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_draft_access(
+    body: AgentDraftAccessIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Let one bound agent read this room's unsent text ([R32.03]).
+
+    ``ensure_room_creator``, matching every other authority decision about this
+    room's bindings. It is the strictest gate available and this is the surface that
+    most deserves it: what is being handed out is the ability to read text the people
+    in this room have not chosen to send.
+
+    **Its own route rather than a field on the role patch**, for the reason
+    ``activity-control`` is: a different authority with a different meaning, so the
+    audit trail carries one action per decision and a role change cannot silently
+    carry a grant along with it.
+
+    Unlike ``activity-control`` there is nothing to validate before writing — no
+    allowlist, no cross-context resolution — because the read-time gates in
+    ``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore
+    exactly as narrow as the room's own activity types already are.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    written = await ConversationFacade(db).set_agent_draft_grant(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        granted=body.granted,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

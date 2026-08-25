@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 
-def chatroom_row(*, created_by=None, disclose=True) -> SimpleNamespace:
+def chatroom_row(*, created_by=None, disclose=True, disclose_drafts=True) -> SimpleNamespace:
+    """`disclose` is the observer flag; `disclose_drafts` is §32's ([R32.05]).
+
+    Two parameters rather than one, because they are independent settings a room may
+    hold in any combination, and a test that needs one off must be able to say so
+    without moving the other.
+    """
     now = datetime.now(UTC)
     return SimpleNamespace(
         id=uuid.uuid4(),
@@ -28,4 +34,5 @@ def chatroom_row(*, created_by=None, disclose=True) -> SimpleNamespace:
         deleted_at=None,
         created_by_user_id=created_by,
         disclose_observers=disclose,
+        disclose_drafts=disclose_drafts,
     )

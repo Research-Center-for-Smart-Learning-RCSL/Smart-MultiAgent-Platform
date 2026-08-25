@@ -40,6 +40,7 @@ def _row() -> SimpleNamespace:
         deleted_at=None,
         created_by_user_id=None,
         disclose_observers=True,
+        disclose_drafts=True,
         parent_project_id=_PROJECT_ID,
     )
 

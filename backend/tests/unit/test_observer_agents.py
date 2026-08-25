@@ -647,6 +647,9 @@ def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched, roles=frozen
         async def rooms_with_observers(self, ids):
             return set()
 
+        async def rooms_with_draft_readers(self, ids):
+            return set()
+
     monkeypatch.setattr(chatrooms_mod, "_project_id_for_chatroom", _pid)
     monkeypatch.setattr(chatrooms_mod, "_require_project_cap", _cap)
     monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
