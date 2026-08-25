@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
-import { SButton, SEmptyState, SLoadingSpinner, SSelect } from '@shared/ui'
+import { SButton, SDraftDisclosureChip, SEmptyState, SLoadingSpinner, SSelect } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
 import {
   endActivation,
@@ -26,6 +26,18 @@ const props = defineProps<{
   chatroomId: string
   projectId?: string | undefined
   isCreator: boolean
+  /** [R32.05]: some agent in this room may read what is typed here, and the room
+   *  discloses it. Passed down from the host rather than read here — **the
+   *  activities slice reads no chatroom state of its own** (gate #1's
+   *  `SLICE_DEPS`), so the panel is told rather than asking. */
+  draftsReadable?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** This worksheet's unsent contents, and its retraction ([R32.01]). Forwarded
+   *  up to the chatroom host, which owns the socket; nothing here sends. */
+  draft: [key: string, payload: unknown]
+  draftClear: [key: string]
 }>()
 
 const { t } = useI18n()
@@ -97,7 +109,55 @@ watch(
 
 function onProposalSubmit(payload: Record<string, unknown>): void {
   if (!selectedGroupId.value) return
+  cancelGroupDraft()
+  emitDraftClear()
   void group.propose(selectedGroupId.value, payload)
+}
+
+// ---- draft reporting for the group-proposal form ([R32.01]) -----------------
+// The individual worksheet reports through `ActivityHost`, which owns its own
+// throttle. The group path renders `SchemaForm` directly, so the same throttle
+// has to exist here — this is a second worksheet surface that the dossier's Q-1
+// predates, taken into scope deliberately rather than left silently unreported.
+//
+// It is reported under the activity TYPE key, exactly like the individual
+// worksheet, so the read-time consent gate ([R32.04]) applies to it unchanged: a
+// group task whose type agents may not see has no readable draft either.
+
+const DRAFT_THROTTLE_MS = 3000
+let groupDraftTimer: ReturnType<typeof setTimeout> | null = null
+let pendingGroupDraft: unknown = null
+
+function draftKey(): string | null {
+  return activeType.value?.key ?? null
+}
+
+function onGroupDraftChange(values: Record<string, unknown>): void {
+  pendingGroupDraft = values
+  if (groupDraftTimer !== null) return
+  groupDraftTimer = setTimeout(() => {
+    groupDraftTimer = null
+    const key = draftKey()
+    if (key) emit('draft', key, pendingGroupDraft)
+  }, DRAFT_THROTTLE_MS)
+}
+
+function cancelGroupDraft(): void {
+  if (groupDraftTimer !== null) {
+    clearTimeout(groupDraftTimer)
+    groupDraftTimer = null
+  }
+  pendingGroupDraft = null
+}
+
+function emitDraftClear(): void {
+  const key = draftKey()
+  if (key) emit('draftClear', key)
+}
+
+function onHostDraft(payload: unknown): void {
+  const key = draftKey()
+  if (key) emit('draft', key, payload)
 }
 
 // A settled proposal that did NOT accept leaves the group free to try again;
@@ -277,11 +337,25 @@ async function loadOwnDeclaration(): Promise<void> {
 watch(() => props.projectId, loadTypes, { immediate: true })
 watch(activation, (next, previous) => {
   if (!next || (previous && next.id !== previous.id)) completed.value = false
+  // A round that ended or changed takes its draft with it: the worksheet on
+  // screen is about to be replaced, and leaving the entry would let an agent read
+  // an answer to a question the room has moved on from. Keyed on the PREVIOUS
+  // round's type, which is the entry that actually exists.
+  cancelGroupDraft()
+  if (previous && (!next || next.id !== previous.id)) {
+    const key = previous.activityType?.key ?? fetchedType.value?.key ?? null
+    if (key) emit('draftClear', key)
+  }
   void ensureActiveTypeLoaded()
   void loadOwnDeclaration()
 }, { immediate: true })
 onMounted(() => {
   if (store.getActivation(props.chatroomId) === undefined) void hydrate()
+})
+onBeforeUnmount(() => {
+  // AC-4's unmount half for the group path; `ActivityHost` owns its own.
+  cancelGroupDraft()
+  emitDraftClear()
 })
 </script>
 
@@ -308,6 +382,14 @@ onMounted(() => {
       <p class="activity-panel__name">
         {{ activeType?.name ?? t('activities.panel.active') }}
       </p>
+      <!-- AC-11. Rendered beside the worksheet's own title rather than at the
+           panel root, so it sits with the thing it is about. Shown on the group
+           path too: a proposal is typed by one person before anyone has agreed
+           to it, which is if anything a stronger reason to say so. -->
+      <SDraftDisclosureChip
+        v-if="draftsReadable"
+        class="activity-panel__draft-chip"
+      />
       <p
         v-if="isCreator && progress"
         class="activity-panel__progress"
@@ -381,6 +463,7 @@ onMounted(() => {
             :disabled="!selectedGroupId"
             :submit-label="t('activities.group.propose')"
             @submit="onProposalSubmit"
+            @change="onGroupDraftChange"
           />
         </template>
       </template>
@@ -395,6 +478,8 @@ onMounted(() => {
           :session-id="null"
           :subject-user-id="session.me?.id ?? null"
           @submitted="completed = false"
+          @draft="onHostDraft"
+          @draft-clear="emitDraftClear"
         />
         <SButton
           variant="secondary"
@@ -454,6 +539,9 @@ onMounted(() => {
 .activity-panel__name {
   margin: 0;
   font-weight: var(--weight-semibold);
+}
+.activity-panel__draft-chip {
+  align-self: flex-start;
 }
 .activity-panel__initiator {
   margin: 0;

@@ -10,6 +10,10 @@
     "copyFailed": "Could not copy. Select the text and copy it manually."
   },
   "shared": {
+    "draftDisclosure": {
+      "chip": "An agent can read this as you type",
+      "tooltip": "Someone in this room has given an agent permission to read what you are typing before you send it, including an unfinished activity worksheet. It is not saved anywhere and it disappears on its own if you stop."
+    },
     "fileUpload": {
       "dropzone": "Drop files here or click to browse",
       "inputLabel": "File upload",

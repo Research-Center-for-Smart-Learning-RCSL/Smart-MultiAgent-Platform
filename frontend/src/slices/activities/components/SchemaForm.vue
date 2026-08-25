@@ -26,6 +26,17 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   submit: [payload: Record<string, unknown>]
+  /** The raw, unvalidated field values, whenever any of them changes ([R32.01]).
+   *
+   *  Deliberately the raw `values` rather than `assemblePayload`'s output: a
+   *  half-typed number or an incomplete JSON blob is exactly what a draft is, and
+   *  running it through the assembler would drop the fields still being written —
+   *  which are the ones worth seeing.
+   *
+   *  Emitted unconditionally; whoever listens decides whether to report it. This
+   *  component knows nothing about grants, sockets or disclosure, and must not:
+   *  it is rendered by the group-proposal path as well as by `ActivityHost`. */
+  change: [values: Record<string, unknown>]
 }>()
 
 const { t } = useI18n()
@@ -44,6 +55,20 @@ watch(
     Object.assign(values, initialValues(next))
   },
   { immediate: true },
+)
+
+// One watcher rather than a handler on each of the six input branches: every
+// branch writes into `values`, so watching the object is what makes "any change
+// is reported" true by construction instead of by remembering to wire the
+// seventh input type someone adds later.
+//
+// Not `immediate`: the initial values are the empty form, and reporting them
+// would write an entry the participant has not touched — which an agent would
+// read as "they have started".
+watch(
+  values,
+  (next) => emit('change', { ...next }),
+  { deep: true },
 )
 
 function strVal(name: string): string | number {

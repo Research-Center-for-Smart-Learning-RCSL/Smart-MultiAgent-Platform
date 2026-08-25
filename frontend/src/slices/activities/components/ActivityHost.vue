@@ -31,6 +31,16 @@ const emit = defineEmits<{
    *  finished" declaration server-side ([R30.22]), so a listener that shows that
    *  declaration has to hear about it or it goes stale. */
   submitted: []
+  /** This worksheet's current unsent contents, throttled ([R32.01]).
+   *
+   *  Emitted *upward* and never sent from here. The activities slice must not
+   *  touch the chatroom socket — gate #1's `SLICE_DEPS` makes `conversation` the
+   *  host that imports `activities` one-way, so a send from this side would be a
+   *  boundary violation as well as a layering one. `ChatroomView` owns the send,
+   *  the same way it already owns `typing.start` on the composer's behalf. */
+  draft: [payload: unknown]
+  /** Retract this worksheet's draft: on a successful submit, and on unmount. */
+  draftClear: []
 }>()
 
 const { t } = useI18n()
@@ -42,11 +52,49 @@ const { submit: rawSubmit, submitting, errorMessage, outcome } = useActivityHost
   subjectUserId: () => props.subjectUserId ?? null,
 })
 
+// ---- draft reporting ([R32.01]) ---------------------------------------------
+// Trailing-edge throttle on the same 3s window the composer's typing timer uses,
+// so a worksheet and a chat message cost the room the same frame rate. Trailing
+// rather than leading: what matters is the LATEST state of the worksheet, and a
+// leading edge would report the first keystroke of a burst and then nothing until
+// the next one.
+
+const DRAFT_THROTTLE_MS = 3000
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+let pendingDraft: unknown = null
+
+function reportDraft(payload: unknown): void {
+  pendingDraft = payload
+  if (draftTimer !== null) return
+  draftTimer = setTimeout(() => {
+    draftTimer = null
+    emit('draft', pendingDraft)
+  }, DRAFT_THROTTLE_MS)
+}
+
+/** Drop anything the throttle is holding, so a clear is never overtaken.
+ *
+ *  Without this a submit would clear the entry and the pending timer would then
+ *  fire and re-report the answer that was just sent — leaving a "draft" of an
+ *  already-submitted worksheet readable for a full TTL. */
+function cancelPendingDraft(): void {
+  if (draftTimer !== null) {
+    clearTimeout(draftTimer)
+    draftTimer = null
+  }
+  pendingDraft = null
+}
+
 /** The single submit both paths (plugin and schema form) go through, so neither
  *  can accept a submission without announcing it. Only a resolved call emits:
  *  `rawSubmit` re-throws, and a failed submission changed nothing server-side. */
 async function submit(payload: unknown): Promise<ActivitySubmissionResult> {
   const result = await rawSubmit(payload)
+  // Ordered before `submitted` so the retraction goes out with the same
+  // certainty the submission did: the answer is now a submission, and a
+  // submission is governed by its own consent rules rather than by this one.
+  cancelPendingDraft()
+  emit('draftClear')
   emit('submitted')
   return result
 }
@@ -79,12 +127,18 @@ onMounted(() => {
     },
     t: (key, named) => t(key, named ?? {}),
     submit,
+    reportDraft,
   })
 })
 
 onBeforeUnmount(() => {
   teardown?.()
   teardown = null
+  // AC-4's unmount half. The timer must not outlive the component — it would fire
+  // into a room whose panel is gone — and the retraction has to go out even though
+  // nothing was submitted: leaving on the tab is not the same as sending.
+  cancelPendingDraft()
+  emit('draftClear')
 })
 </script>
 
@@ -102,6 +156,7 @@ onBeforeUnmount(() => {
       :schema="schema"
       :submitting="submitting"
       @submit="onFormSubmit"
+      @change="reportDraft"
     />
 
     <p
