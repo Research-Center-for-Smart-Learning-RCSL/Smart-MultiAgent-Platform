@@ -124,6 +124,76 @@ class TestFormatting:
         assert "hidden content" not in block
 
 
+class TestDigestProvenance:
+    """AC-18. Which trailing text is the participant's and which is computed.
+
+    A validator that sets ``ValidationResult.detail`` describes the submission;
+    one that sets none falls back to a dump of the participant's own words. Both
+    land in the same column, so once a type adopts a describing validator a single
+    note promising "this is what the participant wrote" would vouch for computed
+    text as their words — the confusion the note exists to prevent.
+    """
+
+    async def test_a_computed_digest_is_not_described_as_the_participants_words(self) -> None:
+        rows = [
+            _row(
+                agent_digest="3/9 fields answered: home, work, leisure",
+                expose_payload_to_agent=True,
+                digest_is_computed=True,
+            )
+        ]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "3/9 fields answered: home, work, leisure" in block
+        assert "server-computed instead" in block
+        assert "what that participant wrote themselves" not in block
+
+    async def test_a_payload_fallback_digest_still_is(self) -> None:
+        rows = [_row(agent_digest='{"home":"a house by the sea"}', expose_payload_to_agent=True)]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "what that participant wrote themselves" in block
+        assert "server-computed instead" not in block
+
+    async def test_the_two_kinds_take_different_markers_on_the_row(self) -> None:
+        """A note saying "some rows are computed" would leave the model unable to
+        tell which. The em dash keeps its shipped meaning — the example prompts
+        state that rule verbatim — so the computed case takes a new marker."""
+        rows = [
+            _row(attempt_no=1, agent_digest="written by hand", expose_payload_to_agent=True),
+            _row(
+                attempt_no=2,
+                agent_digest="2/9 fields answered: home, work",
+                expose_payload_to_agent=True,
+                digest_is_computed=True,
+            ),
+        ]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        lines = {line.split()[3]: line for line in block.splitlines() if line.startswith("- (")}
+        assert "— written by hand" in lines["#1"]
+        assert ":: 2/9 fields answered: home, work" in lines["#2"]
+        assert "— 2/9" not in block
+        # Both notes are present, because both kinds of row are.
+        assert "what that participant wrote themselves" in block
+        assert "server-computed instead" in block
+
+    async def test_neither_note_appears_when_the_policy_withholds_digests(self) -> None:
+        rows = [_row(agent_digest="anything", expose_payload_to_agent=True, digest_is_computed=True)]
+        with patch(_FACADE, return_value=_facade_returning(rows, _locked_off_policy())):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        assert "server-computed instead" not in block
+        assert "what that participant wrote themselves" not in block
+
+
 class TestSubjectLegend:
     """The block's codes and the transcript's "Name:" prefixes must be connectable.
 

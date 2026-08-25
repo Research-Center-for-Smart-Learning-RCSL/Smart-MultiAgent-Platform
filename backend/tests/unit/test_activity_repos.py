@@ -127,6 +127,72 @@ class TestSubmissionRepoScoping:
         assert "activity_submissions.agent_digest" in compiled
         assert "activity_types.expose_payload_to_agent" in compiled
 
+    async def test_recent_rows_say_where_each_digest_came_from(self) -> None:
+        """AC-18. Derived by rebuilding the deterministic payload fallback and
+        comparing, so it is exact for rows written before the distinction existed
+        — which no backfilled column could be. The payload is read to answer the
+        question and dropped; it never reaches `RecentActivityRow`."""
+        from contexts.activities.application.agent_digest import build_agent_digest
+
+        payload = {"home": "a house by the sea", "work": ""}
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            SimpleNamespace(
+                created_at=datetime(2026, 8, 24, tzinfo=UTC),
+                subject_user_id=uuid.uuid4(),
+                attempt_no=1,
+                type_key="mandala-9grid",
+                validation_status="validated",
+                is_valid=True,
+                error_class=None,
+                agent_digest=build_agent_digest(payload=payload, detail=None),
+                payload=payload,
+                expose_payload_to_agent=True,
+            ),
+            SimpleNamespace(
+                created_at=datetime(2026, 8, 24, tzinfo=UTC),
+                subject_user_id=uuid.uuid4(),
+                attempt_no=2,
+                type_key="mandala-9grid",
+                validation_status="validated",
+                is_valid=True,
+                error_class=None,
+                agent_digest="1/2 fields answered: home",
+                payload=payload,
+                expose_payload_to_agent=True,
+            ),
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert [r.digest_is_computed for r in rows] == [False, True]
+        assert "a house by the sea" not in repr([r for r in rows if r.digest_is_computed])
+
+    async def test_a_row_with_no_digest_is_not_reported_as_computed(self) -> None:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = [
+            SimpleNamespace(
+                created_at=datetime(2026, 8, 24, tzinfo=UTC),
+                subject_user_id=uuid.uuid4(),
+                attempt_no=1,
+                type_key="k",
+                validation_status="pending",
+                is_valid=None,
+                error_class=None,
+                agent_digest=None,
+                payload={"a": "b"},
+                expose_payload_to_agent=True,
+            )
+        ]
+        db.execute.return_value = page
+
+        rows = await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+
+        assert rows[0].digest_is_computed is False
+
     async def test_record_validation_transitions_only_from_pending(self) -> None:
         db = AsyncMock()
         result = MagicMock()
