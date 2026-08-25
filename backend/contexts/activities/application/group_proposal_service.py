@@ -309,19 +309,23 @@ class GroupProposalService:
         if proposal.status is not ProposalStatus.OPEN:
             raise GroupProposalResolved(str(proposal_id))
 
-        await self._proposals.resolve(proposal_id, status=ProposalStatus.WITHDRAWN)
-        await self._audit(
-            action="activity.proposal_resolved",
-            proposal_id=proposal_id,
-            actor_user_id=caller_user_id,
-            actor_ip=actor_ip,
-            request_id=request_id,
-            metadata={
-                "chatroom_id": str(chatroom_id),
-                "member_group_id": str(proposal.member_group_id),
-                "status": ProposalStatus.WITHDRAWN.value,
-            },
-        )
+        # Guarded on the return rather than assumed: the status check above ran
+        # under this call's row lock, so the write must succeed -- and auditing a
+        # withdrawal that did not happen would put a false fact on a trail whose
+        # whole value is that it does not carry any.
+        if await self._proposals.resolve(proposal_id, status=ProposalStatus.WITHDRAWN):
+            await self._audit(
+                action="activity.proposal_resolved",
+                proposal_id=proposal_id,
+                actor_user_id=caller_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+                metadata={
+                    "chatroom_id": str(chatroom_id),
+                    "member_group_id": str(proposal.member_group_id),
+                    "status": ProposalStatus.WITHDRAWN.value,
+                },
+            )
         return await self._tally(proposal_id, include_votes_for=caller_user_id)
 
     # -- Resolution ---------------------------------------------------------
@@ -571,15 +575,15 @@ class GroupProposalService:
         and the entitlement rule lives here so no caller can assemble a tally
         without passing it.
         """
+        # A caller passes ``proposal`` only when it has just read the row itself
+        # (the two read paths); everything on the write side passes nothing and
+        # gets a fresh read, which is what makes a just-resolved proposal report
+        # its new status rather than the pre-lock snapshot the writer still
+        # holds. Re-reading a supplied row on top of that would cost the listing
+        # one query per proposal and answer the same thing.
         current = proposal if proposal is not None else await self._proposals.get(proposal_id)
         if current is None:  # pragma: no cover -- read inside the writing txn
             raise GroupProposalNotFound(str(proposal_id))
-        # Re-read when a caller passed a pre-lock snapshot, so an accepted
-        # proposal never reports itself as still open.
-        if current.status is ProposalStatus.OPEN and proposal is not None:
-            refreshed = await self._proposals.get(proposal_id)
-            if refreshed is not None:
-                current = refreshed
 
         approvals, rejections = await self._votes.counts(proposal_id)
         undecided = max(0, len(current.voter_user_ids) - approvals - rejections)
