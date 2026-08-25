@@ -19,6 +19,7 @@ from contexts.conversation.domain.models import (
     ChatroomAgent,
     ChatroomAgentRole,
     ChatroomGuest,
+    DraftReadGrant,
 )
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
@@ -61,6 +62,7 @@ def _row_to_chatroom(row: Any) -> Chatroom:
         deleted_at=row.deleted_at,
         created_by_user_id=row.created_by_user_id,
         disclose_observers=row.disclose_observers,
+        disclose_drafts=row.disclose_drafts,
     )
 
 
@@ -411,6 +413,7 @@ class ChatroomAgentRepository:
                 may_control_activities=bool(r.may_control_activities),
                 activity_type_allowlist=_allowlist_from_json(r.activity_type_allowlist),
                 granted_by_user_id=r.granted_by_user_id,
+                may_read_drafts=bool(r.may_read_drafts),
             )
             for r in rows
         ]
@@ -595,6 +598,127 @@ class ChatroomAgentRepository:
             granted_by_user_id=row.granted_by_user_id,
             activity_type_ids=_allowlist_from_json(row.activity_type_allowlist),
         )
+
+    async def set_draft_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        granted_by_user_id: uuid.UUID,
+    ) -> bool:
+        """Write one binding's live-draft reading grant ([R32.03]).
+
+        Returns whether a binding was actually updated, so the caller can answer 404
+        for an agent that is not bound here rather than reporting a grant it never
+        wrote — the same contract :meth:`set_activity_grant` has.
+
+        **A revoke clears the grantor too**, which is where this deliberately differs
+        from its sibling. There, the residue is a remembered *selection* (which
+        worksheets the teacher picked) worth preserving across a re-grant; here there
+        is no selection, so the only thing a retained grantor could do is keep a
+        person named as answerable for an authority nobody holds. It is cleared only
+        when the *other* grant is also off: the column is shared (0082), and clearing
+        it under a live activity grant would silently make that grant inert.
+        """
+        values: dict[str, Any] = {"may_read_drafts": granted}
+        if granted:
+            values["granted_by_user_id"] = granted_by_user_id
+        where = sa.and_(
+            t.chatroom_agents.c.chatroom_id == chatroom_id,
+            t.chatroom_agents.c.agent_id == agent_id,
+        )
+        result = await self._db.execute(t.chatroom_agents.update().where(where).values(**values))
+        if not result.rowcount:
+            return False
+        if not granted:
+            # Second statement rather than a CASE in the first: the condition is on
+            # the row's *other* grant, and expressing "clear the grantor only if
+            # may_control_activities is false" inline would read as though the two
+            # grants were one thing. They are not, and a later reader untangling a
+            # CASE is exactly how the shared column becomes a bug.
+            await self._db.execute(
+                t.chatroom_agents.update()
+                .where(sa.and_(where, t.chatroom_agents.c.may_control_activities.is_(False)))
+                .values(granted_by_user_id=None)
+            )
+        return True
+
+    async def draft_read_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> DraftReadGrant | None:
+        """The live draft-reading grant for one binding, or ``None`` ([R32.03]).
+
+        ``None`` covers every non-granted case uniformly — no binding, the switch
+        off, or a row whose grantor is gone — so the runtime's fail-closed posture
+        stays a plain ``if grant is None``.
+
+        The null-grantor arm is load-bearing for the reason
+        :meth:`activity_control_grant` states at length: 0082 ships no CHECK for it
+        because the column is ``ON DELETE SET NULL`` and such a constraint would
+        abort an admin's GDPR hard-delete of anyone who had ever granted this. A
+        deleted granter makes the grant inert here instead. Do not simplify it away.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(
+                    t.chatroom_agents.c.may_read_drafts,
+                    t.chatroom_agents.c.granted_by_user_id,
+                ).where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        if row is None or not row.may_read_drafts or row.granted_by_user_id is None:
+            return None
+        return DraftReadGrant(agent_id=agent_id, granted_by_user_id=row.granted_by_user_id)
+
+    async def rooms_with_draft_readers(self, chatroom_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of *chatroom_ids* have at least one live draft grant ([R32.03]).
+
+        Batched like :meth:`rooms_with_observers`, and for the same reason: the room
+        listing needs this per row, so a per-room query would make the chip an N+1.
+
+        ``granted_by_user_id`` is part of the predicate, so this agrees with
+        :meth:`draft_read_grant` by construction. A room whose only granted binding
+        has a deleted granter is offered no tool, and must therefore also store no
+        drafts and show no chip — deriving the answer from ``may_read_drafts`` alone
+        would make the chip claim a reader that does not exist.
+        """
+        if not chatroom_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.chatroom_id)
+                .distinct()
+                .where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id.in_(list(chatroom_ids)),
+                        t.chatroom_agents.c.may_read_drafts.is_(True),
+                        t.chatroom_agents.c.granted_by_user_id.isnot(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.chatroom_id for r in rows}
+
+    async def room_has_draft_reader(self, chatroom_id: uuid.UUID) -> bool:
+        """Does this room have any binding holding a live draft grant? ([R32.03])
+
+        The WebSocket route's form of the question above — it decides whether to
+        store anything at all, since a room nobody may read stores nothing (AC-1).
+        Delegates rather than issuing its own EXISTS so there is one definition of
+        "has a reader": two queries would be two places for the null-grantor arm to
+        be dropped from, and the two answers disagreeing would mean a room storing
+        unsent text for a tool that is never offered.
+        """
+        return chatroom_id in await self.rooms_with_draft_readers([chatroom_id])
 
     async def rooms_with_observers(
         self,

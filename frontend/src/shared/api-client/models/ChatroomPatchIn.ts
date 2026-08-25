@@ -8,6 +8,7 @@ export type ChatroomPatchIn = {
     allow_org_members?: (boolean | null);
     allow_project_members?: (boolean | null);
     allow_project_owners_only?: (boolean | null);
+    disclose_drafts?: (boolean | null);
     disclose_observers?: (boolean | null);
     name?: (string | null);
 };

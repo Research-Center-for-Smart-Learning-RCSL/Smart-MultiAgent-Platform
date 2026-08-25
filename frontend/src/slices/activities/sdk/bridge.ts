@@ -20,8 +20,13 @@ export interface BridgeMountOptions {
   schema: JSONSchema
   session: ActivitySessionRef
   t: ActivityTranslate
-  /** Host-mediated backend submit — the ONLY I/O path a plugin is given. */
+  /** Host-mediated backend submit — the only path a plugin has to the server. */
   submit(payload: unknown): Promise<ActivitySubmissionResult>
+  /** Host-mediated draft report ([R32.01]). Optional so a caller with no socket
+   *  — a test, or any future host outside a chatroom — mounts a plugin whose
+   *  `ctx.draft` is a working no-op rather than a crash. Reporting nothing is
+   *  always the safe direction here. */
+  reportDraft?: (payload: unknown) => void
 }
 
 export interface HostBridge {
@@ -37,11 +42,21 @@ export interface HostBridge {
  */
 export class InProcessBridge implements HostBridge {
   mount(plugin: ActivityPlugin, options: BridgeMountOptions): ActivityTeardown {
-    // Exactly the four contract members — no other enumerable keys (AC-3).
+    // Exactly the five contract members — no other enumerable keys (AC-3).
+    // The count moved from four to five with §32; `sdk.test.ts` asserts the exact
+    // set, so this comment and that test have to change together or the comment
+    // becomes the lie the test is protecting against.
     const ctx: ActivityRenderCtx = {
       schema: options.schema,
       session: options.session,
       emit: (payload) => options.submit(payload),
+      // A statement body, not an expression one: `(p) => options.reportDraft?.(p)`
+      // returns whatever the host's callback happened to return, and a plugin that
+      // can read that has a signal about whether anyone is listening. `void` in
+      // the type does not stop a value at runtime, so the discard is explicit.
+      draft: (payload) => {
+        options.reportDraft?.(payload)
+      },
       t: options.t,
     }
     const teardown = plugin.render(options.container, ctx)

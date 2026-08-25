@@ -2153,6 +2153,20 @@
         "title": "AgentCreateIn",
         "type": "object"
       },
+      "AgentDraftAccessIn": {
+        "description": "Grant or revoke one bound agent's live-draft reading ([R32.03]).\n\nOne field, deliberately. Its sibling ``AgentActivityControlIn`` carries an\nallowlist because activity control is authority over a *set* of worksheets the\nteacher chooses; draft reading has no such set. What a granted agent may\nactually read is decided per call by the activity type's own\n``expose_payload_to_agent`` and by the platform payload policy ([R32.04]) \u2014 the\nsame two gates a submitted payload passes. A list here would be a third gate to\nkeep in step with those two, and the state where they disagreed would be a draft\nreadable on looser terms than its own submission.",
+        "properties": {
+          "granted": {
+            "title": "Granted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "granted"
+        ],
+        "title": "AgentDraftAccessIn",
+        "type": "object"
+      },
       "AgentEffort": {
         "description": "Cross-provider reasoning-effort level. The common subset all three\nproviders accept; mapped per-provider at the adapter boundary\n(Claude ``output_config.effort`` / OpenAI ``reasoning_effort`` /\nGemini ``thinkingConfig.thinkingLevel``). ``None`` on an agent means the\nparameter is not sent and the provider's own default applies.",
         "enum": [
@@ -2801,6 +2815,17 @@
               }
             ],
             "title": "May Control Activities"
+          },
+          "may_read_drafts": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "May Read Drafts"
           },
           "role": {
             "anyOf": [
@@ -4586,8 +4611,16 @@
             ],
             "title": "Deleted At"
           },
+          "disclose_drafts": {
+            "title": "Disclose Drafts",
+            "type": "boolean"
+          },
           "disclose_observers": {
             "title": "Disclose Observers",
+            "type": "boolean"
+          },
+          "drafts_readable": {
+            "title": "Drafts Readable",
             "type": "boolean"
           },
           "id": {
@@ -4637,7 +4670,9 @@
           "deleted_at",
           "created_by_user_id",
           "disclose_observers",
-          "observers_present"
+          "observers_present",
+          "disclose_drafts",
+          "drafts_readable"
         ],
         "title": "ChatroomOut",
         "type": "object"
@@ -4698,6 +4733,17 @@
               }
             ],
             "title": "Allow Project Owners Only"
+          },
+          "disclose_drafts": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclose Drafts"
           },
           "disclose_observers": {
             "anyOf": [
@@ -18474,6 +18520,63 @@
           }
         },
         "summary": "Patch Chatroom Agent Activity Control",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/draft-access": {
+      "patch": {
+        "description": "Let one bound agent read this room's unsent text ([R32.03]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings. It is the strictest gate available and this is the surface that\nmost deserves it: what is being handed out is the ability to read text the people\nin this room have not chosen to send.\n\n**Its own route rather than a field on the role patch**, for the reason\n``activity-control`` is: a different authority with a different meaning, so the\naudit trail carries one action per decision and a role change cannot silently\ncarry a grant along with it.\n\nUnlike ``activity-control`` there is nothing to validate before writing \u2014 no\nallowlist, no cross-context resolution \u2014 because the read-time gates in\n``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore\nexactly as narrow as the room's own activity types already are.",
+        "operationId": "patch_chatroom_agent_draft_access_api_chatrooms__chatroom_id__agents__agent_id__draft_access_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentDraftAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Patch Chatroom Agent Draft Access",
         "tags": [
           "chatrooms"
         ]

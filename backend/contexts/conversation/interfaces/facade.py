@@ -23,6 +23,7 @@ from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgentRole,
     ChatroomGuest,
+    DraftReadGrant,
     Message,
     MessageAttachment,
     SenderType,
@@ -388,6 +389,64 @@ class ConversationFacade:
             request_id=request_id,
         )
 
+    async def draft_read_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> DraftReadGrant | None:
+        """The room's live delegation of draft reading to this agent ([R32.03]).
+
+        On the facade for the reason :meth:`activity_control_grant` is: the agents
+        runtime asks this once per room turn and must not reach into
+        ``conversation.infrastructure`` to do it.
+
+        ``None`` means "no authority", for every reason — unbound, revoked, or
+        unattributable. Callers fail closed on it, and on any exception.
+        """
+        return await self._room_agents.draft_read_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+        )
+
+    async def room_has_draft_reader(self, chatroom_id: uuid.UUID) -> bool:
+        """Does any binding in this room hold a live draft grant? ([R32.03])
+
+        Exposed separately from :meth:`draft_read_grant` because two callers need the
+        *room's* answer rather than one binding's, and neither may reach the binding
+        list to derive it: the WebSocket route decides whether to store anything at
+        all (a room nobody may read stores nothing), and the chatroom DTO drives the
+        participant-facing disclosure chip for viewers who are not the creator and
+        therefore may not learn the room's delegation layout ([R28.10]).
+        """
+        return await self._room_agents.room_has_draft_reader(chatroom_id)
+
+    async def set_agent_draft_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Write the grant ([R32.03]); ``False`` when the agent is not bound here.
+
+        The caller owns commit, and owns having established that the actor is the
+        room's creator — this context does not resolve room authority.
+        """
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).set_agent_draft_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_messages(
         self,
         chatroom_id: uuid.UUID,
@@ -605,6 +664,7 @@ __all__ = [
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "ConversationFacade",
+    "DraftReadGrant",
     "Message",
     "MessageAttachment",
     "SenderType",

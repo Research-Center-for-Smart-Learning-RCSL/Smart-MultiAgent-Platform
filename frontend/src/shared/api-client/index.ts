@@ -51,6 +51,7 @@ export type { AgentActivityControlIn } from './models/AgentActivityControlIn';
 export type { AgentConceptMapCoverageEntryOut } from './models/AgentConceptMapCoverageEntryOut';
 export type { AgentConceptMapCoverageOut } from './models/AgentConceptMapCoverageOut';
 export type { AgentCreateIn } from './models/AgentCreateIn';
+export type { AgentDraftAccessIn } from './models/AgentDraftAccessIn';
 export type { AgentEffort } from './models/AgentEffort';
 export type { AgentGroupCreateIn } from './models/AgentGroupCreateIn';
 export type { AgentGroupMemberIn } from './models/AgentGroupMemberIn';

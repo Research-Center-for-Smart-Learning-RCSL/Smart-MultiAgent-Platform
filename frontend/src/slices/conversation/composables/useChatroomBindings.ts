@@ -12,6 +12,7 @@ import {
   listProjectAgents,
   removeChatroomAgent,
   setChatroomAgentActivityControl,
+  setChatroomAgentDraftAccess,
   setChatroomAgentRole,
 } from '../api'
 import { patchAgentWakeupConfig } from '@slices/workflow'
@@ -31,6 +32,9 @@ export interface BoundAgent {
   // `false` ("told, and this agent holds nothing").
   may_control_activities?: boolean
   activity_type_allowlist?: string[]
+  // Live draft reading ([R32.03]), creator-only on the same terms and with the
+  // same three-state meaning: `undefined` is "you are not told".
+  may_read_drafts?: boolean
 }
 
 export function useChatroomBindings(
@@ -47,6 +51,12 @@ export function useChatroomBindings(
   const boundRoles = ref<Record<string, ChatroomAgentRole | undefined>>({})
   // agent_id → delegated activity grant, creator-only for the same reason.
   const boundGrants = ref<Record<string, { granted: boolean; typeIds: string[] } | undefined>>({})
+  // agent_id -> live draft grant ([R32.03]), creator-only for the same reason.
+  // Its own map rather than a third field on `boundGrants`: the two grants are
+  // written by different routes and a binding may hold either without the other,
+  // so one record would invite reading a missing half as "false" rather than as
+  // "not told".
+  const boundDraftGrants = ref<Record<string, boolean | undefined>>({})
   // The project's usable activity types, for the grant multi-select. Loaded once
   // with the bindings.
   const activityTypes = ref<ActivityType[]>([])
@@ -67,6 +77,7 @@ export function useChatroomBindings(
       .map((a) => {
         const role = boundRoles.value[a.id]
         const grant = boundGrants.value[a.id]
+        const draftGrant = boundDraftGrants.value[a.id]
         return {
           id: a.id,
           name: a.name,
@@ -76,6 +87,7 @@ export function useChatroomBindings(
             may_control_activities: grant.granted,
             activity_type_allowlist: grant.typeIds,
           }),
+          ...(draftGrant !== undefined && { may_read_drafts: draftGrant }),
         }
       }),
   )
@@ -113,6 +125,9 @@ export function useChatroomBindings(
             ? undefined
             : { granted: b.may_control_activities, typeIds: b.activity_type_allowlist ?? [] },
         ]),
+      )
+      boundDraftGrants.value = Object.fromEntries(
+        bound.map((b) => [b.agent_id, b.may_read_drafts]),
       )
       // Separate from the two loads above: a project with no activity types is
       // ordinary, and so is a viewer who cannot list them, so neither may fail
@@ -203,6 +218,29 @@ export function useChatroomBindings(
     }
   }
 
+  /** Grant or revoke one binding's live-draft reading ([R32.03]).
+   *
+   *  No client-side precondition, unlike its activity sibling: there is nothing
+   *  to select alongside it, so no state exists that the server would refuse and
+   *  the client could refuse more clearly.
+   *
+   *  Reloads rather than patching the local map, for the same reason the other
+   *  writes do: the listing is the only place that knows whether the caller is
+   *  still entitled to be told the answer at all. */
+  async function onSetDraftAccess(agentId: string, granted: boolean): Promise<void> {
+    if (bindingBusy.value) return
+    bindingBusy.value = true
+    bindingError.value = null
+    try {
+      await setChatroomAgentDraftAccess(chatroomId, agentId, granted)
+      await loadBindings()
+    } catch {
+      bindingError.value = 'conversation.settings.draftAccessFailed'
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
   async function onRemoveAgent(agentId: string): Promise<void> {
     if (bindingBusy.value) return
     bindingBusy.value = true
@@ -270,6 +308,7 @@ export function useChatroomBindings(
     onAddAgent,
     onRemoveAgent,
     onSetActivityControl,
+    onSetDraftAccess,
     onSetRole,
     saveWakeupConfig,
   }

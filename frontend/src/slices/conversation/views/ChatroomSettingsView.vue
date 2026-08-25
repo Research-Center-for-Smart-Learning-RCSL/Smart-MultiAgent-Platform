@@ -42,6 +42,7 @@ import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
+import AgentDraftAccess from '../components/AgentDraftAccess.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -67,6 +68,7 @@ const {
   onSave,
   setFlag,
   saveDisclosure,
+  saveDraftDisclosure,
   onDelete,
 } = useChatroomSettings(chatroomId)
 
@@ -86,6 +88,7 @@ const {
   onAddAgent,
   onRemoveAgent,
   onSetActivityControl,
+  onSetDraftAccess,
   onSetRole,
   saveWakeupConfig,
 } = useChatroomBindings(chatroomId, () => room.value)
@@ -215,6 +218,12 @@ const roleOptions = computed(() => [
 const hasObserver = computed(() => boundAgents.value.some((a) => a.role === 'observer'))
 const showGuestObserverCallout = computed(
   () => flags.value.allow_guest_links && hasObserver.value && !flags.value.disclose_observers,
+)
+// [R32.03]. Read from the bindings listing rather than from the room DTO's
+// `drafts_readable`: that field folds the disclosure flag in, so it is false in
+// exactly the state this callout exists to warn about.
+const anyAgentReadsDrafts = computed(() =>
+  boundAgents.value.some((a) => a.may_read_drafts === true),
 )
 
 // ---- derived state --------------------------------------------------------
@@ -578,6 +587,45 @@ watchEffect(() => {
             />
           </div>
 
+          <!-- Draft disclosure: creator-only ([R32.05]), beside its observer
+               sibling because they are the same kind of decision. It is shown
+               whether or not any agent currently holds the grant: a creator
+               deciding the room's posture in advance is exactly the moment to
+               make it, and hiding the switch until a grant exists would mean
+               the first grant always lands with disclosure at its default. -->
+          <div
+            v-if="isCreator"
+            class="access-row"
+          >
+            <div class="access-row__text">
+              <p class="access-row__label">
+                {{ t('conversation.drafts.discloseLabel') }}
+              </p>
+              <p class="access-row__desc">
+                {{ flags.disclose_drafts
+                  ? t('conversation.drafts.discloseOnHelp')
+                  : t('conversation.drafts.discloseOffHelp') }}
+              </p>
+            </div>
+            <SToggle
+              :model-value="flags.disclose_drafts"
+              :disabled="saving"
+              @update:model-value="(v) => saveDraftDisclosure(v)"
+            />
+          </div>
+
+          <!-- Not a hypothetical: turning this off produces a room where a
+               person's unsent words are read and nobody is told. §10 records it
+               as an accepted, unmitigated risk, so the one thing the product can
+               do is say so at the moment of the choice. -->
+          <SAlert
+            v-if="isCreator && !flags.disclose_drafts && anyAgentReadsDrafts"
+            variant="warning"
+            class="mt-2"
+          >
+            {{ t('conversation.drafts.undisclosedCallout') }}
+          </SAlert>
+
           <SAlert
             v-if="showGuestObserverCallout"
             variant="warning"
@@ -707,6 +755,16 @@ watchEffect(() => {
               :activity-types-failed="activityTypesFailed"
               :busy="bindingBusy"
               @save="(granted, typeIds) => onSetActivityControl(agent.id, granted, typeIds)"
+            />
+            <!-- Live draft reading ([R32.03]). Creator-only on the same terms,
+                 and a separate control from the one above because it is a
+                 separate authority written by a separate route. -->
+            <AgentDraftAccess
+              v-if="isCreator"
+              :agent="agent"
+              :busy="bindingBusy"
+              :disclosed="flags.disclose_drafts"
+              @save="(granted) => onSetDraftAccess(agent.id, granted)"
             />
             <SWakeupEditor
               :model-value="agent.wakeup_config"

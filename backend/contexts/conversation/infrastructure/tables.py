@@ -57,6 +57,11 @@ chatrooms = sa.Table(
         nullable=True,
     ),
     sa.Column("disclose_observers", sa.Boolean, nullable=False, server_default=sa.text("true")),
+    # §32 ([R32.05], migration 0082). Defaults true like `disclose_observers` and
+    # unlike every access flag above: the failure mode of disclosing with no reader
+    # is a redundant chip, and of the opposite is unsent text read with nothing on
+    # screen to say so.
+    sa.Column("disclose_drafts", sa.Boolean, nullable=False, server_default=sa.text("true")),
 )
 
 chatroom_agents = sa.Table(
@@ -95,6 +100,18 @@ chatroom_agents = sa.Table(
         pg.JSONB,
         nullable=False,
         server_default=sa.text("'[]'::jsonb"),
+    ),
+    # Live draft reading ([R32.03], migration 0082). Shares `granted_by_user_id`
+    # with the activity grant above rather than adding a second grantor column:
+    # both reads ask the same question ("is anyone answerable for this?") and two
+    # columns would admit a state where they disagree. No CHECK, for the reason
+    # 0078 records about `ON DELETE SET NULL` and GDPR erasure; the invariant is a
+    # read-time one in `ChatroomAgentRepository.draft_read_grant`.
+    sa.Column(
+        "may_read_drafts",
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
     ),
     sa.Column(
         "granted_by_user_id",
