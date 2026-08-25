@@ -12,6 +12,7 @@ from contexts.activities.application.ports import (
     ActivitySessionCloser,
     ActivityTypeOptInReader,
     ActivityTypeReader,
+    GroupProposalExpirer,
 )
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.domain.errors import (
@@ -22,6 +23,7 @@ from contexts.activities.domain.models import ActivityActivation, ActivityActiva
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
+from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from shared_kernel import audit
 
@@ -55,6 +57,7 @@ class ActivationService:
         type_repo: ActivityTypeReader,
         optin_repo: ActivityTypeOptInReader | None = None,
         session_repo: ActivitySessionCloser | None = None,
+        proposal_repo: GroupProposalExpirer | None = None,
     ) -> None:
         self._db = db
         self._repo = activation_repo
@@ -67,6 +70,10 @@ class ActivationService:
         # owns a session writer -- narrowed to that one method (see the port), and
         # defaulted for the same reason as the opt-in reader above.
         self._session_repo: ActivitySessionCloser = session_repo or ActivitySessionRepository(db)
+        # Ending a round also resolves every proposal still open under it (AC-9),
+        # for the same reason it closes the sessions: a vote that outlives its
+        # round would otherwise produce a submission after the class moved on.
+        self._proposal_repo: GroupProposalExpirer = proposal_repo or GroupProposalRepository(db)
         self._policy = ActivityPolicyService(db)
 
     async def start(
@@ -169,6 +176,9 @@ class ActivationService:
             # Ordered before the audit so the count is a fact about what happened,
             # not a prediction.
             sessions_closed = await self._session_repo.close_open_for_activation(activation_id)
+            # AC-9. In the same transaction as the end, so there is no window in
+            # which the round is over and a proposal can still be accepted.
+            proposals_expired = await self._proposal_repo.expire_open_for_activation(activation_id)
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -181,6 +191,7 @@ class ActivationService:
                         "chatroom_id": str(chatroom_id),
                         "activity_type_id": str(activation.activity_type_id),
                         "sessions_closed": str(sessions_closed),
+                        "proposals_expired": str(len(proposals_expired)),
                         **_delegation_metadata("ended_by_agent_id", ended_by_agent_id),
                     },
                     request_id=request_id,
