@@ -71,10 +71,17 @@ class ObservationService:
         trigger: str,
         trigger_message_id: uuid.UUID | None = None,
         metadata: dict[str, Any] | None = None,
+        blocks: list[dict[str, Any]] | None = None,
     ) -> AgentObservation:
         """Persist an observer turn's output. No WS emission here — the turn
         engine emits ``observation.created`` post-commit, mirroring how agent
-        replies emit ``message.created``."""
+        replies emit ``message.created``.
+
+        ``blocks`` ([R28.15]) is the validated presentation array, already
+        serialised into ``content_md`` by the caller. Passed through rather than
+        serialised here: the serialiser lives with the block schema in the agents
+        runtime, and this service must not learn a block vocabulary it has no other
+        reason to know."""
         return await self._observations.create(
             chatroom_id=chatroom_id,
             agent_id=agent_id,
@@ -82,6 +89,7 @@ class ObservationService:
             trigger=trigger,
             trigger_message_id=trigger_message_id,
             metadata=metadata,
+            blocks=blocks,
         )
 
     # ---- creator-side ------------------------------------------------------

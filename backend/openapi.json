@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -7092,6 +7092,14 @@
             "title": "Agent Id",
             "type": "string"
           },
+          "blocks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
           "chatroom_id": {
             "format": "uuid",
             "title": "Chatroom Id",
@@ -7180,6 +7188,7 @@
           "agent_id",
           "content_md",
           "metadata",
+          "blocks",
           "trigger",
           "trigger_message_id",
           "released_at",

@@ -156,6 +156,11 @@ class AgentObservation:
     content_md: str
     trigger: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    # [R28.15] — ordered presentation blocks; empty for every observation recorded
+    # before the feature and for any turn that did not call `present_observation`.
+    # `content_md` is their serialisation, stored rather than derived, so an
+    # observation stays readable even if the block schema is rolled back.
+    blocks: list[dict[str, Any]] = field(default_factory=list)
     trigger_message_id: uuid.UUID | None = None
     released_at: datetime | None = None
     release_target: dict[str, Any] | None = None
