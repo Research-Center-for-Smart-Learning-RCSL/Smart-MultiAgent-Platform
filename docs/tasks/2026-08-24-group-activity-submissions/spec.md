@@ -521,7 +521,10 @@ processing.
       *Backend: `pytest -q` (7532 unit, plus 14 `db`-tier and 53 neighbouring `db` tests
       against a real PostgreSQL 17), `ruff check`, `ruff format --check`, `mypy` (984
       files). `alembic upgrade head` applies 0081 and the downgrade reverses it.
-      Frontend: `pnpm test` (1622 tests, 224 files), `pnpm lint`, `pnpm typecheck`,
+      Re-run after the second `/code-review`'s seven fixes: 7540 unit, 64 activities-area
+      `db` tests, `alembic` up and down; see FU-12 for the twelve `db` tests this host
+      cannot run at all.
+      Frontend: `pnpm test` (1631 tests, 224 files), `pnpm lint`, `pnpm typecheck`,
       `pnpm build`, `check:boundaries-enforced`. `check:openapi-drift` could not run as
       written — WSL bash has no `python` on PATH — so its three steps were run directly
       (`python -m scripts.export_openapi`, `pnpm run gen:api`, `git status` over both
@@ -703,6 +706,49 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   rendered as a pending branch with an error-and-retry rather than a silent fall-through.
   Found by the quality gate, not by a test.
 
+- **D-12. A second `/code-review` over the whole branch found seven defects; all seven
+  were fixed and each carries a regression test verified to fail without its fix.** Four
+  were in this task, three in `2026-08-24-observer-presentation-blocks`'s area and taken
+  here because they share the file. The four worth reading:
+
+  *The listing crossed rooms.* `list_open_for_groups` filtered the round, the groups and
+  the status but never the chatroom, while the caller's group set derives from the
+  bindings of the room in the URL and `activation_id` arrives as a query parameter. One
+  group bound to two rooms of a project was enough for room A's creator to read room B's
+  proposal with its payload and its per-person votes — the record [R30.42] confines to B's
+  own voters and B's creator. **This task's own security gate traced the endpoint's
+  project scoping and stopped there**, which is the lesson: scoping to the tenant is not
+  scoping to the resource, and a listing must not be looser than the single read beside it
+  (`get_group_proposal` had the room check all along).
+
+  *A lock-order inversion.* `vote` took the proposal row and then the activation; `end`
+  takes the activation and then the round's proposals, and `create` already followed end's
+  order — so `vote` was the only path running against it, and a teacher ending the round
+  during the deciding vote deadlocked one of them into a 500 over a three-round-trip
+  window.
+
+  *The expiry sweep could un-accept a proposal.* `expire_due` put `status = 'open'` only
+  in its subquery. Staging the race proved EvalPlanQual does **not** re-check a subquery's
+  predicate: the sweep stamped `expired` on a proposal whose submission already existed.
+  The first test written for this asserted selectivity on quiescent rows and passed with
+  the guard removed — worth recording, because a regression test that cannot fail is
+  worse than none.
+
+  *Groups never finished.* `count_for_activation` splits the facilitator's progress line
+  on `completed_at`, which a group subject can never set — `set_completed`'s only route
+  runs through `_ensure_subject_is_caller`. Six groups that had all answered read as
+  `0 completed, 6 in progress` for the rest of the round. Acceptance is now the group's
+  declaration, which is the decision FU-4 left open; FU-4 is closed by it.
+
+- **D-13. The proposal card had to outlive the vote that settled it.** §6 describes "a
+  live proposal card", and rendering it only while open meant the deciding vote replaced
+  it with a blank form: no confirmation for the student who cast it, and an invitation to
+  propose again that the partial unique does not stop (it bars only concurrent *open*
+  ones), landing as a duplicate group attempt. It also left the card's four
+  terminal-status branches unreachable from the panel — its own component tests passed
+  while the integration was dead, which is the shape of defect a component test cannot
+  see.
+
 - **D-6. `ActivityTypeIn`/`ActivityTypeUpdateIn` do not validate `group_config` at the API
   boundary.** They accept `dict | None` and the shape check runs in the type service. §6
   implies boundary validation; putting it there would have meant two copies of the rule,
@@ -721,13 +767,13 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
 - **FU-3.** `six-hats-shared-case` has no plugin and renders through `SchemaForm`. A parallel
   five-column layout would suit the technique better than a vertical form, and the plugin SDK
   already supports it.
-- **FU-4.** The aggregation read model ([R30.10]) reports per subject. With group subjects it
-  now mixes two populations in one count; no current consumer is wrong because of it, but a
-  dashboard that adds them together would be. **Confirmed reachable during the build**:
-  `ActivitySessionRepository.count_for_activation` is the facilitator's `(completed,
-  in_progress)` read and now counts a group's session as one more "participant". That is a
-  defensible reading — a group is a submitting unit — but it is a reading, not a decision
-  anyone took.
+- **FU-4. CLOSED by D-12.** The aggregation read model ([R30.10]) reports per subject, and
+  with group subjects it mixes two populations in one count. The half that was a live
+  defect — `count_for_activation` counting a group's session as a participant who never
+  finishes — is fixed: acceptance now stamps the group session's `completed_at`, so a
+  group is a submitting unit that can be done. What remains is the original observation
+  and not a defect: a dashboard that adds individuals and groups into one total would be
+  reporting on two populations, and nothing stops it.
 
 - **FU-5. No end-to-end run of the group flow.** Taken with the user at build start: the
   browser pass needs three real sessions in one room and a full compose stack. AC-15's
@@ -752,6 +798,15 @@ To be applied to `REQUIREMENTS.md` §30 on approval, appended after [R30.38].
   backstop should not disagree about what they announce. Deferred rather than plumbed up
   through `ActivityActivationEndResult`, which four callers share, for a client that does not
   exist yet. Raised by the post-build `/code-review`.
+
+- **FU-12. Local verification has outgrown this host, and the `db` tier can no longer be
+  run in full on it.** Twelve `db`-tier tests (knowmap/Neo4j, workflow/Redis, onboarding)
+  fail against a bare PostgreSQL container for want of the services CI's job definitions
+  supply, so the tier was run narrowed to the activities area (64 passed) and the rest was
+  not covered locally at all. Combined with FU-9's flake and the load the full suites put
+  on the machine, the standing answer is `.github/workflows/ci.yml`: it runs
+  `backend-db`, `backend-integration` and `backend-wiring` with the real service
+  containers, on Linux, and it is the arbiter when it disagrees with this host.
 
 - **FU-9. Two CodeMirror specs flake under full-suite load on the Windows dev host.**
   `SFormField.test.ts` and `AgentToolsView.test.ts` each failed once across three
