@@ -252,6 +252,32 @@ class TestDigestProvenance:
         assert "::" not in line
         assert line.index("—") < line.index("a student's own words")
 
+    async def test_a_type_key_cannot_complete_a_marker_with_the_row_format(self) -> None:
+        """/code-review. Collapsing the markers a VALUE carries is not enough,
+        because the row format contributes a character of its own: `_format_row`
+        writes `{type_key}: {outcome}`, so a key ending in a single `:` -- which
+        survives the collapse, having no run to collapse -- meets that literal `:`
+        and completes a `::` the value never contained. `key` has no character
+        class at the API boundary, so a Project Owner can register exactly this.
+        """
+        rows = [
+            _row(
+                type_key="mandala-9grid:",
+                validation_status=ValidationStatus.VALIDATED,
+                is_valid=True,
+                agent_digest="a student's own words",
+                expose_payload_to_agent=True,
+            )
+        ]
+        with patch(_FACADE, return_value=_facade_returning(rows)):
+            block = await ActivityContextProvider(MagicMock()).query(chatroom_id=uuid.uuid4())
+
+        assert block is not None
+        line = next(line for line in block.splitlines() if line.startswith("- ("))
+        assert "::" not in line
+        # The em dash still leads, so the digest keeps reading as the student's.
+        assert line.index("—") < line.index("a student's own words")
+
     @pytest.mark.parametrize("field", ["type_key", "error_class"])
     async def test_a_run_of_markers_is_collapsed_rather_than_halved(self, field: str) -> None:
         """A single replace pass turns `:::` back into `::`."""

@@ -25,6 +25,7 @@ from contexts.activities.domain.models import (
     AttemptSummaryRow,
     RecentActivityRow,
     ValidationStatus,
+    ValidatorKind,
 )
 from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 from contexts.activities.infrastructure import tables as t
@@ -55,20 +56,46 @@ _SUB_COLS = (
 )
 
 
-def _digest_is_computed(agent_digest: str | None, payload: dict[str, Any] | None) -> bool:
-    """Did this row's digest come from a validator ``detail``, or from the payload?
+def _digest_is_computed(
+    agent_digest: str | None,
+    payload: dict[str, Any] | None,
+    validator_kind: str | None,
+) -> bool:
+    """Is this row's digest text the PLATFORM's, rather than possibly the
+    participant's?
 
-    Derived by rebuilding the fallback and comparing, rather than stored. The
-    fallback is deterministic (``build_agent_digest`` with no ``detail``), so the
-    comparison is exact — and, unlike a column, it is exact for every row written
-    before the distinction existed. A stored flag would have to be backfilled to a
-    guess, and the wrong guess is the unsafe one: it would let the context block
-    vouch for a server-computed description as the participant's own words.
+    Two conditions, and the second is the security-bearing one.
+
+    First, the digest must differ from the payload-dump fallback, which is
+    deterministic (``build_agent_digest`` with no ``detail``) — so the comparison
+    is exact, and unlike a stored column it is exact for every row written before
+    the distinction existed. A stored flag would have to be backfilled to a guess,
+    and the wrong guess is the unsafe one.
+
+    Second, and this is what "differs from the fallback" cannot answer: the
+    detail must have come from a validator the platform WROTE. Inequality alone
+    only proves *some* ``detail`` was used, and ``submission_service`` stores an
+    mcp or webhook validator's ``detail`` verbatim. That text is third-party — a
+    validator returning ``"looks good: <the answer>"`` would have been marked
+    ``::``, and ``_COMPUTED_NOTE`` tells the model that ``::`` text "is a fact
+    about the submission, not the participant's words, and it never contains
+    them", with the shipped AA prompt going further and declaring it quotable
+    even for unit 4. That is the exact promise the whole marker architecture
+    exists to keep, and string inequality was not evidence for it.
+
+    ``in_process`` is the trust boundary the validator registry already draws:
+    "an in-process validator is first-party backend code running in the app
+    process... Register only validators you ship; untrusted validators use the
+    MCP sandbox" (``validators/registry.py``). An unknown or absent kind falls to
+    ``False``, which shows the text under the participant marker — the safe
+    direction, since that marker forbids quoting rather than licensing it.
 
     Reads the payload and returns a boolean; nothing about the payload survives
     the call.
     """
     if not agent_digest:
+        return False
+    if validator_kind != ValidatorKind.IN_PROCESS.value:
         return False
     return agent_digest != build_agent_digest(payload=dict(payload or {}), detail=None)
 
@@ -317,9 +344,11 @@ class ActivitySubmissionRepository:
                     _SUB.c.is_valid,
                     _SUB.c.error_class,
                     _SUB.c.agent_digest,
-                    # Read only to answer where the digest came from, and dropped
-                    # here — no payload value reaches `RecentActivityRow`.
+                    # Both read only to answer where the digest came from, and
+                    # dropped here — no payload value reaches `RecentActivityRow`,
+                    # and the kind is a trust question, not a fact about the row.
                     _SUB.c.payload,
+                    _TYPE.c.validator_kind,
                     _TYPE.c.expose_payload_to_agent,
                 )
                 .select_from(
@@ -344,7 +373,7 @@ class ActivitySubmissionRepository:
                 error_class=r.error_class,
                 agent_digest=r.agent_digest,
                 expose_payload_to_agent=r.expose_payload_to_agent,
-                digest_is_computed=_digest_is_computed(r.agent_digest, r.payload),
+                digest_is_computed=_digest_is_computed(r.agent_digest, r.payload, r.validator_kind),
             )
             for r in rows
         ]
