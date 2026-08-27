@@ -36,13 +36,21 @@ export const AGENT_ERROR_FALLBACK_KEY = 'conversation.chatroom.agentFailed'
 /** Resolve a backend error kind to its i18n key: exact match, then the
  *  `family:reason` family, then the generic fallback. */
 export function agentErrorMessageKey(kind: string | null | undefined): string {
+  // `Object.hasOwn`, not a bare index: an unmapped backend exception reaches us
+  // as its Python class name (turn_engine `_err_kind`), so a class named
+  // `constructor` or `toString` would otherwise resolve to an inherited function
+  // and be handed to `t()` as if it were an i18n key.
   if (!kind) return AGENT_ERROR_FALLBACK_KEY
-  const exact = AGENT_ERROR_MESSAGE_KEYS[kind]
+  const exact = own(AGENT_ERROR_MESSAGE_KEYS, kind)
   if (exact) return exact
   const separator = kind.indexOf(':')
   if (separator > 0) {
-    const family = AGENT_ERROR_FAMILY_KEYS[kind.slice(0, separator)]
+    const family = own(AGENT_ERROR_FAMILY_KEYS, kind.slice(0, separator))
     if (family) return family
   }
   return AGENT_ERROR_FALLBACK_KEY
+}
+
+function own(map: Record<string, string>, key: string): string | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined
 }
