@@ -1,5 +1,12 @@
 <template>
-  <STooltip :content="t('conversation.observers.disclosureTooltip')">
+  <!-- Downward is a UX choice, not a clipping fix (the teleported tooltip
+       clips nowhere): the chip sits in the room header, and an upward bubble
+       would float over the app topbar above it instead of over the room's
+       own content. -->
+  <STooltip
+    :content="t('conversation.observers.disclosureTooltip')"
+    placement="bottom"
+  >
     <span class="obs-chip">
       <EyeIcon class="obs-chip__icon" />
       {{ t('conversation.observers.disclosureChip') }}

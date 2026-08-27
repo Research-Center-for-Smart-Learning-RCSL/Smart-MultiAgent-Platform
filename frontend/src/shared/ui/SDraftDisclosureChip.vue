@@ -1,5 +1,8 @@
 <template>
-  <STooltip :content="t('shared.draftDisclosure.tooltip')">
+  <STooltip
+    :content="t('shared.draftDisclosure.tooltip')"
+    :placement="placement"
+  >
     <span class="draft-chip">
       <PencilSquareIcon class="draft-chip__icon" />
       {{ t('shared.draftDisclosure.chip') }}
@@ -22,12 +25,22 @@
  * It names no agent. Which binding holds the grant is the room creator's to see
  * ([R28.10], [R32.05]); what a participant is owed is that it is happening.
  *
- * Content-free by construction: it takes no props, so there is no path by which
- * a draft, a code or an agent name could reach it.
+ * Content-free by construction: its only prop is the tooltip placement, a
+ * closed union, so there is no path by which a draft, a code or an agent name
+ * could reach it. Placement is host-chosen as a UX judgment (which
+ * neighbouring surface the bubble may cover), not for clipping — the
+ * teleported tooltip clips nowhere.
  */
 import { useI18n } from 'vue-i18n'
 import { PencilSquareIcon } from '@heroicons/vue/24/outline'
 import STooltip from './STooltip.vue'
+
+withDefaults(
+  defineProps<{
+    placement?: 'top' | 'bottom' | 'left' | 'right'
+  }>(),
+  { placement: 'top' },
+)
 
 const { t } = useI18n()
 </script>

@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount, type Component, type CSSProperties } from 'vue'
+import {
+  clampToViewport,
+  useAnchoredPosition,
+  VIEWPORT_MARGIN,
+  type AnchoredPositionContext,
+} from '@shared/composables/useAnchoredPosition'
 
 interface DropdownItem {
   key: string
@@ -27,7 +33,6 @@ const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const itemRefs = ref<HTMLElement[]>([])
-const menuPos = ref<CSSProperties>({})
 
 function setItemRef(el: unknown, index: number) {
   if (el instanceof HTMLElement) {
@@ -109,24 +114,21 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// Gap between trigger and menu, and the clearance kept from the viewport edge.
+// Gap between trigger and menu.
 const TRIGGER_GAP = 4
-const VIEWPORT_MARGIN = 8
 // Floor for the height cap. On a viewport too short for either side to hold a
 // usable menu, a cap derived purely from the available space would collapse it
 // to nothing; a scrollable stub of a few rows is the lesser evil.
 const MIN_MENU_HEIGHT = 96
 
-function updateMenuPosition() {
-  if (!triggerRef.value) return
-  const rect = triggerRef.value.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
+function computeMenuPosition(ctx: AnchoredPositionContext): CSSProperties {
+  const { rect, panel, viewportWidth, viewportHeight } = ctx
   const spaceBelow = viewportHeight - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN
   const spaceAbove = rect.top - TRIGGER_GAP - VIEWPORT_MARGIN
   // scrollHeight, not the bounding box: once a cap is applied the box reports
   // the capped height, and re-evaluating on scroll would then read the menu as
   // fitting and un-flip it.
-  const naturalHeight = menuRef.value?.scrollHeight ?? 0
+  const naturalHeight = panel.scrollHeight
 
   // Pick the side first, then cap to it. Flipping only when the menu genuinely
   // does not fit below keeps the common case anchored where the user expects.
@@ -138,7 +140,6 @@ function updateMenuPosition() {
   )
 
   const pos: CSSProperties = {
-    position: 'fixed',
     maxHeight: `${Math.round(available)}px`,
   }
   if (available > room) {
@@ -152,16 +153,22 @@ function updateMenuPosition() {
     pos.top = `${rect.bottom + TRIGGER_GAP}px`
   }
   if (props.placement === 'bottom-end') {
-    pos.right = `${window.innerWidth - rect.right}px`
+    pos.right = `${viewportWidth - rect.right}px`
   } else {
-    pos.left = `${rect.left}px`
+    pos.left = `${Math.round(clampToViewport(rect.left, panel.offsetWidth, viewportWidth))}px`
   }
-  menuPos.value = pos
+  return pos
 }
 
-function onScrollWhileOpen() {
-  if (isOpen.value) updateMenuPosition()
-}
+const { style: menuPos } = useAnchoredPosition({
+  anchor: triggerRef,
+  panel: menuRef,
+  open: isOpen,
+  compute: computeMenuPosition,
+  // A menu whose trigger scrolled out of its container would otherwise keep
+  // floating over unrelated content.
+  onAnchorClipped: close,
+})
 
 function onClickOutside(e: MouseEvent) {
   const target = e.target as Node
@@ -175,17 +182,14 @@ function onClickOutside(e: MouseEvent) {
 
 onMounted(syncTriggerAria)
 
+// Scroll/resize repositioning and the initial post-nextTick measurement are
+// owned by useAnchoredPosition; this watcher keeps only what is specific to a
+// menu: outside-click dismissal and moving focus to the first item.
 watch(isOpen, async (open) => {
   syncTriggerAria()
   if (open) {
     document.addEventListener('click', onClickOutside, { capture: true })
-    window.addEventListener('scroll', onScrollWhileOpen, { capture: true, passive: true })
-    window.addEventListener('resize', onScrollWhileOpen, { passive: true })
     await nextTick()
-    // After the menu exists: both the flip and the cap need its measured
-    // height. The enter transition starts at opacity 0 and nextTick is a
-    // microtask, so no unpositioned frame is ever painted.
-    updateMenuPosition()
     const actionable = getActionableIndices()
     const firstIndex = actionable[0]
     if (firstIndex !== undefined) {
@@ -193,16 +197,12 @@ watch(isOpen, async (open) => {
     }
   } else {
     document.removeEventListener('click', onClickOutside, { capture: true })
-    window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
-    window.removeEventListener('resize', onScrollWhileOpen)
     itemRefs.value = []
   }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onClickOutside, { capture: true })
-  window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
-  window.removeEventListener('resize', onScrollWhileOpen)
 })
 </script>
 

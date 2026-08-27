@@ -5070,7 +5070,10 @@
   "p|s-empty-state__text": [
    "14px|400|21px|||||||||||<measured>|"
   ],
-  "p|chatroom__typing.typing": [
+  "div|chatroom__typing": [
+   "16px|400|24px|||||||||8px|8px|<measured>|"
+  ],
+  "p|typing": [
    "13px|400|19.5px||16px||16px|||||4px|4px|<measured>|"
   ],
   "form|chatroom__composer.composer": [
@@ -5337,7 +5340,10 @@
   "p|s-empty-state__text": [
    "14px|400|21px|||||||||||<measured>|"
   ],
-  "p|chatroom__typing.typing": [
+  "div|chatroom__typing": [
+   "16px|400|24px|||||||||8px|8px|<measured>|"
+  ],
+  "p|typing": [
    "13px|400|19.5px||16px||16px|||||4px|4px|<measured>|"
   ],
   "form|chatroom__composer.composer": [
@@ -5532,7 +5538,10 @@
   "p|s-empty-state__text": [
    "14px|400|21px|||||||||||<measured>|"
   ],
-  "p|chatroom__typing.typing": [
+  "div|chatroom__typing": [
+   "16px|400|24px|||||||||8px|8px|<measured>|"
+  ],
+  "p|typing": [
    "13px|400|19.5px||16px||16px|||||4px|4px|<measured>|"
   ],
   "form|chatroom__composer.composer": [
@@ -5675,7 +5684,10 @@
   "p|s-empty-state__text": [
    "14px|400|21px|||||||||||<measured>|"
   ],
-  "p|chatroom__typing.typing": [
+  "div|chatroom__typing": [
+   "16px|400|24px|||||||||8px|8px|<measured>|"
+  ],
+  "p|typing": [
    "13px|400|19.5px||16px||16px|||||4px|4px|<measured>|"
   ],
   "form|chatroom__composer.composer": [
@@ -7525,7 +7537,6 @@
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
-   "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|access-row": [
@@ -7588,20 +7599,14 @@
   "p|mb-4.text-[var(--color-muted)].text-sm": [
    "14px|400|20px|||||||16px||||<measured>|"
   ],
-  "p|mb-3.text-[var(--color-muted)].text-sm": [
-   "14px|400|20px|||||||12px||||<measured>|"
+  "div|flex.justify-center.py-6": [
+   "16px|400|24px|24px||24px||||||||<measured>|"
   ],
-  "div|s-select.s-select--md.s-select--placeholder": [
-   "16px|400|24px|||||||||||<measured>|"
+  "div|s-spinner": [
+   "14px|400|21px|||||||||8px|8px|<measured>|"
   ],
-  "p|form-field__help": [
-   "12px|400|18px|||||||||||<measured>|"
-  ],
-  "div|max-w-[160px].s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|"
-  ],
-  "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+  "svg|s-spinner__icon.s-spinner__icon--md": [
+   "14px|400|21px|||||||||||<measured>|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
@@ -7763,7 +7768,6 @@
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
   ],
   "span|s-btn__label": [
-   "12px|500|15px|||||||||||<measured>|",
    "14px|500|17.5px|||||||||||<measured>|"
   ],
   "div|access-row": [
@@ -7826,20 +7830,14 @@
   "p|mb-4.text-[var(--color-muted)].text-sm": [
    "14px|400|20px|||||||16px||||<measured>|"
   ],
-  "p|mb-3.text-[var(--color-muted)].text-sm": [
-   "14px|400|20px|||||||12px||||<measured>|"
+  "div|flex.justify-center.py-6": [
+   "16px|400|24px|24px||24px||||||||<measured>|"
   ],
-  "div|s-select.s-select--md.s-select--placeholder": [
-   "16px|400|24px|||||||||||<measured>|"
+  "div|s-spinner": [
+   "14px|400|21px|||||||||8px|8px|<measured>|"
   ],
-  "p|form-field__help": [
-   "12px|400|18px|||||||||||<measured>|"
-  ],
-  "div|max-w-[160px].s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|"
-  ],
-  "button|mt-2.s-btn.s-btn--disabled.s-btn--primary.s-btn--sm": [
-   "12px|500|15px|6px|12px|6px|12px|8px||||8px|8px|32px|"
+  "svg|s-spinner__icon.s-spinner__icon--md": [
+   "14px|400|21px|||||||||||<measured>|"
   ],
   "div|danger-zone.s-card.s-card--default.s-card--pad-md": [
    "16px|400|24px|16px|16px|16px|16px|||||||<measured>|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
@@ -12261,9 +12259,6 @@
   "button|copy-btn": [
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
-  "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
-  ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
   ],
@@ -12293,6 +12288,9 @@
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
+  ],
+  "div|s-tooltip.s-tooltip--top": [
+   "12px|400|16.8px|4px|8px|4px|8px|||||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
   ]
  },
  "org-detail @1440x900 light": {
@@ -12495,9 +12493,6 @@
   "button|copy-btn": [
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
-  "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
-  ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
   ],
@@ -12527,6 +12522,9 @@
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+  ],
+  "div|s-tooltip.s-tooltip--top": [
+   "12px|400|16.8px|4px|8px|4px|8px|||||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
   ]
  },
  "org-detail @375x812 dark": {
@@ -12669,9 +12667,6 @@
   "button|copy-btn": [
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
-  "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
-  ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
   ],
@@ -12701,6 +12696,9 @@
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
+  ],
+  "div|s-tooltip.s-tooltip--top": [
+   "12px|400|16.8px|4px|8px|4px|8px|||||||<measured>|rgba(0, 0, 0, 0.28) 0px 2px 4px -1px, rgba(0, 0, 0, 0.24) 0px 4px 8px -2px"
   ]
  },
  "org-detail @375x812 light": {
@@ -12843,9 +12841,6 @@
   "button|copy-btn": [
    "14px|400|21px|2px|2px|2px|2px|||||||<measured>|"
   ],
-  "div|s-tooltip.s-tooltip--top": [
-   "12px|400|16.8px|4px|8px|4px|8px|||6px||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
-  ],
   "div|quotas-grid": [
    "16px|400|24px|||||||||16px|16px|<measured>|"
   ],
@@ -12875,6 +12870,9 @@
   ],
   "button|s-btn.s-btn--danger.s-btn--md": [
    "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
+  ],
+  "div|s-tooltip.s-tooltip--top": [
+   "12px|400|16.8px|4px|8px|4px|8px|||||||<measured>|rgba(15, 23, 42, 0.05) 0px 2px 4px -1px, rgba(15, 23, 42, 0.07) 0px 4px 8px -2px"
   ]
  },
  "orgs @1440x900 dark": {
@@ -14804,44 +14802,7 @@
    "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(0, 0, 0, 0.24) 0px 1px 2px 0px, rgba(0, 0, 0, 0.16) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
-   "12px|500|15px|||||||||||<measured>|",
-   "14px|500|17.5px|||||||||||<measured>|"
-  ],
-  "div|invite-card.s-card.s-card--flat.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|"
-  ],
-  "form|invite-form": [
-   "16px|400|24px|||||||||12px|12px|<measured>|"
-  ],
-  "div|form-field.invite-email": [
-   "16px|400|24px|||||||16px||4px|4px|<measured>|"
-  ],
-  "label|form-field__label": [
-   "14px|500|21px|||||||||||<measured>|"
-  ],
-  "div|form-field__control": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|"
-  ],
-  "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|"
-  ],
-  "div|form-field.invite-role": [
-   "16px|400|24px|||||||16px||4px|4px|<measured>|"
-  ],
-  "div|s-select.s-select--md": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "select|s-select__native": [
-   "14px|400|21px||32px||8px|||||||40px|"
-  ],
-  "svg|s-select__chevron": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "12px|500|15px|||||||||||<measured>|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -14849,35 +14810,11 @@
   "div|s-cards": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|s-cards__card": [
-   "16px|400|24px|12px|12px|12px|12px|||||12px|12px|<measured>|"
+  "div|s-cards__card.s-cards__card--static": [
+   "16px|400|24px|12px|12px|12px|12px|||||8px|8px|<measured>|"
   ],
-  "div|s-cards__main": [
-   "16px|400|24px|||||||||8px|8px|<measured>|"
-  ],
-  "dl|s-cards__fields": [
-   "16px|400|24px|||||||||6px|6px|<measured>|"
-  ],
-  "div|s-cards__field": [
-   "16px|400|24px|||||||||2px|2px|<measured>|"
-  ],
-  "dd|s-cards__value": [
-   "14px|400|21px|||||||||||<measured>|"
-  ],
-  "dt|s-cards__label": [
-   "12px|600|18px|||||||||||<measured>|"
-  ],
-  "span|you-label": [
-   "14px|400|21px||||||||4px|||<measured>|"
-  ],
-  "span|role-badges": [
-   "14px|400|21px|||||||||4px|4px|<measured>|"
-  ],
-  "span|s-badge.s-badge--md.s-badge--neutral": [
-   "12px|500|12px||8px||8px|||||||<measured>|"
-  ],
-  "span|s-badge__label": [
-   "12px|500|12px|||||||||||<measured>|"
+  "span|s-skeleton.s-skeleton--anim-shimmer.s-skeleton--text": [
+   "16px|400|24px|||||||||||<measured>|"
   ]
  },
  "project-members @375x812 light": {
@@ -14981,44 +14918,7 @@
    "12px|500|15px|6px|12px|6px|12px|||||8px|8px|32px|rgba(15, 23, 42, 0.06) 0px 1px 2px 0px, rgba(15, 23, 42, 0.04) 0px 1px 1px 0px"
   ],
   "span|s-btn__label": [
-   "12px|500|15px|||||||||||<measured>|",
-   "14px|500|17.5px|||||||||||<measured>|"
-  ],
-  "div|invite-card.s-card.s-card--flat.s-card--pad-md": [
-   "16px|400|24px|16px|16px|16px|16px|||24px||||<measured>|"
-  ],
-  "form|invite-form": [
-   "16px|400|24px|||||||||12px|12px|<measured>|"
-  ],
-  "div|form-field.invite-email": [
-   "16px|400|24px|||||||16px||4px|4px|<measured>|"
-  ],
-  "label|form-field__label": [
-   "14px|500|21px|||||||||||<measured>|"
-  ],
-  "div|form-field__control": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "div|s-input.s-input--md": [
-   "16px|400|24px|||||||||||40px|"
-  ],
-  "input|s-input__field": [
-   "14px|400|21px||8px||8px|||||||<measured>|"
-  ],
-  "div|form-field.invite-role": [
-   "16px|400|24px|||||||16px||4px|4px|<measured>|"
-  ],
-  "div|s-select.s-select--md": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "select|s-select__native": [
-   "14px|400|21px||32px||8px|||||||40px|"
-  ],
-  "svg|s-select__chevron": [
-   "16px|400|24px|||||||||||<measured>|"
-  ],
-  "button|invite-btn.s-btn.s-btn--disabled.s-btn--md.s-btn--primary": [
-   "14px|500|17.5px|8px|16px|8px|16px|||||8px|8px|40px|"
+   "12px|500|15px|||||||||||<measured>|"
   ],
   "div|s-table-wrap": [
    "16px|400|24px|||||||||||<measured>|"
@@ -15026,35 +14926,11 @@
   "div|s-cards": [
    "16px|400|24px|||||||||8px|8px|<measured>|"
   ],
-  "div|s-cards__card": [
-   "16px|400|24px|12px|12px|12px|12px|||||12px|12px|<measured>|"
+  "div|s-cards__card.s-cards__card--static": [
+   "16px|400|24px|12px|12px|12px|12px|||||8px|8px|<measured>|"
   ],
-  "div|s-cards__main": [
-   "16px|400|24px|||||||||8px|8px|<measured>|"
-  ],
-  "dl|s-cards__fields": [
-   "16px|400|24px|||||||||6px|6px|<measured>|"
-  ],
-  "div|s-cards__field": [
-   "16px|400|24px|||||||||2px|2px|<measured>|"
-  ],
-  "dd|s-cards__value": [
-   "14px|400|21px|||||||||||<measured>|"
-  ],
-  "dt|s-cards__label": [
-   "12px|600|18px|||||||||||<measured>|"
-  ],
-  "span|you-label": [
-   "14px|400|21px||||||||4px|||<measured>|"
-  ],
-  "span|role-badges": [
-   "14px|400|21px|||||||||4px|4px|<measured>|"
-  ],
-  "span|s-badge.s-badge--md.s-badge--neutral": [
-   "12px|500|12px||8px||8px|||||||<measured>|"
-  ],
-  "span|s-badge__label": [
-   "12px|500|12px|||||||||||<measured>|"
+  "span|s-skeleton.s-skeleton--anim-shimmer.s-skeleton--text": [
+   "16px|400|24px|||||||||||<measured>|"
   ]
  },
  "prompt-assistant @1440x900 dark": {
