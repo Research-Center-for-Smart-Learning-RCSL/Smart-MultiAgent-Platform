@@ -1,8 +1,9 @@
 // Maps a backend `agent.finished{error}` kind (plus the client-side watchdog
 // 'timeout') to the i18n key shown for it. Shared by the one-shot toast
-// (ChatroomView) and the sidebar badge tooltip (ChatroomAgentStatusItem) so the
-// two surfaces can't drift. Unknown kinds (e.g. `provider_exhausted:*`) fall
-// back to AGENT_ERROR_FALLBACK_KEY at the call site.
+// (ChatroomView), the sidebar badge tooltip (ChatroomAgentStatusItem) and the
+// observer rail (ObserverPanel) so the surfaces can't drift. Resolve through
+// `agentErrorMessageKey` rather than indexing this map directly — some kinds
+// carry a `:reason` suffix that a bare lookup would miss.
 export const AGENT_ERROR_MESSAGE_KEYS: Record<string, string> = {
   timeout: 'conversation.chatroom.agentTimeout',
   rate_limited: 'conversation.chatroom.agentRateLimited',
@@ -13,6 +14,35 @@ export const AGENT_ERROR_MESSAGE_KEYS: Record<string, string> = {
   // reader can change, so the copy has to name it.
   knowledge_starved: 'conversation.chatroom.agentKnowledgeStarved',
   model_hint_unserviceable: 'conversation.chatroom.agentModelHintUnserviceable',
+  // The provider call itself failed. Each of these used to land on the generic
+  // fallback, which told an operator nothing and hid the single most common
+  // real cause of a failed turn (a rejected key or an unknown model id).
+  provider_stream_failed: 'conversation.chatroom.agentProviderStreamFailed',
+  database_error: 'conversation.chatroom.agentDatabaseError',
+  'provider_exhausted:quota': 'conversation.chatroom.agentProviderQuota',
+  'provider_exhausted:errors': 'conversation.chatroom.agentProviderErrors',
+  'provider_exhausted:request_rejected': 'conversation.chatroom.agentProviderRejected',
+}
+
+// Kinds the backend emits as `family:reason`. When the reason is one the map
+// above does not name (a new router reason shipping ahead of the frontend), the
+// family's own copy is still far more useful than the generic fallback.
+export const AGENT_ERROR_FAMILY_KEYS: Record<string, string> = {
+  provider_exhausted: 'conversation.chatroom.agentProviderExhausted',
 }
 
 export const AGENT_ERROR_FALLBACK_KEY = 'conversation.chatroom.agentFailed'
+
+/** Resolve a backend error kind to its i18n key: exact match, then the
+ *  `family:reason` family, then the generic fallback. */
+export function agentErrorMessageKey(kind: string | null | undefined): string {
+  if (!kind) return AGENT_ERROR_FALLBACK_KEY
+  const exact = AGENT_ERROR_MESSAGE_KEYS[kind]
+  if (exact) return exact
+  const separator = kind.indexOf(':')
+  if (separator > 0) {
+    const family = AGENT_ERROR_FAMILY_KEYS[kind.slice(0, separator)]
+    if (family) return family
+  }
+  return AGENT_ERROR_FALLBACK_KEY
+}

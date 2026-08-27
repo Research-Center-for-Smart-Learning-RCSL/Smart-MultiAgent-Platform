@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 
 import en from '../locales/en.json'
 import zhTW from '../locales/zh-TW.json'
-import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
+import {
+  AGENT_ERROR_MESSAGE_KEYS,
+  AGENT_ERROR_FAMILY_KEYS,
+  AGENT_ERROR_FALLBACK_KEY,
+  agentErrorMessageKey,
+} from '../constants/agentErrors'
 
 // Walks 'conversation.chatroom.agentFailed' down a locale object. The files are
 // rooted at their own 'conversation' key, so the map's fully-qualified keys are
@@ -42,10 +47,48 @@ describe('AGENT_ERROR_MESSAGE_KEYS', () => {
     expect(AGENT_ERROR_MESSAGE_KEYS.model_hint_unserviceable).not.toBe(AGENT_ERROR_FALLBACK_KEY)
   })
 
+  it('names the reason behind a provider_exhausted kind instead of the generic failure', () => {
+    // The backend emits these as `provider_exhausted:<reason>`; an exact-match
+    // lookup missed every one of them, so a rejected key, an exhausted quota and
+    // an unknown model id all rendered as "try again" — advice that cannot work.
+    expect(agentErrorMessageKey('provider_exhausted:errors')).toBe(
+      'conversation.chatroom.agentProviderErrors',
+    )
+    expect(agentErrorMessageKey('provider_exhausted:quota')).toBe(
+      'conversation.chatroom.agentProviderQuota',
+    )
+    expect(agentErrorMessageKey('provider_exhausted:request_rejected')).toBe(
+      'conversation.chatroom.agentProviderRejected',
+    )
+  })
+
+  it('falls back to the family message for an unknown provider_exhausted reason', () => {
+    // A router reason shipping ahead of the frontend must still say "no usable
+    // key left", not "the run failed".
+    expect(agentErrorMessageKey('provider_exhausted:some_future_reason')).toBe(
+      'conversation.chatroom.agentProviderExhausted',
+    )
+  })
+
+  it('falls back for an unknown kind, an unknown family and an absent kind', () => {
+    expect(agentErrorMessageKey('SomeUnexpectedException')).toBe(AGENT_ERROR_FALLBACK_KEY)
+    expect(agentErrorMessageKey('other_family:reason')).toBe(AGENT_ERROR_FALLBACK_KEY)
+    expect(agentErrorMessageKey(undefined)).toBe(AGENT_ERROR_FALLBACK_KEY)
+    expect(agentErrorMessageKey('')).toBe(AGENT_ERROR_FALLBACK_KEY)
+  })
+
+  it('resolves an exact kind ahead of its family', () => {
+    expect(agentErrorMessageKey('timeout')).toBe(AGENT_ERROR_MESSAGE_KEYS.timeout)
+  })
+
   it.each(LOCALES)('resolves every mapped key plus the fallback in %s', (_name, locale) => {
     // No CI gate catches a key present in en but missing in zh-TW; this is that
     // gate for the agent-error surface.
-    for (const key of [...Object.values(AGENT_ERROR_MESSAGE_KEYS), AGENT_ERROR_FALLBACK_KEY]) {
+    for (const key of [
+      ...Object.values(AGENT_ERROR_MESSAGE_KEYS),
+      ...Object.values(AGENT_ERROR_FAMILY_KEYS),
+      AGENT_ERROR_FALLBACK_KEY,
+    ]) {
       const message = resolve(locale, key)
       expect(message, `missing i18n key: ${key}`).toBeTypeOf('string')
       expect(message as string).not.toHaveLength(0)
@@ -55,7 +98,11 @@ describe('AGENT_ERROR_MESSAGE_KEYS', () => {
   it.each(LOCALES)('keeps agent-error copy free of vue-i18n linked-message syntax in %s', (_name, locale) => {
     // A literal '@' in a message body is parsed by vue-i18n as a linked message
     // and throws at runtime in prod, where dev and test only warn.
-    for (const key of [...Object.values(AGENT_ERROR_MESSAGE_KEYS), AGENT_ERROR_FALLBACK_KEY]) {
+    for (const key of [
+      ...Object.values(AGENT_ERROR_MESSAGE_KEYS),
+      ...Object.values(AGENT_ERROR_FAMILY_KEYS),
+      AGENT_ERROR_FALLBACK_KEY,
+    ]) {
       expect(resolve(locale, key) as string).not.toContain('@')
     }
   })

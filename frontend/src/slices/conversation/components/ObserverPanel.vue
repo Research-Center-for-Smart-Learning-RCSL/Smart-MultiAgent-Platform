@@ -81,7 +81,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EyeIcon } from '@heroicons/vue/24/outline'
 import { SAlert, SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
-import { AGENT_ERROR_FALLBACK_KEY, AGENT_ERROR_MESSAGE_KEYS } from '../constants/agentErrors'
+import { agentErrorMessageKey } from '../constants/agentErrors'
 import ObservationCard from './ObservationCard.vue'
 import type { ObserverEntry } from '../composables/useObservations'
 import type { Observation } from '../types'
@@ -113,7 +113,7 @@ function nameFor(agentId: string): string {
 // benign skips get their own muted copy, never the error one.
 function detailFor(a: ObserverEntry): string {
   if (a.status === 'error') {
-    return t(AGENT_ERROR_MESSAGE_KEYS[a.errorReason ?? ''] ?? AGENT_ERROR_FALLBACK_KEY)
+    return t(agentErrorMessageKey(a.errorReason))
   }
   if (a.status === 'skipped' && a.skipReason) {
     const key = `conversation.observers.skip.${a.skipReason}`
