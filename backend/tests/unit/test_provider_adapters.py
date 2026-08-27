@@ -279,6 +279,61 @@ async def test_openai_error_keeps_the_code_and_param_that_name_the_cause() -> No
     assert _SECRET not in json.dumps(res.body)
 
 
+_TOOL = {"name": "lookup", "description": "d", "input_schema": {"type": "object", "properties": {}}}
+
+
+def _ok_chat_route() -> object:
+    return respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_drops_reasoning_effort_when_a_gpt_5_4_request_carries_tools() -> None:
+    # OpenAI refuses the pair on /v1/chat/completions from gpt-5.4 onwards, and
+    # every agent turn sends tools -- so this combination used to 400 on every
+    # single turn, which the router treats as a deterministic rejection and
+    # aborts the whole key group. Dropping the setting loses effort; keeping it
+    # loses the agent.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low", tools=[_TOOL]))
+    sent = json.loads(route.calls.last.request.content)
+    assert "reasoning_effort" not in sent
+    assert sent["tools"]  # the tools themselves are still sent
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_keeps_reasoning_effort_on_gpt_5_4_without_tools() -> None:
+    # The refusal is about the *pair*; a toolless request is unaffected.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low"))
+    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "low"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_keeps_reasoning_effort_with_tools_on_the_o_series() -> None:
+    # The restriction starts at gpt-5.4; the o-series is not covered and must
+    # not lose its effort setting to an over-broad guard.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("o3", effort="high", tools=[_TOOL]))
+    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_drops_effort_on_a_model_that_predates_it() -> None:
+    # `output_config.effort` 400s on Haiku 4.5, which ships in the catalogue, so
+    # an agent configured on it with `effort` set failed every turn.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-haiku-4-5", effort="low"))
+    assert "output_config" not in json.loads(route.calls.last.request.content)
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_provider_error_fields_that_are_not_identifier_shaped_are_dropped() -> None:
@@ -650,7 +705,10 @@ async def test_anthropic_maps_effort_to_output_config() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
-    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-x", effort="high"))
+    # A real model id, not the `claude-x` placeholder this used to pass: whether
+    # `effort` is forwarded now depends on the model accepting it, so a fictional
+    # id no longer exercises the mapping.
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-opus-4-8", effort="high"))
     body = json.loads(route.calls.last.request.content)
     assert body["output_config"] == {"effort": "high"}
 

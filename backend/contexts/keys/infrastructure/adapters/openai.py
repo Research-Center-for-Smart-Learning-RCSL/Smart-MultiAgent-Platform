@@ -33,6 +33,21 @@ _EMBED_URL = "https://api.openai.com/v1/embeddings"
 # keeps a single ``effort`` setting from turning every turn into a 400.
 _REASONING_MODEL_RE = re.compile(r"^(?:o\d|gpt-5)")
 
+# From gpt-5.4 onwards OpenAI refuses `reasoning_effort` together with function
+# tools on *this* endpoint: "Function tools with reasoning_effort are not
+# supported for <model> in /v1/chat/completions. To use function tools, use
+# /v1/responses or set reasoning_effort to 'none'." Every agent turn sends
+# tools, so an agent on one of these models with `effort` set 400s on every
+# single turn — and a 400 is a deterministic rejection, so the router aborts the
+# whole key group rather than rotating. Drop the parameter instead, matching how
+# temperature/top_p/seed already degrade below: losing the effort setting is
+# recoverable, losing every turn is not.
+#
+# Deliberately narrower than `_REASONING_MODEL_RE`: the o-series is not covered
+# by the restriction and keeps its effort. The real fix is the Responses API,
+# where reasoning and tools compose — see docs/tasks/ for that migration.
+_NO_EFFORT_WITH_TOOLS_RE = re.compile(r"^gpt-5\.(?:[4-9]|\d\d)")
+
 # Vision-capable families. A non-vision model 400s on image content (which, per
 # the router's deterministic-4xx handling, aborts the key group), so unsupported
 # models get a filename note instead of the image.
@@ -41,6 +56,10 @@ _VISION_MODEL_RE = re.compile(r"^(?:gpt-4o|gpt-4\.1|gpt-5|o[134]|gpt-4-turbo|gpt
 
 def _is_reasoning_model(model: str) -> bool:
     return bool(_REASONING_MODEL_RE.match(model.strip().lower()))
+
+
+def _refuses_effort_with_tools(model: str) -> bool:
+    return bool(_NO_EFFORT_WITH_TOOLS_RE.match(model.strip().lower()))
 
 
 def _supports_vision(model: str) -> bool:
@@ -163,14 +182,16 @@ def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
         # reject sampling controls, so drop it there like temperature/top_p rather
         # than risk a 400. Other providers have no seed equivalent (only here).
         body["seed"] = payload["seed"]
-    # Cross-provider effort -> Chat Completions reasoning_effort, but only where
-    # the model supports it. A non-reasoning model 400s on the parameter, so we
-    # drop it there and let the model run at its normal setting rather than fail.
-    if payload.get("effort") and reasoning:
-        body["reasoning_effort"] = payload["effort"]
     tools = _tools(payload)
     if tools:
         body["tools"] = tools
+    # Cross-provider effort -> Chat Completions reasoning_effort, but only where
+    # the model supports it. A non-reasoning model 400s on the parameter, so we
+    # drop it there and let the model run at its normal setting rather than fail.
+    # Same for gpt-5.4+ once tools are in play (see _NO_EFFORT_WITH_TOOLS_RE) —
+    # which is every agent turn, so this branch is the common one, not the edge.
+    if payload.get("effort") and reasoning and not (tools and _refuses_effort_with_tools(model)):
+        body["reasoning_effort"] = payload["effort"]
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}

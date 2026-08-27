@@ -34,6 +34,15 @@ _VERSION = "2023-06-01"
 # bound. Seed has no Anthropic equivalent on any model and is never forwarded.
 _NO_SAMPLING_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[7-9]\b")
 
+# `output_config.effort` arrived with Opus 4.5 and is carried by every model
+# since; it 400s on Sonnet 4.5, Haiku 4.5 and anything older. Haiku 4.5 is in
+# the shipped catalogue, so an agent on it with `effort` set would fail every
+# turn — the same trap the OpenAI adapter hits with `reasoning_effort`, and the
+# same degradation applies. Matching the *accepting* families is the safer
+# polarity here: a model id we do not recognise loses its effort setting rather
+# than failing the turn outright.
+_SUPPORTS_EFFORT_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[5-9]\b|^claude-sonnet-4-6\b")
+
 # Anthropic delivers mid-stream failures as HTTP 200 + `{"type": "error", ...}`
 # then closes the stream. Map the documented error types onto the HTTP status
 # they would carry out-of-stream so the router's classify_http applies.
@@ -167,9 +176,12 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
             body["temperature"] = min(float(payload["temperature"]), 1.0)
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
-    # Cross-provider effort -> Claude effort (Opus 4.5+/Sonnet 4.6/Fable 5 only;
-    # an unsupported model 400s, surfaced as a normal provider error).
-    if payload.get("effort"):
+    # Cross-provider effort -> Claude effort, on the families that accept it
+    # (see _SUPPORTS_EFFORT_RE). This used to be sent unconditionally and let an
+    # unsupported model 400 "as a normal provider error" — but that error is a
+    # deterministic rejection, so it aborts the key group and repeats on every
+    # turn, with nothing in the room naming the setting responsible.
+    if payload.get("effort") and _SUPPORTS_EFFORT_RE.match(model.strip().lower()):
         body["output_config"] = {"effort": payload["effort"]}
     if stream:
         body["stream"] = True
