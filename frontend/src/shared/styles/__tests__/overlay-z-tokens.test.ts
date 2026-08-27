@@ -29,9 +29,12 @@ describe('slice overlays resolve their layer from the token scale', () => {
     expect(rule).not.toBeNull()
     expect(declaration(rule as string, 'z-index')).toBe('var(--z-dropdown)')
     // Without a height cap + own scrollbar, the ~400px palette gets its tail
-    // clipped by the shell scrollport on short windows.
+    // clipped by the shell scrollport on short windows. The cap must derive
+    // the app chrome from the shared token (which folds in the safe-area
+    // inset), not hardcode it: a literal chrome estimate goes stale the
+    // moment the topbar changes and the tail becomes unreachable again.
     expect(declaration(rule as string, 'overflow-y')).toBe('auto')
-    expect(declaration(rule as string, 'max-height')).not.toBeNull()
+    expect(declaration(rule as string, 'max-height')).toContain('var(--topbar-height-total)')
   })
 })
 
