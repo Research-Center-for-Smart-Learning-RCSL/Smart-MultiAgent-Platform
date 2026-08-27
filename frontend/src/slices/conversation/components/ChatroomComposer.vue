@@ -330,7 +330,12 @@ function onDropEvent(e: DragEvent): void {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  z-index: 20;
+  /* On the dropdown layer, not a raw literal: the compact band's agents rail
+     overlay sits at --z-dropdown and covers this menu's x-range, and a literal
+     below the token scale painted the menu under it. The rail is earlier in
+     the DOM, so an equal z-index resolves in the menu's favour while the user
+     is typing a mention. */
+  z-index: var(--z-dropdown);
   min-width: 180px;
   max-width: 280px;
   max-height: 200px;
