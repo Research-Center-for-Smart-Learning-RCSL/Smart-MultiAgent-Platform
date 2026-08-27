@@ -213,6 +213,19 @@ describe('ActivityPanel — the disclosure chip (AC-11)', () => {
     expect(wrapper.text()).toContain('shared.draftDisclosure.chip')
   })
 
+  it('opens its tooltip downward, away from the panel top edge', async () => {
+    // The panel is an overflow-y scroll container and the chip sits a few
+    // nodes from its top edge; the STooltip default (top) gets clipped once
+    // the worksheet scrolls at all.
+    // STooltip teleports the bubble to body in production, but renderView
+    // stubs Teleport, so the bubble stays inside the wrapper here.
+    const wrapper = await groupPanel({ draftsReadable: true })
+
+    const tooltip = wrapper.find('[role="tooltip"]')
+    expect(tooltip.exists()).toBe(true)
+    expect(tooltip.classes()).toContain('s-tooltip--bottom')
+  })
+
   it('is absent when they are not', async () => {
     const wrapper = await groupPanel({ draftsReadable: false })
 
