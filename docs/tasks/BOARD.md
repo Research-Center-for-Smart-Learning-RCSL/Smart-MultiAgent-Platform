@@ -256,8 +256,8 @@ parameter is no longer sent), `b6d7abe` (the guards `e16bc90` added fail safe on
 model), and on the frontend `98838dd` (a `provider_exhausted:*` kind stops rendering as an
 unqualified "the run failed").
 
-- `2026-08-27-provider-model-capability-table` (feature, **draft** — needs approval before
-  `/build` will touch it) — `depends_on: []`. Replaces three per-provider dictionaries
+- `2026-08-27-provider-model-capability-table` (feature, **approved 2026-08-27**, SRS Delta
+  applied) — `depends_on: []`. Replaces three per-provider dictionaries
   (`CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS`, `CONTEXT_LIMITS`) and five per-model regexes spread
   across three adapters with one per-model capability record, refreshes all three providers' model
   lists, and disables the agent-form controls a chosen model refuses. Widens the `agent_effort`
@@ -270,6 +270,12 @@ unqualified "the run failed").
   places, so a five-fold under-grant surfaces as `knowledge_starved` and `context_overflow` on
   turns that had room. Fixing it also **raises spend on real user keys**, which belongs in the
   release note (§10).
+
+  **Its SRS Delta was applied at approval**: `model_id` and `effort` added to the agent field
+  table (both were live columns the SRS had never listed), `[R9.09]` and `[R9.10]` moved from
+  "provider's context limit" to "the selected model's", `[R9.10a]` lost its attribution of the
+  1 000 000 bound to Gemini alone, and `[R9.03a]` is new. `docs/traceability.csv` regenerated to
+  422 rows.
 
   **Two acceptance criteria cannot be closed by any mock.** AC-15: the provider's error text names
   `reasoning_effort: "none"` as the remedy, not omission, and `e16bc90` omits — if a gpt-5.4+ model
@@ -471,7 +477,8 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ### From the 2026-08-27 provider-model investigation
 
-- `2026-08-27-openai-responses-api-migration` (feature, **draft**) — waiting on
+- `2026-08-27-openai-responses-api-migration` (feature, **approved 2026-08-27**; its SRS Delta is
+  None) — waiting on
   `2026-08-27-provider-model-capability-table`. **Logical prerequisite** (its Q-2): the migration's
   value is model-specific, and the capability table is where model facts are expressed; building
   this first would encode them a second time, which is the condition the table exists to end. The

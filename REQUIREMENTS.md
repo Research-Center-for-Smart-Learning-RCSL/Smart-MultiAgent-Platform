@@ -423,6 +423,8 @@ An Agent is defined by:
 |---|---|---|
 | `name` | string | Unique per project. |
 | `model_hint` | enum | `claude` / `openai` / `gemini` — picks routing among the selected Key Group. |
+| `model_id` | string nullable | The provider model this agent runs on. `NULL` means the platform default for `model_hint`. Not restricted to the catalog: a Project Owner may name any model id the provider accepts. |
+| `effort` | enum nullable | Cross-provider reasoning-effort level, mapped per provider at the adapter boundary. `NULL` means the provider's own default. A value the selected model does not accept is not sent. |
 | `key_group_id` | FK | Exactly one (Q34). |
 | `system_prompt` | text | The agent's identity and standing instructions; sent verbatim every turn. Procedures belong in Skills (§31). |
 | `rag_config_id` | FK nullable | See §10. |
@@ -438,6 +440,7 @@ An Agent is defined by:
 - **[R9.01]** A Project Owner may create unlimited agents. Hard platform cap: 1 000 agents per project (prevents runaway DoS).
 - **[R9.02]** Agents are not versioned; no export/import (Q41). Editing overwrites in place. Prompt templates (§29) may be inserted at authoring time; an applied template leaves no persistent link to its source. Skills (§31) differ: an agent's bound skills **are** a persistent link (`agent_skills`), and a skill exports on its own — but a skill export contains no agent, and agent export remains out of scope. A shipped example agent pack ([R30.35]) is instantiated the same way a template is: it creates ordinary project-scoped agents and leaves no persistent link to the pack, and it is not an import mechanism — no agent from any project can be serialized into one.
 - **[R9.03]** Deleting an Agent soft-deletes it for 60 days (consistent with R8.11) since agents may be referenced by historical chat messages.
+- **[R9.03a]** **Model capability table.** The platform holds one capability record per catalogued provider model: its context window and, per request parameter (reasoning effort and its accepted values, sampling controls, vision input), whether that model accepts it. The record is the single source for the agent-config UI, which does not offer a control the selected model refuses, and for request shaping at the adapter boundary, which does not send one. A model id outside the table resolves to a conservative floor: no optional parameter is sent, and the provider's lowest catalogued context window applies. Each record carries the source and date of its verification.
 
 ### 9.2 Prompt Read Strategy — superseded by §31
 
@@ -445,14 +448,14 @@ Q36 asked for both "inline every call" and "retrieve on demand" to be offered. B
 
 ### 9.3 Context Management (Q39)
 
-- **[R9.09]** `context_mode = general`: unbounded growth. The system sends the entire chat history (subject to provider's hard context limit, at which point the provider will error; this is surfaced to the UI).
-- **[R9.10]** `context_mode = compact`: when the running token count of the *next* request would exceed `context_token_cap` (default: 75 % of provider's context limit), the system runs `/compact`:
+- **[R9.09]** `context_mode = general`: unbounded growth. The system sends the entire chat history (subject to the selected model's hard context limit, at which point the provider will error; this is surfaced to the UI).
+- **[R9.10]** `context_mode = compact`: when the running token count of the *next* request would exceed `context_token_cap` (default: 75 % of the selected model's context limit), the system runs `/compact`:
   1. Select the oldest un-compacted range of messages.
   2. Use the same Agent's Key Group to issue a summarization call with a system prompt modeled after Claude Code's `/compact` ("Summarize the following conversation preserving decisions, file paths, and open questions. Output ≤ 2 000 tokens").
   3. Replace the range with a single system-role message tagged `"type":"compact_summary"`.
   4. The user-visible chat log is unchanged; only what is sent to the model changes.
-- **[R9.10a]** An Agent's `context_token_cap` override is bounded above by the widest provider
-  context window the platform supports (currently 1 000 000 — Gemini; see the model catalog). A
+- **[R9.10a]** An Agent's `context_token_cap` override is bounded above by the widest model
+  context window the platform supports (currently 1 000 000; see the model catalog). A
   value above it is rejected at the API with a 422 and by a DB constraint: it cannot be honoured by
   any provider, and in compact mode it would suppress compaction entirely and guarantee a rejected
   request. `NULL` continues to mean the provider-derived default.

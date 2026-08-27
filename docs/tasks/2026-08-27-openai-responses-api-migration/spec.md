@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-08-27
 requirements: [R7.08]
 depends_on: [2026-08-27-provider-model-capability-table]
