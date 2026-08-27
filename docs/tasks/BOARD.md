@@ -244,6 +244,44 @@ first, but building them serially avoids the conflict.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
+### From the 2026-08-27 provider-model investigation
+
+Two dossiers, sequenced. Not from an audit: they came from diagnosing a staging agent that failed
+every turn for two days with `provider_exhausted:request_rejected`. Root cause was `effort` set on
+an OpenAI model that refuses `reasoning_effort` alongside function tools, which every agent turn
+sends. Four commits landed ahead of the specs and are **already on main**, so build against them
+rather than against the code the dossiers describe as "current": `1d9a3da` (the provider's own
+refusal reason survives to the log and the `agent.turn_failed` audit row), `e16bc90` (the refused
+parameter is no longer sent), `b6d7abe` (the guards `e16bc90` added fail safe on an unrecognised
+model), and on the frontend `98838dd` (a `provider_exhausted:*` kind stops rendering as an
+unqualified "the run failed").
+
+- `2026-08-27-provider-model-capability-table` (feature, **draft** — needs approval before
+  `/build` will touch it) — `depends_on: []`. Replaces three per-provider dictionaries
+  (`CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS`, `CONTEXT_LIMITS`) and five per-model regexes spread
+  across three adapters with one per-model capability record, refreshes all three providers' model
+  lists, and disables the agent-form controls a chosen model refuses. Widens the `agent_effort`
+  PostgreSQL enum (Q-3), so it carries a migration whose downgrade is lossy by construction (§10).
+
+  **Its §4.2 is a live bug independent of the incident.** `_context_limit_for`
+  (`turn_engine.py:286-293`) resolves the context window from `model_hint` alone and never reads
+  `model_id`, so every Claude agent is capped at 200 000 tokens. That figure is correct only for
+  `claude-haiku-4-5`; the current generations carry 1 000 000. The value is load-bearing in six
+  places, so a five-fold under-grant surfaces as `knowledge_starved` and `context_overflow` on
+  turns that had room. Fixing it also **raises spend on real user keys**, which belongs in the
+  release note (§10).
+
+  **Two acceptance criteria cannot be closed by any mock.** AC-15: the provider's error text names
+  `reasoning_effort: "none"` as the remedy, not omission, and `e16bc90` omits — if a gpt-5.4+ model
+  applies a non-none server-side default, that commit is a no-op and the suite is green either way
+  (§4.3a). AC-11: the model lists must be reconciled against each provider's `models` endpoint,
+  because §14 records three facts the release notes could not settle, including whether the shipped
+  Gemini default `gemini-3.5-flash` still exists.
+
+  **Read §4.3a before assuming `e16bc90` settled anything.** A turn now runs its tool rounds at the
+  provider default effort and only its final synthesis at the configured one — `_chat_request`'s own
+  docstring (`turn_engine.py:196-199`) warns of exactly this shape.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
@@ -430,6 +468,25 @@ each row for its own list — the frontmatter wins over this preamble.
   submission changes who can enter the room, not just who submits together — AC-18 puts that
   warning in the settings UI, and its OQ-1 records that a guest can never join a group
   submission at all.
+
+### From the 2026-08-27 provider-model investigation
+
+- `2026-08-27-openai-responses-api-migration` (feature, **draft**) — waiting on
+  `2026-08-27-provider-model-capability-table`. **Logical prerequisite** (its Q-2): the migration's
+  value is model-specific, and the capability table is where model facts are expressed; building
+  this first would encode them a second time, which is the condition the table exists to end. The
+  two also share `openai.py`'s request builder.
+
+  **It is deliberately assess-first and its §6 is empty on purpose.** The Responses API changes
+  request shape, response shape and the SSE event vocabulary at once, on the adapter serving the
+  platform's default provider. §5 lists six questions that must be answered with citations, and
+  AC-2 is the user's approval of the recommendation. **"Do not migrate" is a listed option**; if it
+  wins, the dossier closes `abandoned` and the assessment is its product.
+
+  **The reason it exists**: on Chat Completions the platform can offer either reasoning effort or
+  agent tools, never both, from gpt-5.4 onwards. §10 records the constraint that shapes its
+  verification — `fake_provider.py` cannot produce an agent turn, so this change needs a real key
+  against the real endpoint, planned rather than discovered at the end.
 
 ## In progress
 
