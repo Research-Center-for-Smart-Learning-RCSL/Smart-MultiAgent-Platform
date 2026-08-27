@@ -1,7 +1,8 @@
 <template>
-  <!-- The chip lives in the 48px header row at the very top of .chatroom, whose
-       `overflow: hidden` clips anything extending above it — a top-placed
-       tooltip is cut off, so this one opens downward into the feed. -->
+  <!-- Downward is a UX choice, not a clipping fix (the teleported tooltip
+       clips nowhere): the chip sits in the room header, and an upward bubble
+       would float over the app topbar above it instead of over the room's
+       own content. -->
   <STooltip
     :content="t('conversation.observers.disclosureTooltip')"
     placement="bottom"

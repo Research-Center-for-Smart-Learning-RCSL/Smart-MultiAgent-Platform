@@ -27,9 +27,9 @@
  *
  * Content-free by construction: its only prop is the tooltip placement, a
  * closed union, so there is no path by which a draft, a code or an agent name
- * could reach it. The placement must be host-chosen because the worksheet
- * renders the chip near the top of a scrollable panel, where an upward tooltip
- * is clipped, while the composer chip has a whole feed of room above it.
+ * could reach it. Placement is host-chosen as a UX judgment (which
+ * neighbouring surface the bubble may cover), not for clipping — the
+ * teleported tooltip clips nowhere.
  */
 import { useI18n } from 'vue-i18n'
 import { PencilSquareIcon } from '@heroicons/vue/24/outline'
