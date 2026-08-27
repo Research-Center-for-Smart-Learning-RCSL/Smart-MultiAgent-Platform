@@ -214,9 +214,9 @@ describe('ActivityPanel — the disclosure chip (AC-11)', () => {
   })
 
   it('opens its tooltip downward, away from the panel top edge', async () => {
-    // The panel is an overflow-y scroll container and the chip sits a few
-    // nodes from its top edge; the STooltip default (top) gets clipped once
-    // the worksheet scrolls at all.
+    // UX pin, not a clipping fix: the teleported tooltip clips nowhere, but
+    // the chip sits near the panel's top edge and an upward bubble would
+    // float over the chatroom header rather than over the worksheet.
     // STooltip teleports the bubble to body in production, but renderView
     // stubs Teleport, so the bubble stays inside the wrapper here.
     const wrapper = await groupPanel({ draftsReadable: true })
