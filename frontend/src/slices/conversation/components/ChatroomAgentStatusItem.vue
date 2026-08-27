@@ -22,7 +22,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SAvatar } from '@shared/ui'
-import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
+import { agentErrorMessageKey } from '../constants/agentErrors'
 
 export type AgentStatus = 'idle' | 'thinking' | 'streaming' | 'error'
 
@@ -44,7 +44,7 @@ const busy = computed(
 )
 const errorTooltip = computed(() =>
   props.agent.status === 'error' && props.agent.errorReason
-    ? t(AGENT_ERROR_MESSAGE_KEYS[props.agent.errorReason] ?? AGENT_ERROR_FALLBACK_KEY)
+    ? t(agentErrorMessageKey(props.agent.errorReason))
     : undefined,
 )
 </script>

@@ -371,7 +371,7 @@ import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
-import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
+import { agentErrorMessageKey } from '../constants/agentErrors'
 import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
@@ -936,7 +936,7 @@ watch(
   () => store.agentError[chatroomId],
   (err) => {
     if (!err) return
-    toast.error(t(AGENT_ERROR_MESSAGE_KEYS[err] ?? AGENT_ERROR_FALLBACK_KEY))
+    toast.error(t(agentErrorMessageKey(err)))
     store.setAgentError(chatroomId, null)
   },
 )
