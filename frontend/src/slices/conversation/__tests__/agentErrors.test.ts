@@ -77,6 +77,16 @@ describe('AGENT_ERROR_MESSAGE_KEYS', () => {
     expect(agentErrorMessageKey('')).toBe(AGENT_ERROR_FALLBACK_KEY)
   })
 
+  it('falls back for a kind that names an inherited Object property', () => {
+    // An unmapped backend exception arrives as its Python class name, so the
+    // kind is not drawn from a fixed vocabulary. A bare index would return
+    // Object.prototype.constructor here — truthy, and not a string.
+    for (const kind of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      expect(agentErrorMessageKey(kind)).toBe(AGENT_ERROR_FALLBACK_KEY)
+      expect(agentErrorMessageKey(`${kind}:reason`)).toBe(AGENT_ERROR_FALLBACK_KEY)
+    }
+  })
+
   it('resolves an exact kind ahead of its family', () => {
     expect(agentErrorMessageKey('timeout')).toBe(AGENT_ERROR_MESSAGE_KEYS.timeout)
   })
