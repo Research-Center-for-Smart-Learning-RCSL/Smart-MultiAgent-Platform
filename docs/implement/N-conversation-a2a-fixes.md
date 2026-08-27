@@ -1060,6 +1060,14 @@ empty, call `evaluate_presence_change(db, chatroom_id=room, has_live_users=False
 
 ### APP-3 — Presence gate ignores the message sender
 
+**Implemented 2026-08-27.** Severity was understated here: the trap is not limited to REST
+clients with no WS at all. The roster is only ever written by the chatroom WebSocket's
+`on_open`, so an ordinary browser user hits it whenever the socket is not up at the instant
+the send commits -- the first message in a freshly created room, sent before the ticket fetch
+and upgrade complete, and any message landing inside a reconnect backoff window. The observed
+symptom is an agent that never answers plus an owner bell reading "no one was present", while
+the sender was in the room.
+
 `wakeup_service.on_message_created` (`:99-106`): the `allow_self_open=False` gate checks WS
 presence only. A user sending via REST with no live WS connection is "absent", so the wake is
 suppressed and owners get a misleading notification — while the sender is obviously present.

@@ -450,9 +450,12 @@ async def test_observer_every_n_fires_with_empty_presence_and_no_gated_bell(monk
 
     svc._notify_wakeup_gated = _gated  # type: ignore[method-assign]
 
+    # Agent-authored: a user-authored message skips the gate for every role
+    # (APP-3), which would make this pass without exercising the O-2 exemption.
     woken = await svc.on_message_created(
         room_id=uuid.uuid4(),
-        sender_is_user=True,
+        sender_is_user=False,
+        sender_agent_id=uuid.uuid4(),
         agent_ids=[agent.id],
         observer_agent_ids={agent.id},
     )
@@ -472,9 +475,12 @@ async def test_normal_every_n_still_gated_with_bell_when_room_empty(monkeypatch)
 
     svc._notify_wakeup_gated = _gated  # type: ignore[method-assign]
 
+    # Agent-authored for the same reason as above: nothing has demonstrated a
+    # human is watching, which is the only case the gate still covers.
     woken = await svc.on_message_created(
         room_id=uuid.uuid4(),
-        sender_is_user=True,
+        sender_is_user=False,
+        sender_agent_id=uuid.uuid4(),
         agent_ids=[agent.id],
     )
 

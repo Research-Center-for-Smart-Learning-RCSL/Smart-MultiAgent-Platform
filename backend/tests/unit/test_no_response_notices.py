@@ -363,8 +363,10 @@ async def test_gated_notice_releases_token_when_delivery_fails(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_every_n_presence_gate_notifies_and_skips(monkeypatch) -> None:
-    # The exact trap: every_n fires, but allow_self_open=false and nobody is in
-    # the room → the agent is gated out of the wake list AND the owners are told.
+    # The exact trap: every_n fires on an AGENT-authored message, but
+    # allow_self_open=false and nobody is in the room → the agent is gated out of
+    # the wake list AND the owners are told. A user-authored message is the
+    # opposite case and must not be gated (see the test below).
     agent = SimpleNamespace(
         id=uuid.uuid4(),
         name="Nova",
@@ -399,10 +401,72 @@ async def test_every_n_presence_gate_notifies_and_skips(monkeypatch) -> None:
     svc._notify_wakeup_gated = _notify  # type: ignore[attr-defined]
 
     room = uuid.uuid4()
-    wake = await svc.on_message_created(room_id=room, sender_is_user=True, agent_ids=[agent.id])
+    wake = await svc.on_message_created(
+        room_id=room,
+        sender_is_user=False,
+        sender_agent_id=uuid.uuid4(),
+        agent_ids=[agent.id],
+    )
 
     assert wake == []  # gated out
     assert notified == [(agent, room)]
+
+
+@pytest.mark.asyncio
+async def test_every_n_does_not_gate_a_user_authored_message(monkeypatch) -> None:
+    # APP-3. The roster is the WS roster, and a message posted over REST never
+    # touches it: a user whose socket is still handshaking (the first message in
+    # a freshly created room) or mid-reconnect reads as "nobody present". The
+    # triggering message is itself evidence of presence, so the gate must not run
+    # for a user-authored message -- otherwise the agent stays silent and the
+    # owners get a bell claiming the room was empty while the sender was in it.
+    agent = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Nova",
+        project_id=uuid.uuid4(),
+        deleted_at=None,
+        wakeup_config={
+            "triggers": {"every_n_messages": {"enabled": True, "n": 1}},
+            "allow_self_open": False,
+        },
+    )
+
+    async def _noop(*a, **k):
+        return None
+
+    async def _count(aid, rid):
+        return 1
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.touch_silence_timestamp", _noop)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.reset_autostop", _noop)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.increment_message_count", _count)
+
+    roster_reads: list = []
+
+    async def _list_room(rid):
+        roster_reads.append(rid)
+        return []
+
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = _FakeDB()  # type: ignore[attr-defined]
+    svc._agents_facade = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
+    svc._presence = SimpleNamespace(list_room=_list_room)  # type: ignore[attr-defined]
+
+    notified: list = []
+
+    async def _notify(a, rid):
+        notified.append((a, rid))
+
+    svc._notify_wakeup_gated = _notify  # type: ignore[attr-defined]
+
+    room = uuid.uuid4()
+    wake = await svc.on_message_created(room_id=room, sender_is_user=True, agent_ids=[agent.id])
+
+    assert wake == [agent.id]
+    assert notified == []
+    # Not merely "the empty roster was tolerated" -- the read is skipped outright,
+    # so a Redis round-trip is spared on the hot send path too.
+    assert roster_reads == []
 
 
 def _async_return(value):
