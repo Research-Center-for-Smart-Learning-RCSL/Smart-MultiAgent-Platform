@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
+import { onBeforeUnmount, ref, type CSSProperties } from 'vue'
+import {
+  clampToViewport,
+  useAnchoredPosition,
+  VIEWPORT_MARGIN,
+  type AnchoredPositionContext,
+} from '@shared/composables/useAnchoredPosition'
 
 type Placement = 'top' | 'bottom' | 'left' | 'right'
 
@@ -18,16 +24,11 @@ const props = withDefaults(
 const visible = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const bubbleRef = ref<HTMLElement | null>(null)
-// Off-screen until the first measurement so the pre-position frame never
-// paints anywhere visible.
-const OFFSCREEN: CSSProperties = { top: '-9999px', left: '0px' }
-const bubbleStyle = ref<CSSProperties>(OFFSCREEN)
 const effectivePlacement = ref<Placement>(props.placement)
 let delayTimer: ReturnType<typeof setTimeout> | null = null
 
-// Gap between trigger and bubble, and the clearance kept from viewport edges.
+// Gap between trigger and bubble.
 const TRIGGER_GAP = 6
-const VIEWPORT_MARGIN = 8
 // Keeps the arrow off the bubble's rounded corners when the cross-axis clamp
 // shifts the bubble away from the trigger's centre.
 const ARROW_INSET = 10
@@ -39,24 +40,15 @@ const OPPOSITE: Record<Placement, Placement> = {
   right: 'left',
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), Math.max(min, max))
-}
-
 // Teleported + fixed so no ancestor overflow can clip the bubble (an in-place
 // absolute bubble was cut off inside every overflow container it met: the
 // chatroom header, the activity panel, table wraps). Flip to the opposite side
-// when the preferred one lacks viewport room, clamp the cross axis, and point
-// the arrow back at the trigger regardless of the clamp.
-function updatePosition() {
-  const trigger = triggerRef.value
-  const bubble = bubbleRef.value
-  if (!trigger || !bubble) return
-  const rect = trigger.getBoundingClientRect()
-  const bubbleWidth = bubble.offsetWidth
-  const bubbleHeight = bubble.offsetHeight
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
+// when the preferred one lacks viewport room, clamp both axes, and point the
+// arrow back at the trigger regardless of the clamps.
+function computePosition(ctx: AnchoredPositionContext): CSSProperties {
+  const { rect, panel, viewportWidth, viewportHeight } = ctx
+  const bubbleWidth = panel.offsetWidth
+  const bubbleHeight = panel.offsetHeight
 
   const room: Record<Placement, number> = {
     top: rect.top - TRIGGER_GAP - VIEWPORT_MARGIN,
@@ -71,51 +63,50 @@ function updatePosition() {
   }
   effectivePlacement.value = placement
 
+  // Both axes are clamped: the flip only picks the better side, and when
+  // neither side has room an unclamped main axis would push the bubble's
+  // first lines off screen.
   let top: number
   let left: number
   if (placement === 'top' || placement === 'bottom') {
     top = placement === 'top' ? rect.top - TRIGGER_GAP - bubbleHeight : rect.bottom + TRIGGER_GAP
-    left = clamp(
+    top = clampToViewport(top, bubbleHeight, viewportHeight)
+    left = clampToViewport(
       rect.left + rect.width / 2 - bubbleWidth / 2,
-      VIEWPORT_MARGIN,
-      viewportWidth - VIEWPORT_MARGIN - bubbleWidth,
+      bubbleWidth,
+      viewportWidth,
     )
   } else {
     left = placement === 'left' ? rect.left - TRIGGER_GAP - bubbleWidth : rect.right + TRIGGER_GAP
-    top = clamp(
+    left = clampToViewport(left, bubbleWidth, viewportWidth)
+    top = clampToViewport(
       rect.top + rect.height / 2 - bubbleHeight / 2,
-      VIEWPORT_MARGIN,
-      viewportHeight - VIEWPORT_MARGIN - bubbleHeight,
+      bubbleHeight,
+      viewportHeight,
     )
   }
 
   const arrowOffset =
     placement === 'top' || placement === 'bottom'
-      ? clamp(rect.left + rect.width / 2 - left, ARROW_INSET, bubbleWidth - ARROW_INSET)
-      : clamp(rect.top + rect.height / 2 - top, ARROW_INSET, bubbleHeight - ARROW_INSET)
+      ? Math.min(Math.max(rect.left + rect.width / 2 - left, ARROW_INSET), bubbleWidth - ARROW_INSET)
+      : Math.min(Math.max(rect.top + rect.height / 2 - top, ARROW_INSET), bubbleHeight - ARROW_INSET)
 
-  bubbleStyle.value = {
+  return {
     top: `${Math.round(top)}px`,
     left: `${Math.round(left)}px`,
     '--s-tooltip-arrow': `${Math.round(arrowOffset)}px`,
   }
 }
 
-function onScrollWhileVisible() {
-  if (visible.value) updatePosition()
-}
-
-watch(visible, async (shown) => {
-  if (shown) {
-    window.addEventListener('scroll', onScrollWhileVisible, { capture: true, passive: true })
-    window.addEventListener('resize', onScrollWhileVisible, { passive: true })
-    await nextTick()
-    updatePosition()
-  } else {
-    window.removeEventListener('scroll', onScrollWhileVisible, { capture: true })
-    window.removeEventListener('resize', onScrollWhileVisible)
-    bubbleStyle.value = OFFSCREEN
-  }
+const { style: bubbleStyle } = useAnchoredPosition({
+  anchor: triggerRef,
+  panel: bubbleRef,
+  open: visible,
+  compute: computePosition,
+  // Scrolling fires no mouseleave until the mouse moves, so without this a
+  // bubble whose trigger scrolled out of its container keeps floating over
+  // unrelated chrome, pointing at nothing.
+  onAnchorClipped: hideTooltip,
 })
 
 function showTooltip(immediate = false) {
@@ -142,8 +133,6 @@ function hideTooltip() {
 
 onBeforeUnmount(() => {
   if (delayTimer) clearTimeout(delayTimer)
-  window.removeEventListener('scroll', onScrollWhileVisible, { capture: true })
-  window.removeEventListener('resize', onScrollWhileVisible)
 })
 </script>
 
@@ -179,8 +168,9 @@ onBeforeUnmount(() => {
 }
 
 .s-tooltip {
-  /* Coordinates come from updatePosition; declared fixed here so the bubble is
-     never laid out in body flow on the frame before it is measured. */
+  /* Coordinates come from useAnchoredPosition; declared fixed here so the
+     bubble is never laid out in body flow on the frame before it is
+     measured. */
   position: fixed;
   z-index: var(--z-tooltip);
   font-size: var(--font-size-xs);
