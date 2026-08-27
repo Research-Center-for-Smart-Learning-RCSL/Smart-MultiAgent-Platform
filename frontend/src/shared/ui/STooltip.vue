@@ -78,7 +78,13 @@ function hideTooltip() {
   background-color: var(--color-fg);
   color: var(--color-bg);
   box-shadow: var(--shadow-md);
-  white-space: nowrap;
+  /* The containing block is the tiny trigger span, so shrink-to-fit would wrap
+     the text at the trigger's width; max-content sizes from the text instead,
+     and the cap below makes long content wrap rather than overflow the bubble
+     (nowrap + max-width just let it spill out). */
+  width: max-content;
+  white-space: normal;
+  overflow-wrap: break-word;
   pointer-events: none;
   max-width: 240px;
 }
