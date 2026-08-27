@@ -351,6 +351,12 @@ function onRefreshHours(v: string | number): void {
             class="wakeup-inline-toggle__label"
           >{{ t('app.wakeup.allowSelfOpenLabel') }}</label>
         </div>
+        <!-- Without this, the label reads as an unrelated capability and nothing
+             tells a designer that an otherwise-enabled trigger will still be
+             suppressed in an empty room. -->
+        <p class="wakeup-field__help">
+          {{ t('app.wakeup.allowSelfOpenHelp') }}
+        </p>
         <div class="wakeup-field">
           <label
             :for="fid('refresh')"
