@@ -1,5 +1,11 @@
 <template>
-  <STooltip :content="t('conversation.observers.disclosureTooltip')">
+  <!-- The chip lives in the 48px header row at the very top of .chatroom, whose
+       `overflow: hidden` clips anything extending above it — a top-placed
+       tooltip is cut off, so this one opens downward into the feed. -->
+  <STooltip
+    :content="t('conversation.observers.disclosureTooltip')"
+    placement="bottom"
+  >
     <span class="obs-chip">
       <EyeIcon class="obs-chip__icon" />
       {{ t('conversation.observers.disclosureChip') }}
