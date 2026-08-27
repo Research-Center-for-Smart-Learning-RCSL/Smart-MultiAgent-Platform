@@ -119,7 +119,19 @@ class WakeupService:
                     if n > 0 and count % n == 0:
                         if agent_id == sender_agent_id:
                             continue
-                        if agent_id not in observer_agent_ids and not cfg.allow_self_open:
+                        # APP-3: `not sender_is_user` is load-bearing. The roster is
+                        # the *WebSocket* roster, and a message posted over REST
+                        # never touches it -- a user whose socket is still
+                        # handshaking (the first message in a freshly created room)
+                        # or mid-reconnect reads as absent. The triggering message
+                        # is itself proof the room is not empty, so the gate applies
+                        # only to agent-authored messages, where nothing has
+                        # demonstrated a human is watching.
+                        if (
+                            agent_id not in observer_agent_ids
+                            and not cfg.allow_self_open
+                            and not sender_is_user
+                        ):
                             members = await self._presence.list_room(room_id)
                             if not members:
                                 await self._notify_wakeup_gated(agent, room_id)
