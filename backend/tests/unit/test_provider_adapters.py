@@ -324,6 +324,62 @@ async def test_openai_keeps_reasoning_effort_with_tools_on_the_o_series() -> Non
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_openai_drops_reasoning_effort_with_tools_on_a_model_family_it_has_never_seen() -> None:
+    # The guard enumerates the models that still ACCEPT the pair. A family
+    # released after that line was written must therefore degrade, not send:
+    # matching the refusers instead would 400 every turn on the next model and
+    # abort its key group, which is the defect the guard exists to prevent.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6.1", effort="low", tools=[_TOOL]))
+    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_keeps_reasoning_effort_with_tools_on_the_families_that_predate_the_refusal() -> None:
+    # gpt-5 bare and gpt-5.0-gpt-5.3 are older than the restriction.
+    for model in ("gpt-5", "gpt-5.3", "gpt-5.3-mini"):
+        route = _ok_chat_route()
+        await OpenAIAdapter().invoke(secret=_SECRET, request=_chat(model, effort="low", tools=[_TOOL]))
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["reasoning_effort"] == "low", model
+        respx.clear()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_family_guards_ignore_case_and_padding_in_the_model_id() -> None:
+    # `model_id` is user-supplied (the catalogue is a preset list, not a
+    # whitelist), and against a raw id every family guard takes its permissive
+    # branch -- sending sampling controls to a model that 400s on them, which is
+    # a deterministic rejection that burns the whole key group.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat("  Claude-Opus-4-8  ", temperature=0.5, top_p=0.9, effort="high"),
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "temperature" not in sent
+    assert "top_p" not in sent
+    assert sent["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_effort_guard_admits_a_two_digit_minor_version() -> None:
+    # A single `[5-9]` class cannot see `claude-opus-4-10`, so an accepting model
+    # would silently lose its effort setting the day that shape ships.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-opus-4-10", effort="high"))
+    assert json.loads(route.calls.last.request.content)["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_anthropic_drops_effort_on_a_model_that_predates_it() -> None:
     # `output_config.effort` 400s on Haiku 4.5, which ships in the catalogue, so
     # an agent configured on it with `effort` set failed every turn.

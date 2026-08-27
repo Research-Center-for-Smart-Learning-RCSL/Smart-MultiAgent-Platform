@@ -43,10 +43,18 @@ _REASONING_MODEL_RE = re.compile(r"^(?:o\d|gpt-5)")
 # temperature/top_p/seed already degrade below: losing the effort setting is
 # recoverable, losing every turn is not.
 #
-# Deliberately narrower than `_REASONING_MODEL_RE`: the o-series is not covered
-# by the restriction and keeps its effort. The real fix is the Responses API,
-# where reasoning and tools compose — see docs/tasks/ for that migration.
-_NO_EFFORT_WITH_TOOLS_RE = re.compile(r"^gpt-5\.(?:[4-9]|\d\d)")
+# This enumerates the models that still ACCEPT the pair, not the ones that
+# refuse it, and the polarity is the whole point: the restriction is described as
+# applying "from gpt-5.4 onwards", so every family released after this line was
+# written refuses it. Matching the refusers would send `reasoning_effort` to the
+# next one and abort its key group on every turn -- reintroducing exactly this
+# defect for each future model. An id we do not recognise loses its effort
+# setting instead. (`gpt-5` bare and `gpt-5.0`-`gpt-5.3` predate the
+# restriction; the o-series is not covered by it at all.)
+#
+# The durable fix is the Responses API, where reasoning and tools compose:
+# docs/tasks/2026-08-27-openai-responses-api-migration.
+_ALLOWS_EFFORT_WITH_TOOLS_RE = re.compile(r"^(?:o\d|gpt-5(?:\.[0-3])?(?![.\d]))")
 
 # Vision-capable families. A non-vision model 400s on image content (which, per
 # the router's deterministic-4xx handling, aborts the key group), so unsupported
@@ -59,7 +67,7 @@ def _is_reasoning_model(model: str) -> bool:
 
 
 def _refuses_effort_with_tools(model: str) -> bool:
-    return bool(_NO_EFFORT_WITH_TOOLS_RE.match(model.strip().lower()))
+    return not _ALLOWS_EFFORT_WITH_TOOLS_RE.match(model.strip().lower())
 
 
 def _supports_vision(model: str) -> bool:
