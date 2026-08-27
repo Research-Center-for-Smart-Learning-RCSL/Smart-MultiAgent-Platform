@@ -629,10 +629,12 @@ async function onValidate(): Promise<void> {
      lose to any tokenised overlay). The height cap keeps all node types
      reachable on short windows: the full palette is ~400px and the editor is
      height: 100% inside the shell scrollport, so an uncapped panel gets its
-     tail clipped with no scrollbar of its own. 160px ≈ topbar + toolbar +
-     margins above the panel. */
+     tail clipped with no scrollbar of its own. The app chrome above comes
+     from the shared token (which also folds in the safe-area inset on
+     notched devices); 96px covers the editor's own toolbar, the panel
+     offset, and a bottom margin. */
   z-index: var(--z-dropdown);
-  max-height: calc(100vh - 160px);
+  max-height: calc(100dvh - var(--topbar-height-total) - 96px);
   overflow-y: auto;
 }
 </style>
