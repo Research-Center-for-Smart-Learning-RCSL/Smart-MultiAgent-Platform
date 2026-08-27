@@ -15,6 +15,19 @@ describe('STooltip stacking', () => {
     expect(zIndex).toBe('var(--z-tooltip)')
   })
 
+  // The bubble sizes from its text (max-content), not from the tiny trigger
+  // span it is positioned inside; the max-width cap then wraps long content.
+  // The old nowrap + max-width pair let anything past 240px spill out of the
+  // bubble.
+  it('wraps long content inside the bubble instead of overflowing it', () => {
+    const rule = topLevelRule(readComponentStyles('shared/ui/STooltip.vue'), '.s-tooltip')
+    expect(rule).not.toBeNull()
+
+    expect(declaration(rule as string, 'width')).toBe('max-content')
+    expect(declaration(rule as string, 'white-space')).toBe('normal')
+    expect(declaration(rule as string, 'max-width')).toBe('240px')
+  })
+
   // AC-11: STable.vue:491's 10 is legitimate (the thead against its own rows,
   // inside the table's own stacking context) and is the only literal that may
   // remain in shared/ui.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, nextTick, useId, type CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
@@ -10,9 +10,15 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useSessionStore } from '@shared/stores/session'
+import {
+  clampToViewport,
+  useAnchoredPosition,
+  VIEWPORT_MARGIN,
+  type AnchoredPositionContext,
+} from '@shared/composables/useAnchoredPosition'
 import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
 
-defineProps<{
+const props = defineProps<{
   compact?: boolean
 }>()
 
@@ -116,6 +122,77 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// Links the trigger to the relocated panel: teleporting moves the panel to
+// the end of body, so the DOM adjacency assistive tech would otherwise rely
+// on is gone.
+const panelId = useId()
+
+// The panel is teleported to body: the topbar is a sticky stacking context at
+// --z-topbar, so a panel left inside it is capped at 200 against root-context
+// overlays (the chatroom search panel and compact rail overlays at
+// --z-dropdown painted over it). Placement math mirrors SDropdown: prefer
+// below, flip above when below cannot hold the content and above has more
+// room, cap the height, and pin to the viewport only when neither side fits.
+const TRIGGER_GAP = 4
+const MIN_PANEL_HEIGHT = 160
+const MAX_PANEL_HEIGHT = 400
+
+function computePanelPosition(ctx: AnchoredPositionContext): CSSProperties {
+  const { rect, panel, viewportWidth, viewportHeight } = ctx
+  const roomBelow = viewportHeight - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN
+  const roomAbove = rect.top - TRIGGER_GAP - VIEWPORT_MARGIN
+  // scrollHeight, not the bounding box: once a cap is applied the box reports
+  // the capped height, and re-evaluating on scroll would then un-flip.
+  const naturalHeight = panel.scrollHeight
+  const flip = naturalHeight > roomBelow && roomAbove > roomBelow
+  const room = flip ? roomAbove : roomBelow
+  const maxHeight = Math.min(
+    Math.max(Math.min(room, MAX_PANEL_HEIGHT), MIN_PANEL_HEIGHT),
+    viewportHeight - VIEWPORT_MARGIN * 2,
+  )
+
+  const pos: CSSProperties = {
+    maxHeight: `${Math.round(maxHeight)}px`,
+    left: `${Math.round(clampToViewport(rect.left, panel.offsetWidth, viewportWidth))}px`,
+  }
+  // Compact mode's width cap lives in CSS (the sidebar-width rule below) and
+  // an inline max-width would override it; the viewport-wide cap is only for
+  // the full-width panel.
+  if (!props.compact) {
+    pos.maxWidth = `${viewportWidth - VIEWPORT_MARGIN * 2}px`
+  }
+  if (maxHeight > room) {
+    // The floor won on both sides: anchoring would push the tail off screen,
+    // so pin to the bottom edge and let the panel scroll.
+    pos.top = `${Math.max(VIEWPORT_MARGIN, viewportHeight - VIEWPORT_MARGIN - maxHeight)}px`
+  } else if (flip) {
+    pos.bottom = `${Math.round(viewportHeight - rect.top + TRIGGER_GAP)}px`
+  } else {
+    pos.top = `${Math.round(rect.bottom + TRIGGER_GAP)}px`
+  }
+  return pos
+}
+
+const { style: panelPos } = useAnchoredPosition({
+  anchor: triggerRef,
+  panel: panelRef,
+  open: isOpen,
+  compute: computePanelPosition,
+  // The sidebar scrolls its nav, so the trigger can leave its scrollport with
+  // the panel open; a fixed panel would chase it over the topbar otherwise.
+  onAnchorClipped: close,
+})
+
+// Teleporting also breaks the tab sequence: the panel sits at the end of
+// body, so tabbing past its last action would land in browser chrome while
+// the panel silently stayed open. Close as soon as focus leaves the panel
+// for anywhere other than the trigger.
+function onPanelFocusout(e: FocusEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && (panelRef.value?.contains(next) || triggerRef.value?.contains(next))) return
+  close()
+}
+
 watch(isOpen, async (open) => {
   if (open) {
     document.addEventListener('click', onClickOutside, { capture: true })
@@ -146,6 +223,7 @@ onBeforeUnmount(() => {
       }"
       type="button"
       :aria-expanded="isOpen"
+      :aria-controls="isOpen ? panelId : undefined"
       :aria-label="t('app.switcher.placeholder')"
       @click.stop="toggle"
     >
@@ -158,80 +236,30 @@ onBeforeUnmount(() => {
       />
     </button>
 
-    <Transition name="switcher-panel">
-      <div
-        v-if="isOpen"
-        ref="panelRef"
-        class="switcher__panel"
-        tabindex="-1"
-      >
-        <!-- Organizations section -->
-        <div class="switcher__section-header">
-          {{ t('app.switcher.orgs') }}
-        </div>
+    <Teleport to="body">
+      <Transition name="switcher-panel">
+        <!-- Teleported, so the topbar's sticky stacking context cannot cap it
+             and the sidebar's scrollport cannot clip it. Keydown is bound here
+             too: native events bubble through the real DOM (body), not the
+             virtual parent, so the wrapper's handler never sees panel keys. -->
         <div
-          v-if="orgsQuery.isError.value"
-          class="switcher__error"
+          v-if="isOpen"
+          :id="panelId"
+          ref="panelRef"
+          class="switcher__panel"
+          :class="{ 'switcher__panel--compact': compact }"
+          :style="panelPos"
+          role="none"
+          tabindex="-1"
+          @keydown="onKeydown"
+          @focusout="onPanelFocusout"
         >
-          {{ t('app.switcher.loadError') }}
-        </div>
-        <ul
-          v-else
-          class="switcher__list"
-          role="listbox"
-        >
-          <li
-            class="switcher__item"
-            :class="{ 'switcher__item--active': !workspace.hasOrg }"
-            role="option"
-            tabindex="0"
-            :aria-selected="!workspace.hasOrg"
-            @click="selectPersonal"
-            @keydown.enter="selectPersonal"
-            @keydown.space.prevent="selectPersonal"
-          >
-            <span class="switcher__item-label">{{ t('app.switcher.personal') }}</span>
-            <CheckIcon
-              v-if="!workspace.hasOrg"
-              class="switcher__check"
-            />
-          </li>
-          <li
-            v-for="org in orgs"
-            :key="org.id"
-            class="switcher__item"
-            :class="{ 'switcher__item--active': org.id === workspace.orgId }"
-            role="option"
-            tabindex="0"
-            :aria-selected="org.id === workspace.orgId"
-            @click="selectOrg(org)"
-            @keydown.enter="selectOrg(org)"
-            @keydown.space.prevent="selectOrg(org)"
-          >
-            <span class="switcher__item-label">{{ org.name }}</span>
-            <CheckIcon
-              v-if="org.id === workspace.orgId"
-              class="switcher__check"
-            />
-          </li>
-        </ul>
-        <button
-          class="switcher__action"
-          type="button"
-          @click="goCreateOrg"
-        >
-          <PlusIcon class="switcher__action-icon" />
-          {{ t('app.switcher.createOrg') }}
-        </button>
-
-        <!-- Projects section (shown for the active org or personal scope) -->
-        <template v-if="projectsEnabled">
-          <div class="switcher__divider" />
+          <!-- Organizations section -->
           <div class="switcher__section-header">
-            {{ t('app.switcher.projects') }}
+            {{ t('app.switcher.orgs') }}
           </div>
           <div
-            v-if="projectsQuery.isError.value"
+            v-if="orgsQuery.isError.value"
             class="switcher__error"
           >
             {{ t('app.switcher.loadError') }}
@@ -242,23 +270,36 @@ onBeforeUnmount(() => {
             role="listbox"
           >
             <li
-              v-for="project in projects"
-              :key="project.id"
               class="switcher__item"
-              :class="{
-                'switcher__item--active':
-                  project.id === workspace.projectId,
-              }"
+              :class="{ 'switcher__item--active': !workspace.hasOrg }"
               role="option"
               tabindex="0"
-              :aria-selected="project.id === workspace.projectId"
-              @click="selectProject(project)"
-              @keydown.enter="selectProject(project)"
-              @keydown.space.prevent="selectProject(project)"
+              :aria-selected="!workspace.hasOrg"
+              @click="selectPersonal"
+              @keydown.enter="selectPersonal"
+              @keydown.space.prevent="selectPersonal"
             >
-              <span class="switcher__item-label">{{ project.name }}</span>
+              <span class="switcher__item-label">{{ t('app.switcher.personal') }}</span>
               <CheckIcon
-                v-if="project.id === workspace.projectId"
+                v-if="!workspace.hasOrg"
+                class="switcher__check"
+              />
+            </li>
+            <li
+              v-for="org in orgs"
+              :key="org.id"
+              class="switcher__item"
+              :class="{ 'switcher__item--active': org.id === workspace.orgId }"
+              role="option"
+              tabindex="0"
+              :aria-selected="org.id === workspace.orgId"
+              @click="selectOrg(org)"
+              @keydown.enter="selectOrg(org)"
+              @keydown.space.prevent="selectOrg(org)"
+            >
+              <span class="switcher__item-label">{{ org.name }}</span>
+              <CheckIcon
+                v-if="org.id === workspace.orgId"
                 class="switcher__check"
               />
             </li>
@@ -266,14 +307,63 @@ onBeforeUnmount(() => {
           <button
             class="switcher__action"
             type="button"
-            @click="goCreateProject"
+            @click="goCreateOrg"
           >
             <PlusIcon class="switcher__action-icon" />
-            {{ t('app.switcher.createProject') }}
+            {{ t('app.switcher.createOrg') }}
           </button>
-        </template>
-      </div>
-    </Transition>
+
+          <!-- Projects section (shown for the active org or personal scope) -->
+          <template v-if="projectsEnabled">
+            <div class="switcher__divider" />
+            <div class="switcher__section-header">
+              {{ t('app.switcher.projects') }}
+            </div>
+            <div
+              v-if="projectsQuery.isError.value"
+              class="switcher__error"
+            >
+              {{ t('app.switcher.loadError') }}
+            </div>
+            <ul
+              v-else
+              class="switcher__list"
+              role="listbox"
+            >
+              <li
+                v-for="project in projects"
+                :key="project.id"
+                class="switcher__item"
+                :class="{
+                  'switcher__item--active':
+                    project.id === workspace.projectId,
+                }"
+                role="option"
+                tabindex="0"
+                :aria-selected="project.id === workspace.projectId"
+                @click="selectProject(project)"
+                @keydown.enter="selectProject(project)"
+                @keydown.space.prevent="selectProject(project)"
+              >
+                <span class="switcher__item-label">{{ project.name }}</span>
+                <CheckIcon
+                  v-if="project.id === workspace.projectId"
+                  class="switcher__check"
+                />
+              </li>
+            </ul>
+            <button
+              class="switcher__action"
+              type="button"
+              @click="goCreateProject"
+            >
+              <PlusIcon class="switcher__action-icon" />
+              {{ t('app.switcher.createProject') }}
+            </button>
+          </template>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -311,12 +401,15 @@ onBeforeUnmount(() => {
   max-width: 180px;
 }
 
-/* In the sidebar the switcher hugs the screen's left edge, so a right-anchored
-   panel wider than the sidebar spills past the viewport's left border. Anchor
-   left and cap the width to the sidebar so it never overflows. */
-.switcher--compact .switcher__panel {
-  left: 0;
-  right: auto;
+/* In the sidebar the switcher hugs the screen's left edge; sizing from the
+   content instead of the 280px floor keeps the panel narrow there, and the
+   sidebar-width cap is what makes the nowrap+ellipsis item labels actually
+   truncate — without it one long org name sizes the panel across the main
+   content (the JS maxWidth only stops it at the viewport edge). A modifier
+   class rather than a descendant selector: the panel is teleported to body,
+   so it is no longer a DOM descendant of .switcher--compact; --sidebar-width
+   is defined on :root, so it still resolves there. */
+.switcher__panel--compact {
   min-width: 0;
   width: max-content;
   max-width: calc(var(--sidebar-width) - 24px);
@@ -340,12 +433,11 @@ onBeforeUnmount(() => {
 }
 
 .switcher__panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: var(--space-1);
+  /* Coordinates and the height/width caps come from updatePanelPosition;
+     declared fixed here so the panel is never laid out in body flow on the
+     frame before it is measured. */
+  position: fixed;
   min-width: 280px;
-  max-height: 400px;
   overflow-y: auto;
   background: var(--color-bg);
   border: 1px solid var(--color-border);

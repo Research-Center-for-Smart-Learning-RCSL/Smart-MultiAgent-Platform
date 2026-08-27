@@ -36,7 +36,7 @@
             </SButton>
             <div
               v-if="paletteOpen"
-              class="absolute top-full left-0 mt-1 bg-bg border rounded shadow-lg z-50 w-52 py-1"
+              class="wf-palette absolute top-full left-0 mt-1 bg-bg border rounded shadow-lg w-52 py-1"
             >
               <template
                 v-for="group in NODE_PALETTE_GROUPS"
@@ -622,5 +622,19 @@ async function onValidate(): Promise<void> {
 <style scoped>
 .workflow-editor {
   height: 100%;
+}
+
+.wf-palette {
+  /* On the documented layer scale (a raw z-50 sat below every token and would
+     lose to any tokenised overlay). The height cap keeps all node types
+     reachable on short windows: the full palette is ~400px and the editor is
+     height: 100% inside the shell scrollport, so an uncapped panel gets its
+     tail clipped with no scrollbar of its own. The app chrome above comes
+     from the shared token (which also folds in the safe-area inset on
+     notched devices); 96px covers the editor's own toolbar, the panel
+     offset, and a bottom margin. */
+  z-index: var(--z-dropdown);
+  max-height: calc(100dvh - var(--topbar-height-total) - 96px);
+  overflow-y: auto;
 }
 </style>

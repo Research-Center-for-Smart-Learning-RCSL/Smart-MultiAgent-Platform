@@ -213,6 +213,19 @@ describe('ActivityPanel — the disclosure chip (AC-11)', () => {
     expect(wrapper.text()).toContain('shared.draftDisclosure.chip')
   })
 
+  it('opens its tooltip downward, away from the panel top edge', async () => {
+    // UX pin, not a clipping fix: the teleported tooltip clips nowhere, but
+    // the chip sits near the panel's top edge and an upward bubble would
+    // float over the chatroom header rather than over the worksheet.
+    // STooltip teleports the bubble to body in production, but renderView
+    // stubs Teleport, so the bubble stays inside the wrapper here.
+    const wrapper = await groupPanel({ draftsReadable: true })
+
+    const tooltip = wrapper.find('[role="tooltip"]')
+    expect(tooltip.exists()).toBe(true)
+    expect(tooltip.classes()).toContain('s-tooltip--bottom')
+  })
+
   it('is absent when they are not', async () => {
     const wrapper = await groupPanel({ draftsReadable: false })
 
