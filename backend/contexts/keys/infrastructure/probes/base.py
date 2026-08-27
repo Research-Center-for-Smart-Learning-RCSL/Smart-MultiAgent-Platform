@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final
 
@@ -90,25 +91,52 @@ def probe_url(provider_field: str, path: str) -> str:
     return f"{base.rstrip('/')}{path}"
 
 
+# Provider-supplied identifiers we are willing to echo. Anything outside this
+# shape is dropped rather than truncated: these fields are provider-controlled
+# text, and the whole point of this function is that provider text is not
+# trusted. Real values (`invalid_request_error`, `model_not_found`,
+# `reasoning_effort`) are all identifier-shaped; a masked key reflection or a
+# sentence is not.
+_SAFE_IDENT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _safe_ident(value: object) -> str | None:
+    return value if isinstance(value, str) and _SAFE_IDENT_RE.match(value) else None
+
+
 def summarise_http_failure(response: httpx.Response) -> str:
     """Build a `test_error` string without echoing the secret.
 
-    The provider's own error message often contains "sk-ant-..." masked
-    reflections, so we keep only the status code + the first JSON `error.type`
-    or `error.code` field when present.
+    The provider's own `error.message` often contains an "sk-ant-..." masked
+    reflection of the key, so it is never included. What is included is the
+    status code plus the provider's identifier-shaped `type`, `code` and
+    `param` fields, which is what actually distinguishes "this model does not
+    exist" from "this parameter is not supported on this model" -- the two
+    failures that otherwise arrive as an indistinguishable HTTP 400.
+
+    `type` alone is not enough: OpenAI answers both of the above with
+    `invalid_request_error` and puts the discriminating information in `code`
+    and `param`.
     """
     try:
         body = response.json()
     except ValueError:
         return f"HTTP {response.status_code}"
     err = body.get("error") if isinstance(body, dict) else None
-    if isinstance(err, dict):
-        kind = err.get("type") or err.get("code")
-        if kind:
-            return f"HTTP {response.status_code} ({kind})"
-    if isinstance(err, str):
+    if not isinstance(err, dict):
         return f"HTTP {response.status_code}"
-    return f"HTTP {response.status_code}"
+    parts = [
+        f"{label}={value}"
+        for label, value in (
+            ("type", _safe_ident(err.get("type"))),
+            ("code", _safe_ident(err.get("code"))),
+            ("param", _safe_ident(err.get("param"))),
+        )
+        if value is not None
+    ]
+    if not parts:
+        return f"HTTP {response.status_code}"
+    return f"HTTP {response.status_code} ({'; '.join(parts)})"
 
 
 __all__ = [

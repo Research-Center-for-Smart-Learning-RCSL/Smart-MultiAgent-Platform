@@ -3257,6 +3257,7 @@ class TurnEngine:
                 error_kind=_err_kind(exc),
                 pending_notes=pending_notes,
                 voted_approvals=voted_approvals,
+                provider_detail=_provider_detail(exc),
             )
             return TurnResult(status="failed", reason=_err_kind(exc))
         except BaseException:
@@ -3309,6 +3310,7 @@ class TurnEngine:
         error_kind: str,
         pending_notes: list[dict[str, Any]],
         voted_approvals: set[uuid.UUID],
+        provider_detail: str | None = None,
     ) -> None:
         """The four cleanup steps a turn owes the system when it does not finish.
 
@@ -3335,7 +3337,17 @@ class TurnEngine:
         except Exception:
             _log.exception("agent turn failure-path WS emit failed")
         try:
-            await self._audit(agent, chatroom_id, "agent.turn_failed", {"error": error_kind})
+            # `error_kind` is our closed vocabulary and says only *which* stage
+            # refused. `provider_detail` is the provider's own scrubbed reason
+            # and is the only thing that separates "that model does not exist"
+            # from "that parameter is not supported on this model" — both of
+            # which arrive here as `provider_exhausted:request_rejected`.
+            # Deliberately not on the WS payload: the room shows copy keyed on
+            # `error_kind`, and this is operator-facing detail.
+            meta: dict[str, Any] = {"error": error_kind}
+            if provider_detail:
+                meta["provider_detail"] = provider_detail
+            await self._audit(agent, chatroom_id, "agent.turn_failed", meta)
             await self._db.commit()
         except Exception:
             _log.exception("agent turn failure-path bookkeeping failed")
@@ -4301,6 +4313,18 @@ class TurnEngine:
                 metadata=meta,
             ),
         )
+
+
+def _provider_detail(exc: Exception) -> str | None:
+    """The provider's own scrubbed refusal, when the failure carries one.
+
+    Only `KeyGroupExhausted` does today. Kept separate from :func:`_err_kind`
+    because the two have opposite contracts: that one must stay a closed
+    vocabulary the frontend maps on, this one is free-form operator detail that
+    never reaches the room.
+    """
+    detail = getattr(exc, "provider_detail", None)
+    return detail if isinstance(detail, str) and detail else None
 
 
 def _err_kind(exc: Exception) -> str:

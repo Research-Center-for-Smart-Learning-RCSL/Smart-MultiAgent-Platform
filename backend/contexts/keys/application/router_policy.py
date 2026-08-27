@@ -31,6 +31,13 @@ class ErrorOutcome:
     reason: RotationReason
     http_status: int | None
     error_code: str | None
+    # The adapter's already-scrubbed summary of the provider's own refusal
+    # (`summarise_http_failure` output: status plus the provider's error
+    # type/code/param, never its free-text message). `error_code` above is our
+    # own closed vocabulary and says only *that* the request was refused;
+    # without this the reason the provider gave is discarded at the router
+    # boundary and never reaches a log, an audit row, or the operator.
+    provider_detail: str | None = None
 
 
 def classify_http(status: int, policy: RotationPolicy) -> ErrorOutcome:

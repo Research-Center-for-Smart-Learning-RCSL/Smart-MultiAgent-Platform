@@ -80,10 +80,16 @@ class KeyGroupExhausted(KeysError):
 
     code = "keys/group-exhausted"
 
-    def __init__(self, *, group_id: uuid.UUID, reason: str) -> None:
-        super().__init__(f"group {group_id}: {reason}")
+    def __init__(self, *, group_id: uuid.UUID, reason: str, provider_detail: str | None = None) -> None:
+        # `reason` stays a closed vocabulary: it becomes the `provider_exhausted:*`
+        # error kind on the WS payload, which the frontend maps to copy. The
+        # provider's own already-scrubbed refusal rides alongside it in the
+        # message and in `provider_detail`, so a log line or an audit row can
+        # name the actual cause without widening that vocabulary.
+        super().__init__(f"group {group_id}: {reason}" + (f" ({provider_detail})" if provider_detail else ""))
         self.group_id = group_id
         self.reason = reason
+        self.provider_detail = provider_detail
 
 
 class UsageQuotaExceeded(KeysError):

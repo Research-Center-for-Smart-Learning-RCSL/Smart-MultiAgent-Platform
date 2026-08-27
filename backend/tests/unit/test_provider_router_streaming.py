@@ -414,6 +414,28 @@ async def test_stream_aborts_group_on_request_rejection_without_rotating(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_stream_rejection_carries_the_providers_own_reason(monkeypatch) -> None:
+    # `reason` stays the closed vocabulary the frontend maps on, so the
+    # provider's account of *why* has to ride alongside it or it is lost at this
+    # boundary -- which is what made a gpt-5.4 agent with `effort` set present as
+    # an unqualified "the agent run failed" with nothing in any log to explain it.
+    k1 = uuid.uuid4()
+    detail = "HTTP 400 (type=invalid_request_error; code=unsupported_parameter; param=reasoning_effort)"
+    bad = _StreamAdapter(ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(400, {"error": detail}))])
+    router, _ = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: bad},
+        [_Member(k1)],
+        {k1: _Key(k1, ApiKeyProvider.OPENAI)},
+    )
+    with pytest.raises(KeyGroupExhausted) as ei:
+        await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
+    assert ei.value.provider_detail == detail
+    # And it reaches a log line without the caller having to reach for the attribute.
+    assert detail in str(ei.value)
+
+
+@pytest.mark.asyncio
 async def test_stream_consumer_abort_records_client_abort(monkeypatch) -> None:
     # Consumer walks away after the first token: accounting must still fire
     # (via the aclose chain) and label it `client_abort`, NOT `transport_error`.
