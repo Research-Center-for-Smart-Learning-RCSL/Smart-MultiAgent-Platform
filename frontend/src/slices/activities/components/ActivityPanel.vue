@@ -379,9 +379,13 @@ onBeforeUnmount(() => {
            panel root, so it sits with the thing it is about. Shown on the group
            path too: a proposal is typed by one person before anyone has agreed
            to it, which is if anything a stronger reason to say so. -->
+      <!-- The panel is an overflow-y scroll container and the chip sits a few
+           nodes from its top edge, so an upward tooltip gets clipped once the
+           worksheet scrolls at all - open it downward instead. -->
       <SDraftDisclosureChip
         v-if="draftsReadable"
         class="activity-panel__draft-chip"
+        placement="bottom"
       />
       <p
         v-if="isCreator && progress"
