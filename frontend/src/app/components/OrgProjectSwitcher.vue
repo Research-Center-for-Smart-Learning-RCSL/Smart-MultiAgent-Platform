@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, nextTick, type CSSProperties } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, nextTick, useId, type CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
@@ -10,9 +10,15 @@ import {
 } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useSessionStore } from '@shared/stores/session'
+import {
+  clampToViewport,
+  useAnchoredPosition,
+  VIEWPORT_MARGIN,
+  type AnchoredPositionContext,
+} from '@shared/composables/useAnchoredPosition'
 import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
 
-defineProps<{
+const props = defineProps<{
   compact?: boolean
 }>()
 
@@ -116,72 +122,89 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// Links the trigger to the relocated panel: teleporting moves the panel to
+// the end of body, so the DOM adjacency assistive tech would otherwise rely
+// on is gone.
+const panelId = useId()
+
 // The panel is teleported to body: the topbar is a sticky stacking context at
 // --z-topbar, so a panel left inside it is capped at 200 against root-context
 // overlays (the chatroom search panel and compact rail overlays at
-// --z-dropdown painted over it). Fixed coordinates come from the trigger,
-// SDropdown-style: position after the panel exists, clamp to the viewport,
-// and cap the height to the room below the trigger.
+// --z-dropdown painted over it). Placement math mirrors SDropdown: prefer
+// below, flip above when below cannot hold the content and above has more
+// room, cap the height, and pin to the viewport only when neither side fits.
 const TRIGGER_GAP = 4
-const VIEWPORT_MARGIN = 8
 const MIN_PANEL_HEIGHT = 160
 const MAX_PANEL_HEIGHT = 400
 
-const panelPos = ref<CSSProperties>({})
-
-function updatePanelPosition() {
-  const trigger = triggerRef.value
-  const panel = panelRef.value
-  if (!trigger || !panel) return
-  const rect = trigger.getBoundingClientRect()
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-
-  const room = viewportHeight - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN
-  const maxHeight = Math.min(Math.max(room, MIN_PANEL_HEIGHT), MAX_PANEL_HEIGHT)
-  // The floor won: anchoring to the trigger would push the panel's tail off
-  // screen, so pin it to the bottom edge instead.
-  const top =
-    maxHeight > room
-      ? Math.max(VIEWPORT_MARGIN, viewportHeight - VIEWPORT_MARGIN - maxHeight)
-      : rect.bottom + TRIGGER_GAP
-
-  const left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(rect.left, viewportWidth - VIEWPORT_MARGIN - panel.offsetWidth),
+function computePanelPosition(ctx: AnchoredPositionContext): CSSProperties {
+  const { rect, panel, viewportWidth, viewportHeight } = ctx
+  const roomBelow = viewportHeight - rect.bottom - TRIGGER_GAP - VIEWPORT_MARGIN
+  const roomAbove = rect.top - TRIGGER_GAP - VIEWPORT_MARGIN
+  // scrollHeight, not the bounding box: once a cap is applied the box reports
+  // the capped height, and re-evaluating on scroll would then un-flip.
+  const naturalHeight = panel.scrollHeight
+  const flip = naturalHeight > roomBelow && roomAbove > roomBelow
+  const room = flip ? roomAbove : roomBelow
+  const maxHeight = Math.min(
+    Math.max(Math.min(room, MAX_PANEL_HEIGHT), MIN_PANEL_HEIGHT),
+    viewportHeight - VIEWPORT_MARGIN * 2,
   )
 
-  panelPos.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`,
+  const pos: CSSProperties = {
     maxHeight: `${Math.round(maxHeight)}px`,
-    maxWidth: `${viewportWidth - VIEWPORT_MARGIN * 2}px`,
+    left: `${Math.round(clampToViewport(rect.left, panel.offsetWidth, viewportWidth))}px`,
   }
+  // Compact mode's width cap lives in CSS (the sidebar-width rule below) and
+  // an inline max-width would override it; the viewport-wide cap is only for
+  // the full-width panel.
+  if (!props.compact) {
+    pos.maxWidth = `${viewportWidth - VIEWPORT_MARGIN * 2}px`
+  }
+  if (maxHeight > room) {
+    // The floor won on both sides: anchoring would push the tail off screen,
+    // so pin to the bottom edge and let the panel scroll.
+    pos.top = `${Math.max(VIEWPORT_MARGIN, viewportHeight - VIEWPORT_MARGIN - maxHeight)}px`
+  } else if (flip) {
+    pos.bottom = `${Math.round(viewportHeight - rect.top + TRIGGER_GAP)}px`
+  } else {
+    pos.top = `${Math.round(rect.bottom + TRIGGER_GAP)}px`
+  }
+  return pos
 }
 
-function onScrollWhileOpen() {
-  if (isOpen.value) updatePanelPosition()
+const { style: panelPos } = useAnchoredPosition({
+  anchor: triggerRef,
+  panel: panelRef,
+  open: isOpen,
+  compute: computePanelPosition,
+  // The sidebar scrolls its nav, so the trigger can leave its scrollport with
+  // the panel open; a fixed panel would chase it over the topbar otherwise.
+  onAnchorClipped: close,
+})
+
+// Teleporting also breaks the tab sequence: the panel sits at the end of
+// body, so tabbing past its last action would land in browser chrome while
+// the panel silently stayed open. Close as soon as focus leaves the panel
+// for anywhere other than the trigger.
+function onPanelFocusout(e: FocusEvent) {
+  const next = e.relatedTarget as Node | null
+  if (next && (panelRef.value?.contains(next) || triggerRef.value?.contains(next))) return
+  close()
 }
 
 watch(isOpen, async (open) => {
   if (open) {
     document.addEventListener('click', onClickOutside, { capture: true })
-    window.addEventListener('scroll', onScrollWhileOpen, { capture: true, passive: true })
-    window.addEventListener('resize', onScrollWhileOpen, { passive: true })
     await nextTick()
-    updatePanelPosition()
     panelRef.value?.focus()
   } else {
     document.removeEventListener('click', onClickOutside, { capture: true })
-    window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
-    window.removeEventListener('resize', onScrollWhileOpen)
   }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onClickOutside, { capture: true })
-  window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
-  window.removeEventListener('resize', onScrollWhileOpen)
 })
 </script>
 
@@ -200,6 +223,7 @@ onBeforeUnmount(() => {
       }"
       type="button"
       :aria-expanded="isOpen"
+      :aria-controls="isOpen ? panelId : undefined"
       :aria-label="t('app.switcher.placeholder')"
       @click.stop="toggle"
     >
@@ -220,6 +244,7 @@ onBeforeUnmount(() => {
              virtual parent, so the wrapper's handler never sees panel keys. -->
         <div
           v-if="isOpen"
+          :id="panelId"
           ref="panelRef"
           class="switcher__panel"
           :class="{ 'switcher__panel--compact': compact }"
@@ -227,6 +252,7 @@ onBeforeUnmount(() => {
           role="none"
           tabindex="-1"
           @keydown="onKeydown"
+          @focusout="onPanelFocusout"
         >
           <!-- Organizations section -->
           <div class="switcher__section-header">
@@ -376,13 +402,17 @@ onBeforeUnmount(() => {
 }
 
 /* In the sidebar the switcher hugs the screen's left edge; sizing from the
-   content instead of the 280px floor keeps the panel narrow there. A modifier
+   content instead of the 280px floor keeps the panel narrow there, and the
+   sidebar-width cap is what makes the nowrap+ellipsis item labels actually
+   truncate — without it one long org name sizes the panel across the main
+   content (the JS maxWidth only stops it at the viewport edge). A modifier
    class rather than a descendant selector: the panel is teleported to body,
-   so it is no longer a DOM descendant of .switcher--compact. The viewport
-   clamp in updatePanelPosition handles overflow in every mode. */
+   so it is no longer a DOM descendant of .switcher--compact; --sidebar-width
+   is defined on :root, so it still resolves there. */
 .switcher__panel--compact {
   min-width: 0;
   width: max-content;
+  max-width: calc(var(--sidebar-width) - 24px);
 }
 
 .switcher__text {
