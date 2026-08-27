@@ -34,14 +34,22 @@ _VERSION = "2023-06-01"
 # bound. Seed has no Anthropic equivalent on any model and is never forwarded.
 _NO_SAMPLING_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[7-9]\b")
 
-# `output_config.effort` arrived with Opus 4.5 and is carried by every model
-# since; it 400s on Sonnet 4.5, Haiku 4.5 and anything older. Haiku 4.5 is in
-# the shipped catalogue, so an agent on it with `effort` set would fail every
-# turn — the same trap the OpenAI adapter hits with `reasoning_effort`, and the
-# same degradation applies. Matching the *accepting* families is the safer
-# polarity here: a model id we do not recognise loses its effort setting rather
-# than failing the turn outright.
-_SUPPORTS_EFFORT_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[5-9]\b|^claude-sonnet-4-6\b")
+# `output_config.effort` 400s on Sonnet 4.5, Haiku 4.5 and anything older. Haiku
+# 4.5 is in the shipped catalogue, so an agent on it with `effort` set would fail
+# every turn — the same trap the OpenAI adapter hits with `reasoning_effort`, and
+# the same degradation applies. Matching the *accepting* families is the safer
+# polarity: a model id we do not recognise loses its effort setting rather than
+# failing the turn outright.
+#
+# This is an enumeration of the families known to accept it, not a rule derived
+# from a version ordering, so a model from an accepting family that this pattern
+# does not list degrades silently. Both alternations admit a two-digit minor for
+# that reason (`claude-opus-4-10` is a real shape a single `[5-9]` class cannot
+# see). The enumeration is what the per-model capability table replaces:
+# docs/tasks/2026-08-27-provider-model-capability-table.
+_SUPPORTS_EFFORT_RE = re.compile(
+    r"^claude-[a-z]+-5\b|^claude-opus-4-(?:[5-9]|\d\d)\b|^claude-sonnet-4-(?:[6-9]|\d\d)\b"
+)
 
 # Anthropic delivers mid-stream failures as HTTP 200 + `{"type": "error", ...}`
 # then closes the stream. Map the documented error types onto the HTTP status
@@ -158,6 +166,12 @@ def _content_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.CLAUDE)
+    # Every family test below matches against this, never against the raw id. The
+    # id is user-supplied — the catalogue is a preset list, not a whitelist — so a
+    # capitalised or space-padded value is reachable, and against the raw id it
+    # takes the *permissive* branch of each guard: sampling controls sent to a
+    # model that 400s on them, which aborts the whole key group.
+    family = model.strip().lower()
     body: dict[str, Any] = {
         "model": model,
         "max_tokens": int(payload.get("max_tokens", 4096)),
@@ -168,7 +182,7 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     if payload.get("tools"):
         # Neutral schema {name, description, input_schema} == Anthropic's shape.
         body["tools"] = payload["tools"]
-    if not _NO_SAMPLING_RE.search(model):
+    if not _NO_SAMPLING_RE.search(family):
         if payload.get("temperature") is not None:
             # Anthropic's temperature ceiling is 1.0, but the agent field accepts
             # up to 2.0 (OpenAI/Gemini's range). Clamp so a cross-provider value
@@ -181,7 +195,7 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     # unsupported model 400 "as a normal provider error" — but that error is a
     # deterministic rejection, so it aborts the key group and repeats on every
     # turn, with nothing in the room naming the setting responsible.
-    if payload.get("effort") and _SUPPORTS_EFFORT_RE.match(model.strip().lower()):
+    if payload.get("effort") and _SUPPORTS_EFFORT_RE.match(family):
         body["output_config"] = {"effort": payload["effort"]}
     if stream:
         body["stream"] = True
