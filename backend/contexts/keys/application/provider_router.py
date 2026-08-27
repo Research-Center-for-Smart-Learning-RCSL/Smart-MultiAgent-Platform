@@ -33,7 +33,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -184,9 +184,24 @@ class _AbortGroup(RuntimeError):
     same bad request against each remaining member.
     """
 
-    def __init__(self, http_status: int) -> None:
+    def __init__(self, http_status: int, provider_detail: str | None = None) -> None:
         super().__init__(f"request rejected (HTTP {http_status}); not retryable across keys")
         self.http_status = http_status
+        self.provider_detail = provider_detail
+
+
+def _provider_detail(result: ProviderCallResult | None) -> str | None:
+    """The adapter's scrubbed one-line summary of a non-OK provider response.
+
+    Adapters put it on `body["error"]` via `scrub_error`; it is already free of
+    key material and of the provider's free-text message. Returns None for any
+    other body shape rather than stringifying whatever is there — an adapter
+    that shipped a raw body must not have it leak through this path.
+    """
+    if result is None or not isinstance(result.body, dict):
+        return None
+    detail = result.body.get("error")
+    return detail if isinstance(detail, str) else None
 
 
 @dataclass
@@ -401,7 +416,11 @@ class ProviderRouter:
                     # Deterministic request rejection — every sibling key 400s
                     # identically, so stop now rather than burning the group.
                     KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="request_rejected").inc()
-                    raise KeyGroupExhausted(group_id=group_id, reason="request_rejected")
+                    raise KeyGroupExhausted(
+                        group_id=group_id,
+                        reason="request_rejected",
+                        provider_detail=st.last_outcome.provider_detail,
+                    )
 
             # End of pass. Decide whether to exit or queue-wait.
             any_quota = any(s.quota_blocked and not s.exhausted for s in state.values())
@@ -464,10 +483,14 @@ class ProviderRouter:
                 return  # streamed to completion
             except (_RotateStream, _KeyVanished):
                 continue
-            except _AbortGroup:
+            except _AbortGroup as abort:
                 # Deterministic request rejection — do not rotate to siblings.
                 KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="request_rejected").inc()
-                raise KeyGroupExhausted(group_id=group_id, reason="request_rejected") from None
+                raise KeyGroupExhausted(
+                    group_id=group_id,
+                    reason="request_rejected",
+                    provider_detail=abort.provider_detail,
+                ) from None
             finally:
                 await inner.aclose()
         # Nothing produced a stream.
@@ -562,7 +585,10 @@ class ProviderRouter:
             if first_token:
                 raise ProviderStreamError(terminal.complete.result.http_status)
             if outcome.reason is RotationReason.ABORT:
-                raise _AbortGroup(terminal.complete.result.http_status)
+                raise _AbortGroup(
+                    terminal.complete.result.http_status,
+                    _provider_detail(terminal.complete.result),
+                )
             raise _RotateStream
         finally:
             await _account()
@@ -855,6 +881,8 @@ class ProviderRouter:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         outcome = classify_http(result.http_status, em.member.rotation)
+        if outcome.reason is not RotationReason.OK:
+            outcome = replace(outcome, provider_detail=_provider_detail(result))
         await self._accountant.record_call(
             key_id=em.key.id,
             result=result,

@@ -249,8 +249,48 @@ async def test_anthropic_error_is_scrubbed() -> None:
     )
     res = await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-x"))
     assert res.http_status == 400
-    assert res.body == {"error": "HTTP 400 (invalid_request_error)"}
+    assert res.body == {"error": "HTTP 400 (type=invalid_request_error)"}
     assert _SECRET not in json.dumps(res.body)  # no key reflection
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_error_keeps_the_code_and_param_that_name_the_cause() -> None:
+    # `type` alone is `invalid_request_error` for both "no such model" and
+    # "parameter unsupported on this model"; `code`/`param` are what tell an
+    # operator which one they hit. A gpt-5.4 agent with `effort` set produced
+    # exactly this and reached the room as an unqualified "the run failed".
+    respx.post("https://api.openai.com/v1/chat/completions").respond(
+        400,
+        json={
+            "error": {
+                "type": "invalid_request_error",
+                "code": "unsupported_parameter",
+                "param": "reasoning_effort",
+                "message": f"key {_SECRET} cannot use this",
+            }
+        },
+    )
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    assert res.http_status == 400
+    assert res.body == {
+        "error": "HTTP 400 (type=invalid_request_error; code=unsupported_parameter; param=reasoning_effort)"
+    }
+    assert _SECRET not in json.dumps(res.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_provider_error_fields_that_are_not_identifier_shaped_are_dropped() -> None:
+    # These fields are provider-controlled text. A sentence -- or a masked key
+    # reflection smuggled into `code` -- is dropped whole rather than truncated.
+    respx.post("https://api.openai.com/v1/chat/completions").respond(
+        400,
+        json={"error": {"type": "invalid_request_error", "code": f"your key {_SECRET} is bad"}},
+    )
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    assert res.body == {"error": "HTTP 400 (type=invalid_request_error)"}
+    assert _SECRET not in json.dumps(res.body)
 
 
 # --------------------------------------------------------------------------- #
