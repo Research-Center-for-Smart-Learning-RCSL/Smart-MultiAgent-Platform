@@ -21,6 +21,7 @@ import contexts.agents.application.runtime.turn_engine as te
 import contexts.orchestration.application.a2a_handler as h
 import contexts.orchestration.infrastructure.pending_notify as pn
 from contexts.agents.application.context import KnowledgeBudget
+from contexts.agents.domain.model_specs import resolve_spec
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType, ApprovalState
 from contexts.skills.application.binding_service import BoundSet
 from tests.unit.skill_fakes import make_skill
@@ -57,6 +58,20 @@ def _agent():
         context_mode=SimpleNamespace(value="general"),
         context_token_cap=None,
     )
+
+
+def _patch_context_limit(monkeypatch, limit: int) -> None:
+    """Override the resolved context limit for every model, keeping the rest of
+    the capability spec intact -- the R9.03a replacement for
+    ``monkeypatch.setitem(te._CONTEXT_LIMITS, ...)``, which no longer exists
+    now that ``_context_limit_for`` resolves per-model rather than per-provider.
+    """
+    import dataclasses
+
+    def _resolve(provider: str, model: str):
+        return dataclasses.replace(resolve_spec(provider, model), context_limit=limit)
+
+    monkeypatch.setattr(te, "resolve_spec", _resolve)
 
 
 class _RagCtx:
@@ -558,7 +573,7 @@ async def test_run_input_turn_grants_every_source_a_finite_budget(monkeypatch) -
     assert budgets["concept"] == te._GRAPH_BLOCK_TOKEN_BUDGET
     assert budgets["knowmap"] == te._GRAPH_BLOCK_TOKEN_BUDGET
     assert budgets["rag"] is not None
-    assert 0 < budgets["rag"] < te._CONTEXT_LIMITS["claude"]
+    assert 0 < budgets["rag"] < resolve_spec("claude", "claude-sonnet-4-6").context_limit
     assert "CONCEPT" in captured["system_text"]
 
 
@@ -636,7 +651,7 @@ async def test_run_input_turn_oversized_payload_never_reaches_the_provider(monke
     # input is the obvious vector. Headless has no history to shed and no room UI
     # to surface a provider context error, so it skips deterministically rather
     # than issuing a request that is guaranteed to be rejected.
-    monkeypatch.setitem(te._CONTEXT_LIMITS, "claude", 5_000)
+    _patch_context_limit(monkeypatch, 5_000)
     agent = _agent()
     engine, captured = _headless_engine(monkeypatch, agent, drain=[{"id": "n1"}])
     requeued = _spy_requeue(engine)
@@ -668,7 +683,7 @@ async def test_run_input_turn_oversized_input_is_overflow_not_starvation(monkeyp
     # as a tight cap does — but no cap or knowledge change can rescue it. Reporting
     # it as knowledge_starved would send the operator after the wrong lever, so the
     # provider bound is judged first, before retrieval that would be discarded.
-    monkeypatch.setitem(te._CONTEXT_LIMITS, "claude", 5_000)
+    _patch_context_limit(monkeypatch, 5_000)
     agent = _agent()
     agent.rag_config_id = uuid.uuid4()  # a bound source: would otherwise starve
     engine, captured = _headless_engine(monkeypatch, agent)

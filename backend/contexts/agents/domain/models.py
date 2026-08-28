@@ -8,6 +8,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from contexts.agents.domain.model_specs import (
+    DEFAULT_MODEL_IDS,
+    ChatModelSpec,
+    specs_for_provider,
+)
+
 
 class AgentModelHint(str, enum.Enum):
     CLAUDE = "claude"
@@ -15,34 +21,24 @@ class AgentModelHint(str, enum.Enum):
     GEMINI = "gemini"
 
 
-# Per-provider chat-model catalog surfaced to the agent-config UI as preset
-# choices. `DEFAULT_CHAT_MODELS` is the model the runtime falls back to when an
-# agent leaves `model_id` unset — turn_engine imports it from here so the
-# default advertised to the UI and the default the runtime actually uses can
-# never drift. Each provider's default MUST appear in its catalog tuple.
-#
-# Curated preset lists per provider. Verified against each provider's official
-# model docs in 2026-06 — re-check periodically, since provider model lineups
-# move fast (BYO-key users can always pick "custom" for a model id not listed
-# here, so this list only needs to cover the common choices, not every model).
+# `CHAT_MODEL_CATALOG` / `DEFAULT_CHAT_MODELS` / `CONTEXT_LIMITS` are derived
+# views over `model_specs.CHAT_MODEL_SPECS` (R9.03a) rather than independently
+# authored dictionaries, so the preset list the UI advertises and the per-model
+# capabilities the adapters shape requests from can never drift apart. Kept as
+# module-level constants because `turn_engine._resolve_provider_and_model` and
+# the module asserts below both read them as plain dicts.
 CHAT_MODEL_CATALOG: dict[str, tuple[str, ...]] = {
-    "claude": ("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"),
-    "openai": ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini"),
-    "gemini": ("gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"),
+    provider: tuple(spec.model_id for spec in specs_for_provider(provider)) for provider in DEFAULT_MODEL_IDS
 }
 
-DEFAULT_CHAT_MODELS: dict[str, str] = {
-    "claude": "claude-sonnet-4-6",
-    "openai": "gpt-5.4",
-    "gemini": "gemini-3.5-flash",
-}
+DEFAULT_CHAT_MODELS: dict[str, str] = dict(DEFAULT_MODEL_IDS)
 
-# Per-provider context-window limits exposed through the model-catalog API so
-# the frontend never maintains a second copy that could drift from the runtime.
+# Widest catalogued context window per provider. `_context_limit_for` no longer
+# resolves through this (it reads the per-model spec directly), but
+# `MAX_CONTEXT_TOKEN_CAP` below still needs a provider-independent ceiling.
 CONTEXT_LIMITS: dict[str, int] = {
-    "claude": 200_000,
-    "openai": 128_000,
-    "gemini": 1_000_000,
+    provider: max(spec.context_limit for spec in specs)
+    for provider, specs in ((p, specs_for_provider(p)) for p in DEFAULT_MODEL_IDS)
 }
 
 assert set(DEFAULT_CHAT_MODELS) == set(CHAT_MODEL_CATALOG), (
@@ -54,27 +50,29 @@ assert all(DEFAULT_CHAT_MODELS[p] in models for p, models in CHAT_MODEL_CATALOG.
 assert set(CONTEXT_LIMITS) == set(CHAT_MODEL_CATALOG), (
     "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
 )
+assert all(models for models in CHAT_MODEL_CATALOG.values()), (
+    "every provider must have at least one catalogued spec and a declared default"
+)
 
 
 @dataclass(frozen=True, slots=True)
 class ChatModelCatalogEntry:
-    """One provider's preset chat models plus its runtime default."""
+    """One provider's preset chat models (with their capabilities) plus its
+    runtime default."""
 
     provider: str
-    models: tuple[str, ...]
+    models: tuple[ChatModelSpec, ...]
     default: str
-    context_limit: int
 
 
 def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
     return tuple(
         ChatModelCatalogEntry(
-            provider=p,
-            models=models,
-            default=DEFAULT_CHAT_MODELS[p],
-            context_limit=CONTEXT_LIMITS[p],
+            provider=provider,
+            models=specs_for_provider(provider),
+            default=default,
         )
-        for p, models in CHAT_MODEL_CATALOG.items()
+        for provider, default in DEFAULT_MODEL_IDS.items()
     )
 
 
@@ -97,15 +95,25 @@ class ContextMode(str, enum.Enum):
 
 
 class AgentEffort(str, enum.Enum):
-    """Cross-provider reasoning-effort level. The common subset all three
-    providers accept; mapped per-provider at the adapter boundary
-    (Claude ``output_config.effort`` / OpenAI ``reasoning_effort`` /
-    Gemini ``thinkingConfig.thinkingLevel``). ``None`` on an agent means the
-    parameter is not sent and the provider's own default applies."""
+    """Cross-provider reasoning-effort level, mapped per-provider at the
+    adapter boundary (Claude ``output_config.effort`` / OpenAI
+    ``reasoning_effort`` / Gemini ``thinkingConfig.thinkingLevel``). ``None``
+    on an agent means the parameter is not sent and the provider's own default
+    applies.
 
+    The union of every value any provider accepts (Q-3, R9.03a) — which subset
+    a given model accepts is a capability-table field
+    (``model_specs.ChatModelSpec.effort_values``), not an enum concern. A
+    value a model does not accept is never sent (see the adapters); the form
+    only offers a value the selected model's spec lists."""
+
+    NONE = "none"
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
 
 
 class McpSource(str, enum.Enum):
@@ -318,6 +326,7 @@ __all__ = [
     "AgentTool",
     "AgentToolType",
     "ChatModelCatalogEntry",
+    "ChatModelSpec",
     "ContextMode",
     "McpBinding",
     "McpSource",

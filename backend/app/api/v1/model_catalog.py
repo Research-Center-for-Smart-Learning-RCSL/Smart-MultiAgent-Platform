@@ -25,11 +25,28 @@ from shared_kernel.db.session import db_session
 router = APIRouter(prefix="/api/model-catalog", tags=["model-catalog"])
 
 
+class ChatModelSpecOut(BaseModel):
+    """Per-model request-shaping capabilities (R9.03a) — what the agent-config
+    form needs to disable a control the selected model refuses, and to bound
+    the context-token-cap input by the model's own window rather than the
+    provider's."""
+
+    model_id: str
+    context_limit: int
+    accepts_effort: bool
+    effort_values: list[str]
+    accepts_sampling: bool
+    accepts_vision: bool
+    uses_completion_token_field: bool
+    effort_conflicts_with_tools: bool
+    source_url: str
+    verified_on: str
+
+
 class ChatModelProviderOut(BaseModel):
     provider: str
-    models: list[str]
+    models: list[ChatModelSpecOut]
     default: str
-    context_limit: int
 
 
 class EmbedModelOut(BaseModel):
@@ -59,9 +76,22 @@ async def get_model_catalog(
         chat=[
             ChatModelProviderOut(
                 provider=c.provider,
-                models=list(c.models),
+                models=[
+                    ChatModelSpecOut(
+                        model_id=m.model_id,
+                        context_limit=m.context_limit,
+                        accepts_effort=m.accepts_effort,
+                        effort_values=list(m.effort_values),
+                        accepts_sampling=m.accepts_sampling,
+                        accepts_vision=m.accepts_vision,
+                        uses_completion_token_field=m.uses_completion_token_field,
+                        effort_conflicts_with_tools=m.effort_conflicts_with_tools,
+                        source_url=m.source_url,
+                        verified_on=m.verified_on,
+                    )
+                    for m in c.models
+                ],
                 default=c.default,
-                context_limit=c.context_limit,
             )
             for c in chat
         ],

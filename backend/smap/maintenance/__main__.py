@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+
 import typer
 from loguru import logger
 
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
+from . import reconcile_model_catalog as _reconcile_model_catalog
 from . import repair_compaction_summaries as _repair_compaction_summaries
 
 app = typer.Typer(
@@ -133,6 +137,36 @@ def repair_compaction_summaries_cmd() -> None:
             "{} summary row(s) cover deleted messages; reported only, see the module docstring",
             len(report.orphaned),
         )
+
+
+@app.command("reconcile-model-catalog")
+def reconcile_model_catalog_cmd(
+    provider: str = typer.Option(..., help="claude | openai | gemini"),
+    key_id: uuid.UUID = typer.Option(..., help="An active api_keys row for that provider."),
+) -> None:
+    """Diff the capability table's model lineup against one provider's live
+    `models` endpoint (Q-4, R9.03a).
+
+    Read-only and report-only: it never edits `model_specs.py`. `stale`
+    entries are catalogued but no longer served upstream; `unseen` entries
+    are served but not catalogued (Q-2's floor already covers a BYO-key
+    user naming one -- this is a "consider adding a row" list). Reads the
+    key via the same envelope-decrypt path every provider call uses; the
+    key itself is never logged.
+    """
+    report = asyncio.run(_reconcile_model_catalog.run(provider=provider, key_id=key_id))
+    logger.info(
+        "reconcile-model-catalog complete provider={} catalogued={} upstream={}",
+        report.provider,
+        len(report.catalogued),
+        len(report.upstream),
+    )
+    if report.stale:
+        logger.warning("catalogued but no longer served: {}", sorted(report.stale))
+    if report.unseen:
+        logger.info("served but not catalogued: {}", sorted(report.unseen))
+    if not report.stale and not report.unseen:
+        logger.info("table matches upstream for {}", provider)
 
 
 if __name__ == "__main__":
