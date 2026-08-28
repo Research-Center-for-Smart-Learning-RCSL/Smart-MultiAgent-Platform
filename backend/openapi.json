@@ -2007,18 +2007,12 @@
           "effort": {
             "anyOf": [
               {
-                "enum": [
-                  "low",
-                  "medium",
-                  "high"
-                ],
-                "type": "string"
+                "$ref": "#/components/schemas/AgentEffort"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Effort"
+            ]
           },
           "key_group_id": {
             "format": "uuid",
@@ -2168,11 +2162,15 @@
         "type": "object"
       },
       "AgentEffort": {
-        "description": "Cross-provider reasoning-effort level. The common subset all three\nproviders accept; mapped per-provider at the adapter boundary\n(Claude ``output_config.effort`` / OpenAI ``reasoning_effort`` /\nGemini ``thinkingConfig.thinkingLevel``). ``None`` on an agent means the\nparameter is not sent and the provider's own default applies.",
+        "description": "Cross-provider reasoning-effort level, mapped per-provider at the\nadapter boundary (Claude ``output_config.effort`` / OpenAI\n``reasoning_effort`` / Gemini ``thinkingConfig.thinkingLevel``). ``None``\non an agent means the parameter is not sent and the provider's own default\napplies.\n\nThe union of every value any provider accepts (Q-3, R9.03a) \u2014 which subset\na given model accepts is a capability-table field\n(``model_specs.ChatModelSpec.effort_values``), not an enum concern. A\nvalue a model does not accept is never sent (see the adapters); the form\nonly offers a value the selected model's spec lists.",
         "enum": [
+          "none",
+          "minimal",
           "low",
           "medium",
-          "high"
+          "high",
+          "xhigh",
+          "max"
         ],
         "title": "AgentEffort",
         "type": "string"
@@ -2601,18 +2599,12 @@
           "effort": {
             "anyOf": [
               {
-                "enum": [
-                  "low",
-                  "medium",
-                  "high"
-                ],
-                "type": "string"
+                "$ref": "#/components/schemas/AgentEffort"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Effort"
+            ]
           },
           "key_group_id": {
             "anyOf": [
@@ -4435,17 +4427,13 @@
       },
       "ChatModelProviderOut": {
         "properties": {
-          "context_limit": {
-            "title": "Context Limit",
-            "type": "integer"
-          },
           "default": {
             "title": "Default",
             "type": "string"
           },
           "models": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ChatModelSpecOut"
             },
             "title": "Models",
             "type": "array"
@@ -4458,10 +4446,71 @@
         "required": [
           "provider",
           "models",
-          "default",
-          "context_limit"
+          "default"
         ],
         "title": "ChatModelProviderOut",
+        "type": "object"
+      },
+      "ChatModelSpecOut": {
+        "description": "Per-model request-shaping capabilities (R9.03a) \u2014 what the agent-config\nform needs to disable a control the selected model refuses, and to bound\nthe context-token-cap input by the model's own window rather than the\nprovider's.",
+        "properties": {
+          "accepts_effort": {
+            "title": "Accepts Effort",
+            "type": "boolean"
+          },
+          "accepts_sampling": {
+            "title": "Accepts Sampling",
+            "type": "boolean"
+          },
+          "accepts_vision": {
+            "title": "Accepts Vision",
+            "type": "boolean"
+          },
+          "context_limit": {
+            "title": "Context Limit",
+            "type": "integer"
+          },
+          "effort_conflicts_with_tools": {
+            "title": "Effort Conflicts With Tools",
+            "type": "boolean"
+          },
+          "effort_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Effort Values",
+            "type": "array"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "uses_completion_token_field": {
+            "title": "Uses Completion Token Field",
+            "type": "boolean"
+          },
+          "verified_on": {
+            "title": "Verified On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "context_limit",
+          "accepts_effort",
+          "effort_values",
+          "accepts_sampling",
+          "accepts_vision",
+          "uses_completion_token_field",
+          "effort_conflicts_with_tools",
+          "source_url",
+          "verified_on"
+        ],
+        "title": "ChatModelSpecOut",
         "type": "object"
       },
       "ChatroomCreateIn": {

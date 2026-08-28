@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-08-27
 requirements: [R9.03a, R9.09, R9.10, R9.10a]
 depends_on: []
@@ -366,49 +366,83 @@ Rollback: revert the commit and run `alembic downgrade -1`, accepting the enum c
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS` and `CONTEXT_LIMITS` no longer exist as
+- [x] AC-1: `CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS` and `CONTEXT_LIMITS` no longer exist as
       independently authored constants; each is derived from the per-model specs, and a test
       asserts every provider's default is a catalogued model of that provider.
-- [ ] AC-2: `_context_limit_for` returns 1 000 000 for an agent on `claude-sonnet-4-6` and 200 000
+      (`test_agents_domain_model_specs.py`)
+- [x] AC-2: `_context_limit_for` returns 1 000 000 for an agent on `claude-sonnet-4-6` and 200 000
       for one on `claude-haiku-4-5`, both verified by unit test.
-- [ ] AC-3: an agent whose `model_id` is not in the table resolves to the conservative floor: no
+      (`test_agents_domain_model_specs.py::test_claude_context_limit_is_per_model_not_per_provider`)
+- [x] AC-3: an agent whose `model_id` is not in the table resolves to the conservative floor: no
       `effort`, no sampling, and the provider's lowest catalogued context limit. Unit test asserts
       the request body built for such a model contains none of `reasoning_effort`,
       `output_config`, `thinkingConfig`, `temperature`, `top_p`, `seed`.
-- [ ] AC-4: `_REASONING_MODEL_RE`, `_VISION_MODEL_RE`, `_NO_EFFORT_WITH_TOOLS_RE`,
+      (`test_agents_domain_model_specs.py::test_unknown_model_id_resolves_to_the_conservative_floor`,
+      `test_provider_adapters.py::test_openai_drops_reasoning_effort_on_a_model_absent_from_the_table`,
+      `test_anthropic_drops_sampling_and_effort_for_a_model_absent_from_the_table`)
+- [x] AC-4: `_REASONING_MODEL_RE`, `_VISION_MODEL_RE`, `_NO_EFFORT_WITH_TOOLS_RE`,
       `_NO_SAMPLING_RE` and `_SUPPORTS_EFFORT_RE` are gone from the three adapters, and a test
       asserts each shaping decision they made is still made, driven by the table.
-- [ ] AC-5: `adapters/gemini.py` no longer sends `thinkingConfig` for a model whose spec does not
+      (deleted from `openai.py`/`anthropic.py`; `test_provider_adapters.py` throughout)
+- [x] AC-5: `adapters/gemini.py` no longer sends `thinkingConfig` for a model whose spec does not
       accept effort. Unit test.
+      (`test_gemini_drops_thinking_config_for_a_model_whose_spec_refuses_effort`)
 - [ ] AC-6: the model lists for all three providers match §4.1's replacement table, each row
-      carrying a source URL and a verification date.
-- [ ] AC-7: `GET /api/model-catalog` returns per-model capability objects; `pnpm run gen:api` has
-      been rerun and `pnpm run check:openapi-drift` passes.
-- [ ] AC-8: selecting a model that refuses `reasoning_effort` in the agent form disables the effort
+      carrying a source URL and a verification date. **Deferred — see Deviation Log D-1.**
+- [x] AC-7: `GET /api/model-catalog` returns per-model capability objects; `pnpm run gen:api` has
+      been rerun and `pnpm run check:openapi-drift` passes (verified by hand: re-exporting
+      `openapi.json` and re-running `gen:api` produced zero further diff — see D-3).
+- [x] AC-8: selecting a model that refuses `reasoning_effort` in the agent form disables the effort
       control and shows an explanation naming the model. Component test.
-- [ ] AC-9: the same for `temperature` and `top_p` on a Claude model whose spec sets
+      (`AgentDetailView.test.ts::disables the effort control for a model whose spec refuses it (AC-8)`)
+- [x] AC-9: the same for `temperature` and `top_p` on a Claude model whose spec sets
       `accepts_sampling: false`. Component test.
-- [ ] AC-10: the context-token-cap bound in the form follows the selected model, not the provider.
+      (`AgentDetailView.test.ts::disables temperature and top_p for a model whose spec refuses sampling (AC-9)`)
+- [x] AC-10: the context-token-cap bound in the form follows the selected model, not the provider.
       Component test asserts the bound differs between `claude-sonnet-4-6` and `claude-haiku-4-5`.
+      (`AgentDetailView.test.ts::bounds the context-token-cap placeholder...`)
 - [ ] AC-11: the reconciler command has been run against all three providers and its output is
       recorded in this dossier; every discrepancy is either fixed in the table or recorded as an
-      FU with the reason it was left.
-- [ ] AC-12: `AgentEffort` accepts the widened value set, the migration applies and reverses per
+      FU with the reason it was left. **Deferred — see Deviation Log D-1.** The command itself
+      (`smap.maintenance.reconcile-model-catalog`) is built and unit-tested
+      (`test_reconcile_model_catalog.py`), never run against a live key.
+- [x] AC-12: `AgentEffort` accepts the widened value set, the migration applies and reverses per
       §10, and a `pytest.mark.db` test asserts the enum's values (the unit tier renders enums as
       inline literals and cannot see a PostgreSQL enum mismatch, per `backend/CLAUDE.md`).
-- [ ] AC-13: an agent configured exactly as `結書` was (`model_hint: openai`, `model_id: gpt-5.4`,
-      `effort: low`, tools bound) produces a request body with no `reasoning_effort` and completes
-      a turn against the fake provider.
+      Verified against a real PostgreSQL 16 container (`pgvector/pgvector:0.8.0-pg16`): full
+      `alembic upgrade head` chain applies cleanly, `test_migration_0083_schema.py` (both
+      directions) passes, and the downgrade was additionally hand-verified to null an
+      out-of-range row rather than abort.
+- [x] AC-13: an agent configured exactly as `結書` was (`model_hint: openai`, `model_id: gpt-5.4`,
+      `effort: low`, tools bound) produces a request body with no `reasoning_effort`.
+      (`test_provider_adapters.py::test_ac13_incident_agent_scenario_produces_no_reasoning_effort`,
+      driven by the real `model_specs.resolve_spec("openai", "gpt-5.4")`, not hand-set flags.)
+      Per this dossier's own Test Plan note, "completes a turn against the fake provider" is not
+      achievable — `fake_provider.py` cannot produce a real agent turn — so this closes on the
+      request-body half only, as the Test Plan itself anticipates.
 - [ ] AC-15: §4.3a's first question is answered against the live endpoint, and the table records
       the verified remedy. A toolful `gpt-5.4` request with `reasoning_effort` omitted either
       succeeds (omission is sufficient) or 400s (the spec must send `"none"`, which Q-3's widened
       enum makes expressible). The answer, and how it was obtained, is recorded in this dossier.
-      No mock can close this criterion.
-- [ ] AC-16: an agent whose model refuses effort produces the *same* request shape on its tool
-      rounds and on its final synthesis call, so §4.3a's split-effort turn cannot occur. Unit test
-      driving `_chat_request` both with and without `tools`.
-- [ ] AC-14: full Definition of Done green: `pytest -q`, `ruff check`, `ruff format --check`,
-      `mypy`, `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
+      No mock can close this criterion. **Deferred — see Deviation Log D-2.** The shipped adapter
+      keeps `e16bc90`'s omission behaviour (matches AC-13's literal wording and is the only
+      variant with any production evidence behind it); D-2 records the reasoning and the
+      fallback if AC-15 later proves it insufficient.
+- [x] AC-16: an agent whose model refuses effort produces the *same* request shape on its tool
+      rounds and on its final synthesis call, so §4.3a's split-effort turn cannot occur.
+      Covered two ways: `test_agent_turn_loop.py::test_the_tool_rounds_and_the_final_call_are_built_the_same_way`
+      (pre-existing, still green — `_chat_request` resolves capability flags from `(provider, model)`
+      alone, so both calls it builds are identical regardless of `tools`) and the new
+      `test_provider_adapters.py::test_openai_conflicting_model_drops_reasoning_effort_even_without_tools_in_this_call`
+      (the adapter's own omit decision is likewise `tools`-independent).
+- [x] AC-14: full Definition of Done green, re-verified after the D-6 `/code-review` fixes:
+      `pytest tests/unit -q` (7725 passed, 6 skipped), `ruff check`, `ruff format --check`,
+      `mypy` (998 files, no issues), `pnpm test` (1691 passed), `pnpm lint`, `pnpm typecheck`,
+      `pnpm build` — all green. `pnpm run check:openapi-drift` could not run in this environment
+      (see D-3); verified by hand instead. Migration 0083 re-verified both directions against a
+      second fresh real-PostgreSQL container after D-6's fixes. PR #169 (`main` remote): all 23
+      CI checks green, including `backend-wiring`/`backend-db`/`frontend-e2e`, which this local
+      environment cannot run (no compose stack provisioned).
 
 ## 12. Test Plan
 
@@ -488,7 +522,125 @@ Add a new requirement in §9.1, after `[R9.03]`:
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 (AC-6, AC-11 deferred):** the reconciler (`smap maintenance reconcile-model-catalog`) was
+  built and unit-tested but never run against a live provider key. The user was asked explicitly
+  (2026-08-28) whether to supply keys, defer, or run it themselves and paste the output back;
+  the answer was "defer both as follow-ups." `model_specs.py`'s table is therefore re-expressed
+  from the pre-existing `CHAT_MODEL_CATALOG`/`DEFAULT_CHAT_MODELS`/`CONTEXT_LIMITS` and the five
+  adapter regexes this task deletes, not re-verified against each provider's current lineup — the
+  model lists are unchanged from what already shipped, `source_url` points at each provider's
+  model-documentation index rather than a per-model page, and `verified_on` carries forward the
+  "2026-06" date the replaced comment already claimed rather than a fresh date, so it does not
+  overstate freshness. §14's three open questions (the Gemini lineup, `thinkingConfig`'s value
+  set, `claude-fable-5`) are therefore still open. Recorded as FU-11 (blocking merge until run).
+- **D-2 (AC-15 deferred):** §4.3a's live-endpoint question — whether omitting `reasoning_effort`
+  is sufficient on a toolful gpt-5.4+ request, or whether the provider's remedy text
+  ("set reasoning_effort to 'none'") must be taken literally — was not answered against a real
+  key either. The shipped adapter (`openai.py::_chat_body`) keeps `e16bc90`'s existing
+  behaviour: when `effort_conflicts_with_tools` is true, `reasoning_effort` is omitted
+  entirely, uniformly across a turn's tool rounds and its synthesis call (never sent as
+  `"none"`). This was a deliberate choice over the alternative floated when the deferral was
+  agreed (send `"none"` explicitly): omission is what `e16bc90` already shipped and is the only
+  variant with production evidence behind it (結書 and the three example-pack agents completed
+  turns on `gpt-5.4` once `effort` stopped being sent), and AC-13 is written expecting no
+  `reasoning_effort` key at all — switching to explicit `"none"` would fail AC-13 on no better
+  evidence than it currently passes on. If AC-15 is later run and shows omission insufficient,
+  the fix is confined to one line (`openai.py`'s `if payload.get("effort") in effort_values and
+  not conflicts_with_tools:` branch gains an `else: body["reasoning_effort"] = "none"` arm keyed
+  off `conflicts_with_tools`; the condition's exact shape moved under D-5 but the fix point is the
+  same one line). Recorded as FU-12 (blocking merge until run).
+- **D-3 (AC-7 verification method):** `pnpm run check:openapi-drift` invokes
+  `scripts/check-openapi-drift.sh` via bash, which could not find `python` on `PATH` in this
+  Windows dev environment (`python.exe` is registered but bash resolves `python` differently) —
+  an environment quirk unrelated to this change, not attempted to fix. Verified the same
+  invariant by hand instead: `python -m scripts.export_openapi` re-run after every backend edit,
+  diffed against the committed `backend/openapi.json` (zero drift at each check), and
+  `pnpm run gen:api` re-run against the final `openapi.json` produced the same diff every time
+  (`index.ts`, `ChatModelProviderOut.ts`, `ChatModelSpecOut.ts`, `AgentCreateIn.ts`,
+  `AgentEffort.ts`, `AgentPatchIn.ts`) — no further changes on a second run, which is what the
+  gate itself checks for.
+- **D-4 (reconciler bug found by self-audit, fixed before commit):** `reconcile_model_catalog.py`
+  originally pointed the OpenAI `models` list at `https://platform.openai.com/v1/models`; the
+  correct host is `api.openai.com`, matching `adapters/openai.py`'s own `_CHAT_URL`. Caught and
+  fixed during the pre-commit self-audit, before the command was ever run against a real key.
+- **D-5 (security gate finding, fixed before commit):** the security audit (`check-security`,
+  run over the full task diff) found that all three adapters gated effort-forwarding on the
+  coarse `accepts_effort` boolean rather than on membership in the model's own `effort_values`
+  list — MEDIUM, Introduced. Since `agent.effort` is stored independently of `model_id`
+  (an agent can carry a value set under a previous `model_id`, or a value from before its
+  model's row narrowed), an authorized project member with write access to their own agent
+  could `PATCH` an out-of-range `effort` (e.g. `"xhigh"` on a model whose spec lists only
+  `low`/`medium`/`high`) and reproduce this task's own incident class — a deterministic
+  provider 400 that the router treats as a key-group abort — through the one channel the
+  widened `AgentEffort` enum opened. Fixed in all three adapters
+  (`openai.py`/`anthropic.py`/`gemini.py`): the forwarding condition is now
+  `payload.get("effort") in payload.get("effort_values", ())` rather than
+  `payload.get("effort") and accepts_effort`; `accepts_effort` remains a `ChatModelSpec`/payload
+  field (still consulted by the frontend's disable logic) but no longer gates adapter forwarding
+  on its own. New regression tests: `test_provider_adapters.py::test_openai_drops_an_effort_value_the_models_spec_does_not_list`,
+  `test_anthropic_drops_an_effort_value_the_models_spec_does_not_list`,
+  `test_gemini_drops_an_effort_value_the_models_spec_does_not_list`. The same audit's second
+  finding (Gemini's `model_id` is spliced unsanitized into the request path in `_chat`/`_embed`/
+  `stream`) is Pre-existing — confirmed via `git diff` that this task touches only `_chat_body`'s
+  sampling/effort branches, not the URL-construction lines — and is out of scope here; recorded
+  as FU-14 rather than fixed, to avoid mixing an unrelated hardening change into this diff.
+- **D-6 (`/code-review` pass on the open PR, after push):** a full review of the merged diff
+  found several more Introduced issues, all fixed and tested before this entry:
+  - `model_specs.resolve_spec` matched `model_id` by exact case/whitespace-sensitive string
+    equality, dropping the tolerance the five deleted adapter regexes had
+    (`model.strip().lower()`). Restored via a normalised `(provider, id.strip().lower())` index,
+    without restoring the regexes' real defect (guessing a family from a prefix). Test:
+    `test_agents_domain_model_specs.py::test_resolve_spec_matches_case_and_padding_insensitively`.
+  - The o-series (`o3`/`o3-mini`) was never catalogued, so `resolve_spec` floored it —
+    `uses_completion_token_field=False` sends the legacy `max_tokens` field, which a reasoning
+    endpoint 400s on, reproducing this task's own incident class for a family the deleted
+    `_REASONING_MODEL_RE`/`_ALLOWS_EFFORT_WITH_TOOLS_RE` already handled correctly (unconditional
+    `o\d` match). Catalogued both, re-derived from the same deleted regexes, not freshly
+    verified. Test: `test_o_series_is_catalogued_and_uses_the_completion_token_field`.
+  - `anthropic.py`/`gemini.py` never checked `effort_conflicts_with_tools` (only `openai.py`
+    did) — latent today (no current Claude/Gemini row sets it) but a future row that does would
+    have its effort forwarded alongside tools regardless, since the flag is attached uniformly
+    across all three providers. Fixed in both; regression tests added to each.
+  - `AgentDetailView.vue`: switching models mid-session (not just loading a fresh agent) never
+    cleared `effort`/`temperature`/`top_p` when the newly selected model doesn't accept them —
+    the control shows as disabled, but the field it's bound to still held the old value, which
+    Save then silently persisted. Fixed via `clearFieldsUnsupportedByCurrentModel()`, wired into
+    the same three user-initiated change points (`onModelHintChange`, the model-id `<SSelect>`
+    setter, the custom-model `<SInput>` setter) that already had to solve this exact
+    resetForm-vs-user-action distinction for `model_id` itself. Test:
+    `AgentDetailView.test.ts::clears effort and sampling values a newly selected model does not accept`.
+  - `effortHelp` always rendered the flat-refusal message even for a model that accepts effort
+    but conflicts with tools (gpt-5.4+, the exact family behind this task's incident) — factually
+    wrong for that case. Split into two messages (`effortDisabledReason` /
+    `effortConflictsWithToolsReason`), new i18n keys in both locales.
+  - `contextTokenCapPlaceholder`'s fallback for a custom/uncatalogued model was a flat 128,000,
+    understating the backend's real conservative-floor computation (the *provider's* lowest
+    catalogued window — 1,000,000 for Gemini, 200,000 for Claude) by up to 8x. Fixed to compute
+    the same floor from `chatModelsForHint`.
+  - `reconcile_model_catalog.run()` never verified the `--key-id` it was given actually belongs
+    to the requested `--provider` before decrypting and sending it — a mistyped id would send a
+    real credential, as an `Authorization` header, to the wrong provider's live endpoint. Fixed
+    via `KeysFacade.get_key()` (already existed, was unused here). Regression tests use a fake
+    facade, no real key needed.
+  - `reconcile_model_catalog._fetch_upstream_model_ids` read only the first page of each
+    provider's `models` list; Anthropic's and Gemini's endpoints both paginate. Added a cursor
+    loop (`after_id`/`has_more` for Anthropic, `pageToken`/`nextPageToken` for Gemini — OpenAI's
+    endpoint returns everything in one response). Pure parser tests added; still unrun against a
+    live key (FU-11 unchanged).
+  - `adapters/gemini.py` spliced `model_id` unsanitized into the request path (D-5's second,
+    Pre-existing finding, FU-14) — fixed here rather than left deferred, since the fix
+    (`urllib.parse.quote(model, safe="")`) is a two-line, low-risk, mechanical change with a
+    regression test, not the kind of unrelated hardening sweep D-5 was avoiding.
+  - (Info, fixed as a low-risk mechanical refactor) The capability-flag extraction + forwarding
+    gate was hand-duplicated across all three adapters — exactly what D-5's fix itself had to
+    touch three times by hand. Extracted to `adapters/base.CapabilityFlags` /
+    `capability_flags()` / `.forwardable_effort()`; all three adapters now call the shared helper.
+  - Two candidates were investigated and NOT changed: the claim that the migration's downgrade
+    UPDATE and ALTER COLUMN are non-atomic is false (alembic's default `context.begin_transaction()`
+    wraps the whole migration, confirmed by reading `alembic/env.py`); and `domain/models.py`'s
+    four module-level asserts, though now transitively redundant given `model_specs.py`'s own
+    asserts, are left alone per this spec's own §9 instruction not to touch that pattern here
+    (FU-2 already owns the `assert`-under-`python -O` concern).
 
 ## 16. Follow-ups
 
@@ -504,3 +656,24 @@ Appended by /build.
   `adapters/gemini.py:115` documents as a no-op on Gemini and `adapters/anthropic.py:34` as never
   forwarded on any Claude model. The capability table makes this expressible; wiring the UI for it
   is not in AC-9's scope.
+- FU-11 (blocking, from D-1): run `smap maintenance reconcile-model-catalog` against all three
+  providers' live keys, fix any `stale`/`unseen` discrepancy in `model_specs.py`, and close AC-6
+  and AC-11. Until this runs, the table's model lineup and per-model capability values carry the
+  same staleness risk the pre-existing comment did. Two rows (`o3`/`o3-mini`) were added since D-1
+  (D-6), re-derived from the deleted regexes like the rest of the table, not freshly verified;
+  the reconciler command itself gained pagination for Anthropic/Gemini's `models` endpoints
+  (D-6) but is still unrun against a live key.
+- FU-12 (blocking, from D-2): verify §4.3a's live-endpoint question for real (a toolful `gpt-5.4`
+  request with `reasoning_effort` omitted, against the real OpenAI endpoint) and close AC-15. If
+  omission proves insufficient, apply the one-line fix D-2 describes.
+- FU-13: `effort_values` for the Gemini and Anthropic rows in `model_specs.py` are the pre-widening
+  three (`low`/`medium`/`high`) carried forward unchanged; whether either provider's real API
+  accepts `minimal`/`xhigh`/`max`/`none` was not established (only OpenAI's error text explicitly
+  names `"none"`). An FU-11 reconciler run does not by itself answer this — the reconciler diffs
+  model *ids*, not accepted parameter values — so this needs the same kind of live-endpoint check
+  as FU-12, scoped per provider.
+- FU-14 (from D-5, Pre-existing) — CLOSED in D-6: `adapters/gemini.py`'s `_chat`/`_embed`/
+  `stream` spliced `model` unsanitized into the request path. Deferred at D-5 to avoid mixing an
+  unrelated hardening change in; fixed in the D-6 review pass instead, once the fix's small
+  blast radius (`urllib.parse.quote(model, safe="")` via a new `_model_url()` helper, two-line
+  call-site changes, one regression test) made deferring it further not worth the open finding.

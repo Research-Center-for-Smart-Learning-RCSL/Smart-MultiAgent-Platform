@@ -240,7 +240,7 @@ class AgentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"]
     model_id: str | None = Field(default=None, max_length=200)
-    effort: Literal["low", "medium", "high"] | None = None
+    effort: AgentEffort | None = None
     key_group_id: uuid.UUID
 
     @field_validator("model_id", mode="before")
@@ -288,7 +288,7 @@ class AgentPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"] | None = None
     model_id: str | None = Field(default=None, max_length=200)
-    effort: Literal["low", "medium", "high"] | None = None
+    effort: AgentEffort | None = None
     key_group_id: uuid.UUID | None = None
 
     @field_validator("model_id", mode="before")

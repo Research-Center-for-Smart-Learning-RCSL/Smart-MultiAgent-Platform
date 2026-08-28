@@ -121,6 +121,7 @@ export type { CarryIn } from './models/CarryIn';
 export type { ChangeEmailIn } from './models/ChangeEmailIn';
 export type { ChangePasswordIn } from './models/ChangePasswordIn';
 export type { ChatModelProviderOut } from './models/ChatModelProviderOut';
+export type { ChatModelSpecOut } from './models/ChatModelSpecOut';
 export type { ChatroomCreateIn } from './models/ChatroomCreateIn';
 export type { ChatroomMemberGroupsIn } from './models/ChatroomMemberGroupsIn';
 export type { ChatroomMemberGroupsOut } from './models/ChatroomMemberGroupsOut';

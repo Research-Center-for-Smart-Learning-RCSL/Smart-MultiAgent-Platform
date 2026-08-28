@@ -10,7 +10,26 @@ import { useModelCatalog, MODEL_CATALOG_KEY } from '../useModelCatalog'
 // The full catalog body (chat + embedding); prompt-studio reads only `chat`,
 // the agent/RAG forms read both. One shared query serves them all.
 const CATALOG = {
-  chat: [{ provider: 'openai', models: ['gpt-4o'], default: 'gpt-4o', context_limit: 128000 }],
+  chat: [
+    {
+      provider: 'openai',
+      default: 'gpt-4o',
+      models: [
+        {
+          model_id: 'gpt-4o',
+          context_limit: 128000,
+          accepts_effort: false,
+          effort_values: [],
+          accepts_sampling: true,
+          accepts_vision: true,
+          uses_completion_token_field: false,
+          effort_conflicts_with_tools: false,
+          source_url: 'https://platform.openai.com/docs/models',
+          verified_on: '2026-06-01',
+        },
+      ],
+    },
+  ],
   embedding: [
     {
       provider: 'openai',

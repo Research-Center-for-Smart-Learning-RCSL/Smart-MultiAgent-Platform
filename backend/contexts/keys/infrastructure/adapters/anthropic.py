@@ -7,7 +7,6 @@ caller-supplied (the agent's configured model), never hardcoded.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -23,33 +22,6 @@ from contexts.keys.infrastructure.adapters import base
 
 _URL = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
-
-# Sampling controls (temperature, top_p) were removed on Claude's newer
-# generations — Opus 4.7+ and every "5"-generation model (Sonnet 5, Fable 5,
-# Mythos 5) — where sending them now 400s. Older models (Opus 4.6/4.5, Sonnet
-# 4.x, Haiku 4.5, Claude 3.x) still accept them. Match the rejecting families
-# so a configured value degrades to the provider default instead of failing the
-# turn — mirroring the OpenAI reasoning-model skip. `claude-opus-4-5` (a 4.x
-# point release that accepts sampling) is deliberately excluded by the `-4-[7-9]`
-# bound. Seed has no Anthropic equivalent on any model and is never forwarded.
-_NO_SAMPLING_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[7-9]\b")
-
-# `output_config.effort` 400s on Sonnet 4.5, Haiku 4.5 and anything older. Haiku
-# 4.5 is in the shipped catalogue, so an agent on it with `effort` set would fail
-# every turn — the same trap the OpenAI adapter hits with `reasoning_effort`, and
-# the same degradation applies. Matching the *accepting* families is the safer
-# polarity: a model id we do not recognise loses its effort setting rather than
-# failing the turn outright.
-#
-# This is an enumeration of the families known to accept it, not a rule derived
-# from a version ordering, so a model from an accepting family that this pattern
-# does not list degrades silently. Both alternations admit a two-digit minor for
-# that reason (`claude-opus-4-10` is a real shape a single `[5-9]` class cannot
-# see). The enumeration is what the per-model capability table replaces:
-# docs/tasks/2026-08-27-provider-model-capability-table.
-_SUPPORTS_EFFORT_RE = re.compile(
-    r"^claude-[a-z]+-5\b|^claude-opus-4-(?:[5-9]|\d\d)\b|^claude-sonnet-4-(?:[6-9]|\d\d)\b"
-)
 
 # Anthropic delivers mid-stream failures as HTTP 200 + `{"type": "error", ...}`
 # then closes the stream. Map the documented error types onto the HTTP status
@@ -166,12 +138,7 @@ def _content_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.CLAUDE)
-    # Every family test below matches against this, never against the raw id. The
-    # id is user-supplied — the catalogue is a preset list, not a whitelist — so a
-    # capitalised or space-padded value is reachable, and against the raw id it
-    # takes the *permissive* branch of each guard: sampling controls sent to a
-    # model that 400s on them, which aborts the whole key group.
-    family = model.strip().lower()
+    caps = base.capability_flags(payload)
     body: dict[str, Any] = {
         "model": model,
         "max_tokens": int(payload.get("max_tokens", 4096)),
@@ -182,7 +149,7 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     if payload.get("tools"):
         # Neutral schema {name, description, input_schema} == Anthropic's shape.
         body["tools"] = payload["tools"]
-    if not _NO_SAMPLING_RE.search(family):
+    if caps.accepts_sampling:
         if payload.get("temperature") is not None:
             # Anthropic's temperature ceiling is 1.0, but the agent field accepts
             # up to 2.0 (OpenAI/Gemini's range). Clamp so a cross-provider value
@@ -190,13 +157,17 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
             body["temperature"] = min(float(payload["temperature"]), 1.0)
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
-    # Cross-provider effort -> Claude effort, on the families that accept it
-    # (see _SUPPORTS_EFFORT_RE). This used to be sent unconditionally and let an
-    # unsupported model 400 "as a normal provider error" — but that error is a
-    # deterministic rejection, so it aborts the key group and repeats on every
-    # turn, with nothing in the room naming the setting responsible.
-    if payload.get("effort") and _SUPPORTS_EFFORT_RE.match(family):
-        body["output_config"] = {"effort": payload["effort"]}
+    # Cross-provider effort -> Claude effort. See
+    # CapabilityFlags.forwardable_effort for why this is gated by membership
+    # in effort_values (not just "the model accepts effort at all") and by a
+    # tools-conflict check -- no current Claude row sets
+    # effort_conflicts_with_tools, but the field is attached uniformly across
+    # all three providers, and a future row that does must not have this
+    # branch silently ignore it, the way it used to let an unsupported model
+    # 400 "as a normal provider error".
+    effort = caps.forwardable_effort(payload.get("effort"))
+    if effort is not None:
+        body["output_config"] = {"effort": effort}
     if stream:
         body["stream"] = True
     return body

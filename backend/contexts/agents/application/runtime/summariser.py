@@ -9,6 +9,7 @@ audits ``agent.compact_failed`` (R9.11).
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from contexts.agents.application.context import MessageLike
 from contexts.keys.application.provider_router import ProviderRequest, ProviderRouter
@@ -37,22 +38,29 @@ class RouterSummariser:
         provider: ApiKeyProvider,
         model: str,
         agent_id: uuid.UUID | None = None,
+        capabilities: dict[str, Any] | None = None,
     ) -> None:
         self._router = router
         self._key_group_id = key_group_id
         self._provider = provider
         self._model = model
         self._agent_id = agent_id
+        # Same capability fields turn_engine._chat_request attaches (R9.03a) —
+        # notably `uses_completion_token_field`, since OpenAI's reasoning models
+        # 400 on the field this call would otherwise send unconditionally.
+        self._capabilities = capabilities or {}
 
     async def summarise(self, messages: list[MessageLike], *, max_tokens: int = 2000) -> str:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "system": _SYSTEM_PROMPT,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": _render(messages)}],
+        }
+        payload.update(self._capabilities)
         request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
-            payload={
-                "model": self._model,
-                "system": _SYSTEM_PROMPT,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": _render(messages)}],
-            },
+            payload=payload,
             agent_id=self._agent_id,
             provider=self._provider,
         )

@@ -108,7 +108,7 @@ def _list_msg() -> list[dict]:
 
 
 def test_openai_vision_model_emits_image_url_and_pdf_file() -> None:
-    parts = openai_messages({"messages": _list_msg()}, "gpt-4o")[0]["content"]
+    parts = openai_messages({"messages": _list_msg()}, vision=True)[0]["content"]
     assert parts[0] == {"type": "text", "text": "hi"}
     assert parts[1]["type"] == "image_url"
     assert parts[1]["image_url"]["url"] == "data:image/png;base64,QUJD"
@@ -119,7 +119,7 @@ def test_openai_vision_model_emits_image_url_and_pdf_file() -> None:
 
 
 def test_openai_non_vision_model_notes_image_and_pdf() -> None:
-    parts = openai_messages({"messages": _list_msg()}, "gpt-3.5-turbo")[0]["content"]
+    parts = openai_messages({"messages": _list_msg()}, vision=False)[0]["content"]
     assert parts[1]["type"] == "text"
     assert "a.png" in parts[1]["text"]
     assert not any(p.get("type") == "image_url" for p in parts)
