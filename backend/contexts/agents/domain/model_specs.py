@@ -46,6 +46,15 @@ class ChatModelSpec:
     ``effort_values`` is empty when ``accepts_effort`` is False. ``source_url``
     and ``verified_on`` are per-row provenance (Q-4) — a table-wide comment
     cannot say which row a later reader should distrust.
+
+    Two fields are endpoint-specific and both now read False on every row.
+    ``uses_completion_token_field`` names two Chat Completions parameters and is
+    read by no adapter at all since ``openai.py`` moved to ``/v1/responses``,
+    which has one ``max_output_tokens``. ``effort_conflicts_with_tools`` is
+    still read (``CapabilityFlags.forwardable_effort``), but no model sets it:
+    the gpt-5.4+ conflict it was added for is a Chat Completions behaviour and
+    does not exist on ``/v1/responses``. See
+    ``docs/tasks/2026-08-27-openai-responses-api-migration/spec.md`` D-1.
     """
 
     model_id: str
@@ -115,7 +124,9 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # False since the Responses API migration: the conflict was a Chat
+        # Completions behaviour, and that is no longer the endpoint SMAP uses.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),
@@ -128,7 +139,10 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # See gpt-5.5 above. This is the row the 結書 incident was diagnosed on,
+        # and clearing it is what re-enables the effort control the capability
+        # table disabled.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),
@@ -141,7 +155,8 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # See gpt-5.5 above.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),

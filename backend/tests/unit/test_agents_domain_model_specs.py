@@ -67,12 +67,21 @@ def test_haiku_does_not_accept_effort_but_accepts_sampling() -> None:
     assert spec.accepts_sampling is True
 
 
-def test_gpt_5_4_accepts_effort_but_conflicts_with_tools() -> None:
+def test_gpt_5_4_accepts_effort_with_no_tools_conflict_on_the_responses_api() -> None:
+    # The conflict this row used to declare was a Chat Completions behaviour and
+    # was cleared when the adapter migrated to /v1/responses. The whole point of
+    # that migration is that this pair now composes, so a row that reintroduces
+    # the flag also silently re-disables the effort control in the agent form.
     spec = resolve_spec("openai", "gpt-5.4")
     assert spec.accepts_effort is True
-    assert spec.effort_conflicts_with_tools is True
-    assert spec.uses_completion_token_field is True
+    assert spec.effort_conflicts_with_tools is False
     assert spec.accepts_sampling is False
+
+
+def test_no_catalogued_model_declares_a_tools_conflict_any_more() -> None:
+    from contexts.agents.domain.model_specs import CHAT_MODEL_SPECS
+
+    assert not [s.model_id for s in CHAT_MODEL_SPECS if s.effort_conflicts_with_tools]
 
 
 def test_o_series_is_catalogued_and_uses_the_completion_token_field() -> None:
