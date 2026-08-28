@@ -32,15 +32,39 @@ from contexts.keys.infrastructure.adapters import base
 _CHAT_URL = "https://api.openai.com/v1/responses"
 _EMBED_URL = "https://api.openai.com/v1/embeddings"
 
-# In-stream failures arrive under HTTP 200, either as a top-level `error` event
-# or as `response.failed` carrying `response.error`. Both use a closed `code`
+# Failures delivered under HTTP 200 (a top-level `error` event, `response.failed`,
+# or a non-streaming response whose `status` is `failed`) use a closed `code`
 # vocabulary, so map it explicitly rather than by substring: the router turns
 # this status into rotate-or-abort (`router_policy.classify_http`), and a
 # misclassification either burns a whole key group or hammers the provider.
-# An unrecognised code is a server fault, which rotates — the safe side.
+#
+# The 400 entries are the codes that fault the REQUEST, so every sibling key
+# refuses them identically and rotating only burns the group — the same
+# judgement `_ABORT_STATUSES` encodes for real 400s. Note what is deliberately
+# NOT here: `data_residency_mismatch` is a property of the account, not the
+# request, so another key may well succeed; `vector_store_timeout` is transient.
+# Both rotate, as does any code this table does not know — an unrecognised
+# failure is treated as a server fault, which is the safe side for the unknown
+# but the wrong side for a rejection we can name.
 _STREAM_ERROR_STATUS: dict[str, int] = {
     "rate_limit_exceeded": 429,
     "server_error": 500,
+    "invalid_prompt": 400,
+    "bio_policy": 400,
+    "invalid_image": 400,
+    "invalid_image_format": 400,
+    "invalid_base64_image": 400,
+    "invalid_image_url": 400,
+    "invalid_image_mode": 400,
+    "image_too_large": 400,
+    "image_too_small": 400,
+    "image_parse_error": 400,
+    "image_file_too_large": 400,
+    "image_content_policy_violation": 400,
+    "unsupported_image_media_type": 400,
+    "empty_image_file": 400,
+    "image_file_not_found": 400,
+    "failed_to_download_image": 400,
 }
 _STREAM_ERROR_DEFAULT_STATUS = 500
 
