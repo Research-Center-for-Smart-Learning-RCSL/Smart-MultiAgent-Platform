@@ -18,7 +18,11 @@ parallel.
 
 ### From the 2026-08-27 provider-model investigation
 
-- (unblocked 2026-08-28 by the implemented `2026-08-27-provider-model-capability-table`)
+- (moved to In progress on 2026-08-28. Its §5 assessment is **complete**, and Q-3/Q-4/Q-5 record
+  the user's decisions: **Option A, migrate**; the reasoning-item continuity gap is **closed in
+  this task** with an opaque passthrough field rather than deferred; and **no live key this
+  session**, so AC-15 and AC-16 are expected to close unticked. §6 and the test plan are now
+  written. The entry below is kept for the record.)
   `2026-08-27-openai-responses-api-migration` (feature, **approved 2026-08-27**; its SRS Delta is
   None). **Logical prerequisite** (its Q-2): the migration's value is model-specific, and the
   capability table is where model facts are expressed; building this first would encode them a
