@@ -17,14 +17,19 @@ LLM_CHAT::
                                         #   key groups, e.g. graphrag builder)
         "messages": [{"role": "user"|"assistant", "content": "..."}],
                                         # an assistant turn that made tool calls
-                                        #   may also carry "provider_items": a
+                                        #   may also carry "provider_items" (a
                                         #   list the adapter that produced it put
                                         #   on its normalised body and replays
-                                        #   verbatim. OPAQUE: no layer above the
-                                        #   adapter reads it, and an adapter that
-                                        #   did not write it MUST ignore it.
-                                        #   OpenAI uses it to carry encrypted
-                                        #   reasoning items across a tool round.
+                                        #   verbatim) and "provider_items_key"
+                                        #   (that adapter's own label for which
+                                        #   key produced them). BOTH OPAQUE: no
+                                        #   layer above the adapter reads either,
+                                        #   and an adapter that did not write
+                                        #   them MUST ignore them. OpenAI uses
+                                        #   the pair to carry encrypted reasoning
+                                        #   items across a tool round, and to
+                                        #   NOT replay them after key rotation
+                                        #   moved the turn to another account.
         "system": "optional system prompt",
         "tools": [{"name", "description", "input_schema"}],   # neutral schema
         "max_tokens": 4096,

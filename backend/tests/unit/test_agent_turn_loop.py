@@ -243,6 +243,139 @@ def test_provider_items_are_shed_oldest_first_past_the_budget() -> None:
     assert messages[3]["provider_items"]
 
 
+@pytest.mark.asyncio
+async def test_a_rejected_request_retries_once_without_the_replayed_items(monkeypatch) -> None:
+    # A deterministic rejection aborts the group without rotating, which is the
+    # exact shape of the incident this whole migration came from. The replayed
+    # items are one suspect the adapter's own key check cannot vet, so the turn
+    # gets one attempt without them rather than dying.
+    items = [{"type": "reasoning", "encrypted_content": "OPAQUE"}]
+
+    class _RejectingRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                            "finish_reason": "tool_use",
+                            "provider_items": items,
+                            "provider_items_key": "key-a",
+                        },
+                    )
+                )
+            elif len(self.requests) == 2:
+                # The replay round, on a key that cannot decrypt them.
+                raise KeyGroupExhausted(group_id=group_id, reason="request_rejected")
+            else:
+                yield StreamComplete(
+                    ProviderCallResult(200, {"text": "done", "tool_calls": [], "finish_reason": "end"})
+                )
+
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    router = _RejectingRouter()
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+
+    outcome = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.OPENAI,
+        model="gpt-5.4",
+        registry=_FakeRegistry(),
+        room="room",
+    )
+
+    assert outcome.text == "done"
+    assert len(router.requests) == 3  # rejected round re-run, not charged as one
+    assert "provider_items" not in messages[1]
+    assert "provider_items_key" not in messages[1]
+
+
+@pytest.mark.asyncio
+async def test_a_rejection_with_nothing_to_drop_still_propagates(monkeypatch) -> None:
+    # The retry must not swallow the ordinary case: a request rejected for a
+    # reason that has nothing to do with the replay still ends the turn, and
+    # still ends it with the reason the room's copy is keyed on.
+    class _RejectingRouter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def call_stream(self, *, group_id, request):
+            self.calls += 1
+            raise KeyGroupExhausted(group_id=group_id, reason="request_rejected")
+            yield  # pragma: no cover - makes this an async generator
+
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    router = _RejectingRouter()
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+
+    with pytest.raises(KeyGroupExhausted):
+        await engine._stream_with_tools(
+            agent=agent,
+            chatroom_id=uuid.uuid4(),
+            parent_agent_id=None,
+            system_text="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            provider=ApiKeyProvider.OPENAI,
+            model="gpt-5.4",
+            registry=_FakeRegistry(),
+            room="room",
+        )
+    assert router.calls == 1  # no pointless retry when nothing was carrying items
+
+
+def test_a_single_oversized_round_keeps_its_own_items() -> None:
+    # The newest round is never a shed candidate. One round's items are bounded
+    # by what one response produced, which is the property the budget exists to
+    # restore -- emptying the list to enforce a limit already met by stopping
+    # here would cost the whole feature.
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [],
+            "provider_items": [
+                {"type": "reasoning", "encrypted_content": "x" * (te._MAX_RETAINED_PROVIDER_ITEM_BYTES * 2)}
+            ],
+        },
+    ]
+    assert te._shed_provider_items(messages) == 0
+    assert messages[1]["provider_items"]
+
+
 def test_provider_items_under_the_budget_are_left_alone() -> None:
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": "hi"},
