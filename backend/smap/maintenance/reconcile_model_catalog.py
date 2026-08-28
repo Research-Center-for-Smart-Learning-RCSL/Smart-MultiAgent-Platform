@@ -85,22 +85,37 @@ def _headers(provider: str, secret: str) -> dict[str, str]:
     raise ValueError(f"unknown provider {provider!r}")
 
 
-def _parse_model_ids(provider: str, body: dict[str, Any]) -> frozenset[str]:
+def _parse_page(provider: str, body: dict[str, Any]) -> tuple[frozenset[str], str | None]:
+    """One page of model ids, plus the cursor for the next page (``None`` when
+    this is the last page). Only Anthropic and Gemini paginate; OpenAI's
+    `/v1/models` returns the whole list in one response."""
     if provider == "gemini":
         # `models/gemini-x` -> `gemini-x`, matching the bare id every adapter
         # and the capability table use.
-        return frozenset(
-            str(m["name"]).removeprefix("models/") for m in body.get("models", []) if "name" in m
-        )
-    # OpenAI and Anthropic both return {"data": [{"id": "..."}, ...]}.
-    return frozenset(str(m["id"]) for m in body.get("data", []) if "id" in m)
+        ids = frozenset(str(m["name"]).removeprefix("models/") for m in body.get("models", []) if "name" in m)
+        return ids, body.get("nextPageToken")
+    if provider == "claude":
+        ids = frozenset(str(m["id"]) for m in body.get("data", []) if "id" in m)
+        return ids, (body.get("last_id") if body.get("has_more") else None)
+    # OpenAI: {"data": [{"id": "..."}, ...]}, not paginated.
+    return frozenset(str(m["id"]) for m in body.get("data", []) if "id" in m), None
 
 
 async def _fetch_upstream_model_ids(provider: str, secret: str) -> frozenset[str]:
+    ids: set[str] = set()
+    cursor: str | None = None
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(_MODELS_URL[provider], headers=_headers(provider, secret))
-    resp.raise_for_status()
-    return _parse_model_ids(provider, resp.json())
+        while True:
+            params = {}
+            if cursor is not None:
+                params = {"pageToken": cursor} if provider == "gemini" else {"after_id": cursor}
+            resp = await client.get(_MODELS_URL[provider], headers=_headers(provider, secret), params=params)
+            resp.raise_for_status()
+            page_ids, cursor = _parse_page(provider, resp.json())
+            ids |= page_ids
+            if cursor is None:
+                break
+    return frozenset(ids)
 
 
 async def run(*, provider: str, key_id: uuid.UUID) -> ReconcileReport:
@@ -109,7 +124,20 @@ async def run(*, provider: str, key_id: uuid.UUID) -> ReconcileReport:
 
     maker = get_sessionmaker()
     async with maker() as db:
-        plaintext = await KeysFacade(db).unwrap_api_key_plaintext(key_id)
+        facade = KeysFacade(db)
+        key = await facade.get_key(key_id)
+        if key is None:
+            raise ValueError(f"no active api_keys row for {key_id}")
+        if key.provider.value != provider:
+            # A mistyped --key-id would otherwise decrypt whatever key that id
+            # maps to and send it, as an Authorization header, to a DIFFERENT
+            # provider's endpoint -- a real credential sent to the wrong
+            # third party. Caught before the key is ever unwrapped.
+            raise ValueError(
+                f"key {key_id} belongs to provider {key.provider.value!r}, not {provider!r} -- refusing "
+                "to send it to the wrong provider's endpoint"
+            )
+        plaintext = await facade.unwrap_api_key_plaintext(key_id)
     try:
         upstream = await _fetch_upstream_model_ids(provider, plaintext.decode())
     finally:

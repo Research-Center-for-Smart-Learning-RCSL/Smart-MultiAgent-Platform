@@ -145,6 +145,43 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),
+    # The o-series (reasoning models predating gpt-5) was never in
+    # CHAT_MODEL_CATALOG's preset list either, before or after this table --
+    # but the deleted `_REASONING_MODEL_RE = ^(?:o\d|gpt-5)` and
+    # `_ALLOWS_EFFORT_WITH_TOOLS_RE` (which unconditionally allows `o\d`)
+    # correctly shaped requests for ANY o-series id regardless of catalog
+    # membership. Cataloguing these two restores that: an o-series id is no
+    # longer forced through Q-2's floor (which would send the legacy
+    # `max_tokens` field a reasoning endpoint 400s on -- the same incident
+    # class this table exists to prevent, for a family the old code already
+    # got right). Re-derived from the same deleted regexes as the rest of this
+    # table, not freshly verified; carries the same AC-11 caveat.
+    ChatModelSpec(
+        model_id="o3",
+        provider="openai",
+        context_limit=128_000,
+        accepts_effort=True,
+        effort_values=("low", "medium", "high"),
+        accepts_sampling=False,
+        accepts_vision=True,
+        uses_completion_token_field=True,
+        effort_conflicts_with_tools=False,
+        source_url=_OPENAI_DOCS,
+        verified_on=_UNVERIFIED_DATE,
+    ),
+    ChatModelSpec(
+        model_id="o3-mini",
+        provider="openai",
+        context_limit=128_000,
+        accepts_effort=True,
+        effort_values=("low", "medium", "high"),
+        accepts_sampling=False,
+        accepts_vision=True,
+        uses_completion_token_field=True,
+        effort_conflicts_with_tools=False,
+        source_url=_OPENAI_DOCS,
+        verified_on=_UNVERIFIED_DATE,
+    ),
     ChatModelSpec(
         model_id="gemini-3.5-flash",
         provider="gemini",
@@ -202,6 +239,15 @@ def _by_provider() -> dict[str, tuple[ChatModelSpec, ...]]:
 
 _SPECS_BY_PROVIDER: dict[str, tuple[ChatModelSpec, ...]] = _by_provider()
 
+# Keyed on (provider, normalised model_id) -- restores the case/whitespace
+# tolerance the five deleted regexes had (they matched against
+# `model.strip().lower()`, never the raw id) without restoring their real
+# defect, guessing an unlisted id's family from a prefix pattern. An exact
+# normalised match is still a verified row; a near-miss still floors (Q-2).
+_SPECS_BY_NORMALISED_ID: dict[tuple[str, str], ChatModelSpec] = {
+    (spec.provider, spec.model_id.strip().lower()): spec for spec in CHAT_MODEL_SPECS
+}
+
 assert set(DEFAULT_MODEL_IDS) == set(_SPECS_BY_PROVIDER), (
     "DEFAULT_MODEL_IDS and CHAT_MODEL_SPECS must cover identical provider keys"
 )
@@ -238,10 +284,15 @@ def _conservative_floor(provider: str, model_id: str) -> ChatModelSpec:
 
 def resolve_spec(provider: str, model_id: str) -> ChatModelSpec:
     """The catalogued spec for ``(provider, model_id)``, or the conservative
-    floor (Q-2) when the id is not in the table."""
-    for spec in _SPECS_BY_PROVIDER.get(provider, ()):
-        if spec.model_id == model_id:
-            return spec
+    floor (Q-2) when the id is not in the table.
+
+    Matches case/whitespace-insensitively (a user-supplied id is free-text,
+    not a whitelist selection), but never guesses a family from a prefix --
+    an id that isn't a real row, spelled however, gets the floor.
+    """
+    spec = _SPECS_BY_NORMALISED_ID.get((provider, model_id.strip().lower()))
+    if spec is not None:
+        return spec
     return _conservative_floor(provider, model_id)
 
 

@@ -12,7 +12,14 @@ per model family that adds a value later.
 
 `ALTER TYPE ... ADD VALUE` cannot run inside the same transaction as a query
 that uses the new value (PostgreSQL restriction), but adding the value itself
-is fine inside alembic's own migration transaction.
+is fine inside alembic's own migration transaction. This migration itself
+never queries the new values, so it is safe standalone -- but the restriction
+still applies to whatever comes after it: a later migration that queries
+`agent_effort`'s four new values (`none`/`minimal`/`xhigh`/`max`) must not run
+in the SAME `alembic upgrade head` invocation as this one (e.g. a fresh
+environment migrating straight through from before 0082), since alembic's
+default `upgrade head` runs the whole chain in one transaction and the two
+migrations would then share it.
 
 Downgrade is lossy by construction: PostgreSQL cannot drop an enum value in
 place, so shrinking back to the original three means recreating the type, which

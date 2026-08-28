@@ -435,10 +435,14 @@ Rollback: revert the commit and run `alembic downgrade -1`, accepting the enum c
       alone, so both calls it builds are identical regardless of `tools`) and the new
       `test_provider_adapters.py::test_openai_conflicting_model_drops_reasoning_effort_even_without_tools_in_this_call`
       (the adapter's own omit decision is likewise `tools`-independent).
-- [x] AC-14: full Definition of Done green: `pytest -q` (7713 passed, 6 skipped), `ruff check`,
-      `ruff format --check`, `mypy` (998 files, no issues), `pnpm test` (1690 passed),
-      `pnpm lint`, `pnpm typecheck`, `pnpm build` — all green. `pnpm run check:openapi-drift`
-      could not run in this environment (see D-3); verified by hand instead.
+- [x] AC-14: full Definition of Done green, re-verified after the D-6 `/code-review` fixes:
+      `pytest tests/unit -q` (7725 passed, 6 skipped), `ruff check`, `ruff format --check`,
+      `mypy` (998 files, no issues), `pnpm test` (1691 passed), `pnpm lint`, `pnpm typecheck`,
+      `pnpm build` — all green. `pnpm run check:openapi-drift` could not run in this environment
+      (see D-3); verified by hand instead. Migration 0083 re-verified both directions against a
+      second fresh real-PostgreSQL container after D-6's fixes. PR #169 (`main` remote): all 23
+      CI checks green, including `backend-wiring`/`backend-db`/`frontend-e2e`, which this local
+      environment cannot run (no compose stack provisioned).
 
 ## 12. Test Plan
 
@@ -580,6 +584,63 @@ Add a new requirement in §9.1, after `[R9.03]`:
   `stream`) is Pre-existing — confirmed via `git diff` that this task touches only `_chat_body`'s
   sampling/effort branches, not the URL-construction lines — and is out of scope here; recorded
   as FU-14 rather than fixed, to avoid mixing an unrelated hardening change into this diff.
+- **D-6 (`/code-review` pass on the open PR, after push):** a full review of the merged diff
+  found several more Introduced issues, all fixed and tested before this entry:
+  - `model_specs.resolve_spec` matched `model_id` by exact case/whitespace-sensitive string
+    equality, dropping the tolerance the five deleted adapter regexes had
+    (`model.strip().lower()`). Restored via a normalised `(provider, id.strip().lower())` index,
+    without restoring the regexes' real defect (guessing a family from a prefix). Test:
+    `test_agents_domain_model_specs.py::test_resolve_spec_matches_case_and_padding_insensitively`.
+  - The o-series (`o3`/`o3-mini`) was never catalogued, so `resolve_spec` floored it —
+    `uses_completion_token_field=False` sends the legacy `max_tokens` field, which a reasoning
+    endpoint 400s on, reproducing this task's own incident class for a family the deleted
+    `_REASONING_MODEL_RE`/`_ALLOWS_EFFORT_WITH_TOOLS_RE` already handled correctly (unconditional
+    `o\d` match). Catalogued both, re-derived from the same deleted regexes, not freshly
+    verified. Test: `test_o_series_is_catalogued_and_uses_the_completion_token_field`.
+  - `anthropic.py`/`gemini.py` never checked `effort_conflicts_with_tools` (only `openai.py`
+    did) — latent today (no current Claude/Gemini row sets it) but a future row that does would
+    have its effort forwarded alongside tools regardless, since the flag is attached uniformly
+    across all three providers. Fixed in both; regression tests added to each.
+  - `AgentDetailView.vue`: switching models mid-session (not just loading a fresh agent) never
+    cleared `effort`/`temperature`/`top_p` when the newly selected model doesn't accept them —
+    the control shows as disabled, but the field it's bound to still held the old value, which
+    Save then silently persisted. Fixed via `clearFieldsUnsupportedByCurrentModel()`, wired into
+    the same three user-initiated change points (`onModelHintChange`, the model-id `<SSelect>`
+    setter, the custom-model `<SInput>` setter) that already had to solve this exact
+    resetForm-vs-user-action distinction for `model_id` itself. Test:
+    `AgentDetailView.test.ts::clears effort and sampling values a newly selected model does not accept`.
+  - `effortHelp` always rendered the flat-refusal message even for a model that accepts effort
+    but conflicts with tools (gpt-5.4+, the exact family behind this task's incident) — factually
+    wrong for that case. Split into two messages (`effortDisabledReason` /
+    `effortConflictsWithToolsReason`), new i18n keys in both locales.
+  - `contextTokenCapPlaceholder`'s fallback for a custom/uncatalogued model was a flat 128,000,
+    understating the backend's real conservative-floor computation (the *provider's* lowest
+    catalogued window — 1,000,000 for Gemini, 200,000 for Claude) by up to 8x. Fixed to compute
+    the same floor from `chatModelsForHint`.
+  - `reconcile_model_catalog.run()` never verified the `--key-id` it was given actually belongs
+    to the requested `--provider` before decrypting and sending it — a mistyped id would send a
+    real credential, as an `Authorization` header, to the wrong provider's live endpoint. Fixed
+    via `KeysFacade.get_key()` (already existed, was unused here). Regression tests use a fake
+    facade, no real key needed.
+  - `reconcile_model_catalog._fetch_upstream_model_ids` read only the first page of each
+    provider's `models` list; Anthropic's and Gemini's endpoints both paginate. Added a cursor
+    loop (`after_id`/`has_more` for Anthropic, `pageToken`/`nextPageToken` for Gemini — OpenAI's
+    endpoint returns everything in one response). Pure parser tests added; still unrun against a
+    live key (FU-11 unchanged).
+  - `adapters/gemini.py` spliced `model_id` unsanitized into the request path (D-5's second,
+    Pre-existing finding, FU-14) — fixed here rather than left deferred, since the fix
+    (`urllib.parse.quote(model, safe="")`) is a two-line, low-risk, mechanical change with a
+    regression test, not the kind of unrelated hardening sweep D-5 was avoiding.
+  - (Info, fixed as a low-risk mechanical refactor) The capability-flag extraction + forwarding
+    gate was hand-duplicated across all three adapters — exactly what D-5's fix itself had to
+    touch three times by hand. Extracted to `adapters/base.CapabilityFlags` /
+    `capability_flags()` / `.forwardable_effort()`; all three adapters now call the shared helper.
+  - Two candidates were investigated and NOT changed: the claim that the migration's downgrade
+    UPDATE and ALTER COLUMN are non-atomic is false (alembic's default `context.begin_transaction()`
+    wraps the whole migration, confirmed by reading `alembic/env.py`); and `domain/models.py`'s
+    four module-level asserts, though now transitively redundant given `model_specs.py`'s own
+    asserts, are left alone per this spec's own §9 instruction not to touch that pattern here
+    (FU-2 already owns the `assert`-under-`python -O` concern).
 
 ## 16. Follow-ups
 
@@ -598,7 +659,10 @@ Add a new requirement in §9.1, after `[R9.03]`:
 - FU-11 (blocking, from D-1): run `smap maintenance reconcile-model-catalog` against all three
   providers' live keys, fix any `stale`/`unseen` discrepancy in `model_specs.py`, and close AC-6
   and AC-11. Until this runs, the table's model lineup and per-model capability values carry the
-  same staleness risk the pre-existing comment did.
+  same staleness risk the pre-existing comment did. Two rows (`o3`/`o3-mini`) were added since D-1
+  (D-6), re-derived from the deleted regexes like the rest of the table, not freshly verified;
+  the reconciler command itself gained pagination for Anthropic/Gemini's `models` endpoints
+  (D-6) but is still unrun against a live key.
 - FU-12 (blocking, from D-2): verify §4.3a's live-endpoint question for real (a toolful `gpt-5.4`
   request with `reasoning_effort` omitted, against the real OpenAI endpoint) and close AC-15. If
   omission proves insufficient, apply the one-line fix D-2 describes.
@@ -608,11 +672,8 @@ Add a new requirement in §9.1, after `[R9.03]`:
   names `"none"`). An FU-11 reconciler run does not by itself answer this — the reconciler diffs
   model *ids*, not accepted parameter values — so this needs the same kind of live-endpoint check
   as FU-12, scoped per provider.
-- FU-14 (from D-5, security hardening, Pre-existing): `adapters/gemini.py`'s `_chat`/`_embed`/
-  `stream` splice `model` unsanitized into the request path (`f"{_BASE}/{model}:generateContent"`
-  and its two siblings). Confirmed pre-existing and not touched by this task. No cross-host SSRF
-  and no key leak (the key rides only the `x-goog-api-key` header), but an authorized caller could
-  steer the request to a different path/query on `generativelanguage.googleapis.com` by setting
-  `model_id` to a value containing `../`, `?`, or `#`. Fix direction: `urllib.parse.quote(model,
-  safe="")` at the three call sites, or a path-safe charset validator on `model_id` at the API
-  boundary.
+- FU-14 (from D-5, Pre-existing) — CLOSED in D-6: `adapters/gemini.py`'s `_chat`/`_embed`/
+  `stream` spliced `model` unsanitized into the request path. Deferred at D-5 to avoid mixing an
+  unrelated hardening change in; fixed in the D-6 review pass instead, once the fix's small
+  blast radius (`urllib.parse.quote(model, safe="")` via a new `_model_url()` helper, two-line
+  call-site changes, one regression test) made deferring it further not worth the open finding.

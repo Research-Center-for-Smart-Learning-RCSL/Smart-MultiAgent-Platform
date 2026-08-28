@@ -124,21 +124,13 @@ def _tools(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
 def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.OPENAI)
-    # Every flag below is a capability-table field (R9.03a), attached to the
-    # payload by whichever agents-context call site resolved this model — never
-    # re-derived here from the model id. A payload built outside that path (no
-    # flags at all) takes every branch's safe-default side, matching the
-    # conservative floor a table-absent model resolves to (Q-2).
-    uses_completion_field = bool(payload.get("uses_completion_token_field"))
-    accepts_sampling = bool(payload.get("accepts_sampling"))
-    accepts_vision = bool(payload.get("accepts_vision"))
-    effort_values = payload.get("effort_values") or ()
-    conflicts_with_tools = bool(payload.get("effort_conflicts_with_tools"))
-    body: dict[str, Any] = {"model": model, "messages": _messages(payload, vision=accepts_vision)}
+    caps = base.capability_flags(payload)
+    body: dict[str, Any] = {"model": model, "messages": _messages(payload, vision=caps.accepts_vision)}
     if payload.get("max_tokens") is not None:
         # Reasoning models renamed the field and 400 on the legacy `max_tokens`.
-        body["max_completion_tokens" if uses_completion_field else "max_tokens"] = payload["max_tokens"]
-    if accepts_sampling:
+        field = "max_completion_tokens" if caps.uses_completion_token_field else "max_tokens"
+        body[field] = payload["max_tokens"]
+    if caps.accepts_sampling:
         if payload.get("temperature") is not None:
             body["temperature"] = payload["temperature"]
         if payload.get("top_p") is not None:
@@ -149,20 +141,14 @@ def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     tools = _tools(payload)
     if tools:
         body["tools"] = tools
-    # Cross-provider effort -> Chat Completions reasoning_effort, where the
-    # model's spec lists this exact value as accepted -- not merely where the
-    # model accepts effort at all. `agent.effort` is stored independently of
-    # `model_id` (R9.03a §14), so an agent can carry a value its *current*
-    # model never listed (a stale value from a previous model_id, or a value
-    # set before the model's row was narrowed); forwarding it unconditionally
-    # would reproduce this task's own incident through the one channel the
-    # widened `AgentEffort` enum opened. `conflicts_with_tools` is resolved
-    # from (provider, model) alone, not from whether *this* call carries
-    # tools, so the tool rounds and the tools-free synthesis call in the same
-    # turn get the same treatment (AC-16) — omitted on both rather than
-    # present on one and not the other.
-    if payload.get("effort") in effort_values and not conflicts_with_tools:
-        body["reasoning_effort"] = payload["effort"]
+    # Cross-provider effort -> Chat Completions reasoning_effort. See
+    # CapabilityFlags.forwardable_effort for why this is gated by membership
+    # in effort_values (not just "the model accepts effort at all") and by a
+    # tools-conflict check resolved from (provider, model) alone rather than
+    # from whether *this* call carries tools -- AC-16.
+    effort = caps.forwardable_effort(payload.get("effort"))
+    if effort is not None:
+        body["reasoning_effort"] = effort
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}

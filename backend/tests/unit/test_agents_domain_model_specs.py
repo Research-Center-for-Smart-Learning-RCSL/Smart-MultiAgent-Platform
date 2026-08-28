@@ -75,6 +75,30 @@ def test_gpt_5_4_accepts_effort_but_conflicts_with_tools() -> None:
     assert spec.accepts_sampling is False
 
 
+def test_o_series_is_catalogued_and_uses_the_completion_token_field() -> None:
+    # The o-series predates gpt-5 and was never in the UI preset list, but the
+    # deleted `_REASONING_MODEL_RE = ^(?:o\d|gpt-5)` correctly shaped requests
+    # for ANY o-series id -- catalogued here so it isn't forced through Q-2's
+    # floor, which would send the legacy `max_tokens` field a reasoning
+    # endpoint 400s on.
+    for model_id in ("o3", "o3-mini"):
+        spec = resolve_spec("openai", model_id)
+        assert spec.uses_completion_token_field is True
+        assert spec.accepts_effort is True
+        assert spec.effort_conflicts_with_tools is False
+        assert spec.accepts_sampling is False
+
+
+def test_resolve_spec_matches_case_and_padding_insensitively() -> None:
+    # `model_id` is user-supplied free text, not a whitelist selection -- the
+    # five deleted regexes matched against `model.strip().lower()`, never the
+    # raw id, and this restores that tolerance without restoring their real
+    # defect (guessing a family from a prefix pattern for an id that isn't a
+    # real row at all).
+    canonical = resolve_spec("claude", "claude-opus-4-8")
+    assert resolve_spec("claude", "  Claude-Opus-4-8  ") == canonical
+
+
 def test_unknown_model_id_resolves_to_the_conservative_floor() -> None:
     # AC-3: no effort, no sampling, and the provider's lowest catalogued
     # context window -- never a guess from the id's shape.

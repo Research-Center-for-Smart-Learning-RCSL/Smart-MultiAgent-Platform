@@ -12,6 +12,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
+from urllib.parse import quote
 
 from contexts.keys.application.provider_router import (
     ProviderCallResult,
@@ -28,6 +29,17 @@ _BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 def _headers(secret: str) -> dict[str, str]:
     return {"x-goog-api-key": secret, "content-type": "application/json"}
+
+
+def _model_url(model: str, *, method: str) -> str:
+    """Build the per-model endpoint URL, percent-encoding the caller-supplied
+    model id (never the key or any secret -- see the module docstring).
+
+    Without this, an authorized caller could steer the request to a different
+    path/query on this host by setting `model_id` to a value containing
+    `../`, `?`, or `#`; `quote(..., safe="")` is a no-op for any real model id.
+    """
+    return f"{_BASE}/{quote(model, safe='')}:{method}"
 
 
 def _contents(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -105,31 +117,26 @@ def _chat_body(payload: dict[str, Any]) -> dict[str, Any]:
                 ]
             }
         ]
+    caps = base.capability_flags(payload)
     gen: dict[str, Any] = {}
     if payload.get("max_tokens") is not None:
         gen["maxOutputTokens"] = payload["max_tokens"]
-    # Capability-table fields (R9.03a), attached to the payload by whichever
-    # agents-context call site resolved this model — never re-derived here from
-    # the model id. A payload built outside that path (no flags at all) takes
-    # every branch's safe-default side, matching the conservative floor a
-    # table-absent model resolves to (Q-2).
-    if bool(payload.get("accepts_sampling")):
+    if caps.accepts_sampling:
         if payload.get("temperature") is not None:
             gen["temperature"] = payload["temperature"]
         if payload.get("top_p") is not None:
             gen["topP"] = payload["top_p"]
     # Gemini has no seed parameter; a configured seed is a documented no-op here.
     # Cross-provider effort -> Gemini thinking level (the REST enum is
-    # upper-case), only where the model's spec lists this exact value as
-    # accepted -- not merely where the model accepts effort at all.
-    # `agent.effort` is stored independently of `model_id`, so an agent can
-    # carry a value its *current* model never listed. Previously sent
-    # unconditionally on the theory that an unsupported model "rejects it as a
-    # normal error" — that error is a deterministic 400, which aborts the whole
-    # key group and repeats on every turn, the same failure mode this table
-    # exists to close everywhere else.
-    if payload.get("effort") in (payload.get("effort_values") or ()):
-        gen["thinkingConfig"] = {"thinkingLevel": str(payload["effort"]).upper()}
+    # upper-case). See CapabilityFlags.forwardable_effort for why this is
+    # gated by membership in effort_values, not just "the model accepts
+    # effort at all" -- previously sent unconditionally on the theory that an
+    # unsupported model "rejects it as a normal error", which is a
+    # deterministic 400 that aborts the whole key group and repeats on every
+    # turn, the same failure mode this table exists to close everywhere else.
+    effort = caps.forwardable_effort(payload.get("effort"))
+    if effort is not None:
+        gen["thinkingConfig"] = {"thinkingLevel": effort.upper()}
     if gen:
         body["generationConfig"] = gen
     return body
@@ -174,7 +181,7 @@ class GeminiAdapter:
 
     async def _chat(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
         model = base.resolve_model(request.payload, ApiKeyProvider.GEMINI)
-        url = f"{_BASE}/{model}:generateContent"
+        url = _model_url(model, method="generateContent")
         async with base.new_client() as client:
             resp = await client.post(url, json=_chat_body(request.payload), headers=_headers(secret))
         if resp.status_code != 200:
@@ -192,7 +199,7 @@ class GeminiAdapter:
     async def _embed(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
         payload = request.payload
         model = base.resolve_model(payload, ApiKeyProvider.GEMINI)
-        url = f"{_BASE}/{model}:batchEmbedContents"
+        url = _model_url(model, method="batchEmbedContents")
         body = {
             "requests": [
                 {"model": f"models/{model}", "content": {"parts": [{"text": t}]}} for t in payload["input"]
@@ -212,7 +219,7 @@ class GeminiAdapter:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"gemini does not stream {request.capability.value}")
         model = base.resolve_model(request.payload, ApiKeyProvider.GEMINI)
-        url = f"{_BASE}/{model}:streamGenerateContent"
+        url = _model_url(model, method="streamGenerateContent")
         text_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         finish_reason: str | None = None

@@ -648,6 +648,22 @@ async def test_gemini_chat_uses_header_not_query_key() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_gemini_percent_encodes_the_model_id_in_the_url_path() -> None:
+    # model_id is caller-supplied; a value containing a path separator or a
+    # query/fragment delimiter must not be able to steer the request to a
+    # different path or query on this host (FU-14 fix). respx matches the
+    # ACTUAL bytes on the wire, so registering the route at the percent-encoded
+    # path and asserting a 200 (rather than respx's "no matching route" error)
+    # is the proof the '/' characters never reached the wire as path separators.
+    respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/evil%2F..%2Fadmin:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    res = await GeminiAdapter().invoke(secret=_SECRET, request=_chat("evil/../admin"))
+    assert res.http_status == 200
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_gemini_stream_header_and_reassembly() -> None:
     route = respx.post(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent"
@@ -850,6 +866,28 @@ async def test_anthropic_maps_effort_to_output_config() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_anthropic_drops_effort_on_a_conflicting_model_even_though_the_value_is_listed() -> None:
+    # No current Claude row sets effort_conflicts_with_tools, but the payload
+    # flag is attached uniformly across all three providers (R9.03a) -- a
+    # future row that does must not have this adapter silently ignore it, the
+    # way openai.py already guards for gpt-5.4+.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "claude-opus-4-8",
+            effort="high",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=True,
+        ),
+    )
+    assert "output_config" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_openai_maps_effort_to_reasoning_effort() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
@@ -877,6 +915,29 @@ async def test_gemini_maps_effort_to_thinking_level_uppercase() -> None:
     )
     gen = json.loads(route.calls.last.request.content)["generationConfig"]
     assert gen["thinkingConfig"] == {"thinkingLevel": "LOW"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_drops_thinking_config_on_a_conflicting_model_even_though_the_value_is_listed() -> None:
+    # No current Gemini row sets effort_conflicts_with_tools, but the payload
+    # flag is attached uniformly across all three providers (R9.03a) -- a
+    # future row that does must not have this adapter silently ignore it, the
+    # way openai.py already guards for gpt-5.4+.
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gemini-x",
+            effort="low",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=True,
+        ),
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "thinkingConfig" not in sent.get("generationConfig", {})
 
 
 @pytest.mark.asyncio

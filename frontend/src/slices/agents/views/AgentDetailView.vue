@@ -280,6 +280,30 @@ const selectedModelSpec = computed(() => {
 const selectedModelLabel = computed(
   () => modelId.value || defaultModelForHint.value || t('agents.form.modelUnknown'),
 )
+// A control that goes disabled because the *newly selected* model doesn't
+// accept it must not leave its old value riding along to Save -- the select
+// shows "Provider default" (or nothing) once disabled, but nothing else
+// clears the field it is bound to. Read *after* modelId/modelHint change, so
+// `selectedModelSpec` (a computed) has already re-resolved against the new
+// model. Mirrors `contextTokenCap`'s mode-switch clear below; unlike that one
+// this can't be a bare `watch(modelId, ...)`, for the same reason
+// `onModelHintChange` isn't one -- it would also fire during the edit-load
+// `resetForm`, wiping a value FU-3 says must survive onto a disabled control.
+function clearFieldsUnsupportedByCurrentModel(): void {
+  // Same gate as effortDisabled/samplingDisabled: while the catalog hasn't
+  // answered yet, `selectedModelSpec` is undefined for every model, not just
+  // unsupported ones -- clearing here would wipe a value the eventual real
+  // spec might accept (NFR "Error handling UX").
+  if (!catalogSettled.value) return
+  const spec = selectedModelSpec.value
+  if (!spec || !spec.accepts_effort || spec.effort_conflicts_with_tools) {
+    effort.value = null
+  }
+  if (!spec || !spec.accepts_sampling) {
+    temperature.value = null
+    topP.value = null
+  }
+}
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
   set: (v) => {
@@ -290,12 +314,14 @@ const modelSelectValue = computed<string>({
       customModel.value = false
       modelId.value = s === '' ? null : s
     }
+    clearFieldsUnsupportedByCurrentModel()
   },
 })
 const customModelId = computed<string>({
   get: () => modelId.value ?? '',
   set: (v) => {
     modelId.value = v.trim() === '' ? null : v
+    clearFieldsUnsupportedByCurrentModel()
   },
 })
 const modelIdOptions = computed(() => [
@@ -326,11 +352,20 @@ const effortDisabled = computed(() => {
   const spec = selectedModelSpec.value
   return !spec || !spec.accepts_effort || spec.effort_conflicts_with_tools
 })
-const effortHelp = computed(() =>
-  effortDisabled.value
-    ? t('agents.form.effortDisabledReason', { model: selectedModelLabel.value })
-    : t('agents.form.effortHelp'),
-)
+// Two distinct reasons produce the same disabled control, and they are not
+// the same fact: gpt-5.4+ (the exact family behind this task's incident)
+// accepts effort standalone, just not alongside tools, which every agent
+// turn sends -- "does not accept a configured reasoning effort" would be
+// false for it. A model that flatly refuses effort (no spec, or
+// accepts_effort=false) gets the other message.
+const effortHelp = computed(() => {
+  if (!effortDisabled.value) return t('agents.form.effortHelp')
+  const spec = selectedModelSpec.value
+  if (spec?.accepts_effort && spec.effort_conflicts_with_tools) {
+    return t('agents.form.effortConflictsWithToolsReason', { model: selectedModelLabel.value })
+  }
+  return t('agents.form.effortDisabledReason', { model: selectedModelLabel.value })
+})
 // Empty = provider default (stored as null via schema preprocess). The
 // non-empty options come from the selected model's own accepted values
 // (R9.03a) rather than a fixed list, so the form never offers a value the
@@ -530,13 +565,22 @@ function onModelHintChange(value: string | number): void {
   modelHint.value = String(value) as AgentCreateInput['model_hint']
   modelId.value = null
   customModel.value = false
+  clearFieldsUnsupportedByCurrentModel()
 }
 
 // Bounded by the *selected model's* context limit (R9.03a), not the
 // provider's -- Claude's window varies five-fold within one provider
-// (claude-haiku-4-5 at 200k vs claude-sonnet-4-6 at 1M).
+// (claude-haiku-4-5 at 200k vs claude-sonnet-4-6 at 1M). For a custom model
+// outside the table, the backend's own resolve_spec floors to the
+// *provider's* lowest catalogued window (Q-2), not a flat constant -- this
+// mirrors that, falling back further only while the catalog itself hasn't
+// answered (chatModelsForHint empty for a reason other than "this provider
+// truly has zero rows").
 const contextTokenCapPlaceholder = computed(() => {
-  const contextLimit = selectedModelSpec.value?.context_limit ?? 128_000
+  const providerFloor = chatModelsForHint.value.length
+    ? Math.min(...chatModelsForHint.value.map((m) => m.context_limit))
+    : 128_000
+  const contextLimit = selectedModelSpec.value?.context_limit ?? providerFloor
   const defaultCap = Math.floor(contextLimit * 0.75)
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })

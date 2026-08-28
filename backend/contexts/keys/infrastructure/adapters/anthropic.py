@@ -138,13 +138,7 @@ def _content_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.CLAUDE)
-    # Capability-table fields (R9.03a), attached to the payload by whichever
-    # agents-context call site resolved this model — never re-derived here from
-    # the model id. A payload built outside that path (no flags at all) takes
-    # every branch's safe-default side, matching the conservative floor a
-    # table-absent model resolves to (Q-2).
-    accepts_sampling = bool(payload.get("accepts_sampling"))
-    effort_values = payload.get("effort_values") or ()
+    caps = base.capability_flags(payload)
     body: dict[str, Any] = {
         "model": model,
         "max_tokens": int(payload.get("max_tokens", 4096)),
@@ -155,7 +149,7 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     if payload.get("tools"):
         # Neutral schema {name, description, input_schema} == Anthropic's shape.
         body["tools"] = payload["tools"]
-    if accepts_sampling:
+    if caps.accepts_sampling:
         if payload.get("temperature") is not None:
             # Anthropic's temperature ceiling is 1.0, but the agent field accepts
             # up to 2.0 (OpenAI/Gemini's range). Clamp so a cross-provider value
@@ -163,16 +157,17 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
             body["temperature"] = min(float(payload["temperature"]), 1.0)
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
-    # Cross-provider effort -> Claude effort, only where the model's spec
-    # lists this exact value as accepted -- not merely where the model
-    # accepts effort at all. `agent.effort` is stored independently of
-    # `model_id`, so an agent can carry a value its *current* model never
-    # listed; forwarding it unconditionally used to let an unsupported model
-    # 400 "as a normal provider error" — but that error is a deterministic
-    # rejection, so it aborts the key group and repeats on every turn, with
-    # nothing in the room naming the setting responsible.
-    if payload.get("effort") in effort_values:
-        body["output_config"] = {"effort": payload["effort"]}
+    # Cross-provider effort -> Claude effort. See
+    # CapabilityFlags.forwardable_effort for why this is gated by membership
+    # in effort_values (not just "the model accepts effort at all") and by a
+    # tools-conflict check -- no current Claude row sets
+    # effort_conflicts_with_tools, but the field is attached uniformly across
+    # all three providers, and a future row that does must not have this
+    # branch silently ignore it, the way it used to let an unsupported model
+    # 400 "as a normal provider error".
+    effort = caps.forwardable_effort(payload.get("effort"))
+    if effort is not None:
+        body["output_config"] = {"effort": effort}
     if stream:
         body["stream"] = True
     return body

@@ -120,6 +120,7 @@
       "effort": "Reasoning Effort",
       "effortHelp": "How hard the model reasons before answering. Applies only to reasoning-capable models; leave at Provider default otherwise.",
       "effortDisabledReason": "{model} does not accept a configured reasoning effort, so this control is disabled.",
+      "effortConflictsWithToolsReason": "{model} does not accept a configured reasoning effort together with tools, which every agent turn sends, so this control is disabled.",
       "effortDefault": "Provider default",
       "effortLevels": {
         "none": "None",
