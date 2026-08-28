@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
+import { i18n } from '@shared/i18n'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import AgentDetailView from '../views/AgentDetailView.vue'
+import agentsEn from '../locales/en.json'
 
 const routes = [
   { path: '/agents/:agentId', name: 'agents.detail', component: AgentDetailView },
@@ -435,5 +437,164 @@ describe('AgentDetailView', () => {
 
       expect(actionBar(wrapper)).toBeUndefined()
     })
+  })
+
+  // R9.03a — per-model capability table. The mocked catalog (tests/mocks/handlers.ts)
+  // mirrors the real backend table for the ids used below.
+  it('disables the effort control for a model whose spec refuses it (AC-8)', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-haiku-4-5' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const effortSelect = wrapper.find('#effort').element as HTMLSelectElement
+    expect(effortSelect.disabled).toBe(true)
+    expect(wrapper.text()).toContain('claude-haiku-4-5')
+  })
+
+  it('leaves the effort control enabled for a model whose spec accepts it', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-sonnet-4-6' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const effortSelect = wrapper.find('#effort').element as HTMLSelectElement
+    expect(effortSelect.disabled).toBe(false)
+  })
+
+  it('disables temperature and top_p for a model whose spec refuses sampling (AC-9)', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-opus-4-8' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const temperature = wrapper.find('#temperature').element as HTMLInputElement
+    const topP = wrapper.find('#top_p').element as HTMLInputElement
+    expect(temperature.disabled).toBe(true)
+    expect(topP.disabled).toBe(true)
+    expect(wrapper.text()).toContain('claude-opus-4-8')
+  })
+
+  it('leaves sampling controls enabled for a model whose spec accepts them', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-sonnet-4-6' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const temperature = wrapper.find('#temperature').element as HTMLInputElement
+    const topP = wrapper.find('#top_p').element as HTMLInputElement
+    expect(temperature.disabled).toBe(false)
+    expect(topP.disabled).toBe(false)
+  })
+
+  // AC-10: the context-token-cap bound follows the selected *model*, not the
+  // provider -- claude-sonnet-4-6 (1M) and claude-haiku-4-5 (200k) are both
+  // Claude, five-fold apart.
+  it('bounds the context-token-cap placeholder by the selected model, not the provider', async () => {
+    // This harness's shared i18n instance never loads message bundles (every
+    // other assertion in this file checks for the raw key), but telling the
+    // two models' bounds apart needs real `{cap}` interpolation -- merge the
+    // real bundle for just this test and drop it again after, so no other
+    // test in the file sees translated 'agents.form.*' text.
+    i18n.global.mergeLocaleMessage('en', agentsEn as Record<string, unknown>)
+    try {
+      await runContextTokenCapPlaceholderCheck()
+    } finally {
+      i18n.global.setLocaleMessage('en', {})
+    }
+  })
+
+  async function runContextTokenCapPlaceholderCheck(): Promise<void> {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          model_hint: 'claude',
+          model_id: 'claude-sonnet-4-6',
+          context_mode: 'compact',
+        }),
+      ),
+    )
+    const sonnetWrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(sonnetWrapper)
+    const sonnetPlaceholder = (sonnetWrapper.find('#context_token_cap').element as HTMLInputElement)
+      .placeholder
+
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          model_hint: 'claude',
+          model_id: 'claude-haiku-4-5',
+          context_mode: 'compact',
+        }),
+      ),
+    )
+    const haikuWrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(haikuWrapper)
+    const haikuPlaceholder = (haikuWrapper.find('#context_token_cap').element as HTMLInputElement)
+      .placeholder
+
+    expect(sonnetPlaceholder).not.toBe(haikuPlaceholder)
+    // 75% of each model's own context_limit (1_000_000 vs 200_000).
+    expect(sonnetPlaceholder).toContain('750,000')
+    expect(haikuPlaceholder).toContain('150,000')
+  }
+
+  it('does not disable the effort control while the catalog is still loading', async () => {
+    // NFR "Error handling UX": a slow catalog fetch must not lock a control.
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-haiku-4-5' }),
+      ),
+      http.get('/api/model-catalog', async () => {
+        await new Promise((r) => setTimeout(r, 5_000))
+        return HttpResponse.json({ chat: [], embedding: [] })
+      }),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const effortSelect = wrapper.find('#effort').element as HTMLSelectElement
+    expect(effortSelect.disabled).toBe(false)
   })
 })

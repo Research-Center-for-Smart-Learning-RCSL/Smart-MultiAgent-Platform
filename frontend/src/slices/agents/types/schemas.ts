@@ -23,9 +23,12 @@ export const agentCreateSchema = z.object({
     z.string().trim().max(200).nullable().default(null),
   ),
   // Cross-provider reasoning effort. null = provider default (param not sent).
+  // The union every provider accepts (R9.03a) -- which subset the *selected*
+  // model accepts is a capability-table field, not a schema concern; the form
+  // only offers a value the model's spec lists.
   effort: z.preprocess(
     emptyToNull,
-    z.enum(['low', 'medium', 'high']).nullable().default(null),
+    z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).nullable().default(null),
   ),
   key_group_id: z.string().uuid(),
   system_prompt: z.string().max(100_000).default(''),

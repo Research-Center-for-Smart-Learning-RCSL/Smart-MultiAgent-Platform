@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ChatModelSpecOut } from './ChatModelSpecOut';
 export type ChatModelProviderOut = {
-    context_limit: number;
     default: string;
-    models: Array<string>;
+    models: Array<ChatModelSpecOut>;
     provider: string;
 };
 
