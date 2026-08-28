@@ -8,7 +8,7 @@ import base64
 from contexts.agents.application.runtime import model_attachments as ma
 from contexts.keys.infrastructure.adapters.anthropic import _translate_messages as anthropic_tr
 from contexts.keys.infrastructure.adapters.gemini import _contents as gemini_contents
-from contexts.keys.infrastructure.adapters.openai import _messages as openai_messages
+from contexts.keys.infrastructure.adapters.openai import _input_items as openai_input_items
 
 
 def _png() -> bytes:
@@ -108,25 +108,25 @@ def _list_msg() -> list[dict]:
 
 
 def test_openai_vision_model_emits_image_url_and_pdf_file() -> None:
-    parts = openai_messages({"messages": _list_msg()}, vision=True)[0]["content"]
-    assert parts[0] == {"type": "text", "text": "hi"}
-    assert parts[1]["type"] == "image_url"
-    assert parts[1]["image_url"]["url"] == "data:image/png;base64,QUJD"
-    # PDF goes through as a `file` content part on document-capable models.
-    assert parts[2]["type"] == "file"
-    assert parts[2]["file"]["filename"] == "b.pdf"
-    assert parts[2]["file"]["file_data"] == "data:application/pdf;base64,x"
+    parts = openai_input_items({"messages": _list_msg()}, vision=True)[0]["content"]
+    assert parts[0] == {"type": "input_text", "text": "hi"}
+    # Responses takes `image_url` as a plain string, not a nested object.
+    assert parts[1] == {"type": "input_image", "image_url": "data:image/png;base64,QUJD"}
+    # PDF goes through as an `input_file` part on document-capable models.
+    assert parts[2]["type"] == "input_file"
+    assert parts[2]["filename"] == "b.pdf"
+    assert parts[2]["file_data"] == "data:application/pdf;base64,x"
 
 
 def test_openai_non_vision_model_notes_image_and_pdf() -> None:
-    parts = openai_messages({"messages": _list_msg()}, vision=False)[0]["content"]
-    assert parts[1]["type"] == "text"
+    parts = openai_input_items({"messages": _list_msg()}, vision=False)[0]["content"]
+    assert parts[1]["type"] == "input_text"
     assert "a.png" in parts[1]["text"]
-    assert not any(p.get("type") == "image_url" for p in parts)
+    assert not any(p.get("type") == "input_image" for p in parts)
     # PDF also degrades to a note for a text-only model.
-    assert parts[2]["type"] == "text"
+    assert parts[2]["type"] == "input_text"
     assert "b.pdf" in parts[2]["text"]
-    assert not any(p.get("type") == "file" for p in parts)
+    assert not any(p.get("type") == "input_file" for p in parts)
 
 
 # --------------------------------------------------------------------------- #
