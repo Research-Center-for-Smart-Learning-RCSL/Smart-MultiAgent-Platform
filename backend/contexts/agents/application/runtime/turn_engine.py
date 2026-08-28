@@ -3965,9 +3965,13 @@ class TurnEngine:
         last_text = ""
         tool_rounds = 0
         rejections = 0
+        # Only ever set once, so the loop below cannot retry indefinitely.
+        replay_retried = False
         # Terminates by construction: past `_MAX_ARG_REJECTIONS` every rejection
         # charges a round, so there can be at most this many provider calls.
-        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS):
+        # The `+ 1` is the single replay-free retry below, which likewise does
+        # not charge a round.
+        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS + 1):
             if cancel_check is not None and await cancel_check():
                 raise _TurnCancelled(tool_rounds)
             request = _chat_request(
@@ -3981,15 +3985,36 @@ class TurnEngine:
                 tools=tool_specs,
             )
             body: dict[str, Any] = {}
-            async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
-                if isinstance(ev, TokenDelta):
-                    AGENT_STREAM_TOKENS_TOTAL.inc()
-                    if room is not None:
-                        await Publisher(room).emit(
-                            "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
-                        )
-                elif isinstance(ev, StreamComplete):
-                    body = ev.result.body
+            try:
+                async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
+                    if isinstance(ev, TokenDelta):
+                        AGENT_STREAM_TOKENS_TOTAL.inc()
+                        if room is not None:
+                            await Publisher(room).emit(
+                                "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
+                            )
+                    elif isinstance(ev, StreamComplete):
+                        body = ev.result.body
+            except KeyGroupExhausted as exc:
+                # A deterministic rejection aborts the group without rotating —
+                # every sibling key would 400 identically. One suspect in this
+                # request is not the agent's configuration at all: the replayed
+                # provider items, which are opaque and which the adapter's own
+                # key check cannot vet for every reason a provider might refuse
+                # them. Retry once without them before letting the turn die.
+                #
+                # Safe to re-run: the router raises this only from `_AbortGroup`,
+                # which it raises only when no token was emitted
+                # (`provider_router.py:586-593`), so nothing reached the room and
+                # there is nothing to duplicate.
+                if exc.reason != "request_rejected" or replay_retried or not _drop_provider_items(messages):
+                    raise
+                replay_retried = True
+                _log.warning(
+                    "request rejected with replayed provider items; retrying without them agent=%s",
+                    agent.id,
+                )
+                continue
 
             last_text = str(body.get("text", ""))
             tool_calls = body.get("tool_calls") or []
@@ -4027,6 +4052,10 @@ class TurnEngine:
             provider_items = body.get("provider_items")
             if provider_items:
                 assistant_turn["provider_items"] = provider_items
+                # Carried with the items and equally opaque: it is how the
+                # adapter recognises its own output on a later round, after key
+                # rotation may have moved the turn to a different key.
+                assistant_turn["provider_items_key"] = body.get("provider_items_key")
             messages.append(assistant_turn)
             shed = _shed_provider_items(messages)
             if shed:
@@ -4476,13 +4505,37 @@ def _shed_provider_items(messages: list[dict[str, Any]]) -> int:
     ]
     total = sum(size for _, size in sizes)
     shed = 0
-    for message, size in sizes:
+    # `sizes[:-1]`: the newest round is never a shed candidate, so a single
+    # round whose own items exceed the budget keeps them rather than emptying
+    # the list entirely. One round is inherently bounded — it is what one
+    # response produced — which is the property the budget exists to restore,
+    # and dropping it would cost the whole feature to enforce a limit that is
+    # already met by stopping here.
+    for message, size in sizes[:-1]:
         if total <= _MAX_RETAINED_PROVIDER_ITEM_BYTES:
             break
         del message["provider_items"]
+        message.pop("provider_items_key", None)
         total -= size
         shed += 1
     return shed
+
+
+def _drop_provider_items(messages: list[dict[str, Any]]) -> bool:
+    """Strip every replayed provider item. True if anything was carrying one.
+
+    The recovery half of the replay contract, for the case the adapter's own
+    key check cannot see: a request rejected for any reason that *might* be the
+    replayed items is worth one attempt without them, because the alternative
+    is a dead turn. Dropping them degrades to the behaviour before the replay
+    existed, so the retry can only do better than the failure it follows.
+    """
+    dropped = False
+    for message in messages:
+        if message.pop("provider_items", None) is not None:
+            message.pop("provider_items_key", None)
+            dropped = True
+    return dropped
 
 
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
