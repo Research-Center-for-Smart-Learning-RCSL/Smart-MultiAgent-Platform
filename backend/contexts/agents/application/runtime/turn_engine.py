@@ -159,6 +159,14 @@ _GRAPH_BLOCK_TOKEN_BUDGET = 700
 # Fraction shaved off the knowledge budget to absorb the coarse estimator's
 # under-count (estimate_tokens is heuristic; a tokenizer-backed estimator is FU).
 _KNOWLEDGE_SAFETY_MARGIN = 0.1
+# Ceiling on the serialised bytes of replayed provider items held across one
+# tool loop (see `_shed_provider_items`). Measured in bytes, not tokens,
+# deliberately: the payload is opaque provider-encrypted content, so
+# `estimate_tokens`' len//4 heuristic would put a number on it that reads as
+# precision it does not have. Sized well under the smallest catalogued OpenAI
+# window (128k tokens) while still covering an ordinary MAX_TOOL_ROUNDS turn,
+# and matching the character-budget style `_MAX_TOOL_OUTPUT` already uses.
+_MAX_RETAINED_PROVIDER_ITEM_BYTES = 96_000
 
 
 def _sampling_payload(agent: Agent) -> dict[str, Any]:
@@ -4020,6 +4028,13 @@ class TurnEngine:
             if provider_items:
                 assistant_turn["provider_items"] = provider_items
             messages.append(assistant_turn)
+            shed = _shed_provider_items(messages)
+            if shed:
+                _log.info(
+                    "shed replayed provider items from %d earlier round(s) agent=%s",
+                    shed,
+                    agent.id,
+                )
             dispatched = 0
             for tc in tool_calls:
                 args = tc.get("arguments") or {}
@@ -4429,6 +4444,45 @@ def _is_infrastructure_error(exc: BaseException) -> bool:
     drift.
     """
     return is_infrastructure_error(exc)
+
+
+def _shed_provider_items(messages: list[dict[str, Any]]) -> int:
+    """Drop replayed provider items, oldest round first, past the budget.
+
+    Mutates *messages* in place, which is the point: the list is owned by one
+    tool loop and the shed has to be visible to the next round's request.
+
+    The replayed chain (the OpenAI Responses migration's Q-4) is the one part
+    of a tool round that grows on every iteration and that nothing downstream
+    can shrink — it is opaque bytes, so it cannot be summarised or truncated
+    field-by-field the way history and knowledge blocks are. Shedding an
+    entire round's items degrades to the behaviour before that feature existed
+    (a reasoning model loses its chain and reasons afresh), which is why this
+    sheds whole rounds rather than clipping an item's content: a half-item
+    would be replayed as a malformed one and fail the request outright.
+
+    Oldest first, because the most recent round is the one the model is
+    actually continuing from.
+
+    This bounds THIS mechanism only. Tool *outputs* remain unbudgeted for up to
+    ``MAX_TOOL_ROUNDS`` rounds — FU-4 of
+    ``docs/tasks/2026-07-14-knowledge-context-token-budget`` — and nothing here
+    changes that.
+    """
+    sizes = [
+        (m, len(json.dumps(m["provider_items"], ensure_ascii=False)))
+        for m in messages
+        if m.get("provider_items")
+    ]
+    total = sum(size for _, size in sizes)
+    shed = 0
+    for message, size in sizes:
+        if total <= _MAX_RETAINED_PROVIDER_ITEM_BYTES:
+            break
+        del message["provider_items"]
+        total -= size
+        shed += 1
+    return shed
 
 
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
