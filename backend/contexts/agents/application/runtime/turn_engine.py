@@ -4007,7 +4007,19 @@ class TurnEngine:
             # Append the assistant tool-use turn, then one result per call —
             # Anthropic requires a tool_result for every tool_use block, so a
             # rejected call still gets answered.
-            messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
+            assistant_turn: dict[str, Any] = {
+                "role": "assistant",
+                "content": last_text,
+                "tool_calls": tool_calls,
+            }
+            # Opaque here and copied, never read: the OpenAI adapter needs its
+            # own output items back to keep a reasoning model's chain across a
+            # tool round, and the other two adapters ignore a key they do not
+            # know. It lives only for this loop — nothing persists it.
+            provider_items = body.get("provider_items")
+            if provider_items:
+                assistant_turn["provider_items"] = provider_items
+            messages.append(assistant_turn)
             dispatched = 0
             for tc in tool_calls:
                 args = tc.get("arguments") or {}
