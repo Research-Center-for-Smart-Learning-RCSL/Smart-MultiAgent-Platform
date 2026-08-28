@@ -160,13 +160,20 @@ _GRAPH_BLOCK_TOKEN_BUDGET = 700
 # under-count (estimate_tokens is heuristic; a tokenizer-backed estimator is FU).
 _KNOWLEDGE_SAFETY_MARGIN = 0.1
 # Ceiling on the serialised bytes of replayed provider items held across one
-# tool loop (see `_shed_provider_items`). Measured in bytes, not tokens,
-# deliberately: the payload is opaque provider-encrypted content, so
-# `estimate_tokens`' len//4 heuristic would put a number on it that reads as
-# precision it does not have. Sized well under the smallest catalogued OpenAI
-# window (128k tokens) while still covering an ordinary MAX_TOOL_ROUNDS turn,
-# and matching the character-budget style `_MAX_TOOL_OUTPUT` already uses.
-_MAX_RETAINED_PROVIDER_ITEM_BYTES = 96_000
+# tool loop (see `_shed_provider_items`). Enforced in bytes because the payload
+# is opaque provider-encrypted content, but SIZED in tokens, because tokens are
+# the unit that actually runs out: base64-ish text tokenises far worse than
+# `estimate_tokens`' len//4 heuristic, so the budget is set against a
+# pessimistic 2 chars/token. 32 KB is therefore ~16k tokens worst case, an
+# eighth of the smallest catalogued OpenAI window (128k) — enough to carry the
+# recent rounds that matter, small enough that it cannot dominate a request.
+#
+# It is still invisible to the F-16 pre-dispatch guard, which counts message
+# content only, so this is a cap rather than a reservation. That gap is the
+# older FU-4 of `docs/tasks/2026-07-14-knowledge-context-token-budget`, and
+# choosing a number the guard's blindness can absorb is the reason to keep this
+# conservative rather than generous.
+_MAX_RETAINED_PROVIDER_ITEM_BYTES = 32_000
 
 
 def _sampling_payload(agent: Agent) -> dict[str, Any]:
@@ -3965,8 +3972,14 @@ class TurnEngine:
         last_text = ""
         tool_rounds = 0
         rejections = 0
-        # Only ever set once, so the loop below cannot retry indefinitely.
-        replay_retried = False
+        # Sticky, not one-shot: once a rejection has been blamed on the replayed
+        # items, this turn stops producing them as well as stops retrying. A
+        # one-shot retry would recover the round and then re-attach the *next*
+        # response's items, so a systemic cause (an account that refuses echoed
+        # reasoning at all) fails again one round later with the retry already
+        # spent — which is the `provider_exhausted:request_rejected` this whole
+        # effort exists to end.
+        replay_disabled = False
         # Terminates by construction: past `_MAX_ARG_REJECTIONS` every rejection
         # charges a round, so there can be at most this many provider calls.
         # The `+ 1` is the single replay-free retry below, which likewise does
@@ -4007,11 +4020,12 @@ class TurnEngine:
                 # which it raises only when no token was emitted
                 # (`provider_router.py:586-593`), so nothing reached the room and
                 # there is nothing to duplicate.
-                if exc.reason != "request_rejected" or replay_retried or not _drop_provider_items(messages):
+                if exc.reason != "request_rejected" or replay_disabled or not _drop_provider_items(messages):
                     raise
-                replay_retried = True
+                replay_disabled = True
                 _log.warning(
-                    "request rejected with replayed provider items; retrying without them agent=%s",
+                    "request rejected with replayed provider items; retrying without them, "
+                    "and not replaying again this turn agent=%s",
                     agent.id,
                 )
                 continue
@@ -4050,7 +4064,15 @@ class TurnEngine:
             # tool round, and the other two adapters ignore a key they do not
             # know. It lives only for this loop — nothing persists it.
             provider_items = body.get("provider_items")
-            if provider_items:
+            # `not truncated`: a response cut off at the output ceiling carries
+            # half-emitted items — a `function_call` whose `arguments` string
+            # stops mid-JSON is the ordinary case, and this loop's own
+            # `_TRUNCATED_ARGS_NOTE` branch below exists because it happens.
+            # The synthesised path re-serialises those arguments and so cannot
+            # emit a malformed item; the replay path would post the fragment
+            # straight back, which is a deterministic rejection and takes the
+            # whole key group with it.
+            if provider_items and not replay_disabled and not truncated:
                 assistant_turn["provider_items"] = provider_items
                 # Carried with the items and equally opaque: it is how the
                 # adapter recognises its own output on a later round, after key

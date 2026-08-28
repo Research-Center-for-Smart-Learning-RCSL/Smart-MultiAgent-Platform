@@ -313,6 +313,142 @@ async def test_a_rejected_request_retries_once_without_the_replayed_items(monkey
 
 
 @pytest.mark.asyncio
+async def test_the_replay_stays_off_for_the_rest_of_the_turn(monkeypatch) -> None:
+    # The retry is sticky, not one-shot. A one-shot retry recovers the rejected
+    # round and then re-attaches the NEXT response's items, so a systemic cause
+    # (an account that refuses echoed reasoning at all) fails again one round
+    # later with the retry already spent -- the same dead turn, one round further
+    # on. Every round after the first rejection must go out without items.
+    items = [{"type": "reasoning", "encrypted_content": "OPAQUE"}]
+
+    def _tool_round() -> ProviderCallResult:
+        return ProviderCallResult(
+            200,
+            {
+                "text": "",
+                "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                "finish_reason": "tool_use",
+                "provider_items": items,
+                "provider_items_key": "key-a",
+            },
+        )
+
+    class _RejectOnceRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 2:
+                raise KeyGroupExhausted(group_id=group_id, reason="request_rejected")
+            if len(self.requests) <= 4:
+                yield StreamComplete(_tool_round())
+            else:
+                yield StreamComplete(
+                    ProviderCallResult(200, {"text": "done", "tool_calls": [], "finish_reason": "end"})
+                )
+
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    router = _RejectOnceRouter()
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+
+    outcome = await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        provider=ApiKeyProvider.OPENAI,
+        model="gpt-5.4",
+        registry=_FakeRegistry(),
+        room="room",
+    )
+
+    assert outcome.text == "done"
+    # Round 1 replayed nothing (nothing to replay yet); the rejection landed on
+    # round 2; every request after it must be free of items, including the ones
+    # built from rounds that returned items of their own.
+    for request in router.requests[2:]:
+        assert not any("provider_items" in m for m in request.payload["messages"])
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_round_does_not_replay_its_half_written_items(monkeypatch) -> None:
+    # A response cut off at the output ceiling carries half-emitted items -- a
+    # `function_call` whose `arguments` stops mid-JSON is the ordinary case, and
+    # this loop's own truncation branch exists because it happens. Posting the
+    # fragment back is a deterministic rejection that takes the group with it.
+    class _TruncatingRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                            "finish_reason": "max_output_tokens",
+                            "provider_items": [
+                                {"type": "function_call", "call_id": "t1", "arguments": '{"x"'}
+                            ],
+                            "provider_items_key": "key-a",
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(
+                    ProviderCallResult(200, {"text": "done", "tool_calls": [], "finish_reason": "end"})
+                )
+
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    router = _TruncatingRouter()
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
+
+    await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.OPENAI,
+        model="gpt-5.4",
+        registry=_FakeRegistry(),
+        room="room",
+    )
+    # The tool call itself still round-trips -- it is re-serialised from the
+    # neutral shape, which is exactly what the replay cannot do.
+    assert messages[1]["tool_calls"]
+    assert "provider_items" not in messages[1]
+
+
+@pytest.mark.asyncio
 async def test_a_rejection_with_nothing_to_drop_still_propagates(monkeypatch) -> None:
     # The retry must not swallow the ordinary case: a request rejected for a
     # reason that has nothing to do with the replay still ends the turn, and
