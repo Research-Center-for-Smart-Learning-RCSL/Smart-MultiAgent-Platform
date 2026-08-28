@@ -159,6 +159,21 @@ _GRAPH_BLOCK_TOKEN_BUDGET = 700
 # Fraction shaved off the knowledge budget to absorb the coarse estimator's
 # under-count (estimate_tokens is heuristic; a tokenizer-backed estimator is FU).
 _KNOWLEDGE_SAFETY_MARGIN = 0.1
+# Ceiling on the serialised bytes of replayed provider items held across one
+# tool loop (see `_shed_provider_items`). Enforced in bytes because the payload
+# is opaque provider-encrypted content, but SIZED in tokens, because tokens are
+# the unit that actually runs out: base64-ish text tokenises far worse than
+# `estimate_tokens`' len//4 heuristic, so the budget is set against a
+# pessimistic 2 chars/token. 32 KB is therefore ~16k tokens worst case, an
+# eighth of the smallest catalogued OpenAI window (128k) — enough to carry the
+# recent rounds that matter, small enough that it cannot dominate a request.
+#
+# It is still invisible to the F-16 pre-dispatch guard, which counts message
+# content only, so this is a cap rather than a reservation. That gap is the
+# older FU-4 of `docs/tasks/2026-07-14-knowledge-context-token-budget`, and
+# choosing a number the guard's blindness can absorb is the reason to keep this
+# conservative rather than generous.
+_MAX_RETAINED_PROVIDER_ITEM_BYTES = 32_000
 
 
 def _sampling_payload(agent: Agent) -> dict[str, Any]:
@@ -3957,9 +3972,19 @@ class TurnEngine:
         last_text = ""
         tool_rounds = 0
         rejections = 0
+        # Sticky, not one-shot: once a rejection has been blamed on the replayed
+        # items, this turn stops producing them as well as stops retrying. A
+        # one-shot retry would recover the round and then re-attach the *next*
+        # response's items, so a systemic cause (an account that refuses echoed
+        # reasoning at all) fails again one round later with the retry already
+        # spent — which is the `provider_exhausted:request_rejected` this whole
+        # effort exists to end.
+        replay_disabled = False
         # Terminates by construction: past `_MAX_ARG_REJECTIONS` every rejection
         # charges a round, so there can be at most this many provider calls.
-        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS):
+        # The `+ 1` is the single replay-free retry below, which likewise does
+        # not charge a round.
+        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS + 1):
             if cancel_check is not None and await cancel_check():
                 raise _TurnCancelled(tool_rounds)
             request = _chat_request(
@@ -3973,15 +3998,37 @@ class TurnEngine:
                 tools=tool_specs,
             )
             body: dict[str, Any] = {}
-            async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
-                if isinstance(ev, TokenDelta):
-                    AGENT_STREAM_TOKENS_TOTAL.inc()
-                    if room is not None:
-                        await Publisher(room).emit(
-                            "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
-                        )
-                elif isinstance(ev, StreamComplete):
-                    body = ev.result.body
+            try:
+                async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
+                    if isinstance(ev, TokenDelta):
+                        AGENT_STREAM_TOKENS_TOTAL.inc()
+                        if room is not None:
+                            await Publisher(room).emit(
+                                "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
+                            )
+                    elif isinstance(ev, StreamComplete):
+                        body = ev.result.body
+            except KeyGroupExhausted as exc:
+                # A deterministic rejection aborts the group without rotating —
+                # every sibling key would 400 identically. One suspect in this
+                # request is not the agent's configuration at all: the replayed
+                # provider items, which are opaque and which the adapter's own
+                # key check cannot vet for every reason a provider might refuse
+                # them. Retry once without them before letting the turn die.
+                #
+                # Safe to re-run: the router raises this only from `_AbortGroup`,
+                # which it raises only when no token was emitted
+                # (`provider_router.py:586-593`), so nothing reached the room and
+                # there is nothing to duplicate.
+                if exc.reason != "request_rejected" or replay_disabled or not _drop_provider_items(messages):
+                    raise
+                replay_disabled = True
+                _log.warning(
+                    "request rejected with replayed provider items; retrying without them, "
+                    "and not replaying again this turn agent=%s",
+                    agent.id,
+                )
+                continue
 
             last_text = str(body.get("text", ""))
             tool_calls = body.get("tool_calls") or []
@@ -4007,7 +4054,38 @@ class TurnEngine:
             # Append the assistant tool-use turn, then one result per call —
             # Anthropic requires a tool_result for every tool_use block, so a
             # rejected call still gets answered.
-            messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
+            assistant_turn: dict[str, Any] = {
+                "role": "assistant",
+                "content": last_text,
+                "tool_calls": tool_calls,
+            }
+            # Opaque here and copied, never read: the OpenAI adapter needs its
+            # own output items back to keep a reasoning model's chain across a
+            # tool round, and the other two adapters ignore a key they do not
+            # know. It lives only for this loop — nothing persists it.
+            provider_items = body.get("provider_items")
+            # `not truncated`: a response cut off at the output ceiling carries
+            # half-emitted items — a `function_call` whose `arguments` string
+            # stops mid-JSON is the ordinary case, and this loop's own
+            # `_TRUNCATED_ARGS_NOTE` branch below exists because it happens.
+            # The synthesised path re-serialises those arguments and so cannot
+            # emit a malformed item; the replay path would post the fragment
+            # straight back, which is a deterministic rejection and takes the
+            # whole key group with it.
+            if provider_items and not replay_disabled and not truncated:
+                assistant_turn["provider_items"] = provider_items
+                # Carried with the items and equally opaque: it is how the
+                # adapter recognises its own output on a later round, after key
+                # rotation may have moved the turn to a different key.
+                assistant_turn["provider_items_key"] = body.get("provider_items_key")
+            messages.append(assistant_turn)
+            shed = _shed_provider_items(messages)
+            if shed:
+                _log.info(
+                    "shed replayed provider items from %d earlier round(s) agent=%s",
+                    shed,
+                    agent.id,
+                )
             dispatched = 0
             for tc in tool_calls:
                 args = tc.get("arguments") or {}
@@ -4417,6 +4495,69 @@ def _is_infrastructure_error(exc: BaseException) -> bool:
     drift.
     """
     return is_infrastructure_error(exc)
+
+
+def _shed_provider_items(messages: list[dict[str, Any]]) -> int:
+    """Drop replayed provider items, oldest round first, past the budget.
+
+    Mutates *messages* in place, which is the point: the list is owned by one
+    tool loop and the shed has to be visible to the next round's request.
+
+    The replayed chain (the OpenAI Responses migration's Q-4) is the one part
+    of a tool round that grows on every iteration and that nothing downstream
+    can shrink — it is opaque bytes, so it cannot be summarised or truncated
+    field-by-field the way history and knowledge blocks are. Shedding an
+    entire round's items degrades to the behaviour before that feature existed
+    (a reasoning model loses its chain and reasons afresh), which is why this
+    sheds whole rounds rather than clipping an item's content: a half-item
+    would be replayed as a malformed one and fail the request outright.
+
+    Oldest first, because the most recent round is the one the model is
+    actually continuing from.
+
+    This bounds THIS mechanism only. Tool *outputs* remain unbudgeted for up to
+    ``MAX_TOOL_ROUNDS`` rounds — FU-4 of
+    ``docs/tasks/2026-07-14-knowledge-context-token-budget`` — and nothing here
+    changes that.
+    """
+    sizes = [
+        (m, len(json.dumps(m["provider_items"], ensure_ascii=False)))
+        for m in messages
+        if m.get("provider_items")
+    ]
+    total = sum(size for _, size in sizes)
+    shed = 0
+    # `sizes[:-1]`: the newest round is never a shed candidate, so a single
+    # round whose own items exceed the budget keeps them rather than emptying
+    # the list entirely. One round is inherently bounded — it is what one
+    # response produced — which is the property the budget exists to restore,
+    # and dropping it would cost the whole feature to enforce a limit that is
+    # already met by stopping here.
+    for message, size in sizes[:-1]:
+        if total <= _MAX_RETAINED_PROVIDER_ITEM_BYTES:
+            break
+        del message["provider_items"]
+        message.pop("provider_items_key", None)
+        total -= size
+        shed += 1
+    return shed
+
+
+def _drop_provider_items(messages: list[dict[str, Any]]) -> bool:
+    """Strip every replayed provider item. True if anything was carrying one.
+
+    The recovery half of the replay contract, for the case the adapter's own
+    key check cannot see: a request rejected for any reason that *might* be the
+    replayed items is worth one attempt without them, because the alternative
+    is a dead turn. Dropping them degrades to the behaviour before the replay
+    existed, so the retry can only do better than the failure it follows.
+    """
+    dropped = False
+    for message in messages:
+        if message.pop("provider_items", None) is not None:
+            message.pop("provider_items_key", None)
+            dropped = True
+    return dropped
 
 
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:

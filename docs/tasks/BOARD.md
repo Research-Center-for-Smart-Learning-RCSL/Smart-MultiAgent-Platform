@@ -18,7 +18,8 @@ parallel.
 
 ### From the 2026-08-27 provider-model investigation
 
-- (unblocked 2026-08-28 by the implemented `2026-08-27-provider-model-capability-table`)
+- (implemented 2026-08-28; see the note under In progress. Nothing lists it in `depends_on`, so no
+  row moves out of Blocked.) The original entry, kept here for the record:
   `2026-08-27-openai-responses-api-migration` (feature, **approved 2026-08-27**; its SRS Delta is
   None). **Logical prerequisite** (its Q-2): the migration's value is model-specific, and the
   capability table is where model facts are expressed; building this first would encode them a
@@ -469,6 +470,58 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-28 after implementation:
+`2026-08-27-openai-responses-api-migration` (the OpenAI adapter posts to `/v1/responses`, so
+reasoning effort and function tools compose on the platform's default provider for the first time).
+Nothing lists it in `depends_on`, so no row moved out of Blocked. No migration, no API contract
+change, no frontend source change. PR #170, CI run `33171817174`, 22 of 22 jobs green.
+**Five things a later reader needs.**
+
+**It was assess-first and the assessment is the durable half.** §5 answers six questions with
+citations and is worth reading before touching any provider adapter, because most of it is not
+OpenAI-specific: Responses thinks in *items* where Chat Completions thinks in messages, and every
+other difference falls out of that. Its most useful finding is that the migration is
+**net-simplifying**. `response.completed` carries the same response object the non-streaming call
+returns, so the two normalisation paths collapse into one function and the Chat Completions
+tool-fragment accumulator is *deleted* rather than ported. Option C ("migrate the non-streaming path
+only") was rejected on its own premise: streaming is the half that got easier.
+
+**`store` defaults to TRUE on this endpoint.** Omitting it leaves every turn's content with OpenAI
+for at least 30 days; Chat Completions retained nothing by default. A migration that simply
+translated field names would have changed the platform's data-handling posture silently, on a
+product whose example course carries 13-year-olds' accounts of distressing events. `"store": false`
+is unconditional and is asserted on both the invoke and the stream path. **The generalisable half:
+when an endpoint changes, its defaults change with it, and a default is not a field you can notice
+by diffing what you send.**
+
+**D-1 is the correction the approved spec got wrong, and it is a lesson about who reads a flag.**
+§6.4 said the two dead capability fields would keep their values and gain comments. That was right
+for `uses_completion_token_field`, which the adapter reads directly and now doesn't. It was wrong
+for `effort_conflicts_with_tools`, which is read by the *shared* gate
+`CapabilityFlags.forwardable_effort` — deliberately left untouched — so a row that still declared
+the conflict would have gone on dropping the exact effort value this task exists to deliver, while
+`AgentDetailView.vue` went on disabling the control for the same reason. Cleared on all three
+gpt-5.x rows. **A field is dead when nothing reads it, not when its author stops thinking about it.**
+
+**The reasoning-item passthrough was taken into scope rather than deferred (Q-4), and that was the
+right call for a reason worth reusing.** Responses asks that a reasoning model's own output items,
+encrypted reasoning included, be replayed on the next request during function calling; the neutral
+message shape had nowhere to put them. Deferring it would have shipped a quality regression on
+every multi-round tool turn that **no test in this repo could see** — which is exactly the class of
+debt that never gets paid because nothing ever goes red. The neutral assistant message gains an
+opaque `provider_items` key: the turn engine copies it without reading it, only the adapter that
+wrote it replays it, and the other two rebuild messages field by field so they cannot forward it
+even by accident. It never reaches PostgreSQL.
+
+**AC-15 and AC-16 are deliberately unticked and §17 says exactly what that costs.** No real key was
+available (Q-5), so **nothing in this task has ever sent a request to the real endpoint**. Three
+named unknowns remain, in bite order: whether function tools default to strict mode (the adapter
+sends `"strict": false` on that reading, and getting it wrong fails the first real turn while every
+`respx` test stays green), whether a non-reasoning model accepts
+`include: ["reasoning.encrypted_content"]`, and whether the HTTP error envelope still carries
+`type`/`param` — if not, errors still scrub safely but stop naming causes, silently undoing
+`1d9a3da`. AC-16 is also the capability table's own FU-12, and one live session answers both.
 
 Removed on 2026-08-28 after implementation:
 `2026-08-27-provider-model-capability-table` (one per-model capability record replaces three

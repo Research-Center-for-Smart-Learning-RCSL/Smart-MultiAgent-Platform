@@ -24,7 +24,7 @@ from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters.anthropic import AnthropicAdapter
 from contexts.keys.infrastructure.adapters.cohere import CohereAdapter
 from contexts.keys.infrastructure.adapters.gemini import GeminiAdapter
-from contexts.keys.infrastructure.adapters.openai import OpenAIAdapter
+from contexts.keys.infrastructure.adapters.openai import OpenAIAdapter, _key_tag
 from contexts.keys.infrastructure.adapters.voyage import VoyageAdapter
 
 _SECRET = "sk-super-secret-key-value"
@@ -38,8 +38,47 @@ def _chat(model: str, **extra: object) -> ProviderRequest:
 def _sse(*objs: dict, done: bool = False) -> httpx.Response:
     body = "".join(f"data: {json.dumps(o)}\n\n" for o in objs)
     if done:
-        body += "data: [DONE]\n\n"  # OpenAI terminal sentinel
+        body += "data: [DONE]\n\n"  # Anthropic/Chat Completions terminal sentinel
     return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+
+# OpenAI chat runs on the Responses API; only embeddings stayed where they were.
+_RESPONSES_URL = "https://api.openai.com/v1/responses"
+
+
+def _text_item(text: str) -> dict:
+    return {
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": text}],
+    }
+
+
+def _call_item(call_id: str, name: str, arguments: str) -> dict:
+    # `call_id` is what the next request's function_call_output must echo; `id`
+    # is the item's own handle and is deliberately different here so a test
+    # reading the wrong one fails.
+    return {
+        "type": "function_call",
+        "id": f"fc_{call_id}",
+        "call_id": call_id,
+        "name": name,
+        "arguments": arguments,
+    }
+
+
+def _response_obj(**over: object) -> dict:
+    """A minimal successful `/v1/responses` response object."""
+    data: dict = {
+        "id": "resp_1",
+        "object": "response",
+        "status": "completed",
+        "output": [_text_item("ok")],
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    }
+    data.update(over)
+    return data
 
 
 # --------------------------------------------------------------------------- #
@@ -161,28 +200,27 @@ async def test_anthropic_truncated_tool_json_is_empty_but_flagged_by_finish_reas
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_truncated_tool_json_is_empty_but_flagged_by_finish_reason() -> None:
-    respx.post("https://api.openai.com/v1/chat/completions").mock(
+    # The Responses API has no `finish_reason`: truncation is `status:
+    # "incomplete"` plus `incomplete_details.reason`, which the adapter passes
+    # through verbatim for the router to normalise.
+    respx.post(_RESPONSES_URL).mock(
         return_value=_sse(
+            {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": '{"x"'},
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
-                            ]
-                        },
-                        "finish_reason": None,
-                    }
-                ]
+                "type": "response.incomplete",
+                "response": _response_obj(
+                    status="incomplete",
+                    incomplete_details={"reason": "max_output_tokens"},
+                    output=[_call_item("c1", "f", '{"x"')],
+                ),
             },
-            {"choices": [{"delta": {}, "finish_reason": "length"}]},
-            done=True,
         )
     )
     events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
     final = events[-1]
     assert isinstance(final, StreamComplete)
     assert final.result.body["tool_calls"] == [{"id": "c1", "name": "f", "arguments": {}}]
+    assert final.result.body["finish_reason"] == "max_output_tokens"
     assert is_truncated_finish_reason(final.result.body["finish_reason"]) is True
 
 
@@ -190,6 +228,14 @@ def test_a_legitimately_empty_tool_call_is_not_read_as_truncated() -> None:
     """The pair to the two above: identical `arguments`, opposite meaning."""
     assert is_truncated_finish_reason("tool_use") is False
     assert is_truncated_finish_reason("tool_calls") is False
+    assert is_truncated_finish_reason("completed") is False
+
+
+def test_every_providers_truncation_spelling_is_recognised() -> None:
+    # One frozenset serves three providers and two OpenAI endpoints; a spelling
+    # missing from it silently turns a cut-off tool call into a legitimate one.
+    for reason in ("max_tokens", "length", "max_output_tokens", "MAX_TOKENS"):
+        assert is_truncated_finish_reason(reason) is True
 
 
 @pytest.mark.asyncio
@@ -260,7 +306,7 @@ async def test_openai_error_keeps_the_code_and_param_that_name_the_cause() -> No
     # "parameter unsupported on this model"; `code`/`param` are what tell an
     # operator which one they hit. A gpt-5.4 agent with `effort` set produced
     # exactly this and reached the room as an unqualified "the run failed".
-    respx.post("https://api.openai.com/v1/chat/completions").respond(
+    respx.post(_RESPONSES_URL).respond(
         400,
         json={
             "error": {
@@ -283,20 +329,16 @@ _TOOL = {"name": "lookup", "description": "d", "input_schema": {"type": "object"
 
 
 def _ok_chat_route() -> object:
-    return respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    return respx.post(_RESPONSES_URL).respond(200, json=_response_obj())
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_drops_reasoning_effort_when_a_conflicting_model_carries_tools() -> None:
-    # A model whose capability-table row sets `effort_conflicts_with_tools`
-    # (gpt-5.4 onwards) refuses the pair on /v1/chat/completions, and every
-    # agent turn sends tools -- so this combination used to 400 on every single
-    # turn, which the router treats as a deterministic rejection and aborts the
-    # whole key group. Dropping the setting loses effort; keeping it loses the
-    # agent.
+    # The gate still honours a model that declares the conflict, even though no
+    # catalogued OpenAI row does any more (the conflict was a Chat Completions
+    # behaviour). Kept as a guard: a future row -- or a future provider -- that
+    # sets the flag must not have this adapter silently ignore it.
     route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET,
@@ -309,17 +351,20 @@ async def test_openai_drops_reasoning_effort_when_a_conflicting_model_carries_to
         ),
     )
     sent = json.loads(route.calls.last.request.content)
-    assert "reasoning_effort" not in sent
+    assert "reasoning" not in sent
     assert sent["tools"]  # the tools themselves are still sent
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_ac13_incident_agent_scenario_produces_no_reasoning_effort() -> None:
-    # AC-13: an agent configured exactly as 結書 (the incident agent) was (model_hint: openai,
-    # model_id: gpt-5.4, effort: low, tools bound) -- driven by the real
-    # capability table, not hand-set flags, so a future edit to gpt-5.4's row
-    # in model_specs.py is what this test actually pins against.
+async def test_the_incident_agent_scenario_now_keeps_its_reasoning_effort() -> None:
+    # The inverse of the assertion this test carried before the migration. An
+    # agent configured exactly as 結書 (the incident agent) was -- model_hint:
+    # openai, model_id: gpt-5.4, effort: low, tools bound -- had to lose its
+    # effort on /v1/chat/completions or 400 on every turn. On /v1/responses the
+    # pair is accepted, which is the capability this migration exists to
+    # deliver. Driven by the real capability table, not hand-set flags, so a
+    # future edit to gpt-5.4's row is what this pins against.
     from contexts.agents.domain.model_specs import capability_fields, resolve_spec
 
     route = _ok_chat_route()
@@ -330,7 +375,7 @@ async def test_ac13_incident_agent_scenario_produces_no_reasoning_effort() -> No
         ),
     )
     sent = json.loads(route.calls.last.request.content)
-    assert "reasoning_effort" not in sent
+    assert sent["reasoning"] == {"effort": "low"}
     assert sent["tools"]
 
 
@@ -355,7 +400,7 @@ async def test_openai_drops_an_effort_value_the_models_spec_does_not_list() -> N
             effort_conflicts_with_tools=False,
         ),
     )
-    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+    assert "reasoning" not in json.loads(route.calls.last.request.content)
 
 
 @pytest.mark.asyncio
@@ -403,8 +448,8 @@ async def test_openai_conflicting_model_drops_reasoning_effort_even_without_tool
     without_tools = _ok_chat_route()
     await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low", **flags))
     sent_without_tools = json.loads(without_tools.calls.last.request.content)
-    assert "reasoning_effort" not in sent_with_tools
-    assert "reasoning_effort" not in sent_without_tools
+    assert "reasoning" not in sent_with_tools
+    assert "reasoning" not in sent_without_tools
 
 
 @pytest.mark.asyncio
@@ -423,7 +468,7 @@ async def test_openai_keeps_reasoning_effort_with_tools_on_a_non_conflicting_mod
             effort_conflicts_with_tools=False,
         ),
     )
-    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "high"
+    assert json.loads(route.calls.last.request.content)["reasoning"] == {"effort": "high"}
 
 
 @pytest.mark.asyncio
@@ -435,7 +480,10 @@ async def test_openai_drops_reasoning_effort_on_a_model_absent_from_the_table() 
     # the id the way the deleted regexes did.
     route = _ok_chat_route()
     await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6.1", effort="low", tools=[_TOOL]))
-    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+    sent = json.loads(route.calls.last.request.content)
+    assert "reasoning" not in sent
+    assert "temperature" not in sent
+    assert "top_p" not in sent
 
 
 @pytest.mark.asyncio
@@ -474,7 +522,7 @@ async def test_anthropic_drops_effort_on_a_model_whose_spec_refuses_it() -> None
 async def test_provider_error_fields_that_are_not_identifier_shaped_are_dropped() -> None:
     # These fields are provider-controlled text. A sentence -- or a masked key
     # reflection smuggled into `code` -- is dropped whole rather than truncated.
-    respx.post("https://api.openai.com/v1/chat/completions").respond(
+    respx.post(_RESPONSES_URL).respond(
         400,
         json={"error": {"type": "invalid_request_error", "code": f"your key {_SECRET} is bad"}},
     )
@@ -489,12 +537,9 @@ async def test_provider_error_fields_that_are_not_identifier_shaped_are_dropped(
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_chat_translates_system_and_tools() -> None:
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+    route = respx.post(_RESPONSES_URL).respond(
         200,
-        json={
-            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 3, "completion_tokens": 4},
-        },
+        json=_response_obj(usage={"input_tokens": 3, "output_tokens": 4}),
     )
     req = _chat(
         "gpt-4o",
@@ -503,12 +548,189 @@ async def test_openai_chat_translates_system_and_tools() -> None:
     )
     res = await OpenAIAdapter().invoke(secret=_SECRET, request=req)
     assert res.body["text"] == "ok"
+    assert res.body["finish_reason"] == "completed"
     assert res.input_tokens == 3
     assert res.output_tokens == 4
     sent = json.loads(route.calls.last.request.content)
-    assert sent["messages"][0] == {"role": "system", "content": "be terse"}
+    # The system prompt is a field here, not the first message.
+    assert sent["instructions"] == "be terse"
+    assert sent["input"] == [{"role": "user", "content": "hi"}]
+    # Internal tagging: no `function` wrapper.
     assert sent["tools"][0]["type"] == "function"
-    assert sent["tools"][0]["function"]["name"] == "f"
+    assert sent["tools"][0]["name"] == "f"
+    assert "function" not in sent["tools"][0]
+    # Agent-authored schemas are arbitrary JSON Schema; strict mode would
+    # reject the ones that do not meet its structural requirements.
+    assert sent["tools"][0]["strict"] is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_never_lets_the_provider_retain_the_turn() -> None:
+    # `store` is opt-OUT on this endpoint: omitting it leaves every turn's
+    # content with OpenAI for at least 30 days, which the endpoint this adapter
+    # migrated off never did. Unconditional, on both paths.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
+    assert json.loads(route.calls.last.request.content)["store"] is False
+
+    respx.clear()
+    stream_route = respx.post(_RESPONSES_URL).mock(
+        return_value=_sse({"type": "response.completed", "response": _response_obj()})
+    )
+    async for _ in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o")):
+        pass
+    assert json.loads(stream_route.calls.last.request.content)["store"] is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_asks_for_encrypted_reasoning_it_can_replay() -> None:
+    # Pairs with the provider_items replay: without this, the reasoning items
+    # come back empty and there is nothing to hand the model next round.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
+    assert json.loads(route.calls.last.request.content)["include"] == ["reasoning.encrypted_content"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_replays_provider_items_instead_of_synthesising_them() -> None:
+    # The reasoning item is opaque to every layer above the adapter and is the
+    # only reason this path exists: dropping it costs a reasoning model its
+    # chain across a tool round, which no assertion elsewhere could see.
+    reasoning = {"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE", "summary": []}
+    items = [reasoning, _call_item("c1", "f", '{"x": 1}')]
+    route = _ok_chat_route()
+    req = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={
+            "model": "gpt-5.4",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "c1", "name": "f", "arguments": {"x": 1}}],
+                    "provider_items": items,
+                    "provider_items_key": _key_tag(_SECRET),
+                },
+                {"role": "tool", "tool_call_id": "c1", "name": "f", "content": "42"},
+            ],
+        },
+    )
+    await OpenAIAdapter().invoke(secret=_SECRET, request=req)
+    sent = json.loads(route.calls.last.request.content)["input"]
+    assert sent[1] == reasoning
+    assert sent[2] == items[1]
+    assert sent[3] == {"type": "function_call_output", "call_id": "c1", "output": "42"}
+
+
+def _replay_request(items: list[dict], key_tag: object) -> ProviderRequest:
+    return ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={
+            "model": "gpt-5.4",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "c1", "name": "f", "arguments": {}}],
+                    "provider_items": items,
+                    "provider_items_key": key_tag,
+                },
+            ],
+        },
+    )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_does_not_replay_items_produced_by_a_different_key() -> None:
+    # Each tool round is an independent `call_stream` that re-picks a group
+    # member, and a key group legitimately holds keys from more than one OpenAI
+    # account. Encrypted reasoning is decryptable only by the account that
+    # produced it, so replaying it to a different key is a deterministic 400 --
+    # which `classify_http` turns into ABORT, killing the whole group instead of
+    # rotating. Falling back to synthesised items loses the chain and keeps the
+    # turn, which is the trade this check exists to make.
+    items = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE"}]
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, "a-different-key"))
+    sent = json.loads(route.calls.last.request.content)["input"]
+    assert not any(item.get("type") == "reasoning" for item in sent)
+    assert sent[1] == {"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_replays_items_when_the_key_still_matches() -> None:
+    items = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE"}]
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, _key_tag(_SECRET)))
+    assert json.loads(route.calls.last.request.content)["input"][1] == items[0]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_the_key_tag_is_never_the_key_and_never_leaves_the_process() -> None:
+    # It is a truncated digest, and it is read by `_input_items` rather than
+    # sent: nothing about the secret may reach the provider outside the header.
+    items = [{"type": "reasoning", "id": "rs_1"}]
+    route = _ok_chat_route()
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    tag = res.body["provider_items_key"]
+    assert tag == _key_tag(_SECRET)
+    assert _SECRET not in tag
+    assert tag not in _SECRET
+    respx.clear()
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, tag))
+    body = route.calls.last.request.content.decode()
+    assert "provider_items_key" not in body
+    assert tag not in body
+    assert _SECRET not in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(("code", "status"), [("rate_limit_exceeded", 429), ("server_error", 500)])
+async def test_openai_non_streaming_failed_status_is_not_an_empty_success(code: str, status: int) -> None:
+    # A run that fails after the request was accepted returns HTTP 200 with
+    # `status: "failed"` and an empty `output`. Chat Completions had no such
+    # shape. Left unmapped the router books a success, never rotates, and the
+    # caller reads the empty string as the model's answer -- an empty summary
+    # or zero extracted triples, silently.
+    respx.post(_RESPONSES_URL).respond(
+        200,
+        json=_response_obj(
+            status="failed",
+            output=[],
+            error={"code": code, "message": f"key {_SECRET} oops"},
+            usage={"input_tokens": 6, "output_tokens": 0},
+        ),
+    )
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    assert res.http_status == status
+    assert res.body == {"error": f"HTTP {status} ({code})"}
+    assert res.input_tokens == 6  # still billed
+    assert _SECRET not in json.dumps(res.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_returns_its_output_items_for_replay() -> None:
+    items = [_text_item("ok"), _call_item("c1", "f", '{"x": 1}')]
+    respx.post(_RESPONSES_URL).respond(
+        200, json=_response_obj(output=items, usage={"input_tokens": 7, "output_tokens": 3})
+    )
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    assert res.body["provider_items"] == items
+    # The non-streaming half of the call_id rule: `id` here is `fc_c1`, and
+    # taking it instead of `call_id` breaks the next round's pairing.
+    assert res.body["tool_calls"] == [{"id": "c1", "name": "f", "arguments": {"x": 1}}]
+    assert (res.input_tokens, res.output_tokens) == (7, 3)
 
 
 @pytest.mark.asyncio
@@ -536,82 +758,91 @@ async def test_openai_embedding_preserves_order() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_stream_reassembles() -> None:
-    route = respx.post("https://api.openai.com/v1/chat/completions").mock(
+    # No `[DONE]` sentinel on this endpoint: `response.completed` is terminal
+    # and carries the whole response object, usage included.
+    respx.post(_RESPONSES_URL).mock(
         return_value=_sse(
-            {"choices": [{"delta": {"content": "Hel"}, "finish_reason": None}]},
-            {"choices": [{"delta": {"content": "lo"}, "finish_reason": "stop"}]},
-            {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}},
-            done=True,  # OpenAI closes with `data: [DONE]`
+            {"type": "response.created", "response": {"id": "resp_1", "status": "in_progress"}},
+            {"type": "response.output_text.delta", "output_index": 0, "delta": "Hel"},
+            {"type": "response.output_text.delta", "output_index": 0, "delta": "lo"},
+            {
+                "type": "response.completed",
+                "response": _response_obj(
+                    output=[_text_item("Hello")],
+                    usage={"input_tokens": 5, "output_tokens": 2},
+                ),
+            },
         )
     )
     events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
     assert "".join(e.text for e in events if isinstance(e, TokenDelta)) == "Hello"
     final = events[-1]
     assert isinstance(final, StreamComplete)
+    assert len([e for e in events if isinstance(e, StreamComplete)]) == 1
+    assert final.result.body["text"] == "Hello"
     assert final.result.output_tokens == 2
     assert final.result.input_tokens == 5
-    # The outbound request must opt into usage frames on the final chunk.
-    sent = json.loads(route.calls.last.request.content)
-    assert sent["stream_options"] == {"include_usage": True}
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_stream_merges_tool_call_deltas_by_index() -> None:
-    # Tool calls stream as index-keyed fragments: id/name first, args appended.
-    respx.post("https://api.openai.com/v1/chat/completions").mock(
+async def test_openai_stream_takes_tool_calls_whole_from_the_terminal_response() -> None:
+    # Argument fragments stream as `response.function_call_arguments.delta`, but
+    # the terminal response object carries each item complete -- so the adapter
+    # reads them there rather than reassembling, and a fragment that never
+    # arrived cannot corrupt the result.
+    respx.post(_RESPONSES_URL).mock(
         return_value=_sse(
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
-                            ]
-                        },
-                        "finish_reason": None,
-                    }
-                ]
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {"type": "function_call", "call_id": "c1", "name": "f", "arguments": ""},
             },
+            {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": '{"x"'},
+            {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": ": 1}"},
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": ": 1}"}},
-                                {"index": 1, "id": "c2", "function": {"name": "g", "arguments": "{}"}},
-                            ]
-                        },
-                        "finish_reason": None,
-                    }
-                ]
+                "type": "response.completed",
+                "response": _response_obj(
+                    output=[_call_item("c1", "f", '{"x": 1}'), _call_item("c2", "g", "{}")]
+                ),
             },
-            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
-            done=True,
         )
     )
     events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
     final = events[-1]
     assert isinstance(final, StreamComplete)
+    # `call_id`, not the item's own `id` -- this is the value the next round's
+    # function_call_output has to echo.
     assert final.result.body["tool_calls"] == [
         {"id": "c1", "name": "f", "arguments": {"x": 1}},
         {"id": "c2", "name": "g", "arguments": {}},
     ]
-    assert final.result.body["finish_reason"] == "tool_calls"
+    assert final.result.body["finish_reason"] == "completed"
 
 
 @pytest.mark.asyncio
 @respx.mock
 @pytest.mark.parametrize(
     ("kind", "status"),
-    [("rate_limit_exceeded", 429), ("server_error", 500)],
+    [
+        ("rate_limit_exceeded", 429),
+        ("server_error", 500),
+        # Faults the request, so every sibling key refuses it identically: 400
+        # aborts the group instead of replaying it against each member.
+        ("invalid_prompt", 400),
+        ("image_content_policy_violation", 400),
+        # Faults the account or the moment, not the request -- another key may
+        # succeed, so these rotate.
+        ("data_residency_mismatch", 500),
+        ("vector_store_timeout", 500),
+        ("a_code_this_table_has_never_seen", 500),
+    ],
 )
-async def test_openai_in_stream_error_maps_to_non_2xx(kind: str, status: int) -> None:
-    # `data: {"error": {...}}` chunks (no choices) must NOT pass as success.
-    respx.post("https://api.openai.com/v1/chat/completions").mock(
-        return_value=_sse(
-            {"error": {"type": kind, "message": f"key {_SECRET} oops"}},
-        )
+async def test_openai_in_stream_error_event_maps_to_non_2xx(kind: str, status: int) -> None:
+    # A top-level `error` event arrives inside an HTTP 200 and must NOT pass as
+    # success: the router's rotate-versus-abort decision reads this status.
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse({"type": "error", "code": kind, "message": f"key {_SECRET} oops"})
     )
     events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
     assert len(events) == 1
@@ -620,6 +851,89 @@ async def test_openai_in_stream_error_maps_to_non_2xx(kind: str, status: int) ->
     assert final.result.http_status == status
     assert final.result.body == {"error": f"HTTP {status} ({kind})"}
     assert _SECRET not in json.dumps(final.result.body)  # scrubbed
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    ("kind", "status"),
+    [("rate_limit_exceeded", 429), ("server_error", 500)],
+)
+async def test_openai_response_failed_maps_to_non_2xx(kind: str, status: int) -> None:
+    # The second in-stream failure shape. `response.failed` carries its code on
+    # `response.error`, a narrower object than the HTTP error envelope.
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {
+                "type": "response.failed",
+                "response": _response_obj(
+                    status="failed",
+                    error={"code": kind, "message": f"key {_SECRET} oops"},
+                    usage={"input_tokens": 4, "output_tokens": 1},
+                ),
+            }
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == status
+    assert final.result.body == {"error": f"HTTP {status} ({kind})"}
+    assert final.result.input_tokens == 4  # still billed
+    assert _SECRET not in json.dumps(final.result.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    "code",
+    [
+        f"your key {_SECRET} is bad",
+        "rate limit exceeded, please retry",
+        "x" * 65,
+        {"nested": "object"},
+    ],
+)
+async def test_in_stream_error_code_that_is_not_identifier_shaped_is_dropped(code: object) -> None:
+    # An error delivered inside an HTTP 200 is no more trustworthy than one that
+    # arrived with a status code, so it goes through the same `safe_ident`
+    # filter the non-2xx path applies. A sentence -- or a masked key reflection
+    # smuggled into `code` -- is dropped whole rather than truncated.
+    respx.post(_RESPONSES_URL).mock(return_value=_sse({"type": "error", "code": code, "message": "boom"}))
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body == {"error": "HTTP 500"}
+    assert _SECRET not in json.dumps(final.result.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_in_stream_error_type_is_filtered_the_same_way() -> None:
+    # The filter lives in `base.scrub_stream_error`, so all three adapters get
+    # it at once -- this pins that it reaches the Anthropic path too.
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=_sse({"type": "error", "error": {"type": f"key {_SECRET} rejected"}})
+    )
+    events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body == {"error": "HTTP 500"}
+    assert _SECRET not in json.dumps(final.result.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_stream_cut_before_a_terminal_event_is_a_failure() -> None:
+    # There is no `[DONE]` sentinel to distinguish "finished" from "cut", so a
+    # stream that simply stops must not be reported as a successful empty turn.
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse({"type": "response.output_text.delta", "output_index": 0, "delta": "Hi"})
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == 500
 
 
 # --------------------------------------------------------------------------- #
@@ -774,17 +1088,20 @@ def _tool_roundtrip_messages() -> list[dict]:
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_translates_tool_roundtrip() -> None:
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    route = _ok_chat_route()
     req = ProviderRequest(
         capability=ProviderCapability.LLM_CHAT,
         payload={"model": "gpt-4o", "messages": _tool_roundtrip_messages()},
     )
     await OpenAIAdapter().invoke(secret=_SECRET, request=req)
-    msgs = json.loads(route.calls.last.request.content)["messages"]
-    assert msgs[1]["tool_calls"][0]["function"]["arguments"] == json.dumps({"x": 1})
-    assert msgs[2] == {"role": "tool", "tool_call_id": "t1", "content": "42"}
+    items = json.loads(route.calls.last.request.content)["input"]
+    # One neutral assistant message expands into items; the empty text does not
+    # become an empty message item.
+    assert items == [
+        {"role": "user", "content": "set cadence"},
+        {"type": "function_call", "call_id": "t1", "name": "f", "arguments": json.dumps({"x": 1})},
+        {"type": "function_call_output", "call_id": "t1", "output": "42"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -889,9 +1206,7 @@ async def test_anthropic_drops_effort_on_a_conflicting_model_even_though_the_val
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_maps_effort_to_reasoning_effort() -> None:
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET,
         request=_chat(
@@ -901,7 +1216,7 @@ async def test_openai_maps_effort_to_reasoning_effort() -> None:
             effort_conflicts_with_tools=False,
         ),
     )
-    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "medium"
+    assert json.loads(route.calls.last.request.content)["reasoning"] == {"effort": "medium"}
 
 
 @pytest.mark.asyncio
@@ -959,37 +1274,37 @@ async def test_gemini_drops_thinking_config_for_a_model_whose_spec_refuses_effor
 async def test_effort_omitted_when_unset() -> None:
     # Opt-in: with no effort in the payload the parameter is never sent, so the
     # provider's own default applies (and non-reasoning models don't 400).
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
-    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+    assert "reasoning" not in json.loads(route.calls.last.request.content)
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_reasoning_model_uses_max_completion_tokens_and_drops_temperature() -> None:
-    # o-series / gpt-5 reject the legacy `max_tokens` and a custom temperature;
-    # the body must use `max_completion_tokens` and omit temperature, or it 400s.
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
-    await OpenAIAdapter().invoke(
-        secret=_SECRET,
-        request=_chat(
-            "o3-mini",
-            effort="high",
-            max_tokens=256,
-            temperature=0.7,
-            effort_values=("low", "medium", "high"),
-            uses_completion_token_field=True,
-        ),
-    )
-    sent = json.loads(route.calls.last.request.content)
-    assert sent["reasoning_effort"] == "high"
-    assert sent["max_completion_tokens"] == 256
-    assert "max_tokens" not in sent
-    assert "temperature" not in sent
+async def test_openai_output_ceiling_has_one_name_on_every_model() -> None:
+    # The Chat Completions split between `max_tokens` and
+    # `max_completion_tokens` -- which reasoning models 400 on -- does not exist
+    # here, so `uses_completion_token_field` changes nothing either way.
+    for flag in (True, False):
+        respx.clear()
+        route = _ok_chat_route()
+        await OpenAIAdapter().invoke(
+            secret=_SECRET,
+            request=_chat(
+                "o3-mini",
+                effort="high",
+                max_tokens=256,
+                temperature=0.7,
+                effort_values=("low", "medium", "high"),
+                uses_completion_token_field=flag,
+            ),
+        )
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["reasoning"] == {"effort": "high"}
+        assert sent["max_output_tokens"] == 256
+        assert "max_tokens" not in sent
+        assert "max_completion_tokens" not in sent
+        assert "temperature" not in sent
 
 
 @pytest.mark.asyncio
@@ -999,21 +1314,19 @@ async def test_openai_default_chat_model_is_a_reasoning_model_and_drops_temperat
 
     An agent with no ``model_id`` resolves to ``DEFAULT_CHAT_MODELS["openai"]``,
     so an agent pack installed against an OpenAI-only key group runs on whatever
-    that is — and that model's capability-table row (`uses_completion_token_field`)
-    is what silently voids the pack's shipped ``temperature``. Both halves are
-    pinned here, and deliberately across the context boundary: neither side
-    alone can state the consequence, and the document promises it.
+    that is — and that model's capability-table row (`accepts_sampling`) is what
+    silently voids the pack's shipped ``temperature``. Both halves are pinned
+    here, and deliberately across the context boundary: neither side alone can
+    state the consequence, and the document promises it.
     """
     from contexts.agents.domain.model_specs import capability_fields, resolve_spec
     from contexts.agents.domain.models import DEFAULT_CHAT_MODELS
 
     default = DEFAULT_CHAT_MODELS["openai"]
     spec = resolve_spec("openai", default)
-    assert spec.uses_completion_token_field is True
+    assert spec.accepts_sampling is False
 
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET, request=_chat(default, temperature=0.2, top_p=0.9, **capability_fields(spec))
     )
@@ -1024,20 +1337,17 @@ async def test_openai_default_chat_model_is_a_reasoning_model_and_drops_temperat
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_non_reasoning_model_drops_effort_keeps_classic_params() -> None:
-    # Setting effort on a non-reasoning model must not 400: `reasoning_effort`
-    # is dropped while the legacy max_tokens/temperature fields are preserved.
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+async def test_openai_non_reasoning_model_drops_effort_keeps_sampling() -> None:
+    # Setting effort on a model whose spec lists no effort values must not 400:
+    # `reasoning` is dropped while the sampling controls are preserved.
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET,
         request=_chat("gpt-4o", effort="high", max_tokens=256, temperature=0.7, accepts_sampling=True),
     )
     sent = json.loads(route.calls.last.request.content)
-    assert "reasoning_effort" not in sent
-    assert "max_completion_tokens" not in sent
-    assert sent["max_tokens"] == 256
+    assert "reasoning" not in sent
+    assert sent["max_output_tokens"] == 256
     assert sent["temperature"] == 0.7
 
 
@@ -1097,17 +1407,19 @@ async def test_anthropic_drops_sampling_on_rejecting_models(model: str) -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_non_reasoning_forwards_top_p_and_seed() -> None:
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+async def test_openai_forwards_top_p_and_never_seed() -> None:
+    # `seed` has no Responses API equivalent. It stays a live agent field
+    # (agents.seed) with no OpenAI destination, so it must be dropped even on a
+    # model that accepts the other two, or the request 400s on an unknown
+    # parameter.
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET, request=_chat("gpt-4o", temperature=0.0, top_p=1.0, seed=42, accepts_sampling=True)
     )
     sent = json.loads(route.calls.last.request.content)
     assert sent["temperature"] == 0.0
     assert sent["top_p"] == 1.0
-    assert sent["seed"] == 42
+    assert "seed" not in sent
 
 
 @pytest.mark.asyncio
@@ -1115,9 +1427,7 @@ async def test_openai_non_reasoning_forwards_top_p_and_seed() -> None:
 async def test_openai_reasoning_drops_all_sampling_controls() -> None:
     # Reasoning models reject sampling controls; temperature, top_p, and seed are
     # all dropped so a configured value degrades to the default instead of 400ing.
-    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
-        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
-    )
+    route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET, request=_chat("o3-mini", temperature=0.0, top_p=1.0, seed=42)
     )
