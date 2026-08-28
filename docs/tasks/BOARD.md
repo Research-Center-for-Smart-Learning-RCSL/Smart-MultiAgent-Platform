@@ -512,6 +512,15 @@ production evidence behind it) and wrote the dossier's Deviation Log entries dir
 only reporting — reviewed and accepted after independent verification of every factual claim in
 it, per this project's "verify before trusting documentation" standard.
 
+**A `/code-review` pass over the open PR found 9 more Introduced issues, all fixed and pushed
+as a second commit (D-6).** Two worth a later reader's attention: the `model_specs.resolve_spec`
+lookup had gone case/whitespace-sensitive (the five deleted regexes were not), and the o-series
+(`o3`/`o3-mini`) was silently floored to Q-2's conservative default because it had never been
+catalogued — both restored, re-derived from the same deleted regexes as the rest of the table,
+not freshly verified. CI re-run in progress on the second commit; see the dossier's D-6 for the
+full list (`AgentDetailView.vue` clearing stale effort/sampling on a mid-session model switch,
+the reconciler's provider-mismatch guard and pagination, FU-14 closed rather than left deferred).
+
 Removed on 2026-08-25 after implementation:
 `2026-08-24-agent-readable-live-drafts` (a granted binding may read a room's unsent
 composer and worksheet text on demand, through `read_drafts`; the text lives only in
