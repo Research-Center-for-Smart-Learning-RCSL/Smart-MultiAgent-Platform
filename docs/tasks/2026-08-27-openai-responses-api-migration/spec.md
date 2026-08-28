@@ -594,6 +594,15 @@ restores the previous endpoint with no data or schema implications.
 - [ ] AC-16 (live key required, Q-5): the capability table's FU-12 answered in the same session —
       which effort values each catalogued OpenAI model accepts on this endpoint, `none` included.
       **Expected to close unticked this session.**
+- [x] AC-17: FU-2 closed — `scrub_stream_error` filters its `kind` through `safe_ident`, so an
+      in-stream error code that is not identifier-shaped is dropped whole. Asserted on the OpenAI
+      path (four non-conforming shapes, including a masked-key sentence) and on the Anthropic path,
+      since the filter lives in `adapters/base.py` and reaches all three adapters at once. Added
+      2026-08-28 at the user's direction, after the close-out.
+- [x] AC-18: FU-3 closed — the replayed provider items held across one tool loop are bounded by
+      `_MAX_RETAINED_PROVIDER_ITEM_BYTES`, shedding whole rounds oldest-first. Asserted both
+      directions: over budget sheds exactly the oldest round and leaves its `tool_calls` intact,
+      under budget touches nothing. Added 2026-08-28 at the user's direction, after the close-out.
 
 ## 12. Test Plan
 
@@ -661,6 +670,9 @@ already describe.
 
 ## 17. What was verified, and what was not
 
+Two later commits closed FU-2 and FU-3 in this same dossier (AC-17, AC-18); the paragraph below
+describes the state before them, and their own CI run is the one to read for the final tree.
+
 Every mechanical and contract gate ran on CI: PR #170, run `33171817174`, **22 of 22 jobs green**,
 including `backend-test`, `backend-typecheck`, `backend-db`, `backend-integration`,
 `backend-wiring`, `frontend-e2e` and `frontend-gate-openapi-drift`. Run locally against the diff:
@@ -693,6 +705,10 @@ the form.
 
 ## 16. Follow-ups
 
+Both follow-ups below were **closed in this dossier on 2026-08-28**, at the user's direction, after
+the initial close-out. Their entries are kept as written so the reasoning that opened them survives;
+what changed is recorded under each, and the criteria are AC-17 and AC-18.
+
 - **FU-3: the context-window guard does not see the growth `provider_items` introduces.** The
   `F-16 AC-6` guard runs `estimate_tokens` over the assembled messages *before the initial
   dispatch* only, so the reasoning blobs the tool loop now accumulates on each assistant turn are
@@ -701,6 +717,25 @@ the form.
   starting point the guard judged safe. Found by the security gate as a MEDIUM. Fix direction:
   re-run the guard per round, or drop reasoning items from the replay once the estimate nears the
   limit.
+
+  **Closed (AC-18) by the second of those two, not the first, and the reason matters.** Re-running
+  the guard per round was rejected on inspection: `_estimate_messages_tokens`
+  (`turn_engine.py:4434-4448`) counts message `content` and text blocks only — not `tool_calls` and
+  not `provider_items` — so a per-round call to it would have been *blind to the very growth it was
+  added to catch*, and would have shipped as a guard that could never fire. It also turned out the
+  broader problem is older and wider than this task: `turn_engine.py:2863` already names
+  "Mid-tool-loop growth is a separate vector (FU-4)", carried since
+  `2026-07-14-knowledge-context-token-budget` and re-declined by `2026-07-16-agent-skills`, because
+  tool *outputs* are unbudgeted for up to `MAX_TOOL_ROUNDS` rounds.
+
+  So the fix bounds this task's own contribution and says so, rather than pretending to close
+  FU-4. `_shed_provider_items` drops whole rounds, oldest first, past
+  `_MAX_RETAINED_PROVIDER_ITEM_BYTES`. Whole rounds because a clipped item would be replayed as a
+  malformed one and fail the request outright, whereas shedding a round degrades exactly to the
+  pre-Q-4 behaviour. Oldest first because the most recent round is the one the model is continuing
+  from. Bytes rather than tokens because the payload is provider-encrypted content, where
+  `estimate_tokens`' `len // 4` heuristic would put a number on it that reads as precision it does
+  not have.
 - **FU-2: `base.scrub_stream_error` does not apply the identifier-shape check that
   `summarise_http_failure` applies.** `scrub_error`'s path runs the provider's `type`/`code`/`param`
   through `_safe_ident` (`probes/base.py:128-136`), which drops anything that is not
@@ -710,6 +745,13 @@ the form.
   way, and on this endpoint the in-stream `code` is a closed vocabulary, which makes it narrower
   than before rather than wider. Out of scope here because fixing it touches all three adapters'
   in-stream error paths at once.
+
+  **Closed (AC-17).** Touching all three at once turned out to be the argument *for* the fix
+  rather than against it: the filter belongs in `adapters/base.py`, which is the single place all
+  three already share, so one edit closes the gap everywhere instead of three. `_safe_ident` is
+  now public `safe_ident` with a docstring saying why, and `scrub_stream_error` runs its `kind`
+  through it. No real value changes — every code all three providers actually send is
+  identifier-shaped — which is what makes the change safe to land alongside a migration.
 
 - FU-1: Gemini's Interactions API reached general availability in June 2026 and is documented as
   recommended for new projects, with `generateContent` retained for compatibility. The same
