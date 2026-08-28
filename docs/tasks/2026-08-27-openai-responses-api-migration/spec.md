@@ -599,6 +599,11 @@ restores the previous endpoint with no data or schema implications.
       path (four non-conforming shapes, including a masked-key sentence) and on the Anthropic path,
       since the filter lives in `adapters/base.py` and reaches all three adapters at once. Added
       2026-08-28 at the user's direction, after the close-out.
+- [x] AC-19: a non-streaming response whose `status` is `failed` is classified as a failure, not
+      returned as an empty success at HTTP 200. From the `/code-review` pass; added 2026-08-28.
+- [x] AC-20: replayed provider items are never sent to a key other than the one that produced them,
+      and the turn survives a `request_rejected` round by retrying once without them. The key tag is
+      asserted to be absent from the outgoing body. From the `/code-review` pass; added 2026-08-28.
 - [x] AC-18: FU-3 closed — the replayed provider items held across one tool loop are bounded by
       `_MAX_RETAINED_PROVIDER_ITEM_BYTES`, shedding whole rounds oldest-first. Asserted both
       directions: over budget sheds exactly the oldest round and leaves its `tool_calls` intact,
@@ -663,6 +668,24 @@ already describe.
   the shipped catalogue. No frontend test reads that branch (verified by grep across
   `frontend/**/__tests__/`), so this is a truthfulness fix to a fixture rather than a behaviour
   change, but it is still a file §6 did not list.
+- **D-4: a `/code-review` pass found three defects the two gates missed, all fixed (AC-19, AC-20).**
+  Two are worth a later reader's attention. **The migration created a success shape that did not
+  exist before**: on `/v1/responses` a run that fails after the request was accepted returns HTTP
+  200 with `status: "failed"` and an empty `output`, where every Chat Completions failure was a
+  non-2xx. The streaming path handled it (`response.failed`) and `_chat` did not, so the router
+  would have booked a success, skipped rotation, and handed the caller an empty string —
+  `summariser.py:70` writing an empty summary and both triple extractors finding nothing, silently.
+  **And the Q-4 replay had a cross-key hazard neither gate traced**: each tool round is an
+  independent `call_stream` that re-picks a group member (`provider_router.py:457-486`), a key group
+  legitimately holds keys from more than one OpenAI account, and encrypted reasoning is decryptable
+  only by the account that produced it — so a quota rollover mid-loop turns the replay into a
+  deterministic 400, which `classify_http` makes an ABORT that kills the whole group. That is
+  precisely the `provider_exhausted:request_rejected` this two-dossier effort started from, which
+  makes it the one regression this work could least afford to introduce. Closed twice over: the
+  adapter tags items with a non-reversible digest of the key that produced them and replays only on
+  a match, and the turn loop retries a rejected round once with every item stripped. The third was
+  `_shed_provider_items` dropping the newest round when that round alone exceeded the budget,
+  contradicting its own documented policy.
 - **D-3: §5.7 gained item 2a during implementation.** The assessment did not ask whether a
   non-reasoning model accepts `include: ["reasoning.encrypted_content"]`. It cannot be settled from
   documentation, the trade-off between the two available choices is recorded at that item, and it
