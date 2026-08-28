@@ -107,7 +107,7 @@ from typing import Any
 import httpx
 
 from contexts.keys.domain.providers import ApiKeyProvider
-from contexts.keys.infrastructure.probes.base import summarise_http_failure
+from contexts.keys.infrastructure.probes.base import safe_ident, summarise_http_failure
 
 # Agent turns can run long (tool rounds, big contexts); far past the 5 s probe
 # circuit-breaker. The arq worker — never the web process — owns these calls.
@@ -134,9 +134,18 @@ def scrub_stream_error(status: int, kind: object = None) -> dict[str, Any]:
     Mirrors :func:`scrub_error`'s closed vocabulary (status + provider error
     type/code only) for errors delivered inside an HTTP-200 SSE stream — no
     URLs, headers, messages, or key material survive.
+
+    *kind* goes through the same :func:`safe_ident` filter the non-2xx path
+    applies, and for the same reason: it is provider-controlled text, and an
+    error delivered inside an HTTP 200 is no more trustworthy than one that
+    arrived with a status code. Every real value on all three adapters
+    (`rate_limit_error`, `RESOURCE_EXHAUSTED`, `rate_limit_exceeded`) is
+    identifier-shaped; a sentence, or a masked key reflection smuggled into
+    the field, is dropped whole rather than truncated.
     """
-    if kind:
-        return {"error": f"HTTP {status} ({kind})"}
+    ident = safe_ident(kind)
+    if ident is not None:
+        return {"error": f"HTTP {status} ({ident})"}
     return {"error": f"HTTP {status}"}
 
 

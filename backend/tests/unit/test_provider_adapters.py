@@ -780,6 +780,45 @@ async def test_openai_response_failed_maps_to_non_2xx(kind: str, status: int) ->
 
 @pytest.mark.asyncio
 @respx.mock
+@pytest.mark.parametrize(
+    "code",
+    [
+        f"your key {_SECRET} is bad",
+        "rate limit exceeded, please retry",
+        "x" * 65,
+        {"nested": "object"},
+    ],
+)
+async def test_in_stream_error_code_that_is_not_identifier_shaped_is_dropped(code: object) -> None:
+    # An error delivered inside an HTTP 200 is no more trustworthy than one that
+    # arrived with a status code, so it goes through the same `safe_ident`
+    # filter the non-2xx path applies. A sentence -- or a masked key reflection
+    # smuggled into `code` -- is dropped whole rather than truncated.
+    respx.post(_RESPONSES_URL).mock(return_value=_sse({"type": "error", "code": code, "message": "boom"}))
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body == {"error": "HTTP 500"}
+    assert _SECRET not in json.dumps(final.result.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_in_stream_error_type_is_filtered_the_same_way() -> None:
+    # The filter lives in `base.scrub_stream_error`, so all three adapters get
+    # it at once -- this pins that it reaches the Anthropic path too.
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=_sse({"type": "error", "error": {"type": f"key {_SECRET} rejected"}})
+    )
+    events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body == {"error": "HTTP 500"}
+    assert _SECRET not in json.dumps(final.result.body)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_openai_stream_cut_before_a_terminal_event_is_a_failure() -> None:
     # There is no `[DONE]` sentinel to distinguish "finished" from "cut", so a
     # stream that simply stops must not be reported as a successful empty turn.
