@@ -100,7 +100,13 @@ def probe_url(provider_field: str, path: str) -> str:
 _SAFE_IDENT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-def _safe_ident(value: object) -> str | None:
+def safe_ident(value: object) -> str | None:
+    """A provider-supplied field, or None if it is not identifier-shaped.
+
+    Public because the adapters' in-stream error path needs the same filter:
+    an error delivered inside an HTTP 200 is no more trustworthy than one
+    delivered with a status code. See ``adapters.base.scrub_stream_error``.
+    """
     return value if isinstance(value, str) and _SAFE_IDENT_RE.match(value) else None
 
 
@@ -128,9 +134,9 @@ def summarise_http_failure(response: httpx.Response) -> str:
     parts = [
         f"{label}={value}"
         for label, value in (
-            ("type", _safe_ident(err.get("type"))),
-            ("code", _safe_ident(err.get("code"))),
-            ("param", _safe_ident(err.get("param"))),
+            ("type", safe_ident(err.get("type"))),
+            ("code", safe_ident(err.get("code"))),
+            ("param", safe_ident(err.get("param"))),
         )
         if value is not None
     ]
@@ -144,5 +150,6 @@ __all__ = [
     "ProbeStatus",
     "new_http_client",
     "probe_url",
+    "safe_ident",
     "summarise_http_failure",
 ]
