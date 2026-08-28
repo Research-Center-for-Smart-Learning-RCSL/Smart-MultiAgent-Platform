@@ -47,13 +47,16 @@ class ChatModelSpec:
     and ``verified_on`` are per-row provenance (Q-4) — a table-wide comment
     cannot say which row a later reader should distrust.
 
-    Two fields are endpoint-specific and both now read False on every row.
-    ``uses_completion_token_field`` names two Chat Completions parameters and is
-    read by no adapter at all since ``openai.py`` moved to ``/v1/responses``,
-    which has one ``max_output_tokens``. ``effort_conflicts_with_tools`` is
-    still read (``CapabilityFlags.forwardable_effort``), but no model sets it:
-    the gpt-5.4+ conflict it was added for is a Chat Completions behaviour and
-    does not exist on ``/v1/responses``. See
+    Two fields describe OpenAI's Chat Completions endpoint, which no adapter
+    posts to any more, and they went dead in different ways.
+    ``uses_completion_token_field`` still records which models renamed
+    ``max_tokens`` there, and those values are left as they were, but nothing
+    reads the field now: ``/v1/responses`` has one ``max_output_tokens``.
+    ``effort_conflicts_with_tools`` is still read
+    (``CapabilityFlags.forwardable_effort``) and had to be cleared instead:
+    every row now sets it False, because the gpt-5.4+ conflict it was added for
+    is a Chat Completions behaviour, and a row that still declared it would go
+    on dropping the effort the migration exists to deliver. See
     ``docs/tasks/2026-08-27-openai-responses-api-migration/spec.md`` D-1.
     """
 

@@ -628,10 +628,16 @@ async def test_openai_replays_provider_items_instead_of_synthesising_them() -> N
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_returns_its_output_items_for_replay() -> None:
-    items = [_text_item("ok"), _call_item("c1", "f", "{}")]
-    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=items))
+    items = [_text_item("ok"), _call_item("c1", "f", '{"x": 1}')]
+    respx.post(_RESPONSES_URL).respond(
+        200, json=_response_obj(output=items, usage={"input_tokens": 7, "output_tokens": 3})
+    )
     res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
     assert res.body["provider_items"] == items
+    # The non-streaming half of the call_id rule: `id` here is `fc_c1`, and
+    # taking it instead of `call_id` breaks the next round's pairing.
+    assert res.body["tool_calls"] == [{"id": "c1", "name": "f", "arguments": {"x": 1}}]
+    assert (res.input_tokens, res.output_tokens) == (7, 3)
 
 
 @pytest.mark.asyncio

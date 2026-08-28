@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-08-27
 requirements: [R7.08]
 depends_on: [2026-08-27-provider-model-capability-table]
@@ -324,6 +324,11 @@ These are the content of the live-key verification §10 requires, not open desig
    first real turn.
 2. That the HTTP error envelope on `/v1/responses` really carries `type` and `param` and not only
    `code` and `message` (§5.5).
+2a. Whether a non-reasoning model accepts `include: ["reasoning.encrypted_content"]` or rejects it.
+   The adapter sends it unconditionally, which is the lower-risk of the two unverifiable options:
+   gating it on `accepts_effort` would mean replaying a reasoning item whose content was never
+   requested, and a contentless reasoning item on the input side is the failure that cannot be
+   recovered from. Added during implementation, not present in the assessment as first written.
 3. The capability table's own FU-12, deferred on 2026-08-28: which effort values each catalogued
    OpenAI model actually accepts. On this endpoint the question changes shape — `none` becomes a
    sendable value rather than a workaround for the tools conflict — and the same live session
@@ -540,45 +545,45 @@ restores the previous endpoint with no data or schema implications.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: §5 is complete, every claim cited to current OpenAI documentation, with a
+- [x] AC-1: §5 is complete, every claim cited to current OpenAI documentation, with a
       recommendation and the option it was chosen over.
-- [ ] AC-2: the user has approved the recommendation, recorded as a Q-n row.
-- [ ] AC-3: the adapter posts to `/v1/responses`, and a chat request carries `instructions`,
+- [x] AC-2: the user has approved the recommendation, recorded as a Q-n row.
+- [x] AC-3: the adapter posts to `/v1/responses`, and a chat request carries `instructions`,
       `input`, flattened `tools`, `max_output_tokens`, `store: false` and
       `include: ["reasoning.encrypted_content"]`. `/v1/embeddings` is untouched.
-- [ ] AC-4: `reasoning.effort` and `tools` are sent **together** for a model whose spec lists the
+- [x] AC-4: `reasoning.effort` and `tools` are sent **together** for a model whose spec lists the
       requested effort value. This is the capability the task exists to deliver, so it is asserted
       on the request body of a call that carries tools.
-- [ ] AC-5: `forwardable_effort`'s gate still holds on the new shape — an effort value not in the
+- [x] AC-5: `forwardable_effort`'s gate still holds on the new shape — an effort value not in the
       model's `effort_values` omits `reasoning` entirely, and Q-2's floor (an uncatalogued id)
       sends no `reasoning`, no `temperature` and no `top_p`.
-- [ ] AC-6: a neutral history containing a system prompt, user and assistant text turns, an
+- [x] AC-6: a neutral history containing a system prompt, user and assistant text turns, an
       assistant tool-use turn and its tool results round-trips into the correct `input` item
       sequence, with `function_call_output` keyed on the same `call_id` the `function_call`
       carried.
-- [ ] AC-7: attachment blocks map to `input_text` / `input_image` / `input_file`, and a
+- [x] AC-7: attachment blocks map to `input_text` / `input_image` / `input_file`, and a
       non-vision model gets `_attachment_note` instead.
-- [ ] AC-8: a non-streaming 200 response normalises to `{text, tool_calls, finish_reason}` with
+- [x] AC-8: a non-streaming 200 response normalises to `{text, tool_calls, finish_reason}` with
       `tool_calls[].id` taken from `call_id`, and usage read from
       `usage.input_tokens`/`usage.output_tokens`.
-- [ ] AC-9: `status: "incomplete"` with `incomplete_details.reason == "max_output_tokens"`
+- [x] AC-9: `status: "incomplete"` with `incomplete_details.reason == "max_output_tokens"`
       normalises to that `finish_reason`, and `is_truncated_finish_reason` returns True for it.
       The existing Chat Completions vocabulary (`length`, `max_tokens`) still returns True and
       `tool_calls`/`tool_use` still return False.
-- [ ] AC-10: a streamed turn emits one `TokenDelta` per `response.output_text.delta` and exactly
+- [x] AC-10: a streamed turn emits one `TokenDelta` per `response.output_text.delta` and exactly
       one terminal `StreamComplete`, whose body and token counts are built from
       `response.completed`'s response object. No `[DONE]` sentinel is required to terminate.
-- [ ] AC-11: a streamed turn containing a `function_call` reassembles it correctly from the
+- [x] AC-11: a streamed turn containing a `function_call` reassembles it correctly from the
       terminal response object, including a tool call whose arguments were delivered across
       several `response.function_call_arguments.delta` events.
-- [ ] AC-12: an in-stream failure under HTTP 200 maps through `_STREAM_ERROR_STATUS` —
+- [x] AC-12: an in-stream failure under HTTP 200 maps through `_STREAM_ERROR_STATUS` —
       `rate_limit_exceeded` to 429, an unknown code to 500 — for both the top-level `error` event
       and `response.failed`, and the resulting body is `scrub_stream_error` output only. Verified
       for both, not one.
-- [ ] AC-13: a non-2xx HTTP response still yields `scrub_error` output and no adapter test finds
+- [x] AC-13: a non-2xx HTTP response still yields `scrub_error` output and no adapter test finds
       the secret anywhere in a normalised body, on every path (`invoke` chat, embed, stream, and
       each error path).
-- [ ] AC-14: the Q-4 passthrough round-trips: a response's `output` array reaches the neutral body
+- [x] AC-14: the Q-4 passthrough round-trips: a response's `output` array reaches the neutral body
       as `provider_items`, the turn engine copies it onto the assistant message it appends, and the
       next request's `input` carries those items verbatim rather than synthesised ones. The
       synthesis pass drops the key.
@@ -631,9 +636,80 @@ already describe.
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1: the three gpt-5.x rows had `effort_conflicts_with_tools` cleared, which §6.4 said would
+  not happen.** §6.4 as written kept every capability value untouched and annotated the two dead
+  fields with comments. That is wrong for `effort_conflicts_with_tools`, and the assessment missed
+  why: unlike `uses_completion_token_field`, this field is not read by the adapter directly but by
+  the shared gate `CapabilityFlags.forwardable_effort` (`base.py:153-165`), which the migration
+  deliberately left untouched. A row that still declared the conflict would therefore have gone on
+  dropping the very effort value the migration exists to deliver, and the agent-config form reads
+  the same field (`AgentDetailView.vue:299,353,364`) to disable its control, so the UI would also
+  have gone on saying the setting is unavailable. `gpt-5.5`, `gpt-5.4` and `gpt-5.4-mini` are now
+  `False` with a comment giving the reason; the gate itself is unchanged and still honours the flag
+  for any future row that sets it, which `test_openai_drops_reasoning_effort_when_a_conflicting_
+  model_carries_tools` keeps pinned. `uses_completion_token_field` is genuinely unread now and its
+  values were left alone as §6.4 intended.
+- **D-2: `frontend/tests/mocks/handlers.ts` was edited, which §6 said had no frontend work.** The
+  fixture's three OpenAI rows asserted `effort_conflicts_with_tools: true`, which D-1 makes false of
+  the shipped catalogue. No frontend test reads that branch (verified by grep across
+  `frontend/**/__tests__/`), so this is a truthfulness fix to a fixture rather than a behaviour
+  change, but it is still a file §6 did not list.
+- **D-3: §5.7 gained item 2a during implementation.** The assessment did not ask whether a
+  non-reasoning model accepts `include: ["reasoning.encrypted_content"]`. It cannot be settled from
+  documentation, the trade-off between the two available choices is recorded at that item, and it
+  joins AC-15's live check.
+
+## 17. What was verified, and what was not
+
+Every mechanical and contract gate ran on CI: PR #170, run `33171817174`, **22 of 22 jobs green**,
+including `backend-test`, `backend-typecheck`, `backend-db`, `backend-integration`,
+`backend-wiring`, `frontend-e2e` and `frontend-gate-openapi-drift`. Run locally against the diff:
+`ruff check`, `ruff format --check`, the four affected unit files, and the `check-security` and
+`check-quality` gates (0 Critical, 0 High; one MEDIUM to FU-3, one Hardening to FU-2, one Info
+fixed in place). No migration, no API contract change, so gate 2 is N/A beyond the drift check,
+which passed unchanged.
+
+**What no gate covers, and what a later session must therefore not assume.** Per Q-5 there was no
+real key this session, so **AC-15 and AC-16 are closed unticked**. Nothing in this task has ever
+sent a request to `api.openai.com/v1/responses`. Every claim about the request being *accepted*
+rests on documentation plus `respx` fakes the adapter's own author wrote, which is precisely the
+combination §10 warned cannot see a shape mismatch. Three specific unknowns, in the order they
+would bite:
+
+1. **Strict mode on function tools** (§5.7 item 1). The adapter sends `"strict": false` explicitly
+   because the migration guide says Responses defaults to strict. If that reading is wrong in
+   either direction the first real turn with tools fails, and no unit test can tell.
+2. **`include: ["reasoning.encrypted_content"]` on a non-reasoning model** (§5.7 item 2a, D-3). Sent
+   unconditionally, which is the lower-risk of two unverifiable options; a 400 here would affect
+   `gpt-4o`-class models only.
+3. **The HTTP error envelope** (§5.7 item 2). `scrub_error` and the `provider_detail` chain assume
+   `type`/`code`/`param` survive on this endpoint. If only `code` and `message` do, errors still
+   scrub safely but stop naming causes, silently undoing `1d9a3da`.
+
+The browser pass was not performed either. The user-visible consequence of this task is that the
+agent-config effort control stops being disabled for gpt-5.x (D-1); that follows from the capability
+table's data changing, and the frontend logic is untouched and already covered, but nobody looked at
+the form.
 
 ## 16. Follow-ups
+
+- **FU-3: the context-window guard does not see the growth `provider_items` introduces.** The
+  `F-16 AC-6` guard runs `estimate_tokens` over the assembled messages *before the initial
+  dispatch* only, so the reasoning blobs the tool loop now accumulates on each assistant turn are
+  invisible to it. Bounded by `MAX_TOOL_ROUNDS`, so it inflates the room owner's own token spend
+  rather than running away, but a long tool loop can now approach the context limit from a
+  starting point the guard judged safe. Found by the security gate as a MEDIUM. Fix direction:
+  re-run the guard per round, or drop reasoning items from the replay once the estimate nears the
+  limit.
+- **FU-2: `base.scrub_stream_error` does not apply the identifier-shape check that
+  `summarise_http_failure` applies.** `scrub_error`'s path runs the provider's `type`/`code`/`param`
+  through `_safe_ident` (`probes/base.py:128-136`), which drops anything that is not
+  identifier-shaped, precisely so a masked key reflection smuggled into `code` cannot survive.
+  `scrub_stream_error` (`base.py:105-114`) interpolates its `kind` argument directly. Pre-existing
+  and unchanged by this task — the previous adapter passed `error.type`/`code` in exactly the same
+  way, and on this endpoint the in-stream `code` is a closed vocabulary, which makes it narrower
+  than before rather than wider. Out of scope here because fixing it touches all three adapters'
+  in-stream error paths at once.
 
 - FU-1: Gemini's Interactions API reached general availability in June 2026 and is documented as
   recommended for new projects, with `generateContent` retained for compatibility. The same
