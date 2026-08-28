@@ -246,7 +246,11 @@ const customModel = ref(false)
 const currentChatEntry = computed(() =>
   modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value),
 )
+// ChatModelSpecOut[] -- one row per catalogued model, carrying the per-model
+// capabilities (R9.03a) the effort/sampling controls and the context-cap bound
+// below are gated on.
 const chatModelsForHint = computed(() => currentChatEntry.value?.models ?? [])
+const chatModelIdsForHint = computed(() => chatModelsForHint.value.map((m) => m.model_id))
 // The model the runtime uses when model_id is left unset, surfaced in the
 // "provider default" option label so the user sees which model that resolves to.
 const defaultModelForHint = computed(() => currentChatEntry.value?.default ?? '')
@@ -258,8 +262,23 @@ const isCustomModel = computed(
       // free-text input when the catalog FAILED to load, so a saved custom model
       // stays viewable/editable instead of vanishing behind an empty dropdown.
       // While the catalog is still in-flight, neither branch fires (no flicker).
-      ((!!modelCatalogQuery.data.value && !chatModelsForHint.value.includes(modelId.value)) ||
+      ((!!modelCatalogQuery.data.value && !chatModelIdsForHint.value.includes(modelId.value)) ||
         modelCatalogQuery.isError.value)),
+)
+// The spec for whichever model is actually in effect: the typed/selected preset,
+// or the provider default when model_id is unset. `undefined` for a custom model
+// (not in the table) or while the catalog hasn't answered yet -- both cases fall
+// through to the same "unknown capabilities" disabled treatment below, since the
+// runtime applies the same conservative floor (Q-2) to a model it has no row for.
+const selectedModelSpec = computed(() => {
+  const targetId = modelId.value || defaultModelForHint.value
+  if (!targetId) return undefined
+  return chatModelsForHint.value.find((m) => m.model_id === targetId)
+})
+// Name to interpolate into a disabled-control explanation. Falls back to a
+// generic phrase so the copy never renders an empty "{model}".
+const selectedModelLabel = computed(
+  () => modelId.value || defaultModelForHint.value || t('agents.form.modelUnknown'),
 )
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
@@ -286,17 +305,58 @@ const modelIdOptions = computed(() => [
       ? t('agents.form.modelDefaultNamed', { model: defaultModelForHint.value })
       : t('agents.form.modelDefault'),
   },
-  ...chatModelsForHint.value.map((m) => ({ value: m, label: m })),
+  ...chatModelsForHint.value.map((m) => ({ value: m.model_id, label: m.model_id })),
   { value: CUSTOM_MODEL, label: t('agents.form.modelCustom') },
 ])
 
-// Reasoning effort: empty = provider default (stored as null via schema preprocess).
-const effortOptions = computed(() => [
-  { value: '', label: t('agents.form.effortDefault') },
-  { value: 'low', label: t('agents.form.effortLevels.low') },
-  { value: 'medium', label: t('agents.form.effortLevels.medium') },
-  { value: 'high', label: t('agents.form.effortLevels.high') },
-])
+// The catalog is "settled" once it has either answered or definitively
+// failed; while it's still in flight neither `effortDisabled` nor
+// `samplingDisabled` below may fire; a control must not be disabled merely
+// because the catalogue has not answered yet, or a user on a slow link
+// cannot edit an agent (NFR "Error handling UX").
+const catalogSettled = computed(() => !!modelCatalogQuery.data.value || modelCatalogQuery.isError.value)
+
+// Effort control is disabled once the catalog has settled and the selected
+// model's spec is unknown (custom model, or a fetch error), flatly refuses
+// effort, or accepts effort only without tools -- which every agent turn
+// sends (R9.03a, `effort_conflicts_with_tools`), so the setting would be
+// silently inert rather than merely unsupported.
+const effortDisabled = computed(() => {
+  if (!catalogSettled.value) return false
+  const spec = selectedModelSpec.value
+  return !spec || !spec.accepts_effort || spec.effort_conflicts_with_tools
+})
+const effortHelp = computed(() =>
+  effortDisabled.value
+    ? t('agents.form.effortDisabledReason', { model: selectedModelLabel.value })
+    : t('agents.form.effortHelp'),
+)
+// Empty = provider default (stored as null via schema preprocess). The
+// non-empty options come from the selected model's own accepted values
+// (R9.03a) rather than a fixed list, so the form never offers a value the
+// model will silently drop.
+const effortOptions = computed(() => {
+  const base = [{ value: '', label: t('agents.form.effortDefault') }]
+  if (effortDisabled.value) return base
+  return [
+    ...base,
+    ...(selectedModelSpec.value?.effort_values ?? []).map((v) => ({
+      value: v,
+      label: t(`agents.form.effortLevels.${v}`),
+    })),
+  ]
+})
+
+const samplingDisabled = computed(() => {
+  if (!catalogSettled.value) return false
+  const spec = selectedModelSpec.value
+  return !spec || !spec.accepts_sampling
+})
+const samplingHelp = computed(() =>
+  samplingDisabled.value
+    ? t('agents.form.samplingDisabledReason', { model: selectedModelLabel.value })
+    : t('agents.form.samplingHelp'),
+)
 
 // Wakeup config. New agents default to replying to every message (every_n=1):
 // without an enabled trigger an agent is inert and never responds, which is a
@@ -472,8 +532,11 @@ function onModelHintChange(value: string | number): void {
   customModel.value = false
 }
 
+// Bounded by the *selected model's* context limit (R9.03a), not the
+// provider's -- Claude's window varies five-fold within one provider
+// (claude-haiku-4-5 at 200k vs claude-sonnet-4-6 at 1M).
 const contextTokenCapPlaceholder = computed(() => {
-  const contextLimit = currentChatEntry.value?.context_limit ?? 128_000
+  const contextLimit = selectedModelSpec.value?.context_limit ?? 128_000
   const defaultCap = Math.floor(contextLimit * 0.75)
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
@@ -827,12 +890,13 @@ const breadcrumbs = computed(() => [
               :label="t('agents.form.effort')"
               name="effort"
               :error="errors.effort ?? ''"
-              :help="t('agents.form.effortHelp')"
+              :help="effortHelp"
               class="mt-4"
             >
               <SSelect
                 v-model="effort"
                 :options="effortOptions"
+                :disabled="effortDisabled"
               />
             </SFormField>
 
@@ -893,7 +957,7 @@ const breadcrumbs = computed(() => [
               {{ t('agents.form.samplingTitle') }}
             </h3>
             <p class="mb-4 text-sm text-[var(--color-muted)]">
-              {{ t('agents.form.samplingHelp') }}
+              {{ samplingHelp }}
             </p>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <SFormField
@@ -905,6 +969,7 @@ const breadcrumbs = computed(() => [
                 <SInput
                   v-model="temperatureModel"
                   type="text"
+                  :disabled="samplingDisabled"
                   :placeholder="t('agents.form.samplingDefaultPlaceholder')"
                 />
               </SFormField>
@@ -917,6 +982,7 @@ const breadcrumbs = computed(() => [
                 <SInput
                   v-model="topPModel"
                   type="text"
+                  :disabled="samplingDisabled"
                   :placeholder="t('agents.form.samplingDefaultPlaceholder')"
                 />
               </SFormField>

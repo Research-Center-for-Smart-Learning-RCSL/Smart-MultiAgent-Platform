@@ -2,11 +2,12 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentEffort } from './AgentEffort';
 export type AgentCreateIn = {
     a2a_enabled?: boolean;
     context_mode?: 'general' | 'compact';
     context_token_cap?: (number | null);
-    effort?: ('low' | 'medium' | 'high' | null);
+    effort?: (AgentEffort | null);
     key_group_id: string;
     knowmap_config_id?: (string | null);
     model_hint: 'claude' | 'openai' | 'gemini';

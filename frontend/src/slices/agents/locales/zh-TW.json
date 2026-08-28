@@ -116,13 +116,19 @@
       "modelDefault": "提供者預設",
       "modelDefaultNamed": "提供者預設（{model}）",
       "modelCustom": "自訂模型 ID...",
+      "modelUnknown": "此模型",
       "effort": "推理強度",
       "effortHelp": "模型回答前投入的推理程度。僅對支援推理的模型有效；其餘維持「提供者預設」即可。",
+      "effortDisabledReason": "{model} 不接受設定推理強度，因此此控制項已停用。",
       "effortDefault": "提供者預設",
       "effortLevels": {
+        "none": "無",
+        "minimal": "最低",
         "low": "低",
         "medium": "中",
-        "high": "高"
+        "high": "高",
+        "xhigh": "極高",
+        "max": "最高"
       },
       "keyGroup": "金鑰群組",
       "keyGroupPlaceholder": "選擇金鑰群組…",
@@ -137,6 +143,7 @@
       "contextTokenCapDefault": "留空使用預設值（{cap}）",
       "samplingTitle": "取樣（可重現性）",
       "samplingHelp": "固定這些參數可降低輸出變異，方便重複評分。留空則使用提供者預設。這能讓輸出可重現到足以稽核，但並非逐位元相同。",
+      "samplingDisabledReason": "{model} 不接受溫度或 Top P 設定，因此這些控制項已停用。",
       "samplingDefaultPlaceholder": "提供者預設",
       "temperature": "溫度 (Temperature)",
       "temperatureHelp": "0 至 2。數值越低越趨於確定；0 可獲得最可重複的輸出。",
