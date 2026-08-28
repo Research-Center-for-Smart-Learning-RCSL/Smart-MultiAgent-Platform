@@ -208,6 +208,49 @@ async def test_provider_items_are_carried_back_onto_the_assistant_turn(monkeypat
     assert router.requests[1].payload["messages"][1]["provider_items"] == items
 
 
+def test_provider_items_are_shed_oldest_first_past_the_budget() -> None:
+    # The replayed chain is the one part of a tool round that grows every
+    # iteration and that nothing downstream can shrink -- it is opaque bytes.
+    # Unbounded, MAX_TOOL_ROUNDS rounds of it walk the request toward the
+    # context limit on the customer's own key.
+    def _turn(marker: str, size: int) -> dict:
+        return {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": marker, "name": "f", "arguments": {}}],
+            "provider_items": [{"type": "reasoning", "encrypted_content": marker * size}],
+        }
+
+    # Two fifths each: three rounds overshoot the budget, shedding one round
+    # brings it back under, so exactly one has to go.
+    chunk = te._MAX_RETAINED_PROVIDER_ITEM_BYTES * 2 // 5
+    messages = [
+        {"role": "user", "content": "hi"},
+        _turn("a", chunk),
+        _turn("b", chunk),
+        _turn("c", chunk),
+    ]
+
+    assert te._shed_provider_items(messages) == 1
+
+    # Oldest round loses its items; the round the model is continuing from keeps
+    # them. Nothing else about the shed turn changes -- the tool call the next
+    # round has to answer is still there.
+    assert "provider_items" not in messages[1]
+    assert messages[1]["tool_calls"] == [{"id": "a", "name": "f", "arguments": {}}]
+    assert messages[2]["provider_items"]
+    assert messages[3]["provider_items"]
+
+
+def test_provider_items_under_the_budget_are_left_alone() -> None:
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "", "tool_calls": [], "provider_items": [{"type": "reasoning"}]},
+    ]
+    assert te._shed_provider_items(messages) == 0
+    assert messages[1]["provider_items"] == [{"type": "reasoning"}]
+
+
 @pytest.mark.asyncio
 async def test_a_round_without_provider_items_does_not_invent_the_key(monkeypatch) -> None:
     # Anthropic and Gemini return no such field; the assistant turn they produce
