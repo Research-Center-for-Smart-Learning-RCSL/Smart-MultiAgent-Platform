@@ -108,7 +108,7 @@ def _list_msg() -> list[dict]:
 
 
 def test_openai_vision_model_emits_image_url_and_pdf_file() -> None:
-    parts = openai_input_items({"messages": _list_msg()}, vision=True)[0]["content"]
+    parts = openai_input_items({"messages": _list_msg()}, key_tag="k", vision=True)[0]["content"]
     assert parts[0] == {"type": "input_text", "text": "hi"}
     # Responses takes `image_url` as a plain string, not a nested object.
     assert parts[1] == {"type": "input_image", "image_url": "data:image/png;base64,QUJD"}
@@ -119,7 +119,7 @@ def test_openai_vision_model_emits_image_url_and_pdf_file() -> None:
 
 
 def test_openai_non_vision_model_notes_image_and_pdf() -> None:
-    parts = openai_input_items({"messages": _list_msg()}, vision=False)[0]["content"]
+    parts = openai_input_items({"messages": _list_msg()}, key_tag="k", vision=False)[0]["content"]
     assert parts[1]["type"] == "input_text"
     assert "a.png" in parts[1]["text"]
     assert not any(p.get("type") == "input_image" for p in parts)
