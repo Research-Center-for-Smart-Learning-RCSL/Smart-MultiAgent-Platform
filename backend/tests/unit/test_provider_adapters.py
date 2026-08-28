@@ -824,7 +824,19 @@ async def test_openai_stream_takes_tool_calls_whole_from_the_terminal_response()
 @respx.mock
 @pytest.mark.parametrize(
     ("kind", "status"),
-    [("rate_limit_exceeded", 429), ("server_error", 500), ("invalid_prompt", 500)],
+    [
+        ("rate_limit_exceeded", 429),
+        ("server_error", 500),
+        # Faults the request, so every sibling key refuses it identically: 400
+        # aborts the group instead of replaying it against each member.
+        ("invalid_prompt", 400),
+        ("image_content_policy_violation", 400),
+        # Faults the account or the moment, not the request -- another key may
+        # succeed, so these rotate.
+        ("data_residency_mismatch", 500),
+        ("vector_store_timeout", 500),
+        ("a_code_this_table_has_never_seen", 500),
+    ],
 )
 async def test_openai_in_stream_error_event_maps_to_non_2xx(kind: str, status: int) -> None:
     # A top-level `error` event arrives inside an HTTP 200 and must NOT pass as
