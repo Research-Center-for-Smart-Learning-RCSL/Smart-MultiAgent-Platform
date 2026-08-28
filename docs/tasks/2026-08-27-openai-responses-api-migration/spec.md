@@ -599,6 +599,13 @@ restores the previous endpoint with no data or schema implications.
       path (four non-conforming shapes, including a masked-key sentence) and on the Anthropic path,
       since the filter lives in `adapters/base.py` and reaches all three adapters at once. Added
       2026-08-28 at the user's direction, after the close-out.
+- [x] AC-21: the replay is switched off for the remainder of a turn once a round was rejected with
+      items attached, and a truncated round never contributes items at all. Both guards were
+      mutation-checked (red with the condition removed, green with it). From the second
+      `/code-review` pass; added 2026-08-28.
+- [x] AC-22: an in-stream error code that faults the request maps to 400 and aborts the group,
+      while an account-scoped or transient one still rotates. From the second `/code-review` pass;
+      added 2026-08-28.
 - [x] AC-19: a non-streaming response whose `status` is `failed` is classified as a failure, not
       returned as an empty success at HTTP 200. From the `/code-review` pass; added 2026-08-28.
 - [x] AC-20: replayed provider items are never sent to a key other than the one that produced them,
@@ -686,6 +693,23 @@ already describe.
   a match, and the turn loop retries a rejected round once with every item stripped. The third was
   `_shed_provider_items` dropping the newest round when that round alone exceeded the budget,
   contradicting its own documented policy.
+- **D-5: a second `/code-review` pass found four more, all fixed (AC-21, AC-22).** Three of them
+  are the same defect wearing different clothes, and the pattern is the lesson: **the fix for D-4
+  guarded the moment the replay is *sent* and left the moments it is *created* unguarded.** The
+  retry was one-shot while the replay re-armed itself every round, so a systemic refusal recovered
+  once and then died one round later with the retry spent. A round truncated at the output ceiling
+  contributed its half-written items — a `function_call` whose `arguments` stops mid-JSON, which
+  this loop already has a branch for — and the synthesised path never had that exposure because it
+  re-serialises the arguments. And the retention budget was enforced in bytes but *justified*
+  against a token window, on a payload (base64-ish encrypted content) that tokenises far worse than
+  the `len // 4` the reasoning implicitly assumed; 96 KB could have been 40k+ tokens of a 128k
+  window, stacked on an allocation computed as if it were zero. The fourth is unrelated to the
+  replay: `_STREAM_ERROR_STATUS` defaulted every unlisted code to 500, so a deterministic
+  `response.failed` (content policy, invalid prompt, a bad image in the request) was replayed
+  against every key in the group with backoff instead of aborting it.
+
+  Both new replay guards were **mutation-checked** — red with the condition removed, green with it
+  — rather than merely observed passing.
 - **D-3: §5.7 gained item 2a during implementation.** The assessment did not ask whether a
   non-reasoning model accepts `include: ["reasoning.encrypted_content"]`. It cannot be settled from
   documentation, the trade-off between the two available choices is recorded at that item, and it
