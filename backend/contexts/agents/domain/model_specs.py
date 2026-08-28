@@ -46,6 +46,18 @@ class ChatModelSpec:
     ``effort_values`` is empty when ``accepts_effort`` is False. ``source_url``
     and ``verified_on`` are per-row provenance (Q-4) — a table-wide comment
     cannot say which row a later reader should distrust.
+
+    Two fields describe OpenAI's Chat Completions endpoint, which no adapter
+    posts to any more, and they went dead in different ways.
+    ``uses_completion_token_field`` still records which models renamed
+    ``max_tokens`` there, and those values are left as they were, but nothing
+    reads the field now: ``/v1/responses`` has one ``max_output_tokens``.
+    ``effort_conflicts_with_tools`` is still read
+    (``CapabilityFlags.forwardable_effort``) and had to be cleared instead:
+    every row now sets it False, because the gpt-5.4+ conflict it was added for
+    is a Chat Completions behaviour, and a row that still declared it would go
+    on dropping the effort the migration exists to deliver. See
+    ``docs/tasks/2026-08-27-openai-responses-api-migration/spec.md`` D-1.
     """
 
     model_id: str
@@ -115,7 +127,9 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # False since the Responses API migration: the conflict was a Chat
+        # Completions behaviour, and that is no longer the endpoint SMAP uses.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),
@@ -128,7 +142,10 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # See gpt-5.5 above. This is the row the 結書 incident was diagnosed on,
+        # and clearing it is what re-enables the effort control the capability
+        # table disabled.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),
@@ -141,7 +158,8 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_sampling=False,
         accepts_vision=True,
         uses_completion_token_field=True,
-        effort_conflicts_with_tools=True,
+        # See gpt-5.5 above.
+        effort_conflicts_with_tools=False,
         source_url=_OPENAI_DOCS,
         verified_on=_UNVERIFIED_DATE,
     ),

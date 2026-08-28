@@ -16,6 +16,20 @@ LLM_CHAT::
         "models": {"claude": "..."},    # OR a per-provider map (multi-provider
                                         #   key groups, e.g. graphrag builder)
         "messages": [{"role": "user"|"assistant", "content": "..."}],
+                                        # an assistant turn that made tool calls
+                                        #   may also carry "provider_items" (a
+                                        #   list the adapter that produced it put
+                                        #   on its normalised body and replays
+                                        #   verbatim) and "provider_items_key"
+                                        #   (that adapter's own label for which
+                                        #   key produced them). BOTH OPAQUE: no
+                                        #   layer above the adapter reads either,
+                                        #   and an adapter that did not write
+                                        #   them MUST ignore them. OpenAI uses
+                                        #   the pair to carry encrypted reasoning
+                                        #   items across a tool round, and to
+                                        #   NOT replay them after key rotation
+                                        #   moved the turn to another account.
         "system": "optional system prompt",
         "tools": [{"name", "description", "input_schema"}],   # neutral schema
         "max_tokens": 4096,
@@ -24,9 +38,10 @@ LLM_CHAT::
         "temperature": 0.7,             # optional; forwarded only where the
                                         #   capability fields below say so
         "top_p": 1.0,                   # optional; same
-        "seed": 42,                     # optional; OpenAI only (no equivalent
-                                        #   on Anthropic/Gemini), still gated
-                                        #   by the same accepts_sampling flag
+        "seed": 42,                     # optional; NO adapter forwards it any
+                                        #   more -- Anthropic/Gemini never had
+                                        #   an equivalent and OpenAI's moved to
+                                        #   /v1/responses, which has none either
 
         # Capability fields (R9.03a) -- resolved once per (provider, model) by
         # whichever agents-context call site builds the payload
@@ -42,11 +57,24 @@ LLM_CHAT::
         "effort_values": ("low", "medium", "high"),  # gates WHICH values
         "accepts_sampling": True,       # gates temperature/top_p/seed together
         "accepts_vision": True,         # image/document blocks vs. a text note
-        "uses_completion_token_field": False,  # OpenAI only: max_completion_tokens
-                                                #   vs. the legacy max_tokens key
-        "effort_conflicts_with_tools": False,  # OpenAI gpt-5.4+: effort refused
-                                                #   alongside tools on this endpoint
+        "uses_completion_token_field": False,  # max_completion_tokens vs. the
+                                                #   legacy max_tokens key. Both
+                                                #   are Chat Completions names;
+                                                #   the OpenAI adapter moved to
+                                                #   /v1/responses and its single
+                                                #   max_output_tokens, so no
+                                                #   adapter reads this today.
+        "effort_conflicts_with_tools": False,  # gpt-5.4+ on Chat Completions
+                                                #   refused effort alongside
+                                                #   tools. Still read (see
+                                                #   forwardable_effort), but no
+                                                #   catalogued model sets it any
+                                                #   more: /v1/responses has no
+                                                #   such conflict.
     }
+
+Both flags are kept on the payload rather than removed: the gate they feed is
+shared across adapters, and a future provider or endpoint may need them again.
 
 EMBEDDING::
 
@@ -60,6 +88,9 @@ RERANK::
 Normalised response (``ProviderCallResult.body``)
 -------------------------------------------------
 - chat ......  ``{"text": str, "tool_calls": [...], "finish_reason": str|None}``
+               plus an optional opaque ``"provider_items"`` (see the payload
+               note above) that the turn engine copies back onto the assistant
+               turn it appends
 - embedding .  ``{"embeddings": [[float, ...], ...]}``  (input order preserved)
 - rerank ....  ``{"results": [{"index": int, "relevance_score": float}, ...]}``
 
@@ -81,7 +112,7 @@ from typing import Any
 import httpx
 
 from contexts.keys.domain.providers import ApiKeyProvider
-from contexts.keys.infrastructure.probes.base import summarise_http_failure
+from contexts.keys.infrastructure.probes.base import safe_ident, summarise_http_failure
 
 # Agent turns can run long (tool rounds, big contexts); far past the 5 s probe
 # circuit-breaker. The arq worker — never the web process — owns these calls.
@@ -108,9 +139,18 @@ def scrub_stream_error(status: int, kind: object = None) -> dict[str, Any]:
     Mirrors :func:`scrub_error`'s closed vocabulary (status + provider error
     type/code only) for errors delivered inside an HTTP-200 SSE stream — no
     URLs, headers, messages, or key material survive.
+
+    *kind* goes through the same :func:`safe_ident` filter the non-2xx path
+    applies, and for the same reason: it is provider-controlled text, and an
+    error delivered inside an HTTP 200 is no more trustworthy than one that
+    arrived with a status code. Every real value on all three adapters
+    (`rate_limit_error`, `RESOURCE_EXHAUSTED`, `rate_limit_exceeded`) is
+    identifier-shaped; a sentence, or a masked key reflection smuggled into
+    the field, is dropped whole rather than truncated.
     """
-    if kind:
-        return {"error": f"HTTP {status} ({kind})"}
+    ident = safe_ident(kind)
+    if ident is not None:
+        return {"error": f"HTTP {status} ({ident})"}
     return {"error": f"HTTP {status}"}
 
 

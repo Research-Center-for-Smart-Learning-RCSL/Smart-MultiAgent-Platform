@@ -136,9 +136,10 @@ StreamEvent = TokenDelta | StreamComplete
 
 # Each provider spells "I stopped because I hit the output ceiling" differently and
 # `finish_reason` is passed through verbatim: Anthropic `max_tokens`, OpenAI
-# `length`, Gemini `MAX_TOKENS`. Normalised here rather than in the adapters so the
-# raw provider value still reaches logs and usage rows unchanged.
-_TRUNCATED_FINISH_REASONS: frozenset[str] = frozenset({"max_tokens", "length"})
+# `max_output_tokens` on the Responses API (`length` on the Chat Completions API
+# it migrated off), Gemini `MAX_TOKENS`. Normalised here rather than in the
+# adapters so the raw provider value still reaches logs and usage rows unchanged.
+_TRUNCATED_FINISH_REASONS: frozenset[str] = frozenset({"max_tokens", "length", "max_output_tokens"})
 
 
 def is_truncated_finish_reason(finish_reason: object) -> bool:
