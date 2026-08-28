@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -213,7 +214,7 @@ def test_provider_items_are_shed_oldest_first_past_the_budget() -> None:
     # iteration and that nothing downstream can shrink -- it is opaque bytes.
     # Unbounded, MAX_TOOL_ROUNDS rounds of it walk the request toward the
     # context limit on the customer's own key.
-    def _turn(marker: str, size: int) -> dict:
+    def _turn(marker: str, size: int) -> dict[str, Any]:
         return {
             "role": "assistant",
             "content": "",
@@ -224,7 +225,7 @@ def test_provider_items_are_shed_oldest_first_past_the_budget() -> None:
     # Two fifths each: three rounds overshoot the budget, shedding one round
     # brings it back under, so exactly one has to go.
     chunk = te._MAX_RETAINED_PROVIDER_ITEM_BYTES * 2 // 5
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "user", "content": "hi"},
         _turn("a", chunk),
         _turn("b", chunk),
@@ -243,7 +244,7 @@ def test_provider_items_are_shed_oldest_first_past_the_budget() -> None:
 
 
 def test_provider_items_under_the_budget_are_left_alone() -> None:
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "", "tool_calls": [], "provider_items": [{"type": "reasoning"}]},
     ]
