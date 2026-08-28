@@ -124,14 +124,19 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
         )
         messages = [{"role": m.role, "content": m.content} for m in session.messages]
 
+        payload: dict[str, Any] = {
+            "model": resolved_model_id,
+            "system": system_text,
+            "messages": messages,
+            "max_tokens": ASSISTANT_MAX_TOKENS,
+        }
+        # Same capability fields turn_engine._chat_request attaches (R9.03a) —
+        # notably `uses_completion_token_field`, since OpenAI's reasoning models
+        # 400 on the field this call would otherwise send unconditionally.
+        payload.update(AgentsFacade(db).chat_model_capabilities(key.provider.value, resolved_model_id))
         request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
-            payload={
-                "model": resolved_model_id,
-                "system": system_text,
-                "messages": messages,
-                "max_tokens": ASSISTANT_MAX_TOKENS,
-            },
+            payload=payload,
             usage_context="prompt_assistant",
         )
 

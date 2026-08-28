@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from contexts.agents.application.example_service import CataloguePack, PackInstallReport
 
 from contexts.agents.domain.errors import AgentVersionMismatch
+from contexts.agents.domain.model_specs import capability_fields, resolve_spec
 from contexts.agents.domain.models import (
     Agent,
     AgentDraft,
@@ -96,6 +97,14 @@ class AgentsFacade:
     def chat_model_catalog(self) -> tuple[ChatModelCatalogEntry, ...]:
         """Per-provider preset chat models + runtime default for the agent UI."""
         return chat_model_catalog()
+
+    def chat_model_capabilities(self, provider: str, model_id: str) -> dict[str, Any]:
+        """Capability-table fields (R9.03a) for one ``(provider, model_id)`` pair,
+        shaped for a ``ProviderRequest.payload`` — the same fields
+        ``turn_engine._chat_request`` attaches for an agent turn. For callers
+        outside the agents context (e.g. the prompt-assistant worker) that build
+        their own provider request against a resolved model."""
+        return capability_fields(resolve_spec(provider, model_id))
 
     # ------------------------------------------------------------------
     # Shipped example packs ([R30.35])
