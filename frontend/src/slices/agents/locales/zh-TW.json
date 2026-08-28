@@ -120,6 +120,7 @@
       "effort": "推理強度",
       "effortHelp": "模型回答前投入的推理程度。僅對支援推理的模型有效；其餘維持「提供者預設」即可。",
       "effortDisabledReason": "{model} 不接受設定推理強度，因此此控制項已停用。",
+      "effortConflictsWithToolsReason": "{model} 不接受在使用工具的同時設定推理強度，而每次代理回合都會使用工具，因此此控制項已停用。",
       "effortDefault": "提供者預設",
       "effortLevels": {
         "none": "無",

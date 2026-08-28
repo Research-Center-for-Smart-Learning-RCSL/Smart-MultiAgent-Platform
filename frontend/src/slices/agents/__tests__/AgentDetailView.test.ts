@@ -597,4 +597,45 @@ describe('AgentDetailView', () => {
     const effortSelect = wrapper.find('#effort').element as HTMLSelectElement
     expect(effortSelect.disabled).toBe(false)
   })
+
+  // The UI-disable is not the only thing that must react to a mid-session
+  // model switch: the field the disabled control is bound to must clear too,
+  // or Save silently persists a value the model just stopped accepting.
+  it('clears effort and sampling values a newly selected model does not accept', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          model_hint: 'claude',
+          model_id: 'claude-sonnet-4-6',
+          effort: 'high',
+          temperature: 0.5,
+          top_p: 0.9,
+        }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    // Sonnet accepts both; the stored values render before any switch.
+    expect((wrapper.find('#effort').element as HTMLSelectElement).value).toBe('high')
+    expect((wrapper.find('#temperature').element as HTMLInputElement).value).toBe('0.5')
+
+    // claude-opus-4-8 accepts effort but not sampling (per the mocked
+    // catalog) -- switch to it and only the sampling fields should clear.
+    await wrapper.find('#model_id').setValue('claude-opus-4-8')
+    await settle(wrapper)
+    expect((wrapper.find('#effort').element as HTMLSelectElement).value).toBe('high')
+    expect((wrapper.find('#temperature').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.find('#top_p').element as HTMLInputElement).value).toBe('')
+
+    // claude-haiku-4-5 refuses effort outright -- the select now clears too.
+    await wrapper.find('#model_id').setValue('claude-haiku-4-5')
+    await settle(wrapper)
+    expect((wrapper.find('#effort').element as HTMLSelectElement).value).toBe('')
+  })
 })
