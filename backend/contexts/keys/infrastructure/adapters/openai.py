@@ -14,6 +14,7 @@ tools.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -88,7 +89,25 @@ def _headers(secret: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
 
 
-def _input_items(payload: dict[str, Any], *, vision: bool) -> list[dict[str, Any]]:
+def _key_tag(secret: str) -> str:
+    """An opaque, non-reversible label for "the key this response came from".
+
+    `reasoning.encrypted_content` is decryptable only by the account that
+    produced it, and a key group legitimately holds keys from more than one
+    OpenAI account. Each tool round is an independent `call_stream` that
+    re-picks a group member, so round N+1 can run on a different key than round
+    N — and replaying round N's items to it is a deterministic HTTP 400, which
+    the router classifies as ABORT and which kills the whole group rather than
+    rotating. Tagging the items lets the replay simply not happen instead.
+
+    A truncated SHA-256 digest, never the secret: it stays in worker memory for
+    one turn, is never logged, never persisted (``ProviderCallResult.body`` is
+    not), and never reaches the provider — `_input_items` reads it and drops it.
+    """
+    return hashlib.sha256(secret.encode()).hexdigest()[:16]
+
+
+def _input_items(payload: dict[str, Any], *, vision: bool, key_tag: str) -> list[dict[str, Any]]:
     """Neutral messages -> Responses `input` items.
 
     Responses thinks in items rather than messages, so one neutral message can
@@ -114,12 +133,18 @@ def _input_items(payload: dict[str, Any], *, vision: bool) -> list[dict[str, Any
             )
         elif role == "assistant" and m.get("tool_calls"):
             provider_items = m.get("provider_items")
-            if provider_items:
+            if provider_items and m.get("provider_items_key") == key_tag:
                 # Replay the provider's own output items verbatim. They already
                 # contain this turn's text and function calls, and — the reason
                 # this path exists — its encrypted reasoning items, without
                 # which a reasoning model loses its chain across a tool round
                 # and silently degrades (spec §5.6 / Q-4).
+                #
+                # Only when the key matches the one that produced them: see
+                # `_key_tag`. A mismatch falls through to the synthesised items
+                # below, which is the pre-Q-4 behaviour — the model loses its
+                # chain, rather than the request being rejected and the group
+                # aborted.
                 items.extend(provider_items)
                 continue
             if m.get("content"):
@@ -162,13 +187,13 @@ def _tools(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
     ]
 
 
-def _responses_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
+def _responses_body(request: ProviderRequest, *, stream: bool, key_tag: str) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.OPENAI)
     caps = base.capability_flags(payload)
     body: dict[str, Any] = {
         "model": model,
-        "input": _input_items(payload, vision=caps.accepts_vision),
+        "input": _input_items(payload, vision=caps.accepts_vision, key_tag=key_tag),
         # Retention is opt-OUT on this endpoint: omitting `store` leaves every
         # turn's content with OpenAI for at least 30 days, which Chat
         # Completions never did. Unconditional by design — this platform is
@@ -241,7 +266,7 @@ def _usage(data: dict[str, Any]) -> tuple[int, int]:
     return int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
 
 
-def _normalise_response(data: dict[str, Any]) -> dict[str, Any]:
+def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]:
     """Response object -> the neutral chat body the turn engine consumes.
 
     Shared by the streaming and non-streaming paths: `response.completed`
@@ -271,9 +296,12 @@ def _normalise_response(data: dict[str, Any]) -> dict[str, Any]:
         "text": "".join(text_parts),
         "tool_calls": tool_calls,
         "finish_reason": _finish_reason(data),
-        # Opaque above this module: the turn engine copies it onto the assistant
-        # turn without reading it, and `_input_items` replays it. See Q-4.
+        # Opaque above this module: the turn engine copies both onto the
+        # assistant turn without reading either, and `_input_items` replays the
+        # items only when the tag still matches the key in hand. See Q-4 and
+        # `_key_tag`.
         "provider_items": output,
+        "provider_items_key": key_tag,
     }
 
 
@@ -288,17 +316,28 @@ class OpenAIAdapter:
         raise ValueError(f"openai does not serve {request.capability.value}")
 
     async def _chat(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
+        key_tag = _key_tag(secret)
         async with base.new_client() as client:
             resp = await client.post(
-                _CHAT_URL, json=_responses_body(request, stream=False), headers=_headers(secret)
+                _CHAT_URL,
+                json=_responses_body(request, stream=False, key_tag=key_tag),
+                headers=_headers(secret),
             )
         if resp.status_code != 200:
             return ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
         data = resp.json()
         input_tokens, output_tokens = _usage(data)
+        if data.get("status") == "failed":
+            # A run that fails *after* the request was accepted comes back as a
+            # 200 whose `status` is `failed`, carrying an `error` and an empty
+            # `output`. Chat Completions had no such shape — every failure there
+            # was a non-2xx — so the status check above is not enough any more.
+            # Unmapped, the router records a success, does not rotate, and the
+            # caller consumes an empty string as the model's answer.
+            return _failure_result((data.get("error") or {}).get("code"), input_tokens, output_tokens)
         return ProviderCallResult(
             http_status=200,
-            body=_normalise_response(data),
+            body=_normalise_response(data, key_tag=key_tag),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
@@ -339,9 +378,13 @@ class OpenAIAdapter:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"openai does not stream {request.capability.value}")
 
+        key_tag = _key_tag(secret)
         async with base.new_client(stream=True) as client:  # noqa: SIM117
             async with client.stream(
-                "POST", _CHAT_URL, json=_responses_body(request, stream=True), headers=_headers(secret)
+                "POST",
+                _CHAT_URL,
+                json=_responses_body(request, stream=True, key_tag=key_tag),
+                headers=_headers(secret),
             ) as resp:
                 if resp.status_code != 200:
                     await resp.aread()
@@ -364,7 +407,7 @@ class OpenAIAdapter:
                         yield StreamComplete(
                             ProviderCallResult(
                                 http_status=200,
-                                body=_normalise_response(final),
+                                body=_normalise_response(final, key_tag=key_tag),
                                 input_tokens=input_tokens,
                                 output_tokens=output_tokens,
                             )
@@ -374,17 +417,23 @@ class OpenAIAdapter:
                         failed = ev.get("response") or {}
                         code = (failed.get("error") or {}).get("code")
                         input_tokens, output_tokens = _usage(failed)
-                        yield StreamComplete(_stream_failure(code, input_tokens, output_tokens))
+                        yield StreamComplete(_failure_result(code, input_tokens, output_tokens))
                         return
                     elif kind == "error":
-                        yield StreamComplete(_stream_failure(ev.get("code"), 0, 0))
+                        yield StreamComplete(_failure_result(ev.get("code"), 0, 0))
                         return
 
-        yield StreamComplete(_stream_failure("incomplete_stream", 0, 0))
+        yield StreamComplete(_failure_result("incomplete_stream", 0, 0))
 
 
-def _stream_failure(code: object, input_tokens: int, output_tokens: int) -> ProviderCallResult:
-    """Mid-stream failure under HTTP 200 -> synthetic non-2xx for the router."""
+def _failure_result(code: object, input_tokens: int, output_tokens: int) -> ProviderCallResult:
+    """A failure delivered under HTTP 200 -> synthetic non-2xx for the router.
+
+    Two shapes reach here: an `error` event or `response.failed` mid-stream, and
+    a non-streaming response whose `status` is `failed`. All three are the same
+    thing — a run that failed after the request was accepted — and all three
+    must be classified, not returned as an empty success.
+    """
     status = _STREAM_ERROR_STATUS.get(str(code or ""), _STREAM_ERROR_DEFAULT_STATUS)
     return ProviderCallResult(
         http_status=status,

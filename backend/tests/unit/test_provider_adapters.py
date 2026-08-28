@@ -24,7 +24,7 @@ from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters.anthropic import AnthropicAdapter
 from contexts.keys.infrastructure.adapters.cohere import CohereAdapter
 from contexts.keys.infrastructure.adapters.gemini import GeminiAdapter
-from contexts.keys.infrastructure.adapters.openai import OpenAIAdapter
+from contexts.keys.infrastructure.adapters.openai import OpenAIAdapter, _key_tag
 from contexts.keys.infrastructure.adapters.voyage import VoyageAdapter
 
 _SECRET = "sk-super-secret-key-value"
@@ -613,6 +613,7 @@ async def test_openai_replays_provider_items_instead_of_synthesising_them() -> N
                     "content": "",
                     "tool_calls": [{"id": "c1", "name": "f", "arguments": {"x": 1}}],
                     "provider_items": items,
+                    "provider_items_key": _key_tag(_SECRET),
                 },
                 {"role": "tool", "tool_call_id": "c1", "name": "f", "content": "42"},
             ],
@@ -623,6 +624,98 @@ async def test_openai_replays_provider_items_instead_of_synthesising_them() -> N
     assert sent[1] == reasoning
     assert sent[2] == items[1]
     assert sent[3] == {"type": "function_call_output", "call_id": "c1", "output": "42"}
+
+
+def _replay_request(items: list[dict], key_tag: object) -> ProviderRequest:
+    return ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={
+            "model": "gpt-5.4",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "c1", "name": "f", "arguments": {}}],
+                    "provider_items": items,
+                    "provider_items_key": key_tag,
+                },
+            ],
+        },
+    )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_does_not_replay_items_produced_by_a_different_key() -> None:
+    # Each tool round is an independent `call_stream` that re-picks a group
+    # member, and a key group legitimately holds keys from more than one OpenAI
+    # account. Encrypted reasoning is decryptable only by the account that
+    # produced it, so replaying it to a different key is a deterministic 400 --
+    # which `classify_http` turns into ABORT, killing the whole group instead of
+    # rotating. Falling back to synthesised items loses the chain and keeps the
+    # turn, which is the trade this check exists to make.
+    items = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE"}]
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, "a-different-key"))
+    sent = json.loads(route.calls.last.request.content)["input"]
+    assert not any(item.get("type") == "reasoning" for item in sent)
+    assert sent[1] == {"type": "function_call", "call_id": "c1", "name": "f", "arguments": "{}"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_replays_items_when_the_key_still_matches() -> None:
+    items = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE"}]
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, _key_tag(_SECRET)))
+    assert json.loads(route.calls.last.request.content)["input"][1] == items[0]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_the_key_tag_is_never_the_key_and_never_leaves_the_process() -> None:
+    # It is a truncated digest, and it is read by `_input_items` rather than
+    # sent: nothing about the secret may reach the provider outside the header.
+    items = [{"type": "reasoning", "id": "rs_1"}]
+    route = _ok_chat_route()
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    tag = res.body["provider_items_key"]
+    assert tag == _key_tag(_SECRET)
+    assert _SECRET not in tag
+    assert tag not in _SECRET
+    respx.clear()
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_replay_request(items, tag))
+    body = route.calls.last.request.content.decode()
+    assert "provider_items_key" not in body
+    assert tag not in body
+    assert _SECRET not in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(("code", "status"), [("rate_limit_exceeded", 429), ("server_error", 500)])
+async def test_openai_non_streaming_failed_status_is_not_an_empty_success(code: str, status: int) -> None:
+    # A run that fails after the request was accepted returns HTTP 200 with
+    # `status: "failed"` and an empty `output`. Chat Completions had no such
+    # shape. Left unmapped the router books a success, never rotates, and the
+    # caller reads the empty string as the model's answer -- an empty summary
+    # or zero extracted triples, silently.
+    respx.post(_RESPONSES_URL).respond(
+        200,
+        json=_response_obj(
+            status="failed",
+            output=[],
+            error={"code": code, "message": f"key {_SECRET} oops"},
+            usage={"input_tokens": 6, "output_tokens": 0},
+        ),
+    )
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4"))
+    assert res.http_status == status
+    assert res.body == {"error": f"HTTP {status} ({code})"}
+    assert res.input_tokens == 6  # still billed
+    assert _SECRET not in json.dumps(res.body)
 
 
 @pytest.mark.asyncio
