@@ -113,6 +113,11 @@ class _FakeAgentsFacade:
     def chat_model_catalog(self):
         return (SimpleNamespace(provider="claude", default="claude-sonnet-4-6"),)
 
+    def chat_model_capabilities(self, _provider, _model_id):
+        # Real content doesn't matter here -- these tests assert on `model`
+        # resolution and quota refund, not on request-shaping fields (R9.03a).
+        return {}
+
 
 class _FakeConfigRepo:
     def __call__(self, _db):

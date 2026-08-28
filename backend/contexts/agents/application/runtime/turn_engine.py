@@ -46,8 +46,8 @@ from contexts.agents.application.runtime.tool_registry import (
     build_cast_approval_vote_tool,
     build_registry,
 )
+from contexts.agents.domain.model_specs import capability_fields, resolve_spec
 from contexts.agents.domain.models import (
-    CONTEXT_LIMITS,
     DEFAULT_CHAT_MODELS,
     Agent,
     AgentTool,
@@ -196,7 +196,12 @@ def _chat_request(
     Both the tool rounds and the final no-tools synthesis go through here. They
     were two near-identical builds differing only in ``messages`` and ``tools``,
     each carrying its own copy of the effort and sampling handling -- which is how
-    a control comes to be applied to one of the two calls and not the other.
+    a control comes to be applied to one of the two calls and not the other. The
+    same rule applies to the capability fields below: resolving them once here,
+    from ``(provider, model)`` alone rather than from whether *this* call
+    happens to carry tools, is what keeps a tools-conflicted model's two calls
+    in a turn shaped identically (R9.03a, AC-16) instead of reproducing the
+    split-effort shape this docstring already warns about.
     """
     payload: dict[str, Any] = {
         "model": model,
@@ -204,6 +209,7 @@ def _chat_request(
         "messages": messages,
         "max_tokens": _DEFAULT_MAX_TOKENS,
     }
+    payload.update(capability_fields(resolve_spec(provider.value, model)))
     if tools:
         payload["tools"] = tools
     if agent.effort:
@@ -280,17 +286,20 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
-_CONTEXT_LIMITS: dict[str, int] = dict(CONTEXT_LIMITS)
-
 
 def _context_limit_for(agent: Agent) -> int:
-    """The provider's hard context limit for this agent's model hint.
+    """The selected *model's* hard context limit (R9.03a) — not the provider's.
+
+    Resolves by ``(model_hint, model_id)`` through the capability table; a
+    model id outside the table gets the provider's lowest catalogued window
+    (Q-2's conservative floor), never a guess.
 
     One definition for all three turn entry points (room, headless, standalone
     compaction): three copies of the lookup is how the headless path came to
     have no limit to budget against at all.
     """
-    return _CONTEXT_LIMITS.get(agent.model_hint.value, 128_000)
+    provider, model = _resolve_provider_and_model(agent)
+    return resolve_spec(provider.value, model).context_limit
 
 
 def _request_ceiling(agent: Agent, context_limit: int) -> int:
@@ -3783,6 +3792,7 @@ class TurnEngine:
                 provider=provider,
                 model=model,
                 agent_id=agent.id,
+                capabilities=capability_fields(resolve_spec(provider.value, model)),
             )
             store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             # Emitted here, not before the lock: a turn that waits on the lock

@@ -16,6 +16,35 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+### From the 2026-08-27 provider-model investigation
+
+- (unblocked 2026-08-28 by the implemented `2026-08-27-provider-model-capability-table`)
+  `2026-08-27-openai-responses-api-migration` (feature, **approved 2026-08-27**; its SRS Delta is
+  None). **Logical prerequisite** (its Q-2): the migration's value is model-specific, and the
+  capability table is where model facts are expressed; building this first would encode them a
+  second time, which is the condition the table exists to end. The two also share `openai.py`'s
+  request builder.
+
+  **Read the capability table's own close-out before starting.** It shipped with AC-6, AC-11 and
+  AC-15 deliberately deferred (its Deviation Log D-1/D-2, FU-11/FU-12/FU-13): the model lineup and
+  per-model capability values were re-expressed from the pre-existing dictionaries/regexes rather
+  than reconciled against a live provider key, and §4.3a's omission-vs-`"none"` question for
+  gpt-5.4+ was not verified against the real endpoint either. This dossier's own §10 already plans
+  to need a real key against the real endpoint, so folding FU-12's verification into that same
+  live-endpoint pass (rather than running it twice) is worth considering at that dossier's start,
+  not assumed settled by the table shipping.
+
+  **It is deliberately assess-first and its §6 is empty on purpose.** The Responses API changes
+  request shape, response shape and the SSE event vocabulary at once, on the adapter serving the
+  platform's default provider. §5 lists six questions that must be answered with citations, and
+  AC-2 is the user's approval of the recommendation. **"Do not migrate" is a listed option**; if it
+  wins, the dossier closes `abandoned` and the assessment is its product.
+
+  **The reason it exists**: on Chat Completions the platform can offer either reasoning effort or
+  agent tools, never both, from gpt-5.4 onwards. §10 records the constraint that shapes its
+  verification — `fake_provider.py` cannot produce an agent turn, so this change needs a real key
+  against the real endpoint, planned rather than discovered at the end.
+
 ### From the 2026-08-16 example-subsystem audit
 
 Thirteen dossiers from `docs/audits/2026-08-16-example-activities-and-agent-packs/findings.md`
@@ -246,47 +275,9 @@ first, but building them serially avoids the conflict.
 
 ### From the 2026-08-27 provider-model investigation
 
-Two dossiers, sequenced. Not from an audit: they came from diagnosing a staging agent that failed
-every turn for two days with `provider_exhausted:request_rejected`. Root cause was `effort` set on
-an OpenAI model that refuses `reasoning_effort` alongside function tools, which every agent turn
-sends. Four commits landed ahead of the specs and are **already on main**, so build against them
-rather than against the code the dossiers describe as "current": `1d9a3da` (the provider's own
-refusal reason survives to the log and the `agent.turn_failed` audit row), `e16bc90` (the refused
-parameter is no longer sent), `b6d7abe` (the guards `e16bc90` added fail safe on an unrecognised
-model), and on the frontend `98838dd` (a `provider_exhausted:*` kind stops rendering as an
-unqualified "the run failed").
-
-- `2026-08-27-provider-model-capability-table` (feature, **approved 2026-08-27**, SRS Delta
-  applied) — `depends_on: []`. Replaces three per-provider dictionaries
-  (`CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS`, `CONTEXT_LIMITS`) and five per-model regexes spread
-  across three adapters with one per-model capability record, refreshes all three providers' model
-  lists, and disables the agent-form controls a chosen model refuses. Widens the `agent_effort`
-  PostgreSQL enum (Q-3), so it carries a migration whose downgrade is lossy by construction (§10).
-
-  **Its §4.2 is a live bug independent of the incident.** `_context_limit_for`
-  (`turn_engine.py:286-293`) resolves the context window from `model_hint` alone and never reads
-  `model_id`, so every Claude agent is capped at 200 000 tokens. That figure is correct only for
-  `claude-haiku-4-5`; the current generations carry 1 000 000. The value is load-bearing in six
-  places, so a five-fold under-grant surfaces as `knowledge_starved` and `context_overflow` on
-  turns that had room. Fixing it also **raises spend on real user keys**, which belongs in the
-  release note (§10).
-
-  **Its SRS Delta was applied at approval**: `model_id` and `effort` added to the agent field
-  table (both were live columns the SRS had never listed), `[R9.09]` and `[R9.10]` moved from
-  "provider's context limit" to "the selected model's", `[R9.10a]` lost its attribution of the
-  1 000 000 bound to Gemini alone, and `[R9.03a]` is new. `docs/traceability.csv` regenerated to
-  422 rows.
-
-  **Two acceptance criteria cannot be closed by any mock.** AC-15: the provider's error text names
-  `reasoning_effort: "none"` as the remedy, not omission, and `e16bc90` omits — if a gpt-5.4+ model
-  applies a non-none server-side default, that commit is a no-op and the suite is green either way
-  (§4.3a). AC-11: the model lists must be reconciled against each provider's `models` endpoint,
-  because §14 records three facts the release notes could not settle, including whether the shipped
-  Gemini default `gemini-3.5-flash` still exists.
-
-  **Read §4.3a before assuming `e16bc90` settled anything.** A turn now runs its tool rounds at the
-  provider default effort and only its final synthesis at the configured one — `_chat_request`'s own
-  docstring (`turn_engine.py:196-199`) warns of exactly this shape.
+`2026-08-27-provider-model-capability-table` moved to In progress on 2026-08-28 (see below). Its
+sibling `2026-08-27-openai-responses-api-migration` stays Blocked in the section below, waiting on
+it.
 
 ## Blocked
 
@@ -475,29 +466,60 @@ each row for its own list — the frontmatter wins over this preamble.
   warning in the settings UI, and its OQ-1 records that a guest can never join a group
   submission at all.
 
-### From the 2026-08-27 provider-model investigation
-
-- `2026-08-27-openai-responses-api-migration` (feature, **approved 2026-08-27**; its SRS Delta is
-  None) — waiting on
-  `2026-08-27-provider-model-capability-table`. **Logical prerequisite** (its Q-2): the migration's
-  value is model-specific, and the capability table is where model facts are expressed; building
-  this first would encode them a second time, which is the condition the table exists to end. The
-  two also share `openai.py`'s request builder.
-
-  **It is deliberately assess-first and its §6 is empty on purpose.** The Responses API changes
-  request shape, response shape and the SSE event vocabulary at once, on the adapter serving the
-  platform's default provider. §5 lists six questions that must be answered with citations, and
-  AC-2 is the user's approval of the recommendation. **"Do not migrate" is a listed option**; if it
-  wins, the dossier closes `abandoned` and the assessment is its product.
-
-  **The reason it exists**: on Chat Completions the platform can offer either reasoning effort or
-  agent tools, never both, from gpt-5.4 onwards. §10 records the constraint that shapes its
-  verification — `fake_provider.py` cannot produce an agent turn, so this change needs a real key
-  against the real endpoint, planned rather than discovered at the end.
-
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-28 after implementation:
+`2026-08-27-provider-model-capability-table` (one per-model capability record replaces three
+per-provider dictionaries — `CHAT_MODEL_CATALOG`, `DEFAULT_CHAT_MODELS`, `CONTEXT_LIMITS` — and
+five per-model regexes spread across the OpenAI/Anthropic/Gemini adapters; the agent-config form
+now disables a control the selected model refuses). **It unblocked
+`2026-08-27-openai-responses-api-migration`**, moved to Ready above. Migration 0083 (widens
+`agent_effort` to seven values), no new API endpoints, `GET /api/model-catalog`'s response shape
+changed. **Four things a later reader needs.**
+
+Not from an audit: this and its sibling `2026-08-27-openai-responses-api-migration` came from
+diagnosing a staging agent (`結書`) that failed every turn for two days with
+`provider_exhausted:request_rejected`. Four commits landed ahead of the specs and are already on
+main: `1d9a3da`, `e16bc90`, `b6d7abe`, `98838dd`.
+
+**AC-6, AC-11 and AC-15 are deliberately unticked, at the user's explicit direction** (2026-08-28):
+all three need a real provider key against a live endpoint — the reconciler run
+(`smap maintenance reconcile-model-catalog`, built and unit-tested but never run live) and the
+toolful `gpt-5.4` + `reasoning_effort` omission check from §4.3a — and none was made available
+this session. `model_specs.py`'s table is re-expressed from the pre-existing dictionaries/regexes
+this task deletes, not re-verified against current provider lineups; `source_url`/`verified_on`
+carry the same "2026-06" provenance the replaced comment already claimed rather than a fresh date,
+so the dossier does not overstate freshness. Recorded as FU-11/FU-12/FU-13, all blocking a future
+close before those three ACs can tick. See the dossier's Deviation Log (D-1, D-2) for the full
+reasoning, including why the shipped adapter keeps `e16bc90`'s omission behaviour rather than
+switching to the alternative (`reasoning_effort: "none"`) pending that verification.
+
+**The security gate found, and this build fixed before commit, a real gap in the design as
+approved.** All three adapters gated effort-forwarding on the coarse `accepts_effort` boolean
+rather than on membership in the model's own `effort_values` list. Since `agent.effort` is stored
+independently of `model_id`, an authorized project member could `PATCH` an agent to an
+out-of-range effort value (one valid under the widened seven-member enum but not listed for that
+specific model) and reproduce this task's own incident class through the one channel the widening
+opened. Fixed in all three adapters before commit (D-5); the same gate found a second,
+**pre-existing** issue — `adapters/gemini.py` splices `model_id` unsanitized into the request
+path — confirmed untouched by this diff and left as FU-14 rather than folded into an unrelated fix.
+
+**A background quality-audit fork independently reached the same AC-15 design conclusion** (keep
+`e16bc90`'s omission behaviour, matching AC-13's literal wording and the only variant with
+production evidence behind it) and wrote the dossier's Deviation Log entries directly rather than
+only reporting — reviewed and accepted after independent verification of every factual claim in
+it, per this project's "verify before trusting documentation" standard.
+
+**A `/code-review` pass over the open PR found 9 more Introduced issues, all fixed and pushed
+as a second commit (D-6).** Two worth a later reader's attention: the `model_specs.resolve_spec`
+lookup had gone case/whitespace-sensitive (the five deleted regexes were not), and the o-series
+(`o3`/`o3-mini`) was silently floored to Q-2's conservative default because it had never been
+catalogued — both restored, re-derived from the same deleted regexes as the rest of the table,
+not freshly verified. CI re-run in progress on the second commit; see the dossier's D-6 for the
+full list (`AgentDetailView.vue` clearing stale effort/sampling on a mid-session model switch,
+the reconciler's provider-mismatch guard and pagination, FU-14 closed rather than left deferred).
 
 Removed on 2026-08-25 after implementation:
 `2026-08-24-agent-readable-live-drafts` (a granted binding may read a room's unsent

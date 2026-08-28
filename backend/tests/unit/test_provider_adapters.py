@@ -290,14 +290,24 @@ def _ok_chat_route() -> object:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_drops_reasoning_effort_when_a_gpt_5_4_request_carries_tools() -> None:
-    # OpenAI refuses the pair on /v1/chat/completions from gpt-5.4 onwards, and
-    # every agent turn sends tools -- so this combination used to 400 on every
-    # single turn, which the router treats as a deterministic rejection and
-    # aborts the whole key group. Dropping the setting loses effort; keeping it
-    # loses the agent.
+async def test_openai_drops_reasoning_effort_when_a_conflicting_model_carries_tools() -> None:
+    # A model whose capability-table row sets `effort_conflicts_with_tools`
+    # (gpt-5.4 onwards) refuses the pair on /v1/chat/completions, and every
+    # agent turn sends tools -- so this combination used to 400 on every single
+    # turn, which the router treats as a deterministic rejection and aborts the
+    # whole key group. Dropping the setting loses effort; keeping it loses the
+    # agent.
     route = _ok_chat_route()
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low", tools=[_TOOL]))
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gpt-5.4",
+            effort="low",
+            tools=[_TOOL],
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=True,
+        ),
+    )
     sent = json.loads(route.calls.last.request.content)
     assert "reasoning_effort" not in sent
     assert sent["tools"]  # the tools themselves are still sent
@@ -305,30 +315,124 @@ async def test_openai_drops_reasoning_effort_when_a_gpt_5_4_request_carries_tool
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_keeps_reasoning_effort_on_gpt_5_4_without_tools() -> None:
-    # The refusal is about the *pair*; a toolless request is unaffected.
+async def test_ac13_incident_agent_scenario_produces_no_reasoning_effort() -> None:
+    # AC-13: an agent configured exactly as 結書 (the incident agent) was (model_hint: openai,
+    # model_id: gpt-5.4, effort: low, tools bound) -- driven by the real
+    # capability table, not hand-set flags, so a future edit to gpt-5.4's row
+    # in model_specs.py is what this test actually pins against.
+    from contexts.agents.domain.model_specs import capability_fields, resolve_spec
+
     route = _ok_chat_route()
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low"))
-    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "low"
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gpt-5.4", effort="low", tools=[_TOOL], **capability_fields(resolve_spec("openai", "gpt-5.4"))
+        ),
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "reasoning_effort" not in sent
+    assert sent["tools"]
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_keeps_reasoning_effort_with_tools_on_the_o_series() -> None:
-    # The restriction starts at gpt-5.4; the o-series is not covered and must
-    # not lose its effort setting to an over-broad guard.
+async def test_openai_drops_an_effort_value_the_models_spec_does_not_list() -> None:
+    # `agent.effort` is stored independently of `model_id` (R9.03a), so an
+    # agent can carry a value its *current* model's spec never listed -- a
+    # stale value from a previous model_id, or one set before the row
+    # narrowed. Forwarding on `accepts_effort` alone (accepts effort AT ALL)
+    # rather than membership in `effort_values` would reproduce this task's
+    # own incident through the one channel the widened `AgentEffort` enum
+    # opened. `accepts_effort=True` alone, with no matching `effort_values`
+    # entry, must not be enough to forward.
     route = _ok_chat_route()
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("o3", effort="high", tools=[_TOOL]))
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gpt-5.4",
+            effort="xhigh",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=False,
+        ),
+    )
+    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_drops_an_effort_value_the_models_spec_does_not_list() -> None:
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat("claude-opus-4-8", effort="xhigh", effort_values=("low", "medium", "high")),
+    )
+    assert "output_config" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_drops_an_effort_value_the_models_spec_does_not_list() -> None:
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat("gemini-x", effort="xhigh", effort_values=("low", "medium", "high")),
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "thinkingConfig" not in sent.get("generationConfig", {})
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_conflicting_model_drops_reasoning_effort_even_without_tools_in_this_call() -> None:
+    # AC-16: a turn's tool rounds and its tools-free synthesis call must produce
+    # the *same* shape, or the turn reasons at the provider default and only
+    # composes its final answer at the configured level (§4.3a). Resolving the
+    # conflict from (provider, model) alone -- never from whether this specific
+    # call happens to carry tools -- is what keeps the two calls identical.
+    flags = {"effort_values": ("low", "medium", "high"), "effort_conflicts_with_tools": True}
+    with_tools = _ok_chat_route()
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat("gpt-5.4", effort="low", tools=[_TOOL], **flags)
+    )
+    sent_with_tools = json.loads(with_tools.calls.last.request.content)
+    respx.clear()
+    without_tools = _ok_chat_route()
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="low", **flags))
+    sent_without_tools = json.loads(without_tools.calls.last.request.content)
+    assert "reasoning_effort" not in sent_with_tools
+    assert "reasoning_effort" not in sent_without_tools
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_keeps_reasoning_effort_with_tools_on_a_non_conflicting_model() -> None:
+    # A model whose spec accepts effort without a tools conflict must not lose
+    # the setting just because tools are present on this call.
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "o3",
+            effort="high",
+            tools=[_TOOL],
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=False,
+        ),
+    )
     assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_drops_reasoning_effort_with_tools_on_a_model_family_it_has_never_seen() -> None:
-    # The guard enumerates the models that still ACCEPT the pair. A family
-    # released after that line was written must therefore degrade, not send:
-    # matching the refusers instead would 400 every turn on the next model and
-    # abort its key group, which is the defect the guard exists to prevent.
+async def test_openai_drops_reasoning_effort_on_a_model_absent_from_the_table() -> None:
+    # A model id outside the capability table (Q-2's conservative floor) carries
+    # no capability flags at all -- the payload built for it must contain no
+    # optional parameter, `reasoning_effort` included, rather than guess from
+    # the id the way the deleted regexes did.
     route = _ok_chat_route()
     await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6.1", effort="low", tools=[_TOOL]))
     assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
@@ -336,51 +440,26 @@ async def test_openai_drops_reasoning_effort_with_tools_on_a_model_family_it_has
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_keeps_reasoning_effort_with_tools_on_the_families_that_predate_the_refusal() -> None:
-    # gpt-5 bare and gpt-5.0-gpt-5.3 are older than the restriction.
-    for model in ("gpt-5", "gpt-5.3", "gpt-5.3-mini"):
-        route = _ok_chat_route()
-        await OpenAIAdapter().invoke(secret=_SECRET, request=_chat(model, effort="low", tools=[_TOOL]))
-        sent = json.loads(route.calls.last.request.content)
-        assert sent["reasoning_effort"] == "low", model
-        respx.clear()
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_anthropic_family_guards_ignore_case_and_padding_in_the_model_id() -> None:
-    # `model_id` is user-supplied (the catalogue is a preset list, not a
-    # whitelist), and against a raw id every family guard takes its permissive
-    # branch -- sending sampling controls to a model that 400s on them, which is
-    # a deterministic rejection that burns the whole key group.
+async def test_anthropic_drops_sampling_and_effort_for_a_model_absent_from_the_table() -> None:
+    # Q-2's conservative floor: no capability flags attached (the id is not in
+    # the table) means no optional parameter is sent, regardless of how the id
+    # is spelled -- there is no longer a family pattern to (mis)match against.
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
     await AnthropicAdapter().invoke(
         secret=_SECRET,
-        request=_chat("  Claude-Opus-4-8  ", temperature=0.5, top_p=0.9, effort="high"),
+        request=_chat("claude-opus-4-99", temperature=0.5, top_p=0.9, effort="high"),
     )
     sent = json.loads(route.calls.last.request.content)
     assert "temperature" not in sent
     assert "top_p" not in sent
-    assert sent["output_config"] == {"effort": "high"}
+    assert "output_config" not in sent
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_anthropic_effort_guard_admits_a_two_digit_minor_version() -> None:
-    # A single `[5-9]` class cannot see `claude-opus-4-10`, so an accepting model
-    # would silently lose its effort setting the day that shape ships.
-    route = respx.post("https://api.anthropic.com/v1/messages").respond(
-        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
-    )
-    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-opus-4-10", effort="high"))
-    assert json.loads(route.calls.last.request.content)["output_config"] == {"effort": "high"}
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_anthropic_drops_effort_on_a_model_that_predates_it() -> None:
+async def test_anthropic_drops_effort_on_a_model_whose_spec_refuses_it() -> None:
     # `output_config.effort` 400s on Haiku 4.5, which ships in the catalogue, so
     # an agent configured on it with `effort` set failed every turn.
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
@@ -565,6 +644,22 @@ async def test_gemini_chat_uses_header_not_query_key() -> None:
     req = route.calls.last.request
     assert req.headers["x-goog-api-key"] == _SECRET
     assert _SECRET not in str(req.url)  # never on the query string
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_percent_encodes_the_model_id_in_the_url_path() -> None:
+    # model_id is caller-supplied; a value containing a path separator or a
+    # query/fragment delimiter must not be able to steer the request to a
+    # different path or query on this host (FU-14 fix). respx matches the
+    # ACTUAL bytes on the wire, so registering the route at the percent-encoded
+    # path and asserting a 200 (rather than respx's "no matching route" error)
+    # is the proof the '/' characters never reached the wire as path separators.
+    respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/evil%2F..%2Fadmin:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    res = await GeminiAdapter().invoke(secret=_SECRET, request=_chat("evil/../admin"))
+    assert res.http_status == 200
 
 
 @pytest.mark.asyncio
@@ -761,12 +856,34 @@ async def test_anthropic_maps_effort_to_output_config() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
-    # A real model id, not the `claude-x` placeholder this used to pass: whether
-    # `effort` is forwarded now depends on the model accepting it, so a fictional
-    # id no longer exercises the mapping.
-    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-opus-4-8", effort="high"))
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat("claude-opus-4-8", effort="high", effort_values=("low", "medium", "high")),
+    )
     body = json.loads(route.calls.last.request.content)
     assert body["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_drops_effort_on_a_conflicting_model_even_though_the_value_is_listed() -> None:
+    # No current Claude row sets effort_conflicts_with_tools, but the payload
+    # flag is attached uniformly across all three providers (R9.03a) -- a
+    # future row that does must not have this adapter silently ignore it, the
+    # way openai.py already guards for gpt-5.4+.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "claude-opus-4-8",
+            effort="high",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=True,
+        ),
+    )
+    assert "output_config" not in json.loads(route.calls.last.request.content)
 
 
 @pytest.mark.asyncio
@@ -775,7 +892,15 @@ async def test_openai_maps_effort_to_reasoning_effort() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="medium"))
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gpt-5.4",
+            effort="medium",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=False,
+        ),
+    )
     assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "medium"
 
 
@@ -785,9 +910,48 @@ async def test_gemini_maps_effort_to_thinking_level_uppercase() -> None:
     route = respx.post(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
     ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
-    await GeminiAdapter().invoke(secret=_SECRET, request=_chat("gemini-x", effort="low"))
+    await GeminiAdapter().invoke(
+        secret=_SECRET, request=_chat("gemini-x", effort="low", effort_values=("low", "medium", "high"))
+    )
     gen = json.loads(route.calls.last.request.content)["generationConfig"]
     assert gen["thinkingConfig"] == {"thinkingLevel": "LOW"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_drops_thinking_config_on_a_conflicting_model_even_though_the_value_is_listed() -> None:
+    # No current Gemini row sets effort_conflicts_with_tools, but the payload
+    # flag is attached uniformly across all three providers (R9.03a) -- a
+    # future row that does must not have this adapter silently ignore it, the
+    # way openai.py already guards for gpt-5.4+.
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gemini-x",
+            effort="low",
+            effort_values=("low", "medium", "high"),
+            effort_conflicts_with_tools=True,
+        ),
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "thinkingConfig" not in sent.get("generationConfig", {})
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_drops_thinking_config_for_a_model_whose_spec_refuses_effort() -> None:
+    # AC-5: gemini.py never gated `thinkingConfig` at all before this table --
+    # any effort setting reached any model. An unsupported model rejects the
+    # field with a deterministic 400, which aborts the whole key group.
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(secret=_SECRET, request=_chat("gemini-x", effort="low"))
+    sent = json.loads(route.calls.last.request.content)
+    assert "thinkingConfig" not in sent.get("generationConfig", {})
 
 
 @pytest.mark.asyncio
@@ -811,7 +975,15 @@ async def test_openai_reasoning_model_uses_max_completion_tokens_and_drops_tempe
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
     await OpenAIAdapter().invoke(
-        secret=_SECRET, request=_chat("o3-mini", effort="high", max_tokens=256, temperature=0.7)
+        secret=_SECRET,
+        request=_chat(
+            "o3-mini",
+            effort="high",
+            max_tokens=256,
+            temperature=0.7,
+            effort_values=("low", "medium", "high"),
+            uses_completion_token_field=True,
+        ),
     )
     sent = json.loads(route.calls.last.request.content)
     assert sent["reasoning_effort"] == "high"
@@ -827,21 +999,24 @@ async def test_openai_default_chat_model_is_a_reasoning_model_and_drops_temperat
 
     An agent with no ``model_id`` resolves to ``DEFAULT_CHAT_MODELS["openai"]``,
     so an agent pack installed against an OpenAI-only key group runs on whatever
-    that is — and that model matching ``_REASONING_MODEL_RE`` is what silently
-    voids the pack's shipped ``temperature``. Both halves are pinned here, and
-    deliberately across the context boundary: neither side alone can state the
-    consequence, and the document promises it.
+    that is — and that model's capability-table row (`uses_completion_token_field`)
+    is what silently voids the pack's shipped ``temperature``. Both halves are
+    pinned here, and deliberately across the context boundary: neither side
+    alone can state the consequence, and the document promises it.
     """
+    from contexts.agents.domain.model_specs import capability_fields, resolve_spec
     from contexts.agents.domain.models import DEFAULT_CHAT_MODELS
-    from contexts.keys.infrastructure.adapters.openai import _is_reasoning_model
 
     default = DEFAULT_CHAT_MODELS["openai"]
-    assert _is_reasoning_model(default) is True
+    spec = resolve_spec("openai", default)
+    assert spec.uses_completion_token_field is True
 
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat(default, temperature=0.2, top_p=0.9))
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat(default, temperature=0.2, top_p=0.9, **capability_fields(spec))
+    )
     sent = json.loads(route.calls.last.request.content)
     assert "temperature" not in sent
     assert "top_p" not in sent
@@ -850,13 +1025,14 @@ async def test_openai_default_chat_model_is_a_reasoning_model_and_drops_temperat
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_non_reasoning_model_drops_effort_keeps_classic_params() -> None:
-    # Setting effort on a gpt-4o agent must not 400: `reasoning_effort` is
-    # dropped while the legacy max_tokens/temperature fields are preserved.
+    # Setting effort on a non-reasoning model must not 400: `reasoning_effort`
+    # is dropped while the legacy max_tokens/temperature fields are preserved.
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
     await OpenAIAdapter().invoke(
-        secret=_SECRET, request=_chat("gpt-4o", effort="high", max_tokens=256, temperature=0.7)
+        secret=_SECRET,
+        request=_chat("gpt-4o", effort="high", max_tokens=256, temperature=0.7, accepts_sampling=True),
     )
     sent = json.loads(route.calls.last.request.content)
     assert "reasoning_effort" not in sent
@@ -877,7 +1053,9 @@ async def test_anthropic_forwards_temperature_and_top_p_on_accepting_models(mode
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
-    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat(model, temperature=0.0, top_p=1.0, seed=7))
+    await AnthropicAdapter().invoke(
+        secret=_SECRET, request=_chat(model, temperature=0.0, top_p=1.0, seed=7, accepts_sampling=True)
+    )
     sent = json.loads(route.calls.last.request.content)
     assert sent["temperature"] == 0.0
     assert sent["top_p"] == 1.0
@@ -892,7 +1070,9 @@ async def test_anthropic_clamps_temperature_to_provider_ceiling() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
-    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-sonnet-4-6", temperature=1.5))
+    await AnthropicAdapter().invoke(
+        secret=_SECRET, request=_chat("claude-sonnet-4-6", temperature=1.5, accepts_sampling=True)
+    )
     sent = json.loads(route.calls.last.request.content)
     assert sent["temperature"] == 1.0
 
@@ -921,7 +1101,9 @@ async def test_openai_non_reasoning_forwards_top_p_and_seed() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
-    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o", temperature=0.0, top_p=1.0, seed=42))
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat("gpt-4o", temperature=0.0, top_p=1.0, seed=42, accepts_sampling=True)
+    )
     sent = json.loads(route.calls.last.request.content)
     assert sent["temperature"] == 0.0
     assert sent["top_p"] == 1.0
@@ -952,7 +1134,7 @@ async def test_gemini_forwards_top_p_and_ignores_seed() -> None:
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
     ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
     await GeminiAdapter().invoke(
-        secret=_SECRET, request=_chat("gemini-x", temperature=0.0, top_p=0.9, seed=7)
+        secret=_SECRET, request=_chat("gemini-x", temperature=0.0, top_p=0.9, seed=7, accepts_sampling=True)
     )
     gen = json.loads(route.calls.last.request.content)["generationConfig"]
     assert gen["temperature"] == 0.0

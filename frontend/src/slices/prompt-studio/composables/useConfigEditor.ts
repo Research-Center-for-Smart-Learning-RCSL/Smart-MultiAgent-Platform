@@ -88,7 +88,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
     if (!entry) return []
     return [
       { value: '', label: t('promptStudio.config.modelDefault', { model: entry.default }) },
-      ...entry.models.map((m) => ({ value: m, label: m })),
+      ...entry.models.map((m) => ({ value: m.model_id, label: m.model_id })),
     ]
   })
 

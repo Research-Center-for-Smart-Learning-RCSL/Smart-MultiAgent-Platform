@@ -8,7 +8,6 @@ Auth via ``Authorization: Bearer``; model id is always caller-supplied.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -25,54 +24,6 @@ from contexts.keys.infrastructure.adapters import base
 _CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _EMBED_URL = "https://api.openai.com/v1/embeddings"
 
-# Reasoning families (o-series, gpt-5+) diverge from the classic Chat
-# Completions contract: they take ``reasoning_effort``, require
-# ``max_completion_tokens`` (the legacy ``max_tokens`` 400s), and accept only
-# the default ``temperature``. Non-reasoning models (gpt-4o, gpt-4.1, …) are
-# the inverse — ``reasoning_effort`` 400s. Shaping the body per family is what
-# keeps a single ``effort`` setting from turning every turn into a 400.
-_REASONING_MODEL_RE = re.compile(r"^(?:o\d|gpt-5)")
-
-# From gpt-5.4 onwards OpenAI refuses `reasoning_effort` together with function
-# tools on *this* endpoint: "Function tools with reasoning_effort are not
-# supported for <model> in /v1/chat/completions. To use function tools, use
-# /v1/responses or set reasoning_effort to 'none'." Every agent turn sends
-# tools, so an agent on one of these models with `effort` set 400s on every
-# single turn — and a 400 is a deterministic rejection, so the router aborts the
-# whole key group rather than rotating. Drop the parameter instead, matching how
-# temperature/top_p/seed already degrade below: losing the effort setting is
-# recoverable, losing every turn is not.
-#
-# This enumerates the models that still ACCEPT the pair, not the ones that
-# refuse it, and the polarity is the whole point: the restriction is described as
-# applying "from gpt-5.4 onwards", so every family released after this line was
-# written refuses it. Matching the refusers would send `reasoning_effort` to the
-# next one and abort its key group on every turn -- reintroducing exactly this
-# defect for each future model. An id we do not recognise loses its effort
-# setting instead. (`gpt-5` bare and `gpt-5.0`-`gpt-5.3` predate the
-# restriction; the o-series is not covered by it at all.)
-#
-# The durable fix is the Responses API, where reasoning and tools compose:
-# docs/tasks/2026-08-27-openai-responses-api-migration.
-_ALLOWS_EFFORT_WITH_TOOLS_RE = re.compile(r"^(?:o\d|gpt-5(?:\.[0-3])?(?![.\d]))")
-
-# Vision-capable families. A non-vision model 400s on image content (which, per
-# the router's deterministic-4xx handling, aborts the key group), so unsupported
-# models get a filename note instead of the image.
-_VISION_MODEL_RE = re.compile(r"^(?:gpt-4o|gpt-4\.1|gpt-5|o[134]|gpt-4-turbo|gpt-4-vision|chatgpt-4o)")
-
-
-def _is_reasoning_model(model: str) -> bool:
-    return bool(_REASONING_MODEL_RE.match(model.strip().lower()))
-
-
-def _refuses_effort_with_tools(model: str) -> bool:
-    return not _ALLOWS_EFFORT_WITH_TOOLS_RE.match(model.strip().lower())
-
-
-def _supports_vision(model: str) -> bool:
-    return bool(_VISION_MODEL_RE.match(model.strip().lower()))
-
 
 def _attachment_note(b: dict[str, Any]) -> dict[str, Any]:
     name = b.get("filename", "a file")
@@ -80,9 +31,8 @@ def _attachment_note(b: dict[str, Any]) -> dict[str, Any]:
     return {"type": "text", "text": f"[User attached {name} ({mime}); this model cannot view it.]"}
 
 
-def _content_parts(blocks: list[dict[str, Any]], model: str) -> list[dict[str, Any]]:
+def _content_parts(blocks: list[dict[str, Any]], *, vision: bool) -> list[dict[str, Any]]:
     """Neutral attachment blocks -> OpenAI Chat Completions content parts."""
-    vision = _supports_vision(model)
     parts: list[dict[str, Any]] = []
     for b in blocks:
         kind = b.get("type")
@@ -113,7 +63,7 @@ def _headers(secret: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
 
 
-def _messages(payload: dict[str, Any], model: str) -> list[dict[str, Any]]:
+def _messages(payload: dict[str, Any], *, vision: bool) -> list[dict[str, Any]]:
     msgs: list[dict[str, Any]] = []
     if payload.get("system"):
         # OpenAI carries the system prompt as the first message, not a field.
@@ -149,7 +99,7 @@ def _messages(payload: dict[str, Any], model: str) -> list[dict[str, Any]]:
         else:
             content = m.get("content", "")
             if isinstance(content, list):
-                content = _content_parts(content, model)
+                content = _content_parts(content, vision=vision)
             msgs.append({"role": role if role in ("user", "assistant") else "user", "content": content})
     return msgs
 
@@ -174,32 +124,31 @@ def _tools(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
 def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.OPENAI)
-    reasoning = _is_reasoning_model(model)
-    body: dict[str, Any] = {"model": model, "messages": _messages(payload, model)}
+    caps = base.capability_flags(payload)
+    body: dict[str, Any] = {"model": model, "messages": _messages(payload, vision=caps.accepts_vision)}
     if payload.get("max_tokens") is not None:
         # Reasoning models renamed the field and 400 on the legacy `max_tokens`.
-        body["max_completion_tokens" if reasoning else "max_tokens"] = payload["max_tokens"]
-    if payload.get("temperature") is not None and not reasoning:
-        # Reasoning models accept only the default temperature; a custom one 400s.
-        body["temperature"] = payload["temperature"]
-    if payload.get("top_p") is not None and not reasoning:
-        # Same reasoning-model constraint as temperature: a custom nucleus 400s.
-        body["top_p"] = payload["top_p"]
-    if payload.get("seed") is not None and not reasoning:
-        # Seed is OpenAI's determinism lever on standard models; reasoning models
-        # reject sampling controls, so drop it there like temperature/top_p rather
-        # than risk a 400. Other providers have no seed equivalent (only here).
-        body["seed"] = payload["seed"]
+        field = "max_completion_tokens" if caps.uses_completion_token_field else "max_tokens"
+        body[field] = payload["max_tokens"]
+    if caps.accepts_sampling:
+        if payload.get("temperature") is not None:
+            body["temperature"] = payload["temperature"]
+        if payload.get("top_p") is not None:
+            body["top_p"] = payload["top_p"]
+        if payload.get("seed") is not None:
+            # OpenAI's determinism lever; no equivalent on the other two providers.
+            body["seed"] = payload["seed"]
     tools = _tools(payload)
     if tools:
         body["tools"] = tools
-    # Cross-provider effort -> Chat Completions reasoning_effort, but only where
-    # the model supports it. A non-reasoning model 400s on the parameter, so we
-    # drop it there and let the model run at its normal setting rather than fail.
-    # Same for gpt-5.4+ once tools are in play (see _NO_EFFORT_WITH_TOOLS_RE) —
-    # which is every agent turn, so this branch is the common one, not the edge.
-    if payload.get("effort") and reasoning and not (tools and _refuses_effort_with_tools(model)):
-        body["reasoning_effort"] = payload["effort"]
+    # Cross-provider effort -> Chat Completions reasoning_effort. See
+    # CapabilityFlags.forwardable_effort for why this is gated by membership
+    # in effort_values (not just "the model accepts effort at all") and by a
+    # tools-conflict check resolved from (provider, model) alone rather than
+    # from whether *this* call carries tools -- AC-16.
+    effort = caps.forwardable_effort(payload.get("effort"))
+    if effort is not None:
+        body["reasoning_effort"] = effort
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
