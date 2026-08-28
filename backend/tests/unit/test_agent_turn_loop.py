@@ -144,6 +144,104 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_items_are_carried_back_onto_the_assistant_turn(monkeypatch) -> None:
+    """The adapter-opaque half of the reasoning-continuity contract.
+
+    The OpenAI adapter needs its own output items back on the next round to keep
+    a reasoning model's chain across a tool call. The engine copies them without
+    reading them; dropping the copy here degrades quality with no error and no
+    failing assertion anywhere else, which is why it is pinned at this seam.
+    """
+    items = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "OPAQUE"}]
+
+    class _ItemsRouter:
+        def __init__(self) -> None:
+            self.requests: list = []
+
+        async def call_stream(self, *, group_id, request):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                yield StreamComplete(
+                    ProviderCallResult(
+                        200,
+                        {
+                            "text": "",
+                            "tool_calls": [{"id": "t1", "name": "update_wakeup", "arguments": {}}],
+                            "finish_reason": "tool_use",
+                            "provider_items": items,
+                        },
+                    )
+                )
+            else:
+                yield StreamComplete(
+                    ProviderCallResult(200, {"text": "done", "tool_calls": [], "finish_reason": "end"})
+                )
+
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    router = _ItemsRouter()
+    engine._router = router  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+    messages: list[dict] = [{"role": "user", "content": "hi"}]
+
+    await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.OPENAI,
+        model="gpt-5.4",
+        registry=_FakeRegistry(),
+        room="room",
+    )
+    assert messages[1]["provider_items"] == items
+    assert router.requests[1].payload["messages"][1]["provider_items"] == items
+
+
+@pytest.mark.asyncio
+async def test_a_round_without_provider_items_does_not_invent_the_key(monkeypatch) -> None:
+    # Anthropic and Gemini return no such field; the assistant turn they produce
+    # must not grow an empty one for their adapters to have to ignore.
+    class _Pub:
+        def __init__(self, channel) -> None:
+            pass
+
+        async def emit(self, etype, data=None):
+            return None
+
+    monkeypatch.setattr(te, "Publisher", _Pub)
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._router = _FakeRouter()  # type: ignore[attr-defined]
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None
+    )
+    messages: list[dict] = [{"role": "user", "content": "hi"}]
+
+    await engine._stream_with_tools(
+        agent=agent,
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=messages,
+        provider=ApiKeyProvider.CLAUDE,
+        model="m",
+        registry=_FakeRegistry(),
+        room="room",
+    )
+    assert "provider_items" not in messages[1]
+
+
+@pytest.mark.asyncio
 async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
     class _PlainRouter:
         async def call_stream(self, *, group_id, request):
