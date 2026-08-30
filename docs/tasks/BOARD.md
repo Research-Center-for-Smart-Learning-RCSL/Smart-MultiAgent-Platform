@@ -289,8 +289,9 @@ first, but building them serially avoids the conflict.
   `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
   `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
   skewed client cannot hide a required vote, and complete focus/backdrop/dismissal behavior for
-  compact rail and search overlays. Freshness verified against `main` at `73125821`; no active
-  dossier overlaps the event/overlay surface. Requires explicit approval before `/build`.
+  compact rail and search overlays. Freshness verified against `main` at `73125821`; it has no
+  predecessor, while `frontend-shared-abstraction-contracts` waits on it for `ChatroomView` and
+  test-file overlap. Requires explicit approval before `/build`.
 
 ### From the 2026-08-27 provider-model investigation
 
@@ -299,6 +300,17 @@ sibling `2026-08-27-openai-responses-api-migration` stays Blocked in the section
 it.
 
 ## Blocked
+
+### From the 2026-08-30 frontend shared-abstraction FU consolidation
+
+- `2026-08-30-frontend-shared-abstraction-contracts` (bugfix, **draft**) - waiting on
+  `2026-08-30-chatroom-approval-and-overlay-discoverability`. **Overlap prerequisite only:** both
+  edit `ChatroomView.vue`, its setup imports and its component tests. This dossier closes FU-5 of
+  `2026-08-20-orchestration-room-scoped-reads` and FU-12 of
+  `2026-08-20-onboarding-without-smtp`: use the actual shared typed-error hierarchy at two dead
+  recovery branches, route all three direct clipboard calls through `useClipboard`, and add
+  ESLint guards for both contracts. Freshness verified against `main` at `73125821`; it becomes
+  Ready when the chatroom dossier is `implemented` and still requires explicit user approval.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
