@@ -1,6 +1,6 @@
 ---
 type: feature
-status: done
+status: implemented
 created: 2026-07-13
 requirements: [R30.01, R30.09, R30.17, R30.21, R30.22]
 depends_on: [2026-07-13-activities-platform-core, 2026-07-13-activities-plugin-sdk]
