@@ -16,6 +16,15 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+### From the 2026-08-30 onboarding FU consolidation
+
+- `2026-08-30-identity-onboarding-policy-hardening` (feature, **draft**) - `depends_on: []`.
+  Consolidates FU-6/FU-9/FU-10/FU-11 of `2026-08-20-onboarding-without-smtp`: make the
+  email-domain policy durable and admin-manageable, refuse banned-account activation links,
+  and rate-limit per-admin account provisioning. Freshness verified against `main` at
+  `73125821`; no active dossier overlaps the identity/admin-policy surface. Requires explicit
+  approval before `/build` may start and carries a draft [R19a.13] amendment.
+
 ### From the 2026-08-27 provider-model investigation
 
 - (implemented 2026-08-28; see the note under In progress. Nothing lists it in `depends_on`, so no
