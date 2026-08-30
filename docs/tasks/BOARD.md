@@ -283,6 +283,15 @@ first, but building them serially avoids the conflict.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
+### From the 2026-08-30 chatroom FU consolidation
+
+- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix, **draft**) -
+  `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
+  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
+  skewed client cannot hide a required vote, and complete focus/backdrop/dismissal behavior for
+  compact rail and search overlays. Freshness verified against `main` at `73125821`; no active
+  dossier overlaps the event/overlay surface. Requires explicit approval before `/build`.
+
 ### From the 2026-08-27 provider-model investigation
 
 `2026-08-27-provider-model-capability-table` moved to In progress on 2026-08-28 (see below). Its
