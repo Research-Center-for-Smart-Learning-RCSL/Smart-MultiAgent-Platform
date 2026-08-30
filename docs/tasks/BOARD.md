@@ -16,18 +16,55 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-### From the 2026-08-30 onboarding FU consolidation
+### From the 2026-08-30 FU consolidation
+
+Three dossiers opened the same day from the follow-up lists of four already-implemented ones.
+All three are `depends_on: []` and each verified its freshness against `main` at `73125821`.
+They were grouped so that each is independently reviewable: the clipboard sweep that would have
+put two of them in `ChatroomView` at once was returned to its source follow-up instead. **All
+three are `draft` and need explicit approval before `/build` will touch them**, and two carry
+draft SRS deltas that are deliberately not applied at consolidation time.
 
 - `2026-08-30-identity-onboarding-policy-hardening` (feature, **draft**) - `depends_on: []`.
   Consolidates FU-6/FU-9/FU-10/FU-11 of `2026-08-20-onboarding-without-smtp`: make the
   email-domain policy durable and admin-manageable, refuse banned-account activation links,
   and rate-limit per-admin account provisioning. Its compatibility/active/rollback-frozen
   rollout states, atomic legacy import and write fence, and versioned Redis TTL contract close
-  the migration hazards found during review. Freshness verified against `main` at `73125821`;
-  no active dossier overlaps the identity/admin-policy surface. Requires explicit approval
-  before `/build` may start and carries a draft [R19a.13] amendment.
+  the migration hazards found during review. **Read its Q-8a before implementing the reader**:
+  the rollout state is resolved from the same cached value as the policy, because a reader that
+  re-read the phase per request would defeat the cache and one that cached the phase alone would
+  enforce a stale authority. Carries a draft [R19a.13] amendment.
+
+- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix, **draft**) -
+  `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
+  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
+  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
+  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
+  focus-safe handoff. **Its draft [R24.32] amendment states a target and a deviation in one
+  sentence on purpose**: the four-band design was approved and shipped in `b4b25d1`/`bdea016`
+  without an SRS delta, and the 768-1023 band still has the persistent agent rail that the
+  source dossier's FU-6 deferred, which this dossier's own AC-11 pins rather than removes.
+  Writing the target alone would land a requirement its own acceptance criteria contradict.
+
+- `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
+  Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
+  `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
+  make provider seed support an independent backend/UI capability, forwarding Gemini's supported
+  seed while keeping unsupported OpenAI Responses and Anthropic controls inert. **The generated
+  `ApiError` those two branches test for is unreachable, not merely rare** — the same rejection
+  handler is registered on the bare `axios` singleton the generated services use, so
+  `parseProblem` converts every failure first and no test could ever go red. Two same-file,
+  disjoint-region overlaps are recorded in its Q-2 (`AgentDetailView.vue` with the graphrag
+  blueprint, `turn_engine.py` with the large-artifacts dossier) and are deliberately **not**
+  `depends_on`, so whoever builds second rebases.
 
 ### From the 2026-08-27 provider-model investigation
+
+Both dossiers from this investigation are `implemented` as of 2026-08-28 and neither is active work.
+`2026-08-27-provider-model-capability-table` unblocked its sibling and both were removed from In
+progress the same day; their close-out notes are under In progress below. This section is kept as
+the record of what the investigation produced. Its remaining live thread is
+`2026-08-30-runtime-contract-integrity` in Ready above, which carries the capability table's FU-4.
 
 - (implemented 2026-08-28; see the note under In progress. Nothing lists it in `depends_on`, so no
   row moves out of Blocked.) The original entry, kept here for the record:
@@ -284,34 +321,6 @@ first, but building them serially avoids the conflict.
   already exist and are all `status: implemented` with overlapping `[Rxx.yy]` coverage —
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
-
-### From the 2026-08-30 chatroom FU consolidation
-
-- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix, **draft**) -
-  `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
-  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
-  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
-  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
-  focus-safe handoff. The draft [R24.32] amendment records the later approved and shipped
-  four-band responsive contract, including the known 768-1023 px deviation. Freshness verified
-  against `main` at `73125821`; no active dossier overlaps this surface. Requires explicit
-  approval before `/build`.
-
-### From the 2026-08-30 runtime-contract FU consolidation
-
-- `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
-  Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
-  `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
-  make provider seed support an independent backend/UI capability, forwarding Gemini's supported
-  seed while keeping unsupported OpenAI Responses and Anthropic controls inert. The lower-value
-  clipboard sweep returns to its source follow-up, removing the former `ChatroomView` overlap.
-  Freshness verified against `main` at `73125821`; requires explicit approval before `/build`.
-
-### From the 2026-08-27 provider-model investigation
-
-`2026-08-27-provider-model-capability-table` moved to In progress on 2026-08-28 (see below). Its
-sibling `2026-08-27-openai-responses-api-migration` stays Blocked in the section below, waiting on
-it.
 
 ## Blocked
 
