@@ -42,10 +42,15 @@ SRS/UI contradiction remain; §4-§6 cite the live paths.
 - **Overlay behavior expected.** At most one transient chatroom surface is active. Opening another
   performs a focus-safe hand-off; normal close restores the initiating control. Search uses the
   documented 0.2 backdrop and 200ms token animation, collapsed under reduced motion
-  (`docs/UI/07-conversation.md:738-753`; [R24.49]).
+  (`docs/UI/07-conversation.md:527-556`, whose §3.8 specifies the slide at `:539` and the 0.2
+  `--overlay-backdrop` dim at `:540`; [R24.49]).
 - **Responsive intent observed.** [R24.32] says the right rail is persistent from 1024px, while the
   older detailed UI document and shipped code use overlays at 1024-1279
-  (`REQUIREMENTS.md:1973-1975`; `docs/UI/07-conversation.md:238-253`).
+  (`REQUIREMENTS.md:1973-1975`; `docs/UI/07-conversation.md:164-183`, whose worked media block is
+  the source of the shipped `chatroom--compact` geometry). The same document's `:184` then calls
+  everything below 1024px single-pane with drawers, which the shipped 768-1023 agent rail also
+  contradicts; that band is the source dossier's deferred FU-6 and is treated as a recorded
+  deviation rather than a defect this dossier fixes.
 - **Responsive intent expected.** The later approved four-band decision is reflected in R24.32;
   768-1023 remains the source dossier's known deferred agent-rail deviation, not a behavior this
   dossier silently changes.
@@ -59,8 +64,8 @@ SRS/UI contradiction remain; §4-§6 cite the live paths.
 | Q-3 | What happens when an old backend omits `started_at`? | Insert an explicit invalid-date sentinel at the tail, then replace the entire local DTO from an authoritative fetch even while the approval remains pending. | Tail placement preserves discovery. Full replacement is necessary because current reconciliation updates only terminal state and discovery skips existing ids. |
 | Q-4 | Should compact rails use `SDrawer`? | No. Keep in-chat overlay geometry and reuse/extract focus behavior without document-modal scroll locking. | `SDrawer` teleports to body and uses modal geometry/z-index; the approved 1024-1279 design is feed-adjacent at `--z-dropdown`. |
 | Q-5 | How do the two compact rail overlays interact? | They are mutually exclusive; opening one closes the other and transfers focus ownership atomically. | Two open rail overlays cannot both own the same feed area or focus trap. |
-| Q-6 | What is the search contract? | Feed-scoped 0.2 backdrop, documented 200ms token slide, auto-focus, Escape/backdrop/result/explicit close, focus restoration, and reduced-motion collapse. Outside-click/Escape/restoration are new decisions recorded here, not claims about existing `07-conversation.md` text. | The document already specifies backdrop, auto-focus and animation; dismissal and restoration are needed to make the new backdrop operable and deterministic. |
-| Q-7 | Does this depend on another active dossier? | No; `depends_on: []`. | No predecessor touches approval announcements or this overlay implementation. The runtime-contract dossier does not touch `ChatroomView`, so it creates no overlap edge. |
+| Q-6 | What is the search contract? | Feed-scoped 0.2 backdrop, documented 200ms token slide, auto-focus, Escape/backdrop/result/explicit close, focus restoration, and reduced-motion collapse. Backdrop outside-click and focus restoration are the only new decisions recorded here. | `07-conversation.md:539-540` already specifies the slide and the 0.2 backdrop, `:556` the result-click close, and `:981` the Escape close; none of them says what a click outside does or where focus goes afterwards, which is what makes the new backdrop operable and deterministic. |
+| Q-7 | Does this depend on another active dossier? | No; `depends_on: []`. | No predecessor touches approval announcements or this overlay implementation. Checked against all four other non-implemented dossiers: `2026-08-30-runtime-contract-integrity` does not touch `ChatroomView` once its clipboard sweep is returned to follow-up, `2026-08-30-identity-onboarding-policy-hardening` is confined to the identity/Admin surface, and `2026-07-07-graphrag-two-axis-redesign` and `2026-07-19-large-artifacts-silently-dropped` to `AgentDetailView.vue`/`turn_engine.py`. No file overlap in either direction, so there is no rebase edge either. |
 | Q-8 | May search and a compact rail be open together? | No. At 1024-1279 search, agents and people/observer form one transient group. Below 1024, search and a drawer are mutually exclusive. At >=1280 persistent rails are outside the group. | Competing backdrops/traps/restoration targets create nondeterministic keyboard behavior; persistent rails do not. |
 | Q-9 | Which responsive source wins? | The later user-approved four-band decision in `b4b25d1` wins; amend R24.32 at approval. | The 2026-08-21 approval is later than R24.32's 2026-08-09 amendment and was implemented in `bdea016`; the missing SRS delta is the documentation defect. |
 
@@ -124,8 +129,9 @@ permanent.
    (`ChatroomView.vue:34-39,194-255,1273-1317`).
 3. Search has a separate boolean and panel with no shared transient-surface coordinator
    (`ChatroomView.vue:27,41-52,946-950`).
-4. Detailed UI docs defined 1024-1279 overlays in June; R24.32 was amended to persistent >=1024 in
-   August; a still-later approved dossier selected and shipped overlays but recorded no SRS change.
+4. Detailed UI docs defined 1024-1279 overlays in June (`07-conversation.md:164-183`); R24.32 was
+   amended to persistent >=1024 in August; a still-later approved dossier selected and shipped
+   overlays but recorded no SRS change.
 
 The runtime root cause is visibility state without a behavioral owner. The documentation root cause
 is a later approved design decision that bypassed the SRS Delta protocol.
@@ -162,8 +168,10 @@ is a later approved design decision that bypassed the SRS Delta protocol.
    Escape, result selection and explicit close use one path. Under `prefers-reduced-motion: reduce`,
    the transition is removed per R24.49.
 6. Keep compact panels at `--z-dropdown`; do not promote them to modal. Update
-   `docs/UI/07-conversation.md` to record the dismissal/mutual-exclusion behavior and amend R24.32
-   only when this draft is explicitly approved.
+   `docs/UI/07-conversation.md` in two places: §3.8 Search (`:527-556`) gains the backdrop
+   outside-click and focus-restoration rules its existing backdrop/animation text does not cover,
+   and the intermediate-breakpoint block (`:164-183`) gains the mutual-exclusion contract for the
+   three transient surfaces. Amend R24.32 only when this draft is explicitly approved.
 
 ## 8. Regression Test Plan
 
@@ -232,18 +240,27 @@ The failing tests come first.
 Amend **[R24.32]** to:
 
 > **[R24.32]** Chat uses four responsive layout bands. Below 768px the feed is single-pane and the
-> agent and people/observer side panels open as drawers. From 768 through 1023px the intended layout
-> is likewise single-pane with both side panels available as drawers. From 1024 through 1279px the
-> feed occupies the available layout width and search, agent and people/observer surfaces open as
-> header-controlled, mutually exclusive in-chat overlays positioned below the header; no rail
-> resize handle is shown. At 1280px and above the agent and people/observer rails are persistent,
-> and the right rail width is resizable between the documented minimum and maximum, persisted
-> locally per browser and re-clamped so the message column retains its minimum share. Wherever a
+> agent and people/observer side panels open as drawers. From 768 through 1023px the target layout
+> is likewise single-pane with both side panels available as drawers; until the announced change
+> that moves it there, this band keeps a persistent agent rail beside the feed with people/observer
+> as a drawer, which is a recorded and pinned deviation rather than a permitted alternative. From
+> 1024 through 1279px the feed occupies the available layout width and search, agent and
+> people/observer surfaces open as header-controlled, mutually exclusive in-chat overlays positioned
+> below the header; no rail resize handle is shown. At 1280px and above the agent and
+> people/observer rails are persistent, and the right rail width is resizable between the documented
+> minimum and maximum, persisted locally per browser and re-clamped so the message column retains
+> its minimum share. Wherever a
 > side panel is transient, it is mutually exclusive with chatroom search. Every drawer, overlay
 > panel and persistent rail scrolls within its own reachable region; content is never clipped
 > without a reachable scroll surface.
 
 The delta remains draft and is not applied to `REQUIREMENTS.md` until explicit user approval.
+
+The 768-1023 clause deliberately states the target and the current deviation in the same sentence.
+Stating the target alone would put a requirement into `REQUIREMENTS.md` that AC-11 of this very
+dossier pins as violated on the day it lands, and stating the deviation alone would lose the
+decision that FU-2 exists to carry out. FU-2 removes the second half of the clause when it moves
+that band; nothing else in this dossier changes it.
 
 ## 12. Deviation Log
 
