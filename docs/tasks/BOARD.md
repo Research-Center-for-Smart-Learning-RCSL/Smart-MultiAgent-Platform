@@ -21,9 +21,11 @@ parallel.
 - `2026-08-30-identity-onboarding-policy-hardening` (feature, **draft**) - `depends_on: []`.
   Consolidates FU-6/FU-9/FU-10/FU-11 of `2026-08-20-onboarding-without-smtp`: make the
   email-domain policy durable and admin-manageable, refuse banned-account activation links,
-  and rate-limit per-admin account provisioning. Freshness verified against `main` at
-  `73125821`; no active dossier overlaps the identity/admin-policy surface. Requires explicit
-  approval before `/build` may start and carries a draft [R19a.13] amendment.
+  and rate-limit per-admin account provisioning. Its compatibility/active/rollback-frozen
+  rollout states, atomic legacy import and write fence, and versioned Redis TTL contract close
+  the migration hazards found during review. Freshness verified against `main` at `73125821`;
+  no active dossier overlaps the identity/admin-policy surface. Requires explicit approval
+  before `/build` may start and carries a draft [R19a.13] amendment.
 
 ### From the 2026-08-27 provider-model investigation
 
@@ -288,10 +290,22 @@ first, but building them serially avoids the conflict.
 - `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix, **draft**) -
   `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
   `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
-  skewed client cannot hide a required vote, and complete focus/backdrop/dismissal behavior for
-  compact rail and search overlays. Freshness verified against `main` at `73125821`; it has no
-  predecessor, while `frontend-shared-abstraction-contracts` waits on it for `ChatroomView` and
-  test-file overlap. Requires explicit approval before `/build`.
+  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
+  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
+  focus-safe handoff. The draft [R24.32] amendment records the later approved and shipped
+  four-band responsive contract, including the known 768-1023 px deviation. Freshness verified
+  against `main` at `73125821`; no active dossier overlaps this surface. Requires explicit
+  approval before `/build`.
+
+### From the 2026-08-30 runtime-contract FU consolidation
+
+- `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
+  Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
+  `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
+  make provider seed support an independent backend/UI capability, forwarding Gemini's supported
+  seed while keeping unsupported OpenAI Responses and Anthropic controls inert. The lower-value
+  clipboard sweep returns to its source follow-up, removing the former `ChatroomView` overlap.
+  Freshness verified against `main` at `73125821`; requires explicit approval before `/build`.
 
 ### From the 2026-08-27 provider-model investigation
 
@@ -300,17 +314,6 @@ sibling `2026-08-27-openai-responses-api-migration` stays Blocked in the section
 it.
 
 ## Blocked
-
-### From the 2026-08-30 frontend shared-abstraction FU consolidation
-
-- `2026-08-30-frontend-shared-abstraction-contracts` (bugfix, **draft**) - waiting on
-  `2026-08-30-chatroom-approval-and-overlay-discoverability`. **Overlap prerequisite only:** both
-  edit `ChatroomView.vue`, its setup imports and its component tests. This dossier closes FU-5 of
-  `2026-08-20-orchestration-room-scoped-reads` and FU-12 of
-  `2026-08-20-onboarding-without-smtp`: use the actual shared typed-error hierarchy at two dead
-  recovery branches, route all three direct clipboard calls through `useClipboard`, and add
-  ESLint guards for both contracts. Freshness verified against `main` at `73125821`; it becomes
-  Ready when the chatroom dossier is `implemented` and still requires explicit user approval.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
