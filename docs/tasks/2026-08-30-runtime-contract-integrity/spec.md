@@ -65,9 +65,10 @@ references on 2026-08-30. The source files and official URLs are recorded below.
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
 | Q-1 | Which follow-ups form this change? | Wrong-`ApiError` FU-5 plus provider-capability FU-4; clipboard migration returns to follow-up. | The two retained defects break runtime contracts and recovery/config correctness. Clipboard is lower value and was the only reason to overlap ChatroomView. |
-| Q-2 | Does this depend on another dossier? | No; `depends_on: []`. | Removing clipboard removes all ChatroomView overlap. Error sites are separate composables/tests; seed touches agents model specs, key adapters, generated catalogue output and AgentDetailView. Active graphrag/large-artifact dossiers touch neither region. |
+| Q-2 | Does this depend on another dossier? | No; `depends_on: []`. Two file overlaps exist and are deliberately not dependencies, so whoever builds second rebases. | Checked against all four other non-implemented dossiers. Removing clipboard removes all ChatroomView overlap with `2026-08-30-chatroom-approval-and-overlay-discoverability`, and `2026-08-30-identity-onboarding-policy-hardening` is confined to the identity/Admin surface. Error sites are separate composables/tests. The two remaining overlaps are same-file, disjoint-region: `2026-07-07-graphrag-two-axis-redesign` edits `AgentDetailView.vue`'s General and Knowledge tabs (`:820-855,935-1000`) while this dossier edits the capability computeds and sampling fields (`:292-305,385-394,1033-1044`), and `2026-07-19-large-artifacts-silently-dropped` edits `turn_engine.py`'s `_persist_artifacts` (`:1124-1171`) while this dossier only corrects the `_sampling_payload` comment (`:179-195`). Neither is a logical prerequisite; sequencing them would block two independent fixes on each other. |
 | Q-3 | Should error consumers use structural status checks? | No. Import `ApiError` from `@shared/errors` and retain `instanceof` plus status checks. | R24.35 promises one typed hierarchy. Structural checks would hide a future transport regression. |
-| Q-4 | How is the generated error import prevented in tests when tests disable `no-restricted-imports`? | Add a global `no-restricted-syntax` AST selector for `ImportSpecifier[imported.name='ApiError']` under an `ImportDeclaration` whose source is `@shared/api-client`; exclude only the generated tree. Add a negative ESLint fixture test. | The current test override turns `no-restricted-imports` off (`frontend/eslint.config.js:344-350`). A separate selector remains active in production and test overrides without re-enabling unrelated slice restrictions in fixtures. |
+| Q-4 | How is the generated error import prevented in tests when tests disable `no-restricted-imports`? | Add two global `no-restricted-syntax` AST selectors keyed on `@shared/api-client` as the source: one for `ImportSpecifier[imported.name='ApiError']`, one for `ExportSpecifier[local.name='ApiError']`; exclude only the generated tree. Add negative and positive ESLint fixture tests. | The current test override turns `no-restricted-imports` off (`frontend/eslint.config.js:344-350`). A separate selector remains active in production and test overrides without re-enabling unrelated slice restrictions in fixtures. The second selector closes the re-export route, which would otherwise launder the same class into a slice barrel and pass. |
+| Q-4a | Does the rule also catch `import * as c from '@shared/api-client'` followed by `c.ApiError`? | No, and the criteria say so rather than implying otherwise. | Catching it needs either a `MemberExpression[property.name='ApiError']` selector, which fires on every unrelated `.ApiError` including the shared one this dossier is steering people toward, or scope analysis a flat-config `no-restricted-syntax` selector cannot express. The four real sites are named imports, the barrel is not imported as a namespace anywhere in `src/`, and a rule that over-fires on the correct class would teach people to disable it. Recorded as a known gap covered by review, not as coverage the rule does not have. |
 | Q-5 | Extend `accepts_sampling` or add a seed capability? | Add `accepts_seed`; define `accepts_sampling` as temperature/top-p only. | Providers accept these parameters independently. One coarse flag is the root cause of both UI and adapter dishonesty. |
 | Q-6 | Which catalogued models accept seed? | Catalogued Gemini rows set `accepts_seed: true`; OpenAI Responses and Anthropic rows set false; unknown/custom models use false. | This is the conservative-floor rule of R9.03a applied to current official endpoint contracts. |
 | Q-7 | What happens to an existing stored seed on an unsupported model? | Preserve it when loading an existing Agent but render disabled with truthful help; clear it only on a user-initiated provider/model change to an unsupported target. | Matches the capability-table handling for pre-existing inert effort/sampling values and avoids destructive edit-load side effects. |
@@ -103,13 +104,21 @@ class easy to discover, and tests repeated the production import instead of exer
 transport shape. Because both classes expose `status`, types and happy-path tests did not expose the
 identity mismatch.
 
+The generated `ApiError` is not merely the less common of two live classes: it is unreachable.
+`core/request.ts:266,280` does throw it, but the generated services call the bare `axios` singleton,
+and `transport/axios.ts:225-227` registers the same rejection handler on that singleton as on
+`http`, so `parseProblem` converts every failure before `request.ts` can raise. No code path in the
+application produces the class these four files test for, which is why no test could go red.
+
 ### Provider seed
 
 The capability-table migration introduced a model record but retained one `accepts_sampling` boolean
-for multiple independent parameters (`model_specs.py:63-71,319-328`). Adapters already special-case
-seed by omission, while the UI gates only temperature/top-p (`AgentDetailView.vue:292-305,385-394`)
-and renders seed unconditionally. A stale Gemini comment and stale English help then inverted the
-real current provider support.
+for multiple independent parameters
+(`backend/contexts/agents/domain/model_specs.py:63-71,319-328`). The spec table lives in the
+`agents` context and reaches the `keys` adapters as an untyped payload dict, so this change has two
+ends. Adapters already special-case seed by omission, while the UI gates only temperature/top-p
+(`AgentDetailView.vue:292-305,385-394`) and renders seed unconditionally. A stale Gemini comment and
+stale English help then inverted the real current provider support.
 
 ## 6. Blast Radius and Sibling Suspects
 
@@ -131,9 +140,13 @@ real current provider support.
 2. Add the global ESLint AST restriction from Q-4. Keep the existing test override for unrelated
    cross-slice fixtures. A config test lints virtual production and test snippets, rejecting the
    generated named import and accepting generated models/services plus `@shared/errors.ApiError`.
-3. Add `accepts_seed: bool` to `ChatModelSpec`, conservative resolution, catalogue/API output,
-   cross-context payload flags and `CapabilityFlags`. Document that `accepts_sampling` means only
-   temperature/top-p. Gemini rows are true; OpenAI/Anthropic/unknown are false.
+3. Add `accepts_seed: bool` to `ChatModelSpec`
+   (`backend/contexts/agents/domain/model_specs.py:63-71`), conservative resolution, catalogue/API
+   output, the `capability_payload` dict that crosses into the `keys` context (`:319-328`) and
+   `CapabilityFlags` (`backend/contexts/keys/infrastructure/adapters/base.py:175-220`). Both ends
+   move together: a flag added to the spec but not to `capability_payload` reaches no adapter, which
+   is the same silent-inertness this dossier exists to remove. Document that `accepts_sampling`
+   means only temperature/top-p. Gemini rows are true; OpenAI/Anthropic/unknown are false.
 4. In Gemini `_chat_body`, add `generationConfig.seed` when `caps.accepts_seed` and payload seed are
    non-null. Do not nest it under `accepts_sampling`. OpenAI Responses and Anthropic continue to
    omit seed, now because an explicit flag is false rather than an undocumented special case.
@@ -148,8 +161,10 @@ real current provider support.
 - **T-1 message recovery** — throw `@shared/errors.ApiError` 422, assert stale anchor removal,
   cache reconciliation and retry. The current test fixture fails before the import fix.
 - **T-2 prompt expiry** — throw the shared 404 and assert expired state/recovery feedback.
-- **T-3 lint negative fixtures** — virtual production and `*.test.ts` imports from generated
-  `ApiError` both fail; shared error and other generated imports pass.
+- **T-3 lint fixtures** — negative: virtual production and `*.test.ts` named imports of generated
+  `ApiError`, plus a `export { ApiError } from '@shared/api-client'` re-export, all fail. Positive:
+  `@shared/errors.ApiError` and other generated symbols pass, so the rule cannot be satisfied by
+  deleting the shared import instead.
 - **T-4 domain catalogue** — every spec carries a boolean seed capability; unknown/custom is false;
   Gemini true and OpenAI/Anthropic false.
 - **T-5 adapter request shaping** — fixed seed appears as Gemini `generationConfig.seed` for
@@ -166,7 +181,9 @@ real current provider support.
 - **Provider drift.** Capability rows carry source and verification date; unknown models remain
   false. The existing model-catalog reconciliation process remains the operator freshness path.
 - **Over-broad lint selector.** Negative/positive fixtures prove only the named generated class is
-  rejected; generated DTO/service imports and shared errors remain legal.
+  rejected; generated DTO/service imports and shared errors remain legal. The opposite risk is
+  accepted deliberately: Q-4a records that namespace-qualified access escapes both selectors, and
+  AC-3 is worded to match what the rule enforces rather than what a reader might assume from it.
 - **Unexpected Gemini model refusal.** Adapter tests pin shaping, and the conservative table enables
   only catalogued rows. A live-key smoke may be recorded at implementation but is not required for
   deterministic CI.
@@ -180,8 +197,9 @@ real current provider support.
   reconciles cache and retries; the test fails before the fix.
 - [ ] AC-2: a shared transport 404 marks the prompt session expired and produces the intended
   recovery state; the test fails before the fix.
-- [ ] AC-3: no production or test file outside `src/shared/api-client/**` imports generated
-  `ApiError`; ESLint rejects a virtual violation in both production and test override contexts.
+- [ ] AC-3: no production or test file outside `src/shared/api-client/**` names generated `ApiError`
+  in an import or a re-export; ESLint rejects both forms in production and test override contexts.
+  Namespace-qualified access is out of the rule's reach by Q-4a and is not claimed here.
 - [ ] AC-4: the lint restriction permits other generated API symbols and `@shared/errors.ApiError`,
   and existing slice/store/session boundary fixtures continue passing.
 - [ ] AC-5: `ChatModelSpec`, API output and adapter payload flags expose independent
