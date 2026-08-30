@@ -2,7 +2,7 @@
 type: bugfix
 status: draft
 created: 2026-08-30
-requirements: [R15.10, R24.32]
+requirements: [R15.10, R24.32, R24.49]
 depends_on: []
 ---
 
@@ -10,218 +10,240 @@ depends_on: []
 
 ## 1. Summary
 
-Close three related chatroom follow-ups from
-`2026-08-19-chatroom-scroll-and-composer`: a live approval card is dated with the browser's
-clock and can be inserted off-screen without an unseen-item pill (FU-9), compact-desktop rail
-overlays do not move/trap/restore keyboard focus or provide a dismissing backdrop (FU-10), and
-the search panel omits the documented feed backdrop/outside-click behavior (FU-1). The PR makes
-new approvals reliably discoverable and gives every in-chat overlay a deliberate, tested
-keyboard/pointer dismissal contract.
+Close FU-9, FU-10 and FU-1 of `2026-08-19-chatroom-scroll-and-composer`. A live approval
+currently uses the browser clock and can be inserted off-screen without an unseen-item pill. At
+1024-1279px, the search, agent and people/observer surfaces lack one coherent focus, stacking and
+dismissal contract. Search also omits its documented feed backdrop.
 
-Freshness was re-verified against `main` at `73125821` (2026-08-28). All three defects remain in
-the current code; §5 cites the live paths.
+The responsive intent itself needs repair: R24.32 was amended on 2026-08-09 to require a persistent
+right rail from 1024px, but a later user-approved dossier (`b4b25d1`, 2026-08-21) deliberately chose
+and shipped the four-band 1024-1279 overlay design without applying an SRS delta. This dossier
+records that later decision explicitly instead of silently implementing against contradictory
+sources.
+
+Freshness was re-verified against `main` at `73125821` (2026-08-28). All runtime defects and the
+SRS/UI contradiction remain; §4-§6 cite the live paths.
 
 ## 2. Observed vs Expected
 
-- **Observed — live approval ordering.** The room-channel `approval.requested` event omits the
-  persisted `Approval.started_at` (`backend/contexts/orchestration/application/approval_service.py:182-194`).
-  The client fills it with `new Date().toISOString()`
-  (`frontend/src/slices/conversation/composables/useChatroomSocket.ts:474-487`). A slow client
-  clock can therefore sort a just-arrived gate above recent server-dated messages; because the
-  feed tail does not change, the unseen counter also remains zero. The source dossier records the
-  complete failure chain at
-  `docs/tasks/2026-08-19-chatroom-scroll-and-composer/spec.md:786-800`.
-- **Expected — live approval ordering.** Approval cards are interleaved at the chronological
-  position where the server created the request (`docs/UI/07-conversation.md:937,989`), and an
-  `approval.requested` server event adds the card (`docs/UI/07-conversation.md:1404`). Client
-  clock skew must not decide server-event chronology.
-- **Observed — compact overlays.** At 1024-1279px the agent and people panels are raw absolutely
-  positioned rails. Escape closes them, but focus remains in the header/feed, is not trapped,
-  is not restored, and no backdrop catches outside clicks
-  (`frontend/src/slices/conversation/views/ChatroomView.vue:1-42,196-273,952-969,1304-1317`).
-  The source dossier records the keyboard impact at
-  `docs/tasks/2026-08-19-chatroom-scroll-and-composer/spec.md:801-808`.
-- **Expected — compact overlays.** The intermediate breakpoint uses toggleable overlay panels
-  (`docs/UI/07-conversation.md:238`). The established overlay accessibility contract moves focus
-  inside, traps Tab/Shift+Tab, restores focus on close and supports Escape
-  (`docs/UI/11-responsive-a11y.md:243-280`).
-- **Observed — search overlay.** `ChatroomSearchPanel` renders an absolute top panel with no
-  backdrop markup or focus management
-  (`frontend/src/slices/conversation/components/ChatroomSearchPanel.vue:1-21,70-110`).
-- **Expected — search overlay.** The feed is dimmed with `--overlay-backdrop` at 0.2 opacity,
-  search receives focus on open, and clicking the dimmed area closes the panel
-  (`docs/UI/07-conversation.md:738-769`).
+- **Approval chronology observed.** The room `approval.requested` event omits the persisted
+  `Approval.started_at`; the client fills it with `new Date().toISOString()`
+  (`backend/contexts/orchestration/application/approval_service.py:161-194`;
+  `frontend/src/slices/conversation/composables/useChatroomSocket.ts:474-487`). A slow client clock
+  sorts a new gate above recent server-dated messages and leaves the unseen count unchanged.
+- **Approval chronology expected.** Room events carry the server timestamp. A mixed-version event
+  with no valid timestamp is discoverable at the tail and is later replaced by the authoritative
+  server DTO without consulting client wall time.
+- **Overlay behavior observed.** At 1024-1279 both rails are raw absolute panels. Escape closes
+  them, but focus is not moved/trapped/restored and there is no backdrop
+  (`ChatroomView.vue:34-39,194-255,961-973,1273-1317`). Search is independently openable and has no
+  backdrop or focus owner (`ChatroomView.vue:27,41-52,946-950`;
+  `ChatroomSearchPanel.vue:1-21,70-110`).
+- **Overlay behavior expected.** At most one transient chatroom surface is active. Opening another
+  performs a focus-safe hand-off; normal close restores the initiating control. Search uses the
+  documented 0.2 backdrop and 200ms token animation, collapsed under reduced motion
+  (`docs/UI/07-conversation.md:738-753`; [R24.49]).
+- **Responsive intent observed.** [R24.32] says the right rail is persistent from 1024px, while the
+  older detailed UI document and shipped code use overlays at 1024-1279
+  (`REQUIREMENTS.md:1973-1975`; `docs/UI/07-conversation.md:238-253`).
+- **Responsive intent expected.** The later approved four-band decision is reflected in R24.32;
+  768-1023 remains the source dossier's known deferred agent-rail deviation, not a behavior this
+  dossier silently changes.
 
 ## 3. Clarifications
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | Which follow-ups belong in this PR? | FU-9, FU-10 and FU-1 from `2026-08-19-chatroom-scroll-and-composer`. | All three govern whether an item or panel layered over the chatroom feed is discoverable and reachable. They share `ChatroomView`, its overlay state/tests and the same manual viewport pass. The dossier's feed-geometry E2E harness (FU-3) and tablet rail redesign (FU-6) are larger, independent initiatives. |
-| Q-2 | Fix approval ordering in the frontend or event contract? | Add the persisted `started_at` to the room `approval.requested` event and consume it. | The backend already owns the authoritative timestamp. A client-derived timestamp can never be correct under skew, while a server field makes live delivery and reconnect discovery use the same value. |
-| Q-3 | What should a new frontend do during a rolling deploy when an old backend omits `started_at`? | Use an invalid/absent timestamp sentinel that the feed deliberately places at the tail; never synthesize wall-clock time. Reconciliation replaces it with the server value. | Tail placement preserves discoverability and raises the unseen pill. It degrades to the pre-merge behavior and avoids creating a second, merely less likely clock-skew defect. |
-| Q-4 | Should compact rails use `SDrawer`? | No. Keep them in-chat absolute overlays, but give them the same focus/dismissal semantics through a small conversation-local overlay shell and shared focus utility. | `SDrawer` teleports to `body`, covers the viewport and uses modal z-index/geometry; the 1024-1279 design explicitly calls for panels positioned inside the chatroom at `--z-dropdown`. Reusing behavior is correct; reusing the wrong geometry is not. |
-| Q-5 | How do the two compact rail overlays interact? | At most one is open. Opening agents closes people and vice versa; Escape or backdrop closes the active one and restores focus to its trigger. | Two simultaneously open overlays compete for the same feed area and cannot both own a focus trap. Mutual exclusion makes focus ownership deterministic. |
-| Q-6 | What is the search backdrop contract? | Feed-scoped, 0.2-opacity token backdrop; outside click and Escape close; opening focuses search and closing restores the search trigger. No new motion is introduced. | This is the behavior already written in `07-conversation.md`; no stacking or animation policy has to be invented. Search remains a top panel rather than a viewport-modal drawer. |
-| Q-7 | Does this depend on another active dossier? | No; `depends_on: []`. | No predecessor touches approval announcements, conversation overlay markup or these tests. The later `2026-08-30-frontend-shared-abstraction-contracts` dossier also edits `ChatroomView` and its tests, so that dossier depends on this one for overlap sequencing; the dependency direction leaves this dossier Ready. |
+| Q-1 | Which follow-ups belong in this PR? | FU-9, FU-10 and FU-1 from `2026-08-19-chatroom-scroll-and-composer`. | They govern whether a gate or transient panel over the feed is discoverable and reachable and share ChatroomView state/tests and one viewport pass. |
+| Q-2 | Fix approval ordering in the frontend or event contract? | Add persisted `started_at` to the room `approval.requested` event and consume it. | The backend owns chronology; a client-derived timestamp can never be correct under skew. |
+| Q-3 | What happens when an old backend omits `started_at`? | Insert an explicit invalid-date sentinel at the tail, then replace the entire local DTO from an authoritative fetch even while the approval remains pending. | Tail placement preserves discovery. Full replacement is necessary because current reconciliation updates only terminal state and discovery skips existing ids. |
+| Q-4 | Should compact rails use `SDrawer`? | No. Keep in-chat overlay geometry and reuse/extract focus behavior without document-modal scroll locking. | `SDrawer` teleports to body and uses modal geometry/z-index; the approved 1024-1279 design is feed-adjacent at `--z-dropdown`. |
+| Q-5 | How do the two compact rail overlays interact? | They are mutually exclusive; opening one closes the other and transfers focus ownership atomically. | Two open rail overlays cannot both own the same feed area or focus trap. |
+| Q-6 | What is the search contract? | Feed-scoped 0.2 backdrop, documented 200ms token slide, auto-focus, Escape/backdrop/result/explicit close, focus restoration, and reduced-motion collapse. Outside-click/Escape/restoration are new decisions recorded here, not claims about existing `07-conversation.md` text. | The document already specifies backdrop, auto-focus and animation; dismissal and restoration are needed to make the new backdrop operable and deterministic. |
+| Q-7 | Does this depend on another active dossier? | No; `depends_on: []`. | No predecessor touches approval announcements or this overlay implementation. The runtime-contract dossier is being revised away from ChatroomView and therefore no longer creates an overlap edge. |
+| Q-8 | May search and a compact rail be open together? | No. At 1024-1279 search, agents and people/observer form one transient group. Below 1024, search and a drawer are mutually exclusive. At >=1280 persistent rails are outside the group. | Competing backdrops/traps/restoration targets create nondeterministic keyboard behavior; persistent rails do not. |
+| Q-9 | Which responsive source wins? | The later user-approved four-band decision in `b4b25d1` wins; amend R24.32 at approval. | The 2026-08-21 approval is later than R24.32's 2026-08-09 amendment and was implemented in `bdea016`; the missing SRS delta is the documentation defect. |
 
 ## 4. Reproduction
 
-### R1 — approval hidden by client clock skew
+### R1 — client-clock approval
 
-1. Open a chatroom with at least two recent messages and scroll to the bottom.
-2. Set the browser/OS clock several minutes behind the server (or fake `Date` in the component
-   test).
-3. Trigger a workflow approval gate bound to the room.
-4. Observe that the new card sorts above the recent messages and no unseen-item pill appears.
+1. Open a room with recent messages and scroll to the bottom.
+2. Set the client clock several minutes behind the server.
+3. Trigger a room-bound approval.
+4. The new card sorts above the tail and the unseen pill remains zero.
 
-Deterministic automated reproduction: deliver an `approval.requested` frame after two messages
-whose server timestamps are newer than the fake client clock. Current code writes the fake clock
-at `useChatroomSocket.ts:484`, so the feed merge inserts the card before the tail.
+Deterministic test: deliver a room event after two messages whose timestamps are newer than the fake
+client clock. Current code writes that fake clock in the socket insertion branch.
 
-### R2 — compact overlay keyboard path
+### R2 — competing compact overlays
 
-1. Set the viewport to 1100px and focus the header's Agents toggle with the keyboard.
-2. Activate it, then press Tab.
-3. Observe that focus walks the feed/header sequence rather than entering/cycling inside the open
-   panel; close it and observe no defined restoration target. Click the uncovered feed and observe
-   that the panel stays open.
+1. Set the viewport to 1100px and open Agents from the keyboard.
+2. Open search without closing Agents, or toggle People.
+3. Observe independent state, no single focus owner, no backdrop and no defined restoration target.
 
-### R3 — search backdrop
+### R3 — search backdrop and motion
 
-1. Open chatroom search with Ctrl/Cmd+K or the header button.
-2. Observe that the feed is not dimmed and has no click target that closes search.
-3. Close search and observe that focus restoration to the opener is not guaranteed by the panel.
+1. Open search with the header control or shortcut.
+2. The feed is not dimmed and has no click target that closes the panel.
+3. Close search; focus restoration is not guaranteed by the panel.
+
+### R4 — mixed-version sentinel
+
+1. Insert a pending card with an invalid `started_at`, as a new client must do for an old event.
+2. Run the existing discovery/reconciliation against a still-pending authoritative row.
+3. `discoverApprovals` skips the existing id and `reconcilePending` does not replace pending DTOs,
+   so the sentinel remains (`useChatroomSocket.ts:164-173`;
+   `frontend/src/shared/stores/orchestration.ts:69-80`).
 
 ## 5. Root Cause Analysis
 
 ### Approval chronology
 
-1. `ApprovalRepository.insert` stores a server-side `started_at`, and the domain model carries it
-   (`backend/contexts/orchestration/infrastructure/repositories.py:59-96`,
+1. The repository/domain row carries server `started_at`
+   (`backend/contexts/orchestration/infrastructure/repositories.py:59-96`;
    `backend/contexts/orchestration/domain/models.py:387-400`).
-2. `announce_gate` re-reads that durable row after commit, but the room event copies every display
-   field except `started_at`
-   (`backend/contexts/orchestration/application/approval_service.py:161-194`).
-3. The socket handler must satisfy the non-optional `ApprovalWithVotes.started_at` contract, so it
-   invents a client timestamp (`useChatroomSocket.ts:474-487`).
-4. `ChatroomView` merges server-dated messages and approval timestamps on one chronological axis;
-   invalid timestamps already go to the tail, but the synthetic timestamp is valid and therefore
-   trusted (`frontend/src/slices/conversation/views/ChatroomView.vue:752-795`).
+2. `announce_gate` re-reads that durable row but omits the timestamp from the room event
+   (`approval_service.py:161-194`).
+3. The socket handler invents a valid client timestamp to satisfy `ApprovalWithVotes`, and the feed
+   correctly trusts valid timestamps (`useChatroomSocket.ts:474-487`;
+   `ChatroomView.vue:752-795`).
+4. A sentinel alone is insufficient: current reconciliation removes null or updates terminal state
+   only, and discovery seeds only missing ids (`orchestration.ts:69-80`;
+   `useChatroomSocket.ts:164-173`).
 
-The root cause is the event-contract omission in step 2. Client-clock synthesis is the aggravating
-factor; changing sort heuristics without fixing the event would only mask the omission.
+The event omission causes skew; incomplete full-DTO reconciliation would make the rollout fallback
+permanent.
 
-### Overlay accessibility
+### Overlay accessibility and responsive intent
 
-1. Mobile/tablet panels use `SDrawer`, whose `useFocusTrap` integration supplies focus move,
-   trapping, restoration, Escape and backdrop behavior
-   (`frontend/src/shared/ui/SDrawer.vue:31-44,47-109`;
+1. Mobile drawers already use `useFocusTrap` through `SDrawer`
+   (`frontend/src/shared/ui/SDrawer.vue:31-109`;
    `frontend/src/shared/composables/useFocusTrap.ts:21-100`).
-2. The intermediate breakpoint reuses only the panels' open booleans and raw content, rendering
-   absolute `.chatroom__panel--open` blocks instead of an overlay primitive
-   (`ChatroomView.vue:1-42,196-212,1304-1317`).
-3. Review added an Escape listener, but no element owns a focus boundary, previous-focus record or
-   backdrop (`ChatroomView.vue:961-969`).
-4. `ChatroomSearchPanel` likewise owns only the visible panel, even though the documented design
-   includes a backdrop, autofocus and outside-click dismissal (`ChatroomSearchPanel.vue:1-21,95-110`).
+2. Compact rails reuse only booleans and visibility CSS, not the behavior
+   (`ChatroomView.vue:34-39,194-255,1273-1317`).
+3. Search has a separate boolean and panel with no shared transient-surface coordinator
+   (`ChatroomView.vue:27,41-52,946-950`).
+4. Detailed UI docs defined 1024-1279 overlays in June; R24.32 was amended to persistent >=1024 in
+   August; a still-later approved dossier selected and shipped overlays but recorded no SRS change.
 
-The root cause is that in-chat overlay geometry was implemented as visibility CSS without a
-behavioral shell. The aggravating factor is sharing drawer state without sharing drawer semantics.
+The runtime root cause is visibility state without a behavioral owner. The documentation root cause
+is a later approved design decision that bypassed the SRS Delta protocol.
 
 ## 6. Blast Radius and Sibling Suspects
 
-- **Approval blast radius** — every room-bound approval delivered live over WebSocket. Reconnect
-  discovery is cleared: it already receives the API model's server `started_at`
-  (`frontend/src/slices/conversation/composables/useChatroomSocket.ts:155-177`;
-  `frontend/src/shared/types/workflow.ts:13-36`). The workflow-run socket is also cleared: it only
-  invalidates the approval query and does not construct a card
-  (`frontend/src/slices/workflow/composables/useWorkflowRunSocket.ts:74-77`).
-- **Approval sibling** — the workflow-channel event also omits `started_at`, but its consumer only
-  invalidates queries. Add the field there for event-shape consistency only if the backend event
-  DTO is shared; no frontend workflow behavior depends on it.
-- **Overlay blast radius** — search, agent rail and people/observer rail inside `ChatroomView` at
-  the 1024-1279 band. Mobile/tablet `SDrawer` and >=1280 persistent rails retain their existing
-  markup and behavior.
-- **Overlay siblings cleared** — `SModal` and `SDrawer` already use `useFocusTrap`; no defect is
-  claimed there. Dropdown focus has its own roving-focus contract and is not a dialog.
+- Every room-bound approval delivered live over WebSocket. Reconnect discovery already receives the
+  server timestamp; workflow-run socket consumers only invalidate queries.
+- Search, agent rail and people/observer rail at 1024-1279. Below 1024 the drawer/search exclusion is
+  affected; >=1280 persistent rails retain geometry and resizing.
+- `SModal` and `SDrawer` are cleared: they already use `useFocusTrap`. Dropdown roving focus is a
+  separate contract.
+- The 768-1023 agent rail remains the source dossier's FU-6 and is pinned as an intentional current
+  deviation; this dossier does not quietly remove it.
 
 ## 7. Fix Design
 
-1. Add a typed room approval-request event payload containing the persisted ISO `started_at`.
-   `announce_gate` emits the value from the re-read durable approval. Update the realtime event
-   documentation and backend payload test.
-2. In `useChatroomSocket`, consume `started_at` from the event. During mixed-version rollout, use
-   a tail sentinel when absent/invalid; remove all `Date`/`Date.now` chronology synthesis from this
-   branch. Reconciliation may later replace the sentinel with the API's authoritative value.
-3. Extract a conversation-local overlay shell/composable for the compact agent/people panels. It
-   owns a labelled panel ref, focus move/trap/restore, Escape handling, a click-catching backdrop,
-   and one-active-panel state. Extend the shared focus utility with a narrowly typed option only if
-   required to avoid locking the entire document for an in-page overlay; preserve its default
-   modal/drawer behavior and tests.
-4. Add the documented feed-scoped search backdrop. Opening search records/focuses the search
-   control; Escape, close, result selection and backdrop click use one close path that restores
-   focus to the opener. The backdrop uses a 20% mix of `--overlay-backdrop` and adds no animation.
-5. Keep z-indexes within the documented in-chat stack (`--z-dropdown`); do not promote these
-   panels to `--z-modal`. Ensure the approval card/pill and search/rail overlays remain mutually
-   reachable rather than hiding one another.
+1. Add a typed room approval-request payload containing persisted ISO `started_at`. Emit the value
+   from the re-read durable row and update realtime documentation and backend payload tests.
+2. Consume `started_at` in `useChatroomSocket`. Missing/invalid values receive an explicit non-date
+   sentinel and no `Date`/`Date.now` fallback. Extend `reconcilePending` so an authoritative result
+   replaces the complete local approval DTO even when still pending. After await, re-check that the
+   same local pending generation remains before applying it, so a late pending fetch cannot
+   overwrite a concurrent `approval.resolved`. Null still removes the card.
+3. Add one conversation-local transient-surface coordinator for search, compact agents and compact
+   people/observer. At 1024-1279 exactly one is active. Opening another closes the old surface
+   without restoring stale focus, records the new opener and moves focus. Normal close paths restore
+   the active opener. Below 1024 the same coordinator closes search before opening a drawer and vice
+   versa; >=1280 persistent rails are not transient.
+4. Extract/reuse a focus boundary for the two in-chat rail panels: labelled panel ref, first-focus
+   fallback to container, Tab/Shift+Tab containment, Escape, backdrop and restoration. Extend the
+   shared utility only if this can preserve existing modal/drawer behavior and avoid scroll lock.
+5. Add search's documented feed-scoped backdrop and 200ms `--transition-normal` slide. Backdrop,
+   Escape, result selection and explicit close use one path. Under `prefers-reduced-motion: reduce`,
+   the transition is removed per R24.49.
+6. Keep compact panels at `--z-dropdown`; do not promote them to modal. Update
+   `docs/UI/07-conversation.md` to record the dismissal/mutual-exclusion behavior and amend R24.32
+   only when this draft is explicitly approved.
 
 ## 8. Regression Test Plan
 
 The failing tests come first.
 
-- **T-1 backend unit** — extend `test_announce_gate_room_payload_carries_run_id` in
-  `backend/tests/unit/test_orchestration_services.py:481-503` to require `started_at` equal to the
-  repository model's timestamp. It fails against the current payload.
-- **T-2 socket unit** — deliver a room `approval.requested` with a fixed server timestamp while the
-  browser clock is skewed; assert the store retains the event value and no `Date` fallback is used.
-- **T-3 rolling-version unit** — omit/garble `started_at`; assert the card is appended at the feed
-  tail and the unseen pill rises when the reader is scrolled up.
-- **T-4 compact overlay component** — at 1100px, open each rail from its trigger and assert focus
-  enters, Tab/Shift+Tab cycle, opening the other closes the first, Escape/backdrop close, and focus
-  returns to the correct trigger.
-- **T-5 search component/view** — assert token backdrop rendering, input focus, outside-click and
-  Escape close, result-selection close, and trigger focus restoration.
-- **T-6 responsive negative tests** — assert <1024 still uses `SDrawer`, >=1280 retains persistent
-  rails, and compact-only backdrop/focus behavior does not mount in either band.
+- **T-1 backend event** — require room `approval.requested.started_at` to equal the repository row.
+- **T-2 socket chronology** — deliver a fixed server timestamp under a skewed client clock; assert
+  the store uses the event value and never calls the clock fallback.
+- **T-3 old-event fallback** — omit/garble timestamp; assert tail placement and unseen behavior.
+- **T-4 pending reconciliation** — seed a pending sentinel, return a still-pending authoritative DTO,
+  assert complete replacement and restored chronology. Resolve locally before a deferred fetch
+  completes and assert the late pending response cannot regress state.
+- **T-5 compact coordinator** — at 1100px, open each of search/agents/people from its trigger; assert
+  exactly one active, focus-safe hand-off, Tab containment, Escape/backdrop close and restoration.
+- **T-6 search motion** — assert backdrop, input focus, all close paths, token transition and a
+  reduced-motion rule that removes it.
+- **T-7 responsive bands** — pin the four behaviors described by AC-10 through AC-13.
 
 ## 9. Risks and Rollback
 
-- **Mixed-version events** — guarded by tail-sentinel behavior; a new client remains discoverable
-  against an old backend. Old clients ignore the added backend field.
-- **Focus dead-end** — a panel with no focusable child must focus its labelled container, and
-  unmount must restore focus/release any trap exactly once. Mutation tests remove each behavior to
-  prove the assertions are not vacuous.
-- **Stacking regression** — backdrop and panel tests assert their containing block and token z-index;
-  the manual pass covers search, approval pill and both rails together.
-- **Scroll regression** — do not reuse document-modal scroll locking for in-chat overlays. The feed
-  remains in place when a rail opens/closes.
-- **Rollback** — revert the frontend overlay and event-consumer commits, then the additive backend
-  event-field commit. No schema or stored-data rollback is required.
+- **Late reconciliation.** Guard full replacement by current card identity/state/generation so a
+  pending fetch cannot resurrect a resolved gate.
+- **Focus dead-end.** A panel with no focusable child focuses its labelled container. Unmount and
+  surface hand-off release the old boundary exactly once.
+- **Stacking regression.** Structural tests assert feed containing block and token z-index; manual
+  testing opens every surface at 1100px.
+- **Responsive scope leak.** Compact selectors must not reach the deliberately deferred 768-1023
+  layout. AC-11 pins current behavior.
+- **Rollback.** Revert coordinator/search changes and event consumer, then the additive backend
+  field. The SRS/UI amendment must be reverted with the design if the product returns to persistent
+  rails at 1024.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: T-1 fails before the fix and passes after; the room event's `started_at` exactly equals
-  the persisted approval timestamp.
-- [ ] AC-2: a skewed client clock cannot move a live approval away from its server chronology or
+- [ ] AC-1: T-1 fails before the fix and passes after; the room event timestamp exactly equals the
+  persisted approval timestamp.
+- [ ] AC-2: a skewed client clock cannot move a live approval away from server chronology or
   suppress the unseen pill.
-- [ ] AC-3: a new client receiving an old/malformed event places the approval at the tail and
-  remains functional until reconciliation supplies the authoritative timestamp.
-- [ ] AC-4: at 1024-1279px, opening either rail moves focus inside, traps Tab/Shift+Tab, allows only
-  one rail open, and Escape/backdrop close and restore focus to the initiating toggle.
-- [ ] AC-5: chatroom search renders the documented 0.2-opacity token backdrop, focuses its input,
-  closes on Escape/outside click/result selection, and restores focus to its opener.
-- [ ] AC-6: <1024 `SDrawer` behavior and >=1280 persistent-rail behavior are unchanged.
-- [ ] AC-7: all overlay controls retain accessible names/relationships and every keyboard-focused
-  control has the global visible focus indicator.
+- [ ] AC-3: an old/malformed event is inserted at the tail without reading client wall time; the next
+  successful authoritative reconciliation replaces its sentinel even while pending, and a late
+  pending fetch cannot overwrite a concurrently resolved card.
+- [ ] AC-4: at 1024-1279 exactly one of search, agent or people/observer is active; opening another
+  performs a focus-safe hand-off, and normal close restores the initiating control.
+- [ ] AC-5: search renders the 0.2 token backdrop, focuses input, closes through Escape/backdrop/
+  result/explicit action, restores focus, uses the documented 200ms token transition and disables
+  it under reduced motion.
+- [ ] AC-6: the four responsive bands pass AC-10 through AC-13; this dossier neither ships the
+  deferred tablet redesign nor regresses wide persistent rails.
+- [ ] AC-7: every transient panel has an accessible name/relationship and every keyboard-focused
+  control retains the global visible focus indicator.
 - [ ] AC-8: no client wall-clock call remains in the approval-requested insertion path.
-- [ ] AC-9: targeted backend/frontend tests, frontend lint/typecheck/build and relevant source-scan
-  contracts pass; manual 1100px and skewed-clock checks are recorded.
+- [ ] AC-9: targeted backend/frontend tests, frontend lint/typecheck/build and source-scan contracts
+  pass; manual 1100px, reduced-motion and skewed-clock checks are recorded.
+- [ ] AC-10: below 768px the chatroom remains single-pane; both side panels use `SDrawer`, compact
+  rail overlays do not mount, and opening search and a drawer is mutually exclusive.
+- [ ] AC-11: at 768-1023 this dossier preserves the deferred state: the current agent rail remains,
+  people/observer remains a drawer, `chatroom--compact` is absent, and no compact backdrop or resize
+  handle mounts.
+- [ ] AC-12: at 1024-1279 the three transient surfaces follow AC-4, occupy the in-chat overlay layer
+  and render no resize handle.
+- [ ] AC-13: at >=1280 both rails remain persistent, right-rail resize persists, search remains
+  feed-scoped, and no compact rail backdrop or focus trap mounts.
 
 ## 11. SRS Delta
 
-None. The fix restores the approval chronology and overlay behavior already documented in
-`docs/UI/07-conversation.md` and the focus contract in `docs/UI/11-responsive-a11y.md`; it does not
-change the workflow or responsive product requirements.
+Amend **[R24.32]** to:
+
+> **[R24.32]** Chat uses four responsive layout bands. Below 768px the feed is single-pane and the
+> agent and people/observer side panels open as drawers. From 768 through 1023px the intended layout
+> is likewise single-pane with both side panels available as drawers. From 1024 through 1279px the
+> feed occupies the available layout width and search, agent and people/observer surfaces open as
+> header-controlled, mutually exclusive in-chat overlays positioned below the header; no rail
+> resize handle is shown. At 1280px and above the agent and people/observer rails are persistent,
+> and the right rail width is resizable between the documented minimum and maximum, persisted
+> locally per browser and re-clamped so the message column retains its minimum share. Wherever a
+> side panel is transient, it is mutually exclusive with chatroom search. Every drawer, overlay
+> panel and persistent rail scrolls within its own reachable region; content is never clipped
+> without a reachable scroll surface.
+
+The delta remains draft and is not applied to `REQUIREMENTS.md` until explicit user approval.
 
 ## 12. Deviation Log
 
@@ -229,9 +251,8 @@ None — implementation has not started.
 
 ## 13. Follow-ups
 
-- FU-1: automate the broader feed-geometry browser harness once E2E seeding is idempotent; this is
-  still FU-3 of the source dossier.
-- FU-2: the 768-1023 agent-rail-to-drawer correction remains source FU-6 and is deliberately not
-  coupled to the compact overlay semantics here.
-- FU-3: if a second feature needs in-page non-document-modal focus containment, promote the local
-  behavior into a shared primitive after comparing both consumers; do not generalize from one.
+- FU-1: automate broader feed geometry after E2E seeding is idempotent; this remains source FU-3.
+- FU-2: move the 768-1023 agent rail into a drawer in its own announced responsive change; this
+  remains source FU-6 and the intended R24.32 state.
+- FU-3: promote the in-page focus boundary to shared only after a second non-conversation surface
+  needs the same non-modal geometry.
