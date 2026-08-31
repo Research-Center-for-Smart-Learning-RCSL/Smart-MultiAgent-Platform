@@ -489,6 +489,7 @@ export function useChatroomSocket(roomId: string) {
         // `feedItems` maps to the tail, and `reconcilePending` replaces from
         // the authoritative row.
         const startedAt = ev.started_at
+        const dated = typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt))
         orchStore.upsertApproval(roomId, {
           id: approval.approval_id ?? (ev.approval_id as string),
           workflow_run_id: ev.workflow_run_id as string,
@@ -497,13 +498,18 @@ export function useChatroomSocket(roomId: string) {
           approver_agent_ids: (ev.approver_agent_ids as string[]) ?? [],
           timeout_seconds: (ev.timeout_seconds as number) ?? 300,
           state: 'pending',
-          started_at:
-            typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt))
-              ? startedAt
-              : UNKNOWN_STARTED_AT,
+          started_at: dated ? startedAt : UNKNOWN_STARTED_AT,
           ended_at: null,
           votes: [],
         })
+        // Otherwise the placeholder outlives the gate: reconciliation is
+        // driven from reconnect alone, so on a socket that never drops the
+        // card would keep an unknown date -- and an unknown deadline -- for
+        // its whole life. `reconcilePending` skips a card still inside its
+        // grace window, which every correctly dated card is at this moment,
+        // so this pass costs one request for the placeholder and nothing for
+        // the normal path.
+        if (!dated) reconcileApprovals()
         break
       }
       case 'approval.resolved': {

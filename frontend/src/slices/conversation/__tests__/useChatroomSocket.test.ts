@@ -70,6 +70,12 @@ vi.mock('@slices/activities', async (importOriginal) => ({
   getActiveActivation: getActiveActivationMock,
 }))
 
+const getApprovalMock = vi.hoisted(() => vi.fn())
+vi.mock('@slices/workflow', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getApproval: getApprovalMock,
+}))
+
 import {
   useChatroomSocket,
   AGENT_THINKING_TIMEOUT_MS,
@@ -142,6 +148,11 @@ describe('useChatroomSocket agent streaming', () => {
     listChatroomApprovalsMock.mockResolvedValue([])
     getActiveActivationMock.mockReset()
     getActiveActivationMock.mockResolvedValue(null)
+    getApprovalMock.mockReset()
+    // Reconnect reconciliation fetches every pending card already past its
+    // grace, so a bare `vi.fn()` hands it `undefined` to read `.state` off.
+    // Rejecting is the inert default: reconciliation keeps the card and retries.
+    getApprovalMock.mockRejectedValue(new Error('getApproval not stubbed'))
     vi.useFakeTimers()
   })
 
@@ -879,6 +890,53 @@ describe('useChatroomSocket agent streaming', () => {
     clock.mockRestore()
   })
 
+  it('reconciles a sentinel card at once instead of waiting for a reconnect (T-3)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const orchStore = useOrchestrationStore()
+    getApprovalMock.mockResolvedValue(
+      approval({ id: 'ap_old', started_at: '2024-01-01T00:00:00.000Z' }),
+    )
+
+    emit({
+      type: 'approval.requested',
+      approval_id: 'ap_old',
+      workflow_run_id: 'run_1',
+      mode: 'single',
+      leader_agent_id: AGENT,
+      approver_agent_ids: [AGENT],
+      timeout_seconds: 300,
+    })
+    await flushPromises()
+
+    // Reconciliation is otherwise driven from reconnect alone, so on a socket
+    // that never drops the placeholder -- and the unknown deadline the approval
+    // card derives from it -- would outlive the gate.
+    expect(getApprovalMock).toHaveBeenCalledWith('ap_old')
+    const card = orchStore.getApprovalsForRoom(ROOM).find((a) => a.id === 'ap_old')
+    expect(card?.started_at).toBe('2024-01-01T00:00:00.000Z')
+  })
+
+  it('does not reconcile a normally dated card on arrival', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+
+    emit({
+      type: 'approval.requested',
+      approval_id: 'ap_live',
+      workflow_run_id: 'run_1',
+      mode: 'single',
+      leader_agent_id: AGENT,
+      approver_agent_ids: [AGENT],
+      timeout_seconds: 300,
+      started_at: new Date().toISOString(),
+    })
+    await flushPromises()
+
+    // The happy path must not pay a request per gate.
+    expect(getApprovalMock).not.toHaveBeenCalled()
+  })
+
   it('discovers an approval raised while disconnected (F-13)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
@@ -1001,6 +1059,11 @@ describe('useChatroomSocket agent.token throttling (F-15)', () => {
     listChatroomApprovalsMock.mockResolvedValue([])
     getActiveActivationMock.mockReset()
     getActiveActivationMock.mockResolvedValue(null)
+    getApprovalMock.mockReset()
+    // Reconnect reconciliation fetches every pending card already past its
+    // grace, so a bare `vi.fn()` hands it `undefined` to read `.state` off.
+    // Rejecting is the inert default: reconciliation keeps the card and retries.
+    getApprovalMock.mockRejectedValue(new Error('getApproval not stubbed'))
     vi.useFakeTimers()
   })
 
