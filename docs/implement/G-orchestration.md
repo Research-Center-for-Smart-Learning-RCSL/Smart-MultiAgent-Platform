@@ -139,7 +139,7 @@ By phase close:
   - **`majority`** (R15.12): > 50% of listed approvers must approve; ties broken by leader.
   - **`consensus`** (R15.13): all approvers debate and must converge on the same verdict; if not converged by `timeout_seconds`, leader's verdict wins (state → `timeout_leader`).
 - Approver agents consume tokens from **their own** Key Group (R15.14); the leader's Key Group covers the final decision announcement.
-- WS: publishes `approval.requested` / `approval.resolved` to `/ws/chatroom/{id}` and `/ws/workflow-runs/{id}`.
+- WS: publishes `approval.requested` / `approval.resolved` to `/ws/chatroom/{id}` and `/ws/workflow-runs/{id}`. The chatroom payload carries `started_at` (the persisted row's ISO timestamp) so the client can place the card chronologically without consulting its own clock; the workflow-run payload stays ids-only, since its consumers only invalidate queries.
 - Endpoints: reached only through workflow execution; no direct `POST /approvals` in v1 (humans-as-approvers is R18.02 "reserved for future").
 
 **Key IDs.** `[R15.10]`–`[R15.14]`, §18 (future human approvers noted).
