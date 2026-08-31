@@ -17,6 +17,16 @@ the cache; caching the phase without the policy would enforce a stale authority.
 malformed or unreadable cache falls back to the database; an unreachable database
 raises :class:`EmailDomainPolicyUnavailable`. Reading an unavailable authority as
 `off` is precisely how the Redis-only predecessor silently reopened registration.
+
+**What a rollout transition can and cannot reach.** Deleting the shared mirror
+makes the new phase visible to the next reader that consults it — a cold process,
+or one whose in-process snapshot has expired. It cannot reach a process still
+holding a live snapshot: a process-cache hit performs no I/O by construction, so
+no external event can invalidate it. That reader converges when its snapshot
+expires, which the mirror's TTL bounds at 30 seconds. Both paths are bounded by
+the same 30 seconds; only "immediately" differs. Shortening the local lifetime
+would narrow that window at the cost of a Redis round trip per request per
+window, which is the trade the process cache exists to avoid.
 """
 
 from __future__ import annotations
@@ -52,7 +62,13 @@ class _Entry:
 
 
 #: Process-wide, because the acceleration is per process and a per-request cache
-#: would accelerate nothing. Reset by :func:`reset_process_cache` in tests.
+#: would accelerate nothing. Reset by :func:`reset_process_cache`.
+#:
+#: Unlocked on purpose. Every access is a single rebind of this name to an
+#: immutable ``_Entry`` holding an immutable policy, so no reader can observe a
+#: half-written value; the worst concurrent outcome is two requests both
+#: refreshing, which costs one extra read and converges on the same answer. A
+#: lock would serialise the hot path to remove a race with no wrong outcome.
 _entry: _Entry | None = None
 
 

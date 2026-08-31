@@ -37,8 +37,14 @@ router = APIRouter(tags=["admin"])
 #: Each entry is bounded as well as the list. 253 octets is the DNS limit, so a
 #: longer string cannot be a domain and need not reach normalisation; the list
 #: bound stops an unbounded array from being parsed at all.
+#:
+#: Input only. The response deliberately reuses neither bound: the boot-time
+#: legacy import applies no count cap, so a deployment that had more than
+#: `MAX_DOMAINS_PER_LIST` domains in Redis holds a row this cap cannot describe,
+#: and validating the *response* against it would turn the one screen an operator
+#: needs in order to shrink that list into a 500.
 _Domain = Annotated[str, StringConstraints(max_length=MAX_DOMAIN_LENGTH)]
-_DomainList = Annotated[list[_Domain], Field(max_length=MAX_DOMAINS_PER_LIST)]
+_DomainListIn = Annotated[list[_Domain], Field(max_length=MAX_DOMAINS_PER_LIST)]
 
 
 class EmailDomainPolicyOut(BaseModel):
@@ -52,8 +58,8 @@ class EmailDomainPolicyOut(BaseModel):
     """
 
     mode: EmailDomainPolicyMode
-    allow: _DomainList
-    deny: _DomainList
+    allow: list[str]
+    deny: list[str]
     version: int
     rollout_state: EmailDomainPolicyRolloutState
     legacy_mirrored_version: int | None
@@ -70,8 +76,8 @@ class EmailDomainPolicyIn(BaseModel):
     """
 
     mode: EmailDomainPolicyMode
-    allow: _DomainList = Field(default_factory=list)
-    deny: _DomainList = Field(default_factory=list)
+    allow: _DomainListIn = Field(default_factory=list)
+    deny: _DomainListIn = Field(default_factory=list)
 
 
 def _policy_out(policy: EmailDomainPolicy) -> EmailDomainPolicyOut:

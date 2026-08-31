@@ -452,11 +452,18 @@ async def test_a_database_read_writes_a_mirror_with_a_real_ttl(
     assert 0 < ttl <= 30_000
 
 
-async def test_a_warm_reader_sees_a_transition_on_its_next_request(
+async def test_a_reader_whose_local_snapshot_expired_sees_a_transition_at_once(
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    """AC-8: the transition deletes the mirror, so the observable bound is the
-    next request rather than the TTL."""
+    """AC-8, as the design actually delivers it (see the dossier's D-3).
+
+    The transition deletes the mirror, so a reader that consults the mirror on
+    its next request — one whose own in-process snapshot has expired, or a
+    process that has just started — observes the new phase immediately rather
+    than after a TTL. A reader still holding a live in-process snapshot cannot:
+    a process-local cache hit performs no I/O by construction, so nothing
+    external can reach it. That case is the test below.
+    """
     await _set_legacy(mode="allow", allow=["legacy.edu"])
     await _bootstrap(sessionmaker)
 
@@ -470,6 +477,46 @@ async def test_a_warm_reader_sees_a_transition_on_its_next_request(
         after = await _reader(db).effective_policy()
     assert after.rollout_state is _ACTIVE
     assert after.allow == frozenset({"legacy.edu"})
+
+
+async def test_a_reader_still_holding_a_local_snapshot_is_bounded_by_its_own_ttl(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """The honest half of AC-8, pinned so nobody later reads the test above as a
+    stronger guarantee than it is.
+
+    A maintenance command runs in its own process and can delete the shared
+    mirror, but it cannot reach into a serving process's memory. That reader
+    keeps answering from its snapshot until the snapshot expires — which is why
+    the local cache is capped at the mirror's TTL and never renewed from a cache
+    hit. The bound is the same 30 s either way; only "immediately" differs.
+    """
+    await _set_legacy(mode="allow", allow=["legacy.edu"])
+    await _bootstrap(sessionmaker)
+
+    async with sessionmaker() as db:
+        await _reader(db).effective_policy()
+
+    # The transition, exactly as the command runs it — but without the
+    # `reset_process_cache()` that only a same-process caller could perform.
+    async with sessionmaker() as db, db.begin():
+        await rollout.activate(
+            db,
+            repository=EmailDomainPolicyRepository(db),
+            legacy=RedisLegacyEmailDomainPolicyStore(),
+        )
+    await RedisEmailDomainPolicyMirror().delete()
+
+    async with sessionmaker() as db:
+        still_warm = await _reader(db).effective_policy()
+    # Still the old phase: correct, and bounded.
+    assert still_warm.rollout_state is _COMPAT
+
+    # Once the snapshot is gone, the very next read converges.
+    reset_process_cache()
+    async with sessionmaker() as db:
+        converged = await _reader(db).effective_policy()
+    assert converged.rollout_state is _ACTIVE
 
 
 async def test_a_transition_whose_cache_delete_fails_is_still_bounded_by_the_ttl(

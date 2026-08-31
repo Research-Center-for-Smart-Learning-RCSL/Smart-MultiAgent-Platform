@@ -5013,19 +5013,15 @@
         "properties": {
           "allow": {
             "items": {
-              "maxLength": 253,
               "type": "string"
             },
-            "maxItems": 1000,
             "title": "Allow",
             "type": "array"
           },
           "deny": {
             "items": {
-              "maxLength": 253,
               "type": "string"
             },
-            "maxItems": 1000,
             "title": "Deny",
             "type": "array"
           },

@@ -138,7 +138,6 @@ class EmailDomainPolicyService:
         failed request, which would tell the Admin their change was rolled back
         when it was not.
         """
-        reset_process_cache()
         try:
             await self._mirror.write(policy)
         except Exception:
@@ -147,6 +146,14 @@ class EmailDomainPolicyService:
                 "replicas converge within the mirror TTL",
                 exc_info=True,
             )
+        finally:
+            # After the mirror write, not before: resetting first leaves a window
+            # in which another request in this process reads the *old* mirror
+            # value and re-caches it for that value's remaining life. Reset last
+            # and the local cache can only be refilled from the new value.
+            # In `finally` because a failed mirror write must still drop the
+            # snapshot this process is holding of the pre-update policy.
+            reset_process_cache()
 
 
 __all__ = ["EmailDomainPolicyService"]
