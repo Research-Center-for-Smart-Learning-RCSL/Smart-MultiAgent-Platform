@@ -171,6 +171,13 @@ docker compose run --rm backend-web python -m alembic upgrade head
 3. Roll application from N to N+1 (which can also read S or S+1).
 4. Only *after* all replicas are on N+1, run the follow-up migration to schema **S+2** (drop-column-style changes).
 
+Two migrations carry a step this order does not describe, because their state does not live
+in PostgreSQL alone:
+
+- **0084 (email-domain policy)** stages a change of authority from Redis to PostgreSQL, so
+  step 4 is a maintenance command rather than a migration, and a rollback needs a command
+  run *before* the downgrade. Neither is optional. See §7a.6.
+
 ---
 
 ## 5. Bootstrap procedure (first-time deployment)
@@ -263,6 +270,11 @@ All errors from the API use `application/problem+json` with these common fields:
 | `chat/attachment-expired` | 410 | Past 3 days | — |
 | `rag/unsupported-format` | 415 | File not pdf/docx/md/txt | — |
 | `rag/ingest-failed` | 500 | Parser error | See detail |
+| `admin/email-domain-invalid` | 422 | A policy entry is not a bare domain | Show which entry |
+| `admin/email-domain-policy-stale` | 409 | `If-Match` version no longer current | Reload, reapply |
+| `admin/email-domain-policy-fenced` | 409 | Writes fenced outside the `active` rollout phase; carries `rollout_state` | §7a.6, not a reload |
+| `admin/email-domain-policy-unavailable` | 503 | No policy authority reachable — fails closed, never `off` | Check Postgres |
+| `admin/provisioning-rate-limited` | 429 | One Admin over 60 account creations / 10 min; carries `retry_after_seconds` | Wait |
 | `rate-limited` | 429 | Global / endpoint rate cap | Retry-After |
 | `internal/error` | 500 | Unhandled | Retry later |
 | `dependency-unavailable` | 503 | Postgres/Redis/Qdrant/Neo4j/MinIO/Vault down (see `/readyz`) | Retry |
@@ -402,27 +414,29 @@ deliberately **no** `registration_mode=invite_only` switch; the two controls bel
 same job with mechanisms that already exist, and every invite and provisioned account
 carries a copyable link so nothing depends on delivery.
 
-**1. Close registration to your own domains** (R19a.13). The policy lives in three Redis
-keys and there is no API that writes them, so set them directly. `mode=allow` denies every
-address outside the list; `mode=deny` blocks only the listed domains; `mode=off` (the
-default) applies no restriction. The gate re-reads Redis at most every 30 s, so a change
-takes effect within half a minute.
+**1. Close registration to your own domains** (R19a.13). The policy is a versioned,
+audited row in PostgreSQL, edited from the Admin console under Users. `allow` admits only
+the listed domains, so an empty allow list blocks every signup; `deny` blocks only the
+listed domains; `off` applies no restriction and keeps both lists for later. One policy
+governs self-registration, email changes and Admin-provisioned accounts alike.
 
-```bash
-docker compose exec redis redis-cli SET config:email_domain:mode allow
-docker compose exec redis redis-cli SADD config:email_domain:allow example.edu dept.example.edu
-docker compose exec redis redis-cli SMEMBERS config:email_domain:allow   # verify
-```
+Domains are matched exactly after normalisation, against the part after the last `@`.
+Subdomains are not implied: `example.edu` does not admit `dept.example.edu`, which must be
+listed separately.
 
-The list holds bare, lower-cased domains (no `@`), matched against the part after the last
-`@`. Subdomains are not implied: `example.edu` does not admit `dept.example.edu`.
+The API behind that screen is `GET`/`PUT /api/admin/email-domain-policy`. `PUT` is a full
+replacement and requires an `If-Match` header carrying the version the form was read at, so
+two administrators editing at once cannot silently overwrite each other.
 
-> **This control fails open, and it lives in an LRU cache.** An unset or evicted `mode`
-> key reads as `off`, which admits every domain. Redis runs with
-> `--maxmemory-policy allkeys-lru` and these three keys carry no TTL, so memory pressure
-> or a flushed/replaced Redis silently reopens registration. Re-assert the three keys after
-> any Redis restore or restart, and check `SMEMBERS`/`GET` as part of the same routine that
-> greps the boot log for `smtp_unconfigured`.
+> **A read is accelerated by a 30-second Redis cache, but the cache is never the
+> authority.** A missing, expired, evicted, corrupt or unreadable cache falls back to
+> PostgreSQL; a cache value can never extend its own lifetime, so a change is in force
+> everywhere within 30 seconds. If PostgreSQL is unreachable as well, registration returns
+> `503` rather than admitting every domain. The control fails **closed**, which is the
+> difference from the Redis-only version this replaced.
+
+Editing is disabled in two rollout phases, and the Admin screen says which one it is in and
+what lifts it. See §7a.6.
 
 **2. Turn the registration CAPTCHA off** if the install has no outbound internet — see
 §7a.4. `mode=off` needs no provider keys.
@@ -447,6 +461,96 @@ still walk the verification link — an Admin handing it over out of band proves
 Admin vouched, not that the address is theirs), it does not bypass the domain list above,
 and it does not place anyone in an Org or Project. Membership is still created only by the
 invitee accepting an invite.
+
+### 7a.6 Email-domain policy: deploy, activate, roll back
+
+Migration 0084 moved the email-domain policy from three unversioned Redis keys into a
+versioned PostgreSQL row. PostgreSQL and Redis cannot commit together, so the change of
+authority is staged: a replica running the previous release still reads the three
+`config:email_domain:*` keys and knows nothing about the row. The staging exists so that no
+window has two releases enforcing two different policies.
+
+The row carries a `rollout_state` with three values.
+
+| State | What governs a new replica | Admin edits | Previous release |
+| --- | --- | --- | --- |
+| `compatibility` | the legacy Redis keys | refused (409) | may still be running |
+| `active` | PostgreSQL, cached for 30 s in Redis | permitted | must already be gone |
+| `rollback_frozen` | PostgreSQL, read directly | refused (409) | may start once the marker is verified |
+
+Every command below is idempotent and exits non-zero on failure. Run them from a backend
+container: `docker compose exec backend-web python -m smap.maintenance <command>`.
+
+**Deploying this release.** Apply migrations and start the new image as usual. The first
+backend process to boot imports one atomic snapshot of the legacy keys into the row as
+version 1, in `compatibility`. The deployment is in `compatibility` from that moment, and
+nothing about enforcement changes: the legacy keys still govern for old and new replicas
+alike. `PUT` on the Admin screen is refused, deliberately, until activation.
+
+If the legacy keys are in a shape the import cannot read, **the boot fails** rather than
+coming up with no policy authority. Grep the boot log for
+`email_domain_policy_bootstrap_imported` to confirm a successful import; a failure names the
+key at fault. The three shapes that block a boot are: `mode` absent while a list holds
+members, an unrecognised `mode` value, and a key holding the wrong Redis type. Repair the
+keys with `redis-cli` and restart — no row was written, so the retry is clean.
+
+**Activating.** Once every replica of the previous release has drained:
+
+```bash
+docker compose exec -e SMAP_ACTIVATE_EMAIL_DOMAIN_POLICY_ARMED=1 backend-web \
+  python -m smap.maintenance activate-email-domain-policy
+```
+
+The environment variable is the assertion that the old replicas are gone. Nothing in the
+platform can verify that, so it is an operator assertion and is deliberately explicit. The
+command adopts one final snapshot of the legacy keys as it switches, so a `redis-cli` edit
+made during the compatibility window is not reverted. It prints the resulting state and
+version; `changed=False` means it was already active.
+
+After activation the Admin screen is editable and the legacy keys are inert. Leave them in
+place — they are what a rollback would rewrite.
+
+**Preparing a rollback.** Before starting a previous image, or running the `0084`
+downgrade:
+
+```bash
+docker compose exec backend-web \
+  python -m smap.maintenance prepare-email-domain-policy-rollback
+```
+
+This freezes the policy (Admin edits start returning 409), rewrites all three legacy keys
+from the frozen policy atomically, reads them back, and records
+`legacy_mirrored_version = version` only if the readback matches exactly. Freezing first is
+what makes the verified snapshot trustworthy: an Admin edit arriving afterwards is rejected
+rather than silently invalidating it.
+
+> **Do not start an old image, and do not run `alembic downgrade`, unless the command
+> succeeded and `legacy_mirrored_version` equals `version`.** Alembic touches PostgreSQL
+> only: it can neither write the legacy Redis keys nor check them. A downgrade run without a
+> verified marker leaves the previous release reading whatever happens to be in Redis, which
+> after a flush or an eviction is nothing at all. A failed run leaves the policy frozen and
+> unmarked, which is safe and safe to retry.
+
+The marker is visible on the Admin screen and in `GET /api/admin/email-domain-policy` as
+`legacy_mirrored_version`. Any Admin edit clears it, because the edit moves the policy past
+the version the mirror was verified against.
+
+**Cancelling a prepared rollback.** If the rollback is not taken and the old images are gone
+again:
+
+```bash
+docker compose exec backend-web \
+  python -m smap.maintenance cancel-email-domain-policy-rollback
+```
+
+This returns the policy to `active` and clears the marker.
+
+**Break-glass diagnosis.** If registration is refusing every address with a 503
+(`admin/email-domain-policy-unavailable`), the policy authority is unreachable, not
+misconfigured. Check PostgreSQL first; the Redis cache being empty is normal and costs one
+database read. If the row itself is missing — for example after a downgrade under a running
+backend — restart a backend process so the import runs again, having first confirmed the
+legacy keys hold the policy you intend.
 
 ---
 
@@ -642,7 +746,9 @@ See `docs/runbook-upgrade.md` for the full procedure. Key points:
 
 - Migrations are N-1 compatible (old code works on new schema).
 - Rolling restart: frontend → worker → web (maintains availability).
-- Rollback: `git checkout <old-tag>` + `alembic downgrade -1` + rebuild.
+- Rollback: `git checkout <old-tag>` + `alembic downgrade -1` + rebuild. Rolling back past
+  migration 0084 needs `prepare-email-domain-policy-rollback` to succeed **first** — see
+  §7a.6 for why a downgrade alone leaves the previous release with no email-domain policy.
 
 ---
 
