@@ -138,9 +138,9 @@ class IdentityFacade:
     ) -> bool:
         """Admin restore of a soft-deleted user (R8.13). Delegates to the identity
         application service, which owns the user lifecycle + audit."""
-        from contexts.identity.application.admin_service import AdminService
+        from contexts.identity.application.factory import create_admin_service
 
-        return await AdminService(self._db).restore_user(
+        return await create_admin_service(self._db).restore_user(
             resource_id=resource_id,
             admin_user_id=admin_user_id,
             actor_ip=actor_ip,

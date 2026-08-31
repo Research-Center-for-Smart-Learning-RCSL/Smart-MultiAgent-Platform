@@ -232,7 +232,13 @@ def _make_service(
 ) -> AuthService:
     db = AsyncMock()
     db.begin_nested = MagicMock(return_value=_FakeSavepoint())
-    svc = AuthService(db=db, hasher=_HASHER, email_sender=AsyncMock(), public_origin="https://smap.test")
+    svc = AuthService(
+        db=db,
+        hasher=_HASHER,
+        email_sender=AsyncMock(),
+        public_origin="https://smap.test",
+        email_domain_policy=AsyncMock(),
+    )
     svc._users = users
     svc._identities = identities
     svc._sessions = sessions or AsyncMock()

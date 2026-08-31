@@ -429,7 +429,13 @@ disable_error_code = ["type-arg"]
 # The Redis calls themselves belong in `contexts.agents.infrastructure` (see the
 # dossier's FU-5); when they move, this block moves with them.
 [[tool.mypy.overrides]]
-module = ["contexts.agents.application.runtime.turn_engine"]
+module = [
+  "contexts.agents.application.runtime.turn_engine",
+  # Same stub lag: the legacy email-domain store's atomic read and replace are
+  # both single `Redis.eval` scripts, because a pipeline cannot give the
+  # three-key snapshot the classification depends on.
+  "contexts.identity.infrastructure.email_domain_legacy",
+]
 disable_error_code = ["no-untyped-call"]
 
 # ---------- Pytest ----------

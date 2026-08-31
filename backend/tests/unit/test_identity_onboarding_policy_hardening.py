@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1 import admin_users as admin_mod
 from contexts.identity.application.admin_service import AdminService
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.errors import AccountBanned, AdminProvisioningRateLimited
 from contexts.identity.domain.models import User, UserStatus
 from contexts.identity.interfaces import error_mapping
@@ -53,7 +54,8 @@ def _user(*, status: UserStatus, password_hash: str | None = None, email_verifie
 
 
 def _service(*, target: User | None = None) -> AdminService:
-    service = AdminService(AsyncMock(), public_origin=_ORIGIN)  # type: ignore[arg-type]
+    reader = EmailDomainPolicyReader(repository=AsyncMock(), mirror=AsyncMock(), legacy=AsyncMock())
+    service = AdminService(AsyncMock(), email_domain_policy=reader, public_origin=_ORIGIN)  # type: ignore[arg-type]
     users = AsyncMock()
     users.get_by_id.return_value = target
     users.get_active_by_email.return_value = None
@@ -72,7 +74,7 @@ def _patched(*, allowed: bool = True, audit: AsyncMock | None = None):
     """The three collaborators both hardened paths touch."""
     return (
         patch(f"{_SVC}.audit.emit", new=audit or AsyncMock()),
-        patch(f"{_SVC}.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True),
+        patch.object(EmailDomainPolicyReader, "is_allowed", new_callable=AsyncMock, return_value=True),
         patch(
             f"{_SVC}.ratelimit.check_raw",
             new_callable=AsyncMock,
@@ -156,7 +158,7 @@ async def test_a_pending_account_is_still_served() -> None:
 def test_the_route_reports_a_banned_target_as_a_403_problem() -> None:
     service = _service()
     service.issue_activation_links = AsyncMock(side_effect=AccountBanned("user is banned"))
-    with patch.object(admin_mod, "AdminService", return_value=service):
+    with patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app())
         response = client.post(f"/api/admin/users/{_TARGET}/activation-links")
 
@@ -228,7 +230,7 @@ async def test_each_admin_has_an_independent_bucket() -> None:
 def test_the_route_reports_the_provisioning_cap_as_a_429_problem() -> None:
     service = _service()
     service.create_user = AsyncMock(side_effect=AdminProvisioningRateLimited(42))
-    with patch.object(admin_mod, "AdminService", return_value=service):
+    with patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app())
         response = client.post("/api/admin/users", json={"email": "new@example.com"})
 
