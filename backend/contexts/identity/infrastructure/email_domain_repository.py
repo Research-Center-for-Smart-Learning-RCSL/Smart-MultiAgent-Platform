@@ -63,6 +63,60 @@ class EmailDomainPolicyRepository:
         ).first()
         return row_to_policy(row) if row is not None else None
 
+    async def get_for_update(self) -> EmailDomainPolicy | None:
+        """The row, locked for the rest of the caller's transaction.
+
+        Used by the rollout transitions, which read the policy and then write a
+        decision derived from it. A plain read there would let an Admin update
+        land in between, and the transition would commit a decision about a
+        version that no longer exists.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(*_COLS)
+                .where(t.email_domain_policies.c.id == t.EMAIL_DOMAIN_POLICY_ID)
+                .with_for_update()
+            )
+        ).first()
+        return row_to_policy(row) if row is not None else None
+
+    async def activate(
+        self, *, mode: EmailDomainPolicyMode, allow: frozenset[str], deny: frozenset[str]
+    ) -> EmailDomainPolicy | None:
+        """Switch authority to PostgreSQL, adopting a final legacy snapshot.
+
+        The lists are written as part of the transition rather than left as the
+        boot-time import: a compatibility deployment's operator may have edited
+        the legacy triple with `redis-cli` in the meantime, and activating onto
+        the older imported values would silently revert that edit at the moment
+        PostgreSQL becomes authoritative.
+
+        Guarded on `compatibility`, so re-running it against an already-active
+        row matches nothing and the command reports the state it found.
+        """
+        result = await self._db.execute(
+            t.email_domain_policies.update()
+            .where(
+                sa.and_(
+                    t.email_domain_policies.c.id == t.EMAIL_DOMAIN_POLICY_ID,
+                    t.email_domain_policies.c.rollout_state
+                    == EmailDomainPolicyRolloutState.COMPATIBILITY.value,
+                )
+            )
+            .values(
+                mode=mode.value,
+                allow_domains=sorted(allow),
+                deny_domains=sorted(deny),
+                rollout_state=EmailDomainPolicyRolloutState.ACTIVE.value,
+                version=t.email_domain_policies.c.version + 1,
+                legacy_mirrored_version=None,
+                updated_at=now(),
+            )
+            .returning(*_COLS)
+        )
+        row = result.first()
+        return row_to_policy(row) if row is not None else None
+
     async def create_from_legacy(self, policy: EmailDomainPolicy) -> EmailDomainPolicy:
         """Insert the imported snapshot as version 1 in `compatibility`.
 
@@ -176,6 +230,22 @@ class EmailDomainPolicyRepository:
                 )
             )
             .values(legacy_mirrored_version=version, updated_at=now())
+            .returning(*_COLS)
+        )
+        row = result.first()
+        return row_to_policy(row) if row is not None else None
+
+    async def clear_legacy_mirror(self) -> EmailDomainPolicy | None:
+        """Drop the rollback marker when the freeze is lifted.
+
+        A marker that outlived its freeze would vouch for a legacy snapshot that
+        the next Admin edit invalidates, which is the one thing an operator
+        checking it before starting an old image must be able to trust.
+        """
+        result = await self._db.execute(
+            t.email_domain_policies.update()
+            .where(t.email_domain_policies.c.id == t.EMAIL_DOMAIN_POLICY_ID)
+            .values(legacy_mirrored_version=None, updated_at=now())
             .returning(*_COLS)
         )
         row = result.first()
