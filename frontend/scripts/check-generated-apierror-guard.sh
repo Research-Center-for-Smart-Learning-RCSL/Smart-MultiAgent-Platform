@@ -25,8 +25,12 @@ set -euo pipefail
 RULE="no-restricted-syntax"
 PROD_PROBE="src/slices/notifications/zz-apierror-probe.ts"
 TEST_PROBE="src/slices/notifications/__tests__/zz-apierror-probe.test.ts"
+# Outside src/. This tree holds the MSW handlers and render helpers every suite
+# builds on, and no config matched it before gate #13 — so it was not linted at
+# all, which is the one place a guard must not have a hole.
+FIXTURE_PROBE="tests/utils/zz-apierror-probe.ts"
 
-cleanup() { rm -f "$PROD_PROBE" "$TEST_PROBE"; }
+cleanup() { rm -f "$PROD_PROBE" "$TEST_PROBE" "$FIXTURE_PROBE"; }
 trap cleanup EXIT
 
 run_probe() {
@@ -74,6 +78,14 @@ export const probe = (e: unknown): boolean => e instanceof ApiError
 EOF
 expect_rejected "$TEST_PROBE" "a *.test.ts named import of the generated ApiError"
 rm -f "$TEST_PROBE"
+
+# --- negative: shared fixture tree outside src/ ---
+cat > "$FIXTURE_PROBE" <<'EOF'
+import { ApiError } from '@shared/api-client'
+export const probe = (e: unknown): boolean => e instanceof ApiError
+EOF
+expect_rejected "$FIXTURE_PROBE" "a tests/ fixture import of the generated ApiError"
+rm -f "$FIXTURE_PROBE"
 
 # --- negative: re-export ---
 cat > "$PROD_PROBE" <<'EOF'
