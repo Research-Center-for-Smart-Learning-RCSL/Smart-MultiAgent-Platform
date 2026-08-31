@@ -186,6 +186,41 @@ export default [
         patterns: buildNoRestrictedImports(),
       }],
 
+      // ---- Gate #13: the generated client's ApiError is unreachable ----
+      // `transport/axios.ts` registers its problem+json rejection handler on
+      // the bare axios singleton the generated services call, so every failure
+      // is already a `@shared/errors` instance before `core/request.ts` could
+      // raise its own same-named class. An `instanceof` against the generated
+      // one is therefore always false — dead recovery code that a test
+      // constructing the same wrong class cannot expose (R24.35).
+      //
+      // This is `no-restricted-syntax`, not `no-restricted-imports`, because
+      // the test override below turns the latter off wholesale for unrelated
+      // cross-slice fixtures — and a test asserting on the unreachable class
+      // is precisely how both dead branches stayed green.
+      //
+      // Known gap (Q-4a): `import * as c from '@shared/api-client'` then
+      // `c.ApiError` escapes both selectors. Catching it needs a
+      // `MemberExpression[property.name='ApiError']` selector that would fire
+      // on every correct `@shared/errors` use too, and a rule that punishes
+      // the class it is steering people toward gets disabled. Left to review.
+      'no-restricted-syntax': ['error',
+        {
+          selector:
+            "ImportDeclaration[source.value='@shared/api-client'] > ImportSpecifier[imported.name='ApiError']",
+          message:
+            'The generated ApiError is never thrown — import ApiError from @shared/errors (gate #13).',
+        },
+        {
+          // Closes the re-export route: a slice barrel could otherwise launder
+          // the same class into a name that passes the selector above.
+          selector:
+            "ExportNamedDeclaration[source.value='@shared/api-client'] > ExportSpecifier[local.name='ApiError']",
+          message:
+            'Re-exporting the generated ApiError spreads an unreachable class — use @shared/errors (gate #13).',
+        },
+      ],
+
       // ---- Gate #3: Transport isolation ----
       'no-restricted-globals': ['error',
         { name: 'fetch', message: 'Use @shared/transport — gate #3.' },

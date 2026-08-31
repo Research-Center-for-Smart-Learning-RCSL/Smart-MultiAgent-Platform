@@ -34,7 +34,7 @@ src/
 
 ## SoC Boundaries (eslint-plugin-boundaries)
 
-12 gates enforced in CI:
+13 gates enforced in CI:
 1. **Layer direction**: app → slices/shared; shared → shared only. `boundaries/dependencies`
    fails open — an unusable rule config is a warning, after which nothing is evaluated — so
    `check:boundaries-enforced` (CI job `frontend-gate-boundaries`) asserts the rule still
@@ -50,6 +50,12 @@ src/
 10. **Type coverage**: >= 95%
 11. **Accessibility**: vuejs-accessibility plugin rules
 12. **i18n**: no bare string literals in templates
+13. **Generated `ApiError` is unreachable**: nothing may name it in an import or
+    re-export — the transport always throws `@shared/errors`. Enforced by a
+    `no-restricted-syntax` selector (so it survives the test-file override that
+    disables `no-restricted-imports`), and probed with fixtures by
+    `check:apierror-guard` (CI job `frontend-gate-apierror`) because a clean tree
+    makes a working rule and a broken one look identical
 
 Gate #1's cross-slice direction lives in the `SLICE_DEPS` map in `eslint.config.js`
 (`conversation` is the top-level host and imports `workflow`/`activities` one-way).
@@ -77,10 +83,11 @@ pnpm build                # production build
 pnpm test                 # unit tests (Vitest)
 pnpm run test:e2e         # E2E tests (Playwright)
 pnpm run test:coverage    # coverage report
-pnpm lint                 # ESLint (all 12 gates)
+pnpm lint                 # ESLint (all 13 gates)
 pnpm run typecheck        # vue-tsc
 pnpm run gen:api          # regenerate API client from openapi.json
 pnpm run check:boundaries-enforced  # verify gate #1 still enforces (fails open otherwise)
+pnpm run check:apierror-guard # verify gate #13 still enforces (silent on a clean tree)
 pnpm run check:bundle-size    # verify bundle budget
 pnpm run check:type-coverage  # verify >= 95% type coverage
 pnpm run check:openapi-drift  # verify frontend types match backend

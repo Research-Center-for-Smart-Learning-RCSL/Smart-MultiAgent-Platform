@@ -819,6 +819,22 @@ jobs:
       - name: "Gate #1b: SoC boundary enforcement is live"
         run: pnpm run check:boundaries-enforced
 
+  # Gate 13b: the generated client's unreachable ApiError stays unnamed. Once
+  # the offending imports are gone from the tree, frontend-lint is silent
+  # whether the rule works or not, so this probes it with fixtures instead.
+  frontend-gate-apierror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-frontend
+        with:
+          pnpm-version: ${{ env.PNPM_VERSION }}
+          node-version: ${{ env.NODE_VERSION }}
+      - name: "Gate #13b: the generated ApiError restriction is live"
+        run: pnpm run check:apierror-guard
+
   # Gate 6: No global CSS outside shared/styles/
   frontend-gate-global-css:
     runs-on: ubuntu-latest
@@ -1480,6 +1496,7 @@ jobs:
       - compose-boot-prod
       - frontend-lint
       - frontend-gate-boundaries
+      - frontend-gate-apierror
       - frontend-gate-global-css
       - frontend-gate-view-tests
       - frontend-gate-bundle
@@ -1507,6 +1524,7 @@ jobs:
           echo "  compose-boot-prod:          ${{ needs.compose-boot-prod.result }}"
           echo "  frontend-lint:              ${{ needs.frontend-lint.result }}"
           echo "  frontend-gate-boundaries:   ${{ needs.frontend-gate-boundaries.result }}"
+          echo "  frontend-gate-apierror:     ${{ needs.frontend-gate-apierror.result }}"
           echo "  frontend-gate-global-css:   ${{ needs.frontend-gate-global-css.result }}"
           echo "  frontend-gate-view-tests:   ${{ needs.frontend-gate-view-tests.result }}"
           echo "  frontend-gate-bundle:       ${{ needs.frontend-gate-bundle.result }}"
@@ -1532,6 +1550,7 @@ jobs:
             "${{ needs.compose-validate.result }}" \
             "${{ needs.frontend-lint.result }}" \
             "${{ needs.frontend-gate-boundaries.result }}" \
+            "${{ needs.frontend-gate-apierror.result }}" \
             "${{ needs.frontend-gate-global-css.result }}" \
             "${{ needs.frontend-gate-view-tests.result }}" \
             "${{ needs.frontend-gate-bundle.result }}" \
