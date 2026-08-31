@@ -58,6 +58,14 @@ class ChatModelSpec:
     is a Chat Completions behaviour, and a row that still declared it would go
     on dropping the effort the migration exists to deliver. See
     ``docs/tasks/2026-08-27-openai-responses-api-migration/spec.md`` D-1.
+
+    ``accepts_sampling`` covers **temperature and top-p only**. Seed is a
+    separate endpoint-level fact and gets its own ``accepts_seed``: the three
+    providers accept the two families independently, and folding them into one
+    flag is what left a configured seed silently unsent on Gemini (whose
+    ``GenerationConfig`` does expose it) while the form advertised it as an
+    OpenAI feature the Responses API has no parameter for. The imprecise name
+    is retained rather than churned across the generated contracts (FU-2).
     """
 
     model_id: str
@@ -66,6 +74,7 @@ class ChatModelSpec:
     accepts_effort: bool
     effort_values: tuple[str, ...]
     accepts_sampling: bool
+    accepts_seed: bool
     accepts_vision: bool
     uses_completion_token_field: bool
     effort_conflicts_with_tools: bool
@@ -78,6 +87,17 @@ class ChatModelSpec:
 # `_REASONING_MODEL_RE`/`_VISION_MODEL_RE`/`_ALLOWS_EFFORT_WITH_TOOLS_RE`,
 # anthropic.py's `_NO_SAMPLING_RE`/`_SUPPORTS_EFFORT_RE`), not invented fresh, so
 # behaviour for every catalogued model is unchanged by this migration.
+#
+# `accepts_seed` is the one column NOT re-derived that way, because there was
+# nothing to re-derive it from: no adapter forwarded seed at all, so the old
+# code encoded no opinion. Its values come from the current official endpoint
+# contracts, read on 2026-08-30, and they do not agree with what the UI used to
+# claim -- Gemini's GenerationConfig exposes `seed`
+# (https://ai.google.dev/api/generate-content), while the OpenAI Responses
+# create request and Anthropic Messages expose no such parameter. The rows'
+# `verified_on` is deliberately left at _UNVERIFIED_DATE: it dates the lineup
+# and the effort/sampling/vision columns, and moving it forward would claim a
+# freshness this column's check does not give the rest of the row.
 CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
     ChatModelSpec(
         model_id="claude-opus-4-8",
@@ -86,6 +106,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -99,6 +120,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=True,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -112,6 +134,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=False,
         effort_values=(),
         accepts_sampling=True,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -125,6 +148,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=True,
         # False since the Responses API migration: the conflict was a Chat
@@ -140,6 +164,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=True,
         # See gpt-5.5 above. This is the row the 結書 incident was diagnosed on,
@@ -156,6 +181,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=True,
         # See gpt-5.5 above.
@@ -181,6 +207,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=True,
         effort_conflicts_with_tools=False,
@@ -194,6 +221,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=True,
         uses_completion_token_field=True,
         effort_conflicts_with_tools=False,
@@ -207,6 +235,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=True,
+        accepts_seed=True,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -220,6 +249,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=True,
+        accepts_seed=True,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -233,6 +263,7 @@ CHAT_MODEL_SPECS: tuple[ChatModelSpec, ...] = (
         accepts_effort=True,
         effort_values=("low", "medium", "high"),
         accepts_sampling=True,
+        accepts_seed=True,
         accepts_vision=True,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -292,6 +323,7 @@ def _conservative_floor(provider: str, model_id: str) -> ChatModelSpec:
         accepts_effort=False,
         effort_values=(),
         accepts_sampling=False,
+        accepts_seed=False,
         accepts_vision=False,
         uses_completion_token_field=False,
         effort_conflicts_with_tools=False,
@@ -317,11 +349,18 @@ def resolve_spec(provider: str, model_id: str) -> ChatModelSpec:
 def capability_fields(spec: ChatModelSpec) -> dict[str, Any]:
     """The subset of ``spec`` an adapter needs, shaped for the
     ``ProviderRequest.payload`` dict (K.1's cross-context transport — see the
-    module docstring)."""
+    module docstring).
+
+    A capability added to :class:`ChatModelSpec` but not listed here reaches no
+    adapter: :func:`~contexts.keys.infrastructure.adapters.base.capability_flags`
+    defaults every absent flag to its safe-off side, so the omission reads as a
+    conservative floor rather than as a bug. Both ends move together.
+    """
     return {
         "accepts_effort": spec.accepts_effort,
         "effort_values": spec.effort_values,
         "accepts_sampling": spec.accepts_sampling,
+        "accepts_seed": spec.accepts_seed,
         "accepts_vision": spec.accepts_vision,
         "uses_completion_token_field": spec.uses_completion_token_field,
         "effort_conflicts_with_tools": spec.effort_conflicts_with_tools,

@@ -180,9 +180,10 @@ def _sampling_payload(agent: Agent) -> dict[str, Any]:
     """Provider-payload fragment carrying the agent's set sampling controls.
 
     Only non-None controls are included so unset ones preserve provider
-    defaults; each adapter then applies its own constraint (OpenAI drops
-    temperature for reasoning models, Claude drops it on newer generations,
-    seed is forwarded only where the provider supports it).
+    defaults; each adapter then shapes them against the capability flags this
+    request also carries — ``accepts_sampling`` for temperature/top-p and the
+    separate ``accepts_seed`` for seed, which currently only Gemini's
+    ``generationConfig`` accepts.
     """
     return {
         k: v

@@ -332,6 +332,12 @@ def _ok_chat_route() -> object:
     return respx.post(_RESPONSES_URL).respond(200, json=_response_obj())
 
 
+def _gemini_route(model: str = "gemini-x") -> object:
+    return respx.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_drops_reasoning_effort_when_a_conflicting_model_carries_tools() -> None:
@@ -1358,8 +1364,9 @@ async def test_openai_non_reasoning_model_drops_effort_keeps_sampling() -> None:
 @respx.mock
 @pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-5", "claude-haiku-4-5"])
 async def test_anthropic_forwards_temperature_and_top_p_on_accepting_models(model: str) -> None:
-    # Older Claude generations still accept sampling params; seed has no
-    # Anthropic equivalent and must never be forwarded.
+    # Older Claude generations still accept sampling params; Messages has no
+    # seed parameter, and no Claude row sets `accepts_seed`, so it is never
+    # forwarded no matter what the sampling flag says.
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
         200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
     )
@@ -1408,10 +1415,10 @@ async def test_anthropic_drops_sampling_on_rejecting_models(model: str) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_openai_forwards_top_p_and_never_seed() -> None:
-    # `seed` has no Responses API equivalent. It stays a live agent field
-    # (agents.seed) with no OpenAI destination, so it must be dropped even on a
+    # `seed` has no Responses API equivalent, so it must be dropped even on a
     # model that accepts the other two, or the request 400s on an unknown
-    # parameter.
+    # parameter. Not because seed is unsupported everywhere -- Gemini takes one
+    # -- but because no OpenAI row sets `accepts_seed`.
     route = _ok_chat_route()
     await OpenAIAdapter().invoke(
         secret=_SECRET, request=_chat("gpt-4o", temperature=0.0, top_p=1.0, seed=42, accepts_sampling=True)
@@ -1439,14 +1446,118 @@ async def test_openai_reasoning_drops_all_sampling_controls() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_gemini_forwards_top_p_and_ignores_seed() -> None:
-    route = respx.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
-    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+async def test_gemini_forwards_seed_when_the_row_accepts_it() -> None:
+    # GenerationConfig does expose `seed`. Until accepts_seed existed there was
+    # no flag that could say so, and the configured value was dropped here while
+    # the agent form advertised it as an OpenAI-only setting.
+    route = _gemini_route()
     await GeminiAdapter().invoke(
-        secret=_SECRET, request=_chat("gemini-x", temperature=0.0, top_p=0.9, seed=7, accepts_sampling=True)
+        secret=_SECRET,
+        request=_chat(
+            "gemini-x", temperature=0.0, top_p=0.9, seed=7, accepts_sampling=True, accepts_seed=True
+        ),
+    )
+    body = json.loads(route.calls.last.request.content)
+    gen = body["generationConfig"]
+    assert gen["temperature"] == 0.0
+    assert gen["topP"] == 0.9
+    assert gen["seed"] == 7
+    # Exactly once, and nowhere but generationConfig (AC-6).
+    assert "seed" not in body
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_omits_seed_when_the_row_refuses_it() -> None:
+    route = _gemini_route()
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gemini-x", temperature=0.0, top_p=0.9, seed=7, accepts_sampling=True, accepts_seed=False
+        ),
     )
     gen = json.loads(route.calls.last.request.content)["generationConfig"]
     assert gen["temperature"] == 0.0
-    assert gen["topP"] == 0.9
     assert "seed" not in gen
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_seed_forwarding_is_independent_of_sampling(  # AC-7
+) -> None:
+    # The two families are gated separately, so each flag must govern only its
+    # own parameters. One coarse flag for both is the defect being closed, and a
+    # future collapse back into it fails on exactly one of these two halves.
+    route = _gemini_route()
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(
+            "gemini-x", temperature=0.5, top_p=0.9, seed=7, accepts_sampling=False, accepts_seed=True
+        ),
+    )
+    gen = json.loads(route.calls.last.request.content)["generationConfig"]
+    assert gen["seed"] == 7
+    assert "temperature" not in gen
+    assert "topP" not in gen
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_omits_seed_when_the_agent_configured_none() -> None:
+    # An accepting row must not invent a value; `None` means "provider default"
+    # everywhere else in this payload.
+    route = _gemini_route()
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat("gemini-x", temperature=0.0, accepts_sampling=True, accepts_seed=True),
+    )
+    gen = json.loads(route.calls.last.request.content)["generationConfig"]
+    assert "seed" not in gen
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize("model", ["gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"])
+async def test_catalogued_gemini_rows_carry_seed_end_to_end(model: str) -> None:
+    # The two ends of the cross-context hop together: the real capability row
+    # resolved in `contexts.agents`, shaped by the adapter in `contexts.keys`.
+    # A flag present on the spec but missing from `capability_fields` would pass
+    # every domain test and still drop the seed here.
+    from contexts.agents.domain.model_specs import capability_fields, resolve_spec
+
+    route = _gemini_route(model)
+    await GeminiAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(model, seed=7, **capability_fields(resolve_spec("gemini", model))),
+    )
+    assert json.loads(route.calls.last.request.content)["generationConfig"]["seed"] == 7
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize("model", ["gpt-5.4", "gpt-5.5", "o3"])
+async def test_catalogued_openai_rows_never_carry_seed_end_to_end(model: str) -> None:
+    from contexts.agents.domain.model_specs import capability_fields, resolve_spec
+
+    route = _ok_chat_route()
+    await OpenAIAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(model, seed=7, **capability_fields(resolve_spec("openai", model))),
+    )
+    assert "seed" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-haiku-4-5"])
+async def test_catalogued_claude_rows_never_carry_seed_end_to_end(model: str) -> None:
+    from contexts.agents.domain.model_specs import capability_fields, resolve_spec
+
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(
+        secret=_SECRET,
+        request=_chat(model, seed=7, **capability_fields(resolve_spec("claude", model))),
+    )
+    assert "seed" not in json.loads(route.calls.last.request.content)

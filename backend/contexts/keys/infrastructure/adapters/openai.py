@@ -240,9 +240,11 @@ def _responses_body(request: ProviderRequest, *, stream: bool, key_tag: str) -> 
             body["temperature"] = payload["temperature"]
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
-        # `seed` is deliberately absent: the Responses API has no equivalent
-        # parameter. Nothing reachable loses it — no catalogued OpenAI model
-        # sets `accepts_sampling`, so this branch never ran for one.
+    # `seed` is deliberately absent, and no longer as an unexplained omission
+    # inside the sampling branch: the Responses API has no seed parameter, so
+    # every catalogued OpenAI row sets `accepts_seed=False` and the fact is
+    # stated where the UI can read it too. Do not add a branch here without a
+    # row that says the endpoint takes one.
     tools = _tools(payload)
     if tools:
         body["tools"] = tools

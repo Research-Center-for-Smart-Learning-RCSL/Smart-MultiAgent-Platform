@@ -157,6 +157,9 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
             body["temperature"] = min(float(payload["temperature"]), 1.0)
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
+    # No seed branch: Messages exposes no such parameter, which every Claude row
+    # states as `accepts_seed=False` rather than leaving it to this file's
+    # silence.
     # Cross-provider effort -> Claude effort. See
     # CapabilityFlags.forwardable_effort for why this is gated by membership
     # in effort_values (not just "the model accepts effort at all") and by a

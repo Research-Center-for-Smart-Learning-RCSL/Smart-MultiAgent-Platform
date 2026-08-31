@@ -11,6 +11,7 @@
 export type ChatModelSpecOut = {
     accepts_effort: boolean;
     accepts_sampling: boolean;
+    accepts_seed: boolean;
     accepts_vision: boolean;
     context_limit: number;
     effort_conflicts_with_tools: boolean;
