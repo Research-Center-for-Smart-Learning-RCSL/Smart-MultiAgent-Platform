@@ -1,8 +1,9 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-08-30
 approved: 2026-09-01
+implemented: 2026-09-01
 requirements: [R9.03a, R24.35]
 depends_on: []
 ---
@@ -194,28 +195,45 @@ stale English help then inverted the real current provider support.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: a shared transport 422 reaches message-anchor recovery, clears the poisoned anchor,
+- [x] AC-1: a shared transport 422 reaches message-anchor recovery, clears the poisoned anchor,
   reconciles cache and retries; the test fails before the fix.
-- [ ] AC-2: a shared transport 404 marks the prompt session expired and produces the intended
+  *Verified red first: `useChatroomMessages.test.ts` failed on the retry-loop and anchor
+  assertions with the fixture switched to `@shared/errors.ValidationError` and the production
+  import still generated, then green after it.*
+- [x] AC-2: a shared transport 404 marks the prompt session expired and produces the intended
   recovery state; the test fails before the fix.
-- [ ] AC-3: no production or test file outside `src/shared/api-client/**` names generated `ApiError`
+  *Same run: `expect(api.sessionExpired.value).toBe(true)` received `false` before the import fix.*
+- [x] AC-3: no production or test file outside `src/shared/api-client/**` names generated `ApiError`
   in an import or a re-export; ESLint rejects both forms in production and test override contexts.
   Namespace-qualified access is out of the rule's reach by Q-4a and is not claimed here.
-- [ ] AC-4: the lint restriction permits other generated API symbols and `@shared/errors.ApiError`,
+  *Four sites converted; `pnpm lint` clean. Coverage extends past `src/` to `tests/` and `e2e/`
+  after D-2 — the first placement left the fixture tree outside the rule entirely.*
+- [x] AC-4: the lint restriction permits other generated API symbols and `@shared/errors.ApiError`,
   and existing slice/store/session boundary fixtures continue passing.
-- [ ] AC-5: `ChatModelSpec`, API output and adapter payload flags expose independent
+  *Three positive probes in `check:apierror-guard`; `check:boundaries-enforced` still green.*
+- [x] AC-5: `ChatModelSpec`, API output and adapter payload flags expose independent
   `accepts_seed`; unknown models resolve false.
-- [ ] AC-6: catalogued Gemini request bodies forward a configured seed exactly once as
+- [x] AC-6: catalogued Gemini request bodies forward a configured seed exactly once as
   `generationConfig.seed`; OpenAI Responses and Anthropic bodies omit it.
-- [ ] AC-7: seed forwarding is independent of temperature/top-p capability; changing one flag does
+  *`test_catalogued_*_rows_*_end_to_end` drive the real `capability_fields(resolve_spec(...))`
+  through each adapter, so a flag that reached the spec but not the payload dict fails here.*
+- [x] AC-7: seed forwarding is independent of temperature/top-p capability; changing one flag does
   not silently govern the other parameter family.
-- [ ] AC-8: the Agent form enables seed only for selected models whose row accepts it, preserves a
+  *Pinned at both ends: `test_gemini_seed_forwarding_is_independent_of_sampling` (seed sent with
+  sampling off) and the form's `gates seed independently of temperature and top_p`.*
+- [x] AC-8: the Agent form enables seed only for selected models whose row accepts it, preserves a
   legacy stored value on load, clears it on a user switch to unsupported, and displays truthful
   translated help in both locales.
-- [ ] AC-9: stale comments/help claiming Gemini ignores seed or OpenAI accepts it are gone; help does
+- [x] AC-9: stale comments/help claiming Gemini ignores seed or OpenAI accepts it are gone; help does
   not promise bit-identical determinism.
-- [ ] AC-10: OpenAPI/client regeneration and focused backend/frontend tests, full frontend test,
+  *The locale test asserts the disclaimer is present rather than that a word is absent — a rewrite
+  dropping the caveat is the regression an absence check would pass.*
+- [x] AC-10: OpenAPI/client regeneration and focused backend/frontend tests, full frontend test,
   lint, current typecheck and build pass.
+  *Local: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `ruff check`, `ruff format --check`, `mypy`
+  all clean; regeneration produces no drift. `pnpm test` reported 1724/1727 with two files failing
+  to start a worker ("Timeout waiting for worker to respond") — both pass in isolation, a known
+  Windows-host failure mode with no assertion behind it. CI is the authority on the full suites.*
 
 ## 11. SRS Delta
 
@@ -243,7 +261,53 @@ in the verified official endpoint contract.
 
 ## 14. Deviation Log
 
-None — implementation has not started.
+- **D-1 (naming).** §7.3 and §13 call the cross-context payload builder
+  `capability_payload`. The function is actually
+  `contexts.agents.domain.model_specs.capability_fields`. No design consequence; recorded
+  so a later reader does not go looking for a second function.
+
+- **D-2 (lint rule placement, widened).** Q-4 specifies "two global `no-restricted-syntax`
+  AST selectors". They were first added inside the `src/**` config object, which is what
+  "global" reads as in that file. Self-audit found this leaves `frontend/tests/**` and
+  `e2e/**` outside the rule, and `npx eslint tests/mocks/handlers.ts` reported *"File
+  ignored because no matching configuration was supplied"* — that tree, which holds the
+  MSW handlers and render helpers every suite builds on, was linted by nothing at all.
+  Since AC-3 promises no test file may name the class, and a fixture constructing the
+  unreachable class is the original defect, the rule moved into its own config object
+  whose `files` list covers `src/`, `tests/`, `e2e/` and `e2e-csp/`. Side effect worth
+  knowing: `frontend/tests/**` is now linted for the first time, by this one rule.
+
+- **D-3 (T-3 as a CI gate script, not a config unit test).** The plan says "a config test
+  lints virtual production and test snippets". Implemented instead as
+  `frontend/scripts/check-generated-apierror-guard.sh` plus CI job
+  `frontend-gate-apierror`, mirroring the existing `check-boundaries-enforced.sh` (gate
+  #1b) written for the same reason: a rule can only be certified by running ESLint, and
+  once the tree is clean a working selector and a broken one are equally silent. Four
+  negative probes (production import, `*.test.ts` import, `tests/` fixture import,
+  re-export) and three positive ones (`@shared/errors.ApiError`, another generated symbol,
+  a shared re-export).
+
+- **D-4 (a green test rewritten, not deleted).**
+  `test_gemini_forwards_top_p_and_ignores_seed` asserted the behaviour this dossier
+  changes. It would have stayed green — it passed no `accepts_seed` — while documenting
+  the opposite of the new contract, so it was rewritten into a pair of cases (accepting
+  row forwards, refusing row omits) rather than left as a misleading passing test.
+
+- **D-5 (AC-1 assertion corrected).** `AgentDetailView.test.ts`'s "renders sampling
+  controls" case asserted `agents.form.seedHelp`. Its fixture agent runs an OpenAI model,
+  which now correctly renders `agents.form.seedDisabledReason`. The assertion was moved to
+  the truthful key; the test's real subject (temperature 0 rendering as "0") is unchanged,
+  and it now also witnesses Q-7 preservation of the stored seed on a disabled control.
+
+- **D-6 (one locale key added beyond §7.5).** `seedDisabledReason` in both locales, to say
+  *why* the control is disabled — the shape `samplingDisabledReason` and
+  `effortDisabledReason` already use. §7.5 said "truthful help" without naming the key.
+
+- **D-7 (row provenance deliberately not advanced).** `accepts_seed` was read against the
+  live endpoint contracts on 2026-08-30, but each row's `verified_on` stays at
+  `_UNVERIFIED_DATE` (2026-06-01). Moving it would claim that date's freshness for the
+  lineup and the effort/sampling/vision columns, which were not re-checked. The
+  column's own provenance is recorded in a comment above the table instead.
 
 ## 15. Follow-ups
 
@@ -254,3 +318,8 @@ None — implementation has not started.
 - FU-3: enable strict Vue templates through a staged remediation programme; the current backlog is
   too broad for this runtime fix.
 - FU-4: add isolated unit/Playwright typecheck projects after their existing backlogs are classified.
+- FU-5: bring `frontend/tests/**` under the full ESLint rule set. D-2 discovered that tree
+  was matched by no config at all and put exactly one rule on it; the shared fixtures and
+  MSW handlers there deserve the same treatment as `src/`, but the rule set that would
+  apply (boundaries, restricted imports, i18n) needs its own triage pass and would have
+  buried this task's diff.
