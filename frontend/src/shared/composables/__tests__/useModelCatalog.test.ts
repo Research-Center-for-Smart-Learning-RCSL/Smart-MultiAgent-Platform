@@ -21,6 +21,7 @@ const CATALOG = {
           accepts_effort: false,
           effort_values: [],
           accepts_sampling: true,
+          accepts_seed: false,
           accepts_vision: true,
           uses_completion_token_field: false,
           effort_conflicts_with_tools: false,

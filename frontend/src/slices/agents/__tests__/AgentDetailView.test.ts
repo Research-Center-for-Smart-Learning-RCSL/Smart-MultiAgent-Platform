@@ -126,11 +126,14 @@ describe('AgentDetailView', () => {
       initialRoute: '/agents/agent_1',
     })
     await settle(wrapper)
-    // The sampling section and its OpenAI-only seed note render (i18n keys in test).
+    // The sampling section renders (i18n keys in test). This fixture's agent is
+    // on an OpenAI model, whose Responses endpoint has no seed parameter, so
+    // the seed field shows its disabled reason rather than the generic help.
     expect(wrapper.text()).toContain('agents.form.samplingTitle')
-    expect(wrapper.text()).toContain('agents.form.seedHelp')
+    expect(wrapper.text()).toContain('agents.form.seedDisabledReason')
     // temperature=0 must display as "0", not blank — 0 is a valid pinned value,
-    // distinct from "unset" (provider default). top_p/seed round-trip too.
+    // distinct from "unset" (provider default). top_p/seed round-trip too, and
+    // the stored seed survives edit-load onto the disabled control (Q-7).
     const values = wrapper
       .findAll('.s-input__field')
       .map((i) => (i.element as HTMLInputElement).value)
@@ -513,6 +516,127 @@ describe('AgentDetailView', () => {
     const topP = wrapper.find('#top_p').element as HTMLInputElement
     expect(temperature.disabled).toBe(false)
     expect(topP.disabled).toBe(false)
+  })
+
+  // Seed used to render unconditionally enabled while no adapter forwarded it
+  // anywhere, and the help named OpenAI -- the one provider whose endpoint has
+  // no seed parameter. It is now gated on its own row flag.
+  it('enables seed only for a model whose spec accepts it', async () => {
+    seed()
+    const cases: [string, string, boolean][] = [
+      ['gemini', 'gemini-3.5-flash', false],
+      ['claude', 'claude-sonnet-4-6', true],
+      ['openai', 'gpt-5.4', true],
+    ]
+    for (const [hint, modelId, expectedDisabled] of cases) {
+      server.use(
+        http.get('/api/agents/agent_1', () =>
+          HttpResponse.json({ ...AGENT, model_hint: hint, model_id: modelId }),
+        ),
+      )
+      const wrapper = await renderView(AgentDetailView, {
+        routes,
+        initialRoute: '/agents/agent_1',
+      })
+      await settle(wrapper)
+      expect((wrapper.find('#seed').element as HTMLInputElement).disabled, modelId).toBe(
+        expectedDisabled,
+      )
+    }
+  })
+
+  it('disables seed for a custom model the catalog has no row for', async () => {
+    // Q-2's conservative floor: an uncatalogued id gets no optional parameter,
+    // and the control must say so rather than accept a value nothing will send.
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'gemini', model_id: 'gemini-99-unlisted' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    expect((wrapper.find('#seed').element as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('gates seed independently of temperature and top_p', async () => {
+    // AC-7 at the UI end. claude-sonnet-4-6 accepts sampling and refuses seed;
+    // gemini-3.5-flash accepts both. One flag governing both parameter families
+    // is the defect, so each half below must disagree with the other control.
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, model_hint: 'claude', model_id: 'claude-sonnet-4-6' }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    expect((wrapper.find('#temperature').element as HTMLInputElement).disabled).toBe(false)
+    expect((wrapper.find('#seed').element as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('preserves a legacy stored seed on edit-load even when the model refuses it', async () => {
+    // Q-7: edit-load is not a user decision. Clearing here would silently
+    // destroy a stored value just by opening the form.
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          model_hint: 'openai',
+          model_id: 'gpt-5.4',
+          seed: 123,
+        }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    const field = wrapper.find('#seed').element as HTMLInputElement
+    expect(field.disabled).toBe(true)
+    expect(field.value).toBe('123')
+  })
+
+  it('clears seed when the user switches to a model that refuses it', async () => {
+    seed()
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({
+          ...AGENT,
+          model_hint: 'gemini',
+          model_id: 'gemini-3.5-flash',
+          seed: 123,
+        }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+    expect((wrapper.find('#seed').element as HTMLInputElement).value).toBe('123')
+
+    // Another accepting row keeps it -- the clear is capability-driven, not a
+    // blanket "any model change wipes the field".
+    await wrapper.find('#model_id').setValue('gemini-2.5-flash')
+    await settle(wrapper)
+    expect((wrapper.find('#seed').element as HTMLInputElement).value).toBe('123')
+
+    await wrapper.find('#model_hint').setValue('openai')
+    await wrapper.find('#model_id').setValue('gpt-5.4')
+    await settle(wrapper)
+    expect((wrapper.find('#seed').element as HTMLInputElement).value).toBe('')
   })
 
   // AC-10: the context-token-cap bound follows the selected *model*, not the
