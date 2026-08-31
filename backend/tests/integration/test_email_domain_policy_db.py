@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -78,24 +78,23 @@ _LEGACY_KEYS = (KEY_ALLOW, KEY_DENY, KEY_MODE, MIRROR_KEY)
 
 
 @pytest.fixture(autouse=True)
-def _fresh_redis_client() -> Iterator[None]:
-    """Each test gets its own event loop, and the process-wide Redis client binds
-    to the loop that created it; reusing it across tests raises "attached to a
-    different loop"."""
-    clients.reset_for_tests()
-    yield
-    clients.reset_for_tests()
-
-
-@pytest.fixture(autouse=True)
 async def _clean_stores(sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[None]:
     """No row, no legacy keys, no mirror, no process cache.
 
     Every test here decides its own starting state, and the singleton means one
     left-over row would decide the next test's outcome rather than its fixture.
+
+    The Redis client reset lives **inside** this fixture rather than in a second
+    autouse fixture beside it. The process-wide client binds to the loop that
+    created it and pytest-asyncio gives each test its own loop, so a client
+    carried over from the previous test raises "attached to a different loop" —
+    and with two autouse fixtures there is no ordering guarantee that the reset
+    runs before the first `get_redis()` here. Resetting immediately before the
+    call removes the ordering question instead of relying on an answer to it.
     """
 
     async def wipe() -> None:
+        clients.reset_for_tests()
         reset_process_cache()
         async with sessionmaker() as session:
             await session.execute(identity_t.email_domain_policies.delete())
@@ -271,15 +270,18 @@ async def test_a_put_is_fenced_in_compatibility_and_permitted_once_active(
     await _bootstrap(sessionmaker)
     actor = await _seed_user(sessionmaker)
 
-    async with sessionmaker() as db, pytest.raises(EmailDomainPolicyRolloutFenced):
-        await _service(db).replace(
-            expected_version=1,
-            mode=EmailDomainPolicyMode.ALLOW,
-            allow=["example.edu"],
-            deny=[],
-            actor_user_id=actor,
-            actor_ip=None,
-        )
+    # `pytest.raises` is a sync context manager, so it cannot share an
+    # `async with` header with the session — it has to nest.
+    async with sessionmaker() as db:
+        with pytest.raises(EmailDomainPolicyRolloutFenced):
+            await _service(db).replace(
+                expected_version=1,
+                mode=EmailDomainPolicyMode.ALLOW,
+                allow=["example.edu"],
+                deny=[],
+                actor_user_id=actor,
+                actor_ip=None,
+            )
 
     await _activate(sessionmaker)
 
@@ -305,15 +307,16 @@ async def test_a_stale_version_matches_no_row_and_is_reported_as_a_conflict(
     await _activate(sessionmaker)
     actor = await _seed_user(sessionmaker)
 
-    async with sessionmaker() as db, pytest.raises(EmailDomainPolicyVersionMismatch):
-        await _service(db).replace(
-            expected_version=99,
-            mode=EmailDomainPolicyMode.OFF,
-            allow=[],
-            deny=[],
-            actor_user_id=actor,
-            actor_ip=None,
-        )
+    async with sessionmaker() as db:
+        with pytest.raises(EmailDomainPolicyVersionMismatch):
+            await _service(db).replace(
+                expected_version=99,
+                mode=EmailDomainPolicyMode.OFF,
+                allow=[],
+                deny=[],
+                actor_user_id=actor,
+                actor_ip=None,
+            )
 
 
 async def test_an_admin_edit_clears_a_rollback_marker(
@@ -555,8 +558,9 @@ async def test_losing_the_row_beneath_a_cold_process_is_a_typed_refusal(
     await clients.get_redis().delete(*_LEGACY_KEYS)
     reset_process_cache()
 
-    async with sessionmaker() as db, pytest.raises(EmailDomainPolicyUnavailable):
-        await _reader(db).is_allowed("user@anything.test")
+    async with sessionmaker() as db:
+        with pytest.raises(EmailDomainPolicyUnavailable):
+            await _reader(db).is_allowed("user@anything.test")
 
 
 # ---------------------------------------------------------------------------
@@ -641,15 +645,16 @@ async def test_a_freeze_rejects_an_admin_update_that_arrives_after_it(
     async with sessionmaker() as db, db.begin():
         frozen = await rollout.freeze_for_rollback(db, repository=EmailDomainPolicyRepository(db))
 
-    async with sessionmaker() as db, pytest.raises(EmailDomainPolicyRolloutFenced):
-        await _service(db).replace(
-            expected_version=frozen.version,
-            mode=EmailDomainPolicyMode.DENY,
-            allow=[],
-            deny=["spam.test"],
-            actor_user_id=actor,
-            actor_ip=None,
-        )
+    async with sessionmaker() as db:
+        with pytest.raises(EmailDomainPolicyRolloutFenced):
+            await _service(db).replace(
+                expected_version=frozen.version,
+                mode=EmailDomainPolicyMode.DENY,
+                allow=[],
+                deny=["spam.test"],
+                actor_user_id=actor,
+                actor_ip=None,
+            )
 
 
 async def test_cancelling_restores_writes_and_clears_the_marker(
