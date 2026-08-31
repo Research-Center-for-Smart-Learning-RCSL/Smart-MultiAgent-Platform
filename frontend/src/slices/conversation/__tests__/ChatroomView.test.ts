@@ -22,6 +22,17 @@ vi.mock('@shared/composables', async (importOriginal) => {
   return { ...actual, useToast: () => mockToast }
 })
 
+// Read for the CSS assertions below: jsdom applies no scoped styles and
+// computes no layout, so the stylesheet source is the only thing to assert
+// against. Same idiom as ChatroomSearchPanel.test.ts.
+const viewSource = Object.values(
+  import.meta.glob('/src/slices/conversation/views/ChatroomView.vue', {
+    eager: true,
+    query: '?raw',
+    import: 'default',
+  }) as Record<string, string>,
+)[0]
+
 const routes = [
   {
     path: '/chatrooms/:chatroomId',
@@ -942,6 +953,269 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom--tablet').exists()).toBe(true)
       // Still in the grid at 768-1023, exactly as before this dossier.
       expect(wrapper.find('.chatroom__agents').exists()).toBe(true)
+    })
+  })
+
+  // T-5 / T-7. Search, agents and people/observer are one transient group
+  // wherever more than one of them covers the feed: two of them open at once
+  // would mean two backdrops, two focus traps and two restoration targets, and
+  // which one a keypress reaches would depend on mount order.
+  describe('transient surface coordination (FU-10 / FU-1)', () => {
+    const originalWidth = window.innerWidth
+    let mounted: VueWrapper | null = null
+
+    function setViewport(width: number): void {
+      Object.defineProperty(window, 'innerWidth', {
+        value: width, configurable: true, writable: true,
+      })
+    }
+
+    afterEach(() => {
+      mounted?.unmount()
+      mounted = null
+      setViewport(originalWidth)
+      localStorage.clear()
+    })
+
+    // Attached to the document because every focus assertion below is
+    // meaningless otherwise: jsdom refuses focus to a detached element and
+    // reports <body> either way.
+    async function atWidth(width: number): Promise<VueWrapper> {
+      setViewport(width)
+      const wrapper = await renderView(ChatroomView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1',
+        attachTo: document.body,
+      })
+      mounted = wrapper
+      signInAs('u_1')
+      await settle()
+      return wrapper
+    }
+
+    function toggle(wrapper: VueWrapper, label: string) {
+      return wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === `conversation.chatroom.${label}`)!
+    }
+
+    /** Click the way a pointer does: the control takes focus, then fires. */
+    async function press(button: ReturnType<typeof toggle>): Promise<void> {
+      ;(button.element as HTMLElement).focus()
+      await button.trigger('click')
+      await nextTick()
+    }
+
+    it('keeps exactly one surface active at 1100 (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+
+      await press(toggle(wrapper, 'agents'))
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(true)
+
+      await press(toggle(wrapper, 'people'))
+      expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
+      expect(wrapper.find('.chatroom__agents.chatroom__panel--open').exists()).toBe(false)
+
+      await press(toggle(wrapper, 'search'))
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+      expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
+    })
+
+    it('hands focus to the newly opened surface rather than restoring (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+
+      await press(toggle(wrapper, 'agents'))
+      expect(wrapper.find('.chatroom__agents').element.contains(document.activeElement))
+        .toBe(true)
+
+      await press(toggle(wrapper, 'search'))
+      // Focus follows the user into the new surface. Restoring the agents
+      // toggle here would leave the search panel open behind the user.
+      expect(document.activeElement).toBe(wrapper.find('.search-input__field').element)
+    })
+
+    it('restores the initiating control on a normal close (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+      const agents = toggle(wrapper, 'agents')
+
+      await press(agents)
+      expect(document.activeElement).not.toBe(agents.element)
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
+      expect(document.activeElement).toBe(agents.element)
+    })
+
+    it('leaves the active surface alone while a modal is stacked over it', async () => {
+      const wrapper = await atWidth(1100)
+      const people = toggle(wrapper, 'people')
+      await press(people)
+      expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
+
+      // The export modal is opened from the header, but the observation release
+      // dialog is opened from inside this very rail. Either way the modal owns
+      // Escape and handles it itself; the keypress still bubbles to window, and
+      // acting on it here would shut the surface the user cannot see.
+      await toggle(wrapper, 'export').trigger('click')
+      await nextTick()
+      expect(document.querySelector('[aria-modal="true"]')).not.toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
+    })
+
+    it('does not strand focus on <body> when the opener will not take it (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+      await press(toggle(wrapper, 'agents'))
+
+      // A keyboard hand-off records whatever holds focus, and after the agents
+      // trap ran that is inside the surface being handed off FROM -- not the
+      // header control that opened it. Ctrl+K is the reachable way in: the
+      // compact rails are not modal, so the shortcut is live while one is open.
+      const stranded = document.activeElement as HTMLElement
+      expect(wrapper.find('.chatroom__agents').element.contains(stranded)).toBe(true)
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+      )
+      await nextTick()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+
+      // In the browser the agents panel is `visibility: hidden` by now and
+      // refuses focus; jsdom models the same refusal for a detached node.
+      // Either way the restore is a no-op and focus falls to <body> unless
+      // close() notices that it did not land.
+      stranded.remove()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(document.activeElement).not.toBe(document.body)
+      expect(document.activeElement).toBe(wrapper.find('.chatroom').element)
+    })
+
+    it('closes the active surface from its backdrop (AC-4/AC-5)', async () => {
+      const wrapper = await atWidth(1100)
+      const agents = toggle(wrapper, 'agents')
+      await press(agents)
+
+      const scrim = wrapper.find('.chatroom__scrim')
+      expect(scrim.exists()).toBe(true)
+      // The scrim reaches the composer for a rail overlay: the panel covers it,
+      // so leaving it clickable would let the user type into a room they can no
+      // longer see.
+      expect(scrim.classes()).toContain('chatroom__scrim--rail')
+
+      await scrim.trigger('click')
+      await nextTick()
+
+      expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
+      expect(document.activeElement).toBe(agents.element)
+    })
+
+    it('scopes the search backdrop to the feed (AC-5)', async () => {
+      const wrapper = await atWidth(1100)
+      await press(toggle(wrapper, 'search'))
+
+      const scrim = wrapper.find('.chatroom__scrim')
+      expect(scrim.exists()).toBe(true)
+      // 07-conversation.md:750 dims the message feed, not the composer -- a
+      // user may well want to keep typing while reading search results.
+      expect(scrim.classes()).toContain('chatroom__scrim--search')
+
+      await scrim.trigger('click')
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(false)
+    })
+
+    it('dims at the documented strength rather than multiplying two dims (AC-5)', () => {
+      // jsdom applies no scoped styles, so this reads the SFC the way
+      // ChatroomSearchPanel's motion tests read theirs. What it guards is a
+      // composition bug that no visual assertion would have caught either:
+      // `--overlay-backdrop` (0.45) under `opacity: 0.2` composites to 0.09.
+      const rule = /\.chatroom__scrim\s*\{([^}]*)\}/.exec(viewSource ?? '')?.[1] ?? ''
+      expect(rule).toContain('--overlay-backdrop-inline')
+      expect(rule).not.toMatch(/^\s*opacity:/m)
+    })
+
+    it('keeps Tab inside an open compact rail panel (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+      await press(toggle(wrapper, 'agents'))
+
+      const panel = wrapper.find('.chatroom__agents')
+      // The room has no bound agents in this fixture, so the panel has no
+      // focusable child at all -- exactly the dead-end case. Tab must be
+      // swallowed rather than walking the user out into the covered feed.
+      const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      panel.element.dispatchEvent(event)
+
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('does not mount a backdrop or trap Tab at 1400 (AC-13)', async () => {
+      const wrapper = await atWidth(1400)
+
+      // No agents/people toggles exist here at all, so the only surface that
+      // can be transient is search -- the rails are persistent columns and must
+      // stay in the ordinary tab order.
+      expect(wrapper.find('.chatroom__scrim').exists()).toBe(false)
+
+      const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      wrapper.find('.chatroom__presence').element.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+
+      expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(true)
+    })
+
+    it('mounts no compact backdrop in the deferred tablet band (AC-11)', async () => {
+      const wrapper = await atWidth(800)
+      await press(toggle(wrapper, 'people'))
+
+      // People is an SDrawer here, which brings its own teleported backdrop;
+      // the in-chat scrim belongs to the compact band only.
+      expect(wrapper.find('.chatroom__scrim').exists()).toBe(false)
+      expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(false)
+    })
+
+    it('keeps Ctrl+K a toggle now that search takes focus', async () => {
+      const wrapper = await atWidth(1400)
+
+      const shortcut = (): void => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+        )
+      }
+
+      shortcut()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+      // Two ticks, not one: the first mounts the panel, and the focus trap only
+      // reaches for the field after its own `await nextTick()` -- which is
+      // queued behind this test's, so a single tick reads <body> every time.
+      await nextTick()
+      // The panel focuses its field on open, and the shortcut ignores keys
+      // typed into a text field. Without an explicit exemption the second press
+      // is swallowed and the shortcut becomes one-way.
+      expect(document.activeElement).toBe(wrapper.find('.search-input__field').element)
+
+      shortcut()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(false)
+    })
+
+    it('makes search and a drawer mutually exclusive below 1024 (AC-10)', async () => {
+      const wrapper = await atWidth(800)
+
+      await press(toggle(wrapper, 'search'))
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+
+      await press(toggle(wrapper, 'people'))
+      // Two overlapping surfaces below lg would put an SDrawer's modal trap and
+      // the search panel's in-page trap on the page at once.
+      expect(wrapper.find('.search-panel').exists()).toBe(false)
     })
   })
 })

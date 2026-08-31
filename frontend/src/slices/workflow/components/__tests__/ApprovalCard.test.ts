@@ -28,4 +28,25 @@ describe('ApprovalCard', () => {
     expect(card.classes()).not.toContain('s-card--surface')
     expect(card.classes()).not.toContain('s-card--pad-compact')
   })
+
+  it('shows the countdown for a normally dated pending gate', async () => {
+    const wrapper = await renderView(ApprovalCard, {
+      props: { approval: APPROVAL, agentNames: {} },
+    })
+    expect(wrapper.text()).toContain('workflow.approval.timeoutIn')
+  })
+
+  it('drops the countdown rather than printing NaN when the start is unknown', async () => {
+    // A chatroom card built from an `approval.requested` frame that carried no
+    // `started_at` holds a deliberately unparseable placeholder instead of a
+    // client-invented date. Every arithmetic step from it is NaN, which used to
+    // reach the template as a literal "NaN:NaN" remaining time.
+    const wrapper = await renderView(ApprovalCard, {
+      props: { approval: { ...APPROVAL, started_at: 'unknown' }, agentNames: {} },
+    })
+    expect(wrapper.text()).not.toContain('NaN')
+    expect(wrapper.text()).not.toContain('workflow.approval.timeoutIn')
+    // The rest of the gate still renders: the vote is what the user is here for.
+    expect(wrapper.find('.s-card').exists()).toBe(true)
+  })
 })

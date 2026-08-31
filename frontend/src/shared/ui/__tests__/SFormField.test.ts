@@ -37,9 +37,16 @@ describe('SFormField', () => {
       { global: { plugins: [i18n] } },
     )
 
+    // SCodeEditor loads CodeMirror through a dynamic import, so the wait is on
+    // a module fetch, not a render tick. `waitFor`'s 1s default is enough for
+    // this file alone and not enough when the full suite has every worker
+    // transforming at once, which made this the one order-dependent failure in
+    // the suite. The budget is generous because the cost of it being too small
+    // is a red build that reproduces nowhere.
+    const untilLoaded = { timeout: 15_000 }
     await vi.waitFor(() => {
       if (!w.find('.cm-content').exists()) throw new Error('CodeMirror not mounted yet')
-    })
+    }, untilLoaded)
     const cmContent = w.find('.cm-content')
     expect(cmContent.attributes('id')).toBe('config.parameters')
     expect(cmContent.attributes('aria-invalid')).toBeUndefined()
@@ -47,9 +54,11 @@ describe('SFormField', () => {
     error.value = 'Parameters must be valid JSON.'
     await vi.waitFor(() => {
       if (w.find('.cm-content').attributes('aria-invalid') !== 'true') throw new Error('aria-invalid not synced yet')
-    })
+    }, untilLoaded)
     expect(w.find('.cm-content').attributes('aria-describedby')).toBe('config.parameters-error')
 
     w.unmount()
-  })
+    // The per-test budget has to clear the waits above, or the test times out
+    // before they do and the raised `waitFor` timeout buys nothing.
+  }, 25_000)
 })

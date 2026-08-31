@@ -18,6 +18,22 @@ function releaseScrollLock(): void {
   if (scrollLockCount === 0) document.body.style.overflow = ''
 }
 
+export interface FocusTrapOptions {
+  /**
+   * Set false for a panel that shares the page rather than covering it. A
+   * document-modal dialog must not leave the page behind it scrollable; an
+   * in-page overlay sits inside its own scroll container and freezing the
+   * document would strand the content it does not cover.
+   */
+  lockScroll?: boolean
+  /**
+   * Set false when a coordinator above this panel owns restoration — one that
+   * can tell a normal close from a hand-off to a sibling surface, which this
+   * composable cannot see.
+   */
+  restoreFocus?: boolean
+}
+
 /**
  * Dialog focus management shared by SModal and SDrawer.
  *
@@ -26,11 +42,16 @@ function releaseScrollLock(): void {
  * restores focus to whatever was focused before opening. Escape handling is
  * left to the caller, since modals and drawers differ (persistent vs. always
  * closable).
+ *
+ * The defaults are the modal contract; both may be waived individually for a
+ * non-modal in-page panel (see `FocusTrapOptions`).
  */
 export function useFocusTrap(
-  panelRef: Ref<HTMLElement | null>,
+  panelRef: Readonly<Ref<HTMLElement | null>>,
   isOpen: () => boolean,
+  options: FocusTrapOptions = {},
 ) {
+  const { lockScroll = true, restoreFocus = true } = options
   let previouslyFocused: HTMLElement | null = null
   // Whether THIS instance currently holds the shared lock, so close/unmount
   // never double-releases.
@@ -72,8 +93,10 @@ export function useFocusTrap(
   watch(isOpen, async (open) => {
     if (open) {
       previouslyFocused = document.activeElement as HTMLElement | null
-      acquireScrollLock()
-      holdsLock = true
+      if (lockScroll) {
+        acquireScrollLock()
+        holdsLock = true
+      }
       await nextTick()
       const els = focusable()
       if (els[0]) els[0].focus()
@@ -83,10 +106,10 @@ export function useFocusTrap(
         releaseScrollLock()
         holdsLock = false
       }
-      if (previouslyFocused) {
-        previouslyFocused.focus()
-        previouslyFocused = null
-      }
+      // Released either way: holding the node when restoration is delegated
+      // would keep a detached element alive for the life of the component.
+      if (restoreFocus) previouslyFocused?.focus()
+      previouslyFocused = null
     }
   }, { immediate: true })
 

@@ -1,5 +1,11 @@
 <template>
-  <div class="search-panel">
+  <section
+    ref="panelRef"
+    class="search-panel"
+    role="search"
+    :aria-label="t('conversation.chatroom.search')"
+    tabindex="-1"
+  >
     <div class="search-panel__bar">
       <SSearchInput
         :model-value="query"
@@ -64,13 +70,15 @@
     >
       {{ t('conversation.chatroom.searchNoResults') }}
     </p>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import { SSearchInput, SButton, SLoadingSpinner } from '@shared/ui'
+import { useFocusTrap } from '@shared/composables'
 import { formatDateTime } from '../utils/format'
 import type { SearchHit } from '../types'
 
@@ -89,6 +97,33 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const panelRef = ref<HTMLElement | null>(null)
+// The panel is `v-if`-mounted only while open, so `isOpen` is constant and the
+// trap's immediate watch does the work: focus lands on the search field, which
+// is the first focusable child, satisfying the documented auto-focus. Neither
+// the scroll lock nor the restoration applies — this is an in-page panel whose
+// backdrop and focus return are owned by the view's surface coordinator, which
+// is the only place that can tell a close from a hand-off to another surface.
+const { trapTab } = useFocusTrap(panelRef, () => true, {
+  lockScroll: false,
+  restoreFocus: false,
+})
+
+// Attached imperatively rather than with `@keydown`: gate #11's
+// `no-static-element-interactions` rejects a key handler on a non-interactive
+// element, and this panel is a container, not a control. Mounted only while
+// open, so there is no open/closed state to track here.
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    emit('close')
+    return
+  }
+  trapTab(e)
+}
+
+onMounted(() => panelRef.value?.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => panelRef.value?.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -107,6 +142,31 @@ const { t } = useI18n()
   padding: var(--space-4);
   max-height: 50vh;
   overflow-y: auto;
+}
+
+/* 07-conversation.md:749 — slides down from below the header over the
+   documented 200ms token. The classes are applied by the view's <Transition>,
+   but they live here so the panel's motion sits with the panel's geometry. */
+.search-panel-enter-active,
+.search-panel-leave-active {
+  transition:
+    transform var(--transition-normal),
+    opacity var(--transition-normal);
+}
+
+.search-panel-enter-from,
+.search-panel-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+
+/* R24.49: motion is removed, not shortened — the panel still appears and still
+   takes focus, it just does not travel. */
+@media (prefers-reduced-motion: reduce) {
+  .search-panel-enter-active,
+  .search-panel-leave-active {
+    transition: none;
+  }
 }
 
 .search-panel__bar {

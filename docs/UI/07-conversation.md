@@ -235,7 +235,9 @@ This is the most complex view in the application. It combines real-time messagin
 .presence-panel      { grid-column: 3;      grid-row: 2 / -1; }
 ```
 
-**Intermediate breakpoint** (1024-1279px): agent sidebar and presence panel collapse by default. Toggle buttons in the header expand them as overlay panels (absolute positioned, `--z-dropdown` z-index, `--shadow-lg`).
+**Intermediate breakpoint** (1024-1279px): agent sidebar and presence panel collapse by default. Toggle buttons in the header expand them as overlay panels (absolute positioned, `--z-dropdown` z-index, `--shadow-lg`). No rail resize handle is shown in this band: an overlay panel has no track to size.
+
+In this band the agent panel, the people/observer panel and search (§3.8) form one mutually exclusive group. Opening any of them closes whichever was open, hands focus to the newly opened surface, and does not restore the previous opener; a normal close (Escape, the backdrop, an explicit close, or choosing a search result) returns focus to the control that opened the active surface. While one is open a backdrop covers the area the panel overlaps and dismisses it on click. Below 1024px the same exclusion holds between search and whichever side panels are drawers; at 1280px and above the rails are persistent columns, so only search is transient and no backdrop or focus trap mounts for the rails.
 
 ```css
 @media (min-width: 1024px) and (max-width: 1279px) {
@@ -745,7 +747,7 @@ Search is activated by clicking the search button in the header or pressing `Ctr
 - Padding: 16px
 - Max-height: 50vh, overflow-y auto
 - Animation: slide down 200ms ease (`--transition-normal`)
-- Message feed behind panel: dimmed with `--overlay-backdrop` at 0.2 opacity
+- Message feed behind panel: dimmed at 0.2 composed alpha, via the `--overlay-backdrop-inline` token. The dim is the token's own alpha, not `--overlay-backdrop` under an `opacity` rule: those multiply, and the modal backdrop painted at 0.2 opacity composites to 0.09. The same token backs the compact-band rail overlays, which dim a larger area at the same strength.
 
 **Search input**:
 - `SSearchInput` component, full width
@@ -767,6 +769,10 @@ Search is activated by clicking the search button in the header or pressing `Ctr
 - Close button (`XMarkIcon`) in panel header
 - `Escape` key
 - Clicking outside the panel (on the dimmed overlay)
+
+**Focus**: opening the panel moves focus to the search field and keeps `Tab` and `Shift+Tab` cycling within the panel while it is open. Every close action listed above, and choosing a result, returns focus to the control that opened the panel, so a keyboard user resumes where they left off rather than at the top of the document. The one exception is a hand-off: if the user opens another transient surface while search is open, focus follows them into the new surface and the search opener is forgotten, since they are going somewhere rather than coming back.
+
+**Mutual exclusion**: search is one of the chatroom's three transient surfaces, together with the agent panel and the people/observer panel. Wherever more than one of them covers the feed, at most one may be open — see the intermediate-breakpoint section above. The backdrop dims the feed only; the composer stays reachable, because reading search results while drafting a reply is a normal thing to do.
 
 **States**:
 - Empty query: panel visible with just the input, no results section
@@ -987,6 +993,8 @@ Approval cards are rendered inline in the message feed when a workflow step requ
 - Optional rejection reason below title in 13px `--color-muted` italic
 
 **Position logic**: approval cards are placed in the message feed at the chronological position where the approval was requested, interleaved with regular messages.
+
+**Chronology source**: the position comes from `started_at` on the `approval.requested` payload, which is the persisted approval row's own timestamp on the same clock that dates every message. The client never substitutes its own clock for a missing or unparseable value: such a card is placed at the tail of the feed, where it stays discoverable, until an authoritative fetch replaces it.
 
 ### 3.13 Empty State
 

@@ -38,6 +38,13 @@ import type { Message } from '../types'
 // legitimately, or a healthy turn gets reported as `timeout` (F-15).
 export const AGENT_THINKING_TIMEOUT_MS = 120_000
 
+// Placeholder date for an `approval.requested` frame from a backend old enough
+// to omit `started_at`. Deliberately unparseable: `Date.parse` returns NaN, and
+// the feed's merge maps that to the tail rather than to a position it cannot
+// justify. Any parseable stand-in — the client's own clock above all — buys
+// plausibility at the cost of putting a gate somewhere it does not belong.
+export const UNKNOWN_STARTED_AT = 'unknown'
+
 export function useChatroomSocket(roomId: string) {
   const qc = useQueryClient()
   const store = useConversationStore()
@@ -473,6 +480,16 @@ export function useChatroomSocket(roomId: string) {
         break
       case 'approval.requested': {
         const approval = ev as unknown as { approval_id: string } & ApprovalWithVotes
+        // The feed interleaves this card with server-dated messages, so its
+        // date has to come from the same clock. There is deliberately no
+        // client-clock fallback: on a machine running behind the server, an
+        // invented date sorts a gate the user must vote on above the last N
+        // messages -- off-screen, and without moving the tail, so the unseen
+        // pill does not fire either. UNKNOWN_STARTED_AT is unparseable, which
+        // `feedItems` maps to the tail, and `reconcilePending` replaces from
+        // the authoritative row.
+        const startedAt = ev.started_at
+        const dated = typeof startedAt === 'string' && !Number.isNaN(Date.parse(startedAt))
         orchStore.upsertApproval(roomId, {
           id: approval.approval_id ?? (ev.approval_id as string),
           workflow_run_id: ev.workflow_run_id as string,
@@ -481,10 +498,18 @@ export function useChatroomSocket(roomId: string) {
           approver_agent_ids: (ev.approver_agent_ids as string[]) ?? [],
           timeout_seconds: (ev.timeout_seconds as number) ?? 300,
           state: 'pending',
-          started_at: new Date().toISOString(),
+          started_at: dated ? startedAt : UNKNOWN_STARTED_AT,
           ended_at: null,
           votes: [],
         })
+        // Otherwise the placeholder outlives the gate: reconciliation is
+        // driven from reconnect alone, so on a socket that never drops the
+        // card would keep an unknown date -- and an unknown deadline -- for
+        // its whole life. `reconcilePending` skips a card still inside its
+        // grace window, which every correctly dated card is at this moment,
+        // so this pass costs one request for the placeholder and nothing for
+        // the normal path.
+        if (!dated) reconcileApprovals()
         break
       }
       case 'approval.resolved': {
