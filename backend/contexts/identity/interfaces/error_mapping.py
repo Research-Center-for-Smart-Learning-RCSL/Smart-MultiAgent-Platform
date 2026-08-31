@@ -42,6 +42,22 @@ _MAP: ErrorMap = {
         429,
         "Too many activation-link requests for this account",
     ),
+    errors.InvalidEmailDomain: ("admin/email-domain-invalid", 422, "Invalid email domain"),
+    errors.EmailDomainPolicyVersionMismatch: (
+        "admin/email-domain-policy-stale",
+        409,
+        "Email-domain policy changed since it was loaded",
+    ),
+    errors.EmailDomainPolicyRolloutFenced: (
+        "admin/email-domain-policy-fenced",
+        409,
+        "Email-domain policy is read-only during this rollout phase",
+    ),
+    errors.EmailDomainPolicyUnavailable: (
+        "admin/email-domain-policy-unavailable",
+        503,
+        "Email-domain policy is temporarily unavailable",
+    ),
     errors.AdminProvisioningRateLimited: (
         "admin/provisioning-rate-limited",
         429,
@@ -62,6 +78,10 @@ def _extras(exc: Exception) -> dict[str, Any]:
         errors.Lockout | errors.ActivationLinkRateLimited | errors.AdminProvisioningRateLimited,
     ):
         extras["retry_after_seconds"] = exc.retry_after_seconds
+    if isinstance(exc, errors.EmailDomainPolicyRolloutFenced):
+        # The phase itself, so the Admin UI can say *why* the form is read-only
+        # and which operator step lifts it, rather than showing a bare conflict.
+        extras["rollout_state"] = exc.rollout_state
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs
     return extras
