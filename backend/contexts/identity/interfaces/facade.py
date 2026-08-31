@@ -15,6 +15,10 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.identity.domain.email_domain_policy import (
+    EmailDomainPolicy,
+    EmailDomainPolicyMode,
+)
 from contexts.identity.domain.models import IpBan, User, UserStatus
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
@@ -146,6 +150,48 @@ class IdentityFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+
+    # ----- email-domain policy (R19a.13) ----------------------------------
+    #
+    # The write is deliberately two calls. `publish` refreshes the acceleration
+    # mirror and must run *after* the caller's commit: refreshing inside the
+    # transaction would leave every replica reading a policy that a rollback
+    # then erased. Splitting them puts that ordering where the commit is,
+    # instead of hiding it behind a method that cannot see the commit.
+
+    async def get_email_domain_policy(self) -> EmailDomainPolicy:
+        from contexts.identity.application.factory import create_email_domain_policy_service
+
+        return await create_email_domain_policy_service(self._db).get()
+
+    async def update_email_domain_policy(
+        self,
+        *,
+        expected_version: int,
+        mode: EmailDomainPolicyMode,
+        allow: list[str],
+        deny: list[str],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> EmailDomainPolicy:
+        from contexts.identity.application.factory import create_email_domain_policy_service
+
+        return await create_email_domain_policy_service(self._db).replace(
+            expected_version=expected_version,
+            mode=mode,
+            allow=allow,
+            deny=deny,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def publish_email_domain_policy(self, policy: EmailDomainPolicy) -> None:
+        """Refresh the mirror after the caller has committed. Best-effort."""
+        from contexts.identity.application.factory import create_email_domain_policy_service
+
+        await create_email_domain_policy_service(self._db).publish(policy)
 
     @staticmethod
     def recipient_digest(addr: str) -> str:
