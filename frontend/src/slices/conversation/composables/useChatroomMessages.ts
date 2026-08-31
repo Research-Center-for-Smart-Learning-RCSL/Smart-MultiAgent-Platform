@@ -8,7 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
-import { ApiError } from '@shared/api-client'
+import { ApiError } from '@shared/errors'
 import {
   deleteMessage as apiDeleteMessage,
   getMessage,

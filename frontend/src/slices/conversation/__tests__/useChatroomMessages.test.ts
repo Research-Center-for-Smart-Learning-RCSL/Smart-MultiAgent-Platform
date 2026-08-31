@@ -10,16 +10,23 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
-import { ApiError } from '@shared/api-client'
+import { ValidationError } from '@shared/errors'
 import { deferred } from '../../../../tests/utils'
 import type { Message } from '../types'
 
-function apiError(status: number): ApiError {
-  return new ApiError(
-    {} as never,
-    { url: '', ok: false, status, statusText: '', body: {} },
-    'request failed',
-  )
+// The transport never surfaces the generated client's own ApiError: the same
+// rejection handler runs on the bare axios singleton the generated services
+// call, so `parseProblem` has already mapped a 422 onto ValidationError (a
+// @shared/errors.ApiError subclass) by the time a caller sees it. Constructing
+// the generated class here is what let the recovery branch below stay dead
+// while this test stayed green.
+function apiError(status: number): ValidationError {
+  return new ValidationError({
+    type: 'https://smap.local/problems/validation',
+    title: 'Unprocessable Entity',
+    status,
+    detail: 'request failed',
+  })
 }
 
 const api = vi.hoisted(() => ({
