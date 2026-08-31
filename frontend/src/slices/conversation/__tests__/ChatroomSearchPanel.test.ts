@@ -123,7 +123,7 @@ describe('ChatroomSearchPanel dismissal and focus (T-6)', () => {
   it('takes focus on open, landing on the search field', async () => {
     const wrapper = (mounted = await mountAttached())
 
-    // 07-conversation.md:752. Delegated to the shared focus trap rather than an
+    // 07-conversation.md:754. Delegated to the shared focus trap rather than an
     // autofocus attribute, so the first focusable child is what receives it --
     // which is the field, since the bar renders it before the close button.
     expect(document.activeElement).toBe(wrapper.find('.search-input__field').element)
@@ -164,7 +164,7 @@ describe('ChatroomSearchPanel dismissal and focus (T-6)', () => {
 
     await wrapper.find('.result').trigger('click')
 
-    // 07-conversation.md:764 -- selecting a hit is itself a close action; the
+    // 07-conversation.md:766 -- selecting a hit is itself a close action; the
     // view routes it through the same coordinator path as the other three.
     expect(wrapper.emitted('select')).toHaveLength(1)
   })
@@ -172,7 +172,7 @@ describe('ChatroomSearchPanel dismissal and focus (T-6)', () => {
 
 describe('ChatroomSearchPanel motion (T-6)', () => {
   it('slides on the documented 200ms token', () => {
-    // 07-conversation.md:747. The token, not a literal: a hard-coded 200ms
+    // 07-conversation.md:749. The token, not a literal: a hard-coded 200ms
     // drifts the moment the motion language is retuned.
     expect(panelSource).toMatch(
       /\.search-panel-enter-active[\s\S]*?transition:[\s\S]*?var\(--transition-normal\)/,

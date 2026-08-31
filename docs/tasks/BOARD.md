@@ -502,18 +502,31 @@ each row for its own list — the frontmatter wins over this preamble.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 
-- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix) — `depends_on: []`.
-  Approved 2026-08-31 after a citation audit. Consolidates FU-9/FU-10/FU-1 of
-  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
-  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
-  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
-  focus-safe handoff. **Its [R24.32] amendment states a target and a deviation in one sentence
-  on purpose**: the four-band design was approved and shipped in `b4b25d1`/`bdea016` without an
-  SRS delta, and the 768-1023 band still has the persistent agent rail that the source dossier's
-  FU-6 deferred, which this dossier's own AC-11 pins rather than removes. Writing the target
-  alone would land a requirement its own acceptance criteria contradict. The amendment is
-  applied to `REQUIREMENTS.md` at close-out rather than at approval, so the requirement does not
-  precede the behavior.
+Removed on 2026-08-31 after implementation:
+`2026-08-30-chatroom-approval-and-overlay-discoverability` (the room `approval.requested` event
+carries the persisted timestamp, and the chatroom's three transient surfaces have one owner for
+exclusion, focus and backdrop). PR #174. Its **[R24.32] amendment is now applied** at
+`REQUIREMENTS.md:1974`, which is what closed the SRS gap that `b4b25d1`/`bdea016` left open; the
+clause deliberately states the 768-1023 target and the shipped deviation in one sentence, and FU-2
+removes the second half when that band moves.
+
+**Three things a later reader needs.**
+
+**The rollout fallback has consumers, and they were the defect.** Deciding that a timestamp-less
+event gets an unparseable placeholder rather than a client clock is correct and is the whole point
+of the change, but the placeholder is a value that flows: `ChatroomView.feedItems` had already been
+taught to map it to the tail, and `ApprovalCard` had not — it rendered "Times out in NaN:NaN". A
+sentinel is only as safe as the last thing that reads the field. D-7 records the repair.
+
+**Reconciliation had no schedule.** `reconcilePending` is the only thing that retires the
+placeholder, and it is called from the socket's reconnect handler alone, so on a healthy connection
+nothing would ever have called it. The insertion site now kicks one pass, and only when it inserts a
+placeholder. D-3.
+
+**Two dims multiply.** `--overlay-backdrop` is itself `rgba(0, 0, 0, 0.45)`, so painting it at
+`opacity: 0.2` — the literal reading of the UI document's "at 0.2 opacity" — composites to 0.09,
+which is not a dim. `--overlay-backdrop-inline` now carries the strength directly and
+`07-conversation.md:750` names the trap. D-2.
 
 Removed on 2026-08-28 after implementation:
 `2026-08-27-openai-responses-api-migration` (the OpenAI adapter posts to `/v1/responses`, so

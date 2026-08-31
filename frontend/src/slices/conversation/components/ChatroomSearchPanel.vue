@@ -144,7 +144,7 @@ onBeforeUnmount(() => panelRef.value?.removeEventListener('keydown', onKeydown))
   overflow-y: auto;
 }
 
-/* 07-conversation.md:747 — slides down from below the header over the
+/* 07-conversation.md:749 — slides down from below the header over the
    documented 200ms token. The classes are applied by the view's <Transition>,
    but they live here so the panel's motion sits with the panel's geometry. */
 .search-panel-enter-active,
