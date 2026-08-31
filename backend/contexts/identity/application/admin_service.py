@@ -29,7 +29,9 @@ from contexts.identity.application.auth_service import (
     _normalise_email,
 )
 from contexts.identity.domain.errors import (
+    AccountBanned,
     ActivationLinkRateLimited,
+    AdminProvisioningRateLimited,
     EmailAlreadyRegistered,
     EmailDomainDenied,
 )
@@ -58,6 +60,13 @@ from shared_kernel.realtime.pubsub import Publisher
 # per-recipient invite and password-reset caps.
 _ACTIVATION_LINK_WINDOW_SEC = 600
 _ACTIVATION_LINK_MAX = 5
+
+# Per-acting-Admin cap on account creation (R6.18). Sized to let a typical class
+# through the existing one-at-a-time flow while bounding a lost Admin session
+# creating accounts at request speed. Bulk import must define its own batch rule
+# rather than raising this one.
+_PROVISION_WINDOW_SEC = 600
+_PROVISION_MAX = 60
 
 
 def _default_public_origin() -> str:
@@ -146,6 +155,15 @@ class AdminService:
         The email-domain policy of R19a.13 applies here too. Skipping it would
         make this endpoint a bypass of a control the operator deliberately set.
         """
+        # Before the policy lookup and the insert, so a refused caller costs one
+        # Redis round trip and touches neither the policy authority nor the DB.
+        rl = await ratelimit.check_raw(
+            key=f"rl:admin-provision:u:{admin_user_id}",
+            window_sec=_PROVISION_WINDOW_SEC,
+            max_count=_PROVISION_MAX,
+        )
+        if not rl.allowed:
+            raise AdminProvisioningRateLimited(rl.retry_after_seconds)
         email = _normalise_email(email)
         if not await email_domain_policy.is_allowed(email):
             raise EmailDomainDenied(f"domain not allowed: {email!r}")
@@ -214,6 +232,16 @@ class AdminService:
         user = await self._users.get_by_id(target_user_id)
         if user is None or user.deleted_at is not None:
             raise ValueError(f"user {target_user_id} not found")
+        # A banned account holds no credential, so the "still needs activation"
+        # test below reads it as eligible and mints a pair for an account that
+        # can never activate. Harmless only for as long as both downstream gates
+        # hold independently (`login` raises AccountBanned after verifying the
+        # password, `mark_verified` declines to promote a banned row) — refusing
+        # here does not depend on either of them staying that way. It precedes
+        # the identity lookup, the rate-limit bucket and the mint, so a refused
+        # call leaves no token, no audit row and no bucket entry behind.
+        if user.status is UserStatus.BANNED:
+            raise AccountBanned(f"user {target_user_id} is banned")
         identities = await self._identities.list_for_user(target_user_id)
         has_credential = user.password_hash is not None or bool(identities)
         if user.email_verified and has_credential:

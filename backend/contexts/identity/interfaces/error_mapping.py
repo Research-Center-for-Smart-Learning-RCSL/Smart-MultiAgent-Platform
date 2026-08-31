@@ -42,6 +42,11 @@ _MAP: ErrorMap = {
         429,
         "Too many activation-link requests for this account",
     ),
+    errors.AdminProvisioningRateLimited: (
+        "admin/provisioning-rate-limited",
+        429,
+        "Too many accounts created by this administrator",
+    ),
     errors.OriginalCreatorSelfDeleteBlocked: (
         "tenancy/original-creator-self-delete-blocked",
         409,
@@ -52,7 +57,10 @@ _MAP: ErrorMap = {
 
 def _extras(exc: Exception) -> dict[str, Any]:
     extras: dict[str, Any] = {}
-    if isinstance(exc, errors.Lockout | errors.ActivationLinkRateLimited):
+    if isinstance(
+        exc,
+        errors.Lockout | errors.ActivationLinkRateLimited | errors.AdminProvisioningRateLimited,
+    ):
         extras["retry_after_seconds"] = exc.retry_after_seconds
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs
