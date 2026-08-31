@@ -69,7 +69,7 @@ class TestRestoreUser:
     async def test_success_clears_reactivates_and_audits(self, audit_emit) -> None:
         db = AsyncMock()
         db.execute.return_value = SimpleNamespace(rowcount=1)
-        svc = AdminService(db)
+        svc = AdminService(db, email_domain_policy=AsyncMock())
 
         ok = await svc.restore_user(resource_id=uuid.uuid4(), admin_user_id=_ADMIN, actor_ip=None)
 
@@ -85,7 +85,7 @@ class TestRestoreUser:
     async def test_not_soft_deleted_returns_false_without_reset(self, audit_emit) -> None:
         db = AsyncMock()
         db.execute.return_value = SimpleNamespace(rowcount=0)
-        svc = AdminService(db)
+        svc = AdminService(db, email_domain_policy=AsyncMock())
 
         ok = await svc.restore_user(resource_id=uuid.uuid4(), admin_user_id=_ADMIN, actor_ip=None)
 
@@ -98,7 +98,7 @@ class TestRestoreUser:
     async def test_email_reuse_raises_restore_conflict(self, audit_emit) -> None:
         db = AsyncMock()
         db.execute.side_effect = _integrity_error('violates unique constraint "uq_users_email_active"')
-        svc = AdminService(db)
+        svc = AdminService(db, email_domain_policy=AsyncMock())
 
         with pytest.raises(RestoreConflict) as info:
             await svc.restore_user(resource_id=uuid.uuid4(), admin_user_id=_ADMIN, actor_ip=None)
@@ -113,7 +113,7 @@ class TestRestoreUser:
         # routed straight back to BANNED, and its ban metadata is never wiped.
         db = AsyncMock()
         db.execute.return_value = SimpleNamespace(rowcount=1)
-        svc = AdminService(db)
+        svc = AdminService(db, email_domain_policy=AsyncMock())
 
         await svc.restore_user(resource_id=uuid.uuid4(), admin_user_id=_ADMIN, actor_ip=None)
 

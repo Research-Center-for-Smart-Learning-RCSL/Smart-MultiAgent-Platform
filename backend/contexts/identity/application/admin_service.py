@@ -28,6 +28,7 @@ from contexts.identity.application.auth_service import (
     _normalise_display_name,
     _normalise_email,
 )
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.errors import (
     AccountBanned,
     ActivationLinkRateLimited,
@@ -36,7 +37,6 @@ from contexts.identity.domain.errors import (
     EmailDomainDenied,
 )
 from contexts.identity.domain.models import User, UserStatus
-from contexts.identity.infrastructure import email_domain_policy
 from contexts.identity.infrastructure import tables as t
 from contexts.identity.infrastructure.channels import user_channel
 from contexts.identity.infrastructure.email import recipient_digest
@@ -122,8 +122,18 @@ class AccountAlreadyActivatedError(ValueError):
 
 
 class AdminService:
-    def __init__(self, db: AsyncSession, *, public_origin: str | None = None) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        email_domain_policy: EmailDomainPolicyReader,
+        public_origin: str | None = None,
+    ) -> None:
         self._db = db
+        # Required rather than defaulted: a service that could be constructed
+        # without the policy reader is a service that can silently skip R19a.13,
+        # and this is the endpoint an operator most needs it not to skip.
+        self._email_domain_policy = email_domain_policy
         self._users = UserRepository(db)
         self._admins = AdminRepository(db)
         self._sessions = SessionRepository(db)
@@ -165,7 +175,7 @@ class AdminService:
         if not rl.allowed:
             raise AdminProvisioningRateLimited(rl.retry_after_seconds)
         email = _normalise_email(email)
-        if not await email_domain_policy.is_allowed(email):
+        if not await self._email_domain_policy.is_allowed(email):
             raise EmailDomainDenied(f"domain not allowed: {email!r}")
         if await self._users.get_active_by_email(email) is not None:
             raise EmailAlreadyRegistered(email)

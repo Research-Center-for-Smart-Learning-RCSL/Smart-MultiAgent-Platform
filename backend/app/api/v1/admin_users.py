@@ -12,10 +12,10 @@ from app.api.v1.admin_deps import require_admin
 from contexts.identity.application.admin_service import (
     AccountAlreadyActivatedError,
     ActivationLinks,
-    AdminService,
     LastAdminError,
     SelfTargetError,
 )
+from contexts.identity.application.factory import create_admin_service
 from contexts.identity.domain.models import User, UserStatus
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
@@ -128,7 +128,7 @@ async def list_users(
     _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> list[UserSummaryOut]:
-    service = AdminService(db)
+    service = create_admin_service(db)
     users = await service.search_users(q=q, status=user_status, cursor=cursor, limit=limit)
     return [_summary_out(u) for u in users]
 
@@ -146,7 +146,7 @@ async def create_user(
     account-existence oracle: this route is admin-only and an Admin already holds
     `USER_READ_ANY`, so the same fact is one `GET /api/admin/users?q=` away.
     """
-    service = AdminService(db)
+    service = create_admin_service(db)
     user, links = await service.create_user(
         email=body.email,
         display_name=body.display_name,
@@ -165,7 +165,7 @@ async def reissue_activation_links(
     db: AsyncSession = Depends(db_session),
 ) -> ActivationLinksOut:
     """Re-mint both activation links for an account that still needs them (R6.18)."""
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         links = await service.issue_activation_links(
             target_user_id=user_id,
@@ -186,7 +186,7 @@ async def get_user(
     _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> UserDetailOut:
-    service = AdminService(db)
+    service = create_admin_service(db)
     detail = await service.get_user_detail(user_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -216,7 +216,7 @@ async def ban_user(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         await service.ban_user(
             target_user_id=user_id,
@@ -238,7 +238,7 @@ async def unban_user(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         await service.unban_user(
             target_user_id=user_id,
@@ -257,7 +257,7 @@ async def soft_delete_user(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         await service.soft_delete_user(
             target_user_id=user_id,
@@ -278,7 +278,7 @@ async def hard_delete_user(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         await service.hard_delete_user(
             target_user_id=user_id,
@@ -304,7 +304,7 @@ async def list_admins(
     _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> list[AdminEntryOut]:
-    service = AdminService(db)
+    service = create_admin_service(db)
     admins = await service.list_admins()
     return [
         AdminEntryOut(
@@ -323,7 +323,7 @@ async def promote_admin(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> AdminEntryOut:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         entry = await service.promote_admin(
             target_user_id=body.user_id,
@@ -347,7 +347,7 @@ async def demote_admin(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    service = AdminService(db)
+    service = create_admin_service(db)
     try:
         await service.demote_admin(
             target_user_id=user_id,

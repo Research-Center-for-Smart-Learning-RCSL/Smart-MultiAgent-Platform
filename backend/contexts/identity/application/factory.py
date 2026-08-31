@@ -15,7 +15,9 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from contexts.identity.application.admin_service import AdminService
 from contexts.identity.application.auth_service import AuthService
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.infrastructure.email import (
     EmailMessage,
     EmailSender,
@@ -133,12 +135,35 @@ def create_auth_service(db: AsyncSession, *, public_origin: str) -> AuthService:
         hasher=_hasher,
         email_sender=LazyEmailSender(email_sender_factory),
         public_origin=public_origin,
+        email_domain_policy=create_email_domain_policy_reader(db),
+    )
+
+
+def create_email_domain_policy_reader(db: AsyncSession) -> EmailDomainPolicyReader:
+    """The one place that knows which concrete stores back the policy (R19a.13)."""
+    from contexts.identity.infrastructure.email_domain_policy import create_reader
+
+    return create_reader(db)
+
+
+def create_admin_service(db: AsyncSession, *, public_origin: str | None = None) -> AdminService:
+    """Build `AdminService` with the email-domain policy reader wired in.
+
+    Routes construct the service through this rather than directly, so a new
+    provisioning caller cannot appear without the policy the operator set.
+    """
+    return AdminService(
+        db,
+        email_domain_policy=create_email_domain_policy_reader(db),
+        public_origin=public_origin,
     )
 
 
 __all__ = [
     "LazyEmailSender",
+    "create_admin_service",
     "create_auth_service",
+    "create_email_domain_policy_reader",
     "email_configured",
     "email_sender_factory",
     "warn_if_email_unconfigured",

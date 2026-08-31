@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.identity.application.auth_email_service import AuthEmailService
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.errors import (
     AccountBanned,
     AccountDeleted,
@@ -41,7 +42,7 @@ from contexts.identity.domain.errors import (
     TokenInvalid,
 )
 from contexts.identity.domain.models import AuthIdentity, Session, User, UserStatus
-from contexts.identity.infrastructure import email_domain_policy, lockouts
+from contexts.identity.infrastructure import lockouts
 from contexts.identity.infrastructure.email import EmailSender, recipient_digest
 from contexts.identity.infrastructure.oauth import google as google_oauth
 from contexts.identity.infrastructure.repositories import (
@@ -122,10 +123,14 @@ class AuthService:
         hasher: PasswordHasher,
         email_sender: EmailSender,
         public_origin: str,
+        email_domain_policy: EmailDomainPolicyReader,
     ) -> None:
         self._db = db
         self._hasher = hasher
         self._emailer = email_sender
+        # Required rather than defaulted: a service that could be constructed
+        # without the policy reader is a service that can silently skip R19a.13.
+        self._email_domain_policy = email_domain_policy
         self._users = UserRepository(db)
         self._sessions = SessionRepository(db)
         self._verify = EmailVerifyTokenRepository(db)
@@ -156,7 +161,7 @@ class AuthService:
         except captcha.CaptchaError as exc:
             raise CaptchaRequired(str(exc)) from exc
 
-        if not await email_domain_policy.is_allowed(email):
+        if not await self._email_domain_policy.is_allowed(email):
             raise EmailDomainDenied(f"domain not allowed: {email!r}")
 
         try:
@@ -938,7 +943,7 @@ class AuthService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         new_email = _normalise_email(new_email)
-        if not await email_domain_policy.is_allowed(new_email):
+        if not await self._email_domain_policy.is_allowed(new_email):
             raise EmailDomainDenied(f"domain not allowed: {new_email!r}")
         user = await self._users.get_by_id(user_id)
         if (
