@@ -108,6 +108,37 @@
       "reissueLinksDone": "Activation links re-issued.",
       "notFound": "User not found."
     },
+    "emailDomain": {
+      "heading": "Email domain policy",
+      "help": "Restrict which email domains may register, change their address, or be provisioned by an Admin. Domains are matched exactly after normalisation: listing example.edu does not admit dept.example.edu.",
+      "mode": "Mode",
+      "modeHelp": "Allow admits only the listed domains, so an empty allow list blocks every signup. Deny blocks only the listed domains. Off applies no restriction and keeps both lists for later.",
+      "modeOff": "Off — no restriction",
+      "modeAllow": "Allow — only the listed domains",
+      "modeDeny": "Deny — everything except the listed domains",
+      "allow": "Allowed domains",
+      "deny": "Denied domains",
+      "listHelp": "One bare domain per line, without {'@'} and without a scheme.",
+      "listPlaceholder": "example.edu\ndept.example.edu",
+      "invalidEntries": "Not bare domains: {entries}",
+      "stateLine": "Rollout state: {state} · version {version}",
+      "state": {
+        "compatibility": "compatibility",
+        "active": "active",
+        "rollback_frozen": "frozen for rollback"
+      },
+      "fencedCompatibility": "This deployment is still in the compatibility phase: replicas of the previous release may be running, and they read the policy from Redis. Editing is disabled until an operator runs the activation command.",
+      "fencedFrozen": "A rollback has been prepared, so the policy is frozen and cannot be edited. An operator must cancel the rollback before it can change again.",
+      "rollbackVerified": "A rollback of version {version} has been prepared and verified. Starting a previous release is safe until the policy changes again.",
+      "save": "Save policy",
+      "saved": "Email domain policy saved.",
+      "loadError": "Failed to load the email domain policy.",
+      "saveFailed": "Could not save the email domain policy.",
+      "staleConflict": "Someone changed the policy since this form loaded. It has been reloaded — reapply your edit.",
+      "fenceConflict": "The policy became read-only while you were editing. It has been reloaded.",
+      "invalidConflict": "One of the entries is not a bare domain. Remove any {'@'}, scheme, port or wildcard.",
+      "unavailable": "The policy store is temporarily unreachable. Nothing was changed; try again shortly."
+    },
     "admins": {
       "title": "Admins",
       "userId": "User ID",

@@ -111,6 +111,11 @@
       @submit="onCreate"
     />
 
+    <!-- Below the table on purpose: the policy governs who may hold an account,
+         so it belongs beside the accounts rather than on its own page, but the
+         list is what an admin comes here for. -->
+    <EmailDomainPolicyForm class="mt-6" />
+
     <AdminActivationLinksDialog
       v-if="provisioned"
       :open="true"
@@ -145,6 +150,7 @@ import { useAdminActions } from '../composables/useAdminActions'
 import { userStatusLabelKey } from '../utils/userStatus'
 import AdminActivationLinksDialog from '../components/AdminActivationLinksDialog.vue'
 import AdminCreateUserDialog from '../components/AdminCreateUserDialog.vue'
+import EmailDomainPolicyForm from '../components/EmailDomainPolicyForm.vue'
 import type { ProvisionedUser, UserSummary } from '../types'
 
 const { t } = useI18n()
