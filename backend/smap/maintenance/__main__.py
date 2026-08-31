@@ -8,6 +8,8 @@ import uuid
 import typer
 from loguru import logger
 
+from contexts.identity.domain.errors import IdentityError
+
 from . import email_domain_policy as _email_domain_policy
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
@@ -177,10 +179,18 @@ def _run_transition(name: str, coro_factory: object) -> None:
     traceback: these are operator commands whose failure modes are expected
     conditions (wrong phase, unverifiable mirror), and a stack trace would read
     as a bug rather than as "do not proceed".
+
+    `IdentityError` is caught alongside the transition error because the
+    transitions read and write the legacy Redis keys: an unreachable Redis
+    (`EmailDomainPolicyUnavailable`) or a corrupt triple
+    (`InvalidLegacyEmailDomainPolicy`) are expected conditions here too, and are
+    exactly the moment an operator needs a sentence rather than a traceback —
+    they are deciding whether the freeze committed and whether it is safe to
+    start an old image.
     """
     try:
         report = asyncio.run(coro_factory())  # type: ignore[operator]
-    except _email_domain_policy.RolloutTransitionError as exc:
+    except (_email_domain_policy.RolloutTransitionError, IdentityError) as exc:
         logger.error("{} could not run: {}", name, exc)
         raise typer.Exit(code=1) from None
     logger.info(

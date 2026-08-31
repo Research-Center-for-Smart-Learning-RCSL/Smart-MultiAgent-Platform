@@ -172,13 +172,38 @@ const modeOptions = computed(() => [
   { value: 'deny', label: t('admin.emailDomain.modeDeny') },
 ])
 
+// The last server snapshot this form was seeded from. Comparing against it is
+// what makes "has the admin edited anything" answerable without a second flag to
+// keep in sync.
+const seeded = ref<{ mode: EmailDomainMode; allow: string; deny: string } | null>(null)
+
+const isDirty = computed(
+  () =>
+    seeded.value !== null &&
+    (form.mode !== seeded.value.mode ||
+      allowText.value !== seeded.value.allow ||
+      denyText.value !== seeded.value.deny),
+)
+
 watch(
   policy,
   (loaded) => {
     if (!loaded) return
+    // Only ever seed an untouched form. The query client sets no `staleTime` and
+    // does not disable `refetchOnWindowFocus`, so TanStack refetches in the
+    // background and hands back a fresh object every time this tab regains
+    // focus. Overwriting unconditionally meant an admin who pasted a long
+    // allow list, alt-tabbed to check it against a spreadsheet, and came back
+    // found their work silently replaced by the server copy.
+    //
+    // If the version moved while they were editing, the edit is kept and the
+    // save returns the 409 that already tells them to reload and reapply —
+    // which loses nothing, unlike discarding the text here.
+    if (isDirty.value) return
     form.mode = loaded.mode
     allowText.value = loaded.allow.join('\n')
     denyText.value = loaded.deny.join('\n')
+    seeded.value = { mode: loaded.mode, allow: allowText.value, deny: denyText.value }
   },
   { immediate: true },
 )
@@ -211,6 +236,11 @@ const saveMutation = useMutation({
       policy.value?.version ?? 0,
     ),
   onSuccess: () => {
+    // Drop the seed so the refetch below re-seeds from the committed row. Left
+    // in place, the form would read as permanently dirty against a snapshot it
+    // has already saved past, and would never pick up another admin's later
+    // edit.
+    seeded.value = null
     void qc.invalidateQueries({ queryKey: adminKeys.emailDomainPolicy() })
     toast.success(t('admin.emailDomain.saved'))
   },

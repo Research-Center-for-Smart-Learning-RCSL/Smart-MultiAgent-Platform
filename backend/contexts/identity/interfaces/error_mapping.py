@@ -58,6 +58,17 @@ _MAP: ErrorMap = {
         503,
         "Email-domain policy is temporarily unavailable",
     ),
+    # Reachable at request time, not only at boot: while the rollout state is
+    # `compatibility` the legacy triple governs and is re-read per request, so an
+    # operator editing those keys with `redis-cli` into a shape the classifier
+    # rejects surfaces here. Its own slug rather than sharing the one above,
+    # because "the policy store is corrupt" and "the policy store is unreachable"
+    # send an operator to different places.
+    errors.InvalidLegacyEmailDomainPolicy: (
+        "admin/email-domain-legacy-invalid",
+        503,
+        "Legacy email-domain keys are in an unusable state",
+    ),
     errors.AdminProvisioningRateLimited: (
         "admin/provisioning-rate-limited",
         429,

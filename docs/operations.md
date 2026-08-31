@@ -274,6 +274,7 @@ All errors from the API use `application/problem+json` with these common fields:
 | `admin/email-domain-policy-stale` | 409 | `If-Match` version no longer current | Reload, reapply |
 | `admin/email-domain-policy-fenced` | 409 | Writes fenced outside the `active` rollout phase; carries `rollout_state` | §7a.6, not a reload |
 | `admin/email-domain-policy-unavailable` | 503 | No policy authority reachable — fails closed, never `off` | Check Postgres |
+| `admin/email-domain-legacy-invalid` | 503 | Legacy Redis triple corrupt while `compatibility` governs | §7a.6's four shapes |
 | `admin/provisioning-rate-limited` | 429 | One Admin over 60 account creations / 10 min; carries `retry_after_seconds` | Wait |
 | `rate-limited` | 429 | Global / endpoint rate cap | Retry-After |
 | `internal/error` | 500 | Unhandled | Retry later |
@@ -490,9 +491,31 @@ alike. `PUT` on the Admin screen is refused, deliberately, until activation.
 If the legacy keys are in a shape the import cannot read, **the boot fails** rather than
 coming up with no policy authority. Grep the boot log for
 `email_domain_policy_bootstrap_imported` to confirm a successful import; a failure names the
-key at fault. The three shapes that block a boot are: `mode` absent while a list holds
-members, an unrecognised `mode` value, and a key holding the wrong Redis type. Repair the
-keys with `redis-cli` and restart — no row was written, so the retry is clean.
+key at fault. Four shapes block a boot:
+
+| Shape | Why it is refused |
+| --- | --- |
+| A member of `allow`/`deny` that is not a bare domain | Cannot match anything, so it is a rule that looks set and does nothing |
+| `mode` absent while a list holds members | Half a policy; either reading of the missing half could be the wrong one |
+| An unrecognised `mode` value | Not one of `allow` / `deny` / `off` |
+| A key holding the wrong Redis type | `allow`/`deny` must be sets, `mode` a string |
+
+Repair the keys with `redis-cli` and restart — no row was written, so the retry is clean.
+
+> **The first row is the one to expect, and it is worth checking before you upgrade.** The
+> code being replaced applied no validation at all; it only lower-cased. Entries that were
+> inert-but-harmless then are now refused: a bare label such as `localhost`, a trailing dot
+> (`example.edu.`), a wildcard (`*.example.edu`), an underscore, a stray space, or a pasted
+> `user@example.edu` or `https://example.edu`. Check before deploying:
+>
+> ```bash
+> docker compose exec redis redis-cli SMEMBERS config:email_domain:allow
+> docker compose exec redis redis-cli SMEMBERS config:email_domain:deny
+> ```
+>
+> Every entry must be a bare domain with at least one dot, no scheme, no `@`, no port, no
+> wildcard and no leading or trailing dot. Removing a bad entry before the upgrade turns a
+> failed boot into a non-event.
 
 **Activating.** Once every replica of the previous release has drained:
 

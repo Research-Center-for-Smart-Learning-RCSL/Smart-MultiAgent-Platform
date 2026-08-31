@@ -216,6 +216,17 @@ async def test_losing_both_stores_is_a_typed_refusal_never_off() -> None:
         await reader.is_allowed("user@anything.test")
 
 
+async def test_a_database_failure_while_frozen_is_the_same_typed_refusal() -> None:
+    """The frozen branch reads the authority directly, so it has to go through
+    the same wrapper as every other read — otherwise the one phase an operator is
+    most likely to be watching is the one that answers with a generic 500."""
+    reader, repository, _, _ = _reader(mirrored=MirroredPolicy(policy=_policy(state=_FROZEN), ttl_seconds=20))
+    repository.get.side_effect = ConnectionError("postgres is down")
+
+    with pytest.raises(EmailDomainPolicyUnavailable):
+        await reader.is_allowed("user@example.edu")
+
+
 async def test_a_missing_row_is_a_typed_refusal_never_off() -> None:
     reader, _, _, _ = _reader(stored=None)
 

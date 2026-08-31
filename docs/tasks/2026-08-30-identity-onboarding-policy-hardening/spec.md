@@ -389,6 +389,43 @@ replica-version discovery is outside this dossier.
   plus the rollout note in §4.4, five problem types in §6.1 and the rollback line in §13. The
   other chapters are untouched.
 
+- **D-10 — a `/code-review` pass over the branch found five issues, all fixed.** Four were
+  gaps between what a docstring or runbook promised and what the code did, which is the class
+  the gates above are weakest at:
+
+  - **`docs/operations.md` §7a.6 listed three boot-blocking legacy shapes and there are four.**
+    The omitted one is a member of `allow`/`deny` that the new strict normaliser rejects — and
+    it is the *most likely* trigger, because the code being replaced applied no validation at
+    all beyond lower-casing. `localhost`, `example.edu.`, `*.example.edu`, an underscore, a
+    stray space or a pasted `user@example.edu` are all plausible in a live deployment today,
+    and every one of them now fails a boot that is fatal by design. The runbook has the fourth
+    shape, a table, and a pre-upgrade `SMEMBERS` check that turns a failed boot into a
+    non-event. The dossier's own AC-2 already listed "an invalid domain" among the blockers, so
+    the documentation contradicted the test beside it.
+  - **`InvalidLegacyEmailDomainPolicy` was defined, raised and exported but never mapped**, so
+    it fell through to `internal`/500 — the exact oversight `shared_kernel/errors/context_handler.py`
+    documents its 500 fallback as catching. It is reachable at *request* time, not only at
+    boot: `compatibility` re-reads the legacy triple per request, and that is where every
+    deployment sits until an operator explicitly activates. Now a typed 503 with its own slug,
+    because "the store is corrupt" and "the store is unreachable" send an operator to
+    different places.
+  - **The `rollback_frozen` branch read the repository directly** rather than through
+    `_read_repository`, so a database blip during a freeze window returned a generic 500
+    instead of the 503 the module docstring promises — in the one phase an operator is most
+    likely to be watching.
+  - **`_run_transition` caught only `RolloutTransitionError`**, while the transitions it wraps
+    also raise `EmailDomainPolicyUnavailable` and `InvalidLegacyEmailDomainPolicy` from the
+    legacy store. Its own docstring promised "a message rather than a traceback"; a Redis blip
+    during `prepare-email-domain-policy-rollback` would have produced a traceback at exactly
+    the moment an operator is deciding whether it is safe to start an old image.
+  - **The Admin form discarded in-progress edits on any background refetch.** The query client
+    sets no `staleTime` and does not disable `refetchOnWindowFocus`, so TanStack hands back a
+    fresh object whenever the tab regains focus, and the `watch` re-seeded the textareas
+    unconditionally. An admin pasting a long allow list and alt-tabbing to a spreadsheet lost
+    it. The form now only seeds an untouched form; a version that moved under an edit is left
+    to the 409 recovery that already exists, which loses nothing. **The regression test was
+    verified to fail with the guard removed** rather than merely passing with it.
+
 - **D-9 — CI's first run was red, and both failures were in this dossier's own new test file.**
   `pytest.raises` shared an `async with` header with the session in four places (it is a sync
   context manager, so it raises only when the test *runs* — collection, ruff and mypy all pass),

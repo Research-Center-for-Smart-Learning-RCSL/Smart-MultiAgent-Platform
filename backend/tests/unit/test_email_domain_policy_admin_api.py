@@ -336,6 +336,23 @@ def test_the_fence_names_the_phase_so_the_ui_can_explain_it() -> None:
     assert response.json()["rollout_state"] == "rollback_frozen"
 
 
+def test_a_corrupt_legacy_triple_is_a_typed_503_not_a_generic_500() -> None:
+    """Reachable at request time, not only at boot: while `compatibility` governs
+    the legacy triple is re-read per request, so an operator editing those keys
+    with `redis-cli` into a shape the classifier rejects surfaces here. Unmapped,
+    it would fall through to `internal`/500 and tell them nothing."""
+    facade = AsyncMock()
+    facade.get_email_domain_policy.side_effect = InvalidLegacyEmailDomainPolicy(
+        "config:email_domain:mode is absent while a domain list holds members"
+    )
+    with patch.object(policy_mod, "IdentityFacade", return_value=facade):
+        response = TestClient(_app()).get("/api/admin/email-domain-policy")
+
+    assert response.status_code == 503
+    # Its own slug: "corrupt" and "unreachable" send an operator to different places.
+    assert response.json()["type"].endswith("admin/email-domain-legacy-invalid")
+
+
 def test_an_invalid_domain_is_a_422_and_an_unavailable_authority_a_503() -> None:
     for error, expected in (
         (InvalidEmailDomain("bad"), 422),

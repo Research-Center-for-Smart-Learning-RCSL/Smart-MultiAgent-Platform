@@ -25,7 +25,10 @@ from contexts.identity.domain.email_domain_policy import (
     EmailDomainPolicyMode,
     EmailDomainPolicyRolloutState,
 )
-from contexts.identity.domain.errors import EmailDomainPolicyUnavailable
+from contexts.identity.domain.errors import (
+    EmailDomainPolicyUnavailable,
+    InvalidLegacyEmailDomainPolicy,
+)
 
 _ACTIVE = EmailDomainPolicyRolloutState.ACTIVE
 _COMPAT = EmailDomainPolicyRolloutState.COMPATIBILITY
@@ -266,3 +269,34 @@ async def test_cancelling_a_compatibility_row_is_refused() -> None:
     with _no_lock(), pytest.raises(RolloutTransitionError, match="no rollback to cancel"):
         await rollout.cancel_rollback(AsyncMock(), repository=repository)
     repository.set_rollout_state.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# The CLI's failure reporting
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RolloutTransitionError("the policy is frozen for rollback"),
+        # The transitions read and write the legacy Redis keys, so a store
+        # failure is an expected condition here too — and it is exactly the
+        # moment an operator needs a sentence rather than a traceback, because
+        # they are deciding whether it is safe to start an old image.
+        EmailDomainPolicyUnavailable("the legacy email-domain keys are unreadable"),
+        InvalidLegacyEmailDomainPolicy("config:email_domain:mode holds 'nonsense'"),
+    ],
+)
+def test_every_expected_failure_exits_non_zero_with_a_message(failure: Exception) -> None:
+    import typer
+
+    from smap.maintenance.__main__ import _run_transition
+
+    async def _fail() -> None:
+        raise failure
+
+    with pytest.raises(typer.Exit) as exit_info:
+        _run_transition("activate-email-domain-policy", _fail)
+
+    assert exit_info.value.exit_code == 1
