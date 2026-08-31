@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from contexts.identity.application.admin_service import AccountAlreadyActivatedError, AdminService
 from contexts.identity.application.auth_service import AuthService
+from contexts.identity.application.factory import create_email_domain_policy_reader
 from contexts.identity.domain.errors import AccountNotVerified, InvalidCredentials
 from contexts.identity.domain.models import UserStatus
 from contexts.identity.infrastructure import tables as identity_t
@@ -75,7 +76,15 @@ def _auth(db: AsyncSession) -> AuthService:
         # constructor rather than standing in for a transport under test.
         email_sender=AsyncMock(),
         public_origin=_ORIGIN,
+        # The real reader over the real stores: the `permissive_email_domain_policy`
+        # fixture stands up the row a booted application would have created, so
+        # this exercises the same lookup production does.
+        email_domain_policy=create_email_domain_policy_reader(db),
     )
+
+
+def _admin(db: AsyncSession) -> AdminService:
+    return AdminService(db, email_domain_policy=create_email_domain_policy_reader(db), public_origin=_ORIGIN)
 
 
 @pytest.fixture(autouse=True)
@@ -129,6 +138,7 @@ async def inviter(
 
 async def test_provisioned_account_walks_both_links_then_logs_in_and_accepts_an_invite(
     sessionmaker: async_sessionmaker[AsyncSession],
+    permissive_email_domain_policy: None,
     inviter: tuple[uuid.UUID, uuid.UUID],
 ) -> None:
     org_id, owner_id = inviter
@@ -137,7 +147,7 @@ async def test_provisioned_account_walks_both_links_then_logs_in_and_accepts_an_
 
     # --- 1. The Admin provisions the account -------------------------------
     async with sessionmaker() as session:
-        admin = AdminService(session, public_origin=_ORIGIN)
+        admin = _admin(session)
         user, links = await admin.create_user(
             email=email,
             display_name="Provisioned Person",
@@ -235,6 +245,7 @@ async def test_provisioned_account_walks_both_links_then_logs_in_and_accepts_an_
 
 async def test_reissued_links_work_and_the_superseded_ones_do_not(
     sessionmaker: async_sessionmaker[AsyncSession],
+    permissive_email_domain_policy: None,
     inviter: tuple[uuid.UUID, uuid.UUID],
 ) -> None:
     """AC-8 against the real token tables. `issue` burns the target's earlier
@@ -244,7 +255,7 @@ async def test_reissued_links_work_and_the_superseded_ones_do_not(
     email = f"reissued-{uuid.uuid4().hex[:12]}@test.invalid"
 
     async with sessionmaker() as session:
-        admin = AdminService(session, public_origin=_ORIGIN)
+        admin = _admin(session)
         user, first = await admin.create_user(
             email=email, display_name=None, admin_user_id=admin_id, actor_ip=None
         )
@@ -277,7 +288,7 @@ async def test_reissued_links_work_and_the_superseded_ones_do_not(
 
     # A consumed token stays consumed; a later re-issue never revives it.
     async with sessionmaker() as session:
-        admin = AdminService(session, public_origin=_ORIGIN)
+        admin = _admin(session)
         third = await admin.issue_activation_links(
             target_user_id=user.id, admin_user_id=admin_id, actor_ip=None
         )
@@ -299,6 +310,7 @@ async def test_reissued_links_work_and_the_superseded_ones_do_not(
 
 async def test_reissue_refuses_a_real_google_only_account(
     sessionmaker: async_sessionmaker[AsyncSession],
+    permissive_email_domain_policy: None,
     inviter: tuple[uuid.UUID, uuid.UUID],
 ) -> None:
     """A live Google account holds no password hash, so a password-only guard
@@ -336,7 +348,7 @@ async def test_reissue_refuses_a_real_google_only_account(
 
     try:
         async with sessionmaker() as session:
-            admin = AdminService(session, public_origin=_ORIGIN)
+            admin = _admin(session)
             with pytest.raises(AccountAlreadyActivatedError):
                 await admin.issue_activation_links(
                     target_user_id=google_user_id, admin_user_id=admin_id, actor_ip=None
@@ -358,6 +370,7 @@ async def test_reissue_refuses_a_real_google_only_account(
 
 async def test_invitable_pool_is_scoped_to_callers_who_are_in_the_parent_org(
     sessionmaker: async_sessionmaker[AsyncSession],
+    permissive_email_domain_policy: None,
     inviter: tuple[uuid.UUID, uuid.UUID],
 ) -> None:
     """The disclosure boundary of the picker, against real rows.
