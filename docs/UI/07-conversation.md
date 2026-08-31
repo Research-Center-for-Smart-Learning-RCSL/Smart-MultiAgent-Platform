@@ -747,7 +747,7 @@ Search is activated by clicking the search button in the header or pressing `Ctr
 - Padding: 16px
 - Max-height: 50vh, overflow-y auto
 - Animation: slide down 200ms ease (`--transition-normal`)
-- Message feed behind panel: dimmed with `--overlay-backdrop` at 0.2 opacity
+- Message feed behind panel: dimmed at 0.2 composed alpha, via the `--overlay-backdrop-inline` token. The dim is the token's own alpha, not `--overlay-backdrop` under an `opacity` rule: those multiply, and the modal backdrop painted at 0.2 opacity composites to 0.09. The same token backs the compact-band rail overlays, which dim a larger area at the same strength.
 
 **Search input**:
 - `SSearchInput` component, full width

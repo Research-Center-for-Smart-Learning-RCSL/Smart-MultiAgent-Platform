@@ -912,6 +912,9 @@ function emitTyping(): void {
 
 function onKeyDown(e: KeyboardEvent): void {
   if (!(e.ctrlKey || e.metaKey) || e.key !== 'k') return
+  // A stacked modal owns the keyboard; toggling a surface underneath it is not
+  // something the user can see happen. Same test as onWindowKeydown below.
+  if (document.querySelector('[aria-modal="true"]')) return
   // Opening search now moves focus into its field, so the text-entry guard
   // below would otherwise swallow the very keystroke that closes it again and
   // leave the shortcut one-way.
@@ -991,7 +994,7 @@ const exportOpen = ref(false)
 watch([isMobile, isCompactDesktop], () => surfaces.reset())
 
 // Which surface the scrim is currently backing, and how far it reaches. Search
-// dims only the feed it is scoped to (07-conversation.md:748); a compact rail
+// dims only the feed it is scoped to (07-conversation.md:750); a compact rail
 // overlay covers the composer as well, so its scrim has to reach the same
 // content the panel does or the composer stays clickable behind a dimmed feed.
 // At >=1280 the rails are persistent and never scrimmed.
@@ -1054,12 +1057,18 @@ bindTabTrap(agentsPanelRef, trapAgentsTab)
 bindTabTrap(peoplePanelRef, trapPeopleTab)
 
 // Escape dismisses whichever surface is active, restoring focus to the control
-// that opened it. Below lg the SDrawer also handles Escape and emits the same
-// close; the second call is a no-op because nothing is active by then.
+// that opened it.
 function onWindowKeydown(e: KeyboardEvent): void {
-  // The export dialog is a true modal stacked above all of this. Letting the
-  // same keypress close both would dismiss a surface the user cannot see.
-  if (e.key !== 'Escape' || exportOpen.value) return
+  if (e.key !== 'Escape') return
+  // Every true modal in this view -- the export dialog, the observation release
+  // dialog, any SConfirmDialog -- teleports an `aria-modal` panel to <body> and
+  // handles Escape itself, and that keypress still bubbles to window. Asking the
+  // document whether one is open rather than naming them keeps this correct when
+  // the next dialog is added; naming only `exportOpen` let Escape on the release
+  // dialog also shut the observer rail it was opened from. An SDrawer matches
+  // too, which is right: it emits its own close through the coordinator, so the
+  // surface is already dismissed by the time this would have run.
+  if (document.querySelector('[aria-modal="true"]')) return
   if (surfaces.active.value === null) return
   surfaces.close()
 }
@@ -1346,11 +1355,12 @@ function onExportSubmit(opts: ExportOptions): void {
    `--z-dropdown` still resolves against the same context and paints above. */
 .chatroom__scrim {
   z-index: calc(var(--z-dropdown) - 1);
-  /* 07-conversation.md:748 — the token at 0.2. Deliberately faint: this dims
-     the feed enough to read as inactive while leaving the messages behind a
-     search result legible, which is the whole point of a feed-scoped search. */
-  background: var(--overlay-backdrop);
-  opacity: 0.2;
+  /* 07-conversation.md:750 — the 0.2 dim, as one token rather than
+     `--overlay-backdrop` under `opacity: 0.2`: those two multiply, and 0.45 at
+     0.2 composites to 0.09, which does not read as a dim at all. Deliberately
+     lighter than a modal backdrop even so, because the messages behind a search
+     result have to stay legible; that is the point of a feed-scoped search. */
+  background: var(--overlay-backdrop-inline);
   /* The token is a duration+easing shorthand already; appending an easing here
      produces two timing functions and the browser drops the declaration. */
   animation: chatroom-scrim-in var(--transition-normal);

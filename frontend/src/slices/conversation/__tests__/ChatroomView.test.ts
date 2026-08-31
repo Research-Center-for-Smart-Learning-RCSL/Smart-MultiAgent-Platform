@@ -22,6 +22,17 @@ vi.mock('@shared/composables', async (importOriginal) => {
   return { ...actual, useToast: () => mockToast }
 })
 
+// Read for the CSS assertions below: jsdom applies no scoped styles and
+// computes no layout, so the stylesheet source is the only thing to assert
+// against. Same idiom as ChatroomSearchPanel.test.ts.
+const viewSource = Object.values(
+  import.meta.glob('/src/slices/conversation/views/ChatroomView.vue', {
+    eager: true,
+    query: '?raw',
+    import: 'default',
+  }) as Record<string, string>,
+)[0]
+
 const routes = [
   {
     path: '/chatrooms/:chatroomId',
@@ -1036,6 +1047,26 @@ describe('ChatroomView', () => {
       expect(document.activeElement).toBe(agents.element)
     })
 
+    it('leaves the active surface alone while a modal is stacked over it', async () => {
+      const wrapper = await atWidth(1100)
+      const people = toggle(wrapper, 'people')
+      await press(people)
+      expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
+
+      // The export modal is opened from the header, but the observation release
+      // dialog is opened from inside this very rail. Either way the modal owns
+      // Escape and handles it itself; the keypress still bubbles to window, and
+      // acting on it here would shut the surface the user cannot see.
+      await toggle(wrapper, 'export').trigger('click')
+      await nextTick()
+      expect(document.querySelector('[aria-modal="true"]')).not.toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
+    })
+
     it('closes the active surface from its backdrop (AC-4/AC-5)', async () => {
       const wrapper = await atWidth(1100)
       const agents = toggle(wrapper, 'agents')
@@ -1061,13 +1092,23 @@ describe('ChatroomView', () => {
 
       const scrim = wrapper.find('.chatroom__scrim')
       expect(scrim.exists()).toBe(true)
-      // 07-conversation.md:748 dims the message feed, not the composer -- a
+      // 07-conversation.md:750 dims the message feed, not the composer -- a
       // user may well want to keep typing while reading search results.
       expect(scrim.classes()).toContain('chatroom__scrim--search')
 
       await scrim.trigger('click')
       await nextTick()
       expect(wrapper.find('.search-panel').exists()).toBe(false)
+    })
+
+    it('dims at the documented strength rather than multiplying two dims (AC-5)', () => {
+      // jsdom applies no scoped styles, so this reads the SFC the way
+      // ChatroomSearchPanel's motion tests read theirs. What it guards is a
+      // composition bug that no visual assertion would have caught either:
+      // `--overlay-backdrop` (0.45) under `opacity: 0.2` composites to 0.09.
+      const rule = /\.chatroom__scrim\s*\{([^}]*)\}/.exec(viewSource ?? '')?.[1] ?? ''
+      expect(rule).toContain('--overlay-backdrop-inline')
+      expect(rule).not.toMatch(/^\s*opacity:/m)
     })
 
     it('keeps Tab inside an open compact rail panel (AC-4)', async () => {
@@ -1121,6 +1162,10 @@ describe('ChatroomView', () => {
       shortcut()
       await nextTick()
       expect(wrapper.find('.search-panel').exists()).toBe(true)
+      // Two ticks, not one: the first mounts the panel, and the focus trap only
+      // reaches for the field after its own `await nextTick()` -- which is
+      // queued behind this test's, so a single tick reads <body> every time.
+      await nextTick()
       // The panel focuses its field on open, and the shortcut ignores keys
       // typed into a text field. Without an explicit exemption the second press
       // is swallowed and the shortcut becomes one-way.
