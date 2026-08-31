@@ -21,11 +21,14 @@ parallel.
 Three dossiers opened the same day from the follow-up lists of four already-implemented ones.
 All three are `depends_on: []` and each verified its freshness against `main` at `73125821`.
 They were grouped so that each is independently reviewable: the clipboard sweep that would have
-put two of them in `ChatroomView` at once was returned to its source follow-up instead. **All
-three are `draft` and need explicit approval before `/build` will touch them**, and two carry
-draft SRS deltas that are deliberately not applied at consolidation time.
+put two of them in `ChatroomView` at once was returned to its source follow-up instead. They
+opened `draft` and needed explicit approval before `/build` would touch them; two carry draft SRS
+deltas that are deliberately not applied at consolidation time. `identity-onboarding-policy-hardening`
+was approved and implemented on 2026-08-31; `runtime-contract-integrity` is still `draft`.
 
-- `2026-08-30-identity-onboarding-policy-hardening` (feature, **draft**) - `depends_on: []`.
+- (implemented 2026-08-31; see the note under In progress.)
+  The original entry, kept here for its detail:
+  `2026-08-30-identity-onboarding-policy-hardening` (feature, **draft**) - `depends_on: []`.
   Consolidates FU-6/FU-9/FU-10/FU-11 of `2026-08-20-onboarding-without-smtp`: make the
   email-domain policy durable and admin-manageable, refuse banned-account activation links,
   and rate-limit per-admin account provisioning. Its compatibility/active/rollback-frozen
@@ -501,6 +504,55 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+Removed on 2026-08-31 after implementation:
+`2026-08-30-identity-onboarding-policy-hardening` (the email-domain policy is a versioned, audited
+PostgreSQL singleton behind a three-phase rollout; banned accounts cannot be handed activation
+links; one Admin may create 60 accounts per 10 minutes). Nothing lists it in `depends_on`, so no
+row moves out of Blocked. Migration 0084, two new Admin endpoints, three new maintenance commands.
+Its **[R19a.13] amendment is still draft** in the dossier's §13 and has deliberately **not** been
+applied to `REQUIREMENTS.md` — it needs explicit approval.
+
+**Five things a later reader needs.**
+
+**Its AC-8 asked for something that cannot be built, and the build said so rather than passing it.**
+The criterion claimed a rollout transition is observed by an *already-warm* reader on its next
+request. A process-local cache hit performs no I/O by construction, so a maintenance command in its
+own process cannot reach a serving process's memory. Deleting the shared mirror does make the phase
+visible to the next reader that *consults* it; a warm reader converges when its snapshot expires,
+bounded by the same 30 seconds. **Both paths are bounded identically; only "immediately" differs.**
+D-3 records it, and the first version of the test had *hidden* it by calling `reset_process_cache()`
+inside its own transition helper — asserting a property the production path does not have. The
+generalisable half: when a test needs a helper the production caller cannot invoke, the helper is
+the finding.
+
+**A fatal startup step breaks every test that boots the app, and the stub that fixes it needs its
+own guard.** The policy import is deliberately fail-boot (unlike the rate-limit primer beside it, a
+policy has no compile-time default), which broke eight `healthz`/`readyz`/`metrics` tests.
+`tests/conftest.py` now drops the step — and the first attempt at that patched the step's *name* in
+`app.bootstrap.startup` and silently did nothing, because `app.main` binds `INITIALIZERS` by value
+and the list holds function objects. Two tests now pin that the step is registered, ordered before
+the best-effort primer, and propagates its failure; without them, deleting it would leave the suite
+green while every registration 503'd. D-8.
+
+**The response model must not reuse the request model's bounds.** Both shared one `Annotated` alias
+carrying `max_length=1000`. The boot-time legacy import applies no count cap, so a deployment
+arriving with more domains holds a row that bound cannot describe — and validating the *response*
+against it turned the one screen an operator needs in order to shrink the list into a 500. Found in
+self-audit, confirmed by construction, pinned by a regression test. D-5, FU-8.
+
+**The write path never reads the cache, and that is load-bearing.** `EmailDomainPolicyService` goes
+to the repository for both the GET and the version guard, so a poisoned mirror cannot influence
+what an Admin sees or what the `UPDATE` matches. The security gate traced that explicitly; keep it
+that way.
+
+**§17 says what was not verified and it is the section to read before trusting the ticks.** No
+PostgreSQL and no Redis were available on the build host, so the 28 db-tier tests were written and
+have **never been executed**, `alembic upgrade head` has never run against a database, no rendered
+copy in either locale has been seen by anyone (the component harness renders `$t` as the key), and
+the compose mixed-version sequence — the only thing that exercises two releases at once, which is
+the risk the rollout design exists to manage — was not run. Ten of fifteen ACs are deliberately
+unticked with the file that closes each.
 
 Removed on 2026-08-31 after implementation:
 `2026-08-30-chatroom-approval-and-overlay-discoverability` (the room `approval.requested` event
