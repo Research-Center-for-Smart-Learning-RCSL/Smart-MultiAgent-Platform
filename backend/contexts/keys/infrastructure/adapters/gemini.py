@@ -126,7 +126,12 @@ def _chat_body(payload: dict[str, Any]) -> dict[str, Any]:
             gen["temperature"] = payload["temperature"]
         if payload.get("top_p") is not None:
             gen["topP"] = payload["top_p"]
-    # Gemini has no seed parameter; a configured seed is a documented no-op here.
+    # Deliberately NOT nested under accepts_sampling: GenerationConfig accepts
+    # seed and temperature/topP independently, and gating them together is what
+    # made a configured seed inert here while the UI advertised it as an OpenAI
+    # feature the Responses API has no parameter for.
+    if caps.accepts_seed and payload.get("seed") is not None:
+        gen["seed"] = payload["seed"]
     # Cross-provider effort -> Gemini thinking level (the REST enum is
     # upper-case). See CapabilityFlags.forwardable_effort for why this is
     # gated by membership in effort_values, not just "the model accepts

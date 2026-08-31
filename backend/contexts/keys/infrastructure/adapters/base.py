@@ -38,10 +38,12 @@ LLM_CHAT::
         "temperature": 0.7,             # optional; forwarded only where the
                                         #   capability fields below say so
         "top_p": 1.0,                   # optional; same
-        "seed": 42,                     # optional; NO adapter forwards it any
-                                        #   more -- Anthropic/Gemini never had
-                                        #   an equivalent and OpenAI's moved to
-                                        #   /v1/responses, which has none either
+        "seed": 42,                     # optional; forwarded only where
+                                        #   accepts_seed says so -- currently
+                                        #   Gemini's generationConfig.seed.
+                                        #   OpenAI's moved to /v1/responses,
+                                        #   which has no seed, and Anthropic
+                                        #   Messages never had one.
 
         # Capability fields (R9.03a) -- resolved once per (provider, model) by
         # whichever agents-context call site builds the payload
@@ -55,7 +57,12 @@ LLM_CHAT::
         # call site MUST attach them or inherit Q-2's floor deliberately.
         "accepts_effort": True,         # gates whether "effort" is sent at all
         "effort_values": ("low", "medium", "high"),  # gates WHICH values
-        "accepts_sampling": True,       # gates temperature/top_p/seed together
+        "accepts_sampling": True,       # gates temperature/top_p ONLY
+        "accepts_seed": True,           # gates "seed" independently: the three
+                                        #   providers accept the two families
+                                        #   separately, and one flag for both
+                                        #   is what kept a configured seed
+                                        #   unsent on a provider that takes it
         "accepts_vision": True,         # image/document blocks vs. a text note
         "uses_completion_token_field": False,  # max_completion_tokens vs. the
                                                 #   legacy max_tokens key. Both
@@ -186,6 +193,7 @@ class CapabilityFlags:
     accepts_effort: bool
     effort_values: tuple[str, ...]
     accepts_sampling: bool
+    accepts_seed: bool
     accepts_vision: bool
     uses_completion_token_field: bool
     effort_conflicts_with_tools: bool
@@ -206,7 +214,7 @@ class CapabilityFlags:
 
 
 def capability_flags(payload: dict[str, Any]) -> CapabilityFlags:
-    """Parse the six capability-table fields off a payload.
+    """Parse the seven capability-table fields off a payload.
 
     Every flag defaults to its safe-off side when absent, matching the
     conservative floor a table-absent model resolves to (Q-2) — a payload
@@ -217,6 +225,7 @@ def capability_flags(payload: dict[str, Any]) -> CapabilityFlags:
         accepts_effort=bool(payload.get("accepts_effort")),
         effort_values=tuple(payload.get("effort_values") or ()),
         accepts_sampling=bool(payload.get("accepts_sampling")),
+        accepts_seed=bool(payload.get("accepts_seed")),
         accepts_vision=bool(payload.get("accepts_vision")),
         uses_completion_token_field=bool(payload.get("uses_completion_token_field")),
         effort_conflicts_with_tools=bool(payload.get("effort_conflicts_with_tools")),

@@ -36,6 +36,7 @@ class ChatModelSpecOut(BaseModel):
     accepts_effort: bool
     effort_values: list[str]
     accepts_sampling: bool
+    accepts_seed: bool
     accepts_vision: bool
     uses_completion_token_field: bool
     effort_conflicts_with_tools: bool
@@ -83,6 +84,7 @@ async def get_model_catalog(
                         accepts_effort=m.accepts_effort,
                         effort_values=list(m.effort_values),
                         accepts_sampling=m.accepts_sampling,
+                        accepts_seed=m.accepts_seed,
                         accepts_vision=m.accepts_vision,
                         uses_completion_token_field=m.uses_completion_token_field,
                         effort_conflicts_with_tools=m.effort_conflicts_with_tools,
