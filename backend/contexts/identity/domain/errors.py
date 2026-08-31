@@ -114,6 +114,23 @@ class ActivationLinkRateLimited(IdentityError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class AdminProvisioningRateLimited(IdentityError):
+    """One Admin exceeded the rolling account-creation cap (R6.18). → 429.
+
+    Bounds request-speed abuse from an Admin session that has already been lost;
+    the bucket is keyed by the authenticated actor, never by anything the request
+    supplies. Reported rather than swallowed for the same reason as
+    :class:`ActivationLinkRateLimited`: the caller is an authenticated Admin with
+    no existence fact to hide from them.
+    """
+
+    code = "admin/provisioning-rate-limited"
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"admin provisioning rate-limited for {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
 class OriginalCreatorSelfDeleteBlocked(IdentityError):
     code = "tenancy/original-creator-self-delete-blocked"
 
@@ -127,6 +144,7 @@ __all__ = [
     "AccountDeleted",
     "AccountNotVerified",
     "ActivationLinkRateLimited",
+    "AdminProvisioningRateLimited",
     "CaptchaRequired",
     "EmailAlreadyRegistered",
     "EmailDomainDenied",
