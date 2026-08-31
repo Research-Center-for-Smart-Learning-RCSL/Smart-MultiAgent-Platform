@@ -114,6 +114,63 @@ class ActivationLinkRateLimited(IdentityError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class InvalidEmailDomain(IdentityError):
+    """A policy entry, or an address's domain part, is not a bare domain (R19a.13).
+
+    → 422 on the Admin write path. Carries the offending value in its message for
+    the operator; the value is a domain the operator just typed, never an address.
+    """
+
+    code = "admin/email-domain-invalid"
+
+
+class EmailDomainPolicyVersionMismatch(IdentityError):
+    """A policy replacement carried a version the stored row no longer has. → 409.
+
+    The Admin's form was built against a policy someone has since changed;
+    blind-overwriting would silently discard the other edit.
+    """
+
+    code = "admin/email-domain-policy-stale"
+
+
+class EmailDomainPolicyRolloutFenced(IdentityError):
+    """A policy write was attempted outside the ``active`` rollout phase. → 409.
+
+    Distinct from a stale version: nothing about the caller's request is wrong,
+    and retrying with a fresher version will not help. Only an operator
+    transition lifts this.
+    """
+
+    code = "admin/email-domain-policy-fenced"
+
+    def __init__(self, rollout_state: str) -> None:
+        super().__init__(f"email-domain policy writes are fenced in {rollout_state!r}")
+        self.rollout_state = rollout_state
+
+
+class EmailDomainPolicyUnavailable(IdentityError):
+    """No authority for the email-domain policy could be reached. → 503.
+
+    Raised rather than degrading to "no restriction": an unavailable authority is
+    the exact condition under which the legacy Redis-only reader silently
+    reopened registration (the source dossier's FU-11).
+    """
+
+    code = "admin/email-domain-policy-unavailable"
+
+
+class InvalidLegacyEmailDomainPolicy(IdentityError):
+    """The legacy Redis triple is in a shape that cannot be imported (Q-10).
+
+    Fatal at boot by design. An invalid mode, a wrong key type, an invalid member
+    or a mode absent while a list holds members are all distinguishable
+    corruption, and importing a guess would make it authoritative.
+    """
+
+    code = "admin/email-domain-legacy-invalid"
+
+
 class AdminProvisioningRateLimited(IdentityError):
     """One Admin exceeded the rolling account-creation cap (R6.18). → 429.
 
@@ -148,10 +205,15 @@ __all__ = [
     "CaptchaRequired",
     "EmailAlreadyRegistered",
     "EmailDomainDenied",
+    "EmailDomainPolicyRolloutFenced",
+    "EmailDomainPolicyUnavailable",
+    "EmailDomainPolicyVersionMismatch",
     "GoogleEmailUnverified",
     "IdentityError",
     "InvalidCredentials",
+    "InvalidEmailDomain",
     "InvalidEmailFormat",
+    "InvalidLegacyEmailDomainPolicy",
     "LastCredentialError",
     "Lockout",
     "OAuthExchangeFailed",

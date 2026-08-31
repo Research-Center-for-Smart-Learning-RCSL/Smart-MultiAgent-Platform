@@ -51,6 +51,11 @@ dependencies = [
   # 0.15.x "fixes" it by holding click below 8.2 for everything that shares it.
   "typer>=0.19,<0.28",
   "docker>=7.1,<7.3",
+  # UTS-46 normalisation of email-domain policy entries (R19a.13). Already
+  # resolved transitively (httpx, email-validator); declared because the identity
+  # domain now imports it directly, and an undeclared direct import breaks the
+  # day a transitive consumer drops it.
+  "idna>=3.7,<4",
 ]
 
 [project.optional-dependencies]
