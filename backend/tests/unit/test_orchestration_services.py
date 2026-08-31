@@ -502,6 +502,33 @@ class TestApprovalCreateGate:
         assert room_payloads
         assert room_payloads[0]["workflow_run_id"] == str(_RUN)
 
+    @patch("shared_kernel.queue.enqueue", new_callable=AsyncMock)
+    @patch("contexts.orchestration.infrastructure.pending_notify.push", new_callable=AsyncMock)
+    @patch("contexts.orchestration.application.approval_service.Publisher")
+    async def test_announce_gate_room_payload_carries_persisted_started_at(
+        self, _pub_cls, _push, _enqueue
+    ) -> None:
+        # T-1: the room payload must carry the persisted timestamp. Without it
+        # the client has nothing to date the card by but its own clock, and a
+        # slow clock sorts a live gate above the messages it arrived after.
+        ap = _approval()
+        approvals = AsyncMock()
+        approvals.get.return_value = ap
+        _pub_cls.return_value = AsyncMock()
+        svc = _make_approval_service(approvals=approvals)
+
+        await svc.announce_gate(ap.id, chatroom_id=_ROOM, node_id="g", question="ok?")
+
+        room_payloads = [
+            c.args[1]
+            for c in _pub_cls.return_value.emit.call_args_list
+            if c.args[0] == "approval.requested" and "mode" in c.args[1]
+        ]
+        assert room_payloads
+        # Exactly the row's own value, not merely a parseable instant: the
+        # client's ordering is only correct if the two agree to the microsecond.
+        assert room_payloads[0]["started_at"] == ap.started_at.isoformat()
+
 
 class TestApprovalCastVote:
     @patch(

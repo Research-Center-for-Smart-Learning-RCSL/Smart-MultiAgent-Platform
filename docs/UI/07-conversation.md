@@ -988,6 +988,8 @@ Approval cards are rendered inline in the message feed when a workflow step requ
 
 **Position logic**: approval cards are placed in the message feed at the chronological position where the approval was requested, interleaved with regular messages.
 
+**Chronology source**: the position comes from `started_at` on the `approval.requested` payload, which is the persisted approval row's own timestamp on the same clock that dates every message. The client never substitutes its own clock for a missing or unparseable value: such a card is placed at the tail of the feed, where it stays discoverable, until an authoritative fetch replaces it.
+
 ### 3.13 Empty State
 
 When a chatroom has no messages and no active streaming:

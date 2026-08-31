@@ -190,6 +190,11 @@ class ApprovalService:
                     "approver_agent_ids": [str(a) for a in approval.approver_agent_ids],
                     "timeout_seconds": approval.timeout_seconds,
                     "question": question,
+                    # The client interleaves this card with server-dated
+                    # messages, so chronology has to come from the same clock
+                    # they do. Read off the durable row re-read above, never
+                    # composed here.
+                    "started_at": approval.started_at.isoformat(),
                 },
             )
 
