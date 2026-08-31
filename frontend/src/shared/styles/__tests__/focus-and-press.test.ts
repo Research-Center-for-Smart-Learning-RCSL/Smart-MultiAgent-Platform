@@ -65,6 +65,9 @@ describe('focus indicator', () => {
     '.app-shell__content:focus-visible',
     '.s-drawer__panel',
     '.s-modal__panel',
+    // tabindex="-1" purely as the chatroom surface coordinator's focus
+    // fallback; a ring around the whole room reads as a rendering fault.
+    '.chatroom:focus-visible',
     // Paired with an .s-alert:focus-visible rule that restores the ring.
     '.s-alert:focus',
     // Pointer focus only, so the keyboard ring survives. The unscoped form of
