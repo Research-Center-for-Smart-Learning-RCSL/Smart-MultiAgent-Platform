@@ -8,6 +8,7 @@ import uuid
 import typer
 from loguru import logger
 
+from . import email_domain_policy as _email_domain_policy
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
 from . import reconcile_model_catalog as _reconcile_model_catalog
@@ -167,6 +168,85 @@ def reconcile_model_catalog_cmd(
         logger.info("served but not catalogued: {}", sorted(report.unseen))
     if not report.stale and not report.unseen:
         logger.info("table matches upstream for {}", provider)
+
+
+def _run_transition(name: str, coro_factory: object) -> None:
+    """Run one rollout transition and print the resulting state and version.
+
+    Every failure exits non-zero and is reported as a message rather than a
+    traceback: these are operator commands whose failure modes are expected
+    conditions (wrong phase, unverifiable mirror), and a stack trace would read
+    as a bug rather than as "do not proceed".
+    """
+    try:
+        report = asyncio.run(coro_factory())  # type: ignore[operator]
+    except _email_domain_policy.RolloutTransitionError as exc:
+        logger.error("{} could not run: {}", name, exc)
+        raise typer.Exit(code=1) from None
+    logger.info(
+        "{} complete changed={} rollout_state={} version={} legacy_mirrored_version={}",
+        name,
+        report.changed,
+        report.rollout_state,
+        report.version,
+        report.legacy_mirrored_version,
+    )
+    if not report.changed:
+        logger.warning("Nothing changed -- the policy was already in that state.")
+
+
+@app.command("activate-email-domain-policy")
+def activate_email_domain_policy_cmd() -> None:
+    """Make PostgreSQL authoritative for the email-domain policy (R19a.13).
+
+    **Run only after every replica of the previous image has drained.** Those
+    replicas read the three `config:email_domain:*` Redis keys and know nothing
+    about the policy row, so activating while one is still serving means two
+    versions enforcing two policies. Nothing here can verify that they are gone:
+    automatic replica discovery is out of scope, so the assertion is yours, and
+    setting SMAP_ACTIVATE_EMAIL_DOMAIN_POLICY_ARMED is where you make it.
+
+    Adopts one final snapshot of the legacy keys as it switches, so a
+    compatibility-era `redis-cli` edit is not silently reverted at the moment
+    PostgreSQL takes over. Idempotent: re-running against an already-active row
+    reports the state it found and changes nothing.
+    """
+    if not _email_domain_policy.activation_armed():
+        logger.error(
+            "Refusing to activate: set {}=1 to assert that every replica running the "
+            "previous image has drained. See docs/operations.md 7a.6.",
+            _email_domain_policy.ACTIVATE_ARMED_ENV,
+        )
+        raise typer.Exit(code=1)
+    _run_transition("activate-email-domain-policy", _email_domain_policy.activate)
+
+
+@app.command("prepare-email-domain-policy-rollback")
+def prepare_email_domain_policy_rollback_cmd() -> None:
+    """Fence policy writes and mirror the policy into the legacy Redis keys.
+
+    Freezes first, then writes all three legacy keys atomically and reads them
+    back; only an exact readback records `legacy_mirrored_version`. That marker
+    equalling `version` is the documented precondition for starting an old image
+    or running the Alembic downgrade -- Alembic touches PostgreSQL only and can
+    neither write nor check Redis.
+
+    A failure leaves the policy frozen and unmarked, which is safe (writes stay
+    fenced, new readers keep reading PostgreSQL) and safe to retry. **Do not
+    proceed to an old image after a failed run.**
+    """
+    _run_transition("prepare-email-domain-policy-rollback", _email_domain_policy.prepare_rollback)
+
+
+@app.command("cancel-email-domain-policy-rollback")
+def cancel_email_domain_policy_rollback_cmd() -> None:
+    """Lift the write fence after a prepared rollback was not taken.
+
+    Returns the policy to `active` and clears `legacy_mirrored_version`, because
+    a marker that outlives its freeze would vouch for a legacy snapshot the next
+    Admin edit invalidates. Run it only once the old images are gone again.
+    """
+    _run_transition("cancel-email-domain-policy-rollback", _email_domain_policy.cancel_rollback)
 
 
 if __name__ == "__main__":

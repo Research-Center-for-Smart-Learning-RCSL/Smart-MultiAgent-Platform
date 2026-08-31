@@ -20,6 +20,7 @@ from typing import Protocol
 from contexts.identity.domain.email_domain_policy import (
     EmailDomainPolicy,
     EmailDomainPolicyMode,
+    EmailDomainPolicyRolloutState,
 )
 
 
@@ -63,6 +64,51 @@ class EmailDomainPolicyRepository(Protocol):
         Returns None when the guard did not match, which the service maps to a
         409 rather than blind-overwriting an edit made since the form loaded.
         """
+        ...
+
+    # ----- rollout transitions -------------------------------------------
+    #
+    # Operator-only. Each is guarded on the state it expects, so a re-run after a
+    # partial failure either re-applies the same committed decision or matches
+    # nothing and reports what it found.
+
+    async def get_for_update(self) -> EmailDomainPolicy | None:
+        """The row, locked for the rest of the caller's transaction.
+
+        A transition reads the policy and then writes a decision derived from it;
+        a plain read would let an Admin update land in between.
+        """
+        ...
+
+    async def activate(
+        self,
+        *,
+        mode: EmailDomainPolicyMode,
+        allow: frozenset[str],
+        deny: frozenset[str],
+    ) -> EmailDomainPolicy | None:
+        """`compatibility` -> `active`, adopting a final legacy snapshot."""
+        ...
+
+    async def set_rollout_state(
+        self,
+        *,
+        state: EmailDomainPolicyRolloutState,
+        expected_states: tuple[EmailDomainPolicyRolloutState, ...],
+    ) -> EmailDomainPolicy | None:
+        """Move to ``state`` if the row is in one of ``expected_states``."""
+        ...
+
+    async def record_legacy_mirror(self, *, version: int) -> EmailDomainPolicy | None:
+        """Mark ``version`` as written and read back into the legacy triple.
+
+        Guarded on the version still being ``version``, so a marker can never
+        vouch for a snapshot the row has since moved past.
+        """
+        ...
+
+    async def clear_legacy_mirror(self) -> EmailDomainPolicy | None:
+        """Drop the rollback marker when the freeze is lifted."""
         ...
 
 
