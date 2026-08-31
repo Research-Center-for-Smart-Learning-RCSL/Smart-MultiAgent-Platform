@@ -15,6 +15,8 @@ import type { AdminPolicyImpactOut } from '../models/AdminPolicyImpactOut';
 import type { AdminPromoteIn } from '../models/AdminPromoteIn';
 import type { AuditPageOut } from '../models/AuditPageOut';
 import type { BanIn } from '../models/BanIn';
+import type { EmailDomainPolicyIn } from '../models/EmailDomainPolicyIn';
+import type { EmailDomainPolicyOut } from '../models/EmailDomainPolicyOut';
 import type { ForceTransferIn } from '../models/ForceTransferIn';
 import type { ImpersonateOut } from '../models/ImpersonateOut';
 import type { IpBanIn } from '../models/IpBanIn';
@@ -396,6 +398,54 @@ export class AdminService {
                 'session_id': sessionId,
                 'request_id': requestId,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Email Domain Policy
+     * The policy in force, readable in every rollout phase.
+     *
+     * Readable while writes are fenced on purpose: an operator mid-rollout needs
+     * to see what is stored precisely because they cannot change it.
+     * @returns EmailDomainPolicyOut Successful Response
+     * @throws ApiError
+     */
+    public static getEmailDomainPolicyApiAdminEmailDomainPolicyGet(): CancelablePromise<EmailDomainPolicyOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/email-domain-policy',
+        });
+    }
+    /**
+     * Put Email Domain Policy
+     * Replace the policy. Permitted only while the rollout state is `active`.
+     *
+     * ``If-Match`` carries the version the Admin's form was built against and is
+     * required: the row always exists by the time this route is reachable (the
+     * startup import creates it), so there is no "first write" case that could
+     * legitimately omit it. A missing or unparseable precondition is a mismatch
+     * rather than "no precondition" — treating an unreadable header as permission
+     * to overwrite would defeat the point of having one.
+     * @returns EmailDomainPolicyOut Successful Response
+     * @throws ApiError
+     */
+    public static putEmailDomainPolicyApiAdminEmailDomainPolicyPut({
+        requestBody,
+        ifMatch,
+    }: {
+        requestBody: EmailDomainPolicyIn,
+        ifMatch?: (string | null),
+    }): CancelablePromise<EmailDomainPolicyOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/admin/email-domain-policy',
+            headers: {
+                'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

@@ -108,6 +108,37 @@
       "reissueLinksDone": "啟用連結已重新產生。",
       "notFound": "找不到使用者。"
     },
+    "emailDomain": {
+      "heading": "電子郵件網域政策",
+      "help": "限制哪些電子郵件網域可以註冊、變更地址，或由管理員代為建立帳號。網域經正規化後採完全比對：列出 example.edu 不會一併允許 dept.example.edu。",
+      "mode": "模式",
+      "modeHelp": "允許清單只放行清單內的網域，因此空的允許清單會阻擋所有註冊。拒絕清單只阻擋清單內的網域。關閉則不套用任何限制，並保留兩份清單供日後使用。",
+      "modeOff": "關閉 — 不限制",
+      "modeAllow": "允許 — 僅限清單內的網域",
+      "modeDeny": "拒絕 — 清單內的網域除外",
+      "allow": "允許的網域",
+      "deny": "拒絕的網域",
+      "listHelp": "每行一個純網域，不含 {'@'} 也不含通訊協定。",
+      "listPlaceholder": "example.edu\ndept.example.edu",
+      "invalidEntries": "不是純網域：{entries}",
+      "stateLine": "推出狀態：{state} · 版本 {version}",
+      "state": {
+        "compatibility": "相容模式",
+        "active": "已啟用",
+        "rollback_frozen": "已凍結以供回退"
+      },
+      "fencedCompatibility": "此部署仍處於相容階段：前一版本的執行個體可能仍在運行，而它們是從 Redis 讀取政策。在維運人員執行啟用指令之前無法編輯。",
+      "fencedFrozen": "已準備回退，政策目前處於凍結狀態而無法編輯。維運人員必須先取消回退，政策才能再次變更。",
+      "rollbackVerified": "版本 {version} 的回退已準備並驗證完成。在政策再次變更之前，啟動前一版本是安全的。",
+      "save": "儲存政策",
+      "saved": "電子郵件網域政策已儲存。",
+      "loadError": "無法載入電子郵件網域政策。",
+      "saveFailed": "無法儲存電子郵件網域政策。",
+      "staleConflict": "在此表單載入後有人變更了政策。已重新載入，請重新套用您的修改。",
+      "fenceConflict": "政策在您編輯期間變成唯讀。已重新載入。",
+      "invalidConflict": "其中一筆項目不是純網域。請移除 {'@'}、通訊協定、連接埠或萬用字元。",
+      "unavailable": "政策儲存區暫時無法連線。未變更任何內容，請稍後再試。"
+    },
     "admins": {
       "title": "管理員",
       "userId": "使用者 ID",
