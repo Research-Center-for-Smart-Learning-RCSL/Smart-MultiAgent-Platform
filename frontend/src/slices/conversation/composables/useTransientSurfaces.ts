@@ -1,4 +1,4 @@
-import { computed, ref, type ComputedRef } from 'vue'
+import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 /** The three chatroom surfaces that can cover, or sit beside, the feed. */
 export type ChatroomSurface = 'search' | 'agents' | 'people'
@@ -30,7 +30,15 @@ export interface TransientSurfaces {
  * to another surface (do not — the user is going somewhere, not coming back)
  * and from a layout-band change (the recorded control may no longer exist).
  */
-export function useTransientSurfaces(): TransientSurfaces {
+export function useTransientSurfaces(
+  /**
+   * Where focus goes when the recorded opener will not take it. Give this a
+   * `tabindex="-1"` container that survives every surface: the point is that
+   * the keyboard user resumes inside the chatroom rather than at the top of the
+   * document.
+   */
+  fallbackFocus?: Readonly<Ref<HTMLElement | null>>,
+): TransientSurfaces {
   const active = ref<ChatroomSurface | null>(null)
   // The control that opened `active.value`. Not a ref: nothing renders from it,
   // and keeping a DOM node out of the reactive graph avoids Vue deep-tracking
@@ -63,6 +71,16 @@ export function useTransientSurfaces(): TransientSurfaces {
     const target = opener
     opener = null
     target?.focus()
+    // Restoration can fail silently, and the failure looks exactly like the
+    // dead end this composable exists to prevent. `captureOpener` records
+    // whatever held focus, which after a keyboard hand-off (Ctrl+K out of an
+    // open rail overlay) is a control INSIDE the surface being handed off from
+    // — and that surface is `visibility: hidden` by the time this runs.
+    // `focus()` on a hidden or detached node is a no-op, so focus stays on a
+    // node that is about to disappear and lands on <body>. Ask whether the move
+    // actually happened rather than testing for the conditions that prevent it:
+    // one check covers hidden, detached, disabled and inert alike.
+    if (target && document.activeElement !== target) fallbackFocus?.value?.focus()
   }
 
   function toggle(surface: ChatroomSurface): void {

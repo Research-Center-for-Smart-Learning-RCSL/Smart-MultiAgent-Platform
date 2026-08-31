@@ -351,6 +351,24 @@ that band; nothing else in this dossier changes it.
   does not teach the workflow slice what the sentinel *is* — it makes the card correct for any
   unparseable `started_at`, which its own DTO type has always permitted.
 
+- **D-8: focus restoration now verifies that it landed.** `captureOpener` records whatever holds
+  focus, which is right for a pointer press on a header control and wrong for a keyboard hand-off:
+  with a compact rail overlay open its focus trap has already moved focus *into* the panel, so
+  `Ctrl+K` from there records a control inside the surface being left. That panel is
+  `visibility: hidden` a moment later, `focus()` on a hidden node is a no-op, and the subsequent
+  Escape therefore restored nothing and dropped focus to `<body>` — the dead end §9 names as a risk
+  and AC-4 forbids. `close` now asks whether `document.activeElement` actually became the target
+  rather than testing for the conditions that would prevent it, which covers hidden, detached,
+  disabled and inert with one check, and falls back to the chatroom container. The container takes
+  `tabindex="-1"` and suppresses its own `:focus-visible` ring, which is an allowlisted exception in
+  `shared/styles/__tests__/focus-and-press.test.ts` on the same grounds as `.app-shell__content`.
+
+- **D-9: the scrim's `@keydown.enter` was removed, not kept for symmetry.** A `role="none"` div with
+  no `tabindex` can never receive a keydown, so the handler could not fire. It was checked against
+  gate #11 before removal — `vuejs-accessibility` does not require it here, so it was dead code
+  rather than a lint-mandated shape. The scrim is pointer-only by design and its keyboard
+  equivalent is the window-level Escape handler; the comment now says so.
+
 ## 13. Follow-ups
 
 - FU-1: automate broader feed geometry after E2E seeding is idempotent; this remains source FU-3.
