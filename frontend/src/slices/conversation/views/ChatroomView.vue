@@ -911,12 +911,16 @@ function emitTyping(): void {
 }
 
 function onKeyDown(e: KeyboardEvent): void {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+  if (!(e.ctrlKey || e.metaKey) || e.key !== 'k') return
+  // Opening search now moves focus into its field, so the text-entry guard
+  // below would otherwise swallow the very keystroke that closes it again and
+  // leave the shortcut one-way.
+  if (!searchOpen.value) {
     const tag = (document.activeElement as HTMLElement | null)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-    e.preventDefault()
-    surfaces.toggle('search')
   }
+  e.preventDefault()
+  surfaces.toggle('search')
 }
 
 let isUnmounted = false

@@ -1109,6 +1109,28 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom__rail-handle').exists()).toBe(false)
     })
 
+    it('keeps Ctrl+K a toggle now that search takes focus', async () => {
+      const wrapper = await atWidth(1400)
+
+      const shortcut = (): void => {
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+        )
+      }
+
+      shortcut()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+      // The panel focuses its field on open, and the shortcut ignores keys
+      // typed into a text field. Without an explicit exemption the second press
+      // is swallowed and the shortcut becomes one-way.
+      expect(document.activeElement).toBe(wrapper.find('.search-input__field').element)
+
+      shortcut()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(false)
+    })
+
     it('makes search and a drawer mutually exclusive below 1024 (AC-10)', async () => {
       const wrapper = await atWidth(800)
 
