@@ -142,9 +142,21 @@ def create_auth_service(db: AsyncSession, *, public_origin: str) -> AuthService:
 
 def create_email_domain_policy_reader(db: AsyncSession) -> EmailDomainPolicyReader:
     """The one place that knows which concrete stores back the policy (R19a.13)."""
-    from contexts.identity.infrastructure.email_domain_policy import create_reader
+    from contexts.identity.infrastructure.email_domain_legacy import (
+        RedisLegacyEmailDomainPolicyStore,
+    )
+    from contexts.identity.infrastructure.email_domain_mirror import (
+        RedisEmailDomainPolicyMirror,
+    )
+    from contexts.identity.infrastructure.email_domain_repository import (
+        EmailDomainPolicyRepository,
+    )
 
-    return create_reader(db)
+    return EmailDomainPolicyReader(
+        repository=EmailDomainPolicyRepository(db),
+        mirror=RedisEmailDomainPolicyMirror(),
+        legacy=RedisLegacyEmailDomainPolicyStore(),
+    )
 
 
 def create_email_domain_policy_service(db: AsyncSession) -> EmailDomainPolicyService:

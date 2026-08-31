@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -352,6 +352,20 @@ def test_an_invalid_domain_is_a_422_and_an_unavailable_authority_a_503() -> None
         assert response.status_code == expected
 
 
+def test_a_policy_larger_than_the_input_cap_is_still_readable() -> None:
+    """The boot-time legacy import applies no count cap, so a deployment with
+    more domains in Redis than a `PUT` may submit holds a row the input bound
+    cannot describe. Validating the *response* against that bound would 500 the
+    one screen an operator needs in order to shrink the list."""
+    oversized = _policy(allow=frozenset(f"d{i}.example.edu" for i in range(1001)))
+    facade = _facade(get_email_domain_policy=oversized)
+    with patch.object(policy_mod, "IdentityFacade", return_value=facade):
+        response = TestClient(_app()).get("/api/admin/email-domain-policy")
+
+    assert response.status_code == 200
+    assert len(response.json()["allow"]) == 1001
+
+
 def test_an_oversized_list_is_rejected_at_the_boundary() -> None:
     facade = _facade(update_email_domain_policy=_policy())
     with patch.object(policy_mod, "IdentityFacade", return_value=facade):
@@ -368,6 +382,50 @@ def test_an_oversized_list_is_rejected_at_the_boundary() -> None:
 # ---------------------------------------------------------------------------
 # AC-1 / AC-2 / AC-13 - the bootstrap import
 # ---------------------------------------------------------------------------
+
+
+def test_the_import_step_is_registered_and_runs_before_the_best_effort_ones() -> None:
+    """`tests/conftest.py` removes this step from the unit tier's lifespan, so
+    nothing else there would notice it being dropped from `INITIALIZERS`
+    altogether — the app would simply boot with no policy row and every
+    registration would 503 in production while the suite stayed green.
+
+    Ordering matters too: this step is fatal and `prime_rate_limits_step` is
+    best-effort, so a boot that is going to fail must fail before doing
+    throwaway work.
+    """
+    from app.bootstrap.startup import INITIALIZERS
+
+    names = [step.__name__ for step in INITIALIZERS]
+    assert "import_email_domain_policy_step" in names
+    assert names.index("import_email_domain_policy_step") < names.index("prime_rate_limits_step")
+
+
+async def test_the_import_step_propagates_its_failure_rather_than_swallowing_it() -> None:
+    """The difference from `prime_rate_limits_step`, which catches everything.
+
+    A policy authority that could not be established has no compile-time default
+    to fall back on, so continuing would serve requests with no policy at all.
+    """
+    from app.bootstrap import startup
+
+    # `async with async_session() as db, db.begin():` — both need to be async
+    # context managers, and `db.begin` must not be an AsyncMock or calling it
+    # returns a coroutine rather than a context manager.
+    session = MagicMock()
+    session.begin = MagicMock(return_value=AsyncMock())
+    session_factory = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=session)))
+
+    with (
+        patch(
+            "contexts.identity.application.email_domain_bootstrap.import_legacy_policy_if_absent",
+            new_callable=AsyncMock,
+            side_effect=InvalidLegacyEmailDomainPolicy("config:email_domain:mode holds 'nonsense'"),
+        ),
+        patch("shared_kernel.db.session.async_session", new=session_factory),
+        pytest.raises(InvalidLegacyEmailDomainPolicy),
+    ):
+        await startup.import_email_domain_policy_step(AsyncMock())
 
 
 async def test_the_import_takes_the_lock_and_re_reads_under_it() -> None:
