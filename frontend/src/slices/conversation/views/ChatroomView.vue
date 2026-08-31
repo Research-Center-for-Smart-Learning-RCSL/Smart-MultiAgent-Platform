@@ -2,6 +2,7 @@
   <section
     ref="chatroomRef"
     class="chatroom"
+    tabindex="-1"
     :class="{
       'chatroom--mobile': isMobile,
       'chatroom--tablet': isTablet,
@@ -34,14 +35,17 @@
     <!-- One scrim for all three transient surfaces, because only one of them
          can be active. Placed in the grid rather than inset over it so its area
          follows the band: the feed column alone for search, everything below
-         the header once a rail overlay covers the composer too. -->
+         the header once a rail overlay covers the composer too.
+
+         Pointer-only by design, and carries no key handler: `role="none"` with
+         no tabindex is unreachable by keyboard, so one here could never fire.
+         The keyboard equivalent is the window-level Escape handler. -->
     <div
       v-if="scrimSurface"
       class="chatroom__scrim"
       :class="`chatroom__scrim--${scrimSurface}`"
       role="none"
       @click="surfaces.close()"
-      @keydown.enter="surfaces.close()"
     />
 
     <ChatroomAgentSidebar
@@ -608,7 +612,7 @@ const showRailTabs = computed(() => showObserverTab.value || showActivityTab.val
 // Declared here (ahead of its drawer markup) so the W-3 visibility computed
 // below can read `peopleDrawerOpen` without a temporal-dead-zone hit under the
 // immediate watch.
-const surfaces = useTransientSurfaces()
+const surfaces = useTransientSurfaces(chatroomRef)
 const searchOpen = computed(() => surfaces.isOpen('search'))
 const agentsDrawerOpen = computed(() => surfaces.isOpen('agents'))
 const peopleDrawerOpen = computed(() => surfaces.isOpen('people'))
@@ -1118,10 +1122,14 @@ async function doSearch(): Promise<void> {
 
 function onSelectHit(hit: SearchHit): void {
   surfaces.close('search')
-  // The panel sits over the feed; let it unmount before scrolling so the
-  // target message is not obscured. A hit may reference a message that has
-  // not been paginated into the feed yet — there is no "load-around" endpoint,
-  // so we tell the user rather than scrolling to nothing.
+  // One tick so the row exists to scroll to. Not to clear the panel: it has a
+  // leave transition, so it is still painted for --transition-normal after this
+  // runs. Nothing depends on it being gone, because `scrollToMessage` centres
+  // the target and the panel covers the top of the feed; an alignment change
+  // there would need this to key off the transition's end instead.
+  // A hit may reference a message that has not been paginated into the feed yet
+  // — there is no "load-around" endpoint, so we tell the user rather than
+  // scrolling to nothing.
   void nextTick(() => {
     if (!scrollToMessage(hit.message_id)) {
       toast.info(t('conversation.chatroom.searchJumpUnavailable'))
@@ -1240,6 +1248,17 @@ function onExportSubmit(opts: ExportOptions): void {
      positions against it: the pill and the search panel both resolve against
      .chatroom__feed, which is relative in its own right. */
   position: relative;
+}
+
+/* `.chatroom` is `tabindex="-1"` solely as the surface coordinator's focus
+   fallback, so it is only ever focused programmatically and never reached by a
+   Tab traversal. A viewport-sized ring around the whole room would read as a
+   rendering fault rather than as feedback. Same exception, and the same reason,
+   as `.app-shell__content:focus-visible`; both are listed in
+   shared/styles/__tests__/focus-and-press.test.ts, which fails any suppression
+   that is not. */
+.chatroom:focus-visible {
+  outline: none;
 }
 
 .chatroom__header {

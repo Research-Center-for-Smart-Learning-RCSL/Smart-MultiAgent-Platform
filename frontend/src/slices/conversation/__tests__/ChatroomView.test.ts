@@ -1067,6 +1067,36 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom__presence.chatroom__panel--open').exists()).toBe(true)
     })
 
+    it('does not strand focus on <body> when the opener will not take it (AC-4)', async () => {
+      const wrapper = await atWidth(1100)
+      await press(toggle(wrapper, 'agents'))
+
+      // A keyboard hand-off records whatever holds focus, and after the agents
+      // trap ran that is inside the surface being handed off FROM -- not the
+      // header control that opened it. Ctrl+K is the reachable way in: the
+      // compact rails are not modal, so the shortcut is live while one is open.
+      const stranded = document.activeElement as HTMLElement
+      expect(wrapper.find('.chatroom__agents').element.contains(stranded)).toBe(true)
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }),
+      )
+      await nextTick()
+      await nextTick()
+      expect(wrapper.find('.search-panel').exists()).toBe(true)
+
+      // In the browser the agents panel is `visibility: hidden` by now and
+      // refuses focus; jsdom models the same refusal for a detached node.
+      // Either way the restore is a no-op and focus falls to <body> unless
+      // close() notices that it did not land.
+      stranded.remove()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+
+      expect(document.activeElement).not.toBe(document.body)
+      expect(document.activeElement).toBe(wrapper.find('.chatroom').element)
+    })
+
     it('closes the active surface from its backdrop (AC-4/AC-5)', async () => {
       const wrapper = await atWidth(1100)
       const agents = toggle(wrapper, 'agents')
