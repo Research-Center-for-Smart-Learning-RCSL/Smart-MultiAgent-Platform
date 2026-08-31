@@ -141,6 +141,12 @@
   --shadow-dialog: 0 8px 30px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
   --color-overlay: rgba(0, 0, 0, 0.45);
   --overlay-backdrop: rgba(0, 0, 0, 0.45);
+  /* The dim for an in-page, non-modal surface: it marks the area behind as
+     inactive while leaving it legible, which a modal backdrop is not trying to
+     do. A ready-made colour rather than `--overlay-backdrop` under an `opacity`
+     rule, because the two multiply -- 0.45 painted at 0.2 opacity composites to
+     0.09, a dim too faint to read as one at all. */
+  --overlay-backdrop-inline: rgba(0, 0, 0, 0.2);
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -453,6 +459,10 @@
     --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
     --color-overlay: rgba(0, 0, 0, 0.65);
     --overlay-backdrop: rgba(0, 0, 0, 0.65);
+    /* Held at the same ratio to the modal backdrop as in light mode: black over
+       an already dark ground separates far less per unit of alpha, so matching
+       the light value literally would read as no dim at all. */
+    --overlay-backdrop-inline: rgba(0, 0, 0, 0.29);
     --color-surface-hover: #273549;
     --color-surface-active: #2f3f55;
     --color-accent-tint-hover: #27476e;
