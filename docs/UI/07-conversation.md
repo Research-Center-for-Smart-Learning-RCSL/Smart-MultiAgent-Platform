@@ -235,7 +235,9 @@ This is the most complex view in the application. It combines real-time messagin
 .presence-panel      { grid-column: 3;      grid-row: 2 / -1; }
 ```
 
-**Intermediate breakpoint** (1024-1279px): agent sidebar and presence panel collapse by default. Toggle buttons in the header expand them as overlay panels (absolute positioned, `--z-dropdown` z-index, `--shadow-lg`).
+**Intermediate breakpoint** (1024-1279px): agent sidebar and presence panel collapse by default. Toggle buttons in the header expand them as overlay panels (absolute positioned, `--z-dropdown` z-index, `--shadow-lg`). No rail resize handle is shown in this band: an overlay panel has no track to size.
+
+In this band the agent panel, the people/observer panel and search (§3.8) form one mutually exclusive group. Opening any of them closes whichever was open, hands focus to the newly opened surface, and does not restore the previous opener; a normal close (Escape, the backdrop, an explicit close, or choosing a search result) returns focus to the control that opened the active surface. While one is open a backdrop covers the area the panel overlaps and dismisses it on click. Below 1024px the same exclusion holds between search and whichever side panels are drawers; at 1280px and above the rails are persistent columns, so only search is transient and no backdrop or focus trap mounts for the rails.
 
 ```css
 @media (min-width: 1024px) and (max-width: 1279px) {
@@ -767,6 +769,10 @@ Search is activated by clicking the search button in the header or pressing `Ctr
 - Close button (`XMarkIcon`) in panel header
 - `Escape` key
 - Clicking outside the panel (on the dimmed overlay)
+
+**Focus**: opening the panel moves focus to the search field and keeps `Tab` and `Shift+Tab` cycling within the panel while it is open. Every close action listed above, and choosing a result, returns focus to the control that opened the panel, so a keyboard user resumes where they left off rather than at the top of the document. The one exception is a hand-off: if the user opens another transient surface while search is open, focus follows them into the new surface and the search opener is forgotten, since they are going somewhere rather than coming back.
+
+**Mutual exclusion**: search is one of the chatroom's three transient surfaces, together with the agent panel and the people/observer panel. Wherever more than one of them covers the feed, at most one may be open — see the intermediate-breakpoint section above. The backdrop dims the feed only; the composer stays reachable, because reading search results while drafting a reply is a normal thing to do.
 
 **States**:
 - Empty query: panel visible with just the input, no results section
