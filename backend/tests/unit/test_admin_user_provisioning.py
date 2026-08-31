@@ -24,6 +24,7 @@ from loguru import logger
 
 from app.api.v1 import admin_users as admin_mod
 from contexts.identity.application.admin_service import AccountAlreadyActivatedError, AdminService
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.errors import ActivationLinkRateLimited, EmailDomainDenied
 from contexts.identity.domain.models import User, UserStatus
 from contexts.identity.interfaces import error_mapping
@@ -61,8 +62,15 @@ def _user(
     )
 
 
+def _reader() -> EmailDomainPolicyReader:
+    """A real reader over mocked stores. `_patched` stubs `is_allowed` on the
+    class, so the stores are never actually consulted — what matters here is that
+    the service is handed the same type production hands it."""
+    return EmailDomainPolicyReader(repository=AsyncMock(), mirror=AsyncMock(), legacy=AsyncMock())
+
+
 def _service(db: object) -> AdminService:
-    return AdminService(db, public_origin=_ORIGIN)  # type: ignore[arg-type]
+    return AdminService(db, email_domain_policy=_reader(), public_origin=_ORIGIN)  # type: ignore[arg-type]
 
 
 def _fake_session() -> AsyncMock:
@@ -91,8 +99,9 @@ def _patched(
     """The three collaborators every provisioning path touches."""
     return (
         patch(f"{_SVC}.audit.emit", new=audit or AsyncMock()),
-        patch(
-            f"{_SVC}.email_domain_policy.is_allowed",
+        patch.object(
+            EmailDomainPolicyReader,
+            "is_allowed",
             new_callable=AsyncMock,
             return_value=domain_allowed,
         ),
@@ -149,7 +158,7 @@ async def test_create_user_provisions_a_pending_unverified_passwordless_account(
 def test_create_user_route_is_refused_for_a_non_admin() -> None:
     service = _with_token_repos(_service(AsyncMock()))
     service._users = AsyncMock()
-    with patch.object(admin_mod, "AdminService", return_value=service):
+    with patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app(is_admin=False))
         response = client.post("/api/admin/users", json={"email": "new@example.com"})
 
@@ -165,7 +174,7 @@ def test_create_user_route_returns_the_user_and_both_labelled_links() -> None:
     service._users = users
 
     p_audit, p_domain, p_rl = _patched()
-    with p_audit, p_domain, p_rl, patch.object(admin_mod, "AdminService", return_value=service):
+    with p_audit, p_domain, p_rl, patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app(is_admin=True))
         response = client.post("/api/admin/users", json={"email": "new@example.com", "display_name": "Ada"})
 
@@ -340,7 +349,7 @@ def test_reissue_route_maps_an_activated_account_to_409_and_a_missing_one_to_404
     ):
         service = _with_token_repos(_service(AsyncMock()))
         service.issue_activation_links = AsyncMock(side_effect=error)
-        with patch.object(admin_mod, "AdminService", return_value=service):
+        with patch.object(admin_mod, "create_admin_service", return_value=service):
             client = TestClient(_app(is_admin=True))
             response = client.post(f"/api/admin/users/{_TARGET}/activation-links")
         assert response.status_code == expected
@@ -363,7 +372,7 @@ async def test_reissue_is_rate_limited_per_target_user() -> None:
 def test_reissue_route_reports_the_rate_limit_as_a_429_problem() -> None:
     service = _with_token_repos(_service(AsyncMock()))
     service.issue_activation_links = AsyncMock(side_effect=ActivationLinkRateLimited(42))
-    with patch.object(admin_mod, "AdminService", return_value=service):
+    with patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app(is_admin=True))
         response = client.post(f"/api/admin/users/{_TARGET}/activation-links")
 
@@ -374,7 +383,7 @@ def test_reissue_route_reports_the_rate_limit_as_a_429_problem() -> None:
 def test_reissue_route_is_refused_for_a_non_admin() -> None:
     service = _with_token_repos(_service(AsyncMock()))
     service.issue_activation_links = AsyncMock()
-    with patch.object(admin_mod, "AdminService", return_value=service):
+    with patch.object(admin_mod, "create_admin_service", return_value=service):
         client = TestClient(_app(is_admin=False))
         response = client.post(f"/api/admin/users/{_TARGET}/activation-links")
 

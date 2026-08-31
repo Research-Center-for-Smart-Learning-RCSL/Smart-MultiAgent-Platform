@@ -15,6 +15,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     admin_activities,
     admin_audit,
+    admin_email_domain_policy,
     admin_impersonation,
     admin_metrics,
     admin_orgs,
@@ -33,5 +34,6 @@ router.include_router(admin_audit.router)
 router.include_router(admin_metrics.router)
 router.include_router(admin_rate_limits.router)
 router.include_router(admin_activities.router)
+router.include_router(admin_email_domain_policy.router)
 
 __all__ = ["router"]

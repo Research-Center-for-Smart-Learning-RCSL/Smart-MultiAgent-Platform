@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from contexts.identity.application.auth_service import AuthService, _normalise_email
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.errors import (
     AccountBanned,
     AccountDeleted,
@@ -60,6 +61,12 @@ def _make_user(
     )
 
 
+def _policy_reader() -> EmailDomainPolicyReader:
+    """A real reader over mocked stores; the tests that care stub `is_allowed`
+    on the class, so the stores are never consulted."""
+    return EmailDomainPolicyReader(repository=AsyncMock(), mirror=AsyncMock(), legacy=AsyncMock())
+
+
 def _make_service(
     *,
     user_repo: AsyncMock | None = None,
@@ -76,6 +83,7 @@ def _make_service(
         hasher=hasher,
         email_sender=email_sender,
         public_origin="https://smap.test",
+        email_domain_policy=_policy_reader(),
     )
     if user_repo is not None:
         svc._users = user_repo
@@ -125,7 +133,7 @@ class TestNormaliseEmail:
 class TestRegister:
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=True,
     )
@@ -167,7 +175,7 @@ class TestRegister:
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=False,
     )
@@ -183,7 +191,7 @@ class TestRegister:
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=True,
     )
@@ -199,7 +207,7 @@ class TestRegister:
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=True,
     )
@@ -686,7 +694,7 @@ class TestChangePassword:
 
 class TestChangeEmail:
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=True,
     )
@@ -714,7 +722,7 @@ class TestChangeEmail:
         users.set_email.assert_awaited_once_with(user.id, "new@example.com")
 
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=True,
     )
@@ -734,7 +742,7 @@ class TestChangeEmail:
             )
 
     @patch(
-        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        "contexts.identity.application.email_domain_policy_reader.EmailDomainPolicyReader.is_allowed",
         new_callable=AsyncMock,
         return_value=False,
     )

@@ -51,6 +51,11 @@ dependencies = [
   # 0.15.x "fixes" it by holding click below 8.2 for everything that shares it.
   "typer>=0.19,<0.28",
   "docker>=7.1,<7.3",
+  # UTS-46 normalisation of email-domain policy entries (R19a.13). Already
+  # resolved transitively (httpx, email-validator); declared because the identity
+  # domain now imports it directly, and an undeclared direct import breaks the
+  # day a transitive consumer drops it.
+  "idna>=3.7,<4",
 ]
 
 [project.optional-dependencies]
@@ -424,7 +429,13 @@ disable_error_code = ["type-arg"]
 # The Redis calls themselves belong in `contexts.agents.infrastructure` (see the
 # dossier's FU-5); when they move, this block moves with them.
 [[tool.mypy.overrides]]
-module = ["contexts.agents.application.runtime.turn_engine"]
+module = [
+  "contexts.agents.application.runtime.turn_engine",
+  # Same stub lag: the legacy email-domain store's atomic read and replace are
+  # both single `Redis.eval` scripts, because a pipeline cannot give the
+  # three-key snapshot the classification depends on.
+  "contexts.identity.infrastructure.email_domain_legacy",
+]
 disable_error_code = ["no-untyped-call"]
 
 # ---------- Pytest ----------

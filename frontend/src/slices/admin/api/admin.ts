@@ -21,6 +21,8 @@ import type {
   AdminPlatformActivityTypeInput,
   AuditFilter,
   AuditPage,
+  EmailDomainPolicy,
+  EmailDomainPolicyInput,
   ImpersonateResult,
   IpBan,
   Metrics,
@@ -186,6 +188,21 @@ export const adminApi = {
   previewActivityPolicyImpact: (body: ActivityPolicyInput): Promise<ActivityPolicyImpact> =>
     AdminService.previewActivityPolicyImpactApiAdminActivityPolicyImpactPost({
       requestBody: body,
+    }),
+
+  getEmailDomainPolicy: (): Promise<EmailDomainPolicy> =>
+    AdminService.getEmailDomainPolicyApiAdminEmailDomainPolicyGet(),
+
+  /** Full replacement, guarded by the version the form was built against.
+   *  Unlike the activity policy there is no "never saved" case: the backend's
+   *  boot-time import creates the row, so If-Match is always sent. */
+  putEmailDomainPolicy: (
+    body: EmailDomainPolicyInput,
+    expectedVersion: number,
+  ): Promise<EmailDomainPolicy> =>
+    AdminService.putEmailDomainPolicyApiAdminEmailDomainPolicyPut({
+      requestBody: body,
+      ifMatch: String(expectedVersion),
     }),
 
   /** The shipped example catalogue with its install state ([R30.32]). */

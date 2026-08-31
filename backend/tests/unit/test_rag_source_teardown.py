@@ -515,7 +515,7 @@ async def test_admin_hard_delete_commits_before_teardown() -> None:
     db = AsyncMock()
     db.commit.side_effect = lambda: order.append("commit")
 
-    svc = AdminService(db)
+    svc = AdminService(db, email_domain_policy=AsyncMock())
     user = MagicMock(deleted_at=datetime(2020, 1, 1, tzinfo=UTC))
     tenancy = AsyncMock()
     tenancy.orgs_blocking_self_delete.return_value = []
