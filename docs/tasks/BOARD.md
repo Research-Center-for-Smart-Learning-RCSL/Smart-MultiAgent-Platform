@@ -35,17 +35,6 @@ draft SRS deltas that are deliberately not applied at consolidation time.
   re-read the phase per request would defeat the cache and one that cached the phase alone would
   enforce a stale authority. Carries a draft [R19a.13] amendment.
 
-- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix, **draft**) -
-  `depends_on: []`. Consolidates FU-9/FU-10/FU-1 of
-  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
-  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
-  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
-  focus-safe handoff. **Its draft [R24.32] amendment states a target and a deviation in one
-  sentence on purpose**: the four-band design was approved and shipped in `b4b25d1`/`bdea016`
-  without an SRS delta, and the 768-1023 band still has the persistent agent rail that the
-  source dossier's FU-6 deferred, which this dossier's own AC-11 pins rather than removes.
-  Writing the target alone would land a requirement its own acceptance criteria contradict.
-
 - `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
   Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
   `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
@@ -512,6 +501,19 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+
+- `2026-08-30-chatroom-approval-and-overlay-discoverability` (bugfix) — `depends_on: []`.
+  Approved 2026-08-31 after a citation audit. Consolidates FU-9/FU-10/FU-1 of
+  `2026-08-19-chatroom-scroll-and-composer`: use the server's persisted approval timestamp so a
+  skewed client cannot hide a required vote, reconcile pending approval DTOs without stale
+  sentinel state, and make the compact search/agent/people surfaces mutually exclusive with
+  focus-safe handoff. **Its [R24.32] amendment states a target and a deviation in one sentence
+  on purpose**: the four-band design was approved and shipped in `b4b25d1`/`bdea016` without an
+  SRS delta, and the 768-1023 band still has the persistent agent rail that the source dossier's
+  FU-6 deferred, which this dossier's own AC-11 pins rather than removes. Writing the target
+  alone would land a requirement its own acceptance criteria contradict. The amendment is
+  applied to `REQUIREMENTS.md` at close-out rather than at approval, so the requirement does not
+  precede the behavior.
 
 Removed on 2026-08-28 after implementation:
 `2026-08-27-openai-responses-api-migration` (the OpenAI adapter posts to `/v1/responses`, so
