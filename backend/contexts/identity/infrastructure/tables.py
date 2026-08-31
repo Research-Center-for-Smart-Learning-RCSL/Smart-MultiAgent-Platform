@@ -143,10 +143,48 @@ ip_bans = sa.Table(
 )
 
 
+# Singleton (see 0084): `id` is pinned to 1 by a CHECK, so `SINGLETON_ID` is a
+# schema fact rather than a convention every query has to remember.
+EMAIL_DOMAIN_POLICY_ID = 1
+
+email_domain_policies = sa.Table(
+    "email_domain_policies",
+    metadata,
+    sa.Column("id", sa.SmallInteger, primary_key=True, autoincrement=False),
+    sa.Column("mode", sa.Text, nullable=False),
+    sa.Column("rollout_state", sa.Text, nullable=False),
+    sa.Column("allow_domains", pg.ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")),
+    sa.Column("deny_domains", pg.ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")),
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("legacy_mirrored_version", sa.Integer, nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column(
+        "updated_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.CheckConstraint("id = 1", name="ck_email_domain_policies_singleton"),
+    sa.CheckConstraint("mode IN ('allow', 'deny', 'off')", name="ck_email_domain_policies_mode"),
+    sa.CheckConstraint(
+        "rollout_state IN ('compatibility', 'active', 'rollback_frozen')",
+        name="ck_email_domain_policies_rollout_state",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_email_domain_policies_version_positive"),
+    sa.CheckConstraint(
+        "legacy_mirrored_version IS NULL OR legacy_mirrored_version >= 1",
+        name="ck_email_domain_policies_mirrored_version_positive",
+    ),
+)
+
+
 __all__ = [
+    "EMAIL_DOMAIN_POLICY_ID",
     "admin_impersonation_sessions",
     "admins",
     "auth_identities",
+    "email_domain_policies",
     "email_verify_tokens",
     "ip_bans",
     "password_reset_tokens",
