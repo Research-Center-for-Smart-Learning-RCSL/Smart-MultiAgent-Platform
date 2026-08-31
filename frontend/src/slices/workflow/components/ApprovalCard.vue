@@ -29,18 +29,24 @@ onDeactivated(stopTicker)
 
 const isPending = computed(() => props.approval.state === 'pending')
 
+// `null` when the card carries no usable start instant. A chatroom card built
+// from an `approval.requested` frame that omitted `started_at` deliberately
+// holds an unparseable placeholder rather than a client-invented date, and every
+// arithmetic step below turns that into NaN -- which reached the template as a
+// literal "NaN:NaN" countdown. The card is still worth rendering without one.
 const deadline = computed(() => {
   const start = new Date(props.approval.started_at).getTime()
+  if (!Number.isFinite(start)) return null
   return start + props.approval.timeout_seconds * 1000
 })
 
 const remainingSeconds = computed(() => {
-  if (!isPending.value) return 0
+  if (!isPending.value || deadline.value === null) return null
   return Math.max(0, Math.ceil((deadline.value - now.value) / 1000))
 })
 
 const remainingFormatted = computed(() => {
-  const s = remainingSeconds.value
+  const s = remainingSeconds.value ?? 0
   const m = Math.floor(s / 60)
   const sec = s % 60
   return `${m}:${String(sec).padStart(2, '0')}`
@@ -94,7 +100,7 @@ function voteForAgent(agentId: string) {
     </div>
 
     <div
-      v-if="isPending"
+      v-if="isPending && remainingSeconds !== null"
       class="text-xs text-muted mb-2"
     >
       {{ t('workflow.approval.timeoutIn', { time: remainingFormatted }) }}
