@@ -45,7 +45,9 @@ export const useOrchestrationStore = defineStore('orchestration', () => {
   // whose creation rolled back before its row was durable (F-18) — would pin a
   // `pending` card until reload. For each pending card past its own
   // timeout_seconds grace, fetch the authoritative state: a resolved state
-  // transitions the card, an absent (null) approval removes it. `fetchApproval`
+  // transitions the card, an absent (null) approval removes it, and a
+  // still-pending one replaces the local DTO outright — the socket's fallback
+  // for a timestamp-less event is only ever retired here. `fetchApproval`
   // is injected so this shared store never imports the workflow slice; the
   // caller maps a 404 to null. `now` is injectable for deterministic tests.
   async function reconcilePending(
@@ -65,7 +67,8 @@ export const useOrchestrationStore = defineStore('orchestration', () => {
       if (Number.isFinite(startedMs) && now < startedMs + graceMs) continue
       // A card removed/resolved concurrently (e.g. by a WS event that arrived
       // mid-loop) is no longer our concern.
-      if (!map[a.id]) continue
+      const before = map[a.id]
+      if (!before) continue
       let server: ApprovalWithVotes | null
       try {
         server = await fetchApproval(a.id)
@@ -73,10 +76,23 @@ export const useOrchestrationStore = defineStore('orchestration', () => {
         // Transient/unexpected error — keep the card and try again next pass.
         continue
       }
+      // The fetch above is the only await in this loop, and everything that
+      // writes a card here replaces the object rather than mutating it, so
+      // identity is a sufficient generation check: a different object (or none)
+      // means a WS event landed while the request was in flight, and the
+      // response describes a state the client has already moved past. Applying
+      // it would resurrect a resolved gate.
+      if (map[a.id] !== before) continue
       if (server === null) {
         removeApproval(roomId, a.id)
       } else if (server.state !== 'pending') {
         resolveApproval(roomId, a.id, server.state)
+      } else {
+        // Still pending, and the local card may be a fallback the socket built
+        // from an event that carried no timestamp. Replacing the whole DTO — not
+        // just the state — is what retires that sentinel; a state-only update
+        // would leave it in place for the life of the gate.
+        upsertApproval(roomId, server)
       }
     }
   }

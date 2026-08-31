@@ -821,6 +821,64 @@ describe('useChatroomSocket agent streaming', () => {
     }
   }
 
+  it('dates a live approval from the event, not the client clock (T-2)', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const orchStore = useOrchestrationStore()
+
+    // A client running five minutes behind the server. Every date the client
+    // could invent from here sorts ahead of messages it actually arrived after.
+    const clock = vi.spyOn(Date.prototype, 'toISOString')
+    const now = vi.spyOn(Date, 'now')
+
+    emit({
+      type: 'approval.requested',
+      approval_id: 'ap_live',
+      workflow_run_id: 'run_1',
+      mode: 'single',
+      leader_agent_id: AGENT,
+      approver_agent_ids: [AGENT],
+      timeout_seconds: 300,
+      started_at: '2024-01-01T00:00:00.000Z',
+    })
+
+    const card = orchStore.getApprovalsForRoom(ROOM).find((a) => a.id === 'ap_live')
+    expect(card?.started_at).toBe('2024-01-01T00:00:00.000Z')
+    // Not just "the right value" -- the clock must not be consulted at all, so
+    // no future edit can reintroduce a fallback that happens to agree here.
+    expect(clock).not.toHaveBeenCalled()
+    expect(now).not.toHaveBeenCalled()
+    clock.mockRestore()
+    now.mockRestore()
+  })
+
+  it('gives an old event with no timestamp a non-date sentinel (T-3)', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const orchStore = useOrchestrationStore()
+
+    const clock = vi.spyOn(Date.prototype, 'toISOString')
+
+    emit({
+      type: 'approval.requested',
+      approval_id: 'ap_old',
+      workflow_run_id: 'run_1',
+      mode: 'single',
+      leader_agent_id: AGENT,
+      approver_agent_ids: [AGENT],
+      timeout_seconds: 300,
+    })
+
+    const card = orchStore.getApprovalsForRoom(ROOM).find((a) => a.id === 'ap_old')
+    // Unparseable on purpose: the feed maps that to +Infinity and places the
+    // card at the tail, which is discoverable. A client-invented date would be
+    // parseable and could land the card anywhere.
+    expect(card).toBeDefined()
+    expect(Number.isNaN(Date.parse(card!.started_at))).toBe(true)
+    expect(clock).not.toHaveBeenCalled()
+    clock.mockRestore()
+  })
+
   it('discovers an approval raised while disconnected (F-13)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
