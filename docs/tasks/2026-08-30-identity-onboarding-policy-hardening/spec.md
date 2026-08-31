@@ -244,32 +244,24 @@ seconds only in the degraded case where the delete failed.
 
 ## 11. Acceptance Criteria
 
-A ticked box means the mapped test was **executed and passed on this machine**. The
-db/integration tier needs a real PostgreSQL and Redis, which this host does not run
-(see §17); those criteria carry their test file and stay unticked until CI is green.
-Nothing below is closed on the strength of the code having been written.
+A ticked box means the mapped test was **executed and passed** — locally, or on CI run
+`33363993395` (PR #175), where all 23 checks are green including the db tier. Nothing below
+is closed on the strength of the code having been written, and the criteria that no automated
+tier can reach stay unticked with §17 saying why.
 
-- [ ] AC-1: N concurrent first-start initializers create exactly one version-1 compatibility row
+- [x] AC-1: N concurrent first-start initializers create exactly one version-1 compatibility row
   whose policy equals one atomic legacy Lua snapshot; pre-commit failure is safely retryable.
-  *Lock/re-read ordering passes in `test_email_domain_policy_admin_api.py`; the concurrency and
-  single-row halves are `test_email_domain_policy_db.py`, pending CI.*
-- [ ] AC-2: unreadable Redis, missing mode with a non-empty list, invalid mode, wrong key type and an
+- [x] AC-2: unreadable Redis, missing mode with a non-empty list, invalid mode, wrong key type and an
   invalid domain all block first boot without creating a row; all-absent alone imports explicit
   `off`, and the legal empty-list cases in Q-10 are covered.
-  *The whole matrix passes in `test_email_domain_policy_resolution.py`; "without creating a row"
-  and the real wrong-key-type error are db-tier, pending CI.*
-- [ ] AC-3: an Admin can GET policy/state in every phase; PUT succeeds only in active, while
+- [x] AC-3: an Admin can GET policy/state in every phase; PUT succeeds only in active, while
   compatibility/frozen returns typed 409 without DB, Redis or audit mutation. Non-Admins receive
   403, invalid domains 422 and stale versions 409.
-  *Route and service halves pass in `test_email_domain_policy_admin_api.py`; the guarded UPDATE
-  against the real constraint is db-tier, pending CI.*
 - [x] AC-4: after a committed active update whose v2 Redis SET fails, the old cache is not renewed,
   every new replica reads the DB/new value within 30 seconds, and the committed response is not
   falsely rolled back.
-- [ ] AC-5: registration, change-email and Admin provisioning enforce the same normalized active
+- [x] AC-5: registration, change-email and Admin provisioning enforce the same normalized active
   policy; exact-domain and non-implied-subdomain behavior is unchanged.
-  *Matching semantics pass in `test_email_domain_policy_domain.py`; the three-call-site proof is
-  db-tier, pending CI.*
 - [x] AC-6: a banned credential-less account cannot receive activation links; no reset/verify token,
   audit event or rate-limit entry is created by the refused call.
 - [x] AC-7: one Admin may create at most 60 accounts in a rolling 10-minute window; the 61st returns
@@ -279,32 +271,31 @@ Nothing below is closed on the strength of the code having been written.
   legacy snapshot, activation is required before PUT, and frozen new readers plus old readers
   enforce the same verified rollback snapshot. Each transition is observed by an already-warm reader
   on its next request, and within 30 seconds when the command's v2 delete is made to fail.
-  **Its second sentence is not achievable and has been restated — see D-3.** Transition ordering
-  passes in `test_email_domain_policy_rollout.py`; the rest is db-tier, pending CI.
+  **Its second sentence is not achievable and has been restated — see D-3.** The transition
+  ordering and both halves of the observability bound pass on CI. It stays unticked for its
+  first clause: every test drives both sides from *this* build, so "old readers enforce the same
+  snapshot" has never been watched with a previous image actually running (§17).
 - [x] AC-9: OpenAPI and generated frontend types are regenerated and the drift gate passes.
   *`backend/openapi.json` and the client regenerated; a re-run produces no diff. The `bash`
   gate script itself could not run on this host (no `python` on its PATH), so the equivalence
   was established by running its two steps directly.*
-- [ ] AC-10: targeted unit, DB/Redis integration, frontend component, lint, typecheck and build gates
-  pass. *Backend unit/ruff/mypy and frontend test/lint/typecheck/build all pass; DB/Redis
-  integration pending CI.*
+- [x] AC-10: targeted unit, DB/Redis integration, frontend component, lint, typecheck and build gates
+  pass. *All 23 CI checks green on run `33363993395`.*
 - [x] AC-11: v2 missing, malformed, expired, evicted or unreadable always falls back to DB; a value
   whose `rollout_state` is absent or unrecognized is treated as malformed rather than defaulted to a
   phase; when DB is also unavailable the request returns typed 503 and never uses `off`.
 - [x] AC-12: a local cache sourced from Redis never outlives the mirror PTTL, and a Redis-derived
-  snapshot never refreshes the Redis TTL. *The unit tier proves both; the db tier additionally
-  pins that the mirror's PTTL is real, pending CI.*
-- [ ] AC-13: activation failure during Redis prepare/readback or DB commit leaves the row in
-  compatibility and remains idempotently retryable. *Passes at the unit tier; the rollback-to-no-row
-  half is db-tier, pending CI.*
-- [ ] AC-14: rollback preparation serializes against PUT, records
+  snapshot never refreshes the Redis TTL.
+- [x] AC-13: activation failure during Redis prepare/readback or DB commit leaves the row in
+  compatibility and remains idempotently retryable.
+- [x] AC-14: rollback preparation serializes against PUT, records
   `legacy_mirrored_version == version` only after atomic write/readback equality, and exits non-zero
-  while safely frozen on failure. *Ordering and the non-zero exit pass at the unit tier and the
-  unarmed refusal was executed by hand; the serialisation proof is db-tier, pending CI.*
-- [ ] AC-15: operations tests/documentation prove Alembic never accesses Redis and prohibit old-image
-  rollout or downgrade without a verified rollback marker. *`docs/operations.md` §7a.6, §4.4 and
-  §13 are written; `test_migration_0084_schema.py` proves the downgrade is PostgreSQL-only but
-  needs `SMAP_SCRATCH_DATABASE_URL`, pending CI.*
+  while safely frozen on failure. *Serialisation and readback equality pass on CI; the non-zero
+  exit is unit-tested and the unarmed refusal was executed by hand.*
+- [x] AC-15: operations tests/documentation prove Alembic never accesses Redis and prohibit old-image
+  rollout or downgrade without a verified rollback marker. *`test_migration_0084_schema.py` ran on
+  CI — `SMAP_SCRATCH_DATABASE_URL` is set in that job — and `docs/operations.md` §7a.6, §4.4 and
+  §13 carry the procedure.*
 
 ## 12. Test Plan
 
@@ -398,6 +389,15 @@ replica-version discovery is outside this dossier.
   plus the rollout note in §4.4, five problem types in §6.1 and the rollback line in §13. The
   other chapters are untouched.
 
+- **D-9 — CI's first run was red, and both failures were in this dossier's own new test file.**
+  `pytest.raises` shared an `async with` header with the session in four places (it is a sync
+  context manager, so it raises only when the test *runs* — collection, ruff and mypy all pass),
+  and two autouse fixtures raced over the process-wide Redis client so that from the second test
+  onward the async one reached a client bound to the previous test's closed event loop. Both are
+  fixed in `1cf9b5d`; the second run is green on all 23 checks. Recorded because it is the
+  evidence for §17's point rather than an aside: **a test tier that has never run is a
+  hypothesis, not a verification**, and this build shipped 27 such tests before CI executed them.
+
 - **D-8 — the fatal startup step needed a unit-tier stub, and that stub needed its own guard.**
   Adding an initializer that reads Redis and writes PostgreSQL broke the eight `healthz`/`readyz`/
   `metrics` tests, which build the real app through `tests/conftest.py`'s `client` fixture and so
@@ -450,35 +450,55 @@ replica-version discovery is outside this dossier.
   the right behaviour — cap the import and fail the boot, or raise the API cap — needs a real
   deployment's numbers rather than a guess.
 
-## 17. What was not verified
+## 17. What was and was not verified
 
 Recorded plainly, because the value of the criteria above depends on knowing which of them
 were executed. Per the user's direction at approval, the tiers needing real infrastructure
-were written in full and left to CI rather than run on this Windows host.
+were written in full on a host with no PostgreSQL or Redis and left to CI.
 
-**No PostgreSQL and no Redis were available.** `tests/integration/test_email_domain_policy_db.py`
-(20 tests) and `tests/integration/test_migration_0084_schema.py` (8 tests) were written, import
-cleanly and collect, and have never been executed. Everything they assert — the advisory-lock
-race, the singleton `CHECK`, the guarded `UPDATE` against the real constraint, the mirror's real
-PTTL, the freeze-versus-update serialisation, the three enforcement points sharing one reader —
-rests on the code being right, not on having been observed. The migration schema test additionally
-needs `SMAP_SCRATCH_DATABASE_URL` and skips without it, so a CI run that does not set it reports
-green while proving nothing; check that it ran rather than that it passed.
+**CI ran them, and it found two defects the local tiers could not.** PR #175, run
+`33363993395`: all 23 checks green, including `backend-db`, `backend-integration`,
+`backend-wiring` and `frontend-e2e`. The first run was red, and both failures were in this
+dossier's own new test file rather than in the code it tests:
 
-**`alembic upgrade head` has never been run against a database.** Migration 0084 is unexecuted
-DDL. Its `CHECK` constraints are the kind of PostgreSQL-specific fact `backend/CLAUDE.md` records
-as invisible to the unit tier, which is exactly why the schema test exists — and why it not having
-run matters.
+- `async with sessionmaker() as db, pytest.raises(...)` — `pytest.raises` is a *sync* context
+  manager, so it cannot share an `async with` header. It collects cleanly and only fails when
+  the test actually runs, which is why writing db-tier tests that never execute locally hides
+  it. Four occurrences.
+- Two autouse fixtures raced: a sync one reset the process-wide Redis client and an async one
+  used it, with no ordering guarantee between them, so from the second test onward the async
+  fixture reached a client bound to the previous test's closed event loop. The reset now lives
+  inside the async fixture, immediately before the first use, which removes the ordering
+  question instead of depending on an answer to it.
 
-**No browser pass.** `EmailDomainPolicyForm.vue` is covered by 13 component tests against mocked
-HTTP, and the harness renders `$t` as the key, so **no rendered copy in either locale has been
-seen by anyone**. The locale files are checked only for key parity between `en` and `zh-TW` and
-for the escaped literal `@`. The read-only states in particular are asserted as key names and
-`disabled` attributes, not as a screen an operator could act on.
+  **The generalisable half: a test tier that has never run is not evidence, it is a
+  hypothesis.** Both defects were invisible to collection, lint and mypy.
 
-**The compose/manual sequence in §12 was not run**: restrictive legacy policy, compatibility
-deployment, drain, activation, Redis flush while active, prepared rollback into an old image, and
-a malformed legacy boot refusal. That sequence is the only thing that exercises two releases at
-once, which is the risk the whole rollout design exists to manage. The three maintenance commands
-have never been run against a database; only `activate-email-domain-policy`'s unarmed refusal was
-executed by hand (exit 1 with the intended message).
+**Now verified by CI.** The 20 db-tier tests and the 7 migration-schema tests all executed and
+passed: the advisory-lock race under six concurrent starts, the singleton `CHECK`, the guarded
+`UPDATE` against the real constraint, the mirror's real PTTL, freeze-versus-update
+serialisation, and the three enforcement points sharing one reader. `alembic upgrade head`
+applied 0084 against a real database. **`SMAP_SCRATCH_DATABASE_URL` is set in the CI job**, so
+the migration test ran rather than skipping — the trap flagged before the run did not fire; the
+four skips in that job are pre-existing and unrelated.
+
+**Still not verified, and none of it is closed by a green CI run:**
+
+- **No browser pass.** `EmailDomainPolicyForm.vue` has 13 component tests against mocked HTTP,
+  and the harness renders `$t` as the key, so **no rendered copy in either locale has been seen
+  by anyone**. The locale files are checked only for `en`/`zh-TW` key parity and the escaped
+  literal `@`. The read-only states are asserted as key names and `disabled` attributes, not as
+  a screen an operator could act on.
+- **No second release has ever run beside this one.** §12's compose sequence — restrictive
+  legacy policy, compatibility deployment, drain, activation, Redis flush while active, prepared
+  rollback into an old image, malformed legacy boot refusal — was not run. Every db-tier test
+  drives both sides from *this* build, so the claim that a replica of the **previous image**
+  enforces the mirrored legacy snapshot rests on the reader contract being what the old code
+  actually does, not on having watched it. That is the risk the whole rollout design exists to
+  manage, and it remains the largest unverified thing here.
+- **The three maintenance CLI wrappers were not run against a database.** The db tier exercises
+  the application-layer transitions they call (`rollout.activate`, `freeze_for_rollback`,
+  `mirror_policy_to_legacy`, `record_verified_mirror`, `cancel_rollback`), but the wrappers'
+  own session handling, `_drop_mirror`, and the typer subcommands around them are covered only
+  by unit tests. Only `activate-email-domain-policy`'s unarmed refusal was executed by hand
+  (exit 1 with the intended message).

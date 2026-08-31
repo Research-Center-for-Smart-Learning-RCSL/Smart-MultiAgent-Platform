@@ -510,10 +510,19 @@ Removed on 2026-08-31 after implementation:
 PostgreSQL singleton behind a three-phase rollout; banned accounts cannot be handed activation
 links; one Admin may create 60 accounts per 10 minutes). Nothing lists it in `depends_on`, so no
 row moves out of Blocked. Migration 0084, two new Admin endpoints, three new maintenance commands.
-Its **[R19a.13] amendment is still draft** in the dossier's §13 and has deliberately **not** been
-applied to `REQUIREMENTS.md` — it needs explicit approval.
+PR #175, CI run `33363993395`, 23 of 23 checks green including `backend-db`. Its **[R19a.13]
+amendment is still draft** in the dossier's §13 and has deliberately **not** been applied to
+`REQUIREMENTS.md` — it needs explicit approval.
 
-**Five things a later reader needs.**
+**Six things a later reader needs.**
+
+**CI's first run was red, and both failures were in the dossier's own new db-tier tests.**
+`pytest.raises` shared an `async with` header with the session (it is a *sync* context manager, so
+it raises only when the test runs — collection, ruff and mypy are all clean), and two autouse
+fixtures raced over the process-wide Redis client, so from the second test onward the async one
+reached a client bound to the previous test's closed loop. **A test tier that has never run is a
+hypothesis, not a verification**: 27 db-tier tests were written on a host with no PostgreSQL or
+Redis and both defects survived every local gate. D-9.
 
 **Its AC-8 asked for something that cannot be built, and the build said so rather than passing it.**
 The criterion claimed a rollout transition is observed by an *already-warm* reader on its next
@@ -546,13 +555,16 @@ to the repository for both the GET and the version guard, so a poisoned mirror c
 what an Admin sees or what the `UPDATE` matches. The security gate traced that explicitly; keep it
 that way.
 
-**§17 says what was not verified and it is the section to read before trusting the ticks.** No
-PostgreSQL and no Redis were available on the build host, so the 28 db-tier tests were written and
-have **never been executed**, `alembic upgrade head` has never run against a database, no rendered
-copy in either locale has been seen by anyone (the component harness renders `$t` as the key), and
-the compose mixed-version sequence — the only thing that exercises two releases at once, which is
-the risk the rollout design exists to manage — was not run. Ten of fifteen ACs are deliberately
-unticked with the file that closes each.
+**§17 is the section to read before trusting the ticks.** CI closed most of it: the 20 db-tier
+tests and 7 migration-schema tests all ran, `alembic upgrade head` applied 0084 against a real
+database, and `SMAP_SCRATCH_DATABASE_URL` **is** set in the `backend-db` job so the migration test
+ran rather than skipping. Two things remain unverified and a green CI does not close either.
+**No rendered copy in either locale has been seen by anyone** — the component harness renders
+`$t` as the key, so the locale files are checked only for `en`/`zh-TW` parity and the escaped
+literal `@`. And **no second release has ever run beside this one**: every db-tier test drives
+both sides from *this* build, so "an old replica enforces the mirrored legacy snapshot" rests on
+the previous image's reader contract being what it is believed to be. That is the risk the whole
+rollout design exists to manage, and AC-8 stays unticked for exactly that clause.
 
 Removed on 2026-08-31 after implementation:
 `2026-08-30-chatroom-approval-and-overlay-discoverability` (the room `approval.requested` event
