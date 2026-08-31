@@ -56,6 +56,36 @@ async def register_activity_validators_step(_settings: Settings) -> None:
     register_first_party_validators()
 
 
+async def import_email_domain_policy_step(_settings: Settings) -> None:
+    """R19a.13: import the legacy Redis policy into PostgreSQL, once, at boot.
+
+    **Deliberately fatal**, unlike `prime_rate_limits_step` below. The limiter
+    has compile-time defaults to fall back on; the email-domain policy has none,
+    so a boot that continued past an unreadable or corrupt legacy policy would
+    serve requests with no policy authority at all — which is the failure this
+    whole change exists to end.
+    """
+    from contexts.identity.application.email_domain_bootstrap import (
+        import_legacy_policy_if_absent,
+    )
+    from contexts.identity.infrastructure.email_domain_legacy import (
+        RedisLegacyEmailDomainPolicyStore,
+    )
+    from contexts.identity.infrastructure.email_domain_repository import (
+        EmailDomainPolicyRepository,
+    )
+    from shared_kernel.db.session import async_session
+
+    # One transaction holds the advisory lock, the re-read and the insert, so
+    # concurrent first starts elect one winner and a failure leaves no row.
+    async with async_session() as db, db.begin():
+        await import_legacy_policy_if_absent(
+            db,
+            repository=EmailDomainPolicyRepository(db),
+            legacy=RedisLegacyEmailDomainPolicyStore(),
+        )
+
+
 async def prime_rate_limits_step(_settings: Settings) -> None:
     """Seed rate-limit policy rows + prime the Redis mirror.
 
@@ -77,6 +107,12 @@ INITIALIZERS: list[Initializer] = [
     warn_email_step,
     register_activity_validators_step,
     seed_users_step,
+    # After seed_users_step: the imported row's `updated_by_user_id` is NULL, but
+    # a later Admin write FKs to `users`, and running the policy import before
+    # the schema has any user rows has no ordering benefit either way. Before the
+    # rate-limit prime because this one is fatal and that one is not — a boot
+    # that is going to fail should fail before doing best-effort work.
+    import_email_domain_policy_step,
     prime_rate_limits_step,
 ]
 
