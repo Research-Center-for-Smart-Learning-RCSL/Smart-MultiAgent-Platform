@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref, watch, type Ref } from 'vue'
 
-import { ApiError } from '@shared/api-client'
+import { ApiError } from '@shared/errors'
 import { type ChannelEvent, wsManager } from '@shared/transport'
 
 import { promptStudioApi } from '../api'

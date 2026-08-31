@@ -10,7 +10,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 
 import type { ChannelEvent } from '@shared/transport'
-import { ApiError } from '@shared/api-client'
+import { ApiError } from '@shared/errors'
 
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
 const statusHandlers: Array<(connected: boolean) => void> = []
@@ -50,12 +50,17 @@ function emitStatus(connected: boolean): void {
   for (const h of [...statusHandlers]) h(connected)
 }
 
+// Must be the class the transport actually throws (`parseProblem` ->
+// @shared/errors), not the generated client's unreachable same-named one: the
+// expiry branch under test is an `instanceof` check, so the wrong class makes
+// it dead code that a green test cannot detect.
 function apiError(status: number): ApiError {
-  return new ApiError(
-    {} as never,
-    { url: '', ok: false, status, statusText: '', body: {} },
-    'request failed',
-  )
+  return new ApiError({
+    type: 'https://smap.local/problems/not-found',
+    title: 'Not Found',
+    status,
+    detail: 'request failed',
+  })
 }
 
 beforeEach(() => {

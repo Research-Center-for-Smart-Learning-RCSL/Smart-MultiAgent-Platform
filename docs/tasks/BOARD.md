@@ -38,7 +38,8 @@ was approved and implemented on 2026-08-31; `runtime-contract-integrity` is stil
   re-read the phase per request would defeat the cache and one that cached the phase alone would
   enforce a stale authority. Carries a draft [R19a.13] amendment.
 
-- `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
+- (approved 2026-09-01; moved to In progress below.) The original entry, kept here for its detail:
+  `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
   Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
   `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
   make provider seed support an independent backend/UI capability, forwarding Gemini's supported
@@ -504,6 +505,9 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-08-30-runtime-contract-integrity` (bugfix, **approved 2026-09-01**) — `depends_on: []`.
+  Freshness re-verified at approval: `git diff 73125821..HEAD` over every file the spec cites is
+  empty, so the analysis stands unchanged. Branch `fix/runtime-contract-integrity`, base `0060c45`.
 
 Removed on 2026-08-31 after implementation:
 `2026-08-30-identity-onboarding-policy-hardening` (the email-domain policy is a versioned, audited

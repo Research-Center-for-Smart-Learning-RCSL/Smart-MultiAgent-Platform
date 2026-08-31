@@ -1,7 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-08-30
+approved: 2026-09-01
 requirements: [R9.03a, R24.35]
 depends_on: []
 ---
