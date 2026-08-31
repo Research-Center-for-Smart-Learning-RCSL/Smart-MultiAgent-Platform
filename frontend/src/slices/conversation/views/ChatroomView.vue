@@ -24,32 +24,50 @@
       :observers-present="roomQuery.data.value?.observers_present ?? false"
       :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
-      @search="searchOpen = true"
+      @search="surfaces.open('search')"
       @settings="goSettings"
       @export="openExport"
-      @toggle-agents="agentsDrawerOpen = !agentsDrawerOpen"
-      @toggle-people="peopleDrawerOpen = !peopleDrawerOpen"
+      @toggle-agents="surfaces.toggle('agents')"
+      @toggle-people="surfaces.toggle('people')"
+    />
+
+    <!-- One scrim for all three transient surfaces, because only one of them
+         can be active. Placed in the grid rather than inset over it so its area
+         follows the band: the feed column alone for search, everything below
+         the header once a rail overlay covers the composer too. -->
+    <div
+      v-if="scrimSurface"
+      class="chatroom__scrim"
+      :class="`chatroom__scrim--${scrimSurface}`"
+      role="none"
+      @click="surfaces.close()"
+      @keydown.enter="surfaces.close()"
     />
 
     <ChatroomAgentSidebar
       v-if="!isMobile"
+      ref="agentsPanelEl"
       class="chatroom__agents"
       :class="{ 'chatroom__panel--open': agentsDrawerOpen }"
       :agents="agentList"
+      :aria-label="t('conversation.chatroom.agents')"
+      tabindex="-1"
     />
 
     <div class="chatroom__feed">
-      <ChatroomSearchPanel
-        v-if="searchOpen"
-        :query="searchQuery"
-        :hits="searchHits"
-        :rendered-snippets="renderedSnippets"
-        :searching="searching"
-        @update:query="searchQuery = $event"
-        @search="doSearch"
-        @close="searchOpen = false"
-        @select="onSelectHit"
-      />
+      <Transition name="search-panel">
+        <ChatroomSearchPanel
+          v-if="searchOpen"
+          :query="searchQuery"
+          :hits="searchHits"
+          :rendered-snippets="renderedSnippets"
+          :searching="searching"
+          @update:query="searchQuery = $event"
+          @search="doSearch"
+          @close="surfaces.close('search')"
+          @select="onSelectHit"
+        />
+      </Transition>
 
       <ol
         ref="listRef"
@@ -208,8 +226,12 @@
     />
     <div
       v-if="isDesktop"
+      ref="peoplePanelEl"
       class="chatroom__presence"
       :class="{ 'chatroom__panel--open': peopleDrawerOpen }"
+      role="complementary"
+      :aria-label="t('conversation.chatroom.people')"
+      tabindex="-1"
     >
       <STabs
         v-if="showRailTabs"
@@ -260,7 +282,7 @@
       :open="agentsDrawerOpen"
       side="left"
       :title="t('conversation.chatroom.agents')"
-      @close="agentsDrawerOpen = false"
+      @close="surfaces.close('agents')"
     >
       <ChatroomAgentSidebar :agents="agentList" />
     </SDrawer>
@@ -270,7 +292,7 @@
       :open="peopleDrawerOpen"
       side="right"
       :title="t('conversation.chatroom.people')"
-      @close="peopleDrawerOpen = false"
+      @close="surfaces.close('people')"
     >
       <STabs
         v-if="showRailTabs"
@@ -334,12 +356,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
-import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useResizablePanel, BP } from '@shared/composables'
+import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useFocusTrap, useResizablePanel, BP } from '@shared/composables'
 import {
   SAlert,
   SButton,
@@ -370,6 +392,7 @@ import { useChatroomExport } from '../composables/useChatroomExport'
 import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
+import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
 import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
@@ -576,9 +599,19 @@ const showActivityTab = computed(
   () => observations.isCreator.value || !!activitiesStore.getActivation(chatroomId),
 )
 const showRailTabs = computed(() => showObserverTab.value || showActivityTab.value)
+// Search, agents and people/observer are one mutually exclusive group wherever
+// more than one of them is transient (Q-5/Q-8). The coordinator holds that
+// single owner plus the focus-restoration target; the three booleans below are
+// projections of it, kept under their old names because the drawers, the header
+// and the panel classes all read them.
+//
 // Declared here (ahead of its drawer markup) so the W-3 visibility computed
-// below can read it without a temporal-dead-zone hit under the immediate watch.
-const peopleDrawerOpen = ref(false)
+// below can read `peopleDrawerOpen` without a temporal-dead-zone hit under the
+// immediate watch.
+const surfaces = useTransientSurfaces()
+const searchOpen = computed(() => surfaces.isOpen('search'))
+const agentsDrawerOpen = computed(() => surfaces.isOpen('agents'))
+const peopleDrawerOpen = computed(() => surfaces.isOpen('people'))
 const railTab = ref<'people' | 'observer' | 'activity'>('people')
 const railTabs = computed(() => [
   { key: 'people', label: t('conversation.chatroom.people'), icon: UsersIcon },
@@ -882,7 +915,7 @@ function onKeyDown(e: KeyboardEvent): void {
     const tag = (document.activeElement as HTMLElement | null)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
     e.preventDefault()
-    searchOpen.value = !searchOpen.value
+    surfaces.toggle('search')
   }
 }
 
@@ -943,30 +976,88 @@ watch(
 
 // ---- header actions -------------------------------------------------------
 
-const searchOpen = ref(false)
 const searching = ref(false)
 const exportOpen = ref(false)
-const agentsDrawerOpen = ref(false)
 
-// Panel visibility does not survive a change of layout band. These two refs
-// drive an SDrawer below lg and an overlay panel at 1024-1279 (Q-7 reuses them
-// deliberately, rather than adding a third set of visibility state), so a panel
-// left open in one band would otherwise reappear as an already-open drawer in
-// whichever band the viewport lands in next.
-watch([isMobile, isCompactDesktop], () => {
-  agentsDrawerOpen.value = false
-  peopleDrawerOpen.value = false
+// Panel visibility does not survive a change of layout band: a panel left open
+// in one band would otherwise reappear as an already-open drawer in whichever
+// band the viewport lands in next. `reset` rather than `close` because the
+// control that opened it may have been unmounted by the same resize, and
+// focusing a detached node drops focus to <body>.
+watch([isMobile, isCompactDesktop], () => surfaces.reset())
+
+// Which surface the scrim is currently backing, and how far it reaches. Search
+// dims only the feed it is scoped to (07-conversation.md:748); a compact rail
+// overlay covers the composer as well, so its scrim has to reach the same
+// content the panel does or the composer stays clickable behind a dimmed feed.
+// At >=1280 the rails are persistent and never scrimmed.
+const scrimSurface = computed<'search' | 'rail' | null>(() => {
+  if (searchOpen.value) return 'search'
+  if (isCompactDesktop.value && (agentsDrawerOpen.value || peopleDrawerOpen.value)) return 'rail'
+  return null
 })
 
-// Escape closes a compact-band overlay panel. Below lg the SDrawer brings its
-// own dismissal; the overlay panels have none, so without this the only way out
-// is to find the header toggle again. The rest of the drawer's affordances
-// (focus move, focus restore, backdrop) are FU-9.
+// The two in-chat rail panels get the drawer's focus behaviour without the
+// drawer's modality: focus moves in on open and Tab stays inside, but the
+// document keeps scrolling (they cover only part of it) and restoration is the
+// coordinator's, which is the only thing that can tell a close from a hand-off.
+// Only in the compact band — below lg the same content is an SDrawer with its
+// own trap, and at >=1280 these are persistent rails that must stay in the
+// normal tab order.
+const agentsPanelEl = useTemplateRef<ComponentPublicInstance>('agentsPanelEl')
+const agentsPanelRef = computed(() => (agentsPanelEl.value?.$el as HTMLElement | null) ?? null)
+const peoplePanelRef = useTemplateRef<HTMLElement>('peoplePanelEl')
+const railTrapOptions = { lockScroll: false, restoreFocus: false } as const
+const { trapTab: trapAgentsTab } = useFocusTrap(
+  agentsPanelRef,
+  () => isCompactDesktop.value && agentsDrawerOpen.value,
+  railTrapOptions,
+)
+const { trapTab: trapPeopleTab } = useFocusTrap(
+  peoplePanelRef,
+  () => isCompactDesktop.value && peopleDrawerOpen.value,
+  railTrapOptions,
+)
+
+// Tab containment for the compact overlay panels, bound on the panels rather
+// than on window: at >=1280 the same elements are persistent rails, where
+// trapping Tab would lock a keyboard user inside a column they never asked to
+// enter. Escape is handled at window level below instead, because a surface can
+// be dismissed from outside itself — search leaves the composer reachable.
+//
+// Attached imperatively rather than with `@keydown`, because gate #11's
+// `no-static-element-interactions` rejects a key handler on a non-interactive
+// element and a panel is exactly that: a container, not a control.
+function bindTabTrap(
+  el: Readonly<Ref<HTMLElement | null>>,
+  trap: (e: KeyboardEvent) => void,
+): void {
+  const handler = (e: KeyboardEvent): void => {
+    if (isCompactDesktop.value && e.key === 'Tab') trap(e)
+  }
+  watch(
+    el,
+    (next, prev) => {
+      prev?.removeEventListener('keydown', handler)
+      next?.addEventListener('keydown', handler)
+    },
+    { immediate: true },
+  )
+  onBeforeUnmount(() => el.value?.removeEventListener('keydown', handler))
+}
+
+bindTabTrap(agentsPanelRef, trapAgentsTab)
+bindTabTrap(peoplePanelRef, trapPeopleTab)
+
+// Escape dismisses whichever surface is active, restoring focus to the control
+// that opened it. Below lg the SDrawer also handles Escape and emits the same
+// close; the second call is a no-op because nothing is active by then.
 function onWindowKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape' || !isCompactDesktop.value) return
-  if (!agentsDrawerOpen.value && !peopleDrawerOpen.value) return
-  agentsDrawerOpen.value = false
-  peopleDrawerOpen.value = false
+  // The export dialog is a true modal stacked above all of this. Letting the
+  // same keypress close both would dismiss a surface the user cannot see.
+  if (e.key !== 'Escape' || exportOpen.value) return
+  if (surfaces.active.value === null) return
+  surfaces.close()
 }
 
 onMounted(() => window.addEventListener('keydown', onWindowKeydown))
@@ -1013,7 +1104,7 @@ async function doSearch(): Promise<void> {
 }
 
 function onSelectHit(hit: SearchHit): void {
-  searchOpen.value = false
+  surfaces.close('search')
   // The panel sits over the feed; let it unmount before scrolling so the
   // target message is not obscured. A hit may reference a message that has
   // not been paginated into the feed yet — there is no "load-around" endpoint,
@@ -1239,6 +1330,58 @@ function onExportSubmit(opts: ExportOptions): void {
 .chatroom__rail-handle {
   grid-column: 3;
   grid-row: 2 / -1;
+}
+
+/* Backdrop for whichever transient surface is active. A grid child rather than
+   an inset overlay, so its extent is described by the same tracks the panels
+   are: no second copy of the layout to keep in step.
+
+   `--z-dropdown` minus one puts it under the panel it backs and over the feed.
+   Neither .chatroom__feed nor .chatroom__presence creates a stacking context
+   (both are `position: relative` at `z-index: auto`), so the search panel's own
+   `--z-dropdown` still resolves against the same context and paints above. */
+.chatroom__scrim {
+  z-index: calc(var(--z-dropdown) - 1);
+  /* 07-conversation.md:748 — the token at 0.2. Deliberately faint: this dims
+     the feed enough to read as inactive while leaving the messages behind a
+     search result legible, which is the whole point of a feed-scoped search. */
+  background: var(--overlay-backdrop);
+  opacity: 0.2;
+  /* The token is a duration+easing shorthand already; appending an easing here
+     produces two timing functions and the browser drops the declaration. */
+  animation: chatroom-scrim-in var(--transition-normal);
+}
+
+/* Search is scoped to the feed it searches, so it dims the feed area only and
+   leaves the composer live. */
+.chatroom__scrim--search {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+/* A compact rail overlay spans from below the header to the bottom of the
+   window, so its scrim has to as well — otherwise the composer stays clickable
+   under a panel that is meant to have taken over. */
+.chatroom__scrim--rail {
+  grid-column: 1 / -1;
+  grid-row: 2 / -1;
+}
+
+.chatroom--mobile .chatroom__scrim--search,
+.chatroom--compact .chatroom__scrim--search {
+  grid-column: 1;
+}
+
+@keyframes chatroom-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatroom__scrim {
+    animation: none;
+  }
 }
 
 .chatroom__presence {
