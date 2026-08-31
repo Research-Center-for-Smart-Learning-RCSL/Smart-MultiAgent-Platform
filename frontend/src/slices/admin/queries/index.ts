@@ -32,4 +32,6 @@ export const adminKeys = {
     ['admin', 'activity-policy'] as const,
   activityExamples: () =>
     ['admin', 'activity-examples'] as const,
+  emailDomainPolicy: () =>
+    ['admin', 'email-domain-policy'] as const,
 }

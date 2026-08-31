@@ -4967,6 +4967,124 @@
         "title": "DocumentStatus",
         "type": "string"
       },
+      "EmailDomainPolicyIn": {
+        "description": "A full replacement, not a patch.\n\nBounds are declared here as well as in the domain normaliser so an oversized\nbody is rejected at the boundary rather than after being parsed and\nnormalised \u2014 the normaliser is the decision, this is the cost control.",
+        "properties": {
+          "allow": {
+            "items": {
+              "maxLength": 253,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Allow",
+            "type": "array"
+          },
+          "deny": {
+            "items": {
+              "maxLength": 253,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Deny",
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EmailDomainPolicyMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "EmailDomainPolicyIn",
+        "type": "object"
+      },
+      "EmailDomainPolicyMode": {
+        "description": "Which list governs.\n\n``ALLOW`` admits only listed domains, so an empty allow list is a legal\ndeny-all. ``DENY`` refuses only listed domains, so an empty deny list is a\nlegal allow-all. ``OFF`` applies no restriction and may retain dormant lists\nan operator intends to re-enable.",
+        "enum": [
+          "allow",
+          "deny",
+          "off"
+        ],
+        "title": "EmailDomainPolicyMode",
+        "type": "string"
+      },
+      "EmailDomainPolicyOut": {
+        "description": "The stored policy plus the rollout facts the Admin UI needs.\n\n``rollout_state`` is not decoration: the form is read-only outside `active`,\nand without it the UI could only discover that by attempting a write and\nreading a 409. ``legacy_mirrored_version`` is the rollback marker \u2014 equal to\n``version`` means the legacy triple has been written and read back, which is\nthe documented precondition for starting an old image.",
+        "properties": {
+          "allow": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allow",
+            "type": "array"
+          },
+          "deny": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deny",
+            "type": "array"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "legacy_mirrored_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Mirrored Version"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/EmailDomainPolicyMode"
+          },
+          "rollout_state": {
+            "$ref": "#/components/schemas/EmailDomainPolicyRolloutState"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "allow",
+          "deny",
+          "version",
+          "rollout_state",
+          "legacy_mirrored_version",
+          "updated_at",
+          "editable"
+        ],
+        "title": "EmailDomainPolicyOut",
+        "type": "object"
+      },
+      "EmailDomainPolicyRolloutState": {
+        "description": "Which store a new reader must treat as authoritative.\n\n``COMPATIBILITY`` \u2014 the legacy Redis triple still governs, because replicas\nthat know only those three keys may still be serving. Admin writes are fenced.\n\n``ACTIVE`` \u2014 PostgreSQL governs, with a disposable Redis mirror in front of\nit. The only phase in which an Admin may write.\n\n``ROLLBACK_FROZEN`` \u2014 PostgreSQL governs and is frozen, while the legacy\ntriple is rewritten beneath it so old images can be started. Writes are\nfenced so the verified mirror cannot go stale the moment it is taken.",
+        "enum": [
+          "compatibility",
+          "active",
+          "rollback_frozen"
+        ],
+        "title": "EmailDomainPolicyRolloutState",
+        "type": "string"
+      },
       "EmbedModelOut": {
         "properties": {
           "dimension": {
@@ -12315,6 +12433,88 @@
           }
         },
         "summary": "Export Audit",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/email-domain-policy": {
+      "get": {
+        "description": "The policy in force, readable in every rollout phase.\n\nReadable while writes are fenced on purpose: an operator mid-rollout needs\nto see what is stored precisely because they cannot change it.",
+        "operationId": "get_email_domain_policy_api_admin_email_domain_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailDomainPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Email Domain Policy",
+        "tags": [
+          "admin",
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Replace the policy. Permitted only while the rollout state is `active`.\n\n``If-Match`` carries the version the Admin's form was built against and is\nrequired: the row always exists by the time this route is reachable (the\nstartup import creates it), so there is no \"first write\" case that could\nlegitimately omit it. A missing or unparseable precondition is a mismatch\nrather than \"no precondition\" \u2014 treating an unreadable header as permission\nto overwrite would defeat the point of having one.",
+        "operationId": "put_email_domain_policy_api_admin_email_domain_policy_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailDomainPolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailDomainPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Put Email Domain Policy",
         "tags": [
           "admin",
           "admin"

@@ -42,6 +42,38 @@ _MAP: ErrorMap = {
         429,
         "Too many activation-link requests for this account",
     ),
+    errors.InvalidEmailDomain: ("admin/email-domain-invalid", 422, "Invalid email domain"),
+    errors.EmailDomainPolicyVersionMismatch: (
+        "admin/email-domain-policy-stale",
+        409,
+        "Email-domain policy changed since it was loaded",
+    ),
+    errors.EmailDomainPolicyRolloutFenced: (
+        "admin/email-domain-policy-fenced",
+        409,
+        "Email-domain policy is read-only during this rollout phase",
+    ),
+    errors.EmailDomainPolicyUnavailable: (
+        "admin/email-domain-policy-unavailable",
+        503,
+        "Email-domain policy is temporarily unavailable",
+    ),
+    # Reachable at request time, not only at boot: while the rollout state is
+    # `compatibility` the legacy triple governs and is re-read per request, so an
+    # operator editing those keys with `redis-cli` into a shape the classifier
+    # rejects surfaces here. Its own slug rather than sharing the one above,
+    # because "the policy store is corrupt" and "the policy store is unreachable"
+    # send an operator to different places.
+    errors.InvalidLegacyEmailDomainPolicy: (
+        "admin/email-domain-legacy-invalid",
+        503,
+        "Legacy email-domain keys are in an unusable state",
+    ),
+    errors.AdminProvisioningRateLimited: (
+        "admin/provisioning-rate-limited",
+        429,
+        "Too many accounts created by this administrator",
+    ),
     errors.OriginalCreatorSelfDeleteBlocked: (
         "tenancy/original-creator-self-delete-blocked",
         409,
@@ -52,8 +84,15 @@ _MAP: ErrorMap = {
 
 def _extras(exc: Exception) -> dict[str, Any]:
     extras: dict[str, Any] = {}
-    if isinstance(exc, errors.Lockout | errors.ActivationLinkRateLimited):
+    if isinstance(
+        exc,
+        errors.Lockout | errors.ActivationLinkRateLimited | errors.AdminProvisioningRateLimited,
+    ):
         extras["retry_after_seconds"] = exc.retry_after_seconds
+    if isinstance(exc, errors.EmailDomainPolicyRolloutFenced):
+        # The phase itself, so the Admin UI can say *why* the form is read-only
+        # and which operator step lifts it, rather than showing a bare conflict.
+        extras["rollout_state"] = exc.rollout_state
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs
     return extras

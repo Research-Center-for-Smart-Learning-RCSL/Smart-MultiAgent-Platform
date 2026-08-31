@@ -191,6 +191,34 @@ export type ActivityPolicyInput = Omit<
   'version' | 'updated_at' | 'updated_by_user_id'
 >
 
+/** Which store is authoritative for the email-domain policy right now (R19a.13).
+ *
+ *  `compatibility` means replicas of the previous image may still be serving and
+ *  the legacy Redis keys still govern; `rollback_frozen` means a rollback has
+ *  been prepared. Writes are fenced in both, which is why the UI needs the phase
+ *  rather than discovering it from a 409. */
+export type EmailDomainRolloutState = 'compatibility' | 'active' | 'rollback_frozen'
+
+export type EmailDomainMode = 'allow' | 'deny' | 'off'
+
+/** The stored email-domain policy (R19a.13).
+ *
+ *  `editable` is the server's own reading of the phase, so the form does not
+ *  re-derive the rule. `legacy_mirrored_version` equalling `version` is the
+ *  rollback marker an operator must see before starting an old image. */
+export interface EmailDomainPolicy {
+  mode: EmailDomainMode
+  allow: string[]
+  deny: string[]
+  version: number
+  rollout_state: EmailDomainRolloutState
+  legacy_mirrored_version: number | null
+  updated_at: string | null
+  editable: boolean
+}
+
+export type EmailDomainPolicyInput = Pick<EmailDomainPolicy, 'mode' | 'allow' | 'deny'>
+
 /** What a candidate policy would block.
  *
  *  `violating_activations` counts activities running right now whose type the

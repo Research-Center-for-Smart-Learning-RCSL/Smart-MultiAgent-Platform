@@ -52,6 +52,53 @@ async def sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 
 @pytest.fixture
+async def permissive_email_domain_policy(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[None]:
+    """An `active`, `off` policy row plus a cleared cache (R19a.13).
+
+    The row is created by an ordered startup initializer, which no integration
+    test runs, and the reader raises rather than defaulting to "no restriction"
+    when the row is missing -- deliberately, since that default is the failure
+    this whole control exists to end. Any test that registers, changes an email
+    or provisions an account therefore has to stand the row up, exactly as a
+    booted application would have.
+
+    `off` because these tests are about onboarding, not about the policy. Any
+    test asserting the policy's own behaviour sets its own row.
+    """
+    from contexts.identity.application.email_domain_policy_reader import reset_process_cache
+    from contexts.identity.infrastructure.email_domain_mirror import KEY as MIRROR_KEY
+    from contexts.identity.infrastructure.tables import EMAIL_DOMAIN_POLICY_ID
+    from contexts.identity.infrastructure.tables import email_domain_policies as policy_t
+    from shared_kernel.auth.clients import get_redis
+
+    async with sessionmaker() as session:
+        await session.execute(
+            text(
+                "INSERT INTO email_domain_policies (id, mode, rollout_state, version) "
+                "VALUES (:id, 'off', 'active', 1) "
+                "ON CONFLICT (id) DO UPDATE SET mode = 'off', rollout_state = 'active'"
+            ),
+            {"id": EMAIL_DOMAIN_POLICY_ID},
+        )
+        await session.commit()
+    # Both caches: the process-wide snapshot survives between tests in one
+    # worker, and a mirror value written by an earlier test would otherwise
+    # answer for this one.
+    reset_process_cache()
+    await get_redis().delete(MIRROR_KEY)
+    try:
+        yield
+    finally:
+        reset_process_cache()
+        async with sessionmaker() as cleanup:
+            await cleanup.execute(policy_t.delete())
+            await cleanup.commit()
+        await get_redis().delete(MIRROR_KEY)
+
+
+@pytest.fixture
 async def project(
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[tuple[uuid.UUID, uuid.UUID]]:
