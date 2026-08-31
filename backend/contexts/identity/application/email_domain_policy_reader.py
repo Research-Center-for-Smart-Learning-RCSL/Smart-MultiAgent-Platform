@@ -111,7 +111,13 @@ class EmailDomainPolicyReader:
         # ROLLBACK_FROZEN: read the authority directly rather than serve a cached
         # snapshot while the rollback rewrites Redis beside it. A bounded operator
         # window, not a steady state.
-        frozen = await self._repository.get()
+        #
+        # Through `_read_repository` rather than the repository, so a database
+        # failure here becomes the same typed 503 as everywhere else in this
+        # module. Reading it directly would make the one phase an operator is
+        # most likely to be watching the one phase that answers with a generic
+        # 500 instead.
+        frozen = await self._read_repository()
         if frozen is None:
             raise EmailDomainPolicyUnavailable("policy row disappeared during rollback preparation")
         return frozen

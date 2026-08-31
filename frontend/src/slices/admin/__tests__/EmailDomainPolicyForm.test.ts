@@ -5,9 +5,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
+import { QueryClient } from '@tanstack/vue-query'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import EmailDomainPolicyForm from '../components/EmailDomainPolicyForm.vue'
+import { adminKeys } from '../queries'
 import en from '../locales/en.json'
 import zhTW from '../locales/zh-TW.json'
 
@@ -150,6 +152,49 @@ describe('EmailDomainPolicyForm', () => {
     const active = await renderView(EmailDomainPolicyForm)
     await settled()
     expect(active.find('[data-testid="email-domain-rollback-marker"]').exists()).toBe(false)
+  })
+
+  it('does not discard an in-progress edit when a background refetch resolves', async () => {
+    // The query client sets no staleTime and does not disable
+    // refetchOnWindowFocus, so TanStack refetches in the background and hands
+    // back a fresh object whenever the tab regains focus. Seeding the textareas
+    // unconditionally meant an admin who pasted a long list and alt-tabbed came
+    // back to the server copy with their work gone.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    server.use(getPolicy(ACTIVE))
+    const wrapper = await renderView(EmailDomainPolicyForm, { queryClient: qc })
+    await settled()
+
+    await wrapper.find('[data-testid="email-domain-allow"]').setValue('typed.edu\nstill-typing.edu')
+    await settled()
+
+    // A real refetch, resolving with a policy the admin has not seen.
+    server.use(getPolicy({ ...ACTIVE, allow: ['server-side.edu'], version: 9 }))
+    await qc.invalidateQueries({ queryKey: adminKeys.emailDomainPolicy() })
+    await settled(120)
+
+    expect(wrapper.find('[data-testid="email-domain-allow"]').element).toHaveProperty(
+      'value',
+      'typed.edu\nstill-typing.edu',
+    )
+  })
+
+  it('re-seeds from the server once the form is no longer dirty', async () => {
+    // The other half of the guard: an untouched form must still pick up another
+    // admin's edit, or the read would go stale for as long as the tab is open.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    server.use(getPolicy(ACTIVE))
+    const wrapper = await renderView(EmailDomainPolicyForm, { queryClient: qc })
+    await settled()
+
+    server.use(getPolicy({ ...ACTIVE, allow: ['server-side.edu'], version: 9 }))
+    await qc.invalidateQueries({ queryKey: adminKeys.emailDomainPolicy() })
+    await settled(120)
+
+    expect(wrapper.find('[data-testid="email-domain-allow"]').element).toHaveProperty(
+      'value',
+      'server-side.edu',
+    )
   })
 
   it('sends the loaded version as If-Match and the lists split by line', async () => {

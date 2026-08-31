@@ -514,7 +514,21 @@ PR #175, CI run `33363993395`, 23 of 23 checks green including `backend-db`. Its
 amendment is still draft** in the dossier's §13 and has deliberately **not** been applied to
 `REQUIREMENTS.md` — it needs explicit approval.
 
-**Six things a later reader needs.**
+**Seven things a later reader needs.**
+
+**A `/code-review` pass found five issues after CI went green, and four were the same shape: a
+docstring or runbook promising something the code did not do.** `InvalidLegacyEmailDomainPolicy`
+was raised and exported but never mapped, so it fell through to `internal`/500 — reachable at
+*request* time, since `compatibility` re-reads the legacy triple per request and that is where
+every deployment sits until an operator activates. The `rollback_frozen` branch bypassed the
+wrapper that makes every other database read a typed 503. `_run_transition` caught only its own
+error type while the transitions it wraps also raise store errors, so a Redis blip mid-rollback
+would have printed a traceback at the worst possible moment. And §7a.6 listed three boot-blocking
+legacy shapes when there are four — **the omitted one being the likeliest**, because the replaced
+code applied no validation at all, so `localhost`, `*.example.edu` or a stray space may well sit
+in a live deployment's Redis right now and would fail a boot that is fatal by design. The runbook
+now carries a pre-upgrade `SMEMBERS` check. Fifth: the Admin form discarded in-progress edits on
+any background refetch. D-10.
 
 **CI's first run was red, and both failures were in the dossier's own new db-tier tests.**
 `pytest.raises` shared an `async with` header with the session (it is a *sync* context manager, so
