@@ -110,6 +110,20 @@ ships to production, so Active LTS is the floor.
 **Release when:** Node 26 reaches LTS. Then bump all three in one commit —
 `NODE_VERSION`, the Dockerfile stage, and `@types/node` — never one alone.
 
+**The "never one alone" rule was already broken once, within the 24 line
+(2026-09-01).** `NODE_VERSION` sat at 24.18.0 while the Dockerfile had moved to
+24.19.0, and the board was green throughout — exactly the silent failure this
+entry predicts, just from a patch bump rather than a major. The cause was the
+ignore rule: it blocked only `semver-major`, so minor and patch Docker bumps
+kept arriving on their own, and nothing on the other side ever proposes a
+`NODE_VERSION` change (the github-actions ecosystem watches action refs, not
+env values). Both sites were realigned at 24.20.0 and the ignore now covers
+every update type, so Node moves by hand, as a pair, at any semver level.
+
+`@types/node` is the third site but cannot be held to the same literal value:
+its patch stream is the DefinitelyTyped package's, not Node's. Only its major
+has to agree, and 24.x does.
+
 ## typescript — held at 5.9.3 (latest 7.0.2)
 
 **Logged:** 2026-08-14 · **Blocks:** #146 · **Upstream:** typescript-eslint/typescript-eslint#10940 (open)
