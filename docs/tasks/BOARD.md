@@ -534,6 +534,18 @@ suite builds on, was linted by nothing at all. A guard that cannot see test fixt
 against a defect whose signature was a test fixture. D-2; fixed in `c1651f7`, and `frontend/tests/**`
 is now linted for the first time, by that one rule. Bringing the rest of the rule set to it is FU-5.
 
+**A `/code-review` pass after CI went green found two more, and both were about the new gate rather
+than the change it guards.** The selectors pinned the exact barrel specifier, so
+`@shared/api-client/core/ApiError` — a deep path that resolves through the alias just fine — slipped
+past while the gate reported itself healthy; that is the second time in one task that this gate was
+narrower than its own promise. More importantly, **"the generated `ApiError` is unreachable" is too
+strong**: `axios.ts:194` converts only when the body carries a string `type`, so any non-problem+json
+error response (nginx 413/502/504, or any layer in front of `register_exception_handlers`) falls
+through `:201` and `core/request.ts:228,266` re-raises it as the generated class. The two repaired
+branches are unaffected — a backend 422 and 404 are both problem+json — but the wording is now
+narrowed everywhere it appeared, and FU-6 owns normalising those responses in the interceptor so the
+strong claim becomes earnable. D-8.
+
 **Two green tests were rewritten rather than left passing.** `test_gemini_forwards_top_p_and_ignores_seed`
 would have stayed green through this change while documenting the opposite of the new contract, and
 an `AgentDetailView` case asserted `seedHelp` on a fixture whose OpenAI model now correctly renders

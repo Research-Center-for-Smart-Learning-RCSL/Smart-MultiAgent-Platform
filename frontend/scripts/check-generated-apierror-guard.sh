@@ -93,6 +93,23 @@ export { ApiError } from '@shared/api-client'
 EOF
 expect_rejected "$PROD_PROBE" "a re-export of the generated ApiError"
 
+# --- negative: deep path under the barrel ---
+# `@shared/api-client/core/ApiError` resolves through the alias just as well as
+# the barrel does. A selector pinned to the exact barrel specifier let this
+# through while the gate went on reporting itself healthy (code review, low #1).
+cat > "$PROD_PROBE" <<'EOF'
+import { ApiError } from '@shared/api-client/core/ApiError'
+export const probe = (e: unknown): boolean => e instanceof ApiError
+EOF
+expect_rejected "$PROD_PROBE" "a deep-path import of the generated ApiError"
+
+# --- negative: renamed on import ---
+cat > "$PROD_PROBE" <<'EOF'
+import { ApiError as GeneratedApiError } from '@shared/api-client'
+export const probe = (e: unknown): boolean => e instanceof GeneratedApiError
+EOF
+expect_rejected "$PROD_PROBE" "an aliased import of the generated ApiError"
+
 # --- positive: the shared class the transport actually throws ---
 cat > "$PROD_PROBE" <<'EOF'
 import { ApiError } from '@shared/errors'
@@ -100,12 +117,13 @@ export const probe = (e: unknown): boolean => e instanceof ApiError
 EOF
 expect_accepted "$PROD_PROBE" "importing ApiError from @shared/errors"
 
-# --- positive: other generated symbols ---
+# --- positive: other generated symbols, barrel and deep path alike ---
 cat > "$PROD_PROBE" <<'EOF'
 import { OpenAPI } from '@shared/api-client'
-export const probe = OpenAPI.WITH_CREDENTIALS
+import type { ApiResult } from '@shared/api-client/core/ApiResult'
+export const probe: ApiResult | boolean = OpenAPI.WITH_CREDENTIALS
 EOF
-expect_accepted "$PROD_PROBE" "importing a non-ApiError symbol from the generated client"
+expect_accepted "$PROD_PROBE" "importing non-ApiError symbols from the generated client"
 
 # --- positive: a same-named import from anywhere else ---
 cat > "$PROD_PROBE" <<'EOF'
@@ -113,4 +131,4 @@ export { ApiError } from '@shared/errors'
 EOF
 expect_accepted "$PROD_PROBE" "re-exporting the shared ApiError"
 
-echo "Gate #13b passed: $RULE rejects the generated ApiError in production, tests and re-exports, and permits the shared class and other generated symbols."
+echo "Gate #13b passed: $RULE rejects the generated ApiError in production, tests, re-exports, deep paths and under an alias, and permits the shared class and other generated symbols."

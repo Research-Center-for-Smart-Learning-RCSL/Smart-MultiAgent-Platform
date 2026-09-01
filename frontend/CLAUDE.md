@@ -50,12 +50,16 @@ src/
 10. **Type coverage**: >= 95%
 11. **Accessibility**: vuejs-accessibility plugin rules
 12. **i18n**: no bare string literals in templates
-13. **Generated `ApiError` is unreachable**: nothing may name it in an import or
-    re-export — the transport always throws `@shared/errors`. Enforced by a
-    `no-restricted-syntax` selector (so it survives the test-file override that
-    disables `no-restricted-imports`), and probed with fixtures by
-    `check:apierror-guard` (CI job `frontend-gate-apierror`) because a clean tree
-    makes a working rule and a broken one look identical
+13. **Never branch on the generated `ApiError`**: nothing may name it in an import
+    or re-export (barrel or deep path) — for every problem+json response, which is
+    everything the backend itself returns, the transport throws `@shared/errors`,
+    so an `instanceof` against the generated class is dead code. A non-problem+json
+    response (nginx 413/502/504) does still surface it via `core/request.ts`;
+    catching it is the wrong fix, normalising it in the interceptor is the right
+    one. Enforced by a `no-restricted-syntax` selector (so it survives the
+    test-file override that disables `no-restricted-imports`), and probed with
+    fixtures by `check:apierror-guard` (CI job `frontend-gate-apierror`) because a
+    clean tree makes a working rule and a broken one look identical
 
 Gate #1's cross-slice direction lives in the `SLICE_DEPS` map in `eslint.config.js`
 (`conversation` is the top-level host and imports `workflow`/`activities` one-way).
