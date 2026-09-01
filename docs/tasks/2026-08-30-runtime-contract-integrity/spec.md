@@ -106,11 +106,23 @@ class easy to discover, and tests repeated the production import instead of exer
 transport shape. Because both classes expose `status`, types and happy-path tests did not expose the
 identity mismatch.
 
-The generated `ApiError` is not merely the less common of two live classes: it is unreachable.
+The generated `ApiError` is not merely the less common of two live classes.
 `core/request.ts:266,280` does throw it, but the generated services call the bare `axios` singleton,
 and `transport/axios.ts:225-227` registers the same rejection handler on that singleton as on
-`http`, so `parseProblem` converts every failure before `request.ts` can raise. No code path in the
-application produces the class these four files test for, which is why no test could go red.
+`http`, so `parseProblem` converts every problem+json failure before `request.ts` can raise. No
+problem+json response produces the class these four files test for, which is why no test could go
+red.
+
+**Correction (post-implementation code review, 2026-09-01).** The stronger word this section
+originally used — *unreachable* — is not accurate, and the difference matters because AC-3's lint
+rule forbids catching the class. `handleResponseError` converts only when the body carries a string
+`type` (`axios.ts:194`); anything else falls through to `throw error` at `:201`, and
+`core/request.ts:228` then returns that response so `catchErrorCodes` re-raises it as the generated
+class. Any non-problem+json error response — an nginx 413/502/504 HTML page, or any layer sitting in
+front of `register_exception_handlers` — therefore still surfaces it. The two branches this dossier
+repairs are unaffected, because a backend 422 and 404 are both problem+json; what changes is the
+justification, which is now worded for what is true wherever it is stated, and FU-6 owns closing the
+hole at the interceptor so the strong claim becomes earnable.
 
 ### Provider seed
 
@@ -303,6 +315,17 @@ in the verified official endpoint contract.
   *why* the control is disabled — the shape `samplingDisabledReason` and
   `effortDisabledReason` already use. §7.5 said "truthful help" without naming the key.
 
+- **D-8 (gate #13 widened again, and its justification narrowed — post-review).** A `/code-review`
+  pass after CI went green found two things, both about the gate rather than the seed work, and both
+  reproduced before acting. First, the selectors pinned the exact barrel specifier, so
+  `import { ApiError } from '@shared/api-client/core/ApiError'` — a path that resolves through the
+  alias perfectly well — produced zero lint errors while the gate went on reporting itself healthy;
+  gate #7 at the same file's `:334` had already anticipated that path with its `@shared/api-client/*`
+  pattern. Both selectors now match the barrel and any path under it, with deep-path and aliased-
+  import probes added. Second, §5's "unreachable" was too strong; see the correction recorded there.
+  The rule stays an `error` rather than gaining a carve-out, because catching the generated class is
+  still the wrong repair for the case that reaches it (FU-6).
+
 - **D-7 (row provenance deliberately not advanced).** `accepts_seed` was read against the
   live endpoint contracts on 2026-08-30, but each row's `verified_on` stays at
   `_UNVERIFIED_DATE` (2026-06-01). Moving it would claim that date's freshness for the
@@ -318,6 +341,14 @@ in the verified official endpoint contract.
 - FU-3: enable strict Vue templates through a staged remediation programme; the current backlog is
   too broad for this runtime fix.
 - FU-4: add isolated unit/Playwright typecheck projects after their existing backlogs are classified.
+- FU-6: normalise non-problem+json error responses in the axios interceptor, so
+  `transport/axios.ts:201` wraps them in a `@shared/errors.ApiError` instead of rethrowing the raw
+  `AxiosError` that `core/request.ts` then re-raises as the generated class. Today an nginx
+  413/502/504 is the one shape that still reaches a caller as the generated `ApiError`, and gate #13
+  correctly refuses to let anyone catch it — which leaves those responses with no typed recovery
+  path at all. Deliberately not done here: it changes the error object every `catch` in the app sees
+  and deserves its own analysis, whereas this dossier's scope was two specific dead branches. Found
+  by code review on this PR; the claim it corrects is recorded in §5.
 - FU-5: bring `frontend/tests/**` under the full ESLint rule set. D-2 discovered that tree
   was matched by no config at all and put exactly one rule on it; the shared fixtures and
   MSW handlers there deserve the same treatment as `src/`, but the rule set that would

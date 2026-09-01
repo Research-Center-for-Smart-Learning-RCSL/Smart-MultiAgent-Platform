@@ -121,13 +121,22 @@ export default [
     },
   },
 
-  // ---- Gate #13: the generated client's ApiError is unreachable ----
+  // ---- Gate #13: never branch on the generated client's ApiError ----
   // `transport/axios.ts` registers its problem+json rejection handler on the
-  // bare axios singleton the generated services call, so every failure is
+  // bare axios singleton the generated services call, so every problem+json
+  // failure — which is every error the SMAP backend itself produces — is
   // already a `@shared/errors` instance before `core/request.ts` could raise
   // its own same-named class. An `instanceof` against the generated one is
-  // therefore always false — dead recovery code that a test constructing the
+  // false for all of them: dead recovery code that a test constructing the
   // same wrong class cannot expose (R24.35).
+  //
+  // Not *strictly* unreachable, and the rule is worded for what is true. A
+  // response that is not problem+json (an nginx 413/502/504 HTML page, or any
+  // layer in front of `register_exception_handlers`) falls through
+  // `axios.ts:201` as a raw AxiosError, and `core/request.ts:228,266` then
+  // re-raises it as the generated class. Catching it there is still the wrong
+  // fix — the transport should be normalising those too, which is FU-6 — so
+  // this rule stays an error and the gap is named rather than carved out.
   //
   // `no-restricted-syntax`, not `no-restricted-imports`, because the test
   // override at the bottom of this file turns the latter off wholesale for
@@ -163,20 +172,25 @@ export default [
       },
     },
     rules: {
+      // Both selectors match the barrel AND any deep path under it
+      // (`@shared/api-client/core/ApiError` resolves perfectly well through the
+      // alias). Pinning the exact barrel specifier left that route open while
+      // the gate went on reporting itself healthy — gate #7 below already
+      // anticipates the same deep path with its `@shared/api-client/*` pattern.
       'no-restricted-syntax': ['error',
         {
           selector:
-            "ImportDeclaration[source.value='@shared/api-client'] > ImportSpecifier[imported.name='ApiError']",
+            'ImportDeclaration[source.value=/^@shared\\/api-client(\\/|$)/] > ImportSpecifier[imported.name="ApiError"]',
           message:
-            'The generated ApiError is never thrown — import ApiError from @shared/errors (gate #13).',
+            'The generated ApiError is not the class the transport throws — import ApiError from @shared/errors (gate #13).',
         },
         {
           // Closes the re-export route: a slice barrel could otherwise launder
           // the same class into a name that passes the selector above.
           selector:
-            "ExportNamedDeclaration[source.value='@shared/api-client'] > ExportSpecifier[local.name='ApiError']",
+            'ExportNamedDeclaration[source.value=/^@shared\\/api-client(\\/|$)/] > ExportSpecifier[local.name="ApiError"]',
           message:
-            'Re-exporting the generated ApiError spreads an unreachable class — use @shared/errors (gate #13).',
+            'Re-exporting the generated ApiError spreads the wrong class — use @shared/errors (gate #13).',
         },
       ],
     },
