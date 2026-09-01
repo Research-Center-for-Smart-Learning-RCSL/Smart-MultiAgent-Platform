@@ -120,8 +120,50 @@ def test_unknown_model_id_resolves_to_the_conservative_floor() -> None:
     assert spec.effort_conflicts_with_tools is False
     assert spec.context_limit == min(s.context_limit for s in specs_for_provider("openai"))
 
+    assert spec.accepts_seed is False
+
     fields = capability_fields(spec)
-    assert not any(fields[k] for k in ("accepts_effort", "accepts_sampling", "accepts_vision"))
+    assert not any(
+        fields[k] for k in ("accepts_effort", "accepts_sampling", "accepts_seed", "accepts_vision")
+    )
+
+
+def test_every_row_states_seed_acceptance_explicitly() -> None:
+    # A boolean on every row, not an absence: the defect this closes was seed
+    # having no representation at all, so no adapter and no form control could
+    # ask about it.
+    for spec in CHAT_MODEL_SPECS:
+        assert isinstance(spec.accepts_seed, bool), spec.model_id
+
+
+def test_seed_acceptance_follows_the_current_endpoint_contracts() -> None:
+    # Gemini's GenerationConfig exposes `seed`; the OpenAI Responses create
+    # request and Anthropic Messages do not. The form used to claim the exact
+    # inverse of this.
+    for spec in CHAT_MODEL_SPECS:
+        assert spec.accepts_seed is (spec.provider == "gemini"), spec.model_id
+
+
+def test_seed_and_sampling_are_independent_capabilities() -> None:
+    # The root cause: one `accepts_sampling` flag governing temperature, top-p
+    # and seed together. Each provider family below disagrees with the other
+    # flag, so a future collapse back into one boolean cannot keep this green.
+    claude = resolve_spec("claude", "claude-haiku-4-5")
+    assert (claude.accepts_sampling, claude.accepts_seed) == (True, False)
+
+    openai = resolve_spec("openai", "gpt-5.4")
+    assert (openai.accepts_sampling, openai.accepts_seed) == (False, False)
+
+    gemini = resolve_spec("gemini", "gemini-2.5-pro")
+    assert (gemini.accepts_sampling, gemini.accepts_seed) == (True, True)
+
+
+def test_capability_fields_carries_seed_across_the_context_boundary() -> None:
+    # `contexts.keys` adapters cannot import this module; a flag that exists on
+    # the spec but not in this dict reaches no adapter and is inert -- the same
+    # silent-inertness the flag was added to remove.
+    assert capability_fields(resolve_spec("gemini", "gemini-3.5-flash"))["accepts_seed"] is True
+    assert capability_fields(resolve_spec("openai", "gpt-5.5"))["accepts_seed"] is False
 
 
 def test_unknown_provider_floors_to_a_default_context_limit() -> None:
