@@ -4462,6 +4462,10 @@
             "title": "Accepts Sampling",
             "type": "boolean"
           },
+          "accepts_seed": {
+            "title": "Accepts Seed",
+            "type": "boolean"
+          },
           "accepts_vision": {
             "title": "Accepts Vision",
             "type": "boolean"
@@ -4504,6 +4508,7 @@
           "accepts_effort",
           "effort_values",
           "accepts_sampling",
+          "accepts_seed",
           "accepts_vision",
           "uses_completion_token_field",
           "effort_conflicts_with_tools",

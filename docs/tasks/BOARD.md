@@ -24,7 +24,8 @@ They were grouped so that each is independently reviewable: the clipboard sweep 
 put two of them in `ChatroomView` at once was returned to its source follow-up instead. They
 opened `draft` and needed explicit approval before `/build` would touch them; two carry draft SRS
 deltas that are deliberately not applied at consolidation time. `identity-onboarding-policy-hardening`
-was approved and implemented on 2026-08-31; `runtime-contract-integrity` is still `draft`.
+was approved and implemented on 2026-08-31; `runtime-contract-integrity` on 2026-09-01. Both are
+out of Ready; their close-out notes are under In progress below.
 
 - (implemented 2026-08-31; see the note under In progress.)
   The original entry, kept here for its detail:
@@ -38,7 +39,8 @@ was approved and implemented on 2026-08-31; `runtime-contract-integrity` is stil
   re-read the phase per request would defeat the cache and one that cached the phase alone would
   enforce a stale authority. Carries a draft [R19a.13] amendment.
 
-- `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
+- (implemented 2026-09-01; see the note under In progress.) The original entry, kept here for its
+  detail: `2026-08-30-runtime-contract-integrity` (bugfix, **draft**) - `depends_on: []`.
   Consolidates FU-5 of `2026-08-20-orchestration-room-scoped-reads` with FU-4 of
   `2026-08-27-provider-model-capability-table`: repair two dead typed-error recovery branches and
   make provider seed support an independent backend/UI capability, forwarding Gemini's supported
@@ -504,6 +506,50 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-09-01 after implementation: `2026-08-30-runtime-contract-integrity` (two dead typed-error
+recovery branches now branch on the class the transport actually throws; provider seed is an independent
+per-model capability, forwarded to Gemini and honestly disabled elsewhere). Nothing lists it in
+`depends_on`, so no row moves out of Blocked. No migration. Branch `fix/runtime-contract-integrity`,
+base `0060c45`, five commits, held back from `main` at the requester's instruction.
+
+**Four things a later reader needs.**
+
+**Freshness was perfect, which is unusual and worth saying.** `git diff 73125821..HEAD` over every
+file the spec cites was empty, so the analysis was approved unchanged. The two same-file overlaps its
+Q-2 predicted (`AgentDetailView.vue` with the graphrag blueprint, `turn_engine.py` with the
+large-artifacts dossier) are still unbuilt, so whoever goes second still rebases.
+
+**The dossier's central claim held up under tracing: the generated `ApiError` is unreachable, not
+rare.** `transport/axios.ts:223-228` registers the same rejection handler on the bare `axios`
+singleton the generated services call, so `parseProblem` converts every failure before
+`core/request.ts:266,280` can raise its own class. Both branches were dead and both their tests were
+green on a class nothing produces. Note the 422 path resolves to `ValidationError`, an `ApiError`
+subclass — the `instanceof` still holds, which is why the fixtures use the real subclass.
+
+**A self-audit found the new lint gate had a hole in exactly the place the original defect lived.**
+The rule was first written inside the `src/**` config object, leaving `frontend/tests/**` and `e2e/**`
+outside it — and `npx eslint tests/mocks/handlers.ts` answered *"File ignored because no matching
+configuration was supplied"*, meaning that tree, which holds the MSW handlers and render helpers every
+suite builds on, was linted by nothing at all. A guard that cannot see test fixtures is no guard
+against a defect whose signature was a test fixture. D-2; fixed in `c1651f7`, and `frontend/tests/**`
+is now linted for the first time, by that one rule. Bringing the rest of the rule set to it is FU-5.
+
+**A `/code-review` pass after CI went green found two more, and both were about the new gate rather
+than the change it guards.** The selectors pinned the exact barrel specifier, so
+`@shared/api-client/core/ApiError` — a deep path that resolves through the alias just fine — slipped
+past while the gate reported itself healthy; that is the second time in one task that this gate was
+narrower than its own promise. More importantly, **"the generated `ApiError` is unreachable" is too
+strong**: `axios.ts:194` converts only when the body carries a string `type`, so any non-problem+json
+error response (nginx 413/502/504, or any layer in front of `register_exception_handlers`) falls
+through `:201` and `core/request.ts:228,266` re-raises it as the generated class. The two repaired
+branches are unaffected — a backend 422 and 404 are both problem+json — but the wording is now
+narrowed everywhere it appeared, and FU-6 owns normalising those responses in the interceptor so the
+strong claim becomes earnable. D-8.
+
+**Two green tests were rewritten rather than left passing.** `test_gemini_forwards_top_p_and_ignores_seed`
+would have stayed green through this change while documenting the opposite of the new contract, and
+an `AgentDetailView` case asserted `seedHelp` on a fixture whose OpenAI model now correctly renders
+`seedDisabledReason`. D-4 and D-5. Neither was an assertion weakened to pass.
 
 Removed on 2026-08-31 after implementation:
 `2026-08-30-identity-onboarding-policy-hardening` (the email-domain policy is a versioned, audited

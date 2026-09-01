@@ -303,6 +303,12 @@ function clearFieldsUnsupportedByCurrentModel(): void {
     temperature.value = null
     topP.value = null
   }
+  // Separate from the pair above: a model can accept seed and refuse
+  // temperature/top-p, or the reverse. Still user-action-only, so an existing
+  // agent's stored seed survives edit-load onto a disabled control (Q-7).
+  if (!spec || !spec.accepts_seed) {
+    seed.value = null
+  }
 }
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
@@ -391,6 +397,21 @@ const samplingHelp = computed(() =>
   samplingDisabled.value
     ? t('agents.form.samplingDisabledReason', { model: selectedModelLabel.value })
     : t('agents.form.samplingHelp'),
+)
+
+// Seed is gated on its own row flag, never on `samplingDisabled`: the request
+// parameter exists independently of temperature/top-p on every provider, and
+// the single flag that used to cover both is why a configured seed was sent
+// nowhere while the help text named the one provider that cannot take it.
+const seedDisabled = computed(() => {
+  if (!catalogSettled.value) return false
+  const spec = selectedModelSpec.value
+  return !spec || !spec.accepts_seed
+})
+const seedHelp = computed(() =>
+  seedDisabled.value
+    ? t('agents.form.seedDisabledReason', { model: selectedModelLabel.value })
+    : t('agents.form.seedHelp'),
 )
 
 // Wakeup config. New agents default to replying to every message (every_n=1):
@@ -1034,11 +1055,12 @@ const breadcrumbs = computed(() => [
                 :label="t('agents.form.seed')"
                 name="seed"
                 :error="errors.seed ?? ''"
-                :help="t('agents.form.seedHelp')"
+                :help="seedHelp"
               >
                 <SInput
                   v-model="seedModel"
                   type="text"
+                  :disabled="seedDisabled"
                   :placeholder="t('agents.form.samplingDefaultPlaceholder')"
                 />
               </SFormField>

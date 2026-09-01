@@ -14,6 +14,7 @@
     "gen:api": "openapi --input ../backend/openapi.json --output src/shared/api-client --client axios --useOptions --useUnionTypes",
     "check:openapi-drift": "bash scripts/check-openapi-drift.sh",
     "check:boundaries-enforced": "bash scripts/check-boundaries-enforced.sh",
+    "check:apierror-guard": "bash scripts/check-generated-apierror-guard.sh",
     "check:bundle-size": "bash scripts/check-bundle-size.sh",
     "check:global-css": "bash scripts/check-global-css.sh",
     "check:view-tests": "bash scripts/check-view-tests.sh",
