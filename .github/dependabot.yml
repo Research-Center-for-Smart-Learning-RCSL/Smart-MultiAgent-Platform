@@ -87,10 +87,20 @@ updates:
       day: "monday"
     open-pull-requests-limit: 3
     ignore:
-      # The build image must stay on the Node line ci.yml pins in NODE_VERSION,
+      # The build image must match the Node version ci.yml pins in NODE_VERSION,
       # otherwise the shipped bundle is built by a Node version CI never runs.
+      #
+      # Every update type, not just major: nothing proposes a NODE_VERSION bump
+      # (the github-actions ecosystem watches action refs, not env values), so a
+      # Dockerfile-only PR can never be the complete change at any semver level.
+      # Blocking majors alone is how the tree reached CI 24.18.0 against an image
+      # on 24.19.0 with a green board. Node moves by hand now, all three sites in
+      # one commit — see docs/dependency-holds.md.
       - dependency-name: "node"
-        update-types: ["version-update:semver-major"]
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     commit-message:
       prefix: "deps(docker)"
 
