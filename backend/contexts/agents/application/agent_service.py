@@ -725,6 +725,20 @@ class AgentService:
             offset=offset,
         )
 
+    async def names_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[tuple[uuid.UUID, str]]:
+        """:meth:`list_for_project`, projected to what a label needs. See the repository."""
+        return await self._agents.names_for_project(
+            project_id,
+            limit=limit,
+            offset=offset,
+        )
+
     async def patch(
         self,
         *,

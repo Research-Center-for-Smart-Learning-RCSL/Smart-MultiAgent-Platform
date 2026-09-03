@@ -405,7 +405,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -518,9 +518,14 @@ const workspaceQuery = useQuery({
   retry: false,
 })
 
+// FU-12: the name projection, not the full listing. This query runs on every
+// room open and its only consumer is the id→name map below, while `AgentOut`
+// carries `system_prompt` (bounded at 100k chars) — so a project with many
+// agents was paying megabytes on the critical path for two fields per row.
+// `useChatroomBindings` still reads the full records; it edits them.
 const projectAgentsQuery = useQuery({
-  queryKey: computed(() => ['conversation', 'project-agents', workspaceQuery.data.value?.project_id]),
-  queryFn: () => listProjectAgents(workspaceQuery.data.value!.project_id),
+  queryKey: computed(() => convKeys.projectAgents(workspaceQuery.data.value?.project_id)),
+  queryFn: () => listProjectAgentNames(workspaceQuery.data.value!.project_id),
   enabled: computed(() => !!workspaceQuery.data.value?.project_id),
   retry: false,
 })
@@ -662,8 +667,14 @@ watch(railTabs, (tabs) => {
 // but on mobile/tablet the tab lives inside the people drawer. Tracking railTab
 // alone left `panelOpen` stuck true after the drawer closed, so the unread
 // badge stopped counting.
+// F-12: `isCompactDesktop` is strictly inside `isDesktop`, and in that band the
+// presence rail is `visibility: hidden` and translated off-screen unless
+// `.chatroom__panel--open`. Treating the tab selection alone as "open" there
+// pinned `unreadCount` at 0 behind a panel nobody could see.
 const observerPanelVisible = computed(
-  () => railTab.value === 'observer' && (isDesktop.value || peopleDrawerOpen.value),
+  () =>
+    railTab.value === 'observer' &&
+    ((isDesktop.value && !isCompactDesktop.value) || peopleDrawerOpen.value),
 )
 watch(observerPanelVisible, (visible) => observations.setPanelOpen(visible), { immediate: true })
 
@@ -692,6 +703,15 @@ async function onReleaseSubmit(body: ReleaseBody): Promise<void> {
   } catch (err) {
     // W-6 (F-10): the transport throws typed ApiError/ValidationError, never
     // an AxiosError — branch on those, not on err.response.
+    // F-14: another session deleted the row. `ObservationNotFound` maps to 404,
+    // which fell through to the generic failure with the dialog still open over
+    // an observation the server no longer has.
+    if (err instanceof ApiError && err.status === 404) {
+      await observations.refetch()
+      releaseTarget.value = null
+      toast.info(t('conversation.observers.alreadyGone'))
+      return
+    }
     if (err instanceof ApiError && err.status === 409) {
       // Already released by a concurrent action — refetch and dismiss.
       await observations.refetch()
@@ -720,7 +740,15 @@ async function onObservationDelete(o: Observation): Promise<void> {
   if (!ok) return
   try {
     await observations.remove(o.id)
-  } catch {
+  } catch (err) {
+    // F-14: the row is already gone, which is the outcome the click asked for —
+    // reporting a bare failure left the reader to guess, and left the row on
+    // screen until a focus refetch happened to land.
+    if (err instanceof ApiError && err.status === 404) {
+      await observations.refetch()
+      toast.info(t('conversation.observers.alreadyGone'))
+      return
+    }
     toast.error(t('conversation.observers.deleteFailed'))
   }
 }
@@ -744,6 +772,7 @@ const {
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
+  reconcileOlder,
 } = useChatroomMessages(
   chatroomId,
   // Report the send; useChatroomScroll owns what happens to the feed's scroll
@@ -753,12 +782,18 @@ const {
   () => roomQuery.data.value?.is_moderator ?? false,
 )
 
-// The member roster is fetched once, but new authors (and renames) appear over
-// the room's lifetime via WebSocket. When a user message arrives from a sender
-// the roster doesn't name yet, refetch it once for that id so the author label
-// resolves instead of staying a truncated id. Tracking attempted ids bounds
-// this to one refetch per sender (a sender with no display name stays unnamed
-// without re-querying every message).
+// New authors appear over the room's lifetime via WebSocket. When a user message
+// arrives from a sender the roster doesn't name yet, refetch it once for that id
+// so the author label resolves instead of staying a truncated id. Tracking
+// attempted ids bounds this to one refetch per sender (a sender with no display
+// name stays unnamed without re-querying every message).
+//
+// This is an *absence* test, so it catches a sender the map has never had and
+// nothing else. A rename of someone already in the map is invisible to it — the
+// id is present, only the value is stale — and is left to the focus refetch.
+// (An earlier version of this comment claimed renames were covered; they are
+// not, and F-1 of the query-cache sweep found the same hole in the agent-side
+// equivalent, where it also broke @mention resolution.)
 const resolvedSenderAttempts = new Set<string>()
 watch(messages, (list) => {
   let needsRefetch = false
@@ -899,7 +934,7 @@ const TYPING_DEBOUNCE_MS = 3000
 // NB: message sending is REST (sendMessage), independent of this socket, so the
 // composer is intentionally NOT gated on `connected` — a flapping/degraded WS
 // must not lock the user out of sending. The pill shows `connectionState`.
-const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
+const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId, reconcileOlder)
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))

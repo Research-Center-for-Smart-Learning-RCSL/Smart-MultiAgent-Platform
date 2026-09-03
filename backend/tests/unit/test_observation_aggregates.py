@@ -169,6 +169,52 @@ class TestMandalaGrid:
         assert grid.rows[1][1].name == "c5"  # the centre cell
         assert grid.rows[1][1].filled == 2
 
+    async def test_a_centre_property_is_placed_in_the_middle_whatever_its_declared_order(self) -> None:
+        """F-15. The participant's own worksheet treats ``center`` as a *named*
+        opt-in to the middle cell and splices it to index 4 regardless of where the
+        schema declares it (``MandalaGrid.vue``, [R30.36]). A figure that read the
+        declared order alone put each count on a cell the participant never saw it
+        on — and in a grid, position is the whole meaning: the serialiser emits an
+        empty header row precisely because the columns have no names.
+
+        The shipped course coincides (its ``center`` already carries ``x-order: 5``),
+        so the defect is reachable only through a project-authored type — which is
+        also why nothing caught it.
+        """
+        props: dict[str, Any] = {f"c{i}": {"x-order": i} for i in range(1, 9)}
+        props["center"] = {"x-order": 1, "title": "Middle"}
+
+        grid = await _service(_FakeRepo(counted=3, tallies={"center": 3})).mandala_grid(
+            chatroom_id=_ROOM, activity_type=_type(props)
+        )
+
+        assert grid is not None
+        assert [c.name for row in grid.rows for c in row] == [
+            "c1",
+            "c2",
+            "c3",
+            "c4",
+            "center",
+            "c5",
+            "c6",
+            "c7",
+            "c8",
+        ]
+        assert grid.rows[1][1].filled == 3
+
+    async def test_a_nine_field_type_naming_no_centre_keeps_its_declared_order(self) -> None:
+        """The other half of the participant's rule: promoting the first field of a
+        schema that declares no ``center`` would move a cell its author put first,
+        and the author cannot see that rule from their own schema."""
+        props = {f"c{i}": {"x-order": 10 - i} for i in range(1, 10)}
+
+        grid = await _service(_FakeRepo(counted=1)).mandala_grid(
+            chatroom_id=_ROOM, activity_type=_type(props)
+        )
+
+        assert grid is not None
+        assert [c.name for row in grid.rows for c in row] == [f"c{i}" for i in range(9, 0, -1)]
+
     @pytest.mark.parametrize("width", [8, 10], ids=["too-narrow", "too-wide"])
     async def test_any_other_width_is_refused_rather_than_padded(self, width: int) -> None:
         props = {f"c{i}": {"x-order": i} for i in range(1, width + 1)}

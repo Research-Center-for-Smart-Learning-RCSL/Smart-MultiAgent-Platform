@@ -549,23 +549,43 @@ async def patch_chatroom(
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
     with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
-    if fields & _DISCLOSURE_FIELDS:
-        # F-1, scoped to the disclosure path per §7.2 of the dossier: flipping
-        # `disclose_observers` flips `observers_present` for every viewer. A
-        # rename going stale on a live viewer is a real but separate defect and
-        # is recorded as that dossier's FU-7 rather than widened into here.
+    # The set the *service* will act on, which is not `fields`: a field explicitly
+    # sent as JSON null is "set" for `exclude_unset` but `ChatroomService.patch`
+    # skips it, and an all-null patch returns the row untouched without even
+    # bumping `version`. Gating the emit on `fields` therefore announced a write
+    # that never happened for `PATCH {"name": null}`. `fields` itself is left
+    # alone because the two capability gates above key off it, and narrowing it
+    # would move a null-valued disclosure patch onto the other authorization
+    # branch.
+    changed_fields = {k for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if changed_fields:
+        # Every field this route accepts moves something a viewer reads, so every
+        # patch is announced. The emit was originally scoped to the disclosure
+        # fields, which left a rename going stale on every live viewer (FU-7 of
+        # the observer UI sweep).
+        #
+        # Room-visible unconditionally. Seven of the eight patchable fields —
+        # `name` and the five access flags at `_to_out:233-238`, plus
+        # `disclose_drafts` at `:254` — are copied straight through for every
+        # viewer including a pure guest, so a frame for any of them is always
+        # backed by an observable delta. The eighth, `disclose_observers`, *is*
+        # viewer-conditioned (`:243` forces it false for a pure guest), so for
+        # that one viewer a frame can carry no visible change. That is not new
+        # here and it is not an oversight: it is the residual §9 of the dossier
+        # analyses and accepts, and it is bounded — a guest learns only that the
+        # setting was touched, not its direction and not whether an observer
+        # exists. Widening the gate dilutes that signal rather than sharpening
+        # it, because six more fields now produce the identical frame.
+        #
+        # A ninth field added to `ChatroomPatchIn` needs this paragraph re-run,
+        # not assumed: the question is whether *that* field reaches a non-creator
+        # and a pure guest, and `disclose_observers` is the standing proof that
+        # the answer is not automatically yes.
         #
         # After `_to_out`'s inputs are read, not before: the commit inside the
         # emit ends this transaction, and `room` is a frozen dataclass rather
         # than a live ORM row, but the two service reads above still belong to
         # the request's own transaction.
-        #
-        # Room-visible unconditionally, and this is the one site where that is
-        # right in both directions: flipping a disclosure flag is what moves
-        # `observers_present` / `drafts_readable` for every member at once, and
-        # announcing it *is* the disclosure. See §9 of the dossier for the residual
-        # signal this leaves a pure guest, whose neutralised view of
-        # `disclose_observers` does not change either way.
         await _emit_chatroom_updated(
             db,
             chatroom_id,
@@ -917,7 +937,24 @@ async def patch_chatroom_agent_activity_control(
     )
     if not written:
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
-    await db.commit()
+    # FU-11: the creator's other sessions, and deliberately never the room.
+    #
+    # `room_visible=False` is a constant here rather than a disclosure-flag
+    # expression like the draft-access route's, because there is no flag that
+    # could ever make this write visible. `list_chatroom_agents` serialises
+    # `may_control_activities` and `activity_type_allowlist` as `None` for a
+    # non-creator and the route is `response_model_exclude_none`, so the fields
+    # are absent from their response entirely; neither is on `ChatroomOut`. A
+    # non-creator receiving this frame would re-read an unchanged DTO *and* an
+    # unchanged listing, which is the invisible-write signal `_emit_chatroom_updated`
+    # documents. This is not a dead parameter — it is the same rule the other
+    # sites apply, reaching a constant answer.
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=False,
+        creator_user_id=access.chatroom.created_by_user_id,
+    )
 
 
 @chatroom_router.patch(

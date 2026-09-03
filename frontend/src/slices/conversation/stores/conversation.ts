@@ -150,6 +150,15 @@ export const useConversationStore = defineStore('conversation', () => {
     observerAnalyzing.value = { ...observerAnalyzing.value, [roomId]: set }
   }
 
+  // F-8's two guards both need to declare every running analysis over at once:
+  // a reconnect (the terminal frame is unrecoverable — Redis pub/sub does not
+  // replay) and the watchdog (a killed worker will never emit one). Mirrors
+  // clearAllAgentThinking on the room path.
+  function clearAllObserverAnalyzing(roomId: string): void {
+    const { [roomId]: _, ...rest } = observerAnalyzing.value
+    observerAnalyzing.value = rest
+  }
+
   function setObserverErrorKind(roomId: string, agentId: string, kind: string): void {
     const room = observerErrors.value[roomId] ?? {}
     observerErrors.value = { ...observerErrors.value, [roomId]: { ...room, [agentId]: kind } }
@@ -238,6 +247,7 @@ export const useConversationStore = defineStore('conversation', () => {
     observerErrors,
     observerSkips,
     setObserverAnalyzing,
+    clearAllObserverAnalyzing,
     setObserverErrorKind,
     clearObserverError,
     setObserverSkipKind,

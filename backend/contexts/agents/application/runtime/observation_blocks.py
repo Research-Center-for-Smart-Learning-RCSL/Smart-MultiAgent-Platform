@@ -272,11 +272,26 @@ def _timeline_branch() -> dict[str, Any]:
     }
 
 
+#: Said on every computed branch, because the prompt is not the only thing a model
+#: reads: the tool schema is in front of it on every turn, and F-4 was a shipped
+#: prompt telling the observer to supply a `basis` these branches reject as an
+#: unknown property. `schema_violations` runs before `invoke`, so the refusal
+#: guidance in `observer_tools` never gets the chance to explain — and the block
+#: array is one argument validated whole, so the rejected element takes every valid
+#: block in the same call with it.
+_COMPUTED_BASIS_NOTE = (
+    "Do not send a `basis` for this block: the server stamps `server_facts` on it, "
+    "because the figure is its own measurement and the label is not yours to assert. "
+    "Sending one is rejected as an unknown property, and the whole call fails with it."
+)
+
+
 def _coverage_branch(kind: str, keys: list[str]) -> dict[str, Any]:
     return {
         "type": "object",
         "required": ["kind", "type_key"],
         "additionalProperties": False,
+        "description": _COMPUTED_BASIS_NOTE,
         "properties": {
             "kind": {"type": "string", "enum": [kind]},
             "title": _title_property(),
@@ -295,6 +310,7 @@ def _attempt_table_branch(keys: list[str]) -> dict[str, Any]:
         "type": "object",
         "required": ["kind"],
         "additionalProperties": False,
+        "description": _COMPUTED_BASIS_NOTE,
         "properties": {
             "kind": {"type": "string", "enum": [ATTEMPT_TABLE]},
             "title": _title_property(),

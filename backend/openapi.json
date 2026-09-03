@@ -2362,6 +2362,26 @@
         "title": "AgentModelHint",
         "type": "string"
       },
+      "AgentNameOut": {
+        "description": "An agent reduced to what a label needs.\n\n`AgentOut` carries `system_prompt`, bounded at 100k characters. Every caller\nthat only wanted a name paid for that: the chatroom builds an id-to-name map\nfrom this collection on every room open, so a project near the pagination\nceiling turned opening a room into a multi-megabyte response for two fields\nper row.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "AgentNameOut",
+        "type": "object"
+      },
       "AgentOut": {
         "properties": {
           "a2a_enabled": {
@@ -25739,6 +25759,81 @@
           }
         },
         "summary": "Install Agent Example Pack",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agents/names": {
+      "get": {
+        "description": "The same rows as `GET \"\"`, in the same order, projected to id and name.\n\nDeliberately the same membership gate: a name is not more sensitive than the\nlisting it is drawn from, and a second, looser gate on the same rows is how\nan authorization surface drifts apart from itself.",
+        "operationId": "list_project_agent_names_api_projects__project_id__agents_names_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max items to return",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentNameOut"
+                  },
+                  "title": "Response List Project Agent Names Api Projects  Project Id  Agents Names Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Project Agent Names",
         "tags": [
           "agents"
         ]

@@ -1,7 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderView } from '../../../../tests/utils'
 import ObservationCard from '../components/ObservationCard.vue'
+import { enhanceRenderedMarkdown } from '../utils/renderMarkdown'
+import type * as RenderMarkdown from '../utils/renderMarkdown'
 import type { Observation } from '../types'
+
+// T-18 (F-9). `renderMarkdown` returns sanitised HTML only; mermaid, KaTeX and
+// highlight.js run in a separate DOM post-pass that ChatroomView wires once,
+// against the message list. Both ObserverPanel mounts sit outside that subtree,
+// so the panel showed a raw fence for exactly the content the creator is
+// deciding whether to release. Spied rather than mocked wholesale so the real
+// `renderMarkdown` still runs for every other case in this file.
+vi.mock('../utils/renderMarkdown', async (importOriginal) => {
+  const actual = await importOriginal<typeof RenderMarkdown>()
+  return { ...actual, enhanceRenderedMarkdown: vi.fn(async () => {}) }
+})
+
+const enhance = vi.mocked(enhanceRenderedMarkdown)
 
 function observation(over: Partial<Observation> = {}): Observation {
   return {
@@ -20,6 +35,59 @@ function observation(over: Partial<Observation> = {}): Observation {
     ...over,
   }
 }
+
+describe('ObservationCard markdown enhancement (F-9)', () => {
+  beforeEach(() => {
+    enhance.mockClear()
+    vi.useFakeTimers()
+  })
+
+  // In afterEach rather than at the end of each case: a case that throws before
+  // its last line would otherwise leave the whole file on fake timers, and the
+  // describe block below it waits on real ones.
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('runs the enhancement pass over its own rendered root on mount', async () => {
+    const wrapper = await renderView(ObservationCard, {
+      props: {
+        observation: observation({ content_md: '```mermaid\ngraph TD; a-->b;\n```' }),
+        agentName: 'A',
+      },
+    })
+
+    // The composable debounces by 120ms, so nothing has run yet.
+    expect(enhance).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(200)
+
+    expect(enhance).toHaveBeenCalledTimes(1)
+    // Its own root, not the message list's: the element handed over has to
+    // contain this card's v-html region or the pass sees no fences at all.
+    const root = enhance.mock.calls[0]![0]
+    expect(root).toBeInstanceOf(HTMLElement)
+    expect(root.contains(wrapper.find('.obs-card__body').element)).toBe(true)
+  })
+
+  it('re-runs after an update, since a released chip re-renders the card', async () => {
+    const wrapper = await renderView(ObservationCard, {
+      props: { observation: observation(), agentName: 'A' },
+    })
+    await vi.advanceTimersByTimeAsync(200)
+    expect(enhance).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({
+      observation: observation({
+        released_at: '2026-01-02T00:00:00Z',
+        release_target: { kind: 'room', message_id: 'm9' },
+      }),
+    })
+    await vi.advanceTimersByTimeAsync(200)
+
+    expect(enhance).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('ObservationCard', () => {
   it('renders the analysis body through the markdown pipeline', async () => {

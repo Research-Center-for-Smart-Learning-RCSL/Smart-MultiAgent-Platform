@@ -60,6 +60,7 @@ export type { AgentGroupOut } from './models/AgentGroupOut';
 export type { AgentGroupUpdateIn } from './models/AgentGroupUpdateIn';
 export type { AgentInstanceOut } from './models/AgentInstanceOut';
 export type { AgentModelHint } from './models/AgentModelHint';
+export type { AgentNameOut } from './models/AgentNameOut';
 export type { AgentOut } from './models/AgentOut';
 export type { AgentPatchIn } from './models/AgentPatchIn';
 export type { AgentRef } from './models/AgentRef';

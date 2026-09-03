@@ -1,5 +1,8 @@
 <template>
-  <li class="obs-card">
+  <li
+    ref="rootRef"
+    class="obs-card"
+  >
     <div class="obs-card__head">
       <span class="obs-card__agent">{{ agentName }}</span>
       <SRelativeTime
@@ -86,6 +89,7 @@ import { useI18n } from 'vue-i18n'
 import { TrashIcon } from '@heroicons/vue/24/outline'
 import { SButton, SRelativeTime } from '@shared/ui'
 import ObservationBlocks from './observation-blocks/ObservationBlocks.vue'
+import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { renderMarkdown } from '../utils/renderMarkdown'
 import type { Observation, ObservationBlock } from '../types'
 
@@ -100,6 +104,21 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// F-9. `renderMarkdown` only sanitises; mermaid, KaTeX and highlight.js are a
+// separate DOM pass ChatroomView wires once against the message list, and both
+// ObserverPanel mounts are outside that subtree — so the preview a release
+// decision is made against showed a raw fence for content the feed renders as a
+// diagram. Per card rather than per panel: the card owns the `v-html` regions,
+// and the composable re-schedules on its own `onUpdated`, which a panel-level
+// root would only see when the *list* re-rendered.
+//
+// Safe as a second call site: the composable holds no cross-instance state and
+// all three passes are idempotent by consumption (each skips what it already
+// converted). The ref is bound during setup and read only after a 120ms
+// debounce, so it is non-null by the time the pass runs.
+const rootRef = ref<HTMLElement | null>(null)
+useMarkdownEnhance(rootRef)
 
 const blocks = computed<ObservationBlock[]>(() => props.observation.blocks ?? [])
 

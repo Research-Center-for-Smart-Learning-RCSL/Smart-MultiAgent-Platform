@@ -13,6 +13,7 @@ import {
   getChatroom,
   patchChatroom,
 } from '../api'
+import { convKeys } from '../queries'
 import type { Chatroom } from '../types'
 
 /** The access flags `setFlag` may patch. `disclose_observers` is excluded by
@@ -117,10 +118,10 @@ export function useChatroomSettings(chatroomId: string) {
     return conflict
   }
 
-  /** Find this chatroom in any cached `['conversation','chatrooms']` list. */
+  /** Find this chatroom in any cached list under the `chatrooms` prefix. */
   function findInCache(): Chatroom | null {
     const caches = qc.getQueriesData<Chatroom[]>({
-      queryKey: ['conversation', 'chatrooms'],
+      queryKey: convKeys.chatroomsAll(),
     })
     for (const [, data] of caches) {
       const found = data?.find((r) => r.id === chatroomId)
@@ -184,7 +185,7 @@ export function useChatroomSettings(chatroomId: string) {
     saveError.value = null
     try {
       applyRoom(await patchChatroom(chatroomId, room.value.version, { name: name.value }))
-      await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
+      await qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
       toast.success(t('conversation.settings.saved'))
     } catch (e) {
       if (reportSaveFailure(e)) await resyncAfterConflict()
@@ -205,7 +206,7 @@ export function useChatroomSettings(chatroomId: string) {
     saveError.value = null
     try {
       applyKeepingDraft(await patchChatroom(chatroomId, room.value.version, patch))
-      await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
+      await qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
       toast.success(t('conversation.settings.saved'))
     } catch (e) {
       if (reportSaveFailure(e)) {
@@ -314,7 +315,7 @@ export function useChatroomSettings(chatroomId: string) {
       toast.error(t('conversation.settings.deleteFailed'))
       return
     }
-    await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
+    await qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     router.back()
   }
 

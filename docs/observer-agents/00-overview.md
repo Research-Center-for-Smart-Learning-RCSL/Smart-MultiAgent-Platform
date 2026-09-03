@@ -153,7 +153,9 @@ existing frontend consumption precedent in
 | `observation.started` | `{chatroom_id, agent_id}` | observer turn begins |
 | `observation.created` | `{chatroom_id, agent_id, observation_id, created_at}` | persisted |
 | `observation.failed` | `{chatroom_id, agent_id, kind}` | turn error (kind mirrors `agent.finished` error kinds) |
+| `observation.skipped` | `{chatroom_id, agent_id, kind}` | observer declined to write (benign, never rendered as a failure) |
 | `observation.released` | `{chatroom_id, observation_id, target}` | release committed |
+| `observation.deleted` | `{chatroom_id, observation_id}` | delete committed |
 
 New/changed REST (all under the existing chatrooms router; bodies fetched via
 REST, events are notify-only — same pattern as `message.created`):
