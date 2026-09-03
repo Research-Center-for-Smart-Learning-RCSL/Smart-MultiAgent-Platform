@@ -22,6 +22,31 @@ vi.mock('@shared/composables', async (importOriginal) => {
   return { ...actual, useToast: () => mockToast }
 })
 
+// T-11 (F-12) needs to see what the view told the panel, and `setPanelOpen` has
+// no rendered consequence in the compact band: pinning the visibility term by
+// eye is exactly what jsdom cannot do. The real composable still runs; this only
+// records the calls.
+const setPanelOpenSpy = vi.hoisted(() => vi.fn())
+vi.mock('../composables/useObservations', async (importOriginal) => {
+  const actual = await importOriginal() as {
+    useObservations: (...args: never[]) => Record<string, unknown>
+  }
+  return {
+    ...actual,
+    useObservations: (...args: never[]) => {
+      const api = actual.useObservations(...args)
+      const setPanelOpen = api.setPanelOpen as (open: boolean) => void
+      return {
+        ...api,
+        setPanelOpen: (open: boolean) => {
+          setPanelOpenSpy(open)
+          setPanelOpen(open)
+        },
+      }
+    },
+  }
+})
+
 // Read for the CSS assertions below: jsdom applies no scoped styles and
 // computes no layout, so the stylesheet source is the only thing to assert
 // against. Same idiom as ChatroomSearchPanel.test.ts.
@@ -419,6 +444,133 @@ describe('ChatroomView', () => {
       wrapper.findAll('[role="tab"]').find((t) => t.text() === 'conversation.observers.tab'),
     ).toBeUndefined()
     expect(wrapper.find('[role="tabpanel"]:not([hidden])').exists()).toBe(true)
+  })
+
+  // T-14 (F-14). A row deleted in another session 404s here, and both catch
+  // sites fell through to a generic "failed": the delete toast said nothing
+  // actionable and the release dialog stayed open over a row that no longer
+  // exists. The cure is the same in both places: say what happened and put an
+  // authoritative list back on screen.
+  //
+  // Room + roster only; each caller supplies its own observations handler, since
+  // msw resolves the FIRST matching handler and a second one for the same path
+  // would never run.
+  function observerRoomHandlers(onList: () => unknown[]) {
+    return [
+      http.get('/api/chatrooms/:chatroomId', () =>
+        HttpResponse.json({
+          id: 'cr_1', name: 'Test Room', project_id: 'proj_1',
+          workspace_id: 'ws_1',
+          allow_org_members: false, allow_project_members: true,
+          allow_project_owners_only: false, allow_guest_links: false,
+          created_by_user_id: 'u_1',
+          agents: [],
+        }),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_normal', role: 'normal' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/observations', () => HttpResponse.json(onList())),
+    ]
+  }
+
+  const OBSERVATION_ROW = {
+    id: 'o1',
+    chatroom_id: 'cr_1',
+    agent_id: 'agent_gone',
+    content_md: 'stranded analysis',
+    metadata: {},
+    blocks: [],
+    trigger: 'every_n_messages',
+    trigger_message_id: null,
+    released_at: null,
+    release_target: null,
+    released_by_user_id: null,
+    created_at: '2026-01-01T00:00:00Z',
+  }
+
+  const GONE = {
+    type: 'https://smap.local/problems/conversation/observation-not-found',
+    title: 'Observation not found',
+    status: 404,
+  }
+
+  async function openObserverTab() {
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+    const observerTab = wrapper
+      .findAll('[role="tab"]')
+      .find((t) => t.text() === 'conversation.observers.tab')
+    await observerTab?.trigger('click')
+    await settle()
+    return wrapper
+  }
+
+  it('T-14: a 404 on delete reports the row is gone and refreshes the list', async () => {
+    let listCalls = 0
+    server.use(
+      ...observerRoomHandlers(() => {
+        listCalls += 1
+        return [OBSERVATION_ROW]
+      }),
+      http.delete('/api/chatrooms/:chatroomId/observations/:observationId', () =>
+        HttpResponse.json(GONE, { status: 404 }),
+      ),
+    )
+    const wrapper = await openObserverTab()
+    expect(wrapper.find('.obs-panel').exists()).toBe(true)
+    const before = listCalls
+    mockToast.info.mockClear()
+    mockToast.error.mockClear()
+
+    await wrapper.find('[aria-label="conversation.observers.delete"]').trigger('click')
+    const { handleConfirm } = useConfirmDialog()
+    handleConfirm()
+    await settle()
+
+    expect(mockToast.info).toHaveBeenCalledWith('conversation.observers.alreadyGone')
+    expect(mockToast.error).not.toHaveBeenCalledWith('conversation.observers.deleteFailed')
+    expect(listCalls).toBeGreaterThan(before)
+  })
+
+  it('T-14: a 404 on release closes the dialog, reports it and refreshes', async () => {
+    let listCalls = 0
+    server.use(
+      ...observerRoomHandlers(() => {
+        listCalls += 1
+        return [OBSERVATION_ROW]
+      }),
+      http.post('/api/chatrooms/:chatroomId/observations/:observationId/release', () =>
+        HttpResponse.json(GONE, { status: 404 }),
+      ),
+    )
+    const wrapper = await openObserverTab()
+    const releaseBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'conversation.observers.release')
+    expect(releaseBtn?.exists()).toBe(true)
+    await releaseBtn?.trigger('click')
+    await settle()
+    const before = listCalls
+    mockToast.info.mockClear()
+
+    const confirmBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'conversation.observers.confirmRelease')
+    expect(confirmBtn?.exists()).toBe(true)
+    await confirmBtn?.trigger('click')
+    await settle()
+
+    expect(mockToast.info).toHaveBeenCalledWith('conversation.observers.alreadyGone')
+    expect(listCalls).toBeGreaterThan(before)
+    // The dialog must not sit open over a row the server no longer has.
+    expect(
+      wrapper.findAll('button').find((b) => b.text() === 'conversation.observers.confirmRelease'),
+    ).toBeUndefined()
   })
 
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
@@ -931,6 +1083,47 @@ describe('ChatroomView', () => {
       expect(wrapper.find('.chatroom--compact').exists()).toBe(false)
       expect(wrapper.find('.chatroom__agents').exists()).toBe(true)
       expect(wrapper.find('.chatroom__panel--open').exists()).toBe(false)
+    })
+
+    // T-11 (F-12). `isCompactDesktop` is strictly inside `isDesktop`, but in
+    // that band the presence rail is `visibility: hidden` and translated
+    // off-screen unless `.chatroom__panel--open`. Counting the Observer tab as
+    // "open" there pinned `unreadCount` at 0 behind an invisible panel.
+    it('T-11: the observer panel is not open while its rail is off-screen at 1100', async () => {
+      server.use(...observerRoomHandlers(() => [OBSERVATION_ROW]))
+      const wrapper = await atWidth(1100)
+      const observerTab = wrapper
+        .findAll('[role="tab"]')
+        .find((t) => t.text() === 'conversation.observers.tab')
+      expect(observerTab?.exists()).toBe(true)
+
+      setPanelOpenSpy.mockClear()
+      await observerTab?.trigger('click')
+      await settle()
+      expect(setPanelOpenSpy).not.toHaveBeenCalledWith(true)
+
+      // Opening the overlay is what actually puts the panel on screen.
+      const peopleToggle = wrapper.findAll('button[aria-label]')
+        .find((b) => b.attributes('aria-label') === 'conversation.chatroom.people')!
+      await peopleToggle.trigger('click')
+      await settle()
+      expect(setPanelOpenSpy).toHaveBeenCalledWith(true)
+    })
+
+    it('T-11: a full-width desktop rail still counts as open', async () => {
+      // The fix must not cost the ordinary desktop case: at 1400 the rail is
+      // always on screen, so selecting the tab is the whole condition.
+      server.use(...observerRoomHandlers(() => [OBSERVATION_ROW]))
+      const wrapper = await atWidth(1400)
+      const observerTab = wrapper
+        .findAll('[role="tab"]')
+        .find((t) => t.text() === 'conversation.observers.tab')
+
+      setPanelOpenSpy.mockClear()
+      await observerTab?.trigger('click')
+      await settle()
+
+      expect(setPanelOpenSpy).toHaveBeenCalledWith(true)
     })
 
     it('leaves the full three-column layout untouched at 1400', async () => {

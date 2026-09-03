@@ -545,13 +545,23 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-03-observer-ui-defect-sweep` (bugfix) — `depends_on: []`. **Phase 1 of three**
-  (F-1, F-2, F-3, F-7, F-10 — disclosure and access correctness) started 2026-09-03. The
-  dossier stays `in-progress` between phases: its §7.1 makes each phase a self-contained
-  milestone with its own commit and its own full Definition of Done, and only the third
-  moves it to `implemented`. The §10 AC checkboxes are how a resumed session finds where
-  work stopped. Phase 2 must not start before phase 1 is committed — both edit the same
-  regions of `useObservations.ts` and `ChatroomView.vue`; phase 3 may run beside either.
+- `2026-09-03-observer-ui-defect-sweep` (bugfix) — `depends_on: []`. **Phases 1 and 2 of
+  three are done; phase 3 is what remains.** The dossier stays `in-progress` between
+  phases: its §7.1 makes each phase a self-contained milestone with its own commit and its
+  own full Definition of Done, and only the third moves it to `implemented`. The §10 AC
+  checkboxes are how a resumed session finds where work stopped.
+  - Phase 1 (F-1, F-2, F-3, F-7, F-10 — disclosure and access correctness) on
+    `fix/observer-ui-sweep-phase1`, PR #182, CI green. Not yet merged.
+  - Phase 2 (F-6, F-8, F-11, F-12, F-13, F-14 — observer status truthfulness) on
+    `fix/observer-ui-sweep-phase2`, branched from phase 1 rather than from `main`
+    because §7.1 makes the two serial and `main` does not have phase 1. **Its PR must
+    therefore target `fix/observer-ui-sweep-phase1` as its base until #182 lands.**
+  - Phase 3 (F-4, F-5, F-9, F-15, F-16 — example packs and render fidelity) may start
+    now and may run beside either: it shares one line of `useObservations.ts` (F-16's
+    fallback) and `ObservationCard.vue`, which neither other phase edits. Whoever lands
+    second rebases. Branch it from phase 2 for the same reason phase 2 branched from
+    phase 1, or from `main` once #182 is merged.
+
   See the Ready-now entry above for the full scope note.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.

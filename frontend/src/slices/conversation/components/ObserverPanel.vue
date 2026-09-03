@@ -135,6 +135,11 @@ function nameFor(agentId: string): string {
 // Failure kinds mirror agent.finished — reuse the room path's kind→label map;
 // benign skips get their own muted copy, never the error one.
 function detailFor(a: ObserverEntry): string {
+  // F-6: 'unknown' names an absent feed, not a worker state, so the tooltip has
+  // to say why — otherwise it reads as a third kind of failure.
+  if (a.status === 'unknown') {
+    return t('conversation.observers.unknownStatusHint')
+  }
   if (a.status === 'error') {
     return t(agentErrorMessageKey(a.errorReason))
   }
@@ -208,6 +213,14 @@ const roster = computed(() =>
 .obs-panel__roster-status--skipped {
   color: var(--color-muted);
   font-style: italic;
+}
+
+/* Deliberately not the error colour: nothing failed, the reader simply has no
+   feed. Dotted underline marks it as the one label carrying an explanation. */
+.obs-panel__roster-status--unknown {
+  color: var(--color-muted);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 .obs-panel__loading {

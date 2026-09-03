@@ -1488,6 +1488,141 @@ async def test_dispatch_release_pushes_per_target_best_effort(monkeypatch) -> No
         assert note["content"] == "the analysis"
 
 
+def _wire_delete_handler(monkeypatch, *, recipient, deleted, raises=None):
+    """Stub `delete_observation`'s creator gate and service for handler tests."""
+    import app.api.v1.observations as obs_api
+
+    async def _require(db, *, principal, chatroom_id):
+        return None
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def delete(self, **kw):
+            if raises is not None:
+                raise raises
+            deleted.append(kw)
+
+        async def recipient_user_id(self, chatroom_id):
+            return recipient
+
+    monkeypatch.setattr(obs_api, "_require_creator", _require)
+    monkeypatch.setattr(obs_api, "ObservationService", _Service)
+    _PublisherSpy.emitted = []
+    monkeypatch.setattr(obs_api, "Publisher", _PublisherSpy)
+    return obs_api
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_emits_to_the_creator_user_channel(monkeypatch) -> None:
+    """T-13 (F-14). Release publishes `observation.released` and delete published
+    nothing, so a second session kept rendering a row the server no longer had.
+    The frame goes on the creator's own user channel exactly like the release
+    one — never the room channel, whose subscribers include guests (Q-9)."""
+    creator = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    observation_id = uuid.uuid4()
+    deleted: list = []
+    mod = _wire_delete_handler(monkeypatch, recipient=creator, deleted=deleted)
+    db = _committing_db()
+
+    await mod.delete_observation(
+        chatroom_id=chatroom_id,
+        observation_id=observation_id,
+        ctx=_CTX,
+        principal=_principal(creator),
+        db=db,
+    )
+
+    assert len(deleted) == 1
+    # The dependency's commit runs only after the handler returns, so a frame
+    # published before an explicit commit would tell the other session to
+    # re-read a delete a later rollback could still undo.
+    db.commit.assert_awaited()
+    assert _room_frames(chatroom_id) == []
+    frames = _user_frames(creator)
+    assert len(frames) == 1, f"expected one creator frame, got {frames}"
+    _channel, event, payload = frames[0]
+    assert event == "observation.deleted"
+    # Equality, not membership: the payload is ids-only by contract.
+    assert payload == {
+        "chatroom_id": str(chatroom_id),
+        "observation_id": str(observation_id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_publish_failure_does_not_fail_the_delete(monkeypatch) -> None:
+    """Best-effort, mirroring `_dispatch_release`: the row is already committed,
+    so a Redis hiccup must not surface as a failed delete."""
+    creator = uuid.uuid4()
+    deleted: list = []
+    mod = _wire_delete_handler(monkeypatch, recipient=creator, deleted=deleted)
+
+    class _BoomPublisher:
+        def __init__(self, channel: str) -> None:
+            pass
+
+        async def emit(self, event, payload):
+            raise RuntimeError("redis down")
+
+    monkeypatch.setattr(mod, "Publisher", _BoomPublisher)
+
+    await mod.delete_observation(
+        chatroom_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(creator),
+        db=_committing_db(),
+    )
+
+    assert len(deleted) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_with_no_resolvable_creator_publishes_nothing(monkeypatch) -> None:
+    """A NULL-creator room has no user channel to address — the same guard the
+    release path applies at `_dispatch_release`."""
+    mod = _wire_delete_handler(monkeypatch, recipient=None, deleted=[])
+
+    await mod.delete_observation(
+        chatroom_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uuid.uuid4()),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == []
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_not_found_neither_commits_nor_emits(monkeypatch) -> None:
+    """A 404 must not announce a delete that did not happen."""
+    from contexts.conversation.domain.errors import ObservationNotFound
+
+    mod = _wire_delete_handler(
+        monkeypatch,
+        recipient=uuid.uuid4(),
+        deleted=[],
+        raises=ObservationNotFound(),
+    )
+    db = _committing_db()
+
+    with pytest.raises(ObservationNotFound):
+        await mod.delete_observation(
+            chatroom_id=uuid.uuid4(),
+            observation_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uuid.uuid4()),
+            db=db,
+        )
+
+    db.commit.assert_not_awaited()
+    assert _PublisherSpy.emitted == []
+
+
 @pytest.mark.asyncio
 async def test_release_rejects_observer_and_unbound_targets(monkeypatch) -> None:
     normal, observer, unbound = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
