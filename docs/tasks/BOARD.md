@@ -18,8 +18,8 @@ parallel.
 
 ### From the 2026-09-03 conversation query-cache sweep
 
-- `2026-09-03-conversation-query-cache-staleness` (bugfix, **draft** — needs approval before
-  `/build` will touch it) — `depends_on: []`. All five findings of
+- `2026-09-03-conversation-query-cache-staleness` (bugfix, **approved 2026-09-03**; its SRS
+  Delta is None) — `depends_on: []`. All five findings of
   `docs/audits/2026-09-03-conversation-query-cache-sweep/findings.md` (FU-2 of the observer UI
   sweep), plus that dossier's FU-7 and FU-11, which the audit re-verified as still open and
   which share one root cause with its F-3. Three phases, serial.
