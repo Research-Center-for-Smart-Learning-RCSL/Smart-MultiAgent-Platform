@@ -18,8 +18,8 @@ parallel.
 
 ### From the 2026-09-03 observer-UI audit
 
-- `2026-09-03-observer-ui-defect-sweep` (bugfix, **draft** — needs approval before `/build`
-  will touch it) — `depends_on: []`. All sixteen findings of
+- `2026-09-03-observer-ui-defect-sweep` (bugfix, **approved 2026-09-03**; its SRS Delta is
+  None) — `depends_on: []`. All sixteen findings of
   `docs/audits/2026-09-03-observer-ui-visualization/findings.md` in one dossier, executed in
   **three phases** rather than one session: P1 disclosure and access correctness (F-1, F-2,
   F-3, F-7, F-10), P2 observer status truthfulness (F-6, F-8, F-11, F-12, F-13, F-14), P3
