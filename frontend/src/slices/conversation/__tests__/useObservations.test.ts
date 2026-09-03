@@ -102,6 +102,9 @@ function mountObs(opts?: {
   createdBy?: string | null
   isModerator?: boolean
   boundAgents?: BoundAgentRef[]
+  /** Rows already in the query cache at mount, i.e. returning to a room inside
+   *  `gcTime`. The composable then starts with rows it has never watched. */
+  cached?: Observation[]
 }): {
   wrapper: VueWrapper
   api: ReturnType<typeof useObservations>
@@ -111,6 +114,9 @@ function mountObs(opts?: {
   const pinia = createPinia()
   setActivePinia(pinia)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  if (opts?.cached) {
+    qc.setQueryData(convKeys.observations(ROOM), { pages: [opts.cached], pageParams: [''] })
+  }
 
   const room = ref<Chatroom | undefined>({
     id: ROOM,
@@ -671,6 +677,31 @@ describe('useObservations', () => {
     await flushPromises()
 
     expect(m.api.unreadCount.value).toBe(0)
+  })
+
+  it('T-12: a reconnect before the mount refetch settles badges against the cached rows', async () => {
+    // Returning to a room inside `gcTime` serves the query from cache, so the
+    // panel renders rows the composable has never watched. The high-water mark is
+    // seeded by a watcher, and a lazy one does not run until the *next* cache
+    // write — so a socket drop in that window left the mark null, `baseline ===
+    // null` returned early, and every observation written during the outage went
+    // unbadged. Exactly the gap F-13 exists to close, in the one case where the
+    // panel already had rows to compare against.
+    const seen = makeObservation('o1', '2024-01-01T00:00:00.000Z')
+    listObservationsMock.mockResolvedValue([
+      makeObservation('o2', '2024-01-02T00:00:00.000Z'),
+      seen,
+    ])
+    const m = mountObs({ cached: [seen] })
+    wrapper = m.wrapper
+    m.api.setPanelOpen(false)
+
+    // No `flushPromises` first: the reconnect lands while the mount refetch is
+    // still in flight, which is the whole point.
+    emitStatus(true)
+    await flushPromises()
+
+    expect(m.api.unreadCount.value).toBe(1)
   })
 
   it('T-12: an open panel is not badged by a reconnect refetch', async () => {
