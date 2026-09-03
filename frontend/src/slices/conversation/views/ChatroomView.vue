@@ -524,7 +524,7 @@ const workspaceQuery = useQuery({
 // agents was paying megabytes on the critical path for two fields per row.
 // `useChatroomBindings` still reads the full records; it edits them.
 const projectAgentsQuery = useQuery({
-  queryKey: computed(() => ['conversation', 'project-agents', workspaceQuery.data.value?.project_id]),
+  queryKey: computed(() => convKeys.projectAgents(workspaceQuery.data.value?.project_id)),
   queryFn: () => listProjectAgentNames(workspaceQuery.data.value!.project_id),
   enabled: computed(() => !!workspaceQuery.data.value?.project_id),
   retry: false,

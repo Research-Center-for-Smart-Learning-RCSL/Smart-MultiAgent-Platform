@@ -29,11 +29,16 @@ export const convKeys = {
   // the slice with a staleTime and lives in a sidebar that never unmounts, so it
   // has neither a mount refetch nor a focus refetch inside 60s to fall back on.
   chatroomsAll: () => ['conversation', 'chatrooms'] as const,
-  // `projectAgentsAll` is a prefix rather than `projectAgents(projectId)` because
-  // its only invalidator is the room-scoped `chatroom.updated` handler, which has
-  // the room id and not the project id. It also matches the transient
-  // `['conversation','project-agents', undefined]` entry the call site's computed
-  // key produces before the workspace read lands, which an exact key would miss.
+  // The producer. Its consumer is the prefix below rather than this entry,
+  // because the only invalidator is the room-scoped `chatroom.updated` handler,
+  // which has the room id and not the project id — but the *shape* has to be
+  // defined once or the two drift apart invisibly in both directions, which is
+  // F-1 exactly: a stale name renders as an 8-char id and `@mention` resolution
+  // silently drops the wake.
+  projectAgents: (projectId: string | undefined) =>
+    ['conversation', 'project-agents', projectId] as const,
+  // Matches every `projectAgents(...)` entry, including the transient
+  // `[..., undefined]` one the call site holds before the workspace read lands.
   projectAgentsAll: () => ['conversation', 'project-agents'] as const,
   chatroom: (chatroomId: string) => ['conversation', 'chatroom', chatroomId] as const,
   // Added with F-1's `chatroom.updated` handler. This key had exactly one

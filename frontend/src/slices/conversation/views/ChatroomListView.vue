@@ -156,7 +156,8 @@ const deleteMutation = useMutation({
     // F-4: the prefix, not this workspace's list alone. `recentChatrooms` nests
     // under it and is the sidebar rail, which has a 60s staleTime in a component
     // that never unmounts — so a room deleted here stayed clickable there and
-    // routed the user into a room the server no longer serves.
+    // routed the user into a room the server no longer serves. The prefix still
+    // covers this view's own list, which is a strict extension of it.
     qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.chatrooms.deleted'))
   },
@@ -203,10 +204,7 @@ const createMutation = useMutation({
   mutationFn: (payload: ChatroomCreateInput) => createChatroom(workspaceId, payload),
   onSuccess: (room) => {
     showCreate.value = false
-    // F-4: the prefix, not this workspace's list alone. `recentChatrooms` nests
-    // under it and is the sidebar rail, which has a 60s staleTime in a component
-    // that never unmounts — so a room deleted here stayed clickable there and
-    // routed the user into a room the server no longer serves.
+    // F-4, same prefix and same reason as the delete path above.
     qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.chatrooms.created'))
     openRoom(room)
