@@ -1259,6 +1259,10 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
     wrapper = mounted.wrapper
     const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
 
+    // A genuine reconnect: up, down, up. The first `true` is the initial
+    // handshake and deliberately recovers nothing.
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
@@ -1266,11 +1270,28 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
   })
 
+  // `invalidateQueries` defaults `cancelRefetch` to true, so doing this on the
+  // first connect would abort and restart ChatroomView's own mount fetches when
+  // the handshake lands while they are in flight — for no recovery, since those
+  // queries have just run.
+  it('does not re-read them on the first connect', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
   it('does not re-read them when the socket goes down', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
     const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
 
+    statusHandlers.forEach((h) => h(true))
     statusHandlers.forEach((h) => h(false))
     await flushPromises()
 
