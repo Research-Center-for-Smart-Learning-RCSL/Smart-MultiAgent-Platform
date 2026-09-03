@@ -198,6 +198,8 @@
       "emptyText": "Observers write here after they analyze the conversation. Only you can see these.",
       "noObserverBoundTitle": "No observer currently bound",
       "noObserverBoundText": "These are past analyses from an observer that is no longer bound to this room. You can still release or delete them.",
+      "loadError": "Could not load observations. The list below may be incomplete or out of date.",
+      "retry": "Try again",
       "basis": {
         "server_facts": "Basis: computed by the server over this room's submissions. It counts submissions, not participants, and says nothing about who did not submit.",
         "recent_window": "Basis: read off the recent-activity window, which holds only the most recent events and is not a complete record of the room.",
@@ -256,7 +258,7 @@
       "discloseLabel": "Disclose observers",
       "discloseOnHelp": "Members see a notice that observers are enabled (never which agent or any output).",
       "discloseOffHelp": "Members are not informed. Check your organization's policy before disabling.",
-      "guestObserverCallout": "This room has an active guest link. External guests will be observed without any notice while disclosure is off."
+      "guestObserverCallout": "This room has an active guest link and a bound observer. External guests are never shown the observer indicator, whatever the disclosure setting above says, so they are observed without notice."
     },
     "settings": {
       "backToChatroom": "Back to chatroom",

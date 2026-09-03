@@ -17,6 +17,11 @@ export const convKeys = {
   recentChatrooms: (projectId: string) =>
     ['conversation', 'chatrooms', 'recent', projectId] as const,
   chatroom: (chatroomId: string) => ['conversation', 'chatroom', chatroomId] as const,
+  // Added with F-1's `chatroom.updated` handler. This key had exactly one
+  // reference in the whole frontend and no invalidator, which is how a
+  // hand-written literal hides: it looks right at the one call site that has it.
+  chatroomAgents: (chatroomId: string) =>
+    ['conversation', 'chatroom-agents', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   search: (chatroomId: string, q: string) =>
     ['conversation', 'search', chatroomId, q] as const,

@@ -226,6 +226,84 @@ describe('ChatroomSettingsView', () => {
     expect(wrapper.text()).not.toContain('conversation.conceptMap.workspacePrivacyLabel')
   })
 
+  // T-3 (F-2). The callout used to require `!disclose_observers`, which is the
+  // opposite of the risk: `_to_out` forces BOTH `disclose_observers` and
+  // `observers_present` to false for every pure guest whatever the room says,
+  // so a guest is never shown the indicator in either state. The old condition
+  // therefore stayed silent in the exact configuration a teacher most needs to
+  // be told about — guest links open with disclosure left at its default (on).
+  describe.each([true, false])('guest-observer callout, disclosure %s', (disclose) => {
+    it('warns whenever guest links and an observer coexist', async () => {
+      const room = makeChatroom({
+        allow_guest_links: true,
+        created_by_user_id: 'u_1',
+        disclose_observers: disclose,
+      } as Partial<Chatroom>)
+      server.use(
+        http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+        http.get('/api/projects/:projectId/agents', () =>
+          HttpResponse.json([makeAgent('agent_1', 'Watcher')]),
+        ),
+        http.get('/api/chatrooms/:chatroomId/agents', () =>
+          HttpResponse.json([{ agent_id: 'agent_1', role: 'observer' }]),
+        ),
+      )
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: seededClient([room]),
+      })
+      const session = useSessionStore()
+      session.me = {
+        id: 'u_1',
+        email: 'u@smap.test',
+        email_verified: true,
+        is_admin: false,
+        status: 'active',
+      }
+      await flushPromises()
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('conversation.observers.guestObserverCallout')
+    })
+  })
+
+  it('does not warn about guests when no observer is bound', async () => {
+    const room = makeChatroom({
+      allow_guest_links: true,
+      created_by_user_id: 'u_1',
+      disclose_observers: false,
+    } as Partial<Chatroom>)
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Helper')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1', role: 'normal' }]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    const session = useSessionStore()
+    session.me = {
+      id: 'u_1',
+      email: 'u@smap.test',
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    }
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('conversation.observers.guestObserverCallout')
+  })
+
   it('normalizes a malformed config instead of hiding the wakeup editor', async () => {
     // `triggers` present but missing the sub-objects the editor dereferences —
     // normalizeWakeupConfig fills them with defaults rather than the editor

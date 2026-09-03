@@ -39,11 +39,12 @@ vi.mock('@shared/stores/session', () => ({
   }),
 }))
 
-vi.mock('@slices/tenancy', () => ({
-  tenancyKeys: { projectMembers: (p: string) => ['tenancy', 'members', p] },
-  projectsApi: { listMembers: vi.fn(async () => []) },
-}))
-
+// F-3 removed `@slices/tenancy` from `useObservations.ts` entirely, so the mock
+// that used to stand in for `projectsApi.listMembers` is gone with it. Asserting
+// "the member list was never fetched" against a mock the module can no longer
+// reach would pass whether or not the fix were present; that half of F-3 is now a
+// structural guarantee (there is no import to call) and is checked by AC-6 and the
+// boundaries lint rather than by a test that cannot fail.
 const listObservationsMock = vi.hoisted(() => vi.fn())
 const deleteObservationMock = vi.hoisted(() => vi.fn(async () => undefined))
 const releaseObservationMock = vi.hoisted(() => vi.fn())
@@ -83,6 +84,7 @@ function makeObservation(id: string): Observation {
 
 function mountObs(opts?: {
   createdBy?: string | null
+  isModerator?: boolean
   boundAgents?: BoundAgentRef[]
 }): {
   wrapper: VueWrapper
@@ -97,6 +99,7 @@ function mountObs(opts?: {
   const room = ref<Chatroom | undefined>({
     id: ROOM,
     created_by_user_id: opts?.createdBy === undefined ? CREATOR : opts.createdBy,
+    is_moderator: opts?.isModerator ?? false,
   } as Chatroom)
   const boundAgents = ref<BoundAgentRef[] | undefined>(
     opts?.boundAgents ?? [{ agent_id: OBS_AGENT, role: 'observer' }],
@@ -107,7 +110,6 @@ function mountObs(opts?: {
     setup() {
       api = useObservations(ROOM, {
         room,
-        projectId: ref('proj_1'),
         boundAgents: boundAgents as Ref<BoundAgentRef[] | undefined>,
         agentNames: computed(() => ({ [OBS_AGENT]: 'Watcher' })),
       })
@@ -153,6 +155,42 @@ describe('useObservations', () => {
     const m3 = mountObs()
     wrapper = m3.wrapper
     expect(m3.api.isCreator.value).toBe(true)
+  })
+
+  // T-4 (F-3). For a NULL-creator room the server falls back to moderator
+  // semantics, where an inherited ORG_OWNER role counts with no `project_members`
+  // row at all (`access.py`). The client used to scan `projectsApi.listMembers`,
+  // which serves `project_members` only — so it locked out exactly the owner the
+  // server would have let in, and its unpaginated call dropped a genuine owner
+  // past row 100 as well. `is_moderator` is on the DTO for this reason.
+  it('T-4: a NULL-creator room trusts is_moderator, not the member list', async () => {
+    sessionMe.value = { id: 'org_owner', is_admin: false }
+    const m = mountObs({ createdBy: null, isModerator: true })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(true)
+  })
+
+  it('T-4: a NULL-creator room without moderator standing stays closed', async () => {
+    sessionMe.value = { id: 'plain_member', is_admin: false }
+    const m = mountObs({ createdBy: null, isModerator: false })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(false)
+  })
+
+  it('T-4: is_moderator does not open a room that has a real creator', async () => {
+    // The moderator fallback is the NULL-creator path only. A non-creator
+    // moderator of a room someone else created must not read its observations
+    // (R28.02) — widening here would render a surface whose every request 403s.
+    sessionMe.value = { id: 'someone_else', is_admin: false }
+    const m = mountObs({ createdBy: CREATOR, isModerator: true })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(false)
   })
 
   it('W-1: a non-recipient admin polls, the real creator does not', async () => {
@@ -291,6 +329,32 @@ describe('useObservations', () => {
 
     expect(deleteObservationMock).toHaveBeenCalledWith(ROOM, 'o1')
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.observations(ROOM) })
+  })
+
+  // FU-8's client half. The room channel no longer carries `chatroom.updated`
+  // for a write non-creators cannot see, so the creator's own other tabs are
+  // refreshed over their private user channel instead.
+  it('chatroom.updated on the user channel refreshes the room and roster', async () => {
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+    const spy = vi.spyOn(m.qc, 'invalidateQueries')
+
+    emit('chatroom.updated', { chatroom_id: ROOM })
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
+  it('ignores a chatroom.updated naming another room', async () => {
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+    const spy = vi.spyOn(m.qc, 'invalidateQueries')
+
+    emit('chatroom.updated', { chatroom_id: 'cr_other' })
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
   })
 
   it('teardown unsubscribes its own handlers on unmount', async () => {

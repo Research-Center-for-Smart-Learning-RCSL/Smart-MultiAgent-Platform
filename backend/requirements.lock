@@ -164,7 +164,7 @@ pygments==2.20.0
     # via rich
 pyjwt==2.13.0
     # via smap-backend (pyproject.toml)
-pypdf==6.15.0
+pypdf==6.16.1
     # via smap-backend (pyproject.toml)
 pyphen==0.17.2
     # via weasyprint

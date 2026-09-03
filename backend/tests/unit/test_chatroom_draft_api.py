@@ -23,6 +23,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -33,6 +34,18 @@ from shared_kernel.auth.permissions import Role
 from tests.unit.chatroom_fakes import chatroom_row
 
 _CTX = SimpleNamespace(actor_ip=None, request_id=None)
+
+
+def _committing_db() -> SimpleNamespace:
+    """A db double for the writers that commit before publishing.
+
+    `disclose_drafts` is one of `_DISCLOSURE_FIELDS`, so a draft-disclosure patch
+    takes the same `chatroom.updated` path a `disclose_observers` patch does — and
+    it should, since `drafts_readable` is a viewer-visible DTO field that has just
+    changed for everyone in the room ([R32.05]).
+    """
+    return SimpleNamespace(commit=AsyncMock())
+
 
 # Creator authority requires *current* membership as well as the created_by match
 # (`is_room_creator`, and O-7 of the observer dossier: a creator removed from the
@@ -45,9 +58,22 @@ def _principal(user_id: uuid.UUID | None = None) -> SimpleNamespace:
     return SimpleNamespace(user_id=user_id or uuid.uuid4(), is_admin=False)
 
 
-def _access(*, created_by: uuid.UUID, roles: frozenset[Role] = _MEMBER) -> RoomAccess:
+def _access(
+    *,
+    created_by: uuid.UUID,
+    roles: frozenset[Role] = _MEMBER,
+    disclose_drafts: bool = True,
+) -> RoomAccess:
+    # `disclose_drafts` decides whether the grant route's `chatroom.updated` goes
+    # to the room channel or only to the creator: with the disclosure off the
+    # grant moves nothing a participant can see, and announcing it room-wide
+    # would signal an invisible write ([R32.05]).
     return RoomAccess(
-        chatroom=SimpleNamespace(created_by_user_id=created_by),
+        chatroom=SimpleNamespace(
+            created_by_user_id=created_by,
+            disclose_observers=True,
+            disclose_drafts=disclose_drafts,
+        ),
         project_id=uuid.uuid4(),
         roles=roles,
         is_guest=False,
@@ -213,7 +239,7 @@ class TestTheCreatorOnlyCarveOut:
             if_match="1",
             ctx=_CTX,
             principal=_principal(uid),
-            db=object(),
+            db=_committing_db(),
         )
 
         assert cap_calls == []
@@ -232,7 +258,7 @@ class TestTheCreatorOnlyCarveOut:
             if_match="1",
             ctx=_CTX,
             principal=_principal(uid),
-            db=object(),
+            db=_committing_db(),
         )
 
         assert cap_calls == []
@@ -256,7 +282,7 @@ class TestTheCreatorOnlyCarveOut:
                 if_match="1",
                 ctx=_CTX,
                 principal=_principal(),
-                db=object(),
+                db=_committing_db(),
             )
 
     async def test_a_mixed_patch_keeps_both_gates(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,7 +303,7 @@ class TestTheCreatorOnlyCarveOut:
                 if_match="1",
                 ctx=_CTX,
                 principal=_principal(),
-                db=object(),
+                db=_committing_db(),
             )
 
         assert len(cap_calls) == 1
@@ -364,7 +390,7 @@ class TestTheGrantRoute:
                 agent_id=uuid.uuid4(),
                 ctx=_CTX,
                 principal=_principal(),
-                db=object(),
+                db=_committing_db(),
             )
 
         assert calls == []

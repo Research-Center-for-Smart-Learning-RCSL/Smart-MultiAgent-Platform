@@ -81,6 +81,7 @@ import {
   AGENT_THINKING_TIMEOUT_MS,
 } from '../composables/useChatroomSocket'
 import { useConversationStore } from '../stores/conversation'
+import { convKeys } from '../queries'
 
 const ROOM = 'cr_1'
 const AGENT = 'agent_1'
@@ -1190,5 +1191,61 @@ describe('useChatroomSocket agent.token throttling (F-15)', () => {
     vi.advanceTimersByTime(500)
 
     expect(append).toHaveBeenCalledTimes(callsAtUnmount)
+  })
+})
+
+// T-2 (F-1/F-10c). The room DTO and the bound-agents list were both cached
+// under keys nothing ever invalidated: every invalidation in the slice names
+// the plural `['conversation','chatrooms']`, which does not prefix-match the
+// singular `convKeys.chatroom`, and `chatroom-agents` had exactly one reference
+// in the whole frontend and no invalidator at all. Binding an observer left
+// every other viewer's disclosure chip and roster stale until a reload.
+describe('useChatroomSocket chatroom.updated (F-1)', () => {
+  let wrapper: VueWrapper | null = null
+
+  beforeEach(() => {
+    subscribedHandlers.length = 0
+    statusHandlers.length = 0
+    degradedHandlers.length = 0
+    listMessagesMock.mockClear()
+    listChatroomApprovalsMock.mockReset()
+    listChatroomApprovalsMock.mockResolvedValue([])
+    getActiveActivationMock.mockReset()
+    getActiveActivationMock.mockResolvedValue(null)
+    getApprovalMock.mockReset()
+    getApprovalMock.mockRejectedValue(new Error('getApproval not stubbed'))
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('invalidates the room DTO and the bound-agents list', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.updated', chatroom_id: ROOM })
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: ['conversation', 'chatroom-agents', ROOM],
+    })
+  })
+
+  it('ignores a frame naming a different room', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.updated', chatroom_id: 'cr_other' })
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: ['conversation', 'chatroom-agents', ROOM],
+    })
   })
 })
