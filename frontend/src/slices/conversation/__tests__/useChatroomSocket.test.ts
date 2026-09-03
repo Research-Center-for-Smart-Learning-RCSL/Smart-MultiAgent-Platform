@@ -1231,7 +1231,7 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
 
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
     expect(spy).toHaveBeenCalledWith({
-      queryKey: ['conversation', 'chatroom-agents', ROOM],
+      queryKey: convKeys.chatroomAgents(ROOM),
     })
   })
 
@@ -1245,7 +1245,7 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
     expect(spy).not.toHaveBeenCalledWith({
-      queryKey: ['conversation', 'chatroom-agents', ROOM],
+      queryKey: convKeys.chatroomAgents(ROOM),
     })
   })
 
