@@ -634,6 +634,14 @@ export function useChatroomSocket(roomId: string) {
       void reconcileMessages()
       void resyncPresence()
       void resyncActivation()
+      // F-3. `chatroom.updated` is these two keys' only invalidator, and Redis
+      // pub/sub does not replay — a frame published while this socket was down
+      // is gone for good. Without this the disclosure chip stays dark for the
+      // rest of a focused session, which is the F-1 symptom reached through the
+      // reconnect door rather than the missing-handler door. The frame remains
+      // the fast path; this is the delivery it never had.
+      void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
+      void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
       // Discover a gate raised entirely while disconnected (F-13), and
       // recover any approval.resolved lost while the socket was down.
       void discoverApprovals()

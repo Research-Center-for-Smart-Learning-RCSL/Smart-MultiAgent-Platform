@@ -1248,4 +1248,33 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
       queryKey: ['conversation', 'chatroom-agents', ROOM],
     })
   })
+
+  // F-3. The frame above is the fast path and it is the only path: Redis pub/sub
+  // does not replay, so a `chatroom.updated` published while this client's socket
+  // was down is gone. The reconnect handler reconciled messages, presence,
+  // activation and approvals, and re-read neither of the two keys whose only
+  // invalidator is the handler that just missed its frame.
+  it('re-reads the room DTO and the bound-agents list on reconnect', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
+  it('does not re-read them when the socket goes down', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(false))
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
 })
