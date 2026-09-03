@@ -153,7 +153,11 @@ function onRowClick(row: Chatroom): void {
 const deleteMutation = useMutation({
   mutationFn: (id: string) => deleteChatroom(id),
   onSuccess: () => {
-    qc.invalidateQueries({ queryKey: convKeys.chatrooms(workspaceId) })
+    // F-4: the prefix, not this workspace's list alone. `recentChatrooms` nests
+    // under it and is the sidebar rail, which has a 60s staleTime in a component
+    // that never unmounts — so a room deleted here stayed clickable there and
+    // routed the user into a room the server no longer serves.
+    qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.chatrooms.deleted'))
   },
   onError: () => toast.error(t('conversation.chatrooms.deleteFailed')),
@@ -199,7 +203,11 @@ const createMutation = useMutation({
   mutationFn: (payload: ChatroomCreateInput) => createChatroom(workspaceId, payload),
   onSuccess: (room) => {
     showCreate.value = false
-    qc.invalidateQueries({ queryKey: convKeys.chatrooms(workspaceId) })
+    // F-4: the prefix, not this workspace's list alone. `recentChatrooms` nests
+    // under it and is the sidebar rail, which has a 60s staleTime in a component
+    // that never unmounts — so a room deleted here stayed clickable there and
+    // routed the user into a room the server no longer serves.
+    qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.chatrooms.created'))
     openRoom(room)
   },
