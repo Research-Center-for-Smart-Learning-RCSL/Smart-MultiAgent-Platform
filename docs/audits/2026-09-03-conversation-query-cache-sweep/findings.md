@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: closed
 created: 2026-09-03
 requirements: [R13.16, R13.29, R28.09, R28.10]
 ---
@@ -297,15 +297,22 @@ dossier already recorded as FU-3 and routed to `check-quality`. That routing sta
 
 ## 5. Hand-off
 
-Awaiting triage. §6 carries the observations this skill does not judge.
+Triaged 2026-09-03. All five findings were selected for fixing and consolidated into one
+dossier, phased by blast radius. §6 carries the observations this skill does not judge.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending | |
-| F-2 | pending | |
-| F-3 | pending | |
-| F-4 | pending | |
-| F-5 | pending | |
+| F-1 | fix (phase 2) | `docs/tasks/2026-09-03-conversation-query-cache-staleness/` |
+| F-2 | fix (phase 2) | `docs/tasks/2026-09-03-conversation-query-cache-staleness/` |
+| F-3 | fix (phase 1) | `docs/tasks/2026-09-03-conversation-query-cache-staleness/` |
+| F-4 | fix (phase 2) | `docs/tasks/2026-09-03-conversation-query-cache-staleness/` |
+| F-5 | fix (phase 3) | `docs/tasks/2026-09-03-conversation-query-cache-staleness/` |
+
+Two of the out-of-scope observations below were also taken into that dossier at the user's
+direction rather than left for a later pass: FU-1's four `setQueryData` sites (converted
+together with the fourteen test literals that would otherwise drift with them) and FU-4's two
+dead factory entries. FU-2's prefix-only factory entries were added as the instrument F-4's
+fix needed. The rest stand as recorded.
 
 Two defects already recorded by the observer dossier were re-verified as still open and are
 deliberately not restated as findings here, because they are the same root cause as F-3 (a
@@ -378,5 +385,3 @@ FU numbers here are local to this audit.
   path patches without invalidating (`:319-322`), unlike the locally initiated release at
   `:408`. Whether it is user-visible depends on whether the panel renders that timestamp,
   which was not traced. Self-corrects on the next refetch.
-</content>
-</invoke>
