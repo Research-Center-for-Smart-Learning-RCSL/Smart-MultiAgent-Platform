@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-09-03
 requirements: [R13.16, R13.29, R28.09, R28.10]
 depends_on: []
@@ -453,19 +453,28 @@ the test.
 
 ### Phase 1
 
-- [ ] AC-1: T-1, T-2, T-2a and T-3 each behave as §8 states (T-1, T-2 and T-3 fail against
-      current code and pass after; T-2a passes in both directions and is what lets T-2 fail).
-- [ ] AC-2: `_wire_grant_route` installs `_spy_room_publisher`, and the seven tests that use it
-      still pass. Verified by reading the helper, not only by a green run, since the failure
-      mode being closed is a test that passes while asserting nothing.
-- [ ] AC-3: A rename emits exactly one room-channel frame whose payload is
-      `{"chatroom_id": ...}` and nothing else, asserted by equality.
-- [ ] AC-4: An activity-control grant emits on the creator's user channel and produces zero
-      room-channel frames.
+- [x] AC-1: T-1, T-2, T-2a and T-3 each behaved as §8 states. Observed: T-1 and T-2 both
+      failed with `expected exactly one room frame, got []` (the finding itself, no emit
+      existed); T-3 failed with `expected "invalidateQueries" to be called with arguments:
+      [ { queryKey: [ …(3) ] } ] Number of calls: 0`. T-2a passed in both directions.
+      T-3's assertion was rewritten after D-1 changed the contract from "on connect" to "on
+      reconnect"; it was re-observed failing in that form before the gate was added.
+- [x] AC-2: `_wire_grant_route` installs `_spy_room_publisher`, and the nine tests that use it
+      still pass. Verified by reading the helper as required, not only by a green run. The
+      count is nine, not the seven §8 estimated.
+- [x] AC-3: Asserted by `_assert_ids_only_updated_frame`, which compares the payload by
+      **equality** to `{"chatroom_id": str(id)}`, so a later field addition fails the test
+      rather than passing it.
+- [x] AC-4: `_assert_creator_only` asserts zero room frames and exactly one creator
+      user-channel frame. A second case pins that the 404 arm emits nothing at all.
 - [ ] AC-5: With two browsers on one room, renaming it in one updates the other's header
       without a reload or a window blur; and binding an observer while the second browser's
-      socket is down leaves the disclosure chip correct after the socket reconnects. Executed
-      against a running stack, or left unticked with the reason recorded.
+      socket is down leaves the disclosure chip correct after the socket reconnects.
+      **Not executed** — needs a running stack and two sessions, and the second half
+      additionally needs a socket-only drop with HTTP left healthy. Docker was unavailable.
+      Not ticked on the strength of T-1 plus T-3: those verify the emit and the reconnect
+      re-read separately and never that the one reaches the other. Same ground the observer
+      dossier left its AC-2 unticked on.
 
 ### Phase 2
 
@@ -517,6 +526,36 @@ the test.
       `pytest tests/unit -q` against the recorded baseline of 7938 passed / 6 skipped, and
       `pnpm test` against 1788 passed across 233 files.
 
+## 10a. Phase 1 verification record
+
+Committed as `a3a8a68` (backend), `4525f99` + `ee38942` (frontend), `6b80b41` (audit-gate
+corrections). Gates, all local:
+
+`pytest tests/unit -q` 7943 passed / 6 skipped; `ruff check` and `ruff format --check` clean
+over 1021 files; `mypy` clean over 1016; `pnpm test` 1795 passed across 233 files; `pnpm lint`
+(`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, with no tracked-file churn
+from the build. Contract gates N/A: no migration, no API contract change (the emit adds no
+field to any response model), no new i18n keys. Full `pytest -q` and the rest of the matrix
+are pending CI, since the local host has no Postgres, Redis or Vault and its `tests/wiring/`
+tier fails with `socket.gaierror` regardless of any change.
+
+**A note on the frontend baseline.** The dossier's AC-16 records 1788 as the pre-change
+figure, taken from the task brief. The suite reports 1795 after this phase added three cases,
+which implies the actual baseline on this branch was 1792. The baseline was not re-measured
+before the first edit, so 1795 is reported as observed rather than as a verified delta.
+
+**`check-security`**: no CRITICAL, no HIGH. It verified field by field that the widened emit
+does not open an observer-existence oracle, that no emit moved above an authorization gate,
+that the activity-control frame cannot reach the room channel, and that the frontend change
+introduces no new endpoint or authorization surface. Its two Hardening findings are D-2.
+
+**`check-quality`**: no Critical. Its one Warning and one Note are the same two defects,
+found independently, and are D-2. Its remaining Notes were dispositioned: the duplication with
+the `chatroom.updated` handler is deliberate (see D-1's closing observation); the two
+pre-existing hand-written `chatroom-agents` literals in the test file were converted to
+`convKeys.chatroomAgents` in passing, since leaving two spellings in one describe block is the
+same hazard §7.4 exists to close. Its pre-existing findings are FU-10 through FU-12.
+
 ## 11. SRS Delta
 
 None. Every item restores documented behaviour: [R28.09] and [R28.10] for the disclosure and
@@ -528,7 +567,54 @@ this dossier is not changing would be inventing scope. Recorded as FU-4.
 
 ## 12. Deviation Log
 
-Appended by /build.
+### Phase 1
+
+**D-1 — the reconnect invalidation is gated on a *re*connect, where §7.2 said "alongside
+the four reconciles already there".** `onStatus(true)` also fires on the initial handshake,
+and `invalidateQueries` defaults `cancelRefetch` to true, so firing on a first connect would
+abort and restart the very fetches `ChatroomView` issued on mount whenever the socket
+connects while they are still in flight — for no recovery, since those queries have just
+run. The four existing reconciles do not have this problem: they merge or are plain API
+calls, not invalidations against a component-owned query. Found in self-audit before the
+audit gates. Pinned in both directions (`useChatroomSocket.test.ts`): a first connect must
+not invalidate, an up-down-up must.
+
+**D-2 — Q-2 was wrong on one field, and the emit gate is `changed_fields`, not `fields`.**
+Two corrections from the `check-security` and `check-quality` gates, which found them
+independently.
+
+The first: Q-2 and §7.2 both claimed that *every* patchable field reaches a non-creator and
+a pure guest, so no patch could produce a frame with nothing behind it. Seven of eight do.
+The eighth, `disclose_observers`, is viewer-conditioned — `_to_out:243` forces it false for a
+pure guest. The claim was false as written. It changes nothing about behaviour, because that
+field was already inside the old `_DISCLOSURE_FIELDS` gate and already emitted room-visibly,
+and §9 of the observer dossier analyses and accepts that exact residual. But the comment
+would have been the guard a later author consulted when adding a ninth field, and read
+literally it says "no need to re-run the Q-9 analysis". Corrected in the code comment, in the
+test docstring that repeated it, and in Q-2 above.
+
+The second: gating on `fields` announced writes that never happened.
+`model_dump(exclude_unset=True)` reports an explicit JSON null as *set*, while
+`ChatroomService.patch` skips every None and returns the row untouched at
+`chatroom_service.py:243-245` — no `UPDATE`, no `version` bump. So `PATCH {"name": null}`
+emitted a room-channel frame with no delta at all behind it, which is precisely the shape
+`room_visible` exists to prevent. The old gate had the same hole for the two disclosure
+fields; widening extended it to eight. The emit now keys off `changed_fields` (the non-null
+subset), while `fields` is deliberately left alone for the two authorization gates: narrowing
+it there would move a null-valued disclosure patch onto the capability branch and silently
+change who may send it. That distinction is pinned by
+`test_a_null_disclosure_patch_is_still_creator_gated_but_emits_nothing`.
+
+**D-3 — the guard test in T-2a's shape was extended beyond `_wire_grant_route`.** §8 asked
+only that the grant helper install `_spy_room_publisher`. Writing the null-patch cases showed
+the same reasoning applies to the assertion style: `test_a_patch_that_changes_nothing_emits_nothing`
+asserts `_PublisherSpy.emitted == []` across *all* channels rather than `_room_frames(...) == []`,
+because the creator's user channel is a delivery path a room-only assertion cannot see.
+
+**Observation, not a deviation.** The two new frontend invalidations are byte-identical to
+the `chatroom.updated` handler's at `:420-421`. Deliberately not extracted: phase 2 (F-1)
+adds a third key to the handler only, so the two blocks are about to diverge and a shared
+helper would have to be un-made. Recorded so the duplication reads as a decision.
 
 ## 13. Follow-ups
 
@@ -570,6 +656,27 @@ Appended by /build.
 - **FU-8** — `account-deleted` (`admin_service.py:453`) has no frontend consumer; a deleted
   user's tab keeps rendering its populated cache until the next request 401s. An identity-slice
   question rather than a conversation-cache one.
+- **FU-10** (opened by phase 1) — **an empty or all-null PATCH skips the If-Match check
+  entirely.** `chatroom_service.py:243-245` returns the row before `_rooms.update` is reached,
+  so `expected_version` is parsed by `require_if_match` and then discarded: a caller sending
+  a wildly wrong version gets 200 and the room's current state. Both audit gates found this
+  independently. D-2 fixed the emit half of the same short-circuit and deliberately did not
+  touch the locking half, which is a change to optimistic-concurrency semantics rather than
+  to this dossier's subject. No confidentiality impact; it violates the contract
+  `require_if_match` exists to enforce.
+- **FU-11** (opened by phase 1, route to `check-quality`) — `_PublisherSpy.emitted`
+  (`test_observer_agents.py`) is a module-level mutable class attribute reset by convention
+  inside each wire helper. It works only because every test path currently goes through one;
+  a future test that wires a route by hand inherits the previous test's frames and its
+  assertions become meaningless in the direction that matters. A fixture would make the reset
+  structural rather than conventional. Phase 1 made this sharper by adding the reset to a
+  sixth helper.
+- **FU-12** (opened by phase 1, route to `check-quality`) — `app/api/v1/chatrooms.py` imports
+  `contexts.conversation.application.access`, `.chatroom_service` and `.domain.models`
+  directly, against the rule in both `CLAUDE.md` files that routes call
+  `contexts/*/interfaces/facade.py` only. Phase 1 adds no such import and its new code goes
+  through `ConversationFacade`, so the deviation is standing rather than introduced, but the
+  file is now edited often enough that it is worth a decision.
 - **FU-9** — `ChatroomListView.vue` (423 lines) and `WorkspaceListView.vue` (311 lines) are
   near-identical: search ref plus filter computed, create modal state, create and delete
   mutations with the same invalidate-plus-toast shape, the same confirm-then-mutate action
