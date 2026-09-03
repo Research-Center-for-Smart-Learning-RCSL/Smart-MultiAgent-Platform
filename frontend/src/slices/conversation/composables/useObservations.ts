@@ -176,9 +176,19 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     }
   }
 
-  watch(observations, (rows) => {
-    for (const o of rows) noteSeen(o.created_at)
-  })
+  // `immediate` because a mount can begin with rows already in hand: returning to
+  // a room inside `gcTime` serves the query from cache, and a lazy watcher would
+  // leave the mark null until the mount refetch wrote the cache again. A reconnect
+  // landing in that window reads `baseline === null` and returns, so every
+  // observation written during the outage goes unbadged — the gap F-13 exists to
+  // close, reopened by the one case where the panel already had rows.
+  watch(
+    observations,
+    (rows) => {
+      for (const o of rows) noteSeen(o.created_at)
+    },
+    { immediate: true },
+  )
 
   // F-8's reconnect half, mirroring the room path's onStatus reconcile.
   async function reconcileOnReconnect(): Promise<void> {
