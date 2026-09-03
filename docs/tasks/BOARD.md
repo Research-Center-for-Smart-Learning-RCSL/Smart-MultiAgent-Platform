@@ -16,46 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-### From the 2026-09-03 observer-UI audit
-
-Moved to In progress on 2026-09-03 when phase 1 started. The entry below is kept here for its
-detail; the live status is under In progress.
-
-- `2026-09-03-observer-ui-defect-sweep` (bugfix, **in-progress since 2026-09-03**; its SRS Delta
-  is None) — `depends_on: []`. All sixteen findings of
-  `docs/audits/2026-09-03-observer-ui-visualization/findings.md` in one dossier, executed in
-  **three phases** rather than one session: P1 disclosure and access correctness (F-1, F-2,
-  F-3, F-7, F-10), P2 observer status truthfulness (F-6, F-8, F-11, F-12, F-13, F-14), P3
-  example packs and render fidelity (F-4, F-5, F-9, F-15, F-16). P1 and P2 both edit the same
-  regions of `useObservations.ts` and `ChatroomView.vue` and are **serial**; P3 shares only
-  one line of `useObservations.ts` and `ObservationCard.vue`, so it can run beside either —
-  whoever lands second rebases.
-
-  **Its most consequential change is the first WebSocket publish `chatrooms.py` has ever
-  had.** F-1's root cause is that no writer in that file or in `chatroom_service.py` publishes
-  anything, so no client can be told the room changed — and every invalidation in the
-  conversation slice names `['conversation','chatrooms']`, which does not prefix-match the
-  singular `convKeys.chatroom`. The fix adds a room-channel `chatroom.updated` carrying **the
-  room id and nothing else**, because the room channel has no per-recipient filtering
-  (`shared_kernel/realtime/connection.py:331-338`) and each viewer must re-GET through
-  `_to_out`'s per-viewer guest neutralisation instead. AC-3 verifies the frame's contents by
-  reading it, not only by unit test.
-
-  **Two dispositions are deliberately narrower than the finding.** Q-3 fixes F-6 by reporting
-  "unknown" to viewers who receive no event feed rather than by building that feed — real
-  delivery needs a reverse resolver in `access.py` that does not exist in that direction, or a
-  persisted per-turn status where today there is only a client transient (its FU-1). Q-8
-  corrects the two pack prompts without a migration: install copies `system_prompt` into an
-  `agents` row and is idempotent by agent **name** with no update path and no pack-version
-  column, and the project has twice shipped the hand-edit note instead
-  (`docs/examples/creative-thinking-course.md:344-347,627-636`). Its FU-6 asks whether that
-  should keep being true.
-
-  **Its Q-6 records a `turn_engine.py` overlap with the in-progress
-  `2026-07-19-large-artifacts-silently-dropped`** — disjoint regions (`_persist_artifacts` at
-  `:1124-1171` versus the observer emit at `:3154-3326`) — deliberately **not** a `depends_on`,
-  matching the call `BOARD.md` already made for two earlier pairs in that file.
-
 ### From the 2026-08-30 FU consolidation
 
 Three dossiers opened the same day from the follow-up lists of four already-implemented ones.
@@ -545,26 +505,55 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-03-observer-ui-defect-sweep` (bugfix) — `depends_on: []`. **Phases 1 and 2 of
-  three are done; phase 3 is what remains.** The dossier stays `in-progress` between
-  phases: its §7.1 makes each phase a self-contained milestone with its own commit and its
-  own full Definition of Done, and only the third moves it to `implemented`. The §10 AC
-  checkboxes are how a resumed session finds where work stopped.
-  - Phase 1 (F-1, F-2, F-3, F-7, F-10 — disclosure and access correctness) on
-    `fix/observer-ui-sweep-phase1`, PR #182, CI green. Not yet merged.
-  - Phase 2 (F-6, F-8, F-11, F-12, F-13, F-14 — observer status truthfulness) on
-    `fix/observer-ui-sweep-phase2`, branched from phase 1 rather than from `main`
-    because §7.1 makes the two serial and `main` does not have phase 1. **Its PR must
-    therefore target `fix/observer-ui-sweep-phase1` as its base until #182 lands.**
-  - Phase 3 (F-4, F-5, F-9, F-15, F-16 — example packs and render fidelity) may start
-    now and may run beside either: it shares one line of `useObservations.ts` (F-16's
-    fallback) and `ObservationCard.vue`, which neither other phase edits. Whoever lands
-    second rebases. Branch it from phase 2 for the same reason phase 2 branched from
-    phase 1, or from `main` once #182 is merged.
-
-  See the Ready-now entry above for the full scope note.
-
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+Removed on 2026-09-03 after implementation: `2026-09-03-observer-ui-defect-sweep` (all sixteen
+findings of `docs/audits/2026-09-03-observer-ui-visualization/findings.md`, in three phases).
+Nothing lists it in `depends_on`, so no row moved out of Blocked. No migration, no API contract
+change, no SRS Delta — every finding restores documented behaviour or corrects text against
+documentation that was already right.
+
+**Three branches, stacked, none merged at close.** `fix/observer-ui-sweep-phase1` (PR #182, CI
+fully green) ← `fix/observer-ui-sweep-phase2` ← `fix/observer-ui-sweep-phase3`. Each phase
+branched from its predecessor rather than from `main` because §7.1 makes P1 and P2 serial and
+because P2 had rewritten the `useObservations.ts` lines P3 needed; each PR targets its
+predecessor's branch as base until #182 lands, after which GitHub retargets them.
+
+**Four things a later reader needs.**
+
+**Its most consequential change is the first WebSocket publish `chatrooms.py` has ever had**
+(P1/F-1). No writer in that file or in `chatroom_service.py` published anything, so no client
+could be told the room changed — and every invalidation in the conversation slice named
+`['conversation','chatrooms']`, which does not prefix-match the singular `convKeys.chatroom`.
+The new `chatroom.updated` carries the room id and nothing else, because the room channel has
+no per-recipient filtering. Then D-7 split its audience: the room channel is used only when a
+non-creator can see the difference, and the creator's other sessions are refreshed over their
+own user channel — otherwise the frame's *existence* was an observer-existence oracle in a
+room with disclosure off, which a pure guest could read. §9 records the one sliver that split
+does not close (a disclosure toggle is announced to a guest for whom nothing visibly changes)
+as an accepted risk.
+
+**Two dispositions are deliberately narrower than their finding.** Q-3 fixes F-6 by reporting
+"unknown" to viewers who receive no event feed rather than by building that feed (FU-1 owns
+the feed). Q-8 corrects the two pack prompts without a migration: install copies
+`system_prompt` into an `agents` row and is idempotent by agent **name**, with no update path
+and no pack-version column, so the project's twice-used hand-edit note is the remedy again —
+and FU-6 asks whether that should keep being true.
+
+**Five ACs are ticked "not executed" rather than on a unit test, on one shared ground.** AC-2,
+AC-5, AC-9, AC-10 (first half), AC-12 (first half), AC-15 and AC-18 each need a running stack —
+two browser sessions, a NULL-creator row, a platform admin on someone else's room, a provider
+key, or a real browser running the lazy mermaid/KaTeX imports. Docker was unavailable across
+all three build sessions. In every case the unit tier verifies the halves and never that they
+meet, and the dossier says which half is missing rather than ticking the box. FU-5 records
+that no `frontend/e2e` spec covers the observer surface at all, which is why so many of these
+are manual.
+
+**Three `/code-review` passes and one `check-security` pass found work the phases themselves
+had created**, all fixed in phase rather than deferred: D-6 (a draft-access route left
+half-fresh by P1's own emit), D-11 (the release/delete emit duplication F-14 exists to
+correct), D-12 and D-13 (a spurious watchdog verdict that nothing cleared, and an unread badge
+that double-counted across an async gap), and D-16/D-17 in P3. Its FU-9 through FU-13 are the
+ones judged out of scope.
 Removed on 2026-09-01 after implementation: `2026-08-30-runtime-contract-integrity` (two dead typed-error
 recovery branches now branch on the class the transport actually throws; provider seed is an independent
 per-model capability, forwarded to Gemini and honestly disabled elsewhere). Nothing lists it in
