@@ -794,10 +794,17 @@ async def patch_chatroom_agent_role(
         request_id=ctx.request_id,
     )
     if not changed:
-        # Nothing was written, so there is nothing to announce — a frame here
-        # would cost every viewer a GET to re-read an unchanged room.
+        # No such binding, so there is nothing to announce.
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
     # F-1: promoting to (or demoting from) `observer` moves `observers_present`.
+    #
+    # `changed` means "the binding exists and now holds this role", NOT "a row was
+    # written": `set_agent_role` returns True without writing when the agent already
+    # held the target role. Re-asserting a current role therefore emits, costing each
+    # viewer two cached refetches of a room that did not move. Accepted rather than
+    # narrowed — distinguishing the two needs a new return value from the service,
+    # and the frame is idempotent, so the cost of the no-op is a refetch while the
+    # cost of getting the distinction wrong is a missed disclosure update.
     await _emit_chatroom_updated(db, chatroom_id)
 
 
@@ -895,7 +902,11 @@ async def patch_chatroom_agent_draft_access(
     )
     if not written:
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
-    await db.commit()
+    # `drafts_readable` on the room DTO just changed for every participant: it is
+    # `disclose_drafts AND has_draft_readers`, and this route moves the second term
+    # ([R32.05]). Without this the pair is half-fresh — `patch_chatroom` refreshes
+    # the chip when the disclosure flips, and granting the reading itself would not.
+    await _emit_chatroom_updated(db, chatroom_id)
 
 
 async def _assert_activity_types_in_project(

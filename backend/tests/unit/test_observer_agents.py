@@ -946,6 +946,46 @@ async def test_disclosure_patch_emits_ids_only_chatroom_updated(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_draft_access_grant_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    """`drafts_readable` is the other half of the pair `disclose_drafts` belongs to
+    ([R32.05]), and this route is what flips `has_draft_readers` under it. Without
+    this emit the pair is half-fresh: toggling the disclosure refreshes every live
+    viewer's "an agent here can read what you are typing" chip, while granting the
+    reading itself leaves the chip absent until reload — on the field participants
+    have the strongest interest in."""
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+
+    async def _resolve(db, *, principal, chatroom_id):
+        return access
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def set_agent_draft_grant(self, **kw):
+            return True
+
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ConversationFacade", _Facade)
+    _spy_room_publisher(monkeypatch, chatrooms_mod)
+
+    await chatrooms_mod.patch_chatroom_agent_draft_access(
+        body=chatrooms_mod.AgentDraftAccessIn(granted=True),
+        chatroom_id=chatroom_id,
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.asyncio
 async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
     """Scoped to the disclosure path per §7.2. A rename going stale on a live
     viewer is a real but separate defect (FU-7); widening the emit here would
