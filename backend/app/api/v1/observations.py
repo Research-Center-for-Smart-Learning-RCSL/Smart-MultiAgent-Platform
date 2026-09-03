@@ -108,6 +108,30 @@ def _to_out(o: AgentObservation) -> ObservationOut:
     )
 
 
+async def _notify_creator(
+    service: ObservationService,
+    chatroom_id: uuid.UUID,
+    event: str,
+    payload: dict[str, Any],
+) -> None:
+    """Publish one observation.* frame to the room creator's own user channel.
+
+    Never the room channel: `_pubsub_fanin` delivers every room frame to every
+    subscriber including guests, and an observation's existence is exactly what
+    [R28.10] withholds. Best-effort throughout — the write is already committed
+    by the time this runs, so a Redis hiccup must not surface as a failure.
+
+    Shared by release and delete because F-14 was precisely the two drifting:
+    one announced itself and the other did not.
+    """
+    try:
+        recipient = await service.recipient_user_id(chatroom_id)
+        if recipient is not None:
+            await Publisher(user_channel(recipient)).emit(event, {"chatroom_id": str(chatroom_id), **payload})
+    except Exception:
+        _log.error("realtime publish failed for %s", event, exc_info=True)
+
+
 async def _require_creator(
     db: AsyncSession,
     *,
@@ -176,12 +200,23 @@ async def delete_observation(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     await _require_creator(db, principal=principal, chatroom_id=chatroom_id)
-    await ObservationService(db).delete(
+    service = ObservationService(db)
+    await service.delete(
         chatroom_id=chatroom_id,
         observation_id=observation_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+    )
+    # F-14. Release announced itself and delete did not, so a second session of
+    # the same creator kept rendering — and offering to act on — a row the
+    # server no longer had. Commit before publishing for the reason the release
+    # path does: `db_session` commits only after the handler returns, so a frame
+    # sent from here would tell the other tab to re-read a write a later
+    # rollback could still undo.
+    await db.commit()
+    await _notify_creator(
+        service, chatroom_id, "observation.deleted", {"observation_id": str(observation_id)}
     )
 
 
@@ -246,19 +281,15 @@ async def _dispatch_release(
                     await enqueue("wakeup_agent", str(agent_id), str(chatroom_id), "release", None)
                 except Exception:
                     _log.warning("release wake enqueue failed for agent %s", agent_id, exc_info=True)
-    try:
-        recipient = await service.recipient_user_id(chatroom_id)
-        if recipient is not None:
-            await Publisher(user_channel(recipient)).emit(
-                "observation.released",
-                {
-                    "chatroom_id": str(chatroom_id),
-                    "observation_id": str(result.observation.id),
-                    "target": result.observation.release_target,
-                },
-            )
-    except Exception:
-        _log.error("realtime publish failed for observation.released", exc_info=True)
+    await _notify_creator(
+        service,
+        chatroom_id,
+        "observation.released",
+        {
+            "observation_id": str(result.observation.id),
+            "target": result.observation.release_target,
+        },
+    )
 
 
 __all__ = ["observation_router"]

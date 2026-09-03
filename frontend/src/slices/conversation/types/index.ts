@@ -157,7 +157,9 @@ export type ObservationEventType =
   | 'observation.started'
   | 'observation.created'
   | 'observation.failed'
+  | 'observation.skipped'
   | 'observation.released'
+  | 'observation.deleted'
 
 // One retrieved RAG chunk cited on an agent reply. Lives in
 // `Message.metadata.rag_sources` (populated by the backend turn engine).

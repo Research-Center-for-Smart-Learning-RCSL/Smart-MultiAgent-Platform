@@ -524,20 +524,48 @@ reverting P1 restores it with the test.
 
 ### Phase 2
 
-- [ ] AC-8: T-7 through T-14 each fail against current code and pass after the phase.
+- [x] AC-8: T-7 through T-14 each fail against current code and pass after the phase.
+      Observed: T-13 failed on `AssertionError: Expected mock to have been awaited` (the
+      delete route neither committed nor published); T-7, T-8, T-9, T-10, T-12 and the
+      `observation.deleted` handler failed together in `useObservations.test.ts` (seven
+      cases, on the `idle` fall-through, the absent `onStatus`, the absent watchdog, the
+      missing invalidate and the missing handler); T-11 failed with
+      `expected "vi.fn()" to not be called with arguments: [ true ]`; T-14's two cases
+      failed on the generic toast. Each pins one arm; the guard cases written alongside
+      them (a disconnect that must not clear, a terminal event that must disarm, a
+      refetch of only-known rows, a non-creator reconnect) pass in both directions by
+      design and are marked as guards, not as failing-first arms.
 - [ ] AC-9: An admin viewing another user's room sees every observer reported as unknown, with
       a tooltip explaining that live status reaches the room's creator only; the creator viewing
       the same room still sees analyzing/error/skipped.
+      **Not executed** — needs a running stack and two accounts, one of them a platform
+      admin, on a room the other created. Docker was unavailable in the build session.
+      Not ticked on the strength of T-7 plus the panel test, which verify the predicate
+      and the rendered label separately and never that a real admin session sees them.
 - [ ] AC-10: After an `observation.started` with the socket forcibly dropped and reconnected,
       the roster does not remain on analyzing; after an `observation.started` with no terminal
       event and no reconnect, the watchdog clears it within the timeout window.
-- [ ] AC-11: Releasing an observation while a list refetch is in flight leaves the row released
-      once both settle.
+      **Second half verified, first half not.** T-9 drives the watchdog with fake timers
+      and is a complete check of that arm. The reconnect arm is exercised only through a
+      synthetic `onStatus(true)` on a mocked channel (T-8); forcibly dropping a real
+      socket and confirming the transport calls `onStatus` at all needs a live stack.
+- [x] AC-11: Releasing an observation while a list refetch is in flight leaves the row released
+      once both settle. T-10 pins the invalidate, which is the mechanism: the optimistic
+      patch keeps the UI instant and the invalidate makes the server the last writer, so
+      no ordering of a concurrent poll can revert the row. Verified at composable level
+      rather than by throttling a real request.
 - [ ] AC-12: Deleting an observation in one session removes it from a second session's panel
       without a reload, and a 404 on delete or release reports that the observation no longer
       exists and refreshes the list.
-- [ ] AC-13: `docs/observer-agents/00-overview.md`'s event table lists `observation.deleted`
-      alongside the existing five.
+      **Second half verified, first half not.** T-14's two cases cover both 404 branches
+      end to end through the real view. The cross-session half is verified in halves that
+      never meet: T-13 asserts the frame is published, and the `observation.deleted`
+      handler test asserts the row leaves the cache — neither shows the frame crossing.
+      Same ground AC-2 was left unticked on in phase 1.
+- [x] AC-13: `docs/observer-agents/00-overview.md`'s event table lists `observation.deleted`
+      alongside the existing five. Listed, and `observation.skipped` was added with it:
+      the table carried four of the five events the backend already emits, which is what
+      made AC-13's own "the existing five" not match the file (D-10).
 
 ### Phase 3
 
@@ -570,12 +598,25 @@ reverting P1 restores it with the test.
       **One unrelated job is red: `dependency-audit`**, on three `pypdf` 6.15.0 advisories
       (CVE-2026-84309/84310/84311, fixed in 6.16.1) published after `main`'s last green run.
       This dossier touches no dependency manifest and the same failure reproduces on `main`;
-      the bump is not phase 1's to make.
+      the bump is not phase 1's to make. (It was made separately at `49fde82`.)
+
+      **Phase 2, locally:** `ruff check` and `ruff format --check` clean over 1020 files,
+      `mypy` clean over 1015, `lint-imports` 2 contracts kept, `pytest tests/unit -q`
+      7921 passed / 6 skipped (7917 before, +4 backend cases), `pnpm lint`
+      (`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, `pnpm test`
+      1784 passed across 233 files (1780 at the start of the phase; the audit added one
+      case and the `/code-review` pass three more). Backend
+      `pytest -q` in full and the rest of the CI matrix are pending the phase-2 PR, for
+      the same reason phase 1 recorded: the local host has no Postgres/Redis/Vault, so
+      `tests/wiring/` fails with `socket.gaierror` regardless of any change.
 - [x] AC-21: Both locale files stay at parity for every key this dossier adds, and no template
       gains a bare string literal (frontend gate #12). Two keys added
       (`conversation.observers.loadError`, `.retry`) and one rewritten
       (`.guestObserverCallout`), all three in `en.json` and `zh-TW.json`; `pnpm lint` passes
       with `--max-warnings=0`, which is where gate #12 runs.
+      Phase 2 adds three more (`conversation.observers.status.unknown`,
+      `.unknownStatusHint`, `.alreadyGone`), all present in both locale files, with
+      `pnpm lint` still clean.
 - [ ] AC-22: `findings.md`'s Hand-off table links this dossier for all sixteen findings and its
       status is `closed`.
 
@@ -669,6 +710,84 @@ destroyed readable observations to report a transport failure. Only the **empty*
 suppressed on error, because only its copy asserts a fact a failed request never
 established.
 
+### Phase 2
+
+Freshness re-verification found the drift phase 1 had introduced and nothing else. Every
+`useObservations.ts` and `ChatroomView.vue` citation in §7.3 had shifted by one to nine
+lines; each was re-read and confirmed to name the same code
+(`ObserverEntry` status at :33, the idle fall-through at :86, `refetchInterval` at :111,
+`unreadCount` at :128 and :171, the watch at :142, `release()` at :230, `isCompactDesktop`
+at :447, `observerPanelVisible` at :665, `onObservationDelete` at :714). `observations.py`,
+`useChatroomSocket.ts` and `constants/agentErrors.ts` were re-checked and had not moved:
+the delete route is still at :167-185, the release emit still at :249-261, the watchdog
+still at :320-346 and the reconnect reset still inside `onStatus`. No citation named code
+that had changed meaning, so no D-n entry exists for one.
+
+**D-8 — the watchdog imports the room path's constant rather than declaring its own.**
+§7.3 says to build the watchdog "on the same shape as `armThinkingTimeout`" and §9 says
+matching the 120s constant "keeps the two surfaces explicable together". Two ways to
+match a number are to copy it and to share it; this build shares it, importing
+`AGENT_THINKING_TIMEOUT_MS` from `useChatroomSocket.ts`. A copy would have made the
+sentence in §9 true on the day it was written and unenforceable afterwards. The import is
+composable-to-composable inside one slice, crosses no boundary, and creates no cycle —
+`useChatroomSocket` does not import `useObservations`.
+
+**D-9 — `reconcileOnReconnect` needs its own creator guard, which §7.3 did not
+anticipate.** §7.3 says to register `onStatus` and, on `connected === true`, clear the
+analyzing set and refetch. The observations query is already gated `enabled: isCreator`,
+so that reads as sufficient. It is not: **`refetch()` does not honour `enabled` in
+TanStack v5**. This was verified empirically rather than assumed — a test asserting that a
+non-creator's reconnect issues no request failed with exactly one call to
+`listObservations` before the guard was added. Because the user channel is subscribed by
+every viewer, not just the creator, the unguarded form would have put a speculative
+`GET /observations` on the wire on every reconnect for everyone but the creator, each one
+a 403 the server was always going to refuse. The guard is one line; the test that
+justifies it is the part worth keeping.
+
+**D-10 — `observation.skipped` was added to two contracts alongside
+`observation.deleted`.** AC-13 says to list `observation.deleted` "alongside the existing
+five", but `docs/observer-agents/00-overview.md`'s table listed four, and
+`types/index.ts`'s `ObservationEventType` union listed four. The backend has emitted
+`observation.skipped` since O-4 and the client has handled it since; both records had
+simply never caught up. Adding the missing event with the new one is what makes AC-13's
+own count true. Neither artefact is load-bearing — the union has no consumer in
+`frontend/src` (it is documentation in type form) — which is precisely why both drifted.
+
+**D-11 — the release emit was refactored onto the helper the delete emit needed.** §7.3
+says to emit `observation.deleted` "mirroring the release emit at `observations.py:249-261`".
+Written as a second inline copy, that produced ten duplicated lines whose only guarantee of
+staying in step was that someone would notice — which is the exact failure F-14 exists to
+correct, since the defect *is* release announcing itself while delete did not. Both now go
+through `_notify_creator`, which owns the recipient lookup, the user-channel-not-room-channel
+rule and the best-effort swallow. Raised by the `check-quality` pass and fixed rather than
+deferred, because the duplication was this phase's own.
+
+**D-12 — `observation.created` now clears the error and skip kinds, which §7.3 did not
+ask for and §9 assumed.** §9 accepts that F-8's watchdog can fire on a slow-but-healthy
+observer, explicitly because "a later `observation.created` would correct it". It would
+not have: `observation.started` clears the error kind and no terminal handler did, so a
+spurious `timeout` written at 120s survived the observation that arrived at 140s. The
+roster would have labelled the observer failed, with the "timed out" tooltip, for the rest
+of the page's life — while the output disproving it sat in the list directly below, and
+with nothing to clear it short of another turn starting. The mitigation §9 relies on had
+to be built for §9 to be true. The room path had the same handler all along
+(`useChatroomSocket.ts:363-365` clears the agent error on `message.created`); this is the
+third guard of that pair to be ported. Raised by a `/code-review` pass after the phase-2
+commit.
+
+**D-13 — the unread high-water mark is advanced from the frame, not only from the cache
+write.** §7.3 says to compare against "what the panel has shown". The first implementation
+read that as the query cache, and advanced the mark from a `watch` on the observations
+list. But the `observation.created` handler raises the badge **synchronously** while
+updating the cache through an **async** `invalidateQueries`, so between the two the mark
+had not moved: a reconnect landing in that window — the flaky connection this reconcile
+exists for — counted the same observation a second time. The handler now raises the mark
+from the frame's own `created_at` (which `turn_engine.py:3161` carries) before scheduling
+the refetch. `noteSeen` replaced the fold that computed the mark, so every writer raises
+it through one monotonic path rather than two. Also raised by the same `/code-review`
+pass; both fixes carry regression tests that were observed failing first, the second at
+exactly the predicted count of 2.
+
 ## 13. Follow-ups
 
 - **FU-1** — Real observer status delivery to non-creator readers. Q-3 fixes the false "idle"
@@ -700,6 +819,35 @@ established.
 - ~~**FU-8**~~ — **resolved inside phase 1, not deferred.** See Q-9 for the decision and
   D-7 for what was built. The residual signal it does not close is recorded in §9 as an
   accepted risk rather than as outstanding work.
+
+- **FU-9** (opened by phase 2) — `refetch()` ignores `enabled` across the whole frontend,
+  not just here. D-9 fixed the one site this phase created; the same shape — a
+  reconnect/refocus reconcile calling `refetch()` on a query whose `enabled` encodes an
+  authorization predicate — would look identical and behave identically anywhere else in
+  the codebase. Worth one sweep of every `refetch()` call site against its query's
+  `enabled`, which this dossier did not attempt.
+
+- **FU-10** (opened by phase 2) — The observer watchdog is one timer per room, not per
+  agent, so two observers analysing concurrently share a deadline: the second
+  `observation.started` re-arms the timer and extends the first observer's window. This
+  matches the room path (`armThinkingTimeout` is also per room) and is why the fired
+  watchdog marks every still-analysing agent, but per-agent timers would report a wedged
+  observer sooner when its neighbour is healthy and busy. Not a defect in what shipped;
+  a refinement both surfaces would want together.
+
+- **FU-11** (opened by phase 2, deliberately not fixed) —
+  `patch_chatroom_agent_activity_control` (`chatrooms.py:876`) still emits no
+  `chatroom.updated`, while its structurally identical sibling
+  `patch_chatroom_agent_draft_access` gained one in phase 1 (D-6). A creator who grants
+  activity control in tab B leaves tab A rendering the old grant state until reload —
+  the same F-1 staleness, one route over. Left alone rather than swept in because
+  `may_control_activities` and `activity_type_allowlist` are outside F-1's blast radius:
+  phase 1 scoped its emit to the fields that move `observers_present` and
+  `drafts_readable`, and D-6 was fixed only because that phase had itself created the
+  asymmetry. This one predates the sweep. It is the same shape as FU-7 (a rename goes
+  stale for the same reason) and the two are worth closing together, with the
+  invalidation-storm question FU-7 raises answered once for both. Raised by the same
+  `/code-review` pass that found D-12 and D-13.
 
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no
