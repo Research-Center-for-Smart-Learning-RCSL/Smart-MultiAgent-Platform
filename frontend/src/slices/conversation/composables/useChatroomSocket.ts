@@ -419,6 +419,14 @@ export function useChatroomSocket(roomId: string) {
         if (ev.chatroom_id !== roomId) break
         void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
         void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
+        // F-1. The roster refetch above brings a newly bound agent into the rail;
+        // its *name* comes from a project-scoped query that nothing invalidated,
+        // so the agent arrived as an 8-char id — and because mention resolution
+        // matches on `agent.name`, `@RealName` resolved to nothing and the agent
+        // was silently never woken. A prefix, because this handler has the room
+        // id and not the project id, and because the call site's computed key
+        // transiently holds `[..., undefined]` before the workspace read lands.
+        void qc.invalidateQueries({ queryKey: convKeys.projectAgentsAll() })
         break
       }
       case 'presence.joined':

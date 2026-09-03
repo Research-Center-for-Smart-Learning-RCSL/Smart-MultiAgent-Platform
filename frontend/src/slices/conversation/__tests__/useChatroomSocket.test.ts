@@ -1247,6 +1247,23 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
     expect(spy).not.toHaveBeenCalledWith({
       queryKey: convKeys.chatroomAgents(ROOM),
     })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
+  })
+
+  // F-1. The roster refetch above brings the newly bound agent into the rail,
+  // but its *name* comes from a separate project-scoped query that nothing
+  // invalidated — so the agent arrived as an 8-char id, and since mention
+  // resolution matches on `agent.name`, typing @RealName resolved to nothing and
+  // the agent was never woken.
+  it('invalidates the project agent-name map', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.updated', chatroom_id: ROOM })
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
   })
 
   // F-3. The frame above is the fast path and it is the only path: Redis pub/sub
