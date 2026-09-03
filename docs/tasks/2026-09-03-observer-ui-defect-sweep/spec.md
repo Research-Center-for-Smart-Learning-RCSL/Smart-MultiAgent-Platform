@@ -75,6 +75,7 @@ reader of the spec alone can act.
 | Q-5 | Are F-12 and F-16 in scope, given F-12 has no user-visible effect today and F-16 is partly established behaviour? | Both are fixed. | F-12 is a three-term condition change plus a test that pins it; leaving it costs nothing now and produces a silent regression the moment a badge is added to the compact-band header toggle (`ChatroomHeader.vue:85-95`). F-16's two live paths (soft-delete, >100 agents) are defended by no dossier — the truncated-id posture elsewhere (`docs/tasks/2026-08-24-agent-readable-live-drafts/spec.md:95-98`) exists to avoid disclosing human identity, which does not apply to an agent the creator bound. |
 | Q-6 | Should this depend on `2026-07-19-large-artifacts-silently-dropped`, which is `in-progress` and also edits `turn_engine.py`? | No. Recorded as a rebase note, not a `depends_on`. | The regions are disjoint: that dossier works on `_persist_artifacts` and the kernel descriptor path (`turn_engine.py:1124-1171`, per its §2 and §6), while F-8's only backend touch is the observer emit path at `:3154-3163`/`:3307-3326`. The contract treats an overlap that resolves to two unrelated functions in the same file as not a dependency, and `BOARD.md` records the same call for two earlier `turn_engine.py` pairs. Whoever lands second rebases. |
 | Q-7 | Should this depend on `2026-07-07-graphrag-two-axis-redesign` (`approved`)? | No. | It is a blueprint dossier for the graphrag axis; its own board row questions whether its remaining scope is even live. No file it names is in this dossier's touched set. |
+| Q-9 | The `chatroom.updated` frame's *existence* is disclosive, not just its payload. What closes it? | Split the audience. The **room channel** carries the frame only when the write moved something a non-creator can actually see; the creator's other sessions are refreshed over their own **user channel** instead. | Raised by a `/code-review` pass after the phase-1 PR was green, and settled inside phase 1 rather than deferred. The frame is emitted only by binding and disclosure writes, so a viewer who receives one and then sees an unchanged DTO **and** an unchanged agent listing has learned that an *invisible* write happened — and in a room with disclosure off the only invisible write is an observer binding, the fact [R28.10] and O-8 exist to withhold. The sharp case is a pure guest: `ws_chatroom` admits one (`can_read` is satisfied by a guest link), so `_to_out`'s careful neutralisation of `observers_present` / `disclose_observers` was being undone by a side channel. Chosen over three alternatives. **Per-recipient filtering on the room channel** does not exist — `_pubsub_fanin` has no notion of a recipient — and building it is a transport change, not a bugfix. **Fanning out per-user publishes** needs a "who may read this room" direction that Q-3 already established does not exist, and enumerating admins is unbounded. **Accepting it** was the original FU-8 disposition and was rejected once the guest case was understood. The chosen split costs nothing on four of the five sites (the room is already in `access.chatroom` or in hand) and one facade call on the fifth. Its residual is recorded in §9. |
 | Q-8 | Do the F-4/F-5 prompt corrections need a data-repair step for already-installed packs? | No migration. Correct the JSON and extend the upgrade note in `docs/examples/creative-thinking-course.md`. | Install copies `system_prompt` into an `agents` row (`example_service.py:251-264` → `agent_service.py:669`) and is idempotent **by agent name within the project** (`example_service.py:233,244-247`), with no update path and no pack version column (`catalogue.py:42` `_PACK_FIELDS` has no version field; `tables.py:17-24` has no `pack_key`). The project has already met this exact situation twice and documented the answer both times — `docs/examples/creative-thinking-course.md:344-347` and `:627-636`: edit the prompt by hand, or delete that agent and re-install. Inventing a migration now would contradict a stated posture for a one-agent text change. |
 
 ## 4. Reproduction
@@ -437,6 +438,23 @@ several fields in sequence would emit several frames. Each frame costs one cache
 viewer, and TanStack deduplicates concurrent refetches of the same key, so the amplification
 is bounded by viewer count, not by write count.
 
+**The frame's existence is disclosive, and one sliver of that is accepted (P1).** Q-9
+splits the audience so the room channel is silent whenever a write is invisible to
+non-creators, which closes the observer-existence oracle: binding, unbinding or granting
+draft access in a non-disclosing room now produces no room-channel frame at all. What it
+does **not** close is a `disclose_observers` toggle. That frame must reach the room —
+flipping the flag is exactly what moves `observers_present` for every member, and
+announcing it is the disclosure — but a **pure guest** sees `disclose_observers` and
+`observers_present` forced false in both states, so for them it is a frame with no
+observable delta. A guest can therefore learn that *the room's observer-disclosure setting
+was changed*. That is materially weaker than what FU-8 originally described: it does not
+say in which direction, does not say an observer exists (a room may disclose with none
+bound), and does not distinguish itself from a `disclose_drafts` toggle, which is visible
+to guests anyway. Closing it too would require withholding the frame from members who are
+entitled to it, or per-recipient filtering the transport does not have. Accepted, and the
+`patch_chatroom` call site carries a comment pointing here so a later reader does not
+mistake it for an oversight.
+
 **F-3 changes an authorization-adjacent client gate (P1).** Widening `isCreator` cannot grant
 access — every endpoint re-checks server-side (`access.py:439-463`) — so the failure mode is
 a surface rendered for someone whose requests then 403, which T-4 does not cover. The
@@ -611,6 +629,27 @@ successful one. Emitting only on a real deletion would have made the frame's abs
 oracle O-5's silent 204 exists to prevent. The cost of emitting always is one cached GET
 per viewer on a no-op nobody but the caller triggered.
 
+**D-7 — `chatroom.updated` has two audiences, where §7.2 specified one.** §7.2 says to
+emit on the room channel from four writers. That shape made the frame's *existence* a
+signal in rooms with disclosure off (Q-9). The event now takes `room_visible` and
+`creator_user_id`: the creator's own other sessions are always refreshed over
+`user_channel`, and the room channel is used only when a non-creator can see the
+difference — `role is NORMAL or disclose_observers` on bind, `True` on a role patch (which
+adds or removes a row from every non-creator's listing in both directions), the target's
+role and `disclose_observers` on unbind, `disclose_drafts` on a draft grant, and `True` on
+a disclosure patch. Four of the five read the room from `access.chatroom`, which they
+already resolve; `remove_chatroom_agent` gains one
+`ConversationFacade.agent_role_in_chatroom` call, a facade method that exists for exactly
+this reason ("the role is a **disclosure rule**, not just a routing one").
+
+Two consequences worth naming. `add_chatroom_agent` now resolves room access on the normal
+path too, where it previously did so only for observer bindings — it needs the disclosure
+flag either way. And **the unbind site deliberately does not apply the rule for a
+non-creator caller**: there the frame is emitted unconditionally, because a frame that
+varied with the target's role would answer "was that an observer?" — reinstating the
+oracle O-5's silent 204 exists to prevent. A parametrized test pins that the frame is
+identical for both roles.
+
 **D-6 — `patch_chatroom_agent_draft_access` also emits, which §7.2 did not ask for.**
 Raised by a `/code-review` pass after the PR was green. §7.2 names four writers, all
 chosen for `observers_present`. But `_to_out`'s `drafts_readable` is
@@ -658,33 +697,9 @@ established.
   `if fields & _DISCLOSURE_FIELDS`) plus a test; the reason to think before making it is
   that a settings form writing several fields in sequence would then emit several frames.
 
-- **FU-8** (opened by phase 1, **security**) — the new frame's *timing* is an
-  observer-existence oracle for a room with disclosure **off**. §9 analysed the payload
-  (which carries nothing) and the fan-out (which reaches only principals who already
-  passed `ensure_can_read` for this room, and who already know its id), but not whether
-  the *existence* of a frame is itself disclosive. It is: the frame is emitted only on
-  bind, unbind, role change and disclosure toggles, so a viewer who receives one and then
-  sees both `GET /chatrooms/{id}` and `GET /chatrooms/{id}/agents` come back unchanged has
-  learned that an observer-role write or a disclosure change just happened. Binding a
-  *normal* agent is distinguishable because it adds a visible row to the agents listing;
-  an observer binding is filtered out of that listing for non-creators, so it produces a
-  frame with no observable delta.
-
-  **The sharp case is a pure guest**, found by a `/code-review` pass after the phase-1 PR
-  was green. `ws_chatroom` admits a guest — `can_read` is satisfied by a guest link — so a
-  guest receives every room frame, while `_to_out` (O-8, [R28.02]) works hard to give that
-  same guest neutralised values precisely so the DTO is *not* an observer-existence
-  oracle. The frame reinstates as a side channel what the DTO refuses to answer directly.
-
-  Nothing identifies which agent, whether one is currently bound, or any observation
-  content, and the channel is inert when disclosure is on (where [R28.09] requires the
-  participant to be told anyway). The obvious mitigations each cost something real:
-  suppressing the frame when disclosure is off reintroduces F-10(c)'s stale roster for
-  those rooms; gating on the room's disclosure flag costs a room read in two handlers that
-  do not currently perform one; and a per-recipient or non-guest-only channel does not
-  exist today. Rated MEDIUM — no data crosses a tenant or room boundary — but it should be
-  settled before phase 2 rather than after, since P2 adds no new emitters and is the last
-  cheap moment to change the event's shape.
+- ~~**FU-8**~~ — **resolved inside phase 1, not deferred.** See Q-9 for the decision and
+  D-7 for what was built. The residual signal it does not close is recorded in §9 as an
+  accepted risk rather than as outstanding work.
 
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no
