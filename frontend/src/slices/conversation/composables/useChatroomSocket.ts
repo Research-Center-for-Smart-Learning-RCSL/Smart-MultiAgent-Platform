@@ -626,6 +626,7 @@ export function useChatroomSocket(roomId: string) {
         ? 'reconnecting'
         : 'connecting'
     if (isConnected) {
+      const isReconnect = everConnected
       everConnected = true
       stopPolling()
       store.clearAllAgentThinking(roomId)
@@ -640,8 +641,17 @@ export function useChatroomSocket(roomId: string) {
       // rest of a focused session, which is the F-1 symptom reached through the
       // reconnect door rather than the missing-handler door. The frame remains
       // the fast path; this is the delivery it never had.
-      void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
-      void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
+      //
+      // Gated on a *re*connect, unlike the reconciles above, because these two
+      // are `invalidateQueries` rather than merges: it defaults `cancelRefetch`
+      // to true, so firing on the first connect would abort and restart the very
+      // fetches `ChatroomView` issued on mount whenever the handshake lands
+      // while they are still in flight. On a first connect there is nothing to
+      // recover — the queries have just run.
+      if (isReconnect) {
+        void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
+        void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
+      }
       // Discover a gate raised entirely while disconnected (F-13), and
       // recover any approval.resolved lost while the socket was down.
       void discoverApprovals()
