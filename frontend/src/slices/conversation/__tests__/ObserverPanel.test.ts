@@ -57,6 +57,25 @@ describe('ObserverPanel roster status (W-4)', () => {
     expect(status.classes()).toContain('obs-panel__roster-status--error')
   })
 
+  // T-7's rendered half (F-6). 'unknown' names an absent feed, not a worker
+  // state, so it must neither borrow the error styling nor go unexplained: an
+  // admin reading a bare word has no way to tell it from a third failure kind.
+  it('renders an unknown status with its own styling and an explanation', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({
+        observerAgents: [{ id: 'a1', name: 'Watcher', status: 'unknown' }],
+      }),
+    })
+    const status = wrapper.find('.obs-panel__roster-status')
+
+    expect(status.text()).toBe('conversation.observers.status.unknown')
+    expect(status.classes()).toContain('obs-panel__roster-status--unknown')
+    expect(status.classes()).not.toContain('obs-panel__roster-status--error')
+    expect(wrapper.find('.obs-panel__roster-item').attributes('title')).toBe(
+      'conversation.observers.unknownStatusHint',
+    )
+  })
+
   it('renders a benign skip as skipped, not error', async () => {
     const wrapper = await renderView(ObserverPanel, {
       props: baseProps({

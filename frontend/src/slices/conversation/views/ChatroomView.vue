@@ -662,8 +662,14 @@ watch(railTabs, (tabs) => {
 // but on mobile/tablet the tab lives inside the people drawer. Tracking railTab
 // alone left `panelOpen` stuck true after the drawer closed, so the unread
 // badge stopped counting.
+// F-12: `isCompactDesktop` is strictly inside `isDesktop`, and in that band the
+// presence rail is `visibility: hidden` and translated off-screen unless
+// `.chatroom__panel--open`. Treating the tab selection alone as "open" there
+// pinned `unreadCount` at 0 behind a panel nobody could see.
 const observerPanelVisible = computed(
-  () => railTab.value === 'observer' && (isDesktop.value || peopleDrawerOpen.value),
+  () =>
+    railTab.value === 'observer' &&
+    ((isDesktop.value && !isCompactDesktop.value) || peopleDrawerOpen.value),
 )
 watch(observerPanelVisible, (visible) => observations.setPanelOpen(visible), { immediate: true })
 
@@ -692,6 +698,15 @@ async function onReleaseSubmit(body: ReleaseBody): Promise<void> {
   } catch (err) {
     // W-6 (F-10): the transport throws typed ApiError/ValidationError, never
     // an AxiosError — branch on those, not on err.response.
+    // F-14: another session deleted the row. `ObservationNotFound` maps to 404,
+    // which fell through to the generic failure with the dialog still open over
+    // an observation the server no longer has.
+    if (err instanceof ApiError && err.status === 404) {
+      await observations.refetch()
+      releaseTarget.value = null
+      toast.info(t('conversation.observers.alreadyGone'))
+      return
+    }
     if (err instanceof ApiError && err.status === 409) {
       // Already released by a concurrent action — refetch and dismiss.
       await observations.refetch()
@@ -720,7 +735,15 @@ async function onObservationDelete(o: Observation): Promise<void> {
   if (!ok) return
   try {
     await observations.remove(o.id)
-  } catch {
+  } catch (err) {
+    // F-14: the row is already gone, which is the outcome the click asked for —
+    // reporting a bare failure left the reader to guess, and left the row on
+    // screen until a focus refetch happened to land.
+    if (err instanceof ApiError && err.status === 404) {
+      await observations.refetch()
+      toast.info(t('conversation.observers.alreadyGone'))
+      return
+    }
     toast.error(t('conversation.observers.deleteFailed'))
   }
 }
