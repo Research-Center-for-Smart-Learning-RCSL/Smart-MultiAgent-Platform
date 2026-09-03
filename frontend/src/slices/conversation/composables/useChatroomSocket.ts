@@ -24,6 +24,7 @@ import type { ActivityTypePublic } from '@slices/activities'
 import { getApproval } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listChatroomApprovals, listMessages } from '../api'
+import { convKeys } from '../queries'
 import { useConversationStore } from '../stores/conversation'
 import { mergeMessages } from '../utils/mergeMessages'
 import { PAGE_SIZE } from './useChatroomMessages'
@@ -401,6 +402,23 @@ export function useChatroomSocket(roomId: string) {
             (prev) => prev?.filter((m) => m.id !== deletedId),
           )
         }
+        break
+      }
+      // F-1 (R28.09). The room DTO carries `observers_present`, and nothing
+      // could invalidate it: the singular `convKeys.chatroom` is not
+      // prefix-matched by the plural `['conversation','chatrooms']` every other
+      // invalidation names, and no writer published anything to begin with. So
+      // a participant learned they were being observed only on reload.
+      //
+      // The frame is ids-only by construction — the room channel fans out to
+      // every subscriber including guests — so the answer comes from re-reading
+      // `GET /chatrooms/{id}`, whose `_to_out` re-applies the guest
+      // neutralisation per viewer. `chatroom-agents` rides along because a role
+      // change moves the roster too (F-10c), and it has no other invalidator.
+      case 'chatroom.updated': {
+        if (ev.chatroom_id !== roomId) break
+        void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
+        void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
         break
       }
       case 'presence.joined':

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-09-03
 requirements: [R24.32, R28.02, R28.09, R28.10, R28.13, R28.16]
 depends_on: []
@@ -470,21 +470,39 @@ reverting P1 restores it with the test.
 
 ### Phase 1
 
-- [ ] AC-1: T-1 through T-6 each fail against current code and pass after the phase.
+- [x] AC-1: T-1 through T-6 each fail against current code and pass after the phase.
+      Observed: the six backend cases all failed with
+      `AttributeError: module 'app.api.v1.chatrooms' has no attribute 'Publisher'`
+      (the finding itself — no publish existed), and the frontend six failed on the
+      member-list scan, the inverted callout condition and the two missing panel branches.
 - [ ] AC-2: With two browsers on one room, binding and unbinding an observer updates the
       non-creator's disclosure chip without a reload or a window blur, in both directions.
-- [ ] AC-3: The room-channel frame emitted by every one of the four writers contains the room
+      **Not executed** — needs a running stack and two sessions; Docker was unavailable in
+      the build session. Not ticked on the strength of T-1 plus T-2, which verify the two
+      halves separately and never that the frame crosses between them.
+- [x] AC-3: The room-channel frame emitted by every one of the four writers contains the room
       id and no other room field, verified by reading the frame, not only by T-1.
-- [ ] AC-4: With guest links enabled and an observer bound, the settings callout renders with
+      The emit is a single literal `{"chatroom_id": str(chatroom_id)}` in one helper all four
+      writers call, and T-1 asserts payload **equality** rather than the id's presence, so a
+      later field addition fails the test rather than passing it.
+- [x] AC-4: With guest links enabled and an observer bound, the settings callout renders with
       disclosure both on and off, and its copy in both locales states that guests never see the
-      indicator.
+      indicator. T-3 is parametrized over both disclosure states; both locale strings were
+      rewritten to say the guarantee ("never shown the observer indicator, whatever the
+      disclosure setting says") instead of the old "while disclosure is off".
 - [ ] AC-5: An org owner holding no `project_members` row opens a NULL-creator room and reaches
       the Observer tab, the disclosure toggle and the observer role selector. Executed against a
       real stack with a NULL-creator row, or left unticked.
-- [ ] AC-6: `projectsApi.listMembers` is no longer imported by `useObservations.ts` or
-      `ChatroomSettingsView.vue`.
-- [ ] AC-7: A blocked observations request renders `SQueryError` with a working retry, and the
+      **Not executed, deliberately unticked** — it needs a `created_by_user_id IS NULL` row and
+      an org owner with no `project_members` row, which cannot be built without a live database.
+      T-4 covers the predicate, not the round trip.
+- [x] AC-6: `projectsApi.listMembers` is no longer imported by `useObservations.ts` or
+      `ChatroomSettingsView.vue`. Both imports are gone; `useObservations` no longer imports
+      `@slices/tenancy` at all, and T-4 asserts the call is never made rather than only that
+      the import is absent.
+- [x] AC-7: A blocked observations request renders `SQueryError` with a working retry, and the
       "no observer currently bound" alert is absent while the bound-agents query is unsettled.
+      Verified at component level (T-5, T-6) rather than by blocking a live request.
 
 ### Phase 2
 
@@ -524,8 +542,17 @@ reverting P1 restores it with the test.
 - [ ] AC-20: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, `pnpm test`,
       `pnpm lint`, `pnpm run typecheck` and `pnpm build` pass at the end of each phase, not only
       at the end of the dossier.
-- [ ] AC-21: Both locale files stay at parity for every key this dossier adds, and no template
-      gains a bare string literal (frontend gate #12).
+      **Phase 1 partial.** Green locally: `ruff check` + `ruff format --check`, `mypy .`
+      (1015 files), `pnpm test` (1761 tests / 233 files), `pnpm lint`, `pnpm run typecheck`,
+      `pnpm build`. Backend `pytest -q` was **not** completed locally — the full-suite run
+      failed only in `tests/wiring/` with `socket.gaierror`, i.e. Postgres/Redis/Vault absent
+      on the build host, and the run was handed to CI rather than re-attempted locally. Tick
+      this only once CI is green.
+- [x] AC-21: Both locale files stay at parity for every key this dossier adds, and no template
+      gains a bare string literal (frontend gate #12). Two keys added
+      (`conversation.observers.loadError`, `.retry`) and one rewritten
+      (`.guestObserverCallout`), all three in `en.json` and `zh-TW.json`; `pnpm lint` passes
+      with `--max-warnings=0`, which is where gate #12 runs.
 - [ ] AC-22: `findings.md`'s Hand-off table links this dossier for all sixteen findings and its
       status is `closed`.
 
@@ -542,7 +569,50 @@ than a change to what the platform must do.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+### Phase 1
+
+Freshness re-verification found **no drift at all**: the spec was written against `b33d404`
+and phase 1 started on that same commit with a clean tree, so every `path:line` in §2 and
+§7.2 was re-read and confirmed rather than corrected. No D-n entry exists for a citation.
+
+**D-1 — the emit runs after an explicit `await db.commit()`, which changed five existing
+test fixtures.** §7.2 requires the frame to be published after the write commits but does
+not say by what mechanism, and there was no reusable one: `flush_tail_events` is bound to
+the audit channel and its fixed `audit_event` name, while `db_session` commits on FastAPI's
+function exit stack, i.e. only after the handler has returned. The handler therefore has to
+commit for itself, which `shared_kernel/db/session.py` explicitly sanctions and which
+`patch_chatroom_agent_activity_control`, `patch_chatroom_agent_draft_access` and
+`delete_chatroom` already do in this same file. Consequence: five tests that passed
+`db=object()` to the four writers now pass a double with an awaitable `commit`. No
+assertion was changed.
+
+**D-2 — `chatroom-agents` gained a `convKeys` entry instead of being invalidated by a
+literal.** §7.2 names the raw key `['conversation','chatroom-agents',roomId]`. Writing it
+by hand a second time would have reproduced the exact condition that hid F-1 and F-10(c) —
+a key that looks right at its one call site and matches nothing. `convKeys.chatroomAgents`
+is now used by both the query in `ChatroomView.vue` and the new invalidation, so the two
+cannot drift. This is a narrower instance of FU-4 and does not close it.
+
+**D-3 — `UseObservationsOptions.projectId` was deleted along with `membersQuery`.** F-3
+removes the only consumer of that option; leaving it would advertise a dependency the
+composable no longer has. Removed from the interface, from the `ChatroomView.vue` call
+site and from the test harness. `observerProjectId` itself stays — `ActivityPanel` uses it.
+
+**D-4 — `remove_chatroom_agent` emits unconditionally, including on the role-scoped
+no-op.** Not addressed by §7.2. `remove_agent` does not report whether it matched a row,
+and adding that signal would have to be consumed here — which is exactly where O-5
+established that a non-creator's unbind of an observer must be indistinguishable from a
+successful one. Emitting only on a real deletion would have made the frame's absence the
+oracle O-5's silent 204 exists to prevent. The cost of emitting always is one cached GET
+per viewer on a no-op nobody but the caller triggered.
+
+**D-5 — the F-7 error banner renders beside the cached rows, not instead of them.** §7.2
+says to render `SQueryError` "in place of the empty state", which is what shipped; the
+first implementation went further and replaced the list as well, and a self-audit caught
+that it contradicted its own copy ("the list below may be incomplete or out of date") and
+destroyed readable observations to report a transport failure. Only the **empty** state is
+suppressed on error, because only its copy asserts a fact a failed request never
+established.
 
 ## 13. Follow-ups
 
@@ -564,6 +634,32 @@ Appended by `/build`.
 - **FU-5** — No `frontend/e2e` spec covers the observer surface at all; the only match for
   "observ" in that tree is an unrelated comment (`e2e/fixtures/auth.ts:23`). Several of this
   dossier's ACs are manual for want of one.
+- **FU-7** (opened by phase 1) — `patch_chatroom` emits `chatroom.updated` only when the
+  patch names a disclosure field, so a **rename** still goes stale on every live viewer
+  until reload. §7.2 scoped the emit to the disclosure path and this build did not widen
+  it, because the access flags and the name were never analysed as part of F-1's blast
+  radius. Widening is a one-line change (`if fields` in place of
+  `if fields & _DISCLOSURE_FIELDS`) plus a test; the reason to think before making it is
+  that a settings form writing several fields in sequence would then emit several frames.
+
+- **FU-8** (opened by phase 1, **security**) — the new frame is a narrow
+  observer-existence timing oracle for a room with disclosure **off**. §9 analysed the
+  payload (which carries nothing) and the fan-out (which reaches only principals who
+  already passed `ensure_can_read` for this room, and who already know its id), but not
+  the frame's *timing*. A participant who correlates can infer one bit: binding a normal
+  agent produces a frame **and** a visible new row in `GET /chatrooms/{id}/agents`, while
+  binding an observer produces a frame and no visible change in either response, because
+  `list_chatroom_agents` filters observer rows out for non-creators. A frame with no
+  observable delta therefore implies an observer-role write occurred. It discloses no
+  observer identity, no observation content, and nothing at all when disclosure is on
+  (where `observers_present` is what [R28.09] requires the participant to be told anyway).
+  It is nonetheless the inference class O-5 and [R28.10] go out of their way to close, and
+  the obvious mitigations each cost something real: suppressing the frame when disclosure
+  is off reintroduces F-10(c)'s stale roster for those rooms, and gating on the room's
+  disclosure flag costs a room read in two handlers that do not currently perform one.
+  Rated MEDIUM: no data crosses a tenant or room boundary, and the attacker must already
+  be a participant of the room.
+
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no
   `pack_key` or version column (`tables.py:17-24`, `catalogue.py:42`), so nothing can even

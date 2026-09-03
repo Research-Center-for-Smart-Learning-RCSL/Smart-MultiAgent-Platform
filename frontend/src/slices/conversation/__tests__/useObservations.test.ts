@@ -39,9 +39,13 @@ vi.mock('@shared/stores/session', () => ({
   }),
 }))
 
+// Kept mocked after F-3 removed the import: the mock is what lets T-4 assert
+// the member list is never requested, which is the half of the fix a passing
+// `isCreator` alone would not prove.
+const listMembersMock = vi.hoisted(() => vi.fn(async () => []))
 vi.mock('@slices/tenancy', () => ({
   tenancyKeys: { projectMembers: (p: string) => ['tenancy', 'members', p] },
-  projectsApi: { listMembers: vi.fn(async () => []) },
+  projectsApi: { listMembers: listMembersMock },
 }))
 
 const listObservationsMock = vi.hoisted(() => vi.fn())
@@ -83,6 +87,7 @@ function makeObservation(id: string): Observation {
 
 function mountObs(opts?: {
   createdBy?: string | null
+  isModerator?: boolean
   boundAgents?: BoundAgentRef[]
 }): {
   wrapper: VueWrapper
@@ -97,6 +102,7 @@ function mountObs(opts?: {
   const room = ref<Chatroom | undefined>({
     id: ROOM,
     created_by_user_id: opts?.createdBy === undefined ? CREATOR : opts.createdBy,
+    is_moderator: opts?.isModerator ?? false,
   } as Chatroom)
   const boundAgents = ref<BoundAgentRef[] | undefined>(
     opts?.boundAgents ?? [{ agent_id: OBS_AGENT, role: 'observer' }],
@@ -107,7 +113,6 @@ function mountObs(opts?: {
     setup() {
       api = useObservations(ROOM, {
         room,
-        projectId: ref('proj_1'),
         boundAgents: boundAgents as Ref<BoundAgentRef[] | undefined>,
         agentNames: computed(() => ({ [OBS_AGENT]: 'Watcher' })),
       })
@@ -126,6 +131,7 @@ describe('useObservations', () => {
   beforeEach(() => {
     for (const k of Object.keys(handlers)) delete handlers[k]
     sessionMe.value = { id: CREATOR, is_admin: false }
+    listMembersMock.mockClear()
     listObservationsMock.mockReset()
     listObservationsMock.mockResolvedValue([])
     deleteObservationMock.mockClear()
@@ -153,6 +159,44 @@ describe('useObservations', () => {
     const m3 = mountObs()
     wrapper = m3.wrapper
     expect(m3.api.isCreator.value).toBe(true)
+  })
+
+  // T-4 (F-3). For a NULL-creator room the server falls back to moderator
+  // semantics, where an inherited ORG_OWNER role counts with no `project_members`
+  // row at all (`access.py`). The client used to scan `projectsApi.listMembers`,
+  // which serves `project_members` only — so it locked out exactly the owner the
+  // server would have let in, and its unpaginated call dropped a genuine owner
+  // past row 100 as well. `is_moderator` is on the DTO for this reason.
+  it('T-4: a NULL-creator room trusts is_moderator, not the member list', async () => {
+    sessionMe.value = { id: 'org_owner', is_admin: false }
+    const m = mountObs({ createdBy: null, isModerator: true })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(true)
+    expect(listMembersMock).not.toHaveBeenCalled()
+  })
+
+  it('T-4: a NULL-creator room without moderator standing stays closed', async () => {
+    sessionMe.value = { id: 'plain_member', is_admin: false }
+    const m = mountObs({ createdBy: null, isModerator: false })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(false)
+    expect(listMembersMock).not.toHaveBeenCalled()
+  })
+
+  it('T-4: is_moderator does not open a room that has a real creator', async () => {
+    // The moderator fallback is the NULL-creator path only. A non-creator
+    // moderator of a room someone else created must not read its observations
+    // (R28.02) — widening here would render a surface whose every request 403s.
+    sessionMe.value = { id: 'someone_else', is_admin: false }
+    const m = mountObs({ createdBy: CREATOR, isModerator: true })
+    wrapper = m.wrapper
+    await flushPromises()
+
+    expect(m.api.isCreator.value).toBe(false)
   })
 
   it('W-1: a non-recipient admin polls, the real creator does not', async () => {

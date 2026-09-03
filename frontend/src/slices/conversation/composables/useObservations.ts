@@ -11,10 +11,9 @@
 // filtered; absence of data here means "you are not told".
 
 import { computed, ref, watch, onScopeDispose, type Ref } from 'vue'
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/vue-query'
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
-import { tenancyKeys, projectsApi } from '@slices/tenancy'
 import {
   deleteObservation,
   listObservations,
@@ -38,7 +37,8 @@ export interface ObserverEntry {
 
 export interface UseObservationsOptions {
   room: Ref<Chatroom | undefined>
-  projectId: Ref<string | undefined>
+  // No `projectId`: it existed solely to key the member-list query F-3 deleted.
+  // Leaving it would advertise a dependency this composable no longer has.
   boundAgents: Ref<BoundAgentRef[] | undefined>
   agentNames: Ref<Record<string, string>>
 }
@@ -49,16 +49,18 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
   const qc = useQueryClient()
 
   // ---- creator resolution (R28.02 mirror; server is authoritative) --------
-
-  const membersQuery = useQuery({
-    queryKey: computed(() => tenancyKeys.projectMembers(opts.projectId.value ?? '')),
-    queryFn: () => projectsApi.listMembers(opts.projectId.value!),
-    // Only needed for the legacy NULL-creator fallback — skip otherwise.
-    enabled: computed(
-      () => !!opts.projectId.value && !!opts.room.value && opts.room.value.created_by_user_id === null,
-    ),
-    retry: false,
-  })
+  //
+  // F-3: this reads the server's own published answer instead of re-deriving
+  // one. For a NULL-creator room the backend falls back to moderator semantics,
+  // where an inherited ORG_OWNER role counts with **no `project_members` row at
+  // all** — so the old member-list scan locked out precisely the owner the
+  // server would have admitted, and its unpaginated fetch dropped a genuine
+  // owner past the default limit of 100 besides. `is_moderator` is on the DTO
+  // for exactly this case, and `useProjectRole` already made the same move.
+  //
+  // The fallback stays confined to NULL-creator rooms: a non-creator moderator
+  // of a room somebody else created must not read its observations (R28.02),
+  // and widening here would paint a surface whose every request then 403s.
 
   const isCreator = computed<boolean>(() => {
     const me = session.me
@@ -66,8 +68,7 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     if (!me || !room) return false
     if (me.is_admin) return true
     if (room.created_by_user_id !== null) return room.created_by_user_id === me.id
-    const membership = membersQuery.data.value?.find((m) => m.user_id === me.id)
-    return membership?.role === 'owner'
+    return room.is_moderator === true
   })
 
   // ---- observer roster ------------------------------------------------------
@@ -242,6 +243,12 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     observations,
     hasObserverSurface,
     observationsLoading: computed(() => observationsQuery.isLoading.value),
+    // F-7: `retry: false` plus the `?? []` collapse above made a dead query
+    // indistinguishable from an empty room, and the panel then asserted the
+    // positive ("Observers write here after they analyze the conversation") on
+    // the strength of a request that never landed. No global QueryCache.onError
+    // covers for it — the shared client installs none.
+    observationsError: computed(() => observationsQuery.isError.value),
     hasMore: computed(() => observationsQuery.hasNextPage.value ?? false),
     loadingMore: computed(() => observationsQuery.isFetchingNextPage.value),
     loadEarlier: () => observationsQuery.fetchNextPage(),
