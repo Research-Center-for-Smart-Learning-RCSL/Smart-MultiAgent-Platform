@@ -126,8 +126,17 @@ const emit = defineEmits<{
 
 const { t, te } = useI18n()
 
+// F-16. Agents are soft-deleted and `list_for_project` filters `deleted_at IS
+// NULL`, so an observation outlives the name that resolves it — and for that row
+// the truncated id is not a placeholder that later fills in, it is permanent.
+// Eight hex characters name nothing.
+//
+// The copy says *unknown*, not *deleted*, deliberately. This branch is also taken
+// while the project-agents query is still in flight and for an agent past its
+// page, and a label asserting a deletion would then be the same defect F-7 fixed
+// one component over: positive copy stating a fact the client never established.
 function nameFor(agentId: string): string {
-  return props.agentNames[agentId] ?? agentId.slice(0, 8)
+  return props.agentNames[agentId] ?? t('conversation.observers.unknownAgent')
 }
 
 // W-4 (B.3): the roster shows a short status label inline (kept narrow so it
@@ -153,7 +162,10 @@ function detailFor(a: ObserverEntry): string {
 const roster = computed(() =>
   props.observerAgents.map((a) => ({
     id: a.id,
-    name: a.name,
+    // Same fallback the cards take: the composable leaves `name` absent when the
+    // id resolves to nothing, and choosing what stands in its place is a
+    // localisation decision, which belongs here rather than in a composable.
+    name: a.name ?? nameFor(a.id),
     status: a.status,
     label: t(`conversation.observers.status.${a.status}`),
     detail: detailFor(a),

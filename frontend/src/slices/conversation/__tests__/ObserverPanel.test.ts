@@ -170,3 +170,32 @@ describe('ObserverPanel no-observer-bound alert (F-10)', () => {
     expect(wrapper.text()).toContain('conversation.observers.noObserverBoundTitle')
   })
 })
+
+// T-20 (F-16). Agents are soft-deleted and `list_for_project` filters
+// `deleted_at IS NULL`, so an observation outlives the name that resolves it.
+// The fallback headed such a card with eight hex characters of the agent id —
+// which is not a name, is not readable, and (unlike the mid-load placeholder in
+// ChatroomView) is the permanent state for that row.
+describe('ObserverPanel unresolved agent name (F-16)', () => {
+  it('labels an observation whose agent is gone instead of slicing its id', async () => {
+    const stranded = makeObservation('o1')
+    stranded.agent_id = 'ffffffff-1111-2222-3333-444444444444'
+
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ observations: [stranded] }),
+    })
+
+    expect(wrapper.find('.obs-card__agent').text()).toBe(
+      'conversation.observers.unknownAgent',
+    )
+    expect(wrapper.text()).not.toContain('ffffffff')
+  })
+
+  it('still uses the resolved name when there is one', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ observations: [makeObservation('o1')] }),
+    })
+
+    expect(wrapper.find('.obs-card__agent').text()).toBe('Watcher')
+  })
+})

@@ -145,8 +145,25 @@ export async function setChatroomMemberGroups(
 // `workspace_id`, so the settings UI resolves workspace → project via
 // `getWorkspace`, lists that project's agents, and toggles bindings here.
 
+// F-16: sent explicitly, because the generated client's default is 100 and this
+// listing is what resolves an agent id to a name — past row 100 the binding UI
+// silently lost agents and the observer panel lost the name on their cards. 500
+// is the server's own ceiling (`PaginationParams`), so this raises the reachable
+// set as far as one request can and does not eliminate the case; the panel's
+// unknown-agent label covers the remainder, which it has to anyway for the
+// soft-deleted agent this listing can never return.
+//
+// It costs response size to do it: `AgentOut` carries the full `system_prompt`
+// (bounded at 100k chars), so the worst-case payload for a listing whose only use
+// here is an id→name map goes up fivefold with the page size. A name-only listing
+// is the actual fix and is out of this dossier's scope (FU-12).
+const AGENT_PAGE_SIZE = 500
+
 export async function listProjectAgents(projectId: string): Promise<Agent[]> {
-  return AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({ projectId })
+  return AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({
+    projectId,
+    limit: AGENT_PAGE_SIZE,
+  })
 }
 
 // `role` is present only for the room creator (R28.10) — never default it
