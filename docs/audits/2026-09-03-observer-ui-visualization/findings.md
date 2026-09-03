@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: closed
 created: 2026-09-03
 requirements: [R28.02, R28.09, R28.10, R28.13, R28.16, R24.32]
 ---
@@ -573,24 +573,39 @@ Ordered by severity. Never renumber.
 
 ## 5. Hand-off
 
+All sixteen findings were selected for fixing on 2026-09-03 and consolidated into one
+dossier executed in three phases, grouped by blast radius so that each phase is
+independently reviewable and revertible. Phase 1 covers F-1, F-2, F-3, F-7 and F-10;
+phase 2 covers F-6, F-8, F-11, F-12, F-13 and F-14; phase 3 covers F-4, F-5, F-9, F-15
+and F-16. Nothing was declined.
+
+Two dispositions are narrower than the finding as written, and the dossier records why.
+F-6 is corrected to stop asserting "idle" to viewers who receive no event feed, rather
+than by building that feed — real status delivery to non-creator readers is that
+dossier's FU-1, since it needs either a reverse resolver in `access.py` or a persisted
+per-turn status, both design work. F-4 and F-5 correct the shipped pack JSON but do not
+repair already-installed copies: install copies `system_prompt` into an `agents` row and
+is idempotent by agent name with no update path, and the project has twice documented
+the hand-edit remedy instead (`docs/examples/creative-thinking-course.md:344-347,627-636`).
+
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | pending triage | |
-| F-2 | pending triage | |
-| F-3 | pending triage | |
-| F-4 | pending triage | |
-| F-5 | pending triage | |
-| F-6 | pending triage | |
-| F-7 | pending triage | |
-| F-8 | pending triage | |
-| F-9 | pending triage | |
-| F-10 | pending triage | |
-| F-11 | pending triage | |
-| F-12 | pending triage | |
-| F-13 | pending triage | |
-| F-14 | pending triage | |
-| F-15 | pending triage | |
-| F-16 | pending triage | |
+| F-1 | fix (phase 1) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-2 | fix (phase 1) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-3 | fix (phase 1) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-4 | fix (phase 3) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-5 | fix (phase 3) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-6 | fix (phase 2, narrowed — see above) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-7 | fix (phase 1) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-8 | fix (phase 2) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-9 | fix (phase 3) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-10 | fix (phase 1) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-11 | fix (phase 2) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-12 | fix (phase 2) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-13 | fix (phase 2) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-14 | fix (phase 2) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-15 | fix (phase 3) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
+| F-16 | fix (phase 3) | `docs/tasks/2026-09-03-observer-ui-defect-sweep/` |
 
 ## 6. Out-of-scope Observations
 
