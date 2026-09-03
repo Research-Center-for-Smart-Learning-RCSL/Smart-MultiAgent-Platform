@@ -58,9 +58,22 @@ def _principal(user_id: uuid.UUID | None = None) -> SimpleNamespace:
     return SimpleNamespace(user_id=user_id or uuid.uuid4(), is_admin=False)
 
 
-def _access(*, created_by: uuid.UUID, roles: frozenset[Role] = _MEMBER) -> RoomAccess:
+def _access(
+    *,
+    created_by: uuid.UUID,
+    roles: frozenset[Role] = _MEMBER,
+    disclose_drafts: bool = True,
+) -> RoomAccess:
+    # `disclose_drafts` decides whether the grant route's `chatroom.updated` goes
+    # to the room channel or only to the creator: with the disclosure off the
+    # grant moves nothing a participant can see, and announcing it room-wide
+    # would signal an invisible write ([R32.05]).
     return RoomAccess(
-        chatroom=SimpleNamespace(created_by_user_id=created_by),
+        chatroom=SimpleNamespace(
+            created_by_user_id=created_by,
+            disclose_observers=True,
+            disclose_drafts=disclose_drafts,
+        ),
         project_id=uuid.uuid4(),
         roles=roles,
         is_guest=False,

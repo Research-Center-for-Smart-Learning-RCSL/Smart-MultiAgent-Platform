@@ -180,6 +180,18 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           if (!forThisRoom(ev)) return
           patchReleased(String(ev.observation_id), ev.target as Observation['release_target'])
         }),
+        // F-1/F-10(c) for the creator's OTHER sessions. The room-channel copy of
+        // this event is withheld when the write is invisible to non-creators —
+        // binding an observer while disclosure is off, say — because its mere
+        // arrival would tell every participant and guest that something they
+        // cannot see just happened. The creator is owed the refresh regardless,
+        // so it reaches them here, on the private channel the observation.*
+        // events already use. Binding in tab B updates tab A.
+        channel.subscribe('chatroom.updated', (ev: ChannelEvent) => {
+          if (!forThisRoom(ev)) return
+          void qc.invalidateQueries({ queryKey: convKeys.chatroom(chatroomId) })
+          void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+        }),
       )
       // Idempotent — ban-kick / notifications likely connected it already.
       channel.connect()

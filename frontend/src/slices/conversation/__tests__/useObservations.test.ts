@@ -331,6 +331,32 @@ describe('useObservations', () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.observations(ROOM) })
   })
 
+  // FU-8's client half. The room channel no longer carries `chatroom.updated`
+  // for a write non-creators cannot see, so the creator's own other tabs are
+  // refreshed over their private user channel instead.
+  it('chatroom.updated on the user channel refreshes the room and roster', async () => {
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+    const spy = vi.spyOn(m.qc, 'invalidateQueries')
+
+    emit('chatroom.updated', { chatroom_id: ROOM })
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
+  it('ignores a chatroom.updated naming another room', async () => {
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+    const spy = vi.spyOn(m.qc, 'invalidateQueries')
+
+    emit('chatroom.updated', { chatroom_id: 'cr_other' })
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+  })
+
   it('teardown unsubscribes its own handlers on unmount', async () => {
     const m = mountObs()
     wrapper = m.wrapper
