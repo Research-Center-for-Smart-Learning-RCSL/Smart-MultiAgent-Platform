@@ -1290,16 +1290,12 @@ async def test_a_patch_that_changes_nothing_emits_nothing(monkeypatch, body_kwar
 
 
 @pytest.mark.asyncio
-async def test_a_null_disclosure_patch_is_still_creator_gated_but_emits_nothing(
-    monkeypatch,
-) -> None:
+async def test_a_null_disclosure_patch_emits_nothing_for_its_creator(monkeypatch) -> None:
     """Authorization keys off the field *named*; the emit keys off what changed.
 
-    The two sets are deliberately different and this is the case that separates
-    them. `PATCH {"disclose_observers": null}` names a creator-only field, so it
-    must still be refused for a non-creator — narrowing `fields` to the non-null
-    values would have moved it onto the capability branch and quietly changed who
-    may send it. It also changes nothing, so it must not announce anything.
+    The two sets are deliberately different and this pair of tests separates
+    them. Here the caller is the creator, so the gate lets them through, and the
+    patch still changes nothing — so it must announce nothing.
     """
     uid = uuid.uuid4()
     chatroom_id = uuid.uuid4()
@@ -1320,6 +1316,39 @@ async def test_a_null_disclosure_patch_is_still_creator_gated_but_emits_nothing(
         principal=_principal(uid),
         db=_committing_db(),
     )
+
+    assert _PublisherSpy.emitted == []
+
+
+@pytest.mark.asyncio
+async def test_a_null_disclosure_patch_is_still_refused_for_a_non_creator(monkeypatch) -> None:
+    """The other half, and the reason `fields` was left presence-based.
+
+    `PATCH {"disclose_observers": null}` names a creator-only field. Narrowing
+    `fields` to the non-null values — the obvious way to fix the emit — would have
+    emptied it, sent this patch down the capability branch, and quietly widened
+    who may send it from the creator to any `RESOURCE_CREATE_EDIT` holder. So the
+    emit got its own set and this gate kept the old one.
+    """
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=_access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER})),
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    with pytest.raises(NotRoomCreator):
+        await mod.patch_chatroom(
+            mod.ChatroomPatchIn(disclose_observers=None),
+            chatroom_id=chatroom_id,
+            if_match="1",
+            ctx=_CTX,
+            principal=_principal(),
+            db=_committing_db(),
+        )
 
     assert _PublisherSpy.emitted == []
 
