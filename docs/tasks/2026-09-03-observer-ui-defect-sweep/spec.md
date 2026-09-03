@@ -539,15 +539,20 @@ reverting P1 restores it with the test.
 
 ### All phases
 
-- [ ] AC-20: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, `pnpm test`,
+- [x] AC-20: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, `pnpm test`,
       `pnpm lint`, `pnpm run typecheck` and `pnpm build` pass at the end of each phase, not only
       at the end of the dossier.
-      **Phase 1 partial.** Green locally: `ruff check` + `ruff format --check`, `mypy .`
-      (1015 files), `pnpm test` (1761 tests / 233 files), `pnpm lint`, `pnpm run typecheck`,
-      `pnpm build`. Backend `pytest -q` was **not** completed locally — the full-suite run
-      failed only in `tests/wiring/` with `socket.gaierror`, i.e. Postgres/Redis/Vault absent
-      on the build host, and the run was handed to CI rather than re-attempted locally. Tick
-      this only once CI is green.
+      Verified on CI (PR #182, run `33710318491`): `backend-lint`, `backend-typecheck`,
+      `backend-test`, `backend-db`, `backend-integration`, `backend-wiring`, `frontend-lint`,
+      `frontend-typecheck`, `frontend-test`, `frontend-e2e` and all seven `frontend-gate-*`
+      jobs pass. Backend `pytest` was run on CI rather than locally: the local host has no
+      Postgres/Redis/Vault, so its `tests/wiring/` tier fails with `socket.gaierror` for
+      reasons unrelated to any change. The local unit tier is green at 7910 passed / 6 skipped.
+
+      **One unrelated job is red: `dependency-audit`**, on three `pypdf` 6.15.0 advisories
+      (CVE-2026-84309/84310/84311, fixed in 6.16.1) published after `main`'s last green run.
+      This dossier touches no dependency manifest and the same failure reproduces on `main`;
+      the bump is not phase 1's to make.
 - [x] AC-21: Both locale files stay at parity for every key this dossier adds, and no template
       gains a bare string literal (frontend gate #12). Two keys added
       (`conversation.observers.loadError`, `.retry`) and one rewritten
