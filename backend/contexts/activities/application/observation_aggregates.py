@@ -27,6 +27,7 @@ never a rate.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +49,12 @@ from contexts.activities.infrastructure.repositories.submission_repo import (
 #: the model, and this keeps it unrepresentable at all.
 MANDALA_SIDE = 3
 MANDALA_CELLS = MANDALA_SIDE * MANDALA_SIDE
+
+#: The participant worksheet's centre rule, mirrored from ``MandalaGrid.vue``'s
+#: ``CENTER_PROPERTY``/``CENTER_INDEX``. Two files, one rule: a figure drawn on a
+#: different layout from the form it describes is a figure about nothing.
+MANDALA_CENTRE_PROPERTY = "center"
+MANDALA_CENTRE_INDEX = 4
 
 
 class ObservationAggregateService:
@@ -92,15 +99,19 @@ class ObservationAggregateService:
         Refuses a type of any other width rather than padding or truncating one:
         a grid whose cells do not correspond to the worksheet's cells is a figure
         about nothing, and silently dropping the tenth field would be exactly that.
+
+        The cells are laid out by :func:`_with_centre_in_the_middle`, not by the
+        declared order alone — see there for why.
         """
         coverage = await self.field_coverage(chatroom_id=chatroom_id, activity_type=activity_type)
         if coverage is None or len(coverage.cells) != MANDALA_CELLS:
             return None
+        cells = _with_centre_in_the_middle(coverage.cells)
         return MandalaGrid(
             type_key=coverage.type_key,
             type_name=coverage.type_name,
             submissions_counted=coverage.submissions_counted,
-            rows=tuple(coverage.cells[i : i + MANDALA_SIDE] for i in range(0, MANDALA_CELLS, MANDALA_SIDE)),
+            rows=tuple(tuple(cells[i : i + MANDALA_SIDE]) for i in range(0, MANDALA_CELLS, MANDALA_SIDE)),
         )
 
     async def attempt_summary(
@@ -134,13 +145,41 @@ class ObservationAggregateService:
         )
 
 
+def _with_centre_in_the_middle(cells: Sequence[FieldCoverageCell]) -> list[FieldCoverageCell]:
+    """The nine cells as the participant's own worksheet lays them out.
+
+    ``MandalaGrid.vue`` treats ``center`` as a *named opt-in* to the middle box
+    and splices it to index 4 wherever the schema declares it, rendering the
+    remaining eight as the ring in declared order ([R30.36]). Reading the declared
+    order alone put each count on a cell the participant never saw it on, and in
+    this figure position is the entire meaning — the serialiser emits an empty
+    header row precisely because the columns have no names.
+
+    A schema naming no ``center`` keeps its declared order untouched, which is the
+    other half of the same rule: promoting the first field would move a cell its
+    author deliberately put first, and an author cannot see that rule from their
+    own schema.
+    """
+    centre = next((c for c in cells if c.name == MANDALA_CENTRE_PROPERTY), None)
+    if centre is None:
+        return list(cells)
+    ring = [c for c in cells if c is not centre]
+    return [*ring[:MANDALA_CENTRE_INDEX], centre, *ring[MANDALA_CENTRE_INDEX:]]
+
+
 def declared_fields(payload_schema: dict[str, Any]) -> list[tuple[str, str]]:
     """``[(property name, display title)]`` in the schema's declared order.
 
     ``x-order`` wins where an owner set it; properties without one keep their
-    declaration order behind those that have one. That is the order the
-    participant's own form renders in, so a coverage figure reads down the
-    worksheet rather than in some order only the JSON knows about.
+    declaration order behind those that have one, so a coverage figure reads down
+    the worksheet rather than in some order only the JSON knows about.
+
+    This is the schema's order, not necessarily the participant's: the mandala
+    worksheet additionally promotes a property named ``center`` to the middle box,
+    which :func:`_with_centre_in_the_middle` applies for the grid alone. It is not
+    applied here because this function also serves the flat ``field_coverage``
+    table, whose rows are labelled — position carries no meaning there, and a
+    type of any other width renders in declared order for the participant too.
 
     Returns ``[]`` for a schema with no object properties, and for one wider than
     :data:`MAX_COVERAGE_FIELDS` — the query builds one aggregate per field, so the
@@ -168,6 +207,8 @@ def declared_fields(payload_schema: dict[str, Any]) -> list[tuple[str, str]]:
 
 __all__ = [
     "MANDALA_CELLS",
+    "MANDALA_CENTRE_INDEX",
+    "MANDALA_CENTRE_PROPERTY",
     "MANDALA_SIDE",
     "ObservationAggregateService",
     "declared_fields",
