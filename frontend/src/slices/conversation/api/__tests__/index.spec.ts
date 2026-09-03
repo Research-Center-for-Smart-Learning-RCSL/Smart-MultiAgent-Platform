@@ -125,6 +125,9 @@ function captureAll(): { value: Captured | null } {
     on('get', '/api/chatrooms/:chatroomId', chatroomOut),
     on('delete', '/api/chatrooms/:chatroomId', null, 204),
     on('get', '/api/chatrooms/:chatroomId/guest-link', { chatroom_id: 'cr_1', guest_token: 'tok', url: 'https://x/guest' }),
+    // Before the full listing: msw resolves the FIRST matching handler, and a
+    // handler registered after one that already matches never runs.
+    on('get', '/api/projects/:projectId/agents/names', [{ id: 'a_1', name: 'Agent' }]),
     on('get', '/api/projects/:projectId/agents', [{ id: 'a_1', name: 'Agent' }]),
     on('get', '/api/chatrooms/:chatroomId/agents', [
       { agent_id: 'a_1', role: null },
@@ -246,11 +249,24 @@ describe('conversation api wire contract', () => {
   // ---- agent bindings ----
   it('listProjectAgents GETs the project agents with an explicit page size', async () => {
     // F-16. Left unsent, the generated client's default of 100 applied and the
-    // 101st agent simply had no resolvable name — a silent truncation, since
-    // nothing in the response says it was cut.
+    // 101st agent was simply missing from the binding UI — a silent truncation,
+    // since nothing in the response says it was cut.
     const cap = captureAll()
     await api.listProjectAgents('proj_1')
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/projects/proj_1/agents' })
+    expect(cap.value?.query.limit).toBe('500')
+  })
+
+  it('listProjectAgentNames GETs the projection, not the full listing', async () => {
+    // FU-12. The chatroom builds its id→name map from this on every room open;
+    // the full listing carries `system_prompt` at up to 100k chars per row, so
+    // the page size above is only affordable against the projected route.
+    const cap = captureAll()
+    await api.listProjectAgentNames('proj_1')
+    expect(cap.value).toMatchObject({
+      method: 'GET',
+      path: '/api/projects/proj_1/agents/names',
+    })
     expect(cap.value?.query.limit).toBe('500')
   })
 

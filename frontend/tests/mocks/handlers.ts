@@ -93,6 +93,9 @@ export const handlers = [
   http.get('/api/knowmap-configs/:configId/documents', () => HttpResponse.json([])),
   http.get('/api/search-keys', () => HttpResponse.json([])),
 
+  // Distinct paths, so ordering against the full listing below does not matter —
+  // msw matches segment counts, and `/agents/names` is not `/agents`.
+  http.get('/api/projects/:projectId/agents/names', () => HttpResponse.json([])),
   http.get('/api/projects/:projectId/agents', () => HttpResponse.json([])),
   http.get('/api/agents/:agentId', () =>
     HttpResponse.json({

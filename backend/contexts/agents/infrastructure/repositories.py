@@ -243,6 +243,45 @@ class AgentRepository:
         rows = (await self._db.execute(q)).all()
         return [_row_to_agent(r) for r in rows]
 
+    async def names_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[tuple[uuid.UUID, str]]:
+        """``[(id, name)]`` for a project's live agents, in :meth:`list_for_project` order.
+
+        The same rows that listing returns, projected to the two columns a
+        label needs. It exists because the full listing carries ``system_prompt``
+        — bounded at 100k characters — and its busiest caller only ever built an
+        id-to-name map from it, on a path every chatroom open runs.
+
+        Soft-deleted agents are excluded, matching :meth:`list_for_project` and
+        deliberately unlike :meth:`names_for_ids`: that one resolves a *bounded*
+        set of ids that history already references, so including a removed agent
+        costs one row and keeps an old message labelled. A project-wide listing
+        has no such bound — it would grow with every deletion forever — so the
+        caller renders its own "unknown agent" label instead.
+        """
+        q = (
+            sa.select(t.agents.c.id, t.agents.c.name)
+            .where(
+                sa.and_(
+                    t.agents.c.project_id == project_id,
+                    t.agents.c.deleted_at.is_(None),
+                )
+            )
+            # The same total order as `list_for_project`, so the two paginate
+            # identically and a caller can pair a page from either.
+            .order_by(t.agents.c.created_at.desc(), t.agents.c.id.desc())
+            .offset(offset)
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        rows = (await self._db.execute(q)).all()
+        return [(r.id, r.name) for r in rows]
+
     async def names_for_ids(self, agent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Batch-resolve agent_id -> name for the given ids (narrow projection).
 
