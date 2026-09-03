@@ -478,6 +478,162 @@ describe('useChatroomMessages loading/error state (F-17)', () => {
   })
 })
 
+describe('useChatroomMessages reconcileOlder (F-5)', () => {
+  // F-5: paged-in older messages are never reconciled after a socket gap, so a
+  // hard-deleted message stays legible. reconcileOlder re-fetches the paged-in
+  // range on reconnect and merges through mergeMessages so deletions, edits and
+  // boundary rows are all handled.
+
+  // Seed the recent cache and page back two older messages so reconcileOlder has
+  // a range to re-fetch.
+  async function mountWithScrollback(): Promise<{
+    qc: ReturnType<typeof mountHost>['qc']
+  }> {
+    const recent = msg({ id: 'm_recent', created_at: '2026-01-03T00:00:00.000Z' })
+    api.listMessages.mockResolvedValueOnce([recent])
+    const { qc } = mountHost()
+    await flushPromises()
+
+    composable.hasOlderMessages.value = true
+    // Page back: two older rows in descending order (as the backend returns them)
+    api.listMessages.mockResolvedValueOnce([
+      msg({ id: 'm_old2', created_at: '2026-01-02T00:00:00.000Z', content_md: 'second' }),
+      msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'first' }),
+    ])
+    await composable.loadEarlier()
+    await flushPromises()
+    expect(composable.messages.value.map((m) => m.id)).toEqual([
+      'm_old1', 'm_old2', 'm_recent',
+    ])
+    return { qc }
+  }
+
+  it('removes a paged-in message the server no longer returns after a reconnect (T-9a)', async () => {
+    await mountWithScrollback()
+    api.listMessages.mockClear()
+    // Reconnect: the server returns only m_old1 — m_old2 was deleted during the
+    // gap. The recent page is m_recent.
+    api.listMessages.mockImplementation(
+      async (_room: string, params: { before?: string; limit?: number } = {}) => {
+        if (params.before) {
+          return [msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'first' })]
+        }
+        return []
+      },
+    )
+
+    await composable.reconcileOlder()
+    await flushPromises()
+
+    expect(composable.messages.value.some((m) => m.id === 'm_old2')).toBe(false)
+    expect(composable.messages.value.some((m) => m.id === 'm_old1')).toBe(true)
+    expect(composable.messages.value.some((m) => m.id === 'm_recent')).toBe(true)
+  })
+
+  it('keeps a surviving message with its updated content (T-9b)', async () => {
+    await mountWithScrollback()
+    api.listMessages.mockClear()
+    api.listMessages.mockImplementation(
+      async (_room: string, params: { before?: string; limit?: number } = {}) => {
+        if (params.before) {
+          return [
+            msg({ id: 'm_old2', created_at: '2026-01-02T00:00:00.000Z', content_md: 'edited' }),
+            msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'first' }),
+          ]
+        }
+        return []
+      },
+    )
+
+    await composable.reconcileOlder()
+    await flushPromises()
+
+    const old2 = composable.messages.value.find((m) => m.id === 'm_old2')
+    expect(old2?.content_md).toBe('edited')
+  })
+
+  it('removes the oldest paged-in row when it is the deleted one — the boundary mergeMessages alone cannot detect (T-9c)', async () => {
+    await mountWithScrollback()
+    api.listMessages.mockClear()
+    // m_old1 is the oldest row in the paged-in range and was deleted. The server
+    // returns only m_old2. mergeMessages' windowStart would be m_old2's date, and
+    // m_old1 is OLDER than that, so mergeMessages keeps it — unless the reconcile
+    // bounds the window explicitly by what it requested rather than by what came
+    // back.
+    api.listMessages.mockImplementation(
+      async (_room: string, params: { before?: string; limit?: number } = {}) => {
+        if (params.before) {
+          return [msg({ id: 'm_old2', created_at: '2026-01-02T00:00:00.000Z', content_md: 'second' })]
+        }
+        return []
+      },
+    )
+
+    await composable.reconcileOlder()
+    await flushPromises()
+
+    expect(composable.messages.value.some((m) => m.id === 'm_old1')).toBe(false)
+    expect(composable.messages.value.some((m) => m.id === 'm_old2')).toBe(true)
+  })
+
+  it('does not touch hasOlderMessages or autoLoadExhausted', async () => {
+    await mountWithScrollback()
+    composable.hasOlderMessages.value = false
+    api.listMessages.mockImplementation(async () => [])
+
+    await composable.reconcileOlder()
+    await flushPromises()
+
+    expect(composable.hasOlderMessages.value).toBe(false)
+  })
+})
+
+describe('useChatroomMessages reconcileOlder generation guard (T-10)', () => {
+  it('does not apply a stale reconcile when a second reconnect overtakes the first', async () => {
+    const recent = msg({ id: 'm_recent', created_at: '2026-01-03T00:00:00.000Z' })
+    api.listMessages.mockResolvedValueOnce([recent])
+    mountHost()
+    await flushPromises()
+
+    composable.hasOlderMessages.value = true
+    api.listMessages.mockResolvedValueOnce([
+      msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'original' }),
+    ])
+    await composable.loadEarlier()
+    await flushPromises()
+
+    // Two overlapping reconciles: the first is slow, the second resolves first.
+    const slow = deferred<Message[]>()
+    const fast = deferred<Message[]>()
+    let callCount = 0
+    api.listMessages.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) return slow.promise
+      return fast.promise
+    })
+
+    const p1 = composable.reconcileOlder()
+    const p2 = composable.reconcileOlder()
+
+    // Second (newer) resolves first with an edited message.
+    fast.resolve([
+      msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'from-second' }),
+    ])
+    await flushPromises()
+
+    // First (stale) resolves after with older data.
+    slow.resolve([
+      msg({ id: 'm_old1', created_at: '2026-01-01T00:00:00.000Z', content_md: 'from-first' }),
+    ])
+    await p1
+    await p2
+    await flushPromises()
+
+    const old1 = composable.messages.value.find((m) => m.id === 'm_old1')
+    expect(old1?.content_md).toBe('from-second')
+  })
+})
+
 describe('useChatroomMessages before-cursor 422 fallback (V-2)', () => {
   type Page = { before?: string; since?: string; limit?: number }
 

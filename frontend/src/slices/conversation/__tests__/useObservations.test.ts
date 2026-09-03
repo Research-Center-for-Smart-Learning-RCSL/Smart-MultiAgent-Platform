@@ -367,6 +367,11 @@ describe('useObservations', () => {
 
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+    // F-1. This handler must invalidate the same three keys as the room-channel
+    // one: for an observer binding with disclosure off the room copy is withheld,
+    // so this is the creator's *only* delivery. Fixing one handler and not the
+    // other leaves the creator's other tabs showing an id where a name belongs.
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
   })
 
   it('ignores a chatroom.updated naming another room', async () => {
@@ -378,6 +383,7 @@ describe('useObservations', () => {
     emit('chatroom.updated', { chatroom_id: 'cr_other' })
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
   })
 
   it('teardown unsubscribes its own handlers on unmount', async () => {

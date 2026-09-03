@@ -371,6 +371,129 @@ export function useChatroomMessages(
       })
   }
 
+  // ---------- reconnect reconcile for paged-in scrollback (F-5) ---------------
+
+  // Monotonic guard: a flapping socket can overlap two reconcileOlder passes.
+  let olderReconcileGeneration = 0
+
+  // Re-fetch the paged-in range and merge through mergeMessages so a message
+  // deleted (or edited) during a socket gap is reconciled. Called from
+  // useChatroomSocket's reconnect burst, sequenced after reconcileMessages.
+  //
+  // Constraint 4 (§7.4): the first `before` anchor comes from the recent cache
+  // (just refetched by reconcileMessages) — not from olderMessages, whose
+  // newest row may be the very message deleted during the gap.
+  //
+  // Constraint 5 (§7.4): mergeMessages derives windowStart from the response,
+  // which cannot detect a deletion at the oldest boundary. The reconcile drops
+  // any prior olderMessages row inside the requested range that the server did
+  // not return.
+  async function reconcileOlder(): Promise<void> {
+    const older = olderMessages.value
+    if (older.length === 0) return
+
+    const generation = ++olderReconcileGeneration
+
+    // Anchor: use the oldest row of the recent cache (confirmed by the server
+    // in the just-completed reconcileMessages), not olderMessages' newest row.
+    const recent = qc.getQueryData<Message[]>(convKeys.messages(chatroomId))
+    let anchor: string | undefined
+    if (recent && recent.length > 0) {
+      let oldest = recent[0]!
+      for (const m of recent) {
+        if (m.created_at < oldest.created_at) oldest = m
+      }
+      anchor = oldest.id
+    }
+    // Fall back to olderMessages' newest row only if the cache is empty
+    // (should not happen after reconcileMessages, but defensive).
+    if (!anchor) {
+      let newest = older[0]!
+      for (const m of older) {
+        if (m.created_at > newest.created_at) newest = m
+      }
+      anchor = newest.id
+    }
+
+    // Record the range we are about to request so we can bound the merge
+    // window explicitly rather than relying on the response's oldest row.
+    let oldestRequestedDate: string | null = null
+    for (const m of older) {
+      if (oldestRequestedDate === null || m.created_at < oldestRequestedDate) {
+        oldestRequestedDate = m.created_at
+      }
+    }
+
+    // Fetch the paged-in range sequentially: each page's anchor comes from the
+    // previous response. PAGE_SIZE is 100; messages.py caps limit at 200.
+    const allFetched: Message[] = []
+    let currentAnchor = anchor
+
+    try {
+      while (true) {
+        if (generation !== olderReconcileGeneration) return
+        const page = await listMessages(chatroomId, {
+          before: currentAnchor,
+          limit: PAGE_SIZE,
+        })
+        if (generation !== olderReconcileGeneration) return
+        if (page.length === 0) break
+        allFetched.push(...page)
+        // The backend returns pages in descending order; the last element is
+        // the oldest. Use it as the next page's anchor.
+        const pageOldest = page[page.length - 1]!
+        // Stop when we have reached or passed the oldest row we are trying to
+        // reconcile.
+        if (
+          oldestRequestedDate !== null &&
+          pageOldest.created_at <= oldestRequestedDate
+        ) {
+          break
+        }
+        if (page.length < PAGE_SIZE) break
+        currentAnchor = pageOldest.id
+      }
+    } catch {
+      // Best-effort, matching reconcileMessages: a subsequent connect or live
+      // event will reconcile.
+      return
+    }
+
+    if (generation !== olderReconcileGeneration) return
+
+    // Merge: keep any olderMessages row OLDER than the requested range (it was
+    // never asked about), and replace everything inside the range with what the
+    // server returned. This is constraint 5: bound the window by what we
+    // REQUESTED, not by what came back.
+    const fetchedById = new Map<string, Message>()
+    for (const m of allFetched) fetchedById.set(m.id, m)
+
+    const kept: Message[] = []
+    for (const m of older) {
+      if (oldestRequestedDate !== null && m.created_at < oldestRequestedDate) {
+        // Outside the requested range — keep unconditionally.
+        kept.push(m)
+      } else if (fetchedById.has(m.id)) {
+        // Inside the range and returned — take the fresh copy.
+        kept.push(fetchedById.get(m.id)!)
+        fetchedById.delete(m.id)
+      }
+      // Inside the range and NOT returned — dropped (deleted on server).
+    }
+    // Any fetched row not already in olderMessages but older than the recent
+    // cache is new scrollback (unlikely but harmless to include).
+    for (const m of allFetched) {
+      if (fetchedById.has(m.id)) {
+        kept.push(m)
+      }
+    }
+
+    kept.sort((a, b) =>
+      a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1,
+    )
+    olderMessages.value = kept
+  }
+
   // ---------- remote mutation sync (BUG-7) ----------------------------------
 
   function dropOlderMessage(messageId: string): void {
@@ -414,5 +537,7 @@ export function useChatroomMessages(
     // remote mutation sync
     dropOlderMessage,
     refreshOlderMessage,
+    // reconnect reconcile (F-5)
+    reconcileOlder,
   }
 }
