@@ -257,9 +257,12 @@
             :has-more="observations.hasMore.value"
             :loading-more="observations.loadingMore.value"
             :agent-names="agentNames"
+            :is-error="observations.observationsError.value"
+            :roster-known="rosterKnown"
             @release="openRelease"
             @delete="onObservationDelete"
             @load-earlier="observations.loadEarlier"
+            @retry="observations.refetch"
           />
         </template>
         <template #tab-activity>
@@ -317,9 +320,12 @@
             :has-more="observations.hasMore.value"
             :loading-more="observations.loadingMore.value"
             :agent-names="agentNames"
+            :is-error="observations.observationsError.value"
+            :roster-known="rosterKnown"
             @release="openRelease"
             @delete="onObservationDelete"
             @load-earlier="observations.loadEarlier"
+            @retry="observations.refetch"
           />
         </template>
         <template #tab-activity>
@@ -490,10 +496,16 @@ const roomName = computed(() => roomQuery.data.value?.name ?? `#${chatroomId.sli
 const draftsReadable = computed(() => roomQuery.data.value?.drafts_readable ?? false)
 
 const boundAgentsQuery = useQuery({
-  queryKey: ['conversation', 'chatroom-agents', chatroomId],
+  queryKey: convKeys.chatroomAgents(chatroomId),
   queryFn: () => listChatroomAgents(chatroomId),
   retry: false,
 })
+
+// F-10: an empty `observerAgents` means "nothing bound" only once this query has
+// actually answered. It retries never, so a failure leaves the same empty array
+// a healthy empty room does — and the panel's alert claims an observer was
+// *unbound*, which is a different and wrong statement in that state.
+const rosterKnown = computed(() => boundAgentsQuery.isSuccess.value)
 
 // Resolve workspace → project → agents to get agent display names. Each
 // query gates on the previous via `enabled`, so missing room data does not
@@ -588,7 +600,6 @@ const observerProjectId = computed(
 )
 const observations = useObservations(chatroomId, {
   room: computed(() => roomQuery.data.value),
-  projectId: observerProjectId,
   boundAgents: computed(() => boundAgentsQuery.data.value),
   agentNames,
 })

@@ -16,6 +16,46 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
+### From the 2026-09-03 observer-UI audit
+
+Moved to In progress on 2026-09-03 when phase 1 started. The entry below is kept here for its
+detail; the live status is under In progress.
+
+- `2026-09-03-observer-ui-defect-sweep` (bugfix, **in-progress since 2026-09-03**; its SRS Delta
+  is None) — `depends_on: []`. All sixteen findings of
+  `docs/audits/2026-09-03-observer-ui-visualization/findings.md` in one dossier, executed in
+  **three phases** rather than one session: P1 disclosure and access correctness (F-1, F-2,
+  F-3, F-7, F-10), P2 observer status truthfulness (F-6, F-8, F-11, F-12, F-13, F-14), P3
+  example packs and render fidelity (F-4, F-5, F-9, F-15, F-16). P1 and P2 both edit the same
+  regions of `useObservations.ts` and `ChatroomView.vue` and are **serial**; P3 shares only
+  one line of `useObservations.ts` and `ObservationCard.vue`, so it can run beside either —
+  whoever lands second rebases.
+
+  **Its most consequential change is the first WebSocket publish `chatrooms.py` has ever
+  had.** F-1's root cause is that no writer in that file or in `chatroom_service.py` publishes
+  anything, so no client can be told the room changed — and every invalidation in the
+  conversation slice names `['conversation','chatrooms']`, which does not prefix-match the
+  singular `convKeys.chatroom`. The fix adds a room-channel `chatroom.updated` carrying **the
+  room id and nothing else**, because the room channel has no per-recipient filtering
+  (`shared_kernel/realtime/connection.py:331-338`) and each viewer must re-GET through
+  `_to_out`'s per-viewer guest neutralisation instead. AC-3 verifies the frame's contents by
+  reading it, not only by unit test.
+
+  **Two dispositions are deliberately narrower than the finding.** Q-3 fixes F-6 by reporting
+  "unknown" to viewers who receive no event feed rather than by building that feed — real
+  delivery needs a reverse resolver in `access.py` that does not exist in that direction, or a
+  persisted per-turn status where today there is only a client transient (its FU-1). Q-8
+  corrects the two pack prompts without a migration: install copies `system_prompt` into an
+  `agents` row and is idempotent by agent **name** with no update path and no pack-version
+  column, and the project has twice shipped the hand-edit note instead
+  (`docs/examples/creative-thinking-course.md:344-347,627-636`). Its FU-6 asks whether that
+  should keep being true.
+
+  **Its Q-6 records a `turn_engine.py` overlap with the in-progress
+  `2026-07-19-large-artifacts-silently-dropped`** — disjoint regions (`_persist_artifacts` at
+  `:1124-1171` versus the observer emit at `:3154-3326`) — deliberately **not** a `depends_on`,
+  matching the call `BOARD.md` already made for two earlier pairs in that file.
+
 ### From the 2026-08-30 FU consolidation
 
 Three dossiers opened the same day from the follow-up lists of four already-implemented ones.
@@ -504,6 +544,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-03-observer-ui-defect-sweep` (bugfix) — `depends_on: []`. **Phase 1 of three**
+  (F-1, F-2, F-3, F-7, F-10 — disclosure and access correctness) started 2026-09-03. The
+  dossier stays `in-progress` between phases: its §7.1 makes each phase a self-contained
+  milestone with its own commit and its own full Definition of Done, and only the third
+  moves it to `implemented`. The §10 AC checkboxes are how a resumed session finds where
+  work stopped. Phase 2 must not start before phase 1 is committed — both edit the same
+  regions of `useObservations.ts` and `ChatroomView.vue`; phase 3 may run beside either.
+  See the Ready-now entry above for the full scope note.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-09-01 after implementation: `2026-08-30-runtime-contract-integrity` (two dead typed-error

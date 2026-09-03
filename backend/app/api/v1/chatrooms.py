@@ -6,6 +6,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,8 +29,10 @@ from contexts.conversation.domain.errors import (
     WorkspaceNotFound,
 )
 from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.interfaces import user_channel
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -48,6 +51,7 @@ from shared_kernel.auth.permissions import (
     decide,
 )
 from shared_kernel.db.session import db_session
+from shared_kernel.realtime.pubsub import Publisher
 
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["chatrooms"])
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
@@ -278,6 +282,67 @@ async def _project_id_for_chatroom(
     return ws.project_id
 
 
+async def _emit_chatroom_updated(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    *,
+    room_visible: bool,
+    creator_user_id: uuid.UUID | None,
+) -> None:
+    """Tell live viewers of this room to re-read its DTO ([R28.09]).
+
+    **The payload is the room id and nothing else**, because the room channel has
+    no per-recipient filtering — ``_pubsub_fanin`` in
+    ``shared_kernel/realtime/connection.py`` hands every frame to every
+    subscriber, guests included. ``_to_out`` neutralises ``observers_present``,
+    ``disclose_observers``, ``created_by_user_id`` and ``is_moderator`` for a pure
+    guest, and it can only do that because it runs once per viewer. An ids-only
+    "refetch me" preserves that: each client re-GETs and gets its own answer.
+
+    **``room_visible`` is the second half of the same constraint, and it is about
+    the frame's existence rather than its contents.** These frames are emitted
+    only by writes to bindings and disclosure, so a viewer who receives one and
+    then sees an unchanged DTO *and* an unchanged agent listing has learned that
+    an **invisible** write happened — which, in a room with disclosure off, means
+    an observer binding: the one fact [R28.10] and O-5 exist to withhold. The room
+    channel is therefore used only when the write moved something a non-creator
+    can actually see. When it did not, those viewers have nothing to refresh and
+    the frame would be pure signal. Callers derive this from the room's own
+    disclosure flags, which each already holds.
+
+    The creator's other sessions are refreshed over their private user channel
+    instead — the channel every ``observation.*`` event already uses, and the
+    delivery F-10(c)'s two-tab reproduction actually needs. Its known limit is
+    unchanged and recorded as FU-1: an admin or NULL-creator moderator who is not
+    ``created_by_user_id`` receives no push and falls back to the 30s poll.
+
+    **Commits first.** ``db_session`` owns the transaction and commits after the
+    handler returns, so a frame published from the handler body would announce a
+    write a later rollback could still undo. The dependency's trailing commit is a
+    no-op on the now-clean session (see ``shared_kernel/db/session.py``).
+
+    Transport failure is swallowed. The write is already durable here; raising
+    would return 500 for a change that happened, which is a worse lie than a
+    missed refresh, and the next reload reconciles. Same posture as
+    ``emit_agent_finished_error``.
+    """
+    await db.commit()
+    payload = {"chatroom_id": str(chatroom_id)}
+    channels = [] if creator_user_id is None else [user_channel(creator_user_id)]
+    if room_visible:
+        channels.append(room_channel(chatroom_id))
+    for channel in channels:
+        try:
+            await Publisher(channel).emit("chatroom.updated", payload)
+        except Exception:
+            # `opt(exception=True)` rather than a bare warning: this is the only
+            # record that a viewer's refresh was lost, and "emit failed" with no
+            # cause cannot be acted on.
+            logger.bind(room_id=str(chatroom_id), channel=channel).opt(exception=True).warning(
+                "chatroom.updated emit failed"
+            )
+
+
 async def _require_project_cap(
     db: AsyncSession,
     principal: Principal,
@@ -484,6 +549,29 @@ async def patch_chatroom(
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
     with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
+    if fields & _DISCLOSURE_FIELDS:
+        # F-1, scoped to the disclosure path per §7.2 of the dossier: flipping
+        # `disclose_observers` flips `observers_present` for every viewer. A
+        # rename going stale on a live viewer is a real but separate defect and
+        # is recorded as that dossier's FU-7 rather than widened into here.
+        #
+        # After `_to_out`'s inputs are read, not before: the commit inside the
+        # emit ends this transaction, and `room` is a frozen dataclass rather
+        # than a live ORM row, but the two service reads above still belong to
+        # the request's own transaction.
+        #
+        # Room-visible unconditionally, and this is the one site where that is
+        # right in both directions: flipping a disclosure flag is what moves
+        # `observers_present` / `drafts_readable` for every member at once, and
+        # announcing it *is* the disclosure. See §9 of the dossier for the residual
+        # signal this leaves a pure guest, whose neutralised view of
+        # `disclose_observers` does not change either way.
+        await _emit_chatroom_updated(
+            db,
+            chatroom_id,
+            room_visible=True,
+            creator_user_id=room.created_by_user_id,
+        )
     return _to_out(
         room,
         has_observers=chatroom_id in with_observers,
@@ -702,10 +790,10 @@ async def add_chatroom_agent(
             detail="agent does not belong to this chatroom's project",
         )
     role = ChatroomAgentRole(body.role) if body.role else ChatroomAgentRole.NORMAL
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     if role is ChatroomAgentRole.OBSERVER:
         # R28.02: only the creator may plant an observer — a non-creator
         # moderator would be binding an agent whose output they cannot read.
-        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
         ensure_room_creator(access, principal=principal)
     service = ChatroomService(db)
     await service.add_agent(
@@ -715,6 +803,18 @@ async def add_chatroom_agent(
         actor_ip=ctx.actor_ip,
         role=role,
         request_id=ctx.request_id,
+    )
+    # F-1. A normal binding adds a row every viewer's agent listing shows, so it
+    # is room-visible outright. An observer binding is filtered out of that
+    # listing for non-creators ([R28.10]) and only reaches them at all through
+    # `observers_present`, which `_to_out` forces false while disclosure is off —
+    # so with disclosure off there is nothing for them to re-read, and a frame
+    # would say "something you cannot see just happened".
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=role is ChatroomAgentRole.NORMAL or access.chatroom.disclose_observers,
+        creator_user_id=access.chatroom.created_by_user_id,
     )
 
 
@@ -743,7 +843,29 @@ async def patch_chatroom_agent_role(
         request_id=ctx.request_id,
     )
     if not changed:
+        # No such binding, so there is nothing to announce.
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    # F-1: promoting to (or demoting from) `observer` moves `observers_present`.
+    #
+    # `changed` means "the binding exists and now holds this role", NOT "a row was
+    # written": `set_agent_role` returns True without writing when the agent already
+    # held the target role. Re-asserting a current role therefore emits, costing each
+    # viewer two cached refetches of a room that did not move. Accepted rather than
+    # narrowed — distinguishing the two needs a new return value from the service,
+    # and the frame is idempotent, so the cost of the no-op is a refetch while the
+    # cost of getting the distinction wrong is a missed disclosure update.
+    #
+    # Room-visible in both directions and independently of disclosure: a promotion
+    # removes the agent from every non-creator's listing and a demotion puts it
+    # back, so the change is one they can already see by reloading. Withholding
+    # the frame here would not hide anything — it would only make their listing
+    # stale.
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=True,
+        creator_user_id=access.chatroom.created_by_user_id,
+    )
 
 
 @chatroom_router.patch(
@@ -840,7 +962,22 @@ async def patch_chatroom_agent_draft_access(
     )
     if not written:
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
-    await db.commit()
+    # `drafts_readable` on the room DTO just changed for every participant: it is
+    # `disclose_drafts AND has_draft_readers`, and this route moves the second term
+    # ([R32.05]). Without this the pair is half-fresh — `patch_chatroom` refreshes
+    # the chip when the disclosure flips, and granting the reading itself would not.
+    #
+    # Room-visible only while drafts are disclosed, for the reason the observer
+    # sites are gated: `drafts_readable` is `disclose_drafts AND has_draft_readers`,
+    # so with the disclosure off this write moves nothing a participant can see and
+    # the frame would announce an invisible grant. *Which* agent holds it is never
+    # disclosed either way ([R32.05]).
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=access.chatroom.disclose_drafts,
+        creator_user_id=access.chatroom.created_by_user_id,
+    )
 
 
 async def _assert_activity_types_in_project(
@@ -894,6 +1031,28 @@ async def remove_chatroom_agent(
     # same 204 as any other unbind — never a 403 that would out a hidden
     # observer, and the role-scoped delete closes the read-then-delete race.
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    creator = is_room_creator(access, principal=principal)
+    # F-1's room-visibility decision, and the one place it interacts with O-5.
+    #
+    # For a **creator**, read the binding's role first: unbinding a normal agent
+    # removes a row every viewer sees, while unbinding an observer is invisible to
+    # them unless disclosure is on, and emitting anyway would announce a write
+    # they cannot account for.
+    #
+    # For a **non-creator** the removal is role-scoped, so an observer target is a
+    # silent no-op. Here the frame must NOT depend on the target's role at all:
+    # if it did, its presence or absence would answer "was that agent an
+    # observer?" — precisely the oracle the silent 204 exists to prevent. Emitting
+    # unconditionally keeps it a constant. The cost is a spurious refetch on a
+    # no-op the caller triggered themselves; the same frame already follows any
+    # unbind of an agent that was never bound, so it carries no new information.
+    room_visible = True
+    if creator:
+        role_before = await ConversationFacade(db).agent_role_in_chatroom(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+        )
+        room_visible = role_before is not ChatroomAgentRole.OBSERVER or access.chatroom.disclose_observers
     service = ChatroomService(db)
     await service.remove_agent(
         chatroom_id=chatroom_id,
@@ -901,7 +1060,13 @@ async def remove_chatroom_agent(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
-        restrict_to_normal=not is_room_creator(access, principal=principal),
+        restrict_to_normal=not creator,
+    )
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=room_visible,
+        creator_user_id=access.chatroom.created_by_user_id,
     )
 
 

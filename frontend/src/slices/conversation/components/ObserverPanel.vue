@@ -15,8 +15,12 @@
       </li>
     </ul>
 
+    <!-- F-10: the alert claims an unbinding happened, so it may only speak when
+         the roster is actually known. An empty `observerAgents` also means the
+         bound-agents query has not answered yet, or failed outright (it retries
+         never), or is serving a cache no event invalidated. -->
     <SAlert
-      v-if="!roster.length && observations.length"
+      v-if="rosterKnown && !roster.length && observations.length"
       variant="info"
       :title="t('conversation.observers.noObserverBoundTitle')"
     >
@@ -24,6 +28,19 @@
     </SAlert>
 
     <SDivider />
+
+    <!-- F-7. The banner sits beside the list rather than replacing it: a failed
+         background refetch still holds the rows it fetched last time, and
+         blanking them would destroy information to report a transport problem.
+         What must not survive an error is the EMPTY state, whose copy asserts
+         the room has produced nothing — a fact a failed request never
+         established. Hence the `!isError` guard on that branch alone. -->
+    <SQueryError
+      v-if="isError"
+      :message="t('conversation.observers.loadError')"
+      :retry-label="t('conversation.observers.retry')"
+      @retry="emit('retry')"
+    />
 
     <div
       v-if="loading"
@@ -39,15 +56,8 @@
       />
     </div>
 
-    <SEmptyState
-      v-else-if="!observations.length"
-      :icon="EyeIcon"
-      :title="t('conversation.observers.emptyTitle')"
-      :text="t('conversation.observers.emptyText')"
-    />
-
     <ul
-      v-else
+      v-else-if="observations.length"
       class="obs-panel__list"
     >
       <ObservationCard
@@ -59,6 +69,13 @@
         @delete="emit('delete', o)"
       />
     </ul>
+
+    <SEmptyState
+      v-else-if="!isError"
+      :icon="EyeIcon"
+      :title="t('conversation.observers.emptyTitle')"
+      :text="t('conversation.observers.emptyText')"
+    />
 
     <div
       v-if="hasMore"
@@ -80,7 +97,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EyeIcon } from '@heroicons/vue/24/outline'
-import { SAlert, SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
+import { SAlert, SButton, SDivider, SEmptyState, SQueryError, SSkeleton } from '@shared/ui'
 import { agentErrorMessageKey } from '../constants/agentErrors'
 import ObservationCard from './ObservationCard.vue'
 import type { ObserverEntry } from '../composables/useObservations'
@@ -93,12 +110,18 @@ const props = defineProps<{
   hasMore: boolean
   loadingMore: boolean
   agentNames: Record<string, string>
+  /** The observations query failed (F-7). */
+  isError: boolean
+  /** The bound-agents query has settled successfully, so an empty
+   *  `observerAgents` genuinely means "nothing bound" (F-10). */
+  rosterKnown: boolean
 }>()
 
 const emit = defineEmits<{
   release: [observation: Observation]
   delete: [observation: Observation]
   'load-earlier': []
+  retry: []
 }>()
 
 const { t, te } = useI18n()

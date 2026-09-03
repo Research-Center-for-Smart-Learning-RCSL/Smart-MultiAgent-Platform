@@ -37,7 +37,7 @@ dependencies = [
   "psycopg[binary]>=3.2,<3.4",
   "minio==7.2.*",
   "weasyprint==69.*",  # chat export → PDF (HTML render); needs pango/cairo + fonts-noto-cjk in the image. SEC-DEP: <68 leaks the url_fetcher SSRF guard across redirects (PYSEC-2026-2034)
-  "pypdf==6.*",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed"
+  "pypdf>=6.16.1,<7",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed". SEC-DEP: <6.16.1 lets an uploaded PDF hang or exhaust the ingestion worker — infinite loop via TreeObject.insert_child (CVE-2026-84309), and unbounded runtime/memory through nested outlines (CVE-2026-84310) and re-used XForm objects during text extraction (CVE-2026-84311). The last two are on the extraction path this dependency exists for, and the upload is attacker-supplied
   "python-docx==1.*",  # DOCX text extraction on the same ingestion path; accepted upload type (imported as `docx`)
   "neo4j>=5.24,<6.4",
   "qdrant-client==1.12.*",
