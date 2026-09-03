@@ -5,7 +5,12 @@ import type { ObserverEntry } from '../composables/useObservations'
 import type { Observation } from '../types'
 
 function baseProps(
-  overrides: Partial<{ observerAgents: ObserverEntry[]; observations: Observation[] }> = {},
+  overrides: Partial<{
+    observerAgents: ObserverEntry[]
+    observations: Observation[]
+    isError: boolean
+    rosterKnown: boolean
+  }> = {},
 ) {
   return {
     observerAgents: [] as ObserverEntry[],
@@ -14,6 +19,10 @@ function baseProps(
     hasMore: false,
     loadingMore: false,
     agentNames: { a1: 'Watcher' },
+    isError: false,
+    // The default is "the roster has settled", so every pre-existing case keeps
+    // asserting what it asserted before F-10 added the gate.
+    rosterKnown: true,
     ...overrides,
   }
 }
@@ -69,5 +78,76 @@ describe('ObserverPanel roster-empty note (observation-binding-cleanup T-4)', ()
     expect(wrapper.text()).toContain('obs o1')
     const alert = wrapper.find('.s-alert')
     expect(alert.exists()).toBe(true)
+  })
+})
+
+// T-5 (F-7). The observations query sets `retry: false` and collapses undefined
+// data to `[]`, and no global QueryCache.onError compensates — so a failed fetch
+// painted the empty state, whose copy ("Observers write here after they analyze
+// the conversation") asserts a fact the client never established. The panel also
+// stays mounted while the list is dead, because the surface gate is satisfied by
+// the surviving bound-agents query.
+describe('ObserverPanel query failure (F-7)', () => {
+  it('renders the error state with a retry, not the empty state', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ isError: true }),
+    })
+
+    expect(wrapper.text()).toContain('conversation.observers.loadError')
+    expect(wrapper.text()).not.toContain('conversation.observers.emptyTitle')
+    expect(wrapper.find('.s-alert').exists()).toBe(true)
+  })
+
+  it('emits retry when the retry control is pressed', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ isError: true }),
+    })
+
+    await wrapper.find('.s-alert button').trigger('click')
+
+    expect(wrapper.emitted('retry')).toBeTruthy()
+  })
+
+  it('keeps cached rows visible beside the banner', async () => {
+    // A failed background refetch still holds the rows it fetched last time.
+    // The banner reports the transport problem; blanking the list would throw
+    // away readable observations to do it.
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ isError: true, observations: [makeObservation('o1')] }),
+    })
+
+    expect(wrapper.text()).toContain('conversation.observers.loadError')
+    expect(wrapper.text()).toContain('obs o1')
+  })
+})
+
+// T-6 (F-10). The alert sat above the loading gate and keyed off roster length
+// alone, so it also fired when the bound-agents query had simply not answered
+// yet, when that query had failed outright, and when an observer bound in
+// another session was missing from a cache nothing invalidates. It claims an
+// unbinding happened; it must only do so when the roster is actually known.
+describe('ObserverPanel no-observer-bound alert (F-10)', () => {
+  it('stays silent while the roster is unknown', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({
+        rosterKnown: false,
+        observerAgents: [],
+        observations: [makeObservation('o1')],
+      }),
+    })
+
+    expect(wrapper.text()).not.toContain('conversation.observers.noObserverBoundTitle')
+  })
+
+  it('speaks once the roster is known empty and observations remain', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({
+        rosterKnown: true,
+        observerAgents: [],
+        observations: [makeObservation('o1')],
+      }),
+    })
+
+    expect(wrapper.text()).toContain('conversation.observers.noObserverBoundTitle')
   })
 })

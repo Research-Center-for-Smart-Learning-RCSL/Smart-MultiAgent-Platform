@@ -26,7 +26,7 @@ import {
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
-import { tenancyKeys, projectsApi, memberGroupsApi } from '@slices/tenancy'
+import { tenancyKeys, memberGroupsApi } from '@slices/tenancy'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
@@ -106,12 +106,6 @@ watchEffect(async () => {
       /* leave undefined — creator gate stays closed, which is safe */
     }
   }
-})
-
-const membersQuery = useQuery({
-  queryKey: computed(() => tenancyKeys.projectMembers(projectId.value ?? '')),
-  queryFn: () => projectsApi.listMembers(projectId.value!),
-  enabled: computed(() => !!projectId.value && room.value?.created_by_user_id === null),
 })
 
 // ---- member-group bindings (section 13.2a) --------------------------------
@@ -198,14 +192,17 @@ async function toggleGroup(groupId: string): Promise<void> {
   }
 }
 
+// F-3, same substitution as `useObservations`: for a NULL-creator room the
+// server falls back to moderator semantics, which an inherited ORG_OWNER
+// satisfies with no `project_members` row — so scanning that table answered a
+// question the server had already answered, and answered it wrong.
 const isCreator = computed<boolean>(() => {
   const me = session.me
   const r = room.value
   if (!me || !r) return false
   if (me.is_admin) return true
   if (r.created_by_user_id !== null) return r.created_by_user_id === me.id
-  const membership = membersQuery.data.value?.find((m) => m.user_id === me.id)
-  return membership?.role === 'owner'
+  return r.is_moderator === true
 })
 
 const roleOptions = computed(() => [
@@ -213,11 +210,16 @@ const roleOptions = computed(() => [
   { value: 'observer', label: t('conversation.observers.roleObserver') },
 ])
 
-// Show the guest-observer callout only when a guest link is open, observers
-// exist, and disclosure is off (external guests observed without notice).
+// F-2: guest links plus an observer is the whole condition. The disclosure term
+// used to be here and had it backwards — `_to_out` forces BOTH
+// `disclose_observers` and `observers_present` to false for every pure guest
+// whatever the room setting says (a deliberate suppression, R28.02), so a guest
+// is never shown the indicator in either state. Keying off the flag therefore
+// stayed silent in the configuration a teacher most needs warned about: guest
+// links open with disclosure left at its default, which is on.
 const hasObserver = computed(() => boundAgents.value.some((a) => a.role === 'observer'))
 const showGuestObserverCallout = computed(
-  () => flags.value.allow_guest_links && hasObserver.value && !flags.value.disclose_observers,
+  () => flags.value.allow_guest_links && hasObserver.value,
 )
 // [R32.03]. Read from the bindings listing rather than from the room DTO's
 // `drafts_readable`: that field folds the disclosure flag in, so it is false in

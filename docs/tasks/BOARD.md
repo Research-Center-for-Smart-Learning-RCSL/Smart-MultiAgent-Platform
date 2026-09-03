@@ -18,8 +18,11 @@ parallel.
 
 ### From the 2026-09-03 observer-UI audit
 
-- `2026-09-03-observer-ui-defect-sweep` (bugfix, **approved 2026-09-03**; its SRS Delta is
-  None) — `depends_on: []`. All sixteen findings of
+Moved to In progress on 2026-09-03 when phase 1 started. The entry below is kept here for its
+detail; the live status is under In progress.
+
+- `2026-09-03-observer-ui-defect-sweep` (bugfix, **in-progress since 2026-09-03**; its SRS Delta
+  is None) — `depends_on: []`. All sixteen findings of
   `docs/audits/2026-09-03-observer-ui-visualization/findings.md` in one dossier, executed in
   **three phases** rather than one session: P1 disclosure and access correctness (F-1, F-2,
   F-3, F-7, F-10), P2 observer status truthfulness (F-6, F-8, F-11, F-12, F-13, F-14), P3
@@ -541,6 +544,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-03-observer-ui-defect-sweep` (bugfix) — `depends_on: []`. **Phase 1 of three**
+  (F-1, F-2, F-3, F-7, F-10 — disclosure and access correctness) started 2026-09-03. The
+  dossier stays `in-progress` between phases: its §7.1 makes each phase a self-contained
+  milestone with its own commit and its own full Definition of Done, and only the third
+  moves it to `implemented`. The §10 AC checkboxes are how a resumed session finds where
+  work stopped. Phase 2 must not start before phase 1 is committed — both edit the same
+  regions of `useObservations.ts` and `ChatroomView.vue`; phase 3 may run beside either.
+  See the Ready-now entry above for the full scope note.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-09-01 after implementation: `2026-08-30-runtime-contract-integrity` (two dead typed-error

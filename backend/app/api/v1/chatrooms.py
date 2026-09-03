@@ -6,6 +6,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,7 @@ from contexts.conversation.domain.errors import (
     WorkspaceNotFound,
 )
 from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
@@ -48,6 +50,7 @@ from shared_kernel.auth.permissions import (
     decide,
 )
 from shared_kernel.db.session import db_session
+from shared_kernel.realtime.pubsub import Publisher
 
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["chatrooms"])
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
@@ -278,6 +281,43 @@ async def _project_id_for_chatroom(
     return ws.project_id
 
 
+async def _emit_chatroom_updated(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
+    """Tell every live viewer of this room to re-read its DTO ([R28.09]).
+
+    **The payload is the room id and nothing else, and that is a security
+    constraint rather than a style choice.** The room channel has no
+    per-recipient filtering — ``_pubsub_fanin`` in
+    ``shared_kernel/realtime/connection.py`` hands every frame to every
+    subscriber, guests included — so anything carried here is disclosed to
+    people the DTO deliberately lies to. ``_to_out`` neutralises
+    ``observers_present``, ``disclose_observers``, ``created_by_user_id`` and
+    ``is_moderator`` for a pure guest, and it can only do that because it runs
+    once per viewer. An ids-only "refetch me" keeps that property: each client
+    re-GETs and gets its own answer.
+
+    **Commits first.** ``db_session`` owns the transaction and commits after the
+    handler returns, so a frame published from the handler body would announce a
+    write a later rollback could still undo — every viewer would then pay a GET
+    to re-read the old value. The dependency's trailing commit is a no-op on the
+    now-clean session (see ``shared_kernel/db/session.py``).
+
+    Transport failure is swallowed. The write is already durable at this point;
+    raising here would return 500 for a change that happened, which is a worse
+    lie than a missed refresh — and the next reload reconciles. Same posture as
+    ``emit_agent_finished_error``.
+    """
+    await db.commit()
+    try:
+        await Publisher(room_channel(chatroom_id)).emit("chatroom.updated", {"chatroom_id": str(chatroom_id)})
+    except Exception:
+        # `opt(exception=True)` rather than a bare warning: this is the only
+        # record that a viewer's refresh was lost, and "emit failed" with no
+        # cause cannot be acted on.
+        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+            "chatroom.updated emit failed"
+        )
+
+
 async def _require_project_cap(
     db: AsyncSession,
     principal: Principal,
@@ -484,6 +524,17 @@ async def patch_chatroom(
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
     with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
+    if fields & _DISCLOSURE_FIELDS:
+        # F-1, scoped to the disclosure path per §7.2 of the dossier: flipping
+        # `disclose_observers` flips `observers_present` for every viewer. A
+        # rename going stale on a live viewer is a real but separate defect and
+        # is recorded as that dossier's FU-7 rather than widened into here.
+        #
+        # After `_to_out`'s inputs are read, not before: the commit inside the
+        # emit ends this transaction, and `room` is a frozen dataclass rather
+        # than a live ORM row, but the two service reads above still belong to
+        # the request's own transaction.
+        await _emit_chatroom_updated(db, chatroom_id)
     return _to_out(
         room,
         has_observers=chatroom_id in with_observers,
@@ -716,6 +767,8 @@ async def add_chatroom_agent(
         role=role,
         request_id=ctx.request_id,
     )
+    # F-1: `observers_present` on the room DTO just changed for every viewer.
+    await _emit_chatroom_updated(db, chatroom_id)
 
 
 @chatroom_router.patch(
@@ -743,7 +796,11 @@ async def patch_chatroom_agent_role(
         request_id=ctx.request_id,
     )
     if not changed:
+        # Nothing was written, so there is nothing to announce — a frame here
+        # would cost every viewer a GET to re-read an unchanged room.
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    # F-1: promoting to (or demoting from) `observer` moves `observers_present`.
+    await _emit_chatroom_updated(db, chatroom_id)
 
 
 @chatroom_router.patch(
@@ -903,6 +960,12 @@ async def remove_chatroom_agent(
         request_id=ctx.request_id,
         restrict_to_normal=not is_room_creator(access, principal=principal),
     )
+    # F-1. Emitted unconditionally, including for the role-scoped no-op above:
+    # `remove_agent` does not report whether it matched, and branching on that
+    # would have to be added here — where a non-creator's unbind attempt on an
+    # observer must stay indistinguishable from a successful one (O-5). A frame
+    # costs each viewer one cached GET; an oracle costs the observer's cover.
+    await _emit_chatroom_updated(db, chatroom_id)
 
 
 # --------------------------------------------------------------------------- #

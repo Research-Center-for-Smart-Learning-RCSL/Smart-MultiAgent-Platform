@@ -521,7 +521,7 @@ async def test_non_creator_unbind_is_scoped_to_normal_no_oracle(monkeypatch) -> 
         agent_id=uuid.uuid4(),
         ctx=_CTX,
         principal=_principal(),
-        db=object(),
+        db=_committing_db(),
     )
     assert len(removed) == 1
     assert removed[0]["restrict_to_normal"] is True
@@ -540,7 +540,7 @@ async def test_creator_unbind_is_unrestricted(monkeypatch) -> None:
         agent_id=uuid.uuid4(),
         ctx=_CTX,
         principal=_principal(uid),
-        db=object(),
+        db=_committing_db(),
     )
     assert len(removed) == 1
     assert removed[0]["restrict_to_normal"] is False
@@ -675,7 +675,7 @@ async def test_disclosure_only_patch_skips_capability_gate(monkeypatch) -> None:
         if_match="1",
         ctx=_CTX,
         principal=_principal(uid),
-        db=object(),
+        db=_committing_db(),
     )
     assert cap_calls == []
     assert len(patched) == 1
@@ -697,7 +697,7 @@ async def test_mixed_patch_keeps_capability_and_creator_gates(monkeypatch) -> No
             if_match="1",
             ctx=_CTX,
             principal=_principal(),
-            db=object(),
+            db=_committing_db(),
         )
     assert len(cap_calls) == 1
     assert patched == []
@@ -723,13 +723,253 @@ async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
         if_match="1",
         ctx=_CTX,
         principal=_principal(),
-        db=object(),
+        db=_committing_db(),
     )
     assert len(cap_calls) == 1
     assert len(patched) == 1
     # V-4: the patch response reports the caller's real moderator standing,
     # resolved without the `resolve_room_access` the harness forbids here.
     assert out.is_moderator is True
+
+
+# --------------------------------------------------------------------------- #
+# T-1 (F-1, R28.09) — `chatroom.updated` on the room channel
+#
+# The room DTO carries `observers_present`, and until this event existed nothing
+# could tell a live viewer it had changed: no writer in `chatrooms.py` published
+# anything, so a participant learned they were being observed only on reload.
+#
+# The frame is constrained as hard as it is announced. `_pubsub_fanin`
+# (`shared_kernel/realtime/connection.py`) delivers every room-channel frame to
+# every subscriber, guests included, with no per-recipient filtering — so the
+# payload must be an ids-only "refetch me" and each viewer re-GETs through
+# `_to_out`, which is what re-applies the guest neutralisation per viewer. These
+# tests therefore assert the payload's exact key set, not merely that the room id
+# is present: a test that only checked for the id would pass on a frame that also
+# leaked `disclose_observers`.
+# --------------------------------------------------------------------------- #
+
+
+def _spy_room_publisher(monkeypatch, mod):
+    """Replace `chatrooms.Publisher` with the module-level spy and reset it."""
+    _PublisherSpy.emitted = []
+    monkeypatch.setattr(mod, "Publisher", _PublisherSpy)
+    return _PublisherSpy
+
+
+def _room_frames(chatroom_id):
+    return [e for e in _PublisherSpy.emitted if e[0] == f"ws:room:{chatroom_id}"]
+
+
+def _assert_ids_only_updated_frame(chatroom_id) -> None:
+    """One `chatroom.updated` naming this room and carrying nothing else."""
+    frames = _room_frames(chatroom_id)
+    assert len(frames) == 1, f"expected exactly one room frame, got {frames}"
+    _channel, event, payload = frames[0]
+    assert event == "chatroom.updated"
+    # Exact key set: the constraint is the ABSENCE of room content, so an
+    # equality assertion is the only form that can enforce it.
+    assert payload == {"chatroom_id": str(chatroom_id)}
+
+
+def _wire_add_handler(monkeypatch, *, access, added, project_id):
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    async def _pid(db, chatroom_id):
+        return project_id
+
+    async def _cap(db, principal, project_id_, capability):
+        return None
+
+    async def _resolve(db, *, principal, chatroom_id):
+        return access
+
+    class _AgentsFacade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_agent(self, aid):
+            return SimpleNamespace(id=aid, project_id=project_id)
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def add_agent(self, **kw):
+            added.append(kw)
+
+    monkeypatch.setattr(chatrooms_mod, "_project_id_for_chatroom", _pid)
+    monkeypatch.setattr(chatrooms_mod, "_require_project_cap", _cap)
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "AgentsFacade", _AgentsFacade)
+    monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    return chatrooms_mod
+
+
+def _wire_role_patch_handler(monkeypatch, *, access, changed, role_calls):
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    async def _resolve(db, *, principal, chatroom_id):
+        return access
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def set_agent_role(self, **kw):
+            role_calls.append(kw)
+            return changed
+
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    return chatrooms_mod
+
+
+def _committing_db():
+    """A db double that records commit order against the publish."""
+    return SimpleNamespace(commit=AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_bind_observer_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    added: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_add_handler(monkeypatch, access=access, added=added, project_id=project_id)
+    _spy_room_publisher(monkeypatch, mod)
+    db = _committing_db()
+
+    await mod.add_chatroom_agent(
+        body=mod.AgentRef(agent_id=uuid.uuid4(), role="observer"),
+        chatroom_id=chatroom_id,
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=db,
+    )
+
+    assert len(added) == 1
+    _assert_ids_only_updated_frame(chatroom_id)
+    # The dependency's commit runs only after the handler returns, so a frame
+    # published before an explicit commit would tell viewers to re-read a write
+    # a later rollback could still undo.
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agent_role_patch_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    role_calls: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_role_patch_handler(monkeypatch, access=access, changed=True, role_calls=role_calls)
+    _spy_room_publisher(monkeypatch, mod)
+    db = _committing_db()
+
+    await mod.patch_chatroom_agent_role(
+        body=mod.AgentRolePatchIn(role="observer"),
+        chatroom_id=chatroom_id,
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=db,
+    )
+
+    assert len(role_calls) == 1
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.asyncio
+async def test_agent_role_patch_on_unbound_agent_emits_nothing(monkeypatch) -> None:
+    """A 404 is not a room change. `set_agent_role` reporting no row means
+    nothing was written, so announcing a refetch would be a lie every viewer
+    pays a GET for."""
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_role_patch_handler(monkeypatch, access=access, changed=False, role_calls=[])
+    _spy_room_publisher(monkeypatch, mod)
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_role(
+            body=mod.AgentRolePatchIn(role="observer"),
+            chatroom_id=chatroom_id,
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=_committing_db(),
+        )
+    assert exc.value.status_code == 404
+    assert _room_frames(chatroom_id) == []
+
+
+@pytest.mark.asyncio
+async def test_unbind_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    removed: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_remove_handler(monkeypatch, access=access, removed=removed)
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.remove_chatroom_agent(
+        chatroom_id=chatroom_id,
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    assert len(removed) == 1
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.asyncio
+async def test_disclosure_patch_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_patch_handler(monkeypatch, access=access, cap_calls=[], patched=[])
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(disclose_observers=False),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.asyncio
+async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
+    """Scoped to the disclosure path per §7.2. A rename going stale on a live
+    viewer is a real but separate defect (FU-7); widening the emit here would
+    change behaviour this dossier did not analyse."""
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=None,
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(name="renamed"),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(),
+        db=_committing_db(),
+    )
+
+    assert _room_frames(chatroom_id) == []
 
 
 # --------------------------------------------------------------------------- #
