@@ -429,8 +429,8 @@ describe('ChatroomSettingsView', () => {
   // handles a fetch already running at click time; it cannot touch one that
   // starts during the PUT, which is what the invalidate-after is for.
   describe.each([
-    { when: 'was already in flight when the toggle was clicked', startFetchFirst: true },
-    { when: 'started while the PUT was in flight', startFetchFirst: false },
+    { when: 'started before the cancel ran', startFetchFirst: true },
+    { when: 'started after the cancel had already run', startFetchFirst: false },
   ])('a bound-groups refetch that $when', ({ startFetchFirst }) => {
     it('does not revert the applied set', async () => {
       const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
@@ -484,7 +484,8 @@ describe('ChatroomSettingsView', () => {
 
       const key = ['conversation', 'chatroomMemberGroups', 'cr_1']
       if (startFetchFirst) {
-        // A window refocus, before the user clicks.
+        // A window refocus before the user clicks, so the read is already in
+        // flight when `cancelQueries` runs.
         void qc.refetchQueries({ queryKey: key })
         await Promise.resolve()
       }
@@ -492,7 +493,11 @@ describe('ChatroomSettingsView', () => {
       const box = wrapper.find('.group-picker input[type="checkbox"]')
       const click = box.setValue(true)
       if (!startFetchFirst) {
-        // The refocus lands while the PUT is still open.
+        // A refocus one microtask in — `toggleGroup` is parked on
+        // `cancelQueries`, so this read starts after the cancel and is beyond
+        // its reach. (It is still before the PUT is dispatched: the cancel's
+        // promise chain costs several microtasks. What separates the two cases
+        // is the cancel, not the PUT.)
         await Promise.resolve()
         void qc.refetchQueries({ queryKey: key })
       }
@@ -508,6 +513,76 @@ describe('ChatroomSettingsView', () => {
       const after = wrapper.find('.group-picker input[type="checkbox"]')
       expect((after.element as HTMLInputElement).checked).toBe(true)
     })
+  })
+
+  // This is the case that pins `cancelQueries` specifically. On the success path
+  // the invalidate-after would cover for a missing cancel, because it aborts the
+  // parked read too — so neither race case above can fail if the cancel is
+  // deleted. The failure arm has no invalidate: it re-reads with
+  // `boundQuery.refetch()`, and a read left over from before the PUT lands after
+  // that refetch and overwrites the server's real answer with a stale one.
+  it('a failed save re-reads the server, and a read left over from before it cannot win', async () => {
+    const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
+    // The room already has a group bound; the user tries to unbind it and the
+    // save fails, so the picker must end up showing it still bound.
+    const serverSet = ['mg_1']
+    const stale = deferred<void>()
+    let getCalls = 0
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/workspaces/:id', () =>
+        HttpResponse.json({ id: 'ws_1', project_id: 'proj_1', name: 'WS' }),
+      ),
+      http.get('/api/projects/:id/member-groups', () =>
+        HttpResponse.json([
+          {
+            id: 'mg_1',
+            project_id: 'proj_1',
+            name: 'Group One',
+            version: 1,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        ]),
+      ),
+      http.get('/api/chatrooms/:id/member-groups', async () => {
+        getCalls += 1
+        // Read 2 is the leftover: parked, and carrying a set that predates the
+        // user's click. Every other read answers with the truth immediately.
+        if (getCalls === 2) {
+          await stale.promise
+          return HttpResponse.json({ member_group_ids: [] })
+        }
+        return HttpResponse.json({ member_group_ids: [...serverSet] })
+      }),
+      http.put('/api/chatrooms/:id/member-groups', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/internal', title: 'Internal', status: 500 },
+          { status: 500 },
+        ),
+      ),
+    )
+    const qc = seededClient([room])
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: qc,
+    })
+    await flushPromises()
+
+    const key = ['conversation', 'chatroomMemberGroups', 'cr_1']
+    expect(qc.getQueryData(key)).toEqual(['mg_1'])
+
+    void qc.refetchQueries({ queryKey: key })
+    await Promise.resolve()
+
+    await wrapper.find('.group-picker input[type="checkbox"]').setValue(false)
+    await flushPromises()
+
+    stale.resolve()
+    await flushPromises()
+    await flushPromises()
+
+    expect(qc.getQueryData(key)).toEqual(['mg_1'])
   })
 
   it('refuses to render the group picker when the bound set could not be read', async () => {

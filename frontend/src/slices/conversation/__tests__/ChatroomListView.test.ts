@@ -128,6 +128,7 @@ describe('ChatroomListView', () => {
         queryClient: qc,
       })
       await flushPromises()
+      expect(recentIsStale(qc)).toBe(false)
 
       await wrapper.find('[data-testid="create-chatroom"]').trigger('click')
       await nextTick()

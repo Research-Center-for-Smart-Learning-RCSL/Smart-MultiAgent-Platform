@@ -94,6 +94,9 @@ describe('WorkspaceListView', () => {
       })
       await flushPromises()
       const readsBefore = listReads
+      // Baseline: the seeded rail exists, survived to here, and is not already
+      // flagged — without this the assertion below could pass for a wrong reason.
+      expect(railIsStale(qc)).toBe(false)
 
       wrapper.findComponent(SDropdown).vm.$emit('select', 'delete')
       await flushPromises()
@@ -123,6 +126,9 @@ describe('WorkspaceListView', () => {
       })
       await flushPromises()
       const readsBefore = listReads
+      // Baseline: the seeded rail exists, survived to here, and is not already
+      // flagged — without this the assertion below could pass for a wrong reason.
+      expect(railIsStale(qc)).toBe(false)
 
       await wrapper.find('[data-testid="create-workspace"]').trigger('click')
       await nextTick()
