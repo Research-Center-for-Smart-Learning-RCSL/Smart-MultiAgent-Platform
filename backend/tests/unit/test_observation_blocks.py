@@ -154,10 +154,29 @@ class TestSchema:
         with additionalProperties: false."""
         assert _violations([block])
 
-    def test_a_computed_block_cannot_declare_its_own_basis(self) -> None:
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"kind": "field_coverage", "type_key": "mandala-9grid"},
+            {"kind": "mandala_grid", "type_key": "mandala-9grid"},
+            {"kind": "attempt_table"},
+        ],
+        ids=list(ob.COMPUTED_KINDS),
+    )
+    @pytest.mark.parametrize("basis", ["transcript", ob.SERVER_FACTS], ids=["wrong", "even-the-right-one"])
+    def test_a_computed_block_cannot_declare_its_own_basis(self, block: dict[str, Any], basis: str) -> None:
         """[R28.19]. The server stamps `server_facts`, so a computed block cannot
-        be mislabelled by its caller."""
-        assert _violations([{"kind": "field_coverage", "type_key": "mandala-9grid", "basis": "transcript"}])
+        be mislabelled by its caller — and stating the value the server would have
+        stamped is refused on the same terms, because the point is that the label
+        is not the caller's to assert.
+
+        The accepting arm is asserted beside the rejecting one on purpose: this is
+        the contract the shipped observer prompt has to *describe* (F-4), so a
+        guard that only pinned the rejection would leave "and the same array
+        without it is accepted" unstated, which is the half the prompt gets wrong.
+        """
+        assert _violations([block]) == []
+        assert _violations([{**block, "basis": basis}])
 
     def test_a_type_key_outside_the_rooms_reachable_set_is_rejected(self) -> None:
         """AC-5."""

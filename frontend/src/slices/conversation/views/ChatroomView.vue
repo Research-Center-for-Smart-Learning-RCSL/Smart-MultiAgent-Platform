@@ -405,7 +405,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -518,9 +518,14 @@ const workspaceQuery = useQuery({
   retry: false,
 })
 
+// FU-12: the name projection, not the full listing. This query runs on every
+// room open and its only consumer is the id→name map below, while `AgentOut`
+// carries `system_prompt` (bounded at 100k chars) — so a project with many
+// agents was paying megabytes on the critical path for two fields per row.
+// `useChatroomBindings` still reads the full records; it edits them.
 const projectAgentsQuery = useQuery({
-  queryKey: computed(() => ['conversation', 'project-agents', workspaceQuery.data.value?.project_id]),
-  queryFn: () => listProjectAgents(workspaceQuery.data.value!.project_id),
+  queryKey: computed(() => convKeys.projectAgents(workspaceQuery.data.value?.project_id)),
+  queryFn: () => listProjectAgentNames(workspaceQuery.data.value!.project_id),
   enabled: computed(() => !!workspaceQuery.data.value?.project_id),
   retry: false,
 })
@@ -767,6 +772,7 @@ const {
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
+  reconcileOlder,
 } = useChatroomMessages(
   chatroomId,
   // Report the send; useChatroomScroll owns what happens to the feed's scroll
@@ -776,12 +782,18 @@ const {
   () => roomQuery.data.value?.is_moderator ?? false,
 )
 
-// The member roster is fetched once, but new authors (and renames) appear over
-// the room's lifetime via WebSocket. When a user message arrives from a sender
-// the roster doesn't name yet, refetch it once for that id so the author label
-// resolves instead of staying a truncated id. Tracking attempted ids bounds
-// this to one refetch per sender (a sender with no display name stays unnamed
-// without re-querying every message).
+// New authors appear over the room's lifetime via WebSocket. When a user message
+// arrives from a sender the roster doesn't name yet, refetch it once for that id
+// so the author label resolves instead of staying a truncated id. Tracking
+// attempted ids bounds this to one refetch per sender (a sender with no display
+// name stays unnamed without re-querying every message).
+//
+// This is an *absence* test, so it catches a sender the map has never had and
+// nothing else. A rename of someone already in the map is invisible to it — the
+// id is present, only the value is stale — and is left to the focus refetch.
+// (An earlier version of this comment claimed renames were covered; they are
+// not, and F-1 of the query-cache sweep found the same hole in the agent-side
+// equivalent, where it also broke @mention resolution.)
 const resolvedSenderAttempts = new Set<string>()
 watch(messages, (list) => {
   let needsRefetch = false
@@ -922,7 +934,7 @@ const TYPING_DEBOUNCE_MS = 3000
 // NB: message sending is REST (sendMessage), independent of this socket, so the
 // composer is intentionally NOT gated on `connected` — a flapping/degraded WS
 // must not lock the user out of sending. The pill shows `connectionState`.
-const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
+const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId, reconcileOlder)
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))

@@ -20,7 +20,7 @@ import {
   WorkspacesService,
 } from '@shared/api-client'
 import { asBinaryFormField } from '@shared/transport'
-import type { MessageOut, ObservationOut } from '@shared/api-client'
+import type { AgentNameOut, MessageOut, ObservationOut } from '@shared/api-client'
 import type { Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
@@ -145,8 +145,38 @@ export async function setChatroomMemberGroups(
 // `workspace_id`, so the settings UI resolves workspace → project via
 // `getWorkspace`, lists that project's agents, and toggles bindings here.
 
+// F-16: sent explicitly, because the generated client's default is 100 and past
+// that row the binding UI silently lost agents — nothing in the response says it
+// was cut. 500 is the server's own ceiling (`PaginationParams`), so this raises
+// the reachable set as far as one request can rather than removing the case.
+const AGENT_PAGE_SIZE = 500
+
+/** The full agent records the binding UI edits. For a label, use
+ *  {@link listProjectAgentNames} — see there for why the two are separate. */
 export async function listProjectAgents(projectId: string): Promise<Agent[]> {
-  return AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({ projectId })
+  return AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({
+    projectId,
+    limit: AGENT_PAGE_SIZE,
+  })
+}
+
+/** `[{id, name}]` for the project's live agents (FU-12).
+ *
+ *  The chatroom builds an id→name map on every room open, and it was building it
+ *  out of the full listing — whose `AgentOut` carries `system_prompt`, bounded at
+ *  100k characters. A project near the pagination ceiling therefore turned
+ *  opening a room into a multi-megabyte response for two fields per row, on the
+ *  critical path. This route returns the same rows in the same order, projected
+ *  server-side, so the page size above is affordable here.
+ *
+ *  Soft-deleted agents are absent from both, by design: the panel renders its own
+ *  unknown-agent label rather than the listing growing with every deletion.
+ */
+export async function listProjectAgentNames(projectId: string): Promise<AgentNameOut[]> {
+  return AgentsService.listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({
+    projectId,
+    limit: AGENT_PAGE_SIZE,
+  })
 }
 
 // `role` is present only for the room creator (R28.10) — never default it

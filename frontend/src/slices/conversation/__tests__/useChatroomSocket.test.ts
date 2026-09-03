@@ -131,7 +131,7 @@ function mountSocket(): {
  *  cache, so the QueryCache subscription seeds a cursor before any WS event
  *  fires — mirrors production, where both composables mount together. */
 function seedCursor(qc: QueryClient, messageId: string, createdAt = '2024-01-01T00:00:00.000Z'): void {
-  qc.setQueryData(['conversation', 'messages', ROOM], [
+  qc.setQueryData(convKeys.messages(ROOM), [
     { id: messageId, created_at: createdAt, sender_type: 'user', sender_id: 'u1' },
   ])
 }
@@ -682,14 +682,14 @@ describe('useChatroomSocket agent streaming', () => {
     ])
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_new')).toBe(false)
   })
 
   it('reconciles a message deleted while the socket was down (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
       { id: 'm_2', created_at: '2024-01-01T00:00:01.000Z', sender_type: 'user', sender_id: 'u1' },
     ])
@@ -702,7 +702,7 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_2')).toBe(false)
     expect(cache.some((m) => m.id === 'm_1')).toBe(true)
   })
@@ -710,7 +710,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('reconciles a message edited while the socket was down (F-11, AC-2)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       {
         id: 'm_1',
         created_at: '2024-01-01T00:00:00.000Z',
@@ -735,7 +735,7 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       content_md: string
       version: number
@@ -770,7 +770,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('does not drop messages older than the fetched window on connect (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_ancient', created_at: '2023-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
       { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
     ])
@@ -782,14 +782,14 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_ancient')).toBe(true)
   })
 
   it('overlapping connect reconciliations cannot apply stale data (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [])
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [])
 
     let resolveFirst!: (m: unknown) => void
     let resolveSecond!: (m: unknown) => void
@@ -812,7 +812,7 @@ describe('useChatroomSocket agent streaming', () => {
     ])
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_stale')).toBe(false)
     expect(cache.some((m) => m.id === 'm_new')).toBe(true)
   })
@@ -981,7 +981,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('applies only the newest message.updated when two refetches resolve out of order (F-19)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
     ])
 
@@ -1000,7 +1000,7 @@ describe('useChatroomSocket agent streaming', () => {
     resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       version: number
       content_md: string
@@ -1011,7 +1011,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('does not leave a stale version in the cache after out-of-order edits (F-19)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
     ])
 
@@ -1028,7 +1028,7 @@ describe('useChatroomSocket agent streaming', () => {
     resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       version: number
     }>
@@ -1231,7 +1231,7 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
 
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
     expect(spy).toHaveBeenCalledWith({
-      queryKey: ['conversation', 'chatroom-agents', ROOM],
+      queryKey: convKeys.chatroomAgents(ROOM),
     })
   })
 
@@ -1245,7 +1245,74 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
     expect(spy).not.toHaveBeenCalledWith({
-      queryKey: ['conversation', 'chatroom-agents', ROOM],
+      queryKey: convKeys.chatroomAgents(ROOM),
     })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
+  })
+
+  // F-1. The roster refetch above brings the newly bound agent into the rail,
+  // but its *name* comes from a separate project-scoped query that nothing
+  // invalidated — so the agent arrived as an 8-char id, and since mention
+  // resolution matches on `agent.name`, typing @RealName resolved to nothing and
+  // the agent was never woken.
+  it('invalidates the project agent-name map', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.updated', chatroom_id: ROOM })
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.projectAgentsAll() })
+  })
+
+  // F-3. The frame above is the fast path and it is the only path: Redis pub/sub
+  // does not replay, so a `chatroom.updated` published while this client's socket
+  // was down is gone. The reconnect handler reconciled messages, presence,
+  // activation and approvals, and re-read neither of the two keys whose only
+  // invalidator is the handler that just missed its frame.
+  it('re-reads the room DTO and the bound-agents list on reconnect', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    // A genuine reconnect: up, down, up. The first `true` is the initial
+    // handshake and deliberately recovers nothing.
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
+  // `invalidateQueries` defaults `cancelRefetch` to true, so doing this on the
+  // first connect would abort and restart ChatroomView's own mount fetches when
+  // the handshake lands while they are in flight — for no recovery, since those
+  // queries have just run.
+  it('does not re-read them on the first connect', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
+  })
+
+  it('does not re-read them when the socket goes down', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
   })
 })

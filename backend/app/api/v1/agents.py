@@ -400,6 +400,42 @@ async def list_project_agents(
     return [_to_agent_out(r) for r in rows]
 
 
+class AgentNameOut(BaseModel):
+    """An agent reduced to what a label needs.
+
+    `AgentOut` carries `system_prompt`, bounded at 100k characters. Every caller
+    that only wanted a name paid for that: the chatroom builds an id-to-name map
+    from this collection on every room open, so a project near the pagination
+    ceiling turned opening a room into a multi-megabyte response for two fields
+    per row.
+    """
+
+    id: uuid.UUID
+    name: str
+
+
+@project_router.get("/names")
+async def list_project_agent_names(
+    project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
+    _=Depends(require_membership(project_param="project_id")),
+    db: AsyncSession = Depends(db_session),
+) -> list[AgentNameOut]:
+    """The same rows as `GET ""`, in the same order, projected to id and name.
+
+    Deliberately the same membership gate: a name is not more sensitive than the
+    listing it is drawn from, and a second, looser gate on the same rows is how
+    an authorization surface drifts apart from itself.
+    """
+    service = AgentService(db)
+    rows = await service.names_for_project(
+        project_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
+    return [AgentNameOut(id=agent_id, name=name) for agent_id, name in rows]
+
+
 @project_router.post("", status_code=status.HTTP_201_CREATED)
 async def create_agent(
     body: AgentCreateIn,

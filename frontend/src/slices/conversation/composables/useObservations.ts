@@ -33,7 +33,10 @@ const PAGE_SIZE = 50
 
 export interface ObserverEntry {
   id: string
-  name: string
+  // Absent when `agentNames` has no entry for the id — a soft-deleted agent, or
+  // one past the listing's page. A composable cannot localise, so what to show
+  // in its place is the panel's decision, not a truncated id invented here (F-16).
+  name?: string
   // 'unknown' is not a worker state: it says this viewer has no status feed at
   // all (F-6). Everything else is written by a WS handler, so for a viewer who
   // receives no events the old 'idle' fall-through was an affirmative claim
@@ -100,9 +103,10 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
         const analyzing = store.observerAnalyzing[chatroomId]?.has(a.agent_id)
         const errorReason = store.observerErrors[chatroomId]?.[a.agent_id]
         const skipReason = store.observerSkips[chatroomId]?.[a.agent_id]
+        const name = opts.agentNames.value[a.agent_id]
         return {
           id: a.agent_id,
-          name: opts.agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
+          ...(name !== undefined && { name }),
           status: analyzing
             ? 'analyzing'
             : errorReason
@@ -334,6 +338,12 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           if (!forThisRoom(ev)) return
           void qc.invalidateQueries({ queryKey: convKeys.chatroom(chatroomId) })
           void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+          // F-1, and it must stay in step with the room-channel handler in
+          // `useChatroomSocket`. For an observer binding with disclosure off the
+          // room copy of this frame is withheld, so this is the creator's only
+          // delivery — fixing one handler and not the other would leave the
+          // creator's own other tabs showing an id where a name belongs.
+          void qc.invalidateQueries({ queryKey: convKeys.projectAgentsAll() })
         }),
       )
       // F-8/F-13. `onStatus` does not push the current value on subscribe

@@ -96,6 +96,15 @@ pins the reordering against a real database so the claim cannot quietly become f
 
 A schema that declares no `x-order` behaves exactly as before.
 
+The mandala worksheet adds one rule on top of the sort: a property literally named `center`
+is placed in the middle box wherever the schema declares it, and the remaining eight fill
+the ring in declared order. It is a named opt-in rather than a positional guess, so a
+nine-field schema naming no `center` renders in declared order untouched. AA's `mandala_grid`
+block now applies the same rule, which it previously did not: it read the declared order
+alone, so for any type whose `center` was not fifth the figure put each count on a cell the
+participant never saw it on. The shipped course is unaffected either way, since its `center`
+already carries `x-order: 5`; a project-authored nine-field type was not.
+
 ### Unit 2: 時空旅人 (Mandala)
 
 The worksheet's grid prints seven themes and leaves exactly one cell blank. The lesson
@@ -300,7 +309,10 @@ identically and grants nothing.
 ### Four constraints every shipped prompt states
 
 These are asserted by `backend/tests/unit/test_agent_example_packs.py` over the shipped
-files, not left to review.
+files, not left to review. The per-type quoting assertions run over **every** shipped agent,
+DA included. They used to name the three room agents, which is how DA came to be carrying a
+rule the room pack had already retired: the one agent whose output is other prompts was the
+one the guard did not read.
 
 1. **Quoting a submission is allowed for unit 2 and forbidden for unit 4, and the rule is
    keyed on the activity type.** `time-traveler-next-steps` answers may
@@ -635,6 +647,36 @@ re-installing the pack. Shipping the corrected prompt does not retract observati
 one already produced: a teacher-facing note from before the fix may contain a claim about
 non-submission that AA had no evidence for.
 
+**Two further prompt corrections carry the same caveat, and an existing install has neither
+of them.** Both were text defects rather than platform ones, so nothing about an installed
+project changes on its own; the sentences below describe what a stale copy still says and
+what it costs.
+
+- **AA was told to attach a `basis` to every block but `prose`.** The three computed kinds
+  reject one: their schemas declare no such property and close to additional properties,
+  because the server stamps the label itself
+  (see [Presentation blocks](#presentation-blocks-how-aa-arranges-its-own-notes)). The tool
+  call is validated whole and before it runs, so a single computed block carrying a `basis`
+  fails the entire call — the valid blocks in the same call are discarded with it, and AA
+  falls back to plain prose with no figure. The corrected prompt names `key_points` and
+  `timeline` as the two kinds that take a basis and says the rest are stamped server-side;
+  the tool schema now says the same thing on the computed branches, so a model reading only
+  the schema is told it too.
+- **DA drafted prompts against the retired quoting rule.** Its constraint list still paired
+  `mandala-9grid` with `time-traveler-next-steps` as jointly quotable, which stopped being
+  true when the mandala moved to the coverage validator and its answer text left every
+  agent's context. A prompt drafted from the stale list tells a TA it may quote something it
+  cannot see, and the failure mode that produces is fabrication rather than refusal. The
+  same list omitted `six-hats-shared-case`, so DA's own default clause ("anything unlisted
+  is unquotable") forbade a task the room pack permits. The corrected list is per type and
+  carries the group-attribution rule with the group task.
+
+An existing install of `creative-thinking-room` still holds the old AA prompt, and an
+existing install of `creative-thinking-design` still holds the old DA prompt. Editing the
+system prompt by hand from the agent's settings page and deleting the agent to re-install
+the pack are the two remedies, exactly as above. Prompts DA already drafted are ordinary
+project agents by now and are not reached by either.
+
 ## Running a session
 
 1. **Platform admin** installs the course once; **Project Owner** enables the types for the
@@ -786,9 +828,12 @@ places on every question put to AA, expressed in the figures rather than only in
 
 Every block except `prose` also carries a **basis label** drawn from a platform-authored
 catalogue, saying what the block rests on and what it cannot mean. AA picks which of three
-applies; it does not write one, and no argument suppresses it. Computed blocks are not
-offered the choice at all — the server stamps "computed over this room's submissions" on
-them, so a computed block cannot be mislabelled by its caller.
+applies for `key_points` and `timeline`; it does not write one, and no argument suppresses
+it. Computed blocks are not offered the choice at all — the server stamps "computed over
+this room's submissions" on them, so a computed block cannot be mislabelled by its caller.
+Their branches accept no `basis` argument as a result, and both the tool schema and AA's
+prompt now say so, because the schema is validated whole and before the tool runs: one
+computed block carrying a `basis` costs the call every other block in it.
 
 **Nothing about this reaches the classroom.** Releasing a block-carrying observation to the
 room produces the same `sender_type=system` message it always did, carrying the blocks'

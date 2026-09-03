@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { renderMarkdown, sanitizeSnippet } from '../utils/renderMarkdown'
+import { describe, it, expect, vi } from 'vitest'
+import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../utils/renderMarkdown'
+
+const mermaidRender = vi.fn(async (id: string) => ({ svg: `<svg id="${id}"></svg>` }))
+
+vi.mock('mermaid', () => ({
+  default: { initialize: vi.fn(), render: (id: string, text: string) => mermaidRender(id, text) },
+}))
 
 // F-22: the search snippet arrives from `ts_headline` with `<mark>` delimiters
 // around each hit. `sanitizeSnippet` must keep that one element while staying
@@ -52,5 +58,51 @@ describe('renderMarkdown', () => {
 
   it('strips scripts from message bodies', () => {
     expect(renderMarkdown('<script>alert(1)</script>text')).not.toContain('<script')
+  })
+})
+
+// `mermaid.render` creates and removes its temporary element by id, so two
+// concurrent renders sharing one id collide and one throws into the pass's empty
+// catch — leaving that diagram a raw fence, which is the symptom F-9 exists to
+// fix. The id was `Date.now()` plus the node's index within one root, unique only
+// while the app had a single enhancement root. ObservationCard now mounts one per
+// card, all in the same tick behind the same debounce.
+describe('enhanceRenderedMarkdown mermaid ids', () => {
+  function rootWithFence(): HTMLElement {
+    const root = document.createElement('div')
+    root.innerHTML = '<pre><code class="language-mermaid">graph TD; a--&gt;b;</code></pre>'
+    return root
+  }
+
+  it('gives every diagram a distinct id across roots enhanced in the same millisecond', async () => {
+    // The clock is frozen rather than the calls made concurrent: two cards
+    // mounting together share one debounce, so the real collision was two roots
+    // reading the same `Date.now()` and both starting at index 0. Freezing it
+    // reproduces that exactly and deterministically — driving it with real
+    // concurrency instead raced vitest's dynamic-mock loading and proved nothing.
+    mermaidRender.mockClear()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+
+    await enhanceRenderedMarkdown(rootWithFence())
+    await enhanceRenderedMarkdown(rootWithFence())
+
+    const ids = mermaidRender.mock.calls.map(([id]) => id)
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+
+    now.mockRestore()
+  })
+
+  it('gives every diagram in one root a distinct id', async () => {
+    mermaidRender.mockClear()
+    const root = document.createElement('div')
+    root.innerHTML =
+      '<pre><code class="language-mermaid">a</code></pre><pre><code class="language-mermaid">b</code></pre>'
+
+    await enhanceRenderedMarkdown(root)
+
+    const ids = mermaidRender.mock.calls.map(([id]) => id)
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
   })
 })
