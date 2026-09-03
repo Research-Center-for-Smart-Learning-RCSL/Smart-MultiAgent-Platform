@@ -1221,12 +1221,11 @@ async def test_a_rename_emits_ids_only_chatroom_updated(monkeypatch) -> None:
     """A rename moves `name`, which every viewer reads, so it is announced.
 
     This inverts the assertion that stood here while the emit was scoped to the
-    disclosure fields. The reason the narrow gate was safe to widen is that *every*
-    field `ChatroomPatchIn` accepts is in the DTO a non-creator reads and in the
-    one a pure guest reads — `_to_out` conditions on the viewer for only
-    `created_by_user_id`, `disclose_observers`, `observers_present` and
-    `is_moderator`, none of them patchable. So no patch can produce the
-    frame-with-an-unchanged-DTO that the room-visible gate exists to withhold.
+    disclosure fields. `name` and the five access flags are copied through
+    `_to_out` for every viewer including a pure guest, so the frame is always
+    backed by a delta those viewers can see. (`disclose_observers` is the one
+    patchable field that is viewer-conditioned; that residual predates the
+    widening and is analysed in §9 of the dossier.)
     """
     chatroom_id = uuid.uuid4()
     mod = _wire_patch_handler(
@@ -1250,12 +1249,23 @@ async def test_a_rename_emits_ids_only_chatroom_updated(monkeypatch) -> None:
     _assert_ids_only_updated_frame(chatroom_id)
 
 
+@pytest.mark.parametrize(
+    ("body_kwargs", "shape"),
+    [
+        ({}, "no field named at all"),
+        ({"name": None}, "a field named but sent as JSON null"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_an_empty_patch_still_emits_nothing(monkeypatch) -> None:
-    """The widened gate is `if fields:`, not `if True:`.
+async def test_a_patch_that_changes_nothing_emits_nothing(monkeypatch, body_kwargs, shape) -> None:
+    """The gate is the set the service will act on, not the set the client named.
 
-    A patch naming no field changes nothing, so it must stay silent — the same
-    truthiness the capability gate above already relies on.
+    The null shapes are the ones that matter and are why this is parametrized.
+    `model_dump(exclude_unset=True)` reports an explicit null as *set*, while
+    `ChatroomService.patch` skips every None and returns the row untouched
+    without bumping `version` — so gating on `exclude_unset` alone announced a
+    write that never happened. A frame with no delta behind it is exactly what
+    the room-visible rule exists to prevent.
     """
     chatroom_id = uuid.uuid4()
     mod = _wire_patch_handler(
@@ -1268,11 +1278,46 @@ async def test_an_empty_patch_still_emits_nothing(monkeypatch) -> None:
     _spy_room_publisher(monkeypatch, mod)
 
     await mod.patch_chatroom(
-        mod.ChatroomPatchIn(),
+        mod.ChatroomPatchIn(**body_kwargs),
         chatroom_id=chatroom_id,
         if_match="1",
         ctx=_CTX,
         principal=_principal(),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == [], shape
+
+
+@pytest.mark.asyncio
+async def test_a_null_disclosure_patch_is_still_creator_gated_but_emits_nothing(
+    monkeypatch,
+) -> None:
+    """Authorization keys off the field *named*; the emit keys off what changed.
+
+    The two sets are deliberately different and this is the case that separates
+    them. `PATCH {"disclose_observers": null}` names a creator-only field, so it
+    must still be refused for a non-creator — narrowing `fields` to the non-null
+    values would have moved it onto the capability branch and quietly changed who
+    may send it. It also changes nothing, so it must not announce anything.
+    """
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=_access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER})),
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(disclose_observers=None),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(uid),
         db=_committing_db(),
     )
 

@@ -549,26 +549,38 @@ async def patch_chatroom(
     )
     with_observers = await service.rooms_with_observers([chatroom_id])
     with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
-    if fields:
+    # The set the *service* will act on, which is not `fields`: a field explicitly
+    # sent as JSON null is "set" for `exclude_unset` but `ChatroomService.patch`
+    # skips it, and an all-null patch returns the row untouched without even
+    # bumping `version`. Gating the emit on `fields` therefore announced a write
+    # that never happened for `PATCH {"name": null}`. `fields` itself is left
+    # alone because the two capability gates above key off it, and narrowing it
+    # would move a null-valued disclosure patch onto the other authorization
+    # branch.
+    changed_fields = {k for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if changed_fields:
         # Every field this route accepts moves something a viewer reads, so every
         # patch is announced. The emit was originally scoped to the disclosure
         # fields, which left a rename going stale on every live viewer (FU-7 of
         # the observer UI sweep).
         #
-        # Room-visible unconditionally, and unlike the binding routes there is no
-        # field for which that is the wrong answer. `_to_out` conditions on the
-        # viewer for exactly four fields — `created_by_user_id`,
-        # `disclose_observers`, `observers_present` and `is_moderator` — and none
-        # of them is patchable here; the five access flags and `name` are copied
-        # straight through for everyone, guests included. So a patch can never
-        # produce the frame-followed-by-an-unchanged-DTO that `room_visible`
-        # exists to withhold. `version` moves on every successful patch besides.
-        # See §9 of the dossier for the residual signal this leaves a pure guest,
-        # whose neutralised view of `disclose_observers` does not change either way.
+        # Room-visible unconditionally. Seven of the eight patchable fields —
+        # `name` and the five access flags at `_to_out:233-238`, plus
+        # `disclose_drafts` at `:254` — are copied straight through for every
+        # viewer including a pure guest, so a frame for any of them is always
+        # backed by an observable delta. The eighth, `disclose_observers`, *is*
+        # viewer-conditioned (`:243` forces it false for a pure guest), so for
+        # that one viewer a frame can carry no visible change. That is not new
+        # here and it is not an oversight: it is the residual §9 of the dossier
+        # analyses and accepts, and it is bounded — a guest learns only that the
+        # setting was touched, not its direction and not whether an observer
+        # exists. Widening the gate dilutes that signal rather than sharpening
+        # it, because six more fields now produce the identical frame.
         #
-        # `if fields:` rather than an unconditional emit: a patch naming no field
-        # changes nothing and must stay silent. Same truthiness the capability
-        # gate above relies on.
+        # A ninth field added to `ChatroomPatchIn` needs this paragraph re-run,
+        # not assumed: the question is whether *that* field reaches a non-creator
+        # and a pure guest, and `disclose_observers` is the standing proof that
+        # the answer is not automatically yes.
         #
         # After `_to_out`'s inputs are read, not before: the commit inside the
         # emit ends this transaction, and `room` is a frozen dataclass rather
