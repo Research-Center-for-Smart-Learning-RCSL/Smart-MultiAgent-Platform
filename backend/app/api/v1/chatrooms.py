@@ -313,9 +313,7 @@ async def _emit_chatroom_updated(db: AsyncSession, chatroom_id: uuid.UUID) -> No
         # `opt(exception=True)` rather than a bare warning: this is the only
         # record that a viewer's refresh was lost, and "emit failed" with no
         # cause cannot be acted on.
-        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
-            "chatroom.updated emit failed"
-        )
+        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning("chatroom.updated emit failed")
 
 
 async def _require_project_cap(
