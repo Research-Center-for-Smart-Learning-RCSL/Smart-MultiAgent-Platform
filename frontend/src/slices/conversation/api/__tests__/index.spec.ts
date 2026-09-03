@@ -244,10 +244,14 @@ describe('conversation api wire contract', () => {
   })
 
   // ---- agent bindings ----
-  it('listProjectAgents GETs the project agents', async () => {
+  it('listProjectAgents GETs the project agents with an explicit page size', async () => {
+    // F-16. Left unsent, the generated client's default of 100 applied and the
+    // 101st agent simply had no resolvable name — a silent truncation, since
+    // nothing in the response says it was cut.
     const cap = captureAll()
     await api.listProjectAgents('proj_1')
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/projects/proj_1/agents' })
+    expect(cap.value?.query.limit).toBe('500')
   })
 
   it('listChatroomAgents normalizes a null role to absent (bridge B2)', async () => {

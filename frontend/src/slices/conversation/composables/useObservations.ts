@@ -33,7 +33,10 @@ const PAGE_SIZE = 50
 
 export interface ObserverEntry {
   id: string
-  name: string
+  // Absent when `agentNames` has no entry for the id — a soft-deleted agent, or
+  // one past the listing's page. A composable cannot localise, so what to show
+  // in its place is the panel's decision, not a truncated id invented here (F-16).
+  name?: string
   // 'unknown' is not a worker state: it says this viewer has no status feed at
   // all (F-6). Everything else is written by a WS handler, so for a viewer who
   // receives no events the old 'idle' fall-through was an affirmative claim
@@ -100,9 +103,10 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
         const analyzing = store.observerAnalyzing[chatroomId]?.has(a.agent_id)
         const errorReason = store.observerErrors[chatroomId]?.[a.agent_id]
         const skipReason = store.observerSkips[chatroomId]?.[a.agent_id]
+        const name = opts.agentNames.value[a.agent_id]
         return {
           id: a.agent_id,
-          name: opts.agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
+          ...(name !== undefined && { name }),
           status: analyzing
             ? 'analyzing'
             : errorReason
