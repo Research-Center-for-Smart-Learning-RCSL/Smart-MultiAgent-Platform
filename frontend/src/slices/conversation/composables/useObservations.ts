@@ -167,15 +167,17 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
   // comparison would then read the whole page as new.
   const newestSeenAt = ref<string | null>(null)
 
-  function highWaterMark(rows: Observation[]): string | null {
-    return rows.reduce<string | null>(
-      (acc, o) => (o.created_at !== null && (acc === null || o.created_at > acc) ? o.created_at : acc),
-      newestSeenAt.value,
-    )
+  /** Raise the mark. Monotonic by construction, so a deleted row or a page that
+   *  scrolls off cannot lower it and make known rows look new again. */
+  function noteSeen(createdAt: unknown): void {
+    if (typeof createdAt !== 'string') return
+    if (newestSeenAt.value === null || createdAt > newestSeenAt.value) {
+      newestSeenAt.value = createdAt
+    }
   }
 
   watch(observations, (rows) => {
-    newestSeenAt.value = highWaterMark(rows)
+    for (const o of rows) noteSeen(o.created_at)
   })
 
   // F-8's reconnect half, mirroring the room path's onStatus reconcile.
@@ -272,8 +274,22 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
         }),
         channel.subscribe('observation.created', (ev: ChannelEvent) => {
           if (!forThisRoom(ev)) return
-          store.setObserverAnalyzing(chatroomId, ev.agent_id as string, false)
+          const agentId = ev.agent_id as string
+          store.setObserverAnalyzing(chatroomId, agentId, false)
+          // The output disproves any prior verdict about this turn — above all
+          // a watchdog `timeout` on an analysis that was merely slow, which
+          // would otherwise label the observer failed for the rest of the
+          // page's life while its own result sits in the list below. §9 accepts
+          // the false positive precisely because this clears it. Mirrors the
+          // room path clearing agent errors on `message.created`.
+          store.clearObserverError(chatroomId, agentId)
+          store.clearObserverSkip(chatroomId, agentId)
           disarmIfIdle()
+          // Advance the high-water mark from the frame, not from the refetch it
+          // schedules: the badge rises synchronously here while the cache write
+          // is async, so a reconnect landing in that gap would re-count this
+          // very row against a mark that had not moved yet.
+          noteSeen(ev.created_at)
           // Payload is ids-only; the body comes from REST (same discipline as
           // message.created → delta refetch).
           void qc.invalidateQueries({ queryKey: convKeys.observations(chatroomId) })

@@ -604,7 +604,8 @@ reverting P1 restores it with the test.
       `mypy` clean over 1015, `lint-imports` 2 contracts kept, `pytest tests/unit -q`
       7921 passed / 6 skipped (7917 before, +4 backend cases), `pnpm lint`
       (`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, `pnpm test`
-      1781 passed across 233 files (1780 before the audit added one more). Backend
+      1784 passed across 233 files (1780 at the start of the phase; the audit added one
+      case and the `/code-review` pass three more). Backend
       `pytest -q` in full and the rest of the CI matrix are pending the phase-2 PR, for
       the same reason phase 1 recorded: the local host has no Postgres/Redis/Vault, so
       `tests/wiring/` fails with `socket.gaierror` regardless of any change.
@@ -761,6 +762,32 @@ through `_notify_creator`, which owns the recipient lookup, the user-channel-not
 rule and the best-effort swallow. Raised by the `check-quality` pass and fixed rather than
 deferred, because the duplication was this phase's own.
 
+**D-12 — `observation.created` now clears the error and skip kinds, which §7.3 did not
+ask for and §9 assumed.** §9 accepts that F-8's watchdog can fire on a slow-but-healthy
+observer, explicitly because "a later `observation.created` would correct it". It would
+not have: `observation.started` clears the error kind and no terminal handler did, so a
+spurious `timeout` written at 120s survived the observation that arrived at 140s. The
+roster would have labelled the observer failed, with the "timed out" tooltip, for the rest
+of the page's life — while the output disproving it sat in the list directly below, and
+with nothing to clear it short of another turn starting. The mitigation §9 relies on had
+to be built for §9 to be true. The room path had the same handler all along
+(`useChatroomSocket.ts:363-365` clears the agent error on `message.created`); this is the
+third guard of that pair to be ported. Raised by a `/code-review` pass after the phase-2
+commit.
+
+**D-13 — the unread high-water mark is advanced from the frame, not only from the cache
+write.** §7.3 says to compare against "what the panel has shown". The first implementation
+read that as the query cache, and advanced the mark from a `watch` on the observations
+list. But the `observation.created` handler raises the badge **synchronously** while
+updating the cache through an **async** `invalidateQueries`, so between the two the mark
+had not moved: a reconnect landing in that window — the flaky connection this reconcile
+exists for — counted the same observation a second time. The handler now raises the mark
+from the frame's own `created_at` (which `turn_engine.py:3161` carries) before scheduling
+the refetch. `noteSeen` replaced the fold that computed the mark, so every writer raises
+it through one monotonic path rather than two. Also raised by the same `/code-review`
+pass; both fixes carry regression tests that were observed failing first, the second at
+exactly the predicted count of 2.
+
 ## 13. Follow-ups
 
 - **FU-1** — Real observer status delivery to non-creator readers. Q-3 fixes the false "idle"
@@ -807,6 +834,20 @@ deferred, because the duplication was this phase's own.
   watchdog marks every still-analysing agent, but per-agent timers would report a wedged
   observer sooner when its neighbour is healthy and busy. Not a defect in what shipped;
   a refinement both surfaces would want together.
+
+- **FU-11** (opened by phase 2, deliberately not fixed) —
+  `patch_chatroom_agent_activity_control` (`chatrooms.py:876`) still emits no
+  `chatroom.updated`, while its structurally identical sibling
+  `patch_chatroom_agent_draft_access` gained one in phase 1 (D-6). A creator who grants
+  activity control in tab B leaves tab A rendering the old grant state until reload —
+  the same F-1 staleness, one route over. Left alone rather than swept in because
+  `may_control_activities` and `activity_type_allowlist` are outside F-1's blast radius:
+  phase 1 scoped its emit to the fields that move `observers_present` and
+  `drafts_readable`, and D-6 was fixed only because that phase had itself created the
+  asymmetry. This one predates the sweep. It is the same shape as FU-7 (a rename goes
+  stale for the same reason) and the two are worth closing together, with the
+  invalidation-storm question FU-7 raises answered once for both. Raised by the same
+  `/code-review` pass that found D-12 and D-13.
 
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no

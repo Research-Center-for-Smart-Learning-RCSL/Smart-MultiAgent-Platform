@@ -534,6 +534,86 @@ describe('useObservations', () => {
     }
   })
 
+  // Code review, finding 1. §9 accepts that the watchdog can fire on a slow but
+  // healthy observer specifically because "a later observation.created would
+  // correct it" — and it did not. `observation.started` clears the error kind;
+  // no terminal handler did, so a spurious `timeout` outlived the very output
+  // that disproved it and sat in the roster beside the row in the list below.
+  it('a created observation clears a watchdog timeout it disproves', async () => {
+    vi.useFakeTimers()
+    try {
+      const m = mountObs()
+      wrapper = m.wrapper
+      await vi.advanceTimersByTimeAsync(0)
+
+      emit('observation.started', { chatroom_id: ROOM, agent_id: OBS_AGENT })
+      await vi.advanceTimersByTimeAsync(121_000)
+      expect(m.api.observerAgents.value[0]?.status).toBe('error')
+
+      // The analysis was merely slow; the observation lands after the deadline.
+      emit('observation.created', {
+        chatroom_id: ROOM,
+        agent_id: OBS_AGENT,
+        observation_id: 'o1',
+        created_at: '2024-01-03T00:00:00.000Z',
+      })
+
+      expect(m.api.observerAgents.value[0]?.status).toBe('idle')
+      expect(m.store.observerErrors[ROOM]?.[OBS_AGENT]).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a created observation clears a stale skip on the same observer', async () => {
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+
+    emit('observation.skipped', { chatroom_id: ROOM, agent_id: OBS_AGENT, kind: 'no_input' })
+    expect(m.api.observerAgents.value[0]?.status).toBe('skipped')
+
+    emit('observation.created', {
+      chatroom_id: ROOM,
+      agent_id: OBS_AGENT,
+      observation_id: 'o1',
+      created_at: '2024-01-03T00:00:00.000Z',
+    })
+
+    expect(m.api.observerAgents.value[0]?.status).toBe('idle')
+  })
+
+  // Code review, finding 2. The WS handler raises the badge synchronously but
+  // updates the cache through an async invalidate, and the high-water mark only
+  // advances when that write lands. A reconnect in the gap — the flaky
+  // connection this reconcile exists for — re-counted the same row.
+  it('a reconnect before the created refetch lands does not double-count', async () => {
+    listObservationsMock.mockResolvedValue([makeObservation('o1', '2024-01-01T00:00:00.000Z')])
+    const m = mountObs()
+    wrapper = m.wrapper
+    await flushPromises()
+    m.api.setPanelOpen(false)
+
+    // The frame arrives; the badge rises. Its refetch has not resolved yet.
+    listObservationsMock.mockResolvedValue([
+      makeObservation('o2', '2024-01-02T00:00:00.000Z'),
+      makeObservation('o1', '2024-01-01T00:00:00.000Z'),
+    ])
+    emit('observation.created', {
+      chatroom_id: ROOM,
+      agent_id: OBS_AGENT,
+      observation_id: 'o2',
+      created_at: '2024-01-02T00:00:00.000Z',
+    })
+    expect(m.api.unreadCount.value).toBe(1)
+
+    emitStatus(true)
+    await flushPromises()
+
+    // One observation, one badge — not two.
+    expect(m.api.unreadCount.value).toBe(1)
+  })
+
   // T-10 (F-11). The list endpoint does not filter released rows, so a poll
   // response issued before the release carries `released_at: null` and lands
   // after the optimistic patch — reviving the Release control on a row that is
