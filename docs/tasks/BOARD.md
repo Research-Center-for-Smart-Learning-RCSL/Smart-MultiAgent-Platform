@@ -16,38 +16,6 @@ doesn't need a `depends_on` backfill).
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
-### From the 2026-09-03 conversation query-cache sweep
-
-- `2026-09-03-conversation-query-cache-staleness` (bugfix, **approved 2026-09-03**; its SRS
-  Delta is None) — `depends_on: []`. All five findings of
-  `docs/audits/2026-09-03-conversation-query-cache-sweep/findings.md` (FU-2 of the observer UI
-  sweep), plus that dossier's FU-7 and FU-11, which the audit re-verified as still open and
-  which share one root cause with its F-3. Three phases, serial.
-
-  **Its branch base is `fix/observer-ui-sweep-phase3`, not `main`** (its Q-13). PRs #182 ←
-  #183 ← #184 were all still open at creation, and phases 1-3 rewrote the very files this
-  dossier edits. If they have merged, rebase onto `main` and re-verify §2 first.
-
-  **Two questions the analysis settled that a reader would otherwise re-open.** Widening
-  `patch_chatroom`'s emit does **not** reopen the Q-9 disclosure oracle: all eight
-  `ChatroomPatchIn` fields are in the non-creator *and* pure-guest DTO, because `_to_out`
-  conditions on the viewer for only four fields and none of them is a patchable access flag —
-  so `room_visible=True` is correct throughout. And FU-11 is the exact opposite:
-  `may_control_activities` / `activity_type_allowlist` are dropped entirely from a
-  non-creator's listing, so its emit must be `room_visible=False` unconditionally. The
-  invalidation-storm concern FU-7 raised is measured and dismissed in its Q-4 — the settings
-  form sends one PATCH per action, re-entrancy-guarded.
-
-  **Read its T-2a before writing the FU-11 test.** `_wire_grant_route` does not install
-  `_spy_room_publisher`, and `_emit_chatroom_updated` swallows publish failures in a
-  `try/except`, so a naively written test would pass against a route that emits nothing. The
-  guard has to be written before the test it makes meaningful.
-
-  **The dossier's own F-1 has a stated ceiling** (its Q-7): no backend event exists for an
-  agent create or rename at all, so only the "bound mid-session" arm is repairable client-side.
-  Its FU-1 owns the rest, and the precedent it copies (`ChatroomView.vue:790-805`) has the same
-  hole while its comment claims otherwise — which the dossier corrects rather than imitates.
-
 ### From the 2026-08-30 FU consolidation
 
 Three dossiers opened the same day from the follow-up lists of four already-implemented ones.
