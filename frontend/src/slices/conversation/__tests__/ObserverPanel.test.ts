@@ -57,6 +57,25 @@ describe('ObserverPanel roster status (W-4)', () => {
     expect(status.classes()).toContain('obs-panel__roster-status--error')
   })
 
+  // T-7's rendered half (F-6). 'unknown' names an absent feed, not a worker
+  // state, so it must neither borrow the error styling nor go unexplained: an
+  // admin reading a bare word has no way to tell it from a third failure kind.
+  it('renders an unknown status with its own styling and an explanation', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({
+        observerAgents: [{ id: 'a1', name: 'Watcher', status: 'unknown' }],
+      }),
+    })
+    const status = wrapper.find('.obs-panel__roster-status')
+
+    expect(status.text()).toBe('conversation.observers.status.unknown')
+    expect(status.classes()).toContain('obs-panel__roster-status--unknown')
+    expect(status.classes()).not.toContain('obs-panel__roster-status--error')
+    expect(wrapper.find('.obs-panel__roster-item').attributes('title')).toBe(
+      'conversation.observers.unknownStatusHint',
+    )
+  })
+
   it('renders a benign skip as skipped, not error', async () => {
     const wrapper = await renderView(ObserverPanel, {
       props: baseProps({
@@ -149,5 +168,34 @@ describe('ObserverPanel no-observer-bound alert (F-10)', () => {
     })
 
     expect(wrapper.text()).toContain('conversation.observers.noObserverBoundTitle')
+  })
+})
+
+// T-20 (F-16). Agents are soft-deleted and `list_for_project` filters
+// `deleted_at IS NULL`, so an observation outlives the name that resolves it.
+// The fallback headed such a card with eight hex characters of the agent id —
+// which is not a name, is not readable, and (unlike the mid-load placeholder in
+// ChatroomView) is the permanent state for that row.
+describe('ObserverPanel unresolved agent name (F-16)', () => {
+  it('labels an observation whose agent is gone instead of slicing its id', async () => {
+    const stranded = makeObservation('o1')
+    stranded.agent_id = 'ffffffff-1111-2222-3333-444444444444'
+
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ observations: [stranded] }),
+    })
+
+    expect(wrapper.find('.obs-card__agent').text()).toBe(
+      'conversation.observers.unknownAgent',
+    )
+    expect(wrapper.text()).not.toContain('ffffffff')
+  })
+
+  it('still uses the resolved name when there is one', async () => {
+    const wrapper = await renderView(ObserverPanel, {
+      props: baseProps({ observations: [makeObservation('o1')] }),
+    })
+
+    expect(wrapper.find('.obs-card__agent').text()).toBe('Watcher')
   })
 })

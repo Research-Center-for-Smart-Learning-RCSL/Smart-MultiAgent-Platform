@@ -182,8 +182,12 @@
         "analyzing": "analyzing...",
         "error": "error",
         "skipped": "skipped",
-        "idle": "idle"
+        "idle": "idle",
+        "unknown": "status unknown"
       },
+      "unknownStatusHint": "Live observer status is delivered only to the room's creator, so this list cannot say whether an analysis is running. The observations themselves are up to date.",
+      "unknownAgent": "Unknown agent",
+      "alreadyGone": "That observation no longer exists. The list has been refreshed.",
       "skip": {
         "no_input": "Nothing new to analyze",
         "empty_reply": "Had nothing to add"

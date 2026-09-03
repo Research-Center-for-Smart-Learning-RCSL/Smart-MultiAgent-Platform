@@ -182,8 +182,12 @@
         "analyzing": "分析中...",
         "error": "錯誤",
         "skipped": "已跳過",
-        "idle": "閒置"
+        "idle": "閒置",
+        "unknown": "狀態未知"
       },
+      "unknownStatusHint": "觀察者的即時狀態只會傳送給聊天室的建立者，因此這份清單無法得知目前是否有分析正在執行。觀察紀錄本身仍是最新的。",
+      "unknownAgent": "未知的代理",
+      "alreadyGone": "該觀察紀錄已不存在，清單已重新整理。",
       "skip": {
         "no_input": "沒有新內容可分析",
         "empty_reply": "沒有可補充的內容"

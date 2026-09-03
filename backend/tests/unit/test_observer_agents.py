@@ -179,7 +179,15 @@ def _bound_agent(agent_id, *, role=None, granted=False, allowlist=()):
 
 
 def _wire_grant_route(monkeypatch, *, access, written=True, resolves=True):
-    """Stub everything the grant route reaches except the decision under test."""
+    """Stub everything the grant route reaches except the decision under test.
+
+    The publisher spy is installed here rather than per-test on purpose. The route
+    emits, and `_emit_chatroom_updated` swallows transport failure by design — so
+    without the spy every test below would construct the real `Publisher`, fail to
+    reach Redis, have the failure logged and discarded, and pass while asserting
+    nothing about what was emitted. A frame assertion that cannot fail is worse
+    than no frame assertion.
+    """
     import app.api.v1.chatrooms as chatrooms_mod
     from contexts.activities.domain.errors import ActivityTypeNotFound
 
@@ -208,6 +216,7 @@ def _wire_grant_route(monkeypatch, *, access, written=True, resolves=True):
         "contexts.activities.interfaces.facade.ActivitiesFacade",
         _Facade,
     )
+    _spy_room_publisher(monkeypatch, chatrooms_mod)
     return chatrooms_mod, calls
 
 
@@ -342,6 +351,60 @@ async def test_revoking_needs_no_type_ids_and_resolves_none(monkeypatch) -> None
 
     assert calls["resolved"] == []
     assert calls["grant"][0]["granted"] is False
+
+
+@pytest.mark.asyncio
+async def test_activity_control_grant_reaches_the_creator_and_never_the_room(
+    monkeypatch,
+) -> None:
+    """FU-11: the grant was the one binding write that announced nothing.
+
+    Room-visible is `False` here, unlike every other binding write, and the reason
+    is not a disclosure flag — there is none for this. `list_chatroom_agents`
+    serialises `may_control_activities` and `activity_type_allowlist` as `None` for
+    a non-creator under `response_model_exclude_none`, so those fields are dropped
+    from the response entirely, and neither appears in `ChatroomOut`. A non-creator
+    who received this frame would re-read an unchanged DTO *and* an unchanged agent
+    listing, which is exactly the "an invisible write happened" signal the
+    room-visible gate exists to withhold.
+    """
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, _calls = _wire_grant_route(monkeypatch, access=access)
+
+    await mod.patch_chatroom_agent_activity_control(
+        body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[uuid.uuid4()]),
+        chatroom_id=chatroom_id,
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    _assert_creator_only(chatroom_id, uid)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_activity_control_grant_emits_nothing(monkeypatch) -> None:
+    """The 404 arm must not announce a write that did not happen."""
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, _calls = _wire_grant_route(monkeypatch, access=access, written=False)
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=False),
+            chatroom_id=chatroom_id,
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=_committing_db(),
+        )
+
+    assert exc.value.status_code == 404
+    assert _PublisherSpy.emitted == []
 
 
 def test_the_allowlist_is_bounded() -> None:
@@ -1154,10 +1217,16 @@ async def test_draft_access_grant_with_disclosure_off_is_silent(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
-    """Scoped to the disclosure path per §7.2. A rename going stale on a live
-    viewer is a real but separate defect (FU-7); widening the emit here would
-    change behaviour this dossier did not analyse."""
+async def test_a_rename_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    """A rename moves `name`, which every viewer reads, so it is announced.
+
+    This inverts the assertion that stood here while the emit was scoped to the
+    disclosure fields. `name` and the five access flags are copied through
+    `_to_out` for every viewer including a pure guest, so the frame is always
+    backed by a delta those viewers can see. (`disclose_observers` is the one
+    patchable field that is viewer-conditioned; that residual predates the
+    widening and is analysed in §9 of the dossier.)
+    """
     chatroom_id = uuid.uuid4()
     mod = _wire_patch_handler(
         monkeypatch,
@@ -1177,7 +1246,111 @@ async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
         db=_committing_db(),
     )
 
-    assert _room_frames(chatroom_id) == []
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.parametrize(
+    ("body_kwargs", "shape"),
+    [
+        ({}, "no field named at all"),
+        ({"name": None}, "a field named but sent as JSON null"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_patch_that_changes_nothing_emits_nothing(monkeypatch, body_kwargs, shape) -> None:
+    """The gate is the set the service will act on, not the set the client named.
+
+    The null shapes are the ones that matter and are why this is parametrized.
+    `model_dump(exclude_unset=True)` reports an explicit null as *set*, while
+    `ChatroomService.patch` skips every None and returns the row untouched
+    without bumping `version` — so gating on `exclude_unset` alone announced a
+    write that never happened. A frame with no delta behind it is exactly what
+    the room-visible rule exists to prevent.
+    """
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=None,
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(**body_kwargs),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == [], shape
+
+
+@pytest.mark.asyncio
+async def test_a_null_disclosure_patch_emits_nothing_for_its_creator(monkeypatch) -> None:
+    """Authorization keys off the field *named*; the emit keys off what changed.
+
+    The two sets are deliberately different and this pair of tests separates
+    them. Here the caller is the creator, so the gate lets them through, and the
+    patch still changes nothing — so it must announce nothing.
+    """
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=_access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER})),
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(disclose_observers=None),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == []
+
+
+@pytest.mark.asyncio
+async def test_a_null_disclosure_patch_is_still_refused_for_a_non_creator(monkeypatch) -> None:
+    """The other half, and the reason `fields` was left presence-based.
+
+    `PATCH {"disclose_observers": null}` names a creator-only field. Narrowing
+    `fields` to the non-null values — the obvious way to fix the emit — would have
+    emptied it, sent this patch down the capability branch, and quietly widened
+    who may send it from the creator to any `RESOURCE_CREATE_EDIT` holder. So the
+    emit got its own set and this gate kept the old one.
+    """
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=_access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER})),
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    with pytest.raises(NotRoomCreator):
+        await mod.patch_chatroom(
+            mod.ChatroomPatchIn(disclose_observers=None),
+            chatroom_id=chatroom_id,
+            if_match="1",
+            ctx=_CTX,
+            principal=_principal(),
+            db=_committing_db(),
+        )
+
+    assert _PublisherSpy.emitted == []
 
 
 # --------------------------------------------------------------------------- #
@@ -1486,6 +1659,141 @@ async def test_dispatch_release_pushes_per_target_best_effort(monkeypatch) -> No
         assert note["kind"] == "released_observation"
         assert note["chatroom_id"] == str(room_id)
         assert note["content"] == "the analysis"
+
+
+def _wire_delete_handler(monkeypatch, *, recipient, deleted, raises=None):
+    """Stub `delete_observation`'s creator gate and service for handler tests."""
+    import app.api.v1.observations as obs_api
+
+    async def _require(db, *, principal, chatroom_id):
+        return None
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def delete(self, **kw):
+            if raises is not None:
+                raise raises
+            deleted.append(kw)
+
+        async def recipient_user_id(self, chatroom_id):
+            return recipient
+
+    monkeypatch.setattr(obs_api, "_require_creator", _require)
+    monkeypatch.setattr(obs_api, "ObservationService", _Service)
+    _PublisherSpy.emitted = []
+    monkeypatch.setattr(obs_api, "Publisher", _PublisherSpy)
+    return obs_api
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_emits_to_the_creator_user_channel(monkeypatch) -> None:
+    """T-13 (F-14). Release publishes `observation.released` and delete published
+    nothing, so a second session kept rendering a row the server no longer had.
+    The frame goes on the creator's own user channel exactly like the release
+    one — never the room channel, whose subscribers include guests (Q-9)."""
+    creator = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    observation_id = uuid.uuid4()
+    deleted: list = []
+    mod = _wire_delete_handler(monkeypatch, recipient=creator, deleted=deleted)
+    db = _committing_db()
+
+    await mod.delete_observation(
+        chatroom_id=chatroom_id,
+        observation_id=observation_id,
+        ctx=_CTX,
+        principal=_principal(creator),
+        db=db,
+    )
+
+    assert len(deleted) == 1
+    # The dependency's commit runs only after the handler returns, so a frame
+    # published before an explicit commit would tell the other session to
+    # re-read a delete a later rollback could still undo.
+    db.commit.assert_awaited()
+    assert _room_frames(chatroom_id) == []
+    frames = _user_frames(creator)
+    assert len(frames) == 1, f"expected one creator frame, got {frames}"
+    _channel, event, payload = frames[0]
+    assert event == "observation.deleted"
+    # Equality, not membership: the payload is ids-only by contract.
+    assert payload == {
+        "chatroom_id": str(chatroom_id),
+        "observation_id": str(observation_id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_publish_failure_does_not_fail_the_delete(monkeypatch) -> None:
+    """Best-effort, mirroring `_dispatch_release`: the row is already committed,
+    so a Redis hiccup must not surface as a failed delete."""
+    creator = uuid.uuid4()
+    deleted: list = []
+    mod = _wire_delete_handler(monkeypatch, recipient=creator, deleted=deleted)
+
+    class _BoomPublisher:
+        def __init__(self, channel: str) -> None:
+            pass
+
+        async def emit(self, event, payload):
+            raise RuntimeError("redis down")
+
+    monkeypatch.setattr(mod, "Publisher", _BoomPublisher)
+
+    await mod.delete_observation(
+        chatroom_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(creator),
+        db=_committing_db(),
+    )
+
+    assert len(deleted) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_with_no_resolvable_creator_publishes_nothing(monkeypatch) -> None:
+    """A NULL-creator room has no user channel to address — the same guard the
+    release path applies at `_dispatch_release`."""
+    mod = _wire_delete_handler(monkeypatch, recipient=None, deleted=[])
+
+    await mod.delete_observation(
+        chatroom_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uuid.uuid4()),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == []
+
+
+@pytest.mark.asyncio
+async def test_delete_observation_not_found_neither_commits_nor_emits(monkeypatch) -> None:
+    """A 404 must not announce a delete that did not happen."""
+    from contexts.conversation.domain.errors import ObservationNotFound
+
+    mod = _wire_delete_handler(
+        monkeypatch,
+        recipient=uuid.uuid4(),
+        deleted=[],
+        raises=ObservationNotFound(),
+    )
+    db = _committing_db()
+
+    with pytest.raises(ObservationNotFound):
+        await mod.delete_observation(
+            chatroom_id=uuid.uuid4(),
+            observation_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uuid.uuid4()),
+            db=db,
+        )
+
+    db.commit.assert_not_awaited()
+    assert _PublisherSpy.emitted == []
 
 
 @pytest.mark.asyncio

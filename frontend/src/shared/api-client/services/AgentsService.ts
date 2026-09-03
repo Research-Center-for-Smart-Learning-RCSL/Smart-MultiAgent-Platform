@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentCreateIn } from '../models/AgentCreateIn';
+import type { AgentNameOut } from '../models/AgentNameOut';
 import type { AgentOut } from '../models/AgentOut';
 import type { AgentPatchIn } from '../models/AgentPatchIn';
 import type { AgentToolCreateIn } from '../models/AgentToolCreateIn';
@@ -344,6 +345,46 @@ export class AgentsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Project Agent Names
+     * The same rows as `GET ""`, in the same order, projected to id and name.
+     *
+     * Deliberately the same membership gate: a name is not more sensitive than the
+     * listing it is drawn from, and a second, looser gate on the same rows is how
+     * an authorization surface drifts apart from itself.
+     * @returns AgentNameOut Successful Response
+     * @throws ApiError
+     */
+    public static listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({
+        projectId,
+        limit = 100,
+        offset,
+    }: {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<AgentNameOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/agents/names',
+            path: {
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },

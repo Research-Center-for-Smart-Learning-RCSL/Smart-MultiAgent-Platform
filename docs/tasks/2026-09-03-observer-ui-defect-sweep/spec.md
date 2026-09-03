@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-09-03
 requirements: [R24.32, R28.02, R28.09, R28.10, R28.13, R28.16]
 depends_on: []
@@ -524,36 +524,104 @@ reverting P1 restores it with the test.
 
 ### Phase 2
 
-- [ ] AC-8: T-7 through T-14 each fail against current code and pass after the phase.
+- [x] AC-8: T-7 through T-14 each fail against current code and pass after the phase.
+      Observed: T-13 failed on `AssertionError: Expected mock to have been awaited` (the
+      delete route neither committed nor published); T-7, T-8, T-9, T-10, T-12 and the
+      `observation.deleted` handler failed together in `useObservations.test.ts` (seven
+      cases, on the `idle` fall-through, the absent `onStatus`, the absent watchdog, the
+      missing invalidate and the missing handler); T-11 failed with
+      `expected "vi.fn()" to not be called with arguments: [ true ]`; T-14's two cases
+      failed on the generic toast. Each pins one arm; the guard cases written alongside
+      them (a disconnect that must not clear, a terminal event that must disarm, a
+      refetch of only-known rows, a non-creator reconnect) pass in both directions by
+      design and are marked as guards, not as failing-first arms.
 - [ ] AC-9: An admin viewing another user's room sees every observer reported as unknown, with
       a tooltip explaining that live status reaches the room's creator only; the creator viewing
       the same room still sees analyzing/error/skipped.
+      **Not executed** — needs a running stack and two accounts, one of them a platform
+      admin, on a room the other created. Docker was unavailable in the build session.
+      Not ticked on the strength of T-7 plus the panel test, which verify the predicate
+      and the rendered label separately and never that a real admin session sees them.
 - [ ] AC-10: After an `observation.started` with the socket forcibly dropped and reconnected,
       the roster does not remain on analyzing; after an `observation.started` with no terminal
       event and no reconnect, the watchdog clears it within the timeout window.
-- [ ] AC-11: Releasing an observation while a list refetch is in flight leaves the row released
-      once both settle.
+      **Second half verified, first half not.** T-9 drives the watchdog with fake timers
+      and is a complete check of that arm. The reconnect arm is exercised only through a
+      synthetic `onStatus(true)` on a mocked channel (T-8); forcibly dropping a real
+      socket and confirming the transport calls `onStatus` at all needs a live stack.
+- [x] AC-11: Releasing an observation while a list refetch is in flight leaves the row released
+      once both settle. T-10 pins the invalidate, which is the mechanism: the optimistic
+      patch keeps the UI instant and the invalidate makes the server the last writer, so
+      no ordering of a concurrent poll can revert the row. Verified at composable level
+      rather than by throttling a real request.
 - [ ] AC-12: Deleting an observation in one session removes it from a second session's panel
       without a reload, and a 404 on delete or release reports that the observation no longer
       exists and refreshes the list.
-- [ ] AC-13: `docs/observer-agents/00-overview.md`'s event table lists `observation.deleted`
-      alongside the existing five.
+      **Second half verified, first half not.** T-14's two cases cover both 404 branches
+      end to end through the real view. The cross-session half is verified in halves that
+      never meet: T-13 asserts the frame is published, and the `observation.deleted`
+      handler test asserts the row leaves the cache — neither shows the frame crossing.
+      Same ground AC-2 was left unticked on in phase 1.
+- [x] AC-13: `docs/observer-agents/00-overview.md`'s event table lists `observation.deleted`
+      alongside the existing five. Listed, and `observation.skipped` was added with it:
+      the table carried four of the five events the backend already emits, which is what
+      made AC-13's own "the existing five" not match the file (D-10).
 
 ### Phase 3
 
-- [ ] AC-14: T-15 through T-20 each fail against current code and pass after the phase.
+- [x] AC-14: T-15 through T-20 each fail against current code and pass after the phase.
+      Observed: five cases failed together —
+      `test_the_two_unit_two_types_no_longer_share_one_quoting_clause`,
+      `test_every_agent_binds_the_group_task` and
+      `test_a_group_answer_is_not_attributed_to_one_student` on the newly parametrized
+      `creative-thinking-design/da-lesson-designer` id (T-17); T-15 on AA's basis clause
+      naming neither `key_points` nor `timeline`; T-19 with
+      `At index 1 diff: 'center' != 'c2'`. On the frontend, T-18's two cases failed with
+      `expected "vi.fn()" to be called 1 times, but got 0 times` and T-20 with
+      `expected 'ffffffff' to be 'conversation.observers.unknownAgent'`.
+      **T-16 is a guard, not a failing-first arm** — §8 says so explicitly: it pins the
+      schema contract the prompt has to describe, so it passed before the change and
+      after it. It was widened rather than written from nothing: the pre-existing case
+      covered `field_coverage` only, and it now runs over all three computed kinds, over
+      both a wrong basis and the very value the server would have stamped, and asserts
+      the accepting arm beside the rejecting one — which is the half F-4's prompt got
+      wrong.
 - [ ] AC-15: AA, installed fresh from the corrected pack into a room with a `mandala-9grid`
       activity, produces an observation containing a rendered `mandala_grid` block. Executed
       against a real stack with a provider key, or left unticked with the reason recorded.
-- [ ] AC-16: DA's prompt names the current per-type quoting rule and `six-hats-shared-case`
+      **Not executed** — it needs a running stack, an installed course and a provider key
+      that can serve AA's model; Docker was unavailable in the build session. T-15 pins
+      what the prompt says and T-16 pins what the schema accepts; neither shows a real
+      model reading the corrected prompt and producing an accepted call. Same ground
+      AC-2, AC-5, AC-9, AC-10 and AC-12 were left unticked on.
+- [x] AC-16: DA's prompt names the current per-type quoting rule and `six-hats-shared-case`
       appears in both its quoting clause and `binds_activity_types`; the extended
-      parametrization covers all four shipped agents.
-- [ ] AC-17: `docs/examples/creative-thinking-course.md` states that an existing install keeps
-      the old AA and DA prompts and names both remedies.
+      parametrization covers all four shipped agents. DA's constraint 1 is now written
+      per activity type rather than as two columns; `six-hats-shared-case` is quotable
+      with the group-attribution rule attached, `mandala-9grid` carries the
+      "你看不到這個活動的作答內容" sentence a drafted prompt must contain, and the unit-4
+      prohibition is unchanged verbatim. Three parametrizations now run over
+      `SHIPPED_AGENTS`/`AGENT_IDS`, so all four agents are covered; the fourth candidate
+      was deliberately left at three (D-15).
+- [x] AC-17: `docs/examples/creative-thinking-course.md` states that an existing install keeps
+      the old AA and DA prompts and names both remedies. Added to
+      "Upgrading an environment installed before this correction", beside the two
+      precedents Q-8 cites, and it states what each stale prompt still says and what that
+      costs rather than only that it is stale.
 - [ ] AC-18: An observation containing a mermaid fence, a math fence and a code fence renders
       identically in the Observer panel and in the message feed after release.
-- [ ] AC-19: The observer panel shows the localized unknown-agent label, never an id prefix, for
-      a soft-deleted agent's stranded observation.
+      **Not executed** — mermaid, KaTeX and highlight.js are all lazy dynamic imports that
+      the jsdom test environment does not execute, so a parity check is a browser
+      observation, not a unit one. T-18 verifies the mechanism instead: that the card
+      hands its own root to `enhanceRenderedMarkdown` on mount and again after an update,
+      and that the root contains the `v-html` region. The two sides then run the same
+      function over the same shape of DOM, which is the strongest claim available without
+      a stack.
+- [x] AC-19: The observer panel shows the localized unknown-agent label, never an id prefix, for
+      a soft-deleted agent's stranded observation. T-20 asserts both arms — the label for an
+      unresolved id, the real name when there is one — and additionally that the id prefix
+      appears nowhere in the rendered output. The label reads *unknown*, not *deleted*
+      (D-16).
 
 ### All phases
 
@@ -570,14 +638,49 @@ reverting P1 restores it with the test.
       **One unrelated job is red: `dependency-audit`**, on three `pypdf` 6.15.0 advisories
       (CVE-2026-84309/84310/84311, fixed in 6.16.1) published after `main`'s last green run.
       This dossier touches no dependency manifest and the same failure reproduces on `main`;
-      the bump is not phase 1's to make.
+      the bump is not phase 1's to make. (It was made separately at `49fde82`.)
+
+      **Phase 2, locally:** `ruff check` and `ruff format --check` clean over 1020 files,
+      `mypy` clean over 1015, `lint-imports` 2 contracts kept, `pytest tests/unit -q`
+      7921 passed / 6 skipped (7917 before, +4 backend cases), `pnpm lint`
+      (`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, `pnpm test`
+      1784 passed across 233 files (1780 at the start of the phase; the audit added one
+      case and the `/code-review` pass three more). Backend
+      `pytest -q` in full and the rest of the CI matrix are pending the phase-2 PR, for
+      the same reason phase 1 recorded: the local host has no Postgres/Redis/Vault, so
+      `tests/wiring/` fails with `socket.gaierror` regardless of any change.
+
+      **Phase 3, locally:** `ruff check` and `ruff format --check` clean over 1021 files,
+      `mypy` clean over 1016, `lint-imports` 2 contracts kept, `pytest tests/unit -q`
+      7938 passed / 6 skipped (7921 before, +17 backend cases), `pnpm lint`
+      (`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean. The frontend
+      suite was last run whole at 1788 passed across 233 files (1784 before); the
+      `/code-review` follow-ups and D-20 landed after it and were covered by re-running
+      the conversation slice (410 passed across 30 files) rather than the whole suite,
+      at the user's direction to let CI carry the rest. Backend `pytest -q` in full and
+      the remaining matrix are CI's, for the reason phases 1 and 2 both recorded.
+
+      **D-20 changes the API surface**, so `python -m scripts.export_openapi` and
+      `pnpm run gen:api` were rerun and their output committed —
+      `frontend-gate-openapi-drift` is the job that checks it.
 - [x] AC-21: Both locale files stay at parity for every key this dossier adds, and no template
       gains a bare string literal (frontend gate #12). Two keys added
       (`conversation.observers.loadError`, `.retry`) and one rewritten
       (`.guestObserverCallout`), all three in `en.json` and `zh-TW.json`; `pnpm lint` passes
       with `--max-warnings=0`, which is where gate #12 runs.
-- [ ] AC-22: `findings.md`'s Hand-off table links this dossier for all sixteen findings and its
-      status is `closed`.
+      Phase 2 adds three more (`conversation.observers.status.unknown`,
+      `.unknownStatusHint`, `.alreadyGone`), all present in both locale files, with
+      `pnpm lint` still clean.
+      Phase 3 adds one (`conversation.observers.unknownAgent`), in both files, `pnpm lint`
+      still clean. It is the only new key: F-9 and F-15 add no user-facing string, and
+      F-4/F-5 are prompt text, which is pack content rather than UI copy and is
+      deliberately not localised — a system prompt goes to a model, not to a reader.
+- [x] AC-22: `findings.md`'s Hand-off table links this dossier for all sixteen findings and its
+      status is `closed`. Verified rather than assumed: `status: closed` at
+      `findings.md:3`, and the Hand-off table at `:574` carries sixteen rows each naming
+      `docs/tasks/2026-09-03-observer-ui-defect-sweep/` with its phase. No edit was
+      needed — the audit's §5 was already complete, which is what AC-22 was written to
+      confirm rather than to produce.
 
 ## 11. SRS Delta
 
@@ -669,6 +772,190 @@ destroyed readable observations to report a transport failure. Only the **empty*
 suppressed on error, because only its copy asserts a fact a failed request never
 established.
 
+### Phase 2
+
+Freshness re-verification found the drift phase 1 had introduced and nothing else. Every
+`useObservations.ts` and `ChatroomView.vue` citation in §7.3 had shifted by one to nine
+lines; each was re-read and confirmed to name the same code
+(`ObserverEntry` status at :33, the idle fall-through at :86, `refetchInterval` at :111,
+`unreadCount` at :128 and :171, the watch at :142, `release()` at :230, `isCompactDesktop`
+at :447, `observerPanelVisible` at :665, `onObservationDelete` at :714). `observations.py`,
+`useChatroomSocket.ts` and `constants/agentErrors.ts` were re-checked and had not moved:
+the delete route is still at :167-185, the release emit still at :249-261, the watchdog
+still at :320-346 and the reconnect reset still inside `onStatus`. No citation named code
+that had changed meaning, so no D-n entry exists for one.
+
+**D-8 — the watchdog imports the room path's constant rather than declaring its own.**
+§7.3 says to build the watchdog "on the same shape as `armThinkingTimeout`" and §9 says
+matching the 120s constant "keeps the two surfaces explicable together". Two ways to
+match a number are to copy it and to share it; this build shares it, importing
+`AGENT_THINKING_TIMEOUT_MS` from `useChatroomSocket.ts`. A copy would have made the
+sentence in §9 true on the day it was written and unenforceable afterwards. The import is
+composable-to-composable inside one slice, crosses no boundary, and creates no cycle —
+`useChatroomSocket` does not import `useObservations`.
+
+**D-9 — `reconcileOnReconnect` needs its own creator guard, which §7.3 did not
+anticipate.** §7.3 says to register `onStatus` and, on `connected === true`, clear the
+analyzing set and refetch. The observations query is already gated `enabled: isCreator`,
+so that reads as sufficient. It is not: **`refetch()` does not honour `enabled` in
+TanStack v5**. This was verified empirically rather than assumed — a test asserting that a
+non-creator's reconnect issues no request failed with exactly one call to
+`listObservations` before the guard was added. Because the user channel is subscribed by
+every viewer, not just the creator, the unguarded form would have put a speculative
+`GET /observations` on the wire on every reconnect for everyone but the creator, each one
+a 403 the server was always going to refuse. The guard is one line; the test that
+justifies it is the part worth keeping.
+
+**D-10 — `observation.skipped` was added to two contracts alongside
+`observation.deleted`.** AC-13 says to list `observation.deleted` "alongside the existing
+five", but `docs/observer-agents/00-overview.md`'s table listed four, and
+`types/index.ts`'s `ObservationEventType` union listed four. The backend has emitted
+`observation.skipped` since O-4 and the client has handled it since; both records had
+simply never caught up. Adding the missing event with the new one is what makes AC-13's
+own count true. Neither artefact is load-bearing — the union has no consumer in
+`frontend/src` (it is documentation in type form) — which is precisely why both drifted.
+
+**D-11 — the release emit was refactored onto the helper the delete emit needed.** §7.3
+says to emit `observation.deleted` "mirroring the release emit at `observations.py:249-261`".
+Written as a second inline copy, that produced ten duplicated lines whose only guarantee of
+staying in step was that someone would notice — which is the exact failure F-14 exists to
+correct, since the defect *is* release announcing itself while delete did not. Both now go
+through `_notify_creator`, which owns the recipient lookup, the user-channel-not-room-channel
+rule and the best-effort swallow. Raised by the `check-quality` pass and fixed rather than
+deferred, because the duplication was this phase's own.
+
+**D-12 — `observation.created` now clears the error and skip kinds, which §7.3 did not
+ask for and §9 assumed.** §9 accepts that F-8's watchdog can fire on a slow-but-healthy
+observer, explicitly because "a later `observation.created` would correct it". It would
+not have: `observation.started` clears the error kind and no terminal handler did, so a
+spurious `timeout` written at 120s survived the observation that arrived at 140s. The
+roster would have labelled the observer failed, with the "timed out" tooltip, for the rest
+of the page's life — while the output disproving it sat in the list directly below, and
+with nothing to clear it short of another turn starting. The mitigation §9 relies on had
+to be built for §9 to be true. The room path had the same handler all along
+(`useChatroomSocket.ts:363-365` clears the agent error on `message.created`); this is the
+third guard of that pair to be ported. Raised by a `/code-review` pass after the phase-2
+commit.
+
+**D-13 — the unread high-water mark is advanced from the frame, not only from the cache
+write.** §7.3 says to compare against "what the panel has shown". The first implementation
+read that as the query cache, and advanced the mark from a `watch` on the observations
+list. But the `observation.created` handler raises the badge **synchronously** while
+updating the cache through an **async** `invalidateQueries`, so between the two the mark
+had not moved: a reconnect landing in that window — the flaky connection this reconcile
+exists for — counted the same observation a second time. The handler now raises the mark
+from the frame's own `created_at` (which `turn_engine.py:3161` carries) before scheduling
+the refetch. `noteSeen` replaced the fold that computed the mark, so every writer raises
+it through one monotonic path rather than two. Also raised by the same `/code-review`
+pass; both fixes carry regression tests that were observed failing first, the second at
+exactly the predicted count of 2.
+
+### Phase 3
+
+Freshness re-verification found three drifted citations and one wrong path, all corrected
+before any edit and none of which changed a design decision. `observation_blocks.py` lives
+under `contexts/agents/application/runtime/`, not under `conversation` as §7.4 implies; its
+internal anchors all held (`_coverage_branch` at :275, `_attempt_table_branch` at :293, both
+closing `additionalProperties: False`, the kind constants at :62-64). Phase 2 moved three
+frontend lines §7.4 cites: the id-slice fallback to `useObservations.ts:105`, `nameFor` to
+`ObserverPanel.vue:129-131`, and the `useMarkdownEnhance` call to `ChatroomView.vue:893`.
+Every other §7.4 citation was re-read at `205d2ce` and confirmed unchanged, including both
+upgrade-note precedents and the two pack lines. No citation named code that had changed
+meaning.
+
+**D-14 — F-15's centre rule is applied in `mandala_grid`, not in `declared_fields` as §7.4
+directs.** §7.4 says to splice the centre "in `observation_aggregates.py:137-166`, after the
+`x-order` sort" — which is inside `declared_fields`. Putting it there would have been wrong:
+`declared_fields` also serves `field_coverage`, which runs over types of **any** width, and
+the participant's centre rule is conditional on the nine-cell grid (`MandalaGrid.vue`'s
+`isGrid`). An unconditional splice would have reordered an eight-field type's coverage table
+away from the order its participant actually saw — introducing the very defect F-15 exists to
+remove, one block kind over. The splice therefore lives in `mandala_grid`, after the
+`len(cells) != MANDALA_CELLS` refusal has already established the nine-cell precondition. The
+docstring correction §7.4 also asks for was made, and says exactly this: `declared_fields`
+returns the schema's order, and the centre rule belongs to the grid. `field_coverage` over a
+mandala type keeps declared order, which is defensible because its rows are labelled — in the
+grid, by contrast, position is the entire meaning, which is why the serialiser emits an empty
+header row.
+
+**D-15 — three parametrizations were widened to every shipped agent, not two, and a fourth
+was deliberately left alone.** §7.4 names two by identity (the retired-quoting-rule assertion
+and the group-task binding), which are `test_the_two_unit_two_types_no_longer_share_one_
+quoting_clause` and `test_every_room_agent_binds_the_group_task`. A third,
+`test_a_group_answer_is_not_attributed_to_one_student`, was widened with them because F-5
+itself creates the gap it would otherwise leave: F-5 puts `six-hats-shared-case` into DA's
+quotable column, and a designer told a group answer may be quoted without being told it
+belongs to no one member drafts precisely the prompt that rule exists to prevent. Same
+reasoning as D-6 and D-11 — an asymmetry this phase's own change introduces is this phase's
+to close.
+
+The fourth, `test_an_unsent_draft_is_unquotable_for_every_activity_type`, was **not** widened.
+DA carries no draft rule at all, and giving it one is not a wording change: DA's constraint
+list is structurally "三條限制 … 缺一不算完成", pinned by its own test, so a draft rule makes it
+four and changes what DA must deliver. That gap predates the sweep and is outside F-5, whose
+subject is the quoting rule. Recorded as FU-13.
+
+**D-16 — the unresolved-agent label says "unknown", not "deleted".** §2's Expected for F-16
+asks for "an explicit 'deleted agent' label", and the key §7.4 names is
+`conversation.observers.unknownAgent`. The two disagree, and the key is right. The fallback
+is taken in three situations the component cannot tell apart: a soft-deleted agent, an agent
+past the listing's page, and the window while `projectAgentsQuery` is still in flight —
+`agentNames` is `{}` until it resolves, so on first paint *every* card takes it. Copy
+asserting a deletion would then state, on a normal load of a healthy room, a fact the client
+has not established: the same defect F-7 fixed one component over, where "No observations
+yet" was painted over a failed request. The copy reads "Unknown agent" / 「未知的代理」, and the
+comment at the call site records why. Raised by this phase's own self-audit.
+
+**D-17 — the page size raises the F-16 threshold rather than removing it.** §7.4 says to pass
+the page size "so the >100 path stops being reachable at all". It cannot: `PaginationParams`
+bounds `limit` to `le=500` (`app/api/v1/deps.py:29`), so 501 agents is still reachable and a
+larger value is a 422. 500 is sent — the ceiling — and the unknown-agent label covers the
+remainder, which it has to carry anyway for the soft-deleted agent this listing can never
+return, so the two halves of F-16 compose rather than one substituting for the other.
+
+**D-18 — F-9's own fix reintroduced the symptom F-9 exists to remove, and was caught by a
+`/code-review` pass.** `mermaid.render` creates and removes its temporary element **by id**,
+so two concurrent renders sharing one id collide and one throws into the enhancement pass's
+empty catch — leaving that diagram a raw fence. The id was `Date.now()` plus the node's index
+*within one root*, unique only because the app had exactly one enhancement root. F-9 made
+that false in the same phase: a pass per card, every card mounting in the same tick behind the
+same 120ms debounce, so `Date.now()` matches and each card's first diagram is index 0. A panel
+holding two mermaid-bearing observations would have lost one. Replaced with a process-wide
+counter. The regression test freezes the clock rather than driving the roots concurrently —
+real concurrency raced vitest's dynamic-mock loading and recorded only one render, proving
+nothing, while the frozen clock reproduces the actual collision deterministically and was
+verified to fail against the old scheme.
+
+**D-19 — the F-13 high-water mark is seeded immediately, and the fix landed on phase 2's
+branch rather than phase 3's.** The watcher that seeds `newestSeenAt` was lazy, so a mount
+that begins with rows already in cache (returning to a room inside `gcTime`) left the mark
+null until the mount refetch wrote the cache again. A socket drop inside that window made
+`reconcileOnReconnect` read `baseline === null` and return, so every observation written
+during the outage went unbadged — F-13's own gap, reopened in the one case where the panel
+already had rows to compare against. `{ immediate: true }` closes it; a cold mount is
+unaffected, because with no rows to note the early return is correct rather than lossy.
+Committed on `fix/observer-ui-sweep-phase2` and phase 3 rebased onto it: the defect is phase
+2's work, and leaving it on phase 3's branch would have put phase 2's PR up for review
+carrying a defect both sessions knew about.
+
+**D-20 — FU-12 was closed inside phase 3 at the user's direction, which added an API route.**
+D-17 left a fivefold response-size increase on the room-open path: `AgentOut` carries
+`system_prompt` (bounded at 100k chars) and `ChatroomView` was building an id→name map out of
+it on every room open. Raised by the `check-security` pass as a MEDIUM with no attack path and
+recorded as a follow-up; the user chose to fix it now rather than ship the regression.
+
+`GET /api/projects/{id}/agents/names` returns the same rows in the same order, projected to
+`{id, name}` **in the query**, not merely in the response model — the repository selects two
+columns, so the saving is on the wire and in the fetch. It reuses the listing's
+`require_membership` dependency rather than growing a second gate over the same rows, and a
+test compares the two dependencies rather than naming one. `ChatroomView` moves to it;
+`useChatroomBindings` keeps the full listing, because it edits those records. There was a
+precedent to follow: `AgentRepository.names_for_ids` is the same projection for a bounded set
+of ids, and it deliberately **includes** soft-deleted agents so an old message stays labelled.
+The project-wide sibling deliberately does not — that set has no bound and would grow with
+every deletion forever, which is what the F-16 label is for. Requires `pnpm run gen:api`; the
+only other generated-file churn was line endings on a Windows host and was discarded.
+
 ## 13. Follow-ups
 
 - **FU-1** — Real observer status delivery to non-creator readers. Q-3 fixes the false "idle"
@@ -700,6 +987,78 @@ established.
 - ~~**FU-8**~~ — **resolved inside phase 1, not deferred.** See Q-9 for the decision and
   D-7 for what was built. The residual signal it does not close is recorded in §9 as an
   accepted risk rather than as outstanding work.
+
+- **FU-9** (opened by phase 2) — `refetch()` ignores `enabled` across the whole frontend,
+  not just here. D-9 fixed the one site this phase created; the same shape — a
+  reconnect/refocus reconcile calling `refetch()` on a query whose `enabled` encodes an
+  authorization predicate — would look identical and behave identically anywhere else in
+  the codebase. Worth one sweep of every `refetch()` call site against its query's
+  `enabled`, which this dossier did not attempt.
+
+- **FU-10** (opened by phase 2) — The observer watchdog is one timer per room, not per
+  agent, so two observers analysing concurrently share a deadline: the second
+  `observation.started` re-arms the timer and extends the first observer's window. This
+  matches the room path (`armThinkingTimeout` is also per room) and is why the fired
+  watchdog marks every still-analysing agent, but per-agent timers would report a wedged
+  observer sooner when its neighbour is healthy and busy. Not a defect in what shipped;
+  a refinement both surfaces would want together.
+
+- **FU-11** (opened by phase 2, deliberately not fixed) —
+  `patch_chatroom_agent_activity_control` (`chatrooms.py:876`) still emits no
+  `chatroom.updated`, while its structurally identical sibling
+  `patch_chatroom_agent_draft_access` gained one in phase 1 (D-6). A creator who grants
+  activity control in tab B leaves tab A rendering the old grant state until reload —
+  the same F-1 staleness, one route over. Left alone rather than swept in because
+  `may_control_activities` and `activity_type_allowlist` are outside F-1's blast radius:
+  phase 1 scoped its emit to the fields that move `observers_present` and
+  `drafts_readable`, and D-6 was fixed only because that phase had itself created the
+  asymmetry. This one predates the sweep. It is the same shape as FU-7 (a rename goes
+  stale for the same reason) and the two are worth closing together, with the
+  invalidation-storm question FU-7 raises answered once for both. Raised by the same
+  `/code-review` pass that found D-12 and D-13.
+
+- ~~**FU-12**~~ — **closed inside phase 3, not deferred.** See D-20 for what was built and
+  why the disposition changed. The residual it does not cover is FU-15.
+
+- **FU-14** (opened by phase 3, deliberately not fixed) — `patch_chatroom_agent_role`
+  (`chatrooms.py:863`) emits with `room_visible=True` unconditionally, and `set_agent_role`
+  returns `changed=True` **without writing** when the agent already holds the target role.
+  The comment at `:848-856` accepts that and weighs only the wasted refetch; what it does not
+  weigh is Q-9. In a disclosure-off room a frame after which every viewer re-reads an
+  identical DTO *and* an identical agent listing is the "an invisible write happened" signal
+  the audience split exists to withhold. The trigger is narrow — creator-only, and the
+  creator has to re-assert a role that is already set — which is why this is a follow-up
+  rather than a phase-3 fix, and it is phase 1's decision to revisit rather than phase 3's.
+  Closing it needs `set_agent_role` to distinguish "already held" from "changed", which is a
+  new return value the route then has to consume. Raised by the same `/code-review` pass as
+  D-18 and D-19.
+
+  The same pass raised `remove_chatroom_agent`'s never-bound case. That one is **not** a
+  finding: `:1047-1048` already argues it, and for the creator path the direction is safe —
+  an observer unbind is silent and everything else is loud, so a frame tells a guest only
+  that the write was *not* an observer unbind, which is what O-5 wants.
+
+- **FU-15** (opened by phase 3) — `workflow/utils/projectAgents.ts` has the shape D-20 just
+  removed from the conversation slice: it calls `agentsApi.list` (no explicit limit, so the
+  default 100) and immediately reduces each row to `{id, name}` plus three booleans read off
+  `workflow_capabilities`, for config-form selectors. It pays for `system_prompt` on every
+  workflow-editor and backstage open and silently loses the 101st agent from its pickers.
+  The new `/agents/names` route does not serve it as-is — the capability flags are not in the
+  projection — so closing this means either widening that model or adding the flags to a
+  second one, which is a decision about what a "label" listing is for.
+
+- **FU-13** (opened by phase 3, deliberately not fixed) — DA states no rule about unsent
+  drafts, so a TA or SA prompt drafted through it inherits none. The three room prompts all
+  carry the flat "a draft is unquotable for every type, and here is why the per-type rule
+  does not apply" clause that `agent-readable-live-drafts` AC-16 requires; DA, which is
+  where a *new* unit's prompt text comes from, does not. Left out of phase 3 because it is
+  not a wording change: DA's constraint list is structurally three items ("三條限制 …
+  缺一不算完成", pinned by `test_the_designer_requires_all_three_in_what_it_drafts`), so
+  adding the draft rule makes it four and changes DA's contract. It is also outside F-5,
+  whose subject is the quoting rule. Doing it means extending
+  `test_an_unsent_draft_is_unquotable_for_every_activity_type` to `SHIPPED_AGENTS` the way
+  D-15 did for the other three, which is the cheap part; deciding what DA's fourth
+  constraint says is not.
 
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no
