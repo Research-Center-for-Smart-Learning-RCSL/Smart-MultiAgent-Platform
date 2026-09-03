@@ -338,6 +338,12 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           if (!forThisRoom(ev)) return
           void qc.invalidateQueries({ queryKey: convKeys.chatroom(chatroomId) })
           void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+          // F-1, and it must stay in step with the room-channel handler in
+          // `useChatroomSocket`. For an observer binding with disclosure off the
+          // room copy of this frame is withheld, so this is the creator's only
+          // delivery — fixing one handler and not the other would leave the
+          // creator's own other tabs showing an id where a name belongs.
+          void qc.invalidateQueries({ queryKey: convKeys.projectAgentsAll() })
         }),
       )
       // F-8/F-13. `onStatus` does not push the current value on subscribe

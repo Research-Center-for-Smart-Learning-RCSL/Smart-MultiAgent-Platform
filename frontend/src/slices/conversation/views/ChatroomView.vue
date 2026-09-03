@@ -781,12 +781,18 @@ const {
   () => roomQuery.data.value?.is_moderator ?? false,
 )
 
-// The member roster is fetched once, but new authors (and renames) appear over
-// the room's lifetime via WebSocket. When a user message arrives from a sender
-// the roster doesn't name yet, refetch it once for that id so the author label
-// resolves instead of staying a truncated id. Tracking attempted ids bounds
-// this to one refetch per sender (a sender with no display name stays unnamed
-// without re-querying every message).
+// New authors appear over the room's lifetime via WebSocket. When a user message
+// arrives from a sender the roster doesn't name yet, refetch it once for that id
+// so the author label resolves instead of staying a truncated id. Tracking
+// attempted ids bounds this to one refetch per sender (a sender with no display
+// name stays unnamed without re-querying every message).
+//
+// This is an *absence* test, so it catches a sender the map has never had and
+// nothing else. A rename of someone already in the map is invisible to it — the
+// id is present, only the value is stale — and is left to the focus refetch.
+// (An earlier version of this comment claimed renames were covered; they are
+// not, and F-1 of the query-cache sweep found the same hole in the agent-side
+// equivalent, where it also broke @mention resolution.)
 const resolvedSenderAttempts = new Set<string>()
 watch(messages, (list) => {
   let needsRefetch = false
