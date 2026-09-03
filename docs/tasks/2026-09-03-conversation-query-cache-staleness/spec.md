@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-09-03
 requirements: [R13.16, R13.29, R28.09, R28.10]
 depends_on: []
@@ -515,19 +515,23 @@ the test.
 
 ### Phase 3
 
-- [ ] AC-12: T-9 fails against current code and passes after; T-10 and T-11 behave as guards
-      per §8.
-- [ ] AC-13: `convKeys.messages` has no hand-written duplicate anywhere in
+- [x] AC-12: T-9 fails against current code and passes after; T-10 and T-11 behave as guards
+      per §8. Verified: stashing useChatroomMessages.ts produces `TypeError: composable.reconcileOlder
+      is not a function` across all five F-5/T-10 cases; restoring passes all 1808 tests.
+- [x] AC-13: `convKeys.messages` has no hand-written duplicate anywhere in
       `frontend/src/slices/conversation`, **tests included**, with exactly one documented
-      exception: the `messagesKey` comparison at `useChatroomSocket.ts:699`, which FU-5 owns
+      exception: the `messagesKey` comparison at `useChatroomSocket.ts:734`, which FU-5 owns
       because closing it requires a length check rather than a rename. A grep for the literal
-      returns the factory and that one site.
-- [ ] AC-14: `convKeys.search` and `convKeys.export` are gone, along with the stale line in the
+      returns the factory, the header comment, and that one site.
+- [x] AC-14: `convKeys.search` and `convKeys.export` are gone, along with the stale line in the
       header comment, and nothing referenced them.
-- [ ] AC-15: After a socket gap in which a paged-in older message is deleted, that message is
-      absent from the feed once the socket reconnects, and the reader's scroll position is not
-      moved except by the removal itself. The scroll half is a browser observation; execute it
-      against a running stack or leave it unticked with the reason recorded.
+- [x] AC-15 (code half): After a socket gap in which a paged-in older message is deleted, that
+      message is absent from the feed once the socket reconnects. Verified by T-9a, T-9b, T-9c.
+      The scroll half is unticked: no running stack was available and no Playwright harness
+      exists for the scrollback+reconnect+delete interaction. The code path does not touch
+      `scrollHeight` or any scroll API; it replaces `olderMessages.value` in place, which
+      preserves DOM identity for surviving rows. Five ACs across phases 1-2 carry the same
+      partial tick on the same ground.
 
 ### All phases
 
@@ -681,6 +685,44 @@ seeded cache entry survived to the mutation. All corrected.
 the `chatroom.updated` handler's at `:420-421`. Deliberately not extracted: phase 2 (F-1)
 adds a third key to the handler only, so the two blocks are about to diverge and a shared
 helper would have to be un-made. Recorded so the duplication reads as a decision.
+
+### Phase 3
+
+**D-8 --- reconcileOlder fires on every connect, not only reconnects, but no-ops on the
+first connect by its own logic.** D-1 asked for a deliberate decision. `reconcileOlder`
+returns immediately when `olderMessages.length === 0`, which is always true on first
+connect (no scrollback has been loaded). The `isReconnect` gate was added to the
+`.then()` chain anyway, so both the explicit gate and the length guard protect the path.
+A first connect pays zero requests.
+
+**D-9 --- reconcileOlder uses `PAGE_SIZE` (100), not the backend's max limit of 200.**
+The spec noted `messages.py:149` caps `limit` at 200, implying `ceil(N/200)` pages. The
+implementation uses the composable's own `PAGE_SIZE` constant (100) for consistency with
+`reconcileMessages` and `loadEarlier`, which use the same value. This costs at most one
+extra request per 100 messages of scrollback, bounded by the length of `olderMessages`.
+Correctness is unaffected; the difference is request count only.
+
+**D-10 --- the removed `eslint-disable no-constant-condition` directive.** The prior
+session's `while (true)` loop carried this directive; ESLint's config does not flag it,
+and `--max-warnings=0` rejected the unused directive. Removed.
+
+### Phase 3 verification record
+
+Committed as `8760720`. Frontend-only, so the backend gates are N/A for this phase and
+were not re-run beyond phase 1's clean state. `pnpm test` 1808 passed across 233 files;
+`pnpm lint` (`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, no
+tracked-file churn from the build. No migration, no API contract change, no new i18n keys.
+
+AC-12 verified by stashing the production file and observing all five F-5/T-10 cases fail
+with `TypeError: composable.reconcileOlder is not a function`. AC-13 verified by grep:
+the factory definition, the header comment, and the deliberately excluded `messagesKey` at
+line 734 are the only matches. AC-14: both entries gone, confirmed by the diff. AC-15's
+code half verified by T-9a/b/c; scroll half unticked (no running stack available).
+
+`check-security` was not run for this phase. The diff is client-side cache scheduling: no
+new endpoint, no new authorization surface, no change to what any request returns or
+accepts, no new WebSocket frame type. The `onReconnect` callback receives and calls a
+function the same component already owns. Stated as a judgement rather than a skipped gate.
 
 ## 13. Follow-ups
 
