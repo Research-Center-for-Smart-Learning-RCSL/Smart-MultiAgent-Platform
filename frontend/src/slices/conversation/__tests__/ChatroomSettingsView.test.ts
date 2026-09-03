@@ -425,12 +425,14 @@ describe('ChatroomSettingsView', () => {
   // the next click rebuilt the payload from the reverted set and — since the
   // endpoint replaces — deleted the binding the first click had added.
   //
-  // Two orderings, closed by two different halves of the fix. Cancel-before
-  // handles a fetch already running at click time; it cannot touch one that
-  // starts during the PUT, which is what the invalidate-after is for.
+  // Two orderings relative to the click, both closed by the invalidate — which
+  // does not merely re-read but aborts the parked fetch, since it defaults
+  // `cancelRefetch: true`. (An earlier version of this fix also cancelled before
+  // the PUT; it was removed once no test could be written that failed without
+  // it, because every exit from `toggleGroup` already cancels.)
   describe.each([
-    { when: 'started before the cancel ran', startFetchFirst: true },
-    { when: 'started after the cancel had already run', startFetchFirst: false },
+    { when: 'was already in flight when the toggle was clicked', startFetchFirst: true },
+    { when: 'started one microtask into the toggle', startFetchFirst: false },
   ])('a bound-groups refetch that $when', ({ startFetchFirst }) => {
     it('does not revert the applied set', async () => {
       const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
@@ -484,8 +486,7 @@ describe('ChatroomSettingsView', () => {
 
       const key = ['conversation', 'chatroomMemberGroups', 'cr_1']
       if (startFetchFirst) {
-        // A window refocus before the user clicks, so the read is already in
-        // flight when `cancelQueries` runs.
+        // A window refocus before the user clicks.
         void qc.refetchQueries({ queryKey: key })
         await Promise.resolve()
       }
@@ -493,11 +494,9 @@ describe('ChatroomSettingsView', () => {
       const box = wrapper.find('.group-picker input[type="checkbox"]')
       const click = box.setValue(true)
       if (!startFetchFirst) {
-        // A refocus one microtask in — `toggleGroup` is parked on
-        // `cancelQueries`, so this read starts after the cancel and is beyond
-        // its reach. (It is still before the PUT is dispatched: the cancel's
-        // promise chain costs several microtasks. What separates the two cases
-        // is the cancel, not the PUT.)
+        // A refocus one microtask after the click, while `toggleGroup` is parked
+        // on the PUT. Either way the read is issued before the PUT resolves, so
+        // it carries the pre-PUT set — which is the property that matters.
         await Promise.resolve()
         void qc.refetchQueries({ queryKey: key })
       }
@@ -515,12 +514,11 @@ describe('ChatroomSettingsView', () => {
     })
   })
 
-  // This is the case that pins `cancelQueries` specifically. On the success path
-  // the invalidate-after would cover for a missing cancel, because it aborts the
-  // parked read too — so neither race case above can fail if the cancel is
-  // deleted. The failure arm has no invalidate: it re-reads with
-  // `boundQuery.refetch()`, and a read left over from before the PUT lands after
-  // that refetch and overwrites the server's real answer with a stale one.
+  // The failure arm has no invalidate — it re-reads with `boundQuery.refetch()`.
+  // This pins that a read left over from before the failed PUT cannot land after
+  // that refetch and overwrite the server's real answer. (`refetch` also defaults
+  // `cancelRefetch: true`, which is what makes it hold, and is why a separate
+  // pre-PUT cancel turned out to guard nothing.)
   it('a failed save re-reads the server, and a read left over from before it cannot win', async () => {
     const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
     // The room already has a group bound; the user tries to unbind it and the
