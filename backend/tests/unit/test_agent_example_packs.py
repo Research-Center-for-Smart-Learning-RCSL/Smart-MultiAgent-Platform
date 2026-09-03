@@ -32,6 +32,7 @@ import pytest
 
 from app.plugins.activity_validators import register_first_party_validators
 from contexts.activities.infrastructure.examples.catalogue import available_courses, load_course
+from contexts.agents.application.runtime import observation_blocks as ob
 from contexts.agents.domain.models import AgentModelHint
 from contexts.agents.infrastructure.examples.catalogue import (
     AgentPackDefinition,
@@ -332,8 +333,8 @@ class TestPromptConstraints:
             f"{agent.key} does not say the computed digest is not the participant's words"
         )
 
-    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
-    def test_the_two_unit_two_types_no_longer_share_one_quoting_clause(self, agent_key: str) -> None:
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_the_two_unit_two_types_no_longer_share_one_quoting_clause(self, pack: Any, agent: Any) -> None:
         """D-7. `mandala-9grid` moved to `filled_count_coverage`, whose `detail`
         displaces the payload dump, so its answer text is not in any agent's
         context any more — while `time-traveler-next-steps` stayed on
@@ -343,24 +344,30 @@ class TestPromptConstraints:
         quote something it cannot see, which is the shape that produces a
         fabrication rather than a refusal. Each prompt must say plainly that the
         mandala's content is not visible.
+
+        Sweep AC-16 (F-5) widened this from the three room agents to every shipped
+        agent. DA carried the retired rule for as long as it was excluded, and it
+        is the one agent whose output is *other prompts* — so a stale rule here
+        propagates into every unit a teacher drafts next.
         """
-        prompt = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key).system_prompt
+        prompt = agent.system_prompt
 
         assert "`mandala-9grid`、`time-traveler-next-steps`" not in prompt, (
-            f"{agent_key} still treats the two unit 2 types as one quoting case"
+            f"{agent.key} still treats the two unit 2 types as one quoting case"
         )
         assert "你看不到這個活動的作答內容" in prompt, (
-            f"{agent_key} does not say the mandala's answers are invisible to it"
+            f"{agent.key} does not say the mandala's answers are invisible to it"
         )
         # And the one that is still quotable still says so.
         assert "`time-traveler-next-steps`：可以" in prompt
 
-    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
-    def test_every_room_agent_binds_the_group_task(self, agent_key: str) -> None:
-        """group-activity-submissions AC-16. A binding an agent does not hold is a
-        unit it cannot be asked about — and this one is the only group task in the
-        course."""
-        agent = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key)
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_every_agent_binds_the_group_task(self, pack: Any, agent: Any) -> None:
+        """group-activity-submissions AC-16, widened by sweep AC-16 (F-5). A
+        binding an agent does not hold is a unit it cannot be asked about — and
+        this one is the only group task in the course. DA holds it for the same
+        reason it holds the other four: `binds_activity_types` is what tells the
+        designer which units exist to draft against."""
         assert "six-hats-shared-case" in agent.binds_activity_types
 
     @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
@@ -413,19 +420,25 @@ class TestPromptConstraints:
         assert "草稿不是提交" in aa.system_prompt
         assert "不可以拿來計數" in aa.system_prompt
 
-    @pytest.mark.parametrize("agent_key", ["ta-guidance-teacher", "sa-peer-catalyst", "aa-silent-analyst"])
-    def test_a_group_answer_is_not_attributed_to_one_student(self, agent_key: str) -> None:
+    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    def test_a_group_answer_is_not_attributed_to_one_student(self, pack: Any, agent: Any) -> None:
         """group-activity-submissions AC-16, and it is the one thing about this
         unit an agent can get wrong in a way that hurts somebody: a 2/3 answer may
         carry text a member voted against, so naming a student as its author
-        attributes to them a position they refused."""
-        prompt = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key).system_prompt
+        attributes to them a position they refused.
 
-        assert "`six-hats-shared-case`" in prompt, f"{agent_key} does not name the group type"
+        DA joins the parametrization with F-5, not before it: F-5 is what puts
+        `six-hats-shared-case` in DA's quotable column, and a designer told a group
+        answer may be quoted without being told it belongs to no one member drafts
+        exactly the prompt this rule exists to prevent.
+        """
+        prompt = agent.system_prompt
+
+        assert "`six-hats-shared-case`" in prompt, f"{agent.key} does not name the group type"
         assert "這一組" in prompt or "那一組" in prompt, (
-            f"{agent_key} never says to speak of the group rather than a member"
+            f"{agent.key} never says to speak of the group rather than a member"
         )
-        assert "g:" in prompt, f"{agent_key} does not name the group code space"
+        assert "g:" in prompt, f"{agent.key} does not name the group code space"
 
     def test_a_counted_default_clause_counts_the_types_it_names(self) -> None:
         """A prompt that says "these N" has to move its N with its list.
@@ -465,6 +478,46 @@ class TestPromptConstraints:
         # as a score is the one thing a coverage figure invites and must not do.
         assert "不要在旁邊的文字裡把它們重述成分數" in aa.system_prompt
         assert "提交筆數，不是班上的人數" in aa.system_prompt
+
+    def test_the_analyst_is_not_told_to_put_a_basis_on_a_computed_block(self) -> None:
+        """F-4. The two computed branches close with ``additionalProperties: false``
+        and declare no ``basis``; ``materialise`` stamps ``server_facts`` on them
+        instead, precisely so a computed figure cannot be mislabelled by its caller
+        ([R28.19]).
+
+        A prompt telling AA to supply one therefore describes a call
+        ``schema_violations`` rejects *before* ``invoke`` runs, so the refusal
+        guidance in ``observer_tools`` is never reached — and the block array is a
+        single argument validated whole, so the rejected element takes every valid
+        block in the same call down with it.
+
+        Keyed on the kind constants rather than on a list copied into a test, so a
+        computed kind added later lands under this guard rather than beside it.
+        """
+        aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-silent-analyst")
+        clauses = [c for c in _CLAUSE_SEPARATORS.split(aa.system_prompt) if "`basis`" in c]
+        assert clauses, "AA's prompt never names the basis argument"
+
+        stating_the_requirement = [c for c in clauses if "要挑" in c]
+        assert len(stating_the_requirement) == 1, (
+            f"expected exactly one clause requiring a basis, found {len(stating_the_requirement)}"
+        )
+        requirement = stating_the_requirement[0]
+        for kind in (ob.KEY_POINTS, ob.TIMELINE):
+            assert f"`{kind}`" in requirement, (
+                f"AA's basis instruction does not name {kind}, which the schema requires one on"
+            )
+        for kind in ob.COMPUTED_KINDS:
+            assert f"`{kind}`" not in requirement, (
+                f"AA is told to put a basis on {kind}, which the schema rejects as an unknown property"
+            )
+
+        stating_the_stamp = [c for c in clauses if ob.SERVER_FACTS in c and "伺服器" in c and "蓋" in c]
+        assert len(stating_the_stamp) == 1, (
+            "AA's prompt does not state that the server stamps the computed blocks' basis"
+        )
+        for kind in ob.COMPUTED_KINDS:
+            assert f"`{kind}`" in stating_the_stamp[0], f"the server-stamped clause does not name {kind}"
 
     def test_the_analyst_disclaims_the_three_unscored_creativity_dimensions(self) -> None:
         """example-agents AC-10. filled_count operationalizes fluency alone; flexibility,
