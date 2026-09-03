@@ -154,6 +154,23 @@ async function katexInDom(root: HTMLElement): Promise<void> {
   })
 }
 
+// `mermaid.render` creates and removes a temporary element **by id**, so two
+// concurrent renders sharing one id collide and one of them throws — leaving that
+// diagram as a raw code fence.
+//
+// The id used to be `Date.now()` plus the node's index *within one root*, which
+// was unique only while the app had exactly one enhancement root (the message
+// list). ObservationCard now mounts one per card: every card mounts in the same
+// tick and shares the same 120ms debounce, so `Date.now()` matches and each card's
+// first diagram is index 0. A process-wide counter cannot collide however many
+// roots enhance at once.
+let mermaidSeq = 0
+
+function nextMermaidId(): number {
+  mermaidSeq += 1
+  return mermaidSeq
+}
+
 /** Mermaid pass — lazy-loads mermaid on first use. */
 async function mermaidInDom(root: HTMLElement): Promise<void> {
   const nodes = Array.from(
@@ -165,8 +182,8 @@ async function mermaidInDom(root: HTMLElement): Promise<void> {
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
     mermaidInited = true
   }
-  for (const [i, node] of nodes.entries()) {
-    const id = `smap-mermaid-${Date.now()}-${i}`
+  for (const node of nodes) {
+    const id = `smap-mermaid-${nextMermaidId()}`
     try {
       const { svg } = await mermaid.render(id, node.textContent ?? '')
       const wrapper = document.createElement('div')
