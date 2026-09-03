@@ -78,6 +78,11 @@ const createMutation = useMutation({
   onSuccess: (ws) => {
     showCreate.value = false
     qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) })
+    // F-4, and an *addition* rather than a replacement: the chatrooms prefix does
+    // not match `convKeys.workspaces`, so swapping it would leave this very list
+    // stale. A new workspace ships a default chatroom, so it belongs in the
+    // recent rail immediately.
+    qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.workspaces.created'))
     router.push({ name: 'conversation.chatrooms', params: { workspaceId: ws.id } })
   },
@@ -100,6 +105,9 @@ const deleteMutation = useMutation({
   mutationFn: (id: string) => deleteWorkspace(id),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) })
+    // F-4, added not swapped (see the create path). Deleting a workspace cascades
+    // its rooms, so every one of them has to leave the recent rail.
+    qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
     toast.success(t('conversation.workspaces.deleted'))
   },
   onError: () => toast.error(t('conversation.workspaces.deleteFailed')),

@@ -118,8 +118,14 @@ const groupsQuery = useQuery({
   enabled: computed(() => !!projectId.value && flags.value.allow_member_groups),
 })
 
+// Named once so the query, the optimistic write and the invalidate cannot drift
+// apart — the three together are what make F-2's fix hold.
+const boundGroupsKey = ['conversation', 'chatroomMemberGroups', chatroomId] as const
+
 const boundQuery = useQuery({
-  queryKey: computed(() => ['conversation', 'chatroomMemberGroups', chatroomId] as const),
+  // Not wrapped in `computed`: `chatroomId` is a plain string captured at setup,
+  // so there is nothing here to react to and saying otherwise misleads.
+  queryKey: boundGroupsKey,
   queryFn: () => listChatroomMemberGroups(chatroomId),
   enabled: computed(() => flags.value.allow_member_groups),
 })
@@ -152,20 +158,38 @@ const savingGroups = ref(false)
  *  re-render that the unchanged value cannot. */
 const pickerNonce = ref(0)
 
-/** Toggle one group in or out of the room's binding set.
- *
- *  Sends the whole resulting set, because the endpoint replaces rather than
- *  patches. That makes the read-back load-bearing: the next toggle computes its
- *  payload from `boundGroupIds`, so if the guard clears before the new set is in
- *  hand, a second click within that window rebuilds `next` from the stale value
- *  and the replace silently drops the group the first click just added. The
- *  server already returns the applied set, so it is written straight into the
- *  query cache and no refetch has to be raced. */
+/** Re-read both group queries. Wired to the load-failure retry only. */
 function reloadGroups(): void {
   void groupsQuery.refetch()
   void boundQuery.refetch()
 }
 
+/** Toggle one group in or out of the room's binding set.
+ *
+ *  Sends the whole resulting set, because the endpoint replaces rather than
+ *  patches. That makes the read-back load-bearing: the next toggle computes its
+ *  payload from `boundGroupIds`, so if the confirmed set is stale when the user
+ *  clicks again, the replace silently drops the group the first click just added.
+ *
+ *  The server returns the applied set, so it is written straight into the cache —
+ *  but that write has to survive the query's own refetches (F-2). `boundQuery`
+ *  overrides nothing, so it is always stale and always focus-refetchable, and
+ *  query-core writes a resolving fetch's data unconditionally, with no regard for
+ *  a manual write that landed meanwhile. A read already in flight therefore
+ *  overwrote the applied set: the box flipped back under a success toast, and
+ *  because the endpoint replaces, the next click rebuilt its payload from the
+ *  reverted set and deleted the binding the first click had added.
+ *
+ *  The `invalidateQueries` is what closes it, and it closes it twice over:
+ *  it defaults `cancelRefetch: true`, so it aborts a read still in flight
+ *  *and* re-reads, which makes the server the last writer whatever the ordering.
+ *
+ *  A `cancelQueries` before the PUT was tried here and removed as dead weight.
+ *  Every exit from this function already cancels: the invalidate above on the
+ *  success path, and `boundQuery.refetch()` — which also defaults
+ *  `cancelRefetch: true` — on the failure path. It could only ever have
+ *  suppressed a sub-frame flicker while `savingGroups` had the control disabled,
+ *  and no test could be written that failed without it. */
 async function toggleGroup(groupId: string): Promise<void> {
   // Belt to the template's braces: the picker is not rendered unless both
   // queries answered, and a payload built from an unanswered set would replace
@@ -178,7 +202,8 @@ async function toggleGroup(groupId: string): Promise<void> {
   savingGroups.value = true
   try {
     const applied = await setChatroomMemberGroups(chatroomId, next)
-    qc.setQueryData(['conversation', 'chatroomMemberGroups', chatroomId], applied)
+    qc.setQueryData(boundGroupsKey, applied)
+    void qc.invalidateQueries({ queryKey: boundGroupsKey })
     toast.success(t('conversation.settings.boundGroupsSaved', { count: applied.length }))
   } catch {
     // Re-read the server's answer, then force the picker to re-render onto it:
