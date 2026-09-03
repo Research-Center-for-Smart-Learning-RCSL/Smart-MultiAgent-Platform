@@ -772,6 +772,7 @@ const {
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
+  reconcileOlder,
 } = useChatroomMessages(
   chatroomId,
   // Report the send; useChatroomScroll owns what happens to the feed's scroll
@@ -933,7 +934,7 @@ const TYPING_DEBOUNCE_MS = 3000
 // NB: message sending is REST (sendMessage), independent of this socket, so the
 // composer is intentionally NOT gated on `connected` — a flapping/degraded WS
 // must not lock the user out of sending. The pill shows `connectionState`.
-const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
+const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId, reconcileOlder)
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))

@@ -131,7 +131,7 @@ function mountSocket(): {
  *  cache, so the QueryCache subscription seeds a cursor before any WS event
  *  fires — mirrors production, where both composables mount together. */
 function seedCursor(qc: QueryClient, messageId: string, createdAt = '2024-01-01T00:00:00.000Z'): void {
-  qc.setQueryData(['conversation', 'messages', ROOM], [
+  qc.setQueryData(convKeys.messages(ROOM), [
     { id: messageId, created_at: createdAt, sender_type: 'user', sender_id: 'u1' },
   ])
 }
@@ -682,14 +682,14 @@ describe('useChatroomSocket agent streaming', () => {
     ])
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_new')).toBe(false)
   })
 
   it('reconciles a message deleted while the socket was down (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
       { id: 'm_2', created_at: '2024-01-01T00:00:01.000Z', sender_type: 'user', sender_id: 'u1' },
     ])
@@ -702,7 +702,7 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_2')).toBe(false)
     expect(cache.some((m) => m.id === 'm_1')).toBe(true)
   })
@@ -710,7 +710,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('reconciles a message edited while the socket was down (F-11, AC-2)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       {
         id: 'm_1',
         created_at: '2024-01-01T00:00:00.000Z',
@@ -735,7 +735,7 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       content_md: string
       version: number
@@ -770,7 +770,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('does not drop messages older than the fetched window on connect (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_ancient', created_at: '2023-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
       { id: 'm_1', created_at: '2024-01-01T00:00:00.000Z', sender_type: 'user', sender_id: 'u1' },
     ])
@@ -782,14 +782,14 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.forEach((h) => h(true))
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_ancient')).toBe(true)
   })
 
   it('overlapping connect reconciliations cannot apply stale data (F-11)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [])
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [])
 
     let resolveFirst!: (m: unknown) => void
     let resolveSecond!: (m: unknown) => void
@@ -812,7 +812,7 @@ describe('useChatroomSocket agent streaming', () => {
     ])
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{ id: string }>
     expect(cache.some((m) => m.id === 'm_stale')).toBe(false)
     expect(cache.some((m) => m.id === 'm_new')).toBe(true)
   })
@@ -981,7 +981,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('applies only the newest message.updated when two refetches resolve out of order (F-19)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
     ])
 
@@ -1000,7 +1000,7 @@ describe('useChatroomSocket agent streaming', () => {
     resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       version: number
       content_md: string
@@ -1011,7 +1011,7 @@ describe('useChatroomSocket agent streaming', () => {
   it('does not leave a stale version in the cache after out-of-order edits (F-19)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    mounted.qc.setQueryData(['conversation', 'messages', ROOM], [
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [
       { id: 'm_1', version: 1, content_md: 'original', created_at: '2024-01-01T00:00:00.000Z' },
     ])
 
@@ -1028,7 +1028,7 @@ describe('useChatroomSocket agent streaming', () => {
     resolveFirst({ id: 'm_1', version: 2, content_md: 'edit 1' })
     await flushPromises()
 
-    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{
+    const cache = mounted.qc.getQueryData(convKeys.messages(ROOM)) as Array<{
       id: string
       version: number
     }>

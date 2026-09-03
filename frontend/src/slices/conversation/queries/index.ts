@@ -4,7 +4,6 @@
 //   ['conversation', 'chatrooms', workspaceId]
 //   ['conversation', 'chatrooms', 'recent', projectId]
 //   ['conversation', 'messages', chatroomId]
-//   ['conversation', 'search', chatroomId, q]
 //
 // `recentChatrooms` deliberately nests under the 'chatrooms' prefix so the
 // broad `invalidateQueries(['conversation','chatrooms'])` (rename/delete in
@@ -47,9 +46,6 @@ export const convKeys = {
   chatroomAgents: (chatroomId: string) =>
     ['conversation', 'chatroom-agents', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
-  search: (chatroomId: string, q: string) =>
-    ['conversation', 'search', chatroomId, q] as const,
-  export: (jobId: string) => ['conversation', 'export', jobId] as const,
   observations: (chatroomId: string) =>
     ['conversation', 'observations', chatroomId] as const,
 }
