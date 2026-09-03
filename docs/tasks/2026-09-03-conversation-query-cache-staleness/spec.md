@@ -68,7 +68,7 @@ adversarial verification record, including the two candidates that were refuted.
 | Q-5 | How is F-1 fixed, given the key is project-scoped and the event is room-scoped? | Invalidate the bare prefix `['conversation','project-agents']` from both `chatroom.updated` handlers. Add a documented prefix-only factory entry for it. | `useChatroomSocket(roomId)` (`:49`) has no project id and cannot get one from the frame, whose payload is `{"chatroom_id": ...}` by construction (`chatrooms.py:330`) and must stay that way. Threading an accessor from `ChatroomView` (`workspaceQuery.data.value?.project_id`, `:514-519`) would work but must be an accessor rather than a value, because the workspace read resolves after setup, and it would have to be threaded twice. The prefix needs no threading, and it additionally matches the transient `['conversation','project-agents', undefined]` entry the computed key produces before the workspace read lands, which an exact key would not. Over-invalidation is bounded by TanStack's default `refetchType: 'active'` and by only one `ChatroomView` being mounted at a time; the refetch is `listProjectAgentNames`, the cheap projection FU-12 of the observer dossier introduced for exactly this path. |
 | Q-6 | Why does F-1's fix land in two files? | Both `chatroom.updated` handlers must invalidate: `useChatroomSocket.ts:418-423` (room channel) and `useObservations.ts:337-341` (creator's user channel). | The backend splits delivery deliberately (`chatrooms.py:313-317,331-333`). For an observer binding in a room with disclosure off, `room_visible` is false (`:813-818`), so the creator's user channel is the **only** delivery. A fix landing in the socket handler alone leaves the creator's other tabs stale, which is the case F-1 is most likely to be noticed in. |
 | Q-7 | Can F-1 also fix the rename case? | No, and the dossier says so rather than implying parity. | `backend/app/api/v1/agents.py` contains no `Publisher`, `publish` or `emit` at all, and `agent_service.py`'s `create` and `patch` call `audit.emit` only. No event exists for an agent create or rename, so a renamed agent's stale name is not repairable client-side. The reachable arm is "bound mid-session", where the id is absent from the map. Recorded as FU-1. The comment at `ChatroomView.vue:784-786` claims its own precedent handles "new authors (and renames)" while the guard at `:797` is an absence test, so it has the identical hole; §7.4 corrects that comment rather than copying its claim. |
-| Q-8 | How is F-2 fixed, given the codebase has no `cancelQueries` and no `onMutate` anywhere? | **Both**: `await qc.cancelQueries({ queryKey })` before the PUT **and** `void qc.invalidateQueries({ queryKey })` after the `setQueryData`. Neither alone is sufficient. | The two halves close different windows, which is why the first draft of this row was wrong to present them as alternatives. **Cancel-before** kills a fetch already in flight when the click happens, which is the ordering §4's repro produces. It cannot help against a fetch that *starts* after it: `toggleGroup` disables the checkbox (`savingGroups`) but not `refetchOnWindowFocus`, so a focus refetch issued while the PUT is in flight reads pre-PUT state, resolves after `:181`, and reverts the checkbox — F-2 reproduced against a cancel-only fix. **Invalidate-after** closes that one, and it genuinely aborts rather than merely racing: verified in `@tanstack/query-core@5.101.4` that `invalidateQueries` funnels into `refetchQueries` with `cancelRefetch: options.cancelRefetch ?? true` (`queryClient.js:156,165`), and `query.js:187-189` then calls `this.cancel({silent: true})` on the in-flight fetch whenever `state.data !== undefined`, which holds here because the picker only renders once `isSuccess`. It cannot replace cancel-before either, because between the click and the invalidate there is still a window in which a pre-PUT response can land and a second click can rebuild `next` from it. Rejected: **the house hand-rolled style** (a generation counter, as at `useChatroomSocket.ts:95-103`) cannot work at all, because the racing write is TanStack's own internal `setData` on fetch resolution, which no application-level guard can intercept; and **disabling focus refetch** would trade this defect for a staler picker on a room access control. |
+| Q-8 | How is F-2 fixed, given the codebase has no `cancelQueries` and no `onMutate` anywhere? | `void qc.invalidateQueries({ queryKey })` immediately after the `setQueryData`. **That alone**; see D-4 for why the `cancelQueries` this row originally also specified was removed during the build. | The invalidate does not merely race the stale read, it aborts it: verified in `@tanstack/query-core@5.101.4` that `invalidateQueries` funnels into `refetchQueries` with `cancelRefetch: options.cancelRefetch ?? true` (`queryClient.js:156,165`), and `query.js:187-189` then calls `this.cancel({silent: true})` on the in-flight fetch whenever `state.data !== undefined`, which holds here because the picker only renders once `isSuccess`. It then re-reads, so the server is the last writer whatever the ordering. Rejected alternatives: **the house hand-rolled style** (a generation counter, as at `useChatroomSocket.ts:95-103`) cannot work at all, because the racing write is TanStack's own internal `setData` on fetch resolution, which no application-level guard can intercept; and **disabling focus refetch** would trade this defect for a staler picker on a room access control. This row originally argued that a cancel before the PUT closed a second window the invalidate could not reach. That was wrong — every exit from `toggleGroup` already cancels, including `boundQuery.refetch()` on the failure arm — and D-4 records how it was found. |
 | Q-9 | How is F-5 repaired, and where is it wired? | Re-fetch the paged-in range on reconnect and merge through `mergeMessages`; wire it as an `onReconnect` callback passed into `useChatroomSocket`. | Chosen over dropping `olderMessages` to `[]`, which is one line and zero requests but collapses the feed's `scrollHeight` with nothing calling the scroll-preserve hooks (`useChatroomScroll.ts:117-130` are wired only around `loadEarlier`), jumping the reader's viewport and leaving the load sentinel near the top where it can immediately re-page the rows just dropped. Chosen over a per-id refetch, which is N requests and, worse, a behaviour regression: `refreshOlderMessage`'s catch arm (`:386-390`) drops the row on **any** error and cannot tell a 404 from a transient 5xx, so running it over N rows at reconnect (precisely when the network is unreliable) would silently delete visible history. The range repair detects deletions for free through `mergeMessages`' window semantics (`utils/mergeMessages.ts:8-15,17-44`), the same instrument `reconcileMessages` already uses, and keeps ids stable so the viewport does not move. The `onReconnect` seam is chosen over a view-owned `onStatus` subscription because both reconciles write history into the same rendered union and only the callback shape *can* sequence them; it also lets the new pass share `replayGeneration`. Note "can" is doing real work there: the existing burst fires everything un-awaited, so the seam makes the ordering possible without supplying it, and §7.4 constraint 3 is what actually requires it. |
 | Q-10 | Should the sweep extend beyond the conversation slice? | No. | The slice holds 17 of the frontend's 25 hand-written key literals. The other eleven slices contribute eight sites, five of them deliberate bare prefixes of the kind Q-11 describes, and none is a confirmed defect. Recorded as FU-3 of the audit and routed to `check-quality`. |
 | Q-11 | Should `convKeys` gain zero-argument prefix entries? | Yes, for `['conversation','chatrooms']` and `['conversation','project-agents']`, each documented as prefix-only. | No type-level change is needed: nothing consumes `convKeys` generically (no `keyof typeof`, no index access anywhere in `frontend/`), all ten entries already return `as const` tuples, and `invalidateQueries` accepts a `readonly unknown[]`. The argument for adding them is `queries/index.ts:20-22` itself, written about this exact class of bug: without an entry, this dossier leaves six hand-written literals naming the `chatrooms` prefix. The risk to guard is that a later reader passes a prefix entry to `useQuery` or `setQueryData` and creates a real third cache entry no `queryFn` feeds, so each entry carries a comment saying it is for invalidation only. |
@@ -478,27 +478,40 @@ the test.
 
 ### Phase 2
 
-- [ ] AC-6: T-4 through T-8 each fail against current code and pass after the phase.
+- [x] AC-6: T-4 through T-8 each failed against current code and pass after the phase.
+      Observed: T-4/T-5 with `Number of calls: 0` on the name-map key; T-6's two cases with
+      `expected [] to deeply equal [ 'mg_1' ]`, re-verified against a stashed fix after the
+      test was rewritten; T-7 and T-8 with `expected false to be true` on the rail's flag.
+      Two defects in the new tests were found and fixed rather than worked around: a
+      `gcTime: 0` client evicted the seeded rail before the mutation ran, making the assertion
+      vacuously false, and `isInvalidated` is the wrong instrument for an *observed* query
+      because the refetch clears the flag before it can be read — the workspace list is
+      asserted by its extra GET instead.
 - [ ] AC-7: Binding a newly created agent to a room a second session has open makes that
       agent's real name resolve in the second session's rail and in `@mention` send-time
-      resolution, without a reload or a blur. Executed against a running stack, or left
-      unticked.
-- [ ] AC-8: Both orderings are covered, not just the one §4 reproduces. A refetch already in
-      flight when the toggle is clicked leaves the group bound once both settle; **and** a
-      refetch that starts while the PUT is in flight does the same. A second toggle after
-      either does not remove the group. Q-8 records that these are two windows closed by two
-      different halves of the fix, so a test covering one proves nothing about the other.
-- [ ] AC-9: Deleting or creating a room from the chatroom list, and deleting or creating a
-      workspace, each refresh the sidebar recent rail — **and the workspace list itself still
-      refreshes on both of its own mutations.** The second clause is not redundant: the
-      workspace sites keep their existing `convKeys.workspaces` invalidation and gain a second
-      one, and replacing rather than adding would regress the list while leaving AC-9's first
-      clause green.
-- [ ] AC-10: No hand-written spelling of the `['conversation','chatrooms']` prefix remains in
-      `frontend/src` — the three existing literals in `useChatroomSettings.ts` are converted
-      along with the four new call sites.
-- [ ] AC-11: The corrected comment at `ChatroomView.vue:784-786` describes the absence test the
-      code performs and no longer claims renames are handled.
+      resolution, without a reload or a blur.
+      **Not executed** — needs a running stack and two sessions, one creating and binding an
+      agent while the other holds the room open. Docker was unavailable. T-4 and T-5 verify
+      that both handlers invalidate the name map; neither shows a second session resolving the
+      name, and neither drives `resolveMentions` end to end against a freshly bound agent.
+- [x] AC-8: Both orderings are covered — a refetch that starts before the fix's invalidate and
+      one that starts after — and both end with the applied set in the cache and the box
+      checked. **This criterion's "two different halves of the fix" clause is inaccurate as
+      written**, and D-4 records why: there is one half, the invalidate, and it closes both
+      orderings. The second-toggle arm is covered by construction rather than by test, since
+      `savingGroups` guards re-entry for the whole span; stated here rather than implied.
+- [x] AC-9: Both clauses. The rail is invalidated by chatroom create/delete and workspace
+      create/delete; the workspace list's own refresh is asserted by counting its GET, which is
+      exactly what a replacement-instead-of-addition regression would remove.
+- [x] AC-10: No hand-written spelling of the `['conversation','chatrooms']` prefix remains
+      anywhere in `frontend/src`, tests included — verified by grep, which returns only the
+      factory and prose comments. The three pre-existing literals in `useChatroomSettings.ts`
+      were converted along with the four new call sites, and `findInCache`'s prefix *read* with
+      them. The `project-agents` key was additionally brought behind the factory at both ends
+      (D-5).
+- [x] AC-11: The comment no longer claims renames are handled. It states that the guard is an
+      absence test, that a rename is invisible to it, and that the agent-side equivalent had
+      the same hole — which is F-1.
 
 ### Phase 3
 
@@ -538,6 +551,22 @@ from the build. Contract gates N/A: no migration, no API contract change (the em
 field to any response model), no new i18n keys. Full `pytest -q` and the rest of the matrix
 are pending CI, since the local host has no Postgres, Redis or Vault and its `tests/wiring/`
 tier fails with `socket.gaierror` regardless of any change.
+
+### Phase 2 verification record
+
+Committed as `de343ed` (F-1), `71258c8` (F-2), `9d44498` (F-4) and `bc7a748` (audit-gate
+corrections). Frontend-only, so the backend gates are N/A for this phase and were not re-run
+beyond phase 1's clean state. `pnpm test` 1803 passed across 233 files; `pnpm lint`
+(`--max-warnings=0`), `pnpm run typecheck` and `pnpm build` clean, no tracked-file churn from
+the build. No migration, no API contract change, no new i18n keys.
+
+`check-quality`: no Critical. Its two Warnings became D-4 and D-7, its Notes D-5 through D-7,
+and it confirmed AC-10 by exhaustive grep. Its most useful finding was the one that inverted
+a design decision: that no test could make `cancelQueries` matter. `check-security` was not
+re-run for this phase — the diff is client-side cache scheduling with no new endpoint, no new
+authorization surface, and no change to what any request returns; the one WebSocket handler
+touched gained an invalidation of a key the same viewer already fetches. Stated as a judgement
+rather than a skipped gate.
 
 **A note on the frontend baseline.** The dossier's AC-16 records 1788 as the pre-change
 figure, taken from the task brief. The suite reports 1795 after this phase added three cases,
@@ -610,6 +639,43 @@ only that the grant helper install `_spy_room_publisher`. Writing the null-patch
 the same reasoning applies to the assertion style: `test_a_patch_that_changes_nothing_emits_nothing`
 asserts `_PublisherSpy.emitted == []` across *all* channels rather than `_room_frames(...) == []`,
 because the creator's user channel is a delivery path a room-only assertion cannot see.
+
+### Phase 2
+
+**D-4 — Q-8 was wrong, and `cancelQueries` was removed rather than shipped.** The dossier
+specified cancel-before **and** invalidate-after as two halves closing two windows. The
+`check-quality` gate found that deleting the cancel left both race tests green, and tracing
+it out showed why: `invalidateQueries` defaults `cancelRefetch` to true
+(`queryClient.js:165` → `query.js:187-189`), so it aborts a parked read itself. A test was
+then written specifically to pin the cancel, on the failure arm where no invalidate runs —
+and it passed with the cancel deleted too, because `boundQuery.refetch()` defaults
+`cancelRefetch` to true on the same code path. Every exit from `toggleGroup` therefore
+already cancels. The line's only reachable effect was suppressing a sub-frame flicker inside
+the window where `savingGroups` has the control disabled, so it was removed as dead weight
+rather than kept as a guard no test could make fail. The reasoning is kept in the code
+comment so it is not re-added. **The fix is the invalidate alone**, and it closes both
+orderings. Q-8's rationale is corrected above.
+
+The general lesson is the project's own rule applied to work written this session: a
+mechanism is effective only when traced to its consumer, and one that cannot be made to fail
+looks exactly like one that works.
+
+**D-5 — `convKeys.projectAgents(projectId)` was added, which §7.3 did not call for.** Q-5
+specified only the prefix entry, because the invalidator has no project id. But that left the
+key's single *producer* (`ChatroomView.vue:527`) spelling the segment by hand while its
+invalidator went through the factory — the two able to drift apart in both directions
+silently, which is F-1's own defect shape one level up. Both now go through the factory.
+
+**D-6 — `frontend/tests/mocks/handlers.ts` was not touched, though §7.1 lists it and §8
+requires default member-group handlers for T-6.** Each new suite registers its own handlers
+through `server.use()`, which msw prepends ahead of the static list, so the default handlers
+were unnecessary. Recorded rather than left silent, since §8 asked for them by name.
+
+**D-7 — smaller corrections from the same gate.** The create path in `ChatroomListView.vue`
+carried a verbatim copy of the delete path's comment, describing a deletion; the `computed`
+wrapper around the member-groups query key advertised a reactivity its plain-string input
+does not have; and three of the new test cases lacked the baseline assertion that proves the
+seeded cache entry survived to the mutation. All corrected.
 
 **Observation, not a deviation.** The two new frontend invalidations are byte-identical to
 the `chatroom.updated` handler's at `:420-421`. Deliberately not extracted: phase 2 (F-1)
