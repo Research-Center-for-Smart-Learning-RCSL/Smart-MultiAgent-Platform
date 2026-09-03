@@ -118,8 +118,12 @@ const groupsQuery = useQuery({
   enabled: computed(() => !!projectId.value && flags.value.allow_member_groups),
 })
 
+// Named once so the query, the optimistic write, the cancel and the invalidate
+// cannot drift apart — the four together are what make F-2's fix hold.
+const boundGroupsKey = ['conversation', 'chatroomMemberGroups', chatroomId] as const
+
 const boundQuery = useQuery({
-  queryKey: computed(() => ['conversation', 'chatroomMemberGroups', chatroomId] as const),
+  queryKey: computed(() => boundGroupsKey),
   queryFn: () => listChatroomMemberGroups(chatroomId),
   enabled: computed(() => flags.value.allow_member_groups),
 })
@@ -152,20 +156,31 @@ const savingGroups = ref(false)
  *  re-render that the unchanged value cannot. */
 const pickerNonce = ref(0)
 
-/** Toggle one group in or out of the room's binding set.
- *
- *  Sends the whole resulting set, because the endpoint replaces rather than
- *  patches. That makes the read-back load-bearing: the next toggle computes its
- *  payload from `boundGroupIds`, so if the guard clears before the new set is in
- *  hand, a second click within that window rebuilds `next` from the stale value
- *  and the replace silently drops the group the first click just added. The
- *  server already returns the applied set, so it is written straight into the
- *  query cache and no refetch has to be raced. */
+/** Re-read both group queries. Wired to the load-failure retry only. */
 function reloadGroups(): void {
   void groupsQuery.refetch()
   void boundQuery.refetch()
 }
 
+/** Toggle one group in or out of the room's binding set.
+ *
+ *  Sends the whole resulting set, because the endpoint replaces rather than
+ *  patches. That makes the read-back load-bearing: the next toggle computes its
+ *  payload from `boundGroupIds`, so if the confirmed set is stale when the user
+ *  clicks again, the replace silently drops the group the first click just added.
+ *
+ *  The server returns the applied set, so it is written straight into the cache —
+ *  but that write has to be defended from the query's own refetches, and against
+ *  two different orderings (F-2). `boundQuery` overrides nothing, so it is always
+ *  stale and always focus-refetchable, and query-core writes a resolving fetch's
+ *  data unconditionally, with no regard for a manual write that landed meanwhile.
+ *
+ *  `cancelQueries` first kills a read already in flight when the click arrives.
+ *  The `invalidateQueries` after is not redundant: cancel cannot reach a refetch
+ *  that *starts* while the PUT is open, and an invalidate both aborts that one
+ *  (it defaults `cancelRefetch: true`) and re-reads from the server, which is
+ *  what makes the server the last writer either way. Without the pair, the box
+ *  flips back under a success toast and the next click deletes the binding. */
 async function toggleGroup(groupId: string): Promise<void> {
   // Belt to the template's braces: the picker is not rendered unless both
   // queries answered, and a payload built from an unanswered set would replace
@@ -177,8 +192,10 @@ async function toggleGroup(groupId: string): Promise<void> {
     : [...current, groupId]
   savingGroups.value = true
   try {
+    await qc.cancelQueries({ queryKey: boundGroupsKey })
     const applied = await setChatroomMemberGroups(chatroomId, next)
-    qc.setQueryData(['conversation', 'chatroomMemberGroups', chatroomId], applied)
+    qc.setQueryData(boundGroupsKey, applied)
+    void qc.invalidateQueries({ queryKey: boundGroupsKey })
     toast.success(t('conversation.settings.boundGroupsSaved', { count: applied.length }))
   } catch {
     // Re-read the server's answer, then force the picker to re-render onto it:

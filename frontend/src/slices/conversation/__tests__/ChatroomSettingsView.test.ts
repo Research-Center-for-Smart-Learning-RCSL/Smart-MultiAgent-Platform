@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
-import { renderView } from '../../../../tests/utils'
+import { renderView, deferred } from '../../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
 import ChatroomSettingsView from '../views/ChatroomSettingsView.vue'
 import type { Chatroom } from '../types'
@@ -415,6 +415,99 @@ describe('ChatroomSettingsView', () => {
     // Re-query: the fix re-creates the input, so the original handle is detached.
     const after = wrapper.find('.group-picker input[type="checkbox"]')
     expect((after.element as HTMLInputElement).checked).toBe(false)
+  })
+
+  // F-2. `boundQuery` overrides nothing, so it is always stale and always
+  // focus-refetchable, and `toggleGroup` wrote the applied set with
+  // `setQueryData` while cancelling nothing. query-core calls `setData`
+  // unconditionally when a fetch resolves, so a GET that was already in flight
+  // overwrote the applied set: the box flipped back under a success toast, and
+  // the next click rebuilt the payload from the reverted set and — since the
+  // endpoint replaces — deleted the binding the first click had added.
+  //
+  // Two orderings, closed by two different halves of the fix. Cancel-before
+  // handles a fetch already running at click time; it cannot touch one that
+  // starts during the PUT, which is what the invalidate-after is for.
+  describe.each([
+    { when: 'was already in flight when the toggle was clicked', startFetchFirst: true },
+    { when: 'started while the PUT was in flight', startFetchFirst: false },
+  ])('a bound-groups refetch that $when', ({ startFetchFirst }) => {
+    it('does not revert the applied set', async () => {
+      const room = makeChatroom({ allow_project_members: false, allow_member_groups: true })
+      // The server's own state, so a read issued after the PUT sees the write and
+      // only the *racing* read carries the pre-PUT set. Making every later read
+      // stale would model a server that forgets its own commit.
+      let serverSet: string[] = []
+      const stale = deferred<{ member_group_ids: string[] }>()
+      let getCalls = 0
+      server.use(
+        http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+        http.get('/api/workspaces/:id', () =>
+          HttpResponse.json({ id: 'ws_1', project_id: 'proj_1', name: 'WS' }),
+        ),
+        http.get('/api/projects/:id/member-groups', () =>
+          HttpResponse.json([
+            {
+              id: 'mg_1',
+              project_id: 'proj_1',
+              name: 'Group One',
+              version: 1,
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ]),
+        ),
+        // Read 1 answers immediately so the picker can render. Read 2 is the
+        // racing one: it resolves only when this test says so, and it carries
+        // whatever the server held when it was issued — the pre-PUT set. Reads
+        // after that see the committed write, as a real server would.
+        http.get('/api/chatrooms/:id/member-groups', async () => {
+          getCalls += 1
+          if (getCalls === 2) {
+            const observed = [...serverSet]
+            await stale.promise
+            return HttpResponse.json({ member_group_ids: observed })
+          }
+          return HttpResponse.json({ member_group_ids: [...serverSet] })
+        }),
+        http.put('/api/chatrooms/:id/member-groups', () => {
+          serverSet = ['mg_1']
+          return HttpResponse.json({ member_group_ids: [...serverSet] })
+        }),
+      )
+      const qc = seededClient([room])
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: qc,
+      })
+      await flushPromises()
+
+      const key = ['conversation', 'chatroomMemberGroups', 'cr_1']
+      if (startFetchFirst) {
+        // A window refocus, before the user clicks.
+        void qc.refetchQueries({ queryKey: key })
+        await Promise.resolve()
+      }
+
+      const box = wrapper.find('.group-picker input[type="checkbox"]')
+      const click = box.setValue(true)
+      if (!startFetchFirst) {
+        // The refocus lands while the PUT is still open.
+        await Promise.resolve()
+        void qc.refetchQueries({ queryKey: key })
+      }
+      await click
+      await flushPromises()
+
+      // Let the racing read land last, carrying the pre-PUT set.
+      stale.resolve({ member_group_ids: [] })
+      await flushPromises()
+      await flushPromises()
+
+      expect(qc.getQueryData(key)).toEqual(['mg_1'])
+      const after = wrapper.find('.group-picker input[type="checkbox"]')
+      expect((after.element as HTMLInputElement).checked).toBe(true)
+    })
   })
 
   it('refuses to render the group picker when the bound set could not be read', async () => {
