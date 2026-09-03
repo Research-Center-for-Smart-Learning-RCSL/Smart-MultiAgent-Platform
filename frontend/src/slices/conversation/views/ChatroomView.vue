@@ -405,7 +405,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -518,9 +518,14 @@ const workspaceQuery = useQuery({
   retry: false,
 })
 
+// FU-12: the name projection, not the full listing. This query runs on every
+// room open and its only consumer is the id→name map below, while `AgentOut`
+// carries `system_prompt` (bounded at 100k chars) — so a project with many
+// agents was paying megabytes on the critical path for two fields per row.
+// `useChatroomBindings` still reads the full records; it edits them.
 const projectAgentsQuery = useQuery({
   queryKey: computed(() => ['conversation', 'project-agents', workspaceQuery.data.value?.project_id]),
-  queryFn: () => listProjectAgents(workspaceQuery.data.value!.project_id),
+  queryFn: () => listProjectAgentNames(workspaceQuery.data.value!.project_id),
   enabled: computed(() => !!workspaceQuery.data.value?.project_id),
   retry: false,
 })
