@@ -179,7 +179,15 @@ def _bound_agent(agent_id, *, role=None, granted=False, allowlist=()):
 
 
 def _wire_grant_route(monkeypatch, *, access, written=True, resolves=True):
-    """Stub everything the grant route reaches except the decision under test."""
+    """Stub everything the grant route reaches except the decision under test.
+
+    The publisher spy is installed here rather than per-test on purpose. The route
+    emits, and `_emit_chatroom_updated` swallows transport failure by design — so
+    without the spy every test below would construct the real `Publisher`, fail to
+    reach Redis, have the failure logged and discarded, and pass while asserting
+    nothing about what was emitted. A frame assertion that cannot fail is worse
+    than no frame assertion.
+    """
     import app.api.v1.chatrooms as chatrooms_mod
     from contexts.activities.domain.errors import ActivityTypeNotFound
 
@@ -208,6 +216,7 @@ def _wire_grant_route(monkeypatch, *, access, written=True, resolves=True):
         "contexts.activities.interfaces.facade.ActivitiesFacade",
         _Facade,
     )
+    _spy_room_publisher(monkeypatch, chatrooms_mod)
     return chatrooms_mod, calls
 
 
@@ -342,6 +351,60 @@ async def test_revoking_needs_no_type_ids_and_resolves_none(monkeypatch) -> None
 
     assert calls["resolved"] == []
     assert calls["grant"][0]["granted"] is False
+
+
+@pytest.mark.asyncio
+async def test_activity_control_grant_reaches_the_creator_and_never_the_room(
+    monkeypatch,
+) -> None:
+    """FU-11: the grant was the one binding write that announced nothing.
+
+    Room-visible is `False` here, unlike every other binding write, and the reason
+    is not a disclosure flag — there is none for this. `list_chatroom_agents`
+    serialises `may_control_activities` and `activity_type_allowlist` as `None` for
+    a non-creator under `response_model_exclude_none`, so those fields are dropped
+    from the response entirely, and neither appears in `ChatroomOut`. A non-creator
+    who received this frame would re-read an unchanged DTO *and* an unchanged agent
+    listing, which is exactly the "an invisible write happened" signal the
+    room-visible gate exists to withhold.
+    """
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, _calls = _wire_grant_route(monkeypatch, access=access)
+
+    await mod.patch_chatroom_agent_activity_control(
+        body=mod.AgentActivityControlIn(granted=True, activity_type_ids=[uuid.uuid4()]),
+        chatroom_id=chatroom_id,
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=_committing_db(),
+    )
+
+    _assert_creator_only(chatroom_id, uid)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_activity_control_grant_emits_nothing(monkeypatch) -> None:
+    """The 404 arm must not announce a write that did not happen."""
+    uid = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod, _calls = _wire_grant_route(monkeypatch, access=access, written=False)
+
+    with pytest.raises(HTTPException) as exc:
+        await mod.patch_chatroom_agent_activity_control(
+            body=mod.AgentActivityControlIn(granted=False),
+            chatroom_id=chatroom_id,
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(uid),
+            db=_committing_db(),
+        )
+
+    assert exc.value.status_code == 404
+    assert _PublisherSpy.emitted == []
 
 
 def test_the_allowlist_is_bounded() -> None:
@@ -1154,10 +1217,17 @@ async def test_draft_access_grant_with_disclosure_off_is_silent(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
-    """Scoped to the disclosure path per §7.2. A rename going stale on a live
-    viewer is a real but separate defect (FU-7); widening the emit here would
-    change behaviour this dossier did not analyse."""
+async def test_a_rename_emits_ids_only_chatroom_updated(monkeypatch) -> None:
+    """A rename moves `name`, which every viewer reads, so it is announced.
+
+    This inverts the assertion that stood here while the emit was scoped to the
+    disclosure fields. The reason the narrow gate was safe to widen is that *every*
+    field `ChatroomPatchIn` accepts is in the DTO a non-creator reads and in the
+    one a pure guest reads — `_to_out` conditions on the viewer for only
+    `created_by_user_id`, `disclose_observers`, `observers_present` and
+    `is_moderator`, none of them patchable. So no patch can produce the
+    frame-with-an-unchanged-DTO that the room-visible gate exists to withhold.
+    """
     chatroom_id = uuid.uuid4()
     mod = _wire_patch_handler(
         monkeypatch,
@@ -1177,7 +1247,36 @@ async def test_non_disclosure_patch_emits_nothing(monkeypatch) -> None:
         db=_committing_db(),
     )
 
-    assert _room_frames(chatroom_id) == []
+    _assert_ids_only_updated_frame(chatroom_id)
+
+
+@pytest.mark.asyncio
+async def test_an_empty_patch_still_emits_nothing(monkeypatch) -> None:
+    """The widened gate is `if fields:`, not `if True:`.
+
+    A patch naming no field changes nothing, so it must stay silent — the same
+    truthiness the capability gate above already relies on.
+    """
+    chatroom_id = uuid.uuid4()
+    mod = _wire_patch_handler(
+        monkeypatch,
+        access=None,
+        cap_calls=[],
+        patched=[],
+        roles=frozenset({Role.PROJECT_OWNER}),
+    )
+    _spy_room_publisher(monkeypatch, mod)
+
+    await mod.patch_chatroom(
+        mod.ChatroomPatchIn(),
+        chatroom_id=chatroom_id,
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(),
+        db=_committing_db(),
+    )
+
+    assert _PublisherSpy.emitted == []
 
 
 # --------------------------------------------------------------------------- #
