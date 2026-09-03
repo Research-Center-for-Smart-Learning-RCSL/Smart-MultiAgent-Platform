@@ -611,6 +611,17 @@ successful one. Emitting only on a real deletion would have made the frame's abs
 oracle O-5's silent 204 exists to prevent. The cost of emitting always is one cached GET
 per viewer on a no-op nobody but the caller triggered.
 
+**D-6 — `patch_chatroom_agent_draft_access` also emits, which §7.2 did not ask for.**
+Raised by a `/code-review` pass after the PR was green. §7.2 names four writers, all
+chosen for `observers_present`. But `_to_out`'s `drafts_readable` is
+`disclose_drafts AND has_draft_readers` ([R32.05]), and this phase put an emit on
+`patch_chatroom` — which moves the first term, since `disclose_drafts` is in
+`_DISCLOSURE_FIELDS` — while the route that moves the second term had none. That left the
+pair half-fresh in a way phase 1 itself introduced: flipping the disclosure would refresh
+every participant's "an agent here can read what you are typing" chip, while granting the
+reading it discloses would not. Fixed rather than deferred, because the asymmetry is this
+phase's own and the fix is one call to the helper the phase already added, with a test.
+
 **D-5 — the F-7 error banner renders beside the cached rows, not instead of them.** §7.2
 says to render `SQueryError` "in place of the empty state", which is what shipped; the
 first implementation went further and replaced the list as well, and a self-audit caught
@@ -647,23 +658,33 @@ established.
   `if fields & _DISCLOSURE_FIELDS`) plus a test; the reason to think before making it is
   that a settings form writing several fields in sequence would then emit several frames.
 
-- **FU-8** (opened by phase 1, **security**) — the new frame is a narrow
-  observer-existence timing oracle for a room with disclosure **off**. §9 analysed the
-  payload (which carries nothing) and the fan-out (which reaches only principals who
-  already passed `ensure_can_read` for this room, and who already know its id), but not
-  the frame's *timing*. A participant who correlates can infer one bit: binding a normal
-  agent produces a frame **and** a visible new row in `GET /chatrooms/{id}/agents`, while
-  binding an observer produces a frame and no visible change in either response, because
-  `list_chatroom_agents` filters observer rows out for non-creators. A frame with no
-  observable delta therefore implies an observer-role write occurred. It discloses no
-  observer identity, no observation content, and nothing at all when disclosure is on
-  (where `observers_present` is what [R28.09] requires the participant to be told anyway).
-  It is nonetheless the inference class O-5 and [R28.10] go out of their way to close, and
-  the obvious mitigations each cost something real: suppressing the frame when disclosure
-  is off reintroduces F-10(c)'s stale roster for those rooms, and gating on the room's
-  disclosure flag costs a room read in two handlers that do not currently perform one.
-  Rated MEDIUM: no data crosses a tenant or room boundary, and the attacker must already
-  be a participant of the room.
+- **FU-8** (opened by phase 1, **security**) — the new frame's *timing* is an
+  observer-existence oracle for a room with disclosure **off**. §9 analysed the payload
+  (which carries nothing) and the fan-out (which reaches only principals who already
+  passed `ensure_can_read` for this room, and who already know its id), but not whether
+  the *existence* of a frame is itself disclosive. It is: the frame is emitted only on
+  bind, unbind, role change and disclosure toggles, so a viewer who receives one and then
+  sees both `GET /chatrooms/{id}` and `GET /chatrooms/{id}/agents` come back unchanged has
+  learned that an observer-role write or a disclosure change just happened. Binding a
+  *normal* agent is distinguishable because it adds a visible row to the agents listing;
+  an observer binding is filtered out of that listing for non-creators, so it produces a
+  frame with no observable delta.
+
+  **The sharp case is a pure guest**, found by a `/code-review` pass after the phase-1 PR
+  was green. `ws_chatroom` admits a guest — `can_read` is satisfied by a guest link — so a
+  guest receives every room frame, while `_to_out` (O-8, [R28.02]) works hard to give that
+  same guest neutralised values precisely so the DTO is *not* an observer-existence
+  oracle. The frame reinstates as a side channel what the DTO refuses to answer directly.
+
+  Nothing identifies which agent, whether one is currently bound, or any observation
+  content, and the channel is inert when disclosure is on (where [R28.09] requires the
+  participant to be told anyway). The obvious mitigations each cost something real:
+  suppressing the frame when disclosure is off reintroduces F-10(c)'s stale roster for
+  those rooms; gating on the room's disclosure flag costs a room read in two handlers that
+  do not currently perform one; and a per-recipient or non-guest-only channel does not
+  exist today. Rated MEDIUM — no data crosses a tenant or room boundary — but it should be
+  settled before phase 2 rather than after, since P2 adds no new emitters and is the last
+  cheap moment to change the event's shape.
 
 - **FU-6** — Record which pack revision an installed agent came from. Q-8's answer is correct
   under today's design, but the reason there is no update path is that `agents` has no
