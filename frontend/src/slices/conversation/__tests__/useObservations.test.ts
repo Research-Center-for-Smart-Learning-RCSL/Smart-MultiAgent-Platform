@@ -39,15 +39,12 @@ vi.mock('@shared/stores/session', () => ({
   }),
 }))
 
-// Kept mocked after F-3 removed the import: the mock is what lets T-4 assert
-// the member list is never requested, which is the half of the fix a passing
-// `isCreator` alone would not prove.
-const listMembersMock = vi.hoisted(() => vi.fn(async () => []))
-vi.mock('@slices/tenancy', () => ({
-  tenancyKeys: { projectMembers: (p: string) => ['tenancy', 'members', p] },
-  projectsApi: { listMembers: listMembersMock },
-}))
-
+// F-3 removed `@slices/tenancy` from `useObservations.ts` entirely, so the mock
+// that used to stand in for `projectsApi.listMembers` is gone with it. Asserting
+// "the member list was never fetched" against a mock the module can no longer
+// reach would pass whether or not the fix were present; that half of F-3 is now a
+// structural guarantee (there is no import to call) and is checked by AC-6 and the
+// boundaries lint rather than by a test that cannot fail.
 const listObservationsMock = vi.hoisted(() => vi.fn())
 const deleteObservationMock = vi.hoisted(() => vi.fn(async () => undefined))
 const releaseObservationMock = vi.hoisted(() => vi.fn())
@@ -131,7 +128,6 @@ describe('useObservations', () => {
   beforeEach(() => {
     for (const k of Object.keys(handlers)) delete handlers[k]
     sessionMe.value = { id: CREATOR, is_admin: false }
-    listMembersMock.mockClear()
     listObservationsMock.mockReset()
     listObservationsMock.mockResolvedValue([])
     deleteObservationMock.mockClear()
@@ -174,7 +170,6 @@ describe('useObservations', () => {
     await flushPromises()
 
     expect(m.api.isCreator.value).toBe(true)
-    expect(listMembersMock).not.toHaveBeenCalled()
   })
 
   it('T-4: a NULL-creator room without moderator standing stays closed', async () => {
@@ -184,7 +179,6 @@ describe('useObservations', () => {
     await flushPromises()
 
     expect(m.api.isCreator.value).toBe(false)
-    expect(listMembersMock).not.toHaveBeenCalled()
   })
 
   it('T-4: is_moderator does not open a room that has a real creator', async () => {
