@@ -46,7 +46,10 @@ export const AGENT_THINKING_TIMEOUT_MS = 120_000
 // plausibility at the cost of putting a gate somewhere it does not belong.
 export const UNKNOWN_STARTED_AT = 'unknown'
 
-export function useChatroomSocket(roomId: string) {
+export function useChatroomSocket(
+  roomId: string,
+  onReconnect?: () => Promise<void>,
+) {
   const qc = useQueryClient()
   const store = useConversationStore()
   const orchStore = useOrchestrationStore()
@@ -121,7 +124,7 @@ export function useChatroomSocket(roomId: string) {
       // No cursor yet (empty or never-synced room): there is no delta to fetch,
       // so refetch the latest page instead. Without this a degraded-mode poll
       // would silently no-op for a room that never managed an initial sync.
-      await qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
+      await qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
       return
     }
     const generation = ++replayGeneration
@@ -134,7 +137,7 @@ export function useChatroomSocket(roomId: string) {
       // Fall back to a full query invalidation so TanStack refetches the
       // latest page instead of silently losing messages.
       if (generation === replayGeneration) {
-        qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
+        qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
       }
     }
   }
@@ -278,7 +281,7 @@ export function useChatroomSocket(roomId: string) {
 
   function applyMessageCreated(m: Message): void {
     if (!deletedTombstones.has(m.id)) {
-      const key = ['conversation', 'messages', roomId]
+      const key = convKeys.messages(roomId)
       qc.setQueryData<Message[]>(key, (prev) => {
         if (!prev) return [m]
         if (prev.some((x) => x.id === m.id)) return prev
@@ -307,7 +310,7 @@ export function useChatroomSocket(roomId: string) {
       // cache contents (order-independent), on every write to this key.
       const page = await listMessages(roomId, { limit: PAGE_SIZE })
       if (generation !== replayGeneration) return
-      const key = ['conversation', 'messages', roomId]
+      const key = convKeys.messages(roomId)
       qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page))
       for (const m of page) clearAgentSideEffects(m)
     } catch {
@@ -377,7 +380,7 @@ export function useChatroomSocket(roomId: string) {
             .then((fresh) => {
               if (messageUpdateGeneration.get(updatedId) !== generation) return
               qc.setQueryData<Message[]>(
-                ['conversation', 'messages', roomId],
+                convKeys.messages(roomId),
                 (prev) => prev?.map((m) => (m.id === fresh.id ? fresh : m)),
               )
             })
@@ -398,7 +401,7 @@ export function useChatroomSocket(roomId: string) {
         if (deletedId) {
           tombstoneDeletedMessage(deletedId)
           qc.setQueryData<Message[]>(
-            ['conversation', 'messages', roomId],
+            convKeys.messages(roomId),
             (prev) => prev?.filter((m) => m.id !== deletedId),
           )
         }
@@ -640,7 +643,13 @@ export function useChatroomSocket(roomId: string) {
       store.clearAllAgentThinking(roomId)
       resetAgentStream()
       clearThinkingTimeout()
-      void reconcileMessages()
+      // F-5 constraint 3: reconcileOlder must run after reconcileMessages has
+      // RESOLVED, not merely after it was started, because both passes write
+      // overlapping history into the same rendered union. The rest of the burst
+      // stays un-awaited.
+      void reconcileMessages().then(() => {
+        if (isReconnect && onReconnect) return onReconnect()
+      })
       void resyncPresence()
       void resyncActivation()
       // F-3. `chatroom.updated` is these two keys' only invalidator, and Redis
