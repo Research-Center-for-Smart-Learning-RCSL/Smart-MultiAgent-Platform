@@ -22,7 +22,7 @@
           <SButton
             variant="ghost"
             icon-only
-            size="xs"
+            size="sm"
             :aria-label="t('conversation.guest.editName')"
             @click="startEditName"
           >
@@ -45,14 +45,14 @@
             <SButton
               type="submit"
               variant="primary"
-              size="xs"
+              size="sm"
               :disabled="!editNameValue.trim()"
             >
               {{ t('conversation.chatroom.save') }}
             </SButton>
             <SButton
               variant="ghost"
-              size="xs"
+              size="sm"
               @click="cancelEditName"
             >
               {{ t('conversation.chatroom.cancel') }}
