@@ -153,9 +153,13 @@ async def _resolve_guest_access(
     if workspace is None:
         raise WorkspaceNotFound(str(chatroom.workspace_id))
 
+    project = await TenancyFacade(db).get_project(workspace.project_id)
+    if project is None:
+        raise ChatroomNotFound(str(chatroom_id))
+
     return RoomAccess(
         chatroom=chatroom,
-        project_id=workspace.project_id,
+        project_id=project.id,
         roles=frozenset(),
         is_guest=True,
     )
