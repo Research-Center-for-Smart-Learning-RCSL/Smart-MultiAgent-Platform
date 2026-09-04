@@ -1,4 +1,5 @@
 export {
+  http,
   getAccessToken,
   setAccessToken,
   getRefreshToken,
@@ -8,6 +9,10 @@ export {
   decodeJwtClaims,
   refreshAccessToken,
   fetchWsTicket,
+  setGuestContext,
+  clearGuestContext,
+  getGuestChatroomId,
+  isGuestSession,
 } from './axios'
 
 export { wsManager, Channel } from './ws-manager'
