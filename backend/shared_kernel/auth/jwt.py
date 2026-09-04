@@ -164,4 +164,110 @@ def verify_access_token(token: str) -> AccessClaims:
     )
 
 
-__all__ = ["AccessClaims", "JwtError", "sign_access_token", "verify_access_token"]
+_TOKEN_USE_GUEST: Final = "guest_access"  # noqa: S105 — claim value, not a credential
+
+
+@dataclass(frozen=True, slots=True)
+class GuestClaims:
+    guest_session_id: uuid.UUID
+    chatroom_id: uuid.UUID
+    display_name: str
+    jti: uuid.UUID
+    exp: datetime
+    iat: datetime
+
+    def remaining_ttl(self, *, now_: datetime | None = None) -> timedelta:
+        return self.exp - (now_ or now())
+
+
+def sign_guest_token(
+    *,
+    guest_session_id: uuid.UUID,
+    chatroom_id: uuid.UUID,
+    display_name: str,
+) -> tuple[str, GuestClaims]:
+    """Mint a chatroom-scoped guest access token."""
+    cfg = _cfg()
+    issued = now()
+    exp = issued + timedelta(seconds=cfg.guest_access_ttl_seconds)
+    jti = uuid.uuid4()
+    claims: dict[str, Any] = {
+        "iss": cfg.issuer,
+        "aud": cfg.audience,
+        "sub": str(guest_session_id),
+        "iat": int(issued.timestamp()),
+        "nbf": int(issued.timestamp()),
+        "exp": int(exp.timestamp()),
+        "jti": str(jti),
+        "token_use": _TOKEN_USE_GUEST,
+        "rol": "guest",
+        "chatroom_id": str(chatroom_id),
+        "display_name": display_name,
+    }
+    token = get_vault_client().sign_jwt(claims)
+    return token, GuestClaims(
+        guest_session_id=guest_session_id,
+        chatroom_id=chatroom_id,
+        display_name=display_name,
+        jti=jti,
+        exp=exp,
+        iat=issued,
+    )
+
+
+def verify_guest_token(token: str) -> GuestClaims:
+    """Validate a guest access JWT. Raises JwtError on any failure."""
+    cfg = _cfg()
+    try:
+        claims = get_vault_client().verify_jwt(token)
+    except VaultError as exc:
+        raise JwtError(str(exc)) from exc
+
+    try:
+        iss = claims["iss"]
+        aud = claims["aud"]
+        sub = uuid.UUID(claims["sub"])
+        jti = uuid.UUID(claims["jti"])
+        iat = datetime.fromtimestamp(int(claims["iat"]), tz=now().tzinfo)
+        exp = datetime.fromtimestamp(int(claims["exp"]), tz=now().tzinfo)
+        nbf = datetime.fromtimestamp(int(claims["nbf"]), tz=now().tzinfo)
+        chatroom_id = uuid.UUID(claims["chatroom_id"])
+        display_name = str(claims["display_name"])
+    except (KeyError, ValueError, TypeError) as exc:
+        raise JwtError(f"malformed guest claim set: {exc}") from exc
+
+    if iss != cfg.issuer:
+        raise JwtError(f"issuer mismatch: {iss!r}")
+    if aud != cfg.audience:
+        raise JwtError(f"audience mismatch: {aud!r}")
+    if claims.get("token_use") != _TOKEN_USE_GUEST:
+        raise JwtError("token_use claim is not 'guest_access'")
+    current = now()
+    if iat >= exp:
+        raise JwtError("malformed claim set: iat >= exp")
+    if iat - _LEEWAY > current:
+        raise JwtError("guest token issued in the future")
+    if exp + _LEEWAY < current:
+        raise JwtError("guest token expired")
+    if current + _LEEWAY < nbf:
+        raise JwtError("guest token not yet valid")
+
+    return GuestClaims(
+        guest_session_id=sub,
+        chatroom_id=chatroom_id,
+        display_name=display_name,
+        jti=jti,
+        exp=exp,
+        iat=iat,
+    )
+
+
+__all__ = [
+    "AccessClaims",
+    "GuestClaims",
+    "JwtError",
+    "sign_access_token",
+    "sign_guest_token",
+    "verify_access_token",
+    "verify_guest_token",
+]

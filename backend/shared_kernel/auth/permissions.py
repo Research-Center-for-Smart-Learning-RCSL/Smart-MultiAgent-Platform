@@ -106,6 +106,8 @@ class Principal:
     user_id: uuid.UUID
     is_admin: bool
     email_verified: bool
+    is_guest: bool = False
+    chatroom_id: uuid.UUID | None = None
 
 
 # ---------------------------------------------------------------------------
