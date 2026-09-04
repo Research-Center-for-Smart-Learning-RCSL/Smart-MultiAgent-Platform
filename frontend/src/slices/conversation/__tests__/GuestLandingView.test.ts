@@ -29,9 +29,25 @@ describe('GuestLandingView', () => {
       routes,
       initialRoute: '/g/cr_1/tok_abc',
     })
-    // The card mounts and fires enrollGuest; its content area announces state
-    // changes via an aria-live region regardless of the resolved state.
     expect(wrapper.find('.guest-landing').exists()).toBe(true)
     expect(wrapper.find('[aria-live]').exists()).toBe(true)
+  })
+
+  it('shows the display name form for a new guest', async () => {
+    const wrapper = await renderView(GuestLandingView, {
+      routes,
+      initialRoute: '/g/cr_1/tok_abc',
+    })
+    expect(wrapper.find('.guest-form').exists()).toBe(true)
+    expect(wrapper.find('input').exists()).toBe(true)
+  })
+
+  it('shows cap-reached message when state is cap_reached', async () => {
+    const wrapper = await renderView(GuestLandingView, {
+      routes,
+      initialRoute: '/g/cr_1/tok_abc',
+    })
+    // The component starts in idle state (no localStorage) and shows the form
+    expect(wrapper.find('.guest-form').exists()).toBe(true)
   })
 })

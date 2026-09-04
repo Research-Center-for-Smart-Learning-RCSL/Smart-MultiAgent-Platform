@@ -353,7 +353,19 @@
       "error": "加入失敗。連結可能無效或已過期。",
       "invalidToken": "此連結已失效。聊天室可能已被刪除，或訪客存取已停用。",
       "networkError": "無法連線。請檢查您的網路連線後再試一次。",
-      "retry": "再試一次"
+      "retry": "再試一次",
+      "welcomeBack": "歡迎回來，{name}",
+      "changeName": "變更名稱",
+      "capReached": "此聊天室已達到訪客人數上限。請稍後再試。",
+      "sessionExpired": "您的訪客工作階段已過期。請點選邀請連結重新加入。",
+      "guestDisabled": "聊天室擁有者已停用訪客存取。",
+      "rejoin": "重新加入",
+      "displayNameUpdated": "顯示名稱已更新。",
+      "displayNameUpdateFailed": "更新顯示名稱失敗。",
+      "editName": "編輯名稱",
+      "chooseEntry": "您已登入。要以何種方式進入此聊天室？",
+      "enterAsGuest": "以訪客身分進入",
+      "enterAsUser": "以 {name} 身分進入"
     },
     "drafts": {
       "discloseLabel": "告訴大家有代理讀得到他們正在打的字",

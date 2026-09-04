@@ -353,7 +353,19 @@
       "error": "Failed to join. The link may be invalid or expired.",
       "invalidToken": "This link is no longer valid. The chatroom may have been deleted or guest access may have been disabled.",
       "networkError": "Could not connect. Please check your connection and try again.",
-      "retry": "Try Again"
+      "retry": "Try Again",
+      "welcomeBack": "Welcome back, {name}",
+      "changeName": "Change name",
+      "capReached": "This chatroom has reached its guest limit. Please try again later.",
+      "sessionExpired": "Your guest session has expired. Click the invite link to rejoin.",
+      "guestDisabled": "Guest access has been disabled by the room owner.",
+      "rejoin": "Rejoin",
+      "displayNameUpdated": "Display name updated.",
+      "displayNameUpdateFailed": "Failed to update display name.",
+      "editName": "Edit name",
+      "chooseEntry": "You are logged in. How would you like to enter this chatroom?",
+      "enterAsGuest": "Enter as Guest",
+      "enterAsUser": "Enter as {name}"
     },
     "drafts": {
       "discloseLabel": "Tell people when an agent can read what they are typing",

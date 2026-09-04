@@ -63,6 +63,10 @@ class GuestTokenInvalid(ConversationError):
     code = "conversation/guest-token-invalid"
 
 
+class GuestCapReached(ConversationError):
+    code = "guest/cap-reached"
+
+
 # ---- F.5 attachment / tus errors ----------------------------------------- #
 
 
@@ -178,6 +182,7 @@ __all__ = [
     "ExportJobNotFound",
     "ExportJobNotReady",
     "ForbiddenInRoom",
+    "GuestCapReached",
     "GuestTokenInvalid",
     "InvalidReleaseTarget",
     "MessageEditWindowExceeded",

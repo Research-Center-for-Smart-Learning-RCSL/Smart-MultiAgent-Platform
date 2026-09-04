@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-09-04
 requirements: [R5.04, R6.02, R6.11, R6.12, R13.05, R13.06, R13.07, R13.33, R24.43]
 depends_on: []
@@ -604,60 +604,60 @@ a Phase 1 deliverable (cleanup worker).
 
 ### Phase 1 -- Backend core
 
-- [ ] AC-1: `POST /api/guest/{chatroom_id}/{guest_token}/session` creates a
+- [x] AC-1: `POST /api/guest/{chatroom_id}/{guest_token}/session` creates a
   `guest_sessions` row and returns `{ access_token, refresh_token, guest_session_id,
   display_name, is_resuming: false }` with a 204-compatible httpOnly refresh cookie.
   No user row is created.
-- [ ] AC-2: The returned `access_token` is a valid JWT with `token_use: "guest_access"`,
+- [x] AC-2: The returned `access_token` is a valid JWT with `token_use: "guest_access"`,
   `rol: "guest"`, `chatroom_id`, and `display_name` claims. TTL = configured
   `guest_access_ttl_seconds`.
-- [ ] AC-3: Passing a `browser_id` that matches an existing session for the same
+- [x] AC-3: Passing a `browser_id` that matches an existing session for the same
   chatroom returns `is_resuming: true` and reuses the existing `guest_session_id`.
-- [ ] AC-4: When the active guest count for a chatroom reaches the configured cap,
+- [x] AC-4: When the active guest count for a chatroom reaches the configured cap,
   the endpoint returns 429 with problem type `/guest/cap-reached`.
-- [ ] AC-5: `POST /api/guest/{chatroom_id}/refresh` with a valid refresh cookie
+- [x] AC-5: `POST /api/guest/{chatroom_id}/refresh` with a valid refresh cookie
   returns a new `access_token` and rotates the refresh cookie.
-- [ ] AC-6: The auth middleware constructs a `Principal` with `is_guest=True` and
+- [x] AC-6: The auth middleware constructs a `Principal` with `is_guest=True` and
   `chatroom_id` for guest JWTs, without calling the identity context.
-- [ ] AC-7: A guest principal can open a WebSocket to their scoped chatroom via the
+- [x] AC-7: A guest principal can open a WebSocket to their scoped chatroom via the
   ticket flow (`POST /api/guest/ws-ticket` -> subprotocol auth). Connection to
   any other chatroom is rejected with close code 4403.
-- [ ] AC-8: A guest can send a message; the resulting `messages` row has
+- [x] AC-8: A guest can send a message; the resulting `messages` row has
   `sender_type = 'guest'` and `sender_id = guest_session_id`.
-- [ ] AC-9: Guest actions produce `audit_logs` entries with
+- [x] AC-9: Guest actions produce `audit_logs` entries with
   `actor_user_id = guest_session_id` and `metadata @> '{"guest": true}'`.
-- [ ] AC-10: An Arq periodic task deletes `guest_sessions` rows where `last_seen_at`
+- [x] AC-10: An Arq periodic task deletes `guest_sessions` rows where `last_seen_at`
   is older than 30 days.
-- [ ] AC-11: The existing `POST /api/guest/{chatroom_id}/{guest_token}/enroll`
+- [x] AC-11: The existing `POST /api/guest/{chatroom_id}/{guest_token}/enroll`
   endpoint continues to work for registered users.
 
 ### Phase 2 -- Frontend direct entry
 
-- [ ] AC-12: An unauthenticated visitor clicking a guest link sees the display-name
+- [x] AC-12: An unauthenticated visitor clicking a guest link sees the display-name
   form directly, without passing through Landing.vue's brand animation or the
   login page.
-- [ ] AC-13: After entering a display name and submitting, the visitor enters the
+- [x] AC-13: After entering a display name and submitting, the visitor enters the
   chatroom within one navigation (no intermediate pages).
-- [ ] AC-14: The guest token is stripped from the browser URL after enrollment
+- [x] AC-14: The guest token is stripped from the browser URL after enrollment
   (R24.43).
-- [ ] AC-15: A returning guest (same browser, same chatroom) sees "Welcome back,
+- [x] AC-15: A returning guest (same browser, same chatroom) sees "Welcome back,
   {name}" with an option to change the display name.
-- [ ] AC-16: The guest's access JWT is refreshed silently before expiry using the
+- [x] AC-16: The guest's access JWT is refreshed silently before expiry using the
   httpOnly cookie. No user interaction required.
-- [ ] AC-17: The guest's WebSocket connection is established via the guest ticket
+- [x] AC-17: The guest's WebSocket connection is established via the guest ticket
   endpoint and remains connected across JWT refreshes.
-- [ ] AC-18: When the guest cap is reached, the enrollment form shows a clear
+- [x] AC-18: When the guest cap is reached, the enrollment form shows a clear
   "chatroom is full" message (not a generic error).
 
 ### Phase 3 -- UX polish
 
-- [ ] AC-19: The settings gear icon is hidden for guests.
-- [ ] AC-20: When a guest's session expires and cannot be refreshed, an inline
+- [x] AC-19: The settings gear icon is hidden for guests.
+- [x] AC-20: When a guest's session expires and cannot be refreshed, an inline
   banner shows "Session expired" with a rejoin link.
-- [ ] AC-21: A guest can update their display name from the participant list.
-- [ ] AC-22: When `allow_guest_links` is toggled off while a guest is connected,
+- [x] AC-21: A guest can update their display name from the participant list.
+- [x] AC-22: When `allow_guest_links` is toggled off while a guest is connected,
   the guest sees "Guest access has been disabled" (not a generic error).
-- [ ] AC-23: When a logged-in user clicks a guest link, they see a choice between
+- [x] AC-23: When a logged-in user clicks a guest link, they see a choice between
   anonymous guest entry and entering with their registered account.
 
 ## 12. Test Plan
@@ -787,7 +787,40 @@ verification gate.
 
 ## 15. Deviation Log
 
-Empty -- not yet implemented.
+- **D-1: Refresh token hash uses SHA-256, not Argon2.** The spec mentions "Argon2 hash"
+  for `refresh_token_hash`, but the existing `shared_kernel.auth.tokens.hash_refresh`
+  uses SHA-256 (matching `sessions.refresh_token_hash`). Followed the existing pattern
+  for consistency.
+
+- **D-2: OQ-1 confirmed and resolved.** `delete_message`'s `is_author` check hard-coded
+  `sender_type.value == "user"`, which would reject a guest deleting their own message.
+  Fixed to accept both `"user"` and `"guest"`.
+
+- **D-3: Guest endpoints placed in AUTH rate-limit bucket.** The spec requires per-IP
+  rate limiting matching the login endpoint. Added `/api/guest/` prefix to the AUTH
+  bucket in the rate-limit middleware.
+
+- **D-4: localStorage stores display_name alongside browser_id.** The spec lists
+  `{ browser_id, guest_session_id }` for the localStorage entry. The implementation
+  adds `display_name` so the "Welcome back, {name}" UI works without a probe API call
+  on mount. A server-side probe would require calling `createGuestSession` with an
+  empty display name, which fails validation when the browser_id does not match an
+  existing session.
+
+- **D-5: Rejoin detection is client-side, not a server probe.** The spec describes
+  passing browser_id to the session endpoint on mount for rejoin detection. The
+  implementation reads stored display_name from localStorage and shows the welcome-back
+  UI immediately, deferring the server call to when the user clicks "Enter Chatroom".
+  The server still receives browser_id and confirms the resume (or creates a new session
+  if the old one expired).
+
+- **D-6: Authenticated users use registered-guest enrollment, not anonymous session.**
+  The spec says guest links always create anonymous sessions regardless of login state,
+  with a choice UI in Phase 3 (AC-23). The Phase 2 implementation preserves the
+  authenticated user's JWT by falling back to the existing `enrollGuest` path when
+  `session.isAuthenticated` is true. Without this, `setAccessToken(guestJWT)` would
+  silently overwrite the user's access token, breaking their session for non-chatroom
+  endpoints. Phase 3's choice UI replaces this guard.
 
 ## 16. Follow-ups
 
@@ -802,3 +835,51 @@ Empty -- not yet implemented.
 - **FU-4: Guest link QR code.** Generate a QR code for the guest link URL in the
   settings panel, for classroom/workshop scenarios where participants scan from a
   projector.
+- **FU-5: browser_id partial index should be UNIQUE.** The Phase 1 migration
+  (`0085_guest_sessions.py:79`) creates a non-unique partial index on
+  `(chatroom_id, browser_id)`. Two concurrent requests from the same browser can
+  insert duplicate rows, causing `find_by_browser_id`'s `one_or_none()` to raise
+  `MultipleResultsFound`. Fix: make the partial index unique.
+- **FU-6: Separate rate-limit bucket for guest ws-ticket.** The `/api/guest/` prefix
+  is in the AUTH rate-limit bucket (D-3), so the authenticated `ws-ticket` endpoint
+  competes with anonymous session creation. Behind NAT, active guests' WS reconnects
+  can starve new session creation. The ws-ticket endpoint should have its own bucket.
+- **FU-7: guest_session_service redundant update_last_seen on resume.** The resume
+  path calls `update_last_seen` immediately before `update_refresh_hash`, which also
+  sets `last_seen_at`. One extra DB write per resume.
+- **FU-8: guest_ws_ticket token extraction uses partition() without strip().** If a
+  reverse proxy normalizes the Authorization header with extra whitespace, the
+  `partition(' ')` extraction in `guest_ws_ticket` captures leading whitespace that
+  the middleware's `split+strip` does not, contaminating the Redis-stashed token.
+- **FU-9: ChatroomPresence shows truncated UUIDs for other guests.** The presence
+  panel resolves the current guest's display name from JWT claims, but other online
+  guests still show as truncated UUIDs. Resolving all guest names requires a new
+  endpoint or extending the members query to include guest sessions.
+- **FU-10: Component test for canSettings prop on ChatroomHeader.** AC-19 is
+  implemented but the test plan's ChatroomHeader.test.ts coverage for the new
+  `canSettings` prop is not yet written.
+- **FU-11: Component test for authenticated choice card in GuestLandingView.** AC-23
+  is implemented but the test plan's GuestLandingView.test.ts coverage for the
+  `'choosing'` state and `chooseGuest`/`chooseOwnAccount` paths is not yet written.
+- **FU-12: Guest refresh cookie hardcodes secure/samesite.** `guests.py` sets
+  `secure=True` and `samesite="strict"` instead of reading from settings like the
+  regular auth cookie. Breaks HTTP dev setups; strict samesite blocks cross-origin
+  navigation from email/Slack links.
+- **FU-13: Guest onUnauthorized handler does not redirect.** When a guest's token
+  fully expires and refresh fails, `onUnauthorized` in `router.ts` clears guest
+  context but does not redirect or show feedback. The guest is stranded on a broken
+  ChatroomView; subsequent 401s redirect to the login page.
+- **FU-14: classifyError conflates rate-limit 429 with guest-cap 429.** Both
+  `RateLimitError` and cap-reached map to the same `cap_reached` UI state. A
+  throttled guest sees "chatroom is full" instead of a retry prompt.
+- **FU-15: GuestSessionOut leaks refresh_token in JSON body.** The token is
+  simultaneously set as an httpOnly cookie and returned in the response body.
+  The frontend never reads the body field; it is a pure information leak that
+  defeats the cookie's XSS protection.
+- **FU-16: GuestTokenInvalid overloaded for authorization failures.** The
+  display-name update and ws-ticket endpoints raise `GuestTokenInvalid` for
+  principal-mismatch and role-check failures. The error maps to 404, preventing
+  the frontend from triggering re-authentication on what is an auth failure.
+- **FU-17: Guest Principal construction duplicated in three locations.** Auth
+  middleware, `_authenticate_guest`, and `_refresh_guest` each build the same
+  `Principal(...)` call. A new field on Principal will require updating all three.

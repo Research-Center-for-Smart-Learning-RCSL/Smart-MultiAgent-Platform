@@ -1,24 +1,28 @@
-"""Guest-link enrollment endpoint (F.9).
+"""Guest-link endpoints (F.9, R5.04, R13.06).
 
-The *public* URL is `https://<host>/g/{chatroom_id}/{guest_token}` (R13.05)
-— that route is served by the frontend, which strips the token from the
-browser history (R24.43) and then calls this backend endpoint:
+Two paths:
 
-    POST /api/guest/{chatroom_id}/{guest_token}/enroll
+1. **Legacy enrollment** (registered users):
+   ``POST /api/guest/{chatroom_id}/{guest_token}/enroll``
+   Requires ``current_principal`` -- the user must already be logged in.
 
-Once enrolled, subsequent requests go through the normal principal flow;
-the guest's `chatroom_guests` row lets the room ACL check admit them.
+2. **Anonymous guest session** (R13.06, R13.06a, R13.06b):
+   ``POST /api/guest/{chatroom_id}/{guest_token}/session`` -- public.
+   ``POST /api/guest/{chatroom_id}/refresh`` -- public (reads refresh cookie).
 """
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.conversation.application.guest_service import GuestService
+from contexts.conversation.domain.errors import GuestTokenInvalid
+from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -53,6 +57,162 @@ async def enroll_guest(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+
+
+# -- Anonymous guest session endpoints (R13.06) --
+
+
+class GuestSessionIn(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+    browser_id: str | None = Field(default=None, max_length=512)
+
+
+class GuestSessionOut(BaseModel):
+    access_token: str
+    guest_session_id: uuid.UUID
+    display_name: str
+    is_resuming: bool
+
+
+class GuestRefreshOut(BaseModel):
+    access_token: str
+
+
+def _refresh_cookie_name(chatroom_id: uuid.UUID) -> str:
+    return f"smap_guest_refresh_{chatroom_id}"
+
+
+@router.post(
+    "/{chatroom_id}/{guest_token}/session",
+    status_code=status.HTTP_200_OK,
+    response_model=GuestSessionOut,
+)
+async def create_guest_session(
+    chatroom_id: uuid.UUID = Path(...),
+    guest_token: str = Path(..., min_length=16, max_length=128),
+    body: GuestSessionIn = ...,
+    ctx: RequestContext = Depends(current_context),
+    db: AsyncSession = Depends(db_session),
+    response: Response = ...,
+) -> GuestSessionOut:
+    facade = ConversationFacade(db)
+    result = await facade.create_or_resume_guest_session(
+        chatroom_id=chatroom_id,
+        guest_token=guest_token,
+        display_name=body.display_name,
+        browser_id=body.browser_id,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+    settings = get_settings()
+    response.set_cookie(
+        key=_refresh_cookie_name(chatroom_id),
+        value=result.refresh_token,
+        httponly=True,
+        secure=settings.security.session_cookie_secure,
+        samesite=settings.security.session_cookie_samesite,
+        max_age=settings.jwt.guest_refresh_ttl_seconds,
+        path=f"/api/guest/{chatroom_id}",
+    )
+
+    return GuestSessionOut(
+        access_token=result.access_token,
+        guest_session_id=result.guest_session_id,
+        display_name=result.display_name,
+        is_resuming=result.is_resuming,
+    )
+
+
+@router.post(
+    "/{chatroom_id}/refresh",
+    status_code=status.HTTP_200_OK,
+    response_model=GuestRefreshOut,
+)
+async def refresh_guest_session(
+    request: Request,
+    chatroom_id: uuid.UUID = Path(...),
+    db: AsyncSession = Depends(db_session),
+    response: Response = ...,
+) -> GuestRefreshOut:
+    cookie_name = _refresh_cookie_name(chatroom_id)
+    refresh_token = request.cookies.get(cookie_name)
+    if not refresh_token:
+        raise GuestTokenInvalid(str(chatroom_id))
+
+    facade = ConversationFacade(db)
+    result = await facade.refresh_guest_session(
+        chatroom_id=chatroom_id,
+        refresh_token=refresh_token,
+    )
+
+    settings = get_settings()
+    response.set_cookie(
+        key=cookie_name,
+        value=result.refresh_token,
+        httponly=True,
+        secure=settings.security.session_cookie_secure,
+        samesite=settings.security.session_cookie_samesite,
+        max_age=settings.jwt.guest_refresh_ttl_seconds,
+        path=f"/api/guest/{chatroom_id}",
+    )
+
+    return GuestRefreshOut(access_token=result.access_token)
+
+
+# -- Guest display-name update (AC-21) --
+
+
+class GuestDisplayNameIn(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
+@router.put(
+    "/session/{guest_session_id}/display-name",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def update_guest_display_name(
+    guest_session_id: uuid.UUID = Path(...),
+    body: GuestDisplayNameIn = ...,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    if not principal.is_guest or principal.user_id != guest_session_id:
+        raise GuestTokenInvalid("principal does not match session")
+    facade = ConversationFacade(db)
+    await facade.update_guest_display_name(
+        guest_session_id=guest_session_id,
+        display_name=body.display_name,
+    )
+
+
+# -- Guest WS ticket (AC-7) --
+
+
+class GuestWsTicketOut(BaseModel):
+    ticket: str
+    expires_in: int
+
+
+@router.post("/ws-ticket", response_model=GuestWsTicketOut)
+async def guest_ws_ticket(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> GuestWsTicketOut:
+    """Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer."""
+    if not principal.is_guest:
+        raise GuestTokenInvalid("not a guest principal")
+
+    from shared_kernel.realtime import mint_ws_ticket
+
+    auth_header = request.headers.get("authorization", "")
+    scheme, _, raw_token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not raw_token:
+        raise GuestTokenInvalid("missing bearer token")
+
+    ticket, ttl = await mint_ws_ticket(raw_token)
+    return GuestWsTicketOut(ticket=ticket, expires_in=ttl)
 
 
 __all__ = ["router"]

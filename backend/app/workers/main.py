@@ -49,6 +49,7 @@ from app.workers.tasks.conversation import (
     extract_attachment_text,
     file_scan_requested,
 )
+from app.workers.tasks.guest_cleanup import guest_session_cleanup
 from app.workers.tasks.graphrag import (
     GRAPHRAG_BUILD_TIMEOUT_S,
     graphrag_build,
@@ -421,6 +422,8 @@ class WorkerSettings:
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
             run_at_startup=False,
         ),
+        # 04:00 UTC daily — purge guest_sessions with last_seen_at > 30 days (AC-10).
+        cron(guest_session_cleanup, hour=4, minute=0, run_at_startup=False),
     ]
 
 

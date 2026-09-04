@@ -30,6 +30,7 @@ type EventHandler = (event: ChannelEvent) => void
 type StatusHandler = (connected: boolean) => void
 type DegradedHandler = (degraded: boolean) => void
 type CapReachedHandler = (capReached: boolean) => void
+type CloseCodeHandler = (code: number, reason: string) => void
 
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
@@ -79,6 +80,7 @@ export class Channel {
   private statusHandlers = new Set<StatusHandler>()
   private degradedHandlers = new Set<DegradedHandler>()
   private capReachedHandlers = new Set<CapReachedHandler>()
+  private closeCodeHandlers = new Set<CloseCodeHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -131,6 +133,11 @@ export class Channel {
     this.capReachedHandlers.add(handler)
     handler(this.capReached)
     return () => this.capReachedHandlers.delete(handler)
+  }
+
+  onCloseCode(handler: CloseCodeHandler): () => void {
+    this.closeCodeHandlers.add(handler)
+    return () => this.closeCodeHandlers.delete(handler)
   }
 
   send(payload: Record<string, unknown>): void {
@@ -217,6 +224,7 @@ export class Channel {
         this.clearStableTimer()
         if (deliberate) return
         if (ev.code === CAP_CLOSE_CODE) this.setCapReached(true)
+        this.closeCodeHandlers.forEach((h) => h(ev.code, ev.reason))
         if (!this.closed && !this.paused) this.scheduleReconnect()
       }
 
@@ -269,6 +277,7 @@ export class Channel {
     this.statusHandlers.clear()
     this.degradedHandlers.clear()
     this.capReachedHandlers.clear()
+    this.closeCodeHandlers.clear()
   }
 
   private dispatch(event: ChannelEvent): void {

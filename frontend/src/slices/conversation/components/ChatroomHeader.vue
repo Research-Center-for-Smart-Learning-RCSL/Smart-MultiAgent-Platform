@@ -59,6 +59,7 @@
         <MagnifyingGlassIcon class="w-5 h-5" />
       </SButton>
       <SButton
+        v-if="showSettings"
         variant="ghost"
         icon-only
         size="sm"
@@ -157,8 +158,9 @@ const props = withDefaults(
     // server enforces the 403 regardless. Defaults to shown — an absent Boolean
     // prop is coerced to false by Vue, so the default must be explicit.
     canExport?: boolean
+    canSettings?: boolean
   }>(),
-  { canExport: true, isCompact: false, agentsOpen: false, peopleOpen: false },
+  { canExport: true, canSettings: true, isCompact: false, agentsOpen: false, peopleOpen: false },
 )
 
 const emit = defineEmits<{
@@ -173,6 +175,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const showExport = computed(() => props.canExport)
+const showSettings = computed(() => props.canSettings)
 
 // 'connecting' (never opened yet) reuses the Offline visual — the channel is
 // not yet usable; 'reconnecting' (was live, dropped) gets its own spinning,
@@ -224,7 +227,9 @@ const pill = computed(() => {
 
 const overflowItems = computed(() => [
   { key: 'search', label: t('conversation.chatroom.search'), icon: MagnifyingGlassIcon },
-  { key: 'settings', label: t('conversation.chatroom.settingsLabel'), icon: Cog6ToothIcon },
+  ...(showSettings.value
+    ? [{ key: 'settings', label: t('conversation.chatroom.settingsLabel'), icon: Cog6ToothIcon }]
+    : []),
   ...(showExport.value
     ? [{ key: 'export', label: t('conversation.chatroom.export'), icon: ArrowDownTrayIcon }]
     : []),

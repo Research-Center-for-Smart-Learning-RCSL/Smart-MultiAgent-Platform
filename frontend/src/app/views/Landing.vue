@@ -98,6 +98,14 @@ function onIntroDone(): void {
 }
 
 onMounted(() => {
+  // Guest links are functional URLs, not brand-discovery paths -- skip the
+  // animation and forward immediately so the visitor reaches the enrollment
+  // form without a 2.7s delay.
+  if (nextTarget.value?.startsWith('/g/')) {
+    introActive.value = false
+    forwardAfterIntro()
+    return
+  }
   if (!introActive.value) forwardAfterIntro()
 })
 

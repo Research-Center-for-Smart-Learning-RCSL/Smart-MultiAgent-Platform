@@ -61,6 +61,11 @@ _MAP: ErrorMap = {
         404,
         "Guest token invalid",
     ),
+    errors.GuestCapReached: (
+        "guest/cap-reached",
+        429,
+        "Guest limit reached for this chatroom",
+    ),
     errors.AttachmentBindingFailed: (
         "conversation/attachment-binding-failed",
         422,
