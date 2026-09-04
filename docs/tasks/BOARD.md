@@ -515,15 +515,10 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-04-guest-anonymous-session` (feature, **in-progress 2026-09-04**) — Phase 1 (backend
-  core) complete on branch `guest-anon-phase1`. All 11 Phase 1 ACs ticked. Phase 2 (frontend
-  direct entry) complete on branch `guest-anon-phase2` (5 commits, stacked on phase1). All 7
-  Phase 2 ACs ticked: GuestLandingView rewritten for anonymous direct entry, transport layer
-  guest-aware refresh and WS ticket, auth guard extended for guest sessions, Landing.vue
-  animation bypass for guest links, localStorage-based rejoin detection, cap-reached display,
-  i18n (en + zh-TW). Two deviations (D-4, D-5): localStorage stores display_name for
-  client-side rejoin UI, avoiding a probe API call on mount. Phase 3 (UX polish) is a
-  separate session. Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
+- (implemented 2026-09-04) `2026-09-04-guest-anonymous-session`. All three phases complete,
+  all 23 ACs ticked. Phase 3 (UX polish) on branch `guest-anon-phase2`: settings gear hiding,
+  session expiry and guest-disabled banners, display name update, logged-in user choice card.
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-09-03 after implementation: `2026-09-03-observer-ui-defect-sweep` (all sixteen

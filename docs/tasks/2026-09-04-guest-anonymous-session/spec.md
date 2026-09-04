@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-04
 requirements: [R5.04, R6.02, R6.11, R6.12, R13.05, R13.06, R13.07, R13.33, R24.43]
 depends_on: []
@@ -651,13 +651,13 @@ a Phase 1 deliverable (cleanup worker).
 
 ### Phase 3 -- UX polish
 
-- [ ] AC-19: The settings gear icon is hidden for guests.
-- [ ] AC-20: When a guest's session expires and cannot be refreshed, an inline
+- [x] AC-19: The settings gear icon is hidden for guests.
+- [x] AC-20: When a guest's session expires and cannot be refreshed, an inline
   banner shows "Session expired" with a rejoin link.
-- [ ] AC-21: A guest can update their display name from the participant list.
-- [ ] AC-22: When `allow_guest_links` is toggled off while a guest is connected,
+- [x] AC-21: A guest can update their display name from the participant list.
+- [x] AC-22: When `allow_guest_links` is toggled off while a guest is connected,
   the guest sees "Guest access has been disabled" (not a generic error).
-- [ ] AC-23: When a logged-in user clicks a guest link, they see a choice between
+- [x] AC-23: When a logged-in user clicks a guest link, they see a choice between
   anonymous guest entry and entering with their registered account.
 
 ## 12. Test Plan
@@ -851,3 +851,13 @@ verification gate.
   reverse proxy normalizes the Authorization header with extra whitespace, the
   `partition(' ')` extraction in `guest_ws_ticket` captures leading whitespace that
   the middleware's `split+strip` does not, contaminating the Redis-stashed token.
+- **FU-9: ChatroomPresence shows truncated UUIDs for other guests.** The presence
+  panel resolves the current guest's display name from JWT claims, but other online
+  guests still show as truncated UUIDs. Resolving all guest names requires a new
+  endpoint or extending the members query to include guest sessions.
+- **FU-10: Component test for canSettings prop on ChatroomHeader.** AC-19 is
+  implemented but the test plan's ChatroomHeader.test.ts coverage for the new
+  `canSettings` prop is not yet written.
+- **FU-11: Component test for authenticated choice card in GuestLandingView.** AC-23
+  is implemented but the test plan's GuestLandingView.test.ts coverage for the
+  `'choosing'` state and `chooseGuest`/`chooseOwnAccount` paths is not yet written.
