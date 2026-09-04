@@ -424,7 +424,7 @@ onMounted(() => {
 
 .choice-card:hover {
   border-color: var(--color-accent);
-  background: var(--color-accent-tint);
+  background: var(--color-surface-hover);
 }
 
 .choice-card__icon {
