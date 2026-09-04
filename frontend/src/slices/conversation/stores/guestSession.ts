@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
+export const GUEST_STORAGE_PREFIX = 'smap:guest:'
+
 export type GuestSessionState = 'active' | 'expired' | 'disabled'
 
 export const useGuestSessionStore = defineStore('guestSession', () => {

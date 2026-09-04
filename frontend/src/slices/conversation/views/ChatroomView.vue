@@ -425,7 +425,7 @@ import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
 import { accessTokenClaims, isGuestSession } from '@shared/transport'
-import { useGuestSessionStore } from '../stores/guestSession'
+import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
@@ -1201,13 +1201,12 @@ async function onUpdateGuestDisplayName(name: string): Promise<void> {
     await updateGuestDisplayName(sessionId, name)
     guestNameOverride.value = name
     // Update localStorage so the welcome-back UI shows the new name
-    const STORAGE_PREFIX = 'smap:guest:'
     try {
-      const raw = localStorage.getItem(`${STORAGE_PREFIX}${chatroomId}`)
+      const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
       if (raw) {
         const stored = JSON.parse(raw)
         stored.display_name = name
-        localStorage.setItem(`${STORAGE_PREFIX}${chatroomId}`, JSON.stringify(stored))
+        localStorage.setItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`, JSON.stringify(stored))
       }
     } catch { /* non-fatal */ }
     toast.success(t('conversation.guest.displayNameUpdated'))

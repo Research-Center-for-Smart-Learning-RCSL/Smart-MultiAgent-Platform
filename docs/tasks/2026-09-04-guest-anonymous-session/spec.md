@@ -861,3 +861,25 @@ verification gate.
 - **FU-11: Component test for authenticated choice card in GuestLandingView.** AC-23
   is implemented but the test plan's GuestLandingView.test.ts coverage for the
   `'choosing'` state and `chooseGuest`/`chooseOwnAccount` paths is not yet written.
+- **FU-12: Guest refresh cookie hardcodes secure/samesite.** `guests.py` sets
+  `secure=True` and `samesite="strict"` instead of reading from settings like the
+  regular auth cookie. Breaks HTTP dev setups; strict samesite blocks cross-origin
+  navigation from email/Slack links.
+- **FU-13: Guest onUnauthorized handler does not redirect.** When a guest's token
+  fully expires and refresh fails, `onUnauthorized` in `router.ts` clears guest
+  context but does not redirect or show feedback. The guest is stranded on a broken
+  ChatroomView; subsequent 401s redirect to the login page.
+- **FU-14: classifyError conflates rate-limit 429 with guest-cap 429.** Both
+  `RateLimitError` and cap-reached map to the same `cap_reached` UI state. A
+  throttled guest sees "chatroom is full" instead of a retry prompt.
+- **FU-15: GuestSessionOut leaks refresh_token in JSON body.** The token is
+  simultaneously set as an httpOnly cookie and returned in the response body.
+  The frontend never reads the body field; it is a pure information leak that
+  defeats the cookie's XSS protection.
+- **FU-16: GuestTokenInvalid overloaded for authorization failures.** The
+  display-name update and ws-ticket endpoints raise `GuestTokenInvalid` for
+  principal-mismatch and role-check failures. The error maps to 404, preventing
+  the frontend from triggering re-authentication on what is an auth failure.
+- **FU-17: Guest Principal construction duplicated in three locations.** Auth
+  middleware, `_authenticate_guest`, and `_refresh_guest` each build the same
+  `Principal(...)` call. A new field on Principal will require updating all three.
