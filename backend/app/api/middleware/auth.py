@@ -15,6 +15,9 @@ middleware has populated the auth context.
 
 from __future__ import annotations
 
+import base64
+import json
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -41,6 +44,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         token = header.split(" ", 1)[1].strip()
         if not token:
             return await call_next(request)
+
+        if _peek_token_use(token) == "guest_access":
+            return await self._handle_guest(token, ctx, request, call_next)
 
         try:
             claims = jwt.verify_access_token(token)
@@ -75,6 +81,52 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ctx.impersonated_by = claims.impersonated_by
 
         return await call_next(request)
+
+    async def _handle_guest(
+        self,
+        token: str,
+        ctx: RequestContext,
+        request: Request,
+        call_next,  # type: ignore[no-untyped-def]
+    ) -> Response:
+        try:
+            claims = jwt.verify_guest_token(token)
+        except jwt.JwtError as exc:
+            return _deny(
+                "auth/token-expired",
+                "Guest token invalid or expired",
+                401,
+                request,
+                str(exc) or "guest token verification failed",
+            )
+
+        ctx.principal = Principal(
+            user_id=claims.guest_session_id,
+            is_admin=False,
+            email_verified=False,
+            is_guest=True,
+            chatroom_id=claims.chatroom_id,
+        )
+        ctx.session_id = None
+        ctx.access_jti = claims.jti
+        ctx.access_exp = claims.exp
+
+        return await call_next(request)
+
+
+def _peek_token_use(token: str) -> str | None:
+    """Read ``token_use`` from the unverified JWT payload.
+
+    Used only to choose which verifier to call; the verifier itself validates
+    the claim after signature verification.
+    """
+    try:
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded))
+        return data.get("token_use")
+    except Exception:
+        return None
 
 
 def _deny(slug: str, title: str, status: int, request: Request, detail: str) -> Response:
