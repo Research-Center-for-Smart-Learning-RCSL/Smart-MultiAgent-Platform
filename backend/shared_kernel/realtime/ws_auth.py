@@ -111,8 +111,8 @@ async def authenticate_subprotocol(ws: WebSocket) -> WsAuth:
     if not token:
         raise WsAuthError("unknown or expired ws ticket")
 
-    if _is_guest_token(token):
-        return _authenticate_guest(token, proto)
+    if jwt.is_guest_token(token):
+        return await _authenticate_guest(token, proto)
 
     try:
         claims = jwt.verify_access_token(token)
@@ -142,8 +142,8 @@ async def authenticate_subprotocol(ws: WebSocket) -> WsAuth:
 
 async def refresh_principal(access_token: str) -> RefreshedPrincipal:
     """Re-verify a token presented via in-socket refresh."""
-    if _is_guest_token(access_token):
-        return _refresh_guest(access_token)
+    if jwt.is_guest_token(access_token):
+        return await _refresh_guest(access_token)
 
     try:
         claims = jwt.verify_access_token(access_token)
@@ -164,25 +164,16 @@ async def refresh_principal(access_token: str) -> RefreshedPrincipal:
     return RefreshedPrincipal(principal=principal, expires_at=claims.exp, jti=claims.jti)
 
 
-def _is_guest_token(token: str) -> bool:
-    """Peek at the unverified JWT payload to check token_use."""
-    import base64
-    import json
-
-    try:
-        payload_b64 = token.split(".")[1]
-        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-        data = json.loads(base64.urlsafe_b64decode(padded))
-        return data.get("token_use") == "guest_access"
-    except Exception:
-        return False
 
 
-def _authenticate_guest(token: str, proto: str) -> WsAuth:
+async def _authenticate_guest(token: str, proto: str) -> WsAuth:
     try:
         claims = jwt.verify_guest_token(token)
     except jwt.JwtError as exc:
         raise WsAuthError(f"invalid guest token: {exc}") from exc
+
+    if await tokens.is_denied(claims.jti):
+        raise WsAuthError("guest token revoked")
 
     principal = Principal(
         user_id=claims.guest_session_id,
@@ -200,11 +191,14 @@ def _authenticate_guest(token: str, proto: str) -> WsAuth:
     )
 
 
-def _refresh_guest(access_token: str) -> RefreshedPrincipal:
+async def _refresh_guest(access_token: str) -> RefreshedPrincipal:
     try:
         claims = jwt.verify_guest_token(access_token)
     except jwt.JwtError as exc:
         raise WsAuthError(f"guest refresh failed: {exc}") from exc
+
+    if await tokens.is_denied(claims.jti):
+        raise WsAuthError("guest token revoked")
 
     principal = Principal(
         user_id=claims.guest_session_id,

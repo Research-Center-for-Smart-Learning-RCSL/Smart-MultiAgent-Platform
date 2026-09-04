@@ -10,18 +10,17 @@ from __future__ import annotations
 import base64
 import json
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.responses import JSONResponse
 
-from app.api.middleware.auth import AuthMiddleware, _peek_token_use
+from app.api.middleware.auth import AuthMiddleware
 from shared_kernel.auth import jwt as jwt_module
-from shared_kernel.auth.jwt import GuestClaims
+from shared_kernel.auth.jwt import GuestClaims, peek_token_use
 
 
 def _make_guest_bearer(chatroom_id: str = "00000000-0000-0000-0000-000000000001") -> str:
@@ -61,12 +60,12 @@ def guest_client(guest_app: FastAPI) -> TestClient:
     return TestClient(guest_app)
 
 
-# -- _peek_token_use --
+# -- peek_token_use --
 
 
 def test_peek_guest_token_use() -> None:
     token = _make_guest_bearer()
-    assert _peek_token_use(token) == "guest_access"
+    assert peek_token_use(token) == "guest_access"
 
 
 def test_peek_access_token_use() -> None:
@@ -75,11 +74,11 @@ def test_peek_access_token_use() -> None:
         json.dumps({"token_use": "access"}).encode()
     ).rstrip(b"=")
     token = f"{header.decode()}.{payload.decode()}.sig"
-    assert _peek_token_use(token) == "access"
+    assert peek_token_use(token) == "access"
 
 
 def test_peek_garbage_returns_none() -> None:
-    assert _peek_token_use("not-a-jwt") is None
+    assert peek_token_use("not-a-jwt") is None
 
 
 # -- middleware guest branch --
@@ -97,7 +96,10 @@ def test_guest_jwt_constructs_guest_principal(guest_client: TestClient) -> None:
         iat=datetime.now(UTC),
     )
 
-    with patch.object(jwt_module, "verify_guest_token", return_value=fake_claims):
+    with (
+        patch.object(jwt_module, "verify_guest_token", return_value=fake_claims),
+        patch("app.api.middleware.auth.tokens.is_denied", new_callable=AsyncMock, return_value=False),
+    ):
         r = guest_client.get(
             "/probe",
             headers={"Authorization": f"Bearer {_make_guest_bearer(str(cr_id))}"},
@@ -142,6 +144,7 @@ def test_identity_context_not_called_for_guest(guest_client: TestClient) -> None
 
     with (
         patch.object(jwt_module, "verify_guest_token", return_value=fake_claims),
+        patch("app.api.middleware.auth.tokens.is_denied", new_callable=AsyncMock, return_value=False),
         patch("app.api.middleware.auth.IdentityFacade") as mock_facade,
     ):
         r = guest_client.get(
@@ -151,3 +154,29 @@ def test_identity_context_not_called_for_guest(guest_client: TestClient) -> None
 
     assert r.status_code == 200
     mock_facade.assert_not_called()
+
+
+def test_guest_jwt_denied_jti_returns_401(guest_client: TestClient) -> None:
+    gs_id = uuid.uuid4()
+    cr_id = uuid.uuid4()
+    fake_claims = GuestClaims(
+        guest_session_id=gs_id,
+        chatroom_id=cr_id,
+        display_name="TestGuest",
+        jti=uuid.uuid4(),
+        exp=datetime.now(UTC) + timedelta(hours=4),
+        iat=datetime.now(UTC),
+    )
+
+    with (
+        patch.object(jwt_module, "verify_guest_token", return_value=fake_claims),
+        patch("app.api.middleware.auth.tokens.is_denied", new_callable=AsyncMock, return_value=True),
+    ):
+        r = guest_client.get(
+            "/probe",
+            headers={"Authorization": f"Bearer {_make_guest_bearer(str(cr_id))}"},
+        )
+
+    assert r.status_code == 401
+    body = r.json()
+    assert body["type"].endswith("/auth/token-revoked")
