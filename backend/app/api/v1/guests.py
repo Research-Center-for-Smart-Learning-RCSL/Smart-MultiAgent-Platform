@@ -162,6 +162,33 @@ async def refresh_guest_session(
     return GuestRefreshOut(access_token=result.access_token)
 
 
+# -- Guest display-name update (AC-21) --
+
+
+class GuestDisplayNameIn(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=100)
+
+
+@router.put(
+    "/session/{guest_session_id}/display-name",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def update_guest_display_name(
+    guest_session_id: uuid.UUID = Path(...),
+    body: GuestDisplayNameIn = ...,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    if not principal.is_guest or principal.user_id != guest_session_id:
+        raise GuestTokenInvalid("principal does not match session")
+    facade = ConversationFacade(db)
+    await facade.update_guest_display_name(
+        guest_session_id=guest_session_id,
+        display_name=body.display_name,
+    )
+
+
 # -- Guest WS ticket (AC-7) --
 
 
