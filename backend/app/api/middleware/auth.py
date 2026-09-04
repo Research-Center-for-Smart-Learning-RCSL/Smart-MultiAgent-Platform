@@ -15,9 +15,6 @@ middleware has populated the auth context.
 
 from __future__ import annotations
 
-import base64
-import json
-
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -45,7 +42,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not token:
             return await call_next(request)
 
-        if _peek_token_use(token) == "guest_access":
+        if jwt.is_guest_token(token):
             return await self._handle_guest(token, ctx, request, call_next)
 
         try:
@@ -100,6 +97,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 str(exc) or "guest token verification failed",
             )
 
+        if await tokens.is_denied(claims.jti):
+            return _deny("auth/token-revoked", "Guest token revoked", 401, request, "guest jti is denylisted")
+
         ctx.principal = Principal(
             user_id=claims.guest_session_id,
             is_admin=False,
@@ -112,21 +112,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ctx.access_exp = claims.exp
 
         return await call_next(request)
-
-
-def _peek_token_use(token: str) -> str | None:
-    """Read ``token_use`` from the unverified JWT payload.
-
-    Used only to choose which verifier to call; the verifier itself validates
-    the claim after signature verification.
-    """
-    try:
-        payload_b64 = token.split(".")[1]
-        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-        data = json.loads(base64.urlsafe_b64decode(padded))
-        return data.get("token_use")
-    except Exception:
-        return None
 
 
 def _deny(slug: str, title: str, status: int, request: Request, detail: str) -> Response:
