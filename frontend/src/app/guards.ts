@@ -6,12 +6,14 @@ export interface GuardContext {
   isAdmin: boolean
   /** Effective roles for the current user (e.g. ['admin', 'project_owner']). */
   roles: string[]
+  hasGuestSession: boolean
 }
 
 export interface RouteMeta {
   requiresAuth?: boolean
   requiresVerifiedEmail?: boolean
   requiredRoles?: string[]
+  allowGuestSession?: boolean
 }
 
 export type GuardResult =
@@ -24,6 +26,7 @@ export function authGuard(
   fullPath: string,
 ): GuardResult {
   if (meta.requiresAuth && !ctx.isAuthenticated) {
+    if (meta.allowGuestSession && ctx.hasGuestSession) return true
     return { name: 'identity.login', query: { redirect: fullPath } }
   }
   return true
