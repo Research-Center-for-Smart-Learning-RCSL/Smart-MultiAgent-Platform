@@ -58,10 +58,22 @@ SHIPPED_PACKS: tuple[AgentPackDefinition, ...] = tuple(load_pack(k) for k in ava
 SHIPPED_AGENTS = [(pack, agent) for pack in SHIPPED_PACKS for agent in pack.agents]
 AGENT_IDS = [f"{pack.pack_key}/{agent.key}" for pack, agent in SHIPPED_AGENTS]
 
+# Agents whose pack names a shipped course — only these carry course-specific
+# constraints (quoting rules, unit boundaries, etc.).  General-purpose packs are
+# excluded because they have no course to resolve against.
+COURSE_AGENTS = [(p, a) for p, a in SHIPPED_AGENTS if p.for_course in available_courses()]
+COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in COURSE_AGENTS]
+
 
 class TestShippedPackContent:
-    def test_both_packs_ship(self) -> None:
-        assert available_packs() == ("creative-thinking-design", "creative-thinking-room")
+    def test_all_packs_ship(self) -> None:
+        assert available_packs() == (
+            "creative-thinking-design",
+            "creative-thinking-prompt-assistant",
+            "creative-thinking-prompt-defense",
+            "creative-thinking-room",
+            "prompt-assistant",
+        )
 
     def test_the_room_pack_carries_the_three_classroom_roles(self) -> None:
         room = load_pack("creative-thinking-room")
@@ -125,8 +137,15 @@ class TestShippedPackContent:
 
     @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
     def test_every_agent_carries_provenance_and_a_prompt(self, pack: Any, agent: Any) -> None:
-        assert "Ke Pei-jung" in pack.source
+        assert pack.source.strip()
         assert agent.system_prompt.strip()
+
+    def test_creative_thinking_packs_cite_their_source(self) -> None:
+        """Every pack whose for_course is creative-thinking derives from or
+        references the thesis — the attribution must survive edits."""
+        for pack in SHIPPED_PACKS:
+            if pack.for_course == "creative-thinking":
+                assert "Ke Pei-jung" in pack.source, pack.pack_key
 
 
 class TestShippedDelegatedActivityControl:
@@ -184,9 +203,11 @@ class TestPacksResolveAgainstTheirCourse:
 
     @pytest.mark.parametrize("pack", SHIPPED_PACKS, ids=[p.pack_key for p in SHIPPED_PACKS])
     def test_for_course_names_a_shipped_course(self, pack: AgentPackDefinition) -> None:
+        if pack.for_course not in available_courses():
+            pytest.skip("general-purpose pack — no shipped course to resolve against")
         assert pack.for_course in available_courses()
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_every_bound_activity_type_exists_in_that_course(self, pack: Any, agent: Any) -> None:
         course_keys = {t.key for t in load_course(pack.for_course).activity_types}
 
@@ -232,7 +253,7 @@ class TestPromptConstraints:
     records the dry-run that has to cover the rest.
     """
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_unit_four_answers_may_not_be_quoted_or_paraphrased(self, pack: Any, agent: Any) -> None:
         """quote-unit-two AC-2/AC-8. The quoting rule is split by activity type: unit 2 answers are
         quotable in response, unit 4 answers are not.
@@ -266,14 +287,14 @@ class TestPromptConstraints:
             f"{agent.key} names the unit 4 types without forbidding anything: {clause[:120]}"
         )
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_a_quotable_answer_is_never_volunteered(self, pack: Any, agent: Any) -> None:
         """quote-unit-two AC-3/AC-8. Relaxing the ban without the volunteer bound would license an
         agent to open a turn with someone's answer or read the class's answers out as
         a survey — neither of which anyone asked for."""
         assert "不主動" in agent.system_prompt, f"{agent.key} states no volunteer bound"
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_an_unlisted_activity_type_defaults_to_unquotable(self, pack: Any, agent: Any) -> None:
         """quote-unit-two AC-12/AC-8. Both columns are literal enumerations, so without a default the
         safety-critical sentence is silent for every type they do not name — and a
@@ -282,7 +303,7 @@ class TestPromptConstraints:
             f"{agent.key} states no default for an unlisted type"
         )
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_the_type_code_is_read_from_the_row_not_from_the_answer(self, pack: Any, agent: Any) -> None:
         """quote-unit-two, added at the security gate. The split rule keys on a
         literal type code, and a participant's own answer text is appended to the
@@ -296,7 +317,7 @@ class TestPromptConstraints:
         """
         assert "破折號後面" in agent.system_prompt, f"{agent.key} does not locate the type code on the row"
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_no_agent_pretends_it_cannot_see_a_submission(self, pack: Any, agent: Any) -> None:
         """The prohibition above governs what an agent may *repeat*, not what it
         can *see* — and the digest is in its context either way. Every shipped
@@ -306,7 +327,7 @@ class TestPromptConstraints:
         is a rule the model resolves by evading the question."""
         assert "看得到" in agent.system_prompt, f"{agent.key} never admits it can see the content"
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_the_computed_digest_marker_is_named_and_not_read_as_a_students_words(
         self, pack: Any, agent: Any
     ) -> None:
@@ -333,7 +354,7 @@ class TestPromptConstraints:
             f"{agent.key} does not say the computed digest is not the participant's words"
         )
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_the_two_unit_two_types_no_longer_share_one_quoting_clause(self, pack: Any, agent: Any) -> None:
         """D-7. `mandala-9grid` moved to `filled_count_coverage`, whose `detail`
         displaces the payload dump, so its answer text is not in any agent's
@@ -361,7 +382,7 @@ class TestPromptConstraints:
         # And the one that is still quotable still says so.
         assert "`time-traveler-next-steps`：可以" in prompt
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_every_agent_binds_the_group_task(self, pack: Any, agent: Any) -> None:
         """group-activity-submissions AC-16, widened by sweep AC-16 (F-5). A
         binding an agent does not hold is a unit it cannot be asked about — and
@@ -420,7 +441,7 @@ class TestPromptConstraints:
         assert "草稿不是提交" in aa.system_prompt
         assert "不可以拿來計數" in aa.system_prompt
 
-    @pytest.mark.parametrize(("pack", "agent"), SHIPPED_AGENTS, ids=AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
     def test_a_group_answer_is_not_attributed_to_one_student(self, pack: Any, agent: Any) -> None:
         """group-activity-submissions AC-16, and it is the one thing about this
         unit an agent can get wrong in a way that hurts somebody: a 2/3 answer may
