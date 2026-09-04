@@ -42,6 +42,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not token:
             return await call_next(request)
 
+        if jwt.is_guest_token(token):
+            return await self._handle_guest(token, ctx, request, call_next)
+
         try:
             claims = jwt.verify_access_token(token)
         except jwt.JwtError as exc:
@@ -73,6 +76,40 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ctx.access_jti = claims.jti
         ctx.access_exp = claims.exp
         ctx.impersonated_by = claims.impersonated_by
+
+        return await call_next(request)
+
+    async def _handle_guest(
+        self,
+        token: str,
+        ctx: RequestContext,
+        request: Request,
+        call_next,  # type: ignore[no-untyped-def]
+    ) -> Response:
+        try:
+            claims = jwt.verify_guest_token(token)
+        except jwt.JwtError as exc:
+            return _deny(
+                "auth/token-expired",
+                "Guest token invalid or expired",
+                401,
+                request,
+                str(exc) or "guest token verification failed",
+            )
+
+        if await tokens.is_denied(claims.jti):
+            return _deny("auth/token-revoked", "Guest token revoked", 401, request, "guest jti is denylisted")
+
+        ctx.principal = Principal(
+            user_id=claims.guest_session_id,
+            is_admin=False,
+            email_verified=False,
+            is_guest=True,
+            chatroom_id=claims.chatroom_id,
+        )
+        ctx.session_id = None
+        ctx.access_jti = claims.jti
+        ctx.access_exp = claims.exp
 
         return await call_next(request)
 

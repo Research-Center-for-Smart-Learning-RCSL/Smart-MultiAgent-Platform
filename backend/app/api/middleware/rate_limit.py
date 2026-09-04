@@ -44,6 +44,7 @@ _RECOVERY_PATHS = frozenset(
 # Path prefixes and segment markers for bucket classification.
 # Sync with: app.api.v1 router prefix definitions.
 _AUTH_PREFIX = "/api/auth/"
+_GUEST_SESSION_PREFIX = "/api/guest/"
 _CHATROOM_PREFIX = "/api/chatrooms/"
 _TUS_PREFIX = "/api/tus"
 _MESSAGE_SEGMENT = "/messages"
@@ -57,6 +58,8 @@ def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
     if path.startswith(_AUTH_PREFIX):
         if path in _RECOVERY_PATHS:
             return ratelimit.Bucket.AUTH_RECOVERY
+        return ratelimit.Bucket.AUTH
+    if path.startswith(_GUEST_SESSION_PREFIX):
         return ratelimit.Bucket.AUTH
     if method == "POST" and _MESSAGE_SEGMENT in path and path.startswith(_CHATROOM_PREFIX):
         return ratelimit.Bucket.CHAT

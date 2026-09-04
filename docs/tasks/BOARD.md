@@ -316,7 +316,9 @@ first, but building them serially avoids the conflict.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
-- `2026-09-04-guest-anonymous-session` (feature, **approved 2026-09-04**) — `depends_on: []`. Replace
+- (moved to In progress on 2026-09-04) `2026-09-04-guest-anonymous-session`. The original
+  entry, kept here for the record:
+  `2026-09-04-guest-anonymous-session` (feature, **approved 2026-09-04**) — `depends_on: []`. Replace
   the current guest-link flow (full registration + email verification, 7+ screen
   transitions) with a lightweight anonymous session: click link, enter display name,
   enter chatroom. New `guest_sessions` table, chatroom-scoped guest JWT, extended
@@ -512,6 +514,11 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-09-04) `2026-09-04-guest-anonymous-session`. All three phases complete,
+  all 23 ACs ticked. Phase 3 (UX polish) on branch `guest-anon-phase2`: settings gear hiding,
+  session expiry and guest-disabled banners, display name update, logged-in user choice card.
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
 Removed on 2026-09-03 after implementation: `2026-09-03-observer-ui-defect-sweep` (all sixteen

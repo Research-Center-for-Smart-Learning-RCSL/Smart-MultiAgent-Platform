@@ -24,6 +24,7 @@
       :people-open="peopleDrawerOpen"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
       :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
+      :can-settings="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
       @search="surfaces.open('search')"
       @settings="goSettings"
@@ -196,6 +197,32 @@
          would renumber the composer and every breakpoint override of it. AC-11
          wants the chip directly above the composer, which is where this row
          already is. -->
+    <SAlert
+      v-if="guestSessionStore.sessionState === 'expired'"
+      variant="warning"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.guest.sessionExpired') }}
+      <template #actions>
+        <SButton
+          v-if="guestSessionStore.rejoinUrl"
+          variant="ghost"
+          size="sm"
+          @click="$router.push(guestSessionStore.rejoinUrl!)"
+        >
+          {{ t('conversation.guest.rejoin') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <SAlert
+      v-if="guestSessionStore.sessionState === 'disabled'"
+      variant="danger"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.guest.guestDisabled') }}
+    </SAlert>
+
     <div class="chatroom__typing">
       <ChatroomTypingIndicator :names="typingNames" />
       <SDraftDisclosureChip v-if="draftsReadable" />
@@ -247,6 +274,9 @@
           <ChatroomPresence
             :online-users="onlineUsers"
             :agents="agentList"
+            :viewer-is-guest="viewerIsGuest"
+            :viewer-name="guestViewerName"
+            @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
         <template #tab-observer>
@@ -310,6 +340,9 @@
           <ChatroomPresence
             :online-users="onlineUsers"
             :agents="agentList"
+            :viewer-is-guest="viewerIsGuest"
+            :viewer-name="guestViewerName"
+            @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
         <template #tab-observer>
@@ -391,6 +424,8 @@ import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
+import { accessTokenClaims, isGuestSession } from '@shared/transport'
+import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
@@ -405,7 +440,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -437,6 +472,13 @@ const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
+const viewerIsGuest = computed(() => isGuestSession.value)
+const guestNameOverride = ref<string | null>(null)
+const guestViewerName = computed(() => {
+  if (guestNameOverride.value !== null) return guestNameOverride.value
+  const claims = accessTokenClaims.value
+  return typeof claims?.display_name === 'string' ? claims.display_name : ''
+})
 const { width: viewportWidth, isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
 
@@ -935,6 +977,22 @@ const TYPING_DEBOUNCE_MS = 3000
 // composer is intentionally NOT gated on `connected` — a flapping/degraded WS
 // must not lock the user out of sending. The pill shows `connectionState`.
 const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId, reconcileOlder)
+const guestSessionStore = useGuestSessionStore()
+
+const CLOSE_AUTH_FAILED = 4401
+const CLOSE_GUEST_DISABLED = 4403
+
+const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
+  if (!isGuestSession.value) return
+  if (code === CLOSE_AUTH_FAILED) guestSessionStore.markExpired()
+  else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
+})
+
+watch(connectionState, (state) => {
+  if (state === 'live' && isGuestSession.value && guestSessionStore.sessionState !== 'active') {
+    guestSessionStore.sessionState = 'active'
+  }
+})
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
@@ -998,6 +1056,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isUnmounted = true
   document.removeEventListener('keydown', onKeyDown)
+  unsubscribeCloseCode()
   if (typingTimer !== null) {
     clearTimeout(typingTimer)
     typingTimer = null
@@ -1132,6 +1191,28 @@ function goBack(): void {
 
 function goSettings(): void {
   void router.push({ name: 'conversation.chatroom.settings', params: { chatroomId } })
+}
+
+async function onUpdateGuestDisplayName(name: string): Promise<void> {
+  const claims = accessTokenClaims.value
+  const sessionId = claims?.sub as string | undefined
+  if (!sessionId) return
+  try {
+    await updateGuestDisplayName(sessionId, name)
+    guestNameOverride.value = name
+    // Update localStorage so the welcome-back UI shows the new name
+    try {
+      const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
+      if (raw) {
+        const stored = JSON.parse(raw)
+        stored.display_name = name
+        localStorage.setItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`, JSON.stringify(stored))
+      }
+    } catch { /* non-fatal */ }
+    toast.success(t('conversation.guest.displayNameUpdated'))
+  } catch {
+    toast.error(t('conversation.guest.displayNameUpdateFailed'))
+  }
 }
 
 function senderName(m: Message): string {
@@ -1389,6 +1470,11 @@ function onExportSubmit(opts: ExportOptions): void {
   .chatroom--compact .chatroom__presence {
     transition: none;
   }
+}
+
+.chatroom__guest-banner {
+  grid-column: 2;
+  margin: var(--space-2) var(--space-4) 0;
 }
 
 .chatroom__typing {

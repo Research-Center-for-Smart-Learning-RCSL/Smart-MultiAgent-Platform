@@ -23,7 +23,7 @@ export const conversationRoutes: RouteRecordRaw[] = [
     path: '/chatrooms/:chatroomId',
     name: 'conversation.chatroom',
     component: () => import('./views/ChatroomView.vue'),
-    meta: { requiresAuth: true, sidebarCollapsed: true, contentPadding: 'none' },
+    meta: { requiresAuth: true, sidebarCollapsed: true, contentPadding: 'none', allowGuestSession: true },
   },
   {
     path: '/chatrooms/:chatroomId/settings',
@@ -35,8 +35,6 @@ export const conversationRoutes: RouteRecordRaw[] = [
     path: '/g/:chatroomId/:guestToken',
     name: 'conversation.guest',
     component: () => import('./views/GuestLandingView.vue'),
-    // requiresAuth: false so the page loads; the component itself redirects
-    // unauthenticated visitors to login with a return URL back here.
     meta: { requiresAuth: false, layout: 'auth' },
   },
   {

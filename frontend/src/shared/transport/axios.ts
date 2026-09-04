@@ -26,6 +26,9 @@ import { parseProblem } from './problem-json'
 // `setAccessToken` runs. A non-reactive module variable would cache stale
 // claims forever (FE-8).
 const accessTokenRef = ref<string | null>(null)
+// Guest sessions scope every request to one chatroom. Stored alongside the
+// token so the guest refresh and ws-ticket endpoints know their path.
+const guestChatroomIdRef = ref<string | null>(null)
 let onUnauthorized: (() => void) | null = null
 let refreshInFlight: Promise<boolean> | null = null
 
@@ -35,6 +38,18 @@ export function setAccessToken(token: string | null): void {
 
 export function getAccessToken(): string | null {
   return accessTokenRef.value
+}
+
+export function setGuestContext(chatroomId: string): void {
+  guestChatroomIdRef.value = chatroomId
+}
+
+export function clearGuestContext(): void {
+  guestChatroomIdRef.value = null
+}
+
+export function getGuestChatroomId(): string | null {
+  return guestChatroomIdRef.value
 }
 
 /**
@@ -62,6 +77,11 @@ export const accessTokenClaims: ComputedRef<Record<string, unknown> | null> =
     const token = accessTokenRef.value
     return token ? decodeJwtClaims(token) : null
   })
+
+export const isGuestSession: ComputedRef<boolean> = computed(() => {
+  const claims = accessTokenClaims.value
+  return claims?.token_use === 'guest_access'
+})
 
 // Refresh token is managed exclusively via the httpOnly `smap_refresh` cookie
 // set by the server. These stubs exist so callers need no changes.
@@ -248,8 +268,11 @@ async function attemptRefresh(): Promise<boolean> {
 
   refreshInFlight = (async () => {
     try {
-      // No token in body — the browser sends the httpOnly smap_refresh cookie automatically.
-      const res = await refreshHttp.post<{ access_token: string }>('/api/auth/refresh', {})
+      const guestRoom = guestChatroomIdRef.value
+      const url = guestRoom
+        ? `/api/guest/${encodeURIComponent(guestRoom)}/refresh`
+        : '/api/auth/refresh'
+      const res = await refreshHttp.post<{ access_token: string }>(url, {})
       setAccessToken(res.data.access_token)
       return true
     } catch {
@@ -283,8 +306,7 @@ export async function refreshAccessToken(): Promise<string | null> {
  * an expired access token is silently refreshed before the ticket is minted.
  */
 export async function fetchWsTicket(): Promise<string> {
-  const res = await http.post<{ ticket: string; expires_in: number }>(
-    '/auth/ws-ticket',
-  )
+  const url = guestChatroomIdRef.value ? '/guest/ws-ticket' : '/auth/ws-ticket'
+  const res = await http.post<{ ticket: string; expires_in: number }>(url)
   return res.data.ticket
 }

@@ -19,7 +19,7 @@ import {
   SearchService,
   WorkspacesService,
 } from '@shared/api-client'
-import { asBinaryFormField } from '@shared/transport'
+import { asBinaryFormField, http } from '@shared/transport'
 import type { AgentNameOut, MessageOut, ObservationOut } from '@shared/api-client'
 import type { Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
@@ -497,6 +497,36 @@ export async function enrollGuest(
     guestToken,
     ...(displayName ? { requestBody: { display_name: displayName } } : {}),
   })
+}
+
+export interface GuestSessionResult {
+  access_token: string
+  guest_session_id: string
+  display_name: string
+  is_resuming: boolean
+}
+
+export async function createGuestSession(
+  chatroomId: string,
+  guestToken: string,
+  displayName: string,
+  browserId?: string,
+): Promise<GuestSessionResult> {
+  const res = await http.post<GuestSessionResult>(
+    `/guest/${encodeURIComponent(chatroomId)}/${encodeURIComponent(guestToken)}/session`,
+    { display_name: displayName, ...(browserId ? { browser_id: browserId } : {}) },
+  )
+  return res.data
+}
+
+export async function updateGuestDisplayName(
+  guestSessionId: string,
+  displayName: string,
+): Promise<void> {
+  await http.put(
+    `/guest/session/${encodeURIComponent(guestSessionId)}/display-name`,
+    { display_name: displayName },
+  )
 }
 
 // ---- /compact slash command (G.10) ---------------------------------------
