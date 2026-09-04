@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-09-04
 requirements: [R5.04, R6.02, R6.11, R6.12, R13.05, R13.06, R13.07, R13.33, R24.43]
 depends_on: []
@@ -604,31 +604,31 @@ a Phase 1 deliverable (cleanup worker).
 
 ### Phase 1 -- Backend core
 
-- [ ] AC-1: `POST /api/guest/{chatroom_id}/{guest_token}/session` creates a
+- [x] AC-1: `POST /api/guest/{chatroom_id}/{guest_token}/session` creates a
   `guest_sessions` row and returns `{ access_token, refresh_token, guest_session_id,
   display_name, is_resuming: false }` with a 204-compatible httpOnly refresh cookie.
   No user row is created.
-- [ ] AC-2: The returned `access_token` is a valid JWT with `token_use: "guest_access"`,
+- [x] AC-2: The returned `access_token` is a valid JWT with `token_use: "guest_access"`,
   `rol: "guest"`, `chatroom_id`, and `display_name` claims. TTL = configured
   `guest_access_ttl_seconds`.
-- [ ] AC-3: Passing a `browser_id` that matches an existing session for the same
+- [x] AC-3: Passing a `browser_id` that matches an existing session for the same
   chatroom returns `is_resuming: true` and reuses the existing `guest_session_id`.
-- [ ] AC-4: When the active guest count for a chatroom reaches the configured cap,
+- [x] AC-4: When the active guest count for a chatroom reaches the configured cap,
   the endpoint returns 429 with problem type `/guest/cap-reached`.
-- [ ] AC-5: `POST /api/guest/{chatroom_id}/refresh` with a valid refresh cookie
+- [x] AC-5: `POST /api/guest/{chatroom_id}/refresh` with a valid refresh cookie
   returns a new `access_token` and rotates the refresh cookie.
-- [ ] AC-6: The auth middleware constructs a `Principal` with `is_guest=True` and
+- [x] AC-6: The auth middleware constructs a `Principal` with `is_guest=True` and
   `chatroom_id` for guest JWTs, without calling the identity context.
-- [ ] AC-7: A guest principal can open a WebSocket to their scoped chatroom via the
+- [x] AC-7: A guest principal can open a WebSocket to their scoped chatroom via the
   ticket flow (`POST /api/guest/ws-ticket` -> subprotocol auth). Connection to
   any other chatroom is rejected with close code 4403.
-- [ ] AC-8: A guest can send a message; the resulting `messages` row has
+- [x] AC-8: A guest can send a message; the resulting `messages` row has
   `sender_type = 'guest'` and `sender_id = guest_session_id`.
-- [ ] AC-9: Guest actions produce `audit_logs` entries with
+- [x] AC-9: Guest actions produce `audit_logs` entries with
   `actor_user_id = guest_session_id` and `metadata @> '{"guest": true}'`.
-- [ ] AC-10: An Arq periodic task deletes `guest_sessions` rows where `last_seen_at`
+- [x] AC-10: An Arq periodic task deletes `guest_sessions` rows where `last_seen_at`
   is older than 30 days.
-- [ ] AC-11: The existing `POST /api/guest/{chatroom_id}/{guest_token}/enroll`
+- [x] AC-11: The existing `POST /api/guest/{chatroom_id}/{guest_token}/enroll`
   endpoint continues to work for registered users.
 
 ### Phase 2 -- Frontend direct entry
@@ -787,7 +787,18 @@ verification gate.
 
 ## 15. Deviation Log
 
-Empty -- not yet implemented.
+- **D-1: Refresh token hash uses SHA-256, not Argon2.** The spec mentions "Argon2 hash"
+  for `refresh_token_hash`, but the existing `shared_kernel.auth.tokens.hash_refresh`
+  uses SHA-256 (matching `sessions.refresh_token_hash`). Followed the existing pattern
+  for consistency.
+
+- **D-2: OQ-1 confirmed and resolved.** `delete_message`'s `is_author` check hard-coded
+  `sender_type.value == "user"`, which would reject a guest deleting their own message.
+  Fixed to accept both `"user"` and `"guest"`.
+
+- **D-3: Guest endpoints placed in AUTH rate-limit bucket.** The spec requires per-IP
+  rate limiting matching the login endpoint. Added `/api/guest/` prefix to the AUTH
+  bucket in the rate-limit middleware.
 
 ## 16. Follow-ups
 
