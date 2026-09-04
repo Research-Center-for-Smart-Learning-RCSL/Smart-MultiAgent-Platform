@@ -56,6 +56,7 @@ accordingly.
 | Q-3 | Should there be a concurrent-guest cap per chatroom? | 50 (configurable) | Deployment-level setting `limits.max_guests_per_chatroom` (default 50). Prevents abuse on public links while supporting classroom/workshop scenarios. |
 | Q-4 | What happens when a registered user clicks a guest link? | Anonymous guest session | Guest links always create anonymous sessions, regardless of login state. The page detects the existing login and offers a choice: "Enter as Guest" (anonymous) or "Enter as [display_name]" (use existing account, current registered-guest path). This preserves both paths without forcing either. |
 | Q-5 | Overlap dependency with `2026-07-07-graphrag-two-axis-redesign` or `2026-07-19-large-artifacts-silently-dropped`? | None | Neither touches auth, guest, conversation access, or frontend routing. No file overlap. |
+| Q-6 | How are the three phases delivered? | Stacked PRs, remote CI | Each phase is a separate branch + PR. Branch chain: `main` -> `guest-anon-phase1` (PR-1) -> `guest-anon-phase2` (PR-2) -> `guest-anon-phase3` (PR-3). Merge order: PR-3 into PR-2, PR-2 into PR-1, PR-1 into `main`. All tests run on remote CI only, never locally. |
 
 ## 4. Current State
 
@@ -172,21 +173,37 @@ paid once; the ongoing cost of phantom-user hygiene would be paid forever.
 ### Phase structure
 
 ```
-Phase 1 -- Backend core          (separate session)
+Phase 1 -- Backend core          (separate session, separate branch + PR)
   guest_sessions table, guest auth endpoint, guest JWT, extended Principal,
   WS auth for guests, guest sender type, access-check shortcut, audit path,
   guest refresh endpoint, cap enforcement.
 
-Phase 2 -- Frontend direct entry (separate session)
+Phase 2 -- Frontend direct entry (separate session, branches from Phase 1)
   GuestLandingView rewrite, brand-animation bypass, guest JWT lifecycle,
   localStorage browser_id, rejoin detection, route guard updates, WS ticket
   acquisition for guests.
 
-Phase 3 -- UX polish             (separate session)
+Phase 3 -- UX polish             (separate session, branches from Phase 2)
   Settings gear hiding, session expiry banner, display-name update,
   guest-link-disabled mid-session handling, WebSocket reconnect guidance,
   logged-in user choice (guest vs own account), i18n for all new strings.
 ```
+
+### Delivery workflow
+
+Stacked PRs with remote CI verification (Q-6):
+
+```
+main ─── guest-anon-phase1 ─── guest-anon-phase2 ─── guest-anon-phase3
+              PR-1                  PR-2                  PR-3
+              (base: main)          (base: phase1)        (base: phase2)
+```
+
+Merge order: PR-3 → PR-2 → PR-1 → `main`. Each PR targets its predecessor
+as base until the inner PR merges, at which point GitHub retargets.
+
+All tests (backend `pytest`, frontend `pnpm test`/`pnpm lint`/`pnpm typecheck`,
+E2E) run on remote CI only. Local runs are not part of the verification gate.
 
 ## 6. Detailed Changes
 
@@ -644,6 +661,9 @@ a Phase 1 deliverable (cleanup worker).
   anonymous guest entry and entering with their registered account.
 
 ## 12. Test Plan
+
+All tests run on remote CI only (Q-6). Local test runs are not part of the
+verification gate.
 
 ### Phase 1
 
