@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type GuestLinkOut = {
+    url: string;
     chatroom_id: string;
     guest_token: string;
-    url: string;
 };
 

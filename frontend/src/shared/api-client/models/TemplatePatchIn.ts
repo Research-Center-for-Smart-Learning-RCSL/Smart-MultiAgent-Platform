@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type TemplatePatchIn = {
-    body?: (string | null);
-    description?: (string | null);
     name?: (string | null);
+    description?: (string | null);
+    body?: (string | null);
     position?: (number | null);
 };
 

@@ -73,35 +73,6 @@ export class RagService {
         });
     }
     /**
-     * Delete Rag Config
-     * §22.7 — soft-delete a RAG config and cascade its children.
-     *
-     * DOM-1: a config's child documents/chunks/vectors/blobs are not removed
-     * by the soft delete on its own row. ``RagConfigService.soft_delete``
-     * hard-deletes the document rows (``rag_chunks`` cascade via FK); this
-     * endpoint then commits and purges the Qdrant points + MinIO blobs
-     * best-effort. Ordering matters (DOM-4): the commit is the point of no
-     * return, so the destructive infra step always trails a durable audit row.
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteRagConfigApiRagConfigsConfigIdDelete({
-        configId,
-    }: {
-        configId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/rag-configs/{config_id}',
-            path: {
-                'config_id': configId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Read Rag Config
      * @returns RagConfigOut Successful Response
      * @throws ApiError
@@ -142,6 +113,35 @@ export class RagService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Rag Config
+     * §22.7 — soft-delete a RAG config and cascade its children.
+     *
+     * DOM-1: a config's child documents/chunks/vectors/blobs are not removed
+     * by the soft delete on its own row. ``RagConfigService.soft_delete``
+     * hard-deletes the document rows (``rag_chunks`` cascade via FK); this
+     * endpoint then commits and purges the Qdrant points + MinIO blobs
+     * best-effort. Ordering matters (DOM-4): the commit is the point of no
+     * return, so the destructive infra step always trails a durable audit row.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteRagConfigApiRagConfigsConfigIdDelete({
+        configId,
+    }: {
+        configId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/rag-configs/{config_id}',
+            path: {
+                'config_id': configId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },

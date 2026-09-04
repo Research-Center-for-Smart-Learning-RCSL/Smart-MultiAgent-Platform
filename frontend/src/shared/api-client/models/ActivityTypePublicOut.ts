@@ -9,10 +9,10 @@
  * Reachable through the room-access chain, never through project membership.
  */
 export type ActivityTypePublicOut = {
-    group_config?: (Record<string, any> | null);
     id: string;
     key: string;
     name: string;
     payload_schema: Record<string, any>;
+    group_config?: (Record<string, any> | null);
 };
 

@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AgentToolTestOut = {
+    ok: boolean;
+    tool_names: Array<string>;
     duration_ms: number;
     error?: (string | null);
-    ok: boolean;
     status?: (number | null);
-    tool_names: Array<string>;
     warnings?: Array<string>;
 };
 

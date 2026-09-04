@@ -4,18 +4,18 @@
 /* eslint-disable */
 import type { UserStatus } from './UserStatus';
 export type UserDetailOut = {
-    banned_at: (string | null);
-    banned_reason: (string | null);
-    created_at: string;
-    deleted_at: (string | null);
-    display_name: (string | null);
-    email: string;
-    email_verified: boolean;
     id: string;
+    email: string;
+    display_name: (string | null);
+    status: UserStatus;
+    email_verified: boolean;
     is_admin: boolean;
+    banned_reason: (string | null);
+    banned_at: (string | null);
+    deleted_at: (string | null);
     last_login_at: (string | null);
+    created_at: string;
     org_ids: Array<string>;
     project_ids: Array<string>;
-    status: UserStatus;
 };
 

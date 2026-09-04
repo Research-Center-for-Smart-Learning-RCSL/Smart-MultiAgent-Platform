@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkflowOut = {
-    created_at: string;
-    definition: Record<string, any>;
-    deleted_at: (string | null);
     id: string;
-    name: string;
-    version: number;
     workspace_id: string;
+    name: string;
+    definition: Record<string, any>;
+    version: number;
+    created_at: string;
+    deleted_at: (string | null);
 };
 

@@ -3,23 +3,23 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ChatroomOut = {
-    allow_guest_links: boolean;
-    allow_member_groups: boolean;
+    id: string;
+    workspace_id: string;
+    name: string;
     allow_org_members: boolean;
     allow_project_members: boolean;
     allow_project_owners_only: boolean;
-    created_at: string;
-    created_by_user_id: (string | null);
-    deleted_at: (string | null);
-    disclose_drafts: boolean;
-    disclose_observers: boolean;
-    drafts_readable: boolean;
-    id: string;
-    is_moderator?: boolean;
-    name: string;
-    observers_present: boolean;
+    allow_guest_links: boolean;
+    allow_member_groups: boolean;
     version: number;
+    created_at: string;
+    deleted_at: (string | null);
+    created_by_user_id: (string | null);
+    disclose_observers: boolean;
+    observers_present: boolean;
+    disclose_drafts: boolean;
+    drafts_readable: boolean;
     viewer_is_guest?: boolean;
-    workspace_id: string;
+    is_moderator?: boolean;
 };
 

@@ -4,8 +4,8 @@
 /* eslint-disable */
 import type { ApiKeyProvider } from './ApiKeyProvider';
 export type KeyUploadIn = {
-    name: string;
     provider: ApiKeyProvider;
+    name: string;
     secret: string;
 };
 

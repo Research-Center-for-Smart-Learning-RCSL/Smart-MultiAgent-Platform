@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkflowPatchIn = {
-    definition?: (Record<string, any> | null);
     name?: (string | null);
+    definition?: (Record<string, any> | null);
 };
 

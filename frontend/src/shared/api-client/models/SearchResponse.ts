@@ -4,7 +4,7 @@
 /* eslint-disable */
 import type { SearchHit } from './SearchHit';
 export type SearchResponse = {
-    hits: Array<SearchHit>;
     query: string;
+    hits: Array<SearchHit>;
 };
 

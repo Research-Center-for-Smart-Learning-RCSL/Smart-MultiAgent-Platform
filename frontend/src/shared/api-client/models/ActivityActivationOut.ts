@@ -4,15 +4,15 @@
 /* eslint-disable */
 import type { ActivityTypePublicOut } from './ActivityTypePublicOut';
 export type ActivityActivationOut = {
-    activity_type?: (ActivityTypePublicOut | null);
-    activity_type_id: string;
-    chatroom_id: string;
-    created_at: (string | null);
-    ended_at: (string | null);
     id: string;
-    started_by_agent_id?: (string | null);
-    started_by_agent_name?: (string | null);
+    chatroom_id: string;
+    activity_type_id: string;
     started_by_user_id: string;
     status: string;
+    created_at: (string | null);
+    ended_at: (string | null);
+    activity_type?: (ActivityTypePublicOut | null);
+    started_by_agent_id?: (string | null);
+    started_by_agent_name?: (string | null);
 };
 

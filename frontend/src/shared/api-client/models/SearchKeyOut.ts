@@ -5,15 +5,15 @@
 import type { ProbeStatus } from './ProbeStatus';
 import type { SearchProvider } from './SearchProvider';
 export type SearchKeyOut = {
-    config: Record<string, any>;
-    created_at: string;
     id: string;
-    is_active: boolean;
-    last_test_at: (string | null);
-    masked_preview: string;
     project_id: string;
     provider: SearchProvider;
-    test_error: (string | null);
+    masked_preview: string;
     test_status: ProbeStatus;
+    test_error: (string | null);
+    last_test_at: (string | null);
+    is_active: boolean;
+    config: Record<string, any>;
+    created_at: string;
 };
 

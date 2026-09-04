@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AgentToolPatchIn = {
+    enabled?: (boolean | null);
+    display_name?: (string | null);
+    config?: (Record<string, any> | null);
     auth?: (Record<string, any> | null);
     clear_auth?: boolean;
-    config?: (Record<string, any> | null);
-    display_name?: (string | null);
-    enabled?: (boolean | null);
 };
 
