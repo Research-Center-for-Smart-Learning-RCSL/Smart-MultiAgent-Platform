@@ -274,6 +274,9 @@
           <ChatroomPresence
             :online-users="onlineUsers"
             :agents="agentList"
+            :viewer-is-guest="viewerIsGuest"
+            :viewer-name="guestViewerName"
+            @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
         <template #tab-observer>
@@ -337,6 +340,9 @@
           <ChatroomPresence
             :online-users="onlineUsers"
             :agents="agentList"
+            :viewer-is-guest="viewerIsGuest"
+            :viewer-name="guestViewerName"
+            @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
         <template #tab-observer>
@@ -418,7 +424,7 @@ import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
-import { isGuestSession } from '@shared/transport'
+import { accessTokenClaims, isGuestSession } from '@shared/transport'
 import { useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
@@ -434,7 +440,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -466,6 +472,11 @@ const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
+const viewerIsGuest = computed(() => isGuestSession.value)
+const guestViewerName = computed(() => {
+  const claims = accessTokenClaims.value
+  return typeof claims?.display_name === 'string' ? claims.display_name : ''
+})
 const { width: viewportWidth, isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
 
@@ -1172,6 +1183,28 @@ function goBack(): void {
 
 function goSettings(): void {
   void router.push({ name: 'conversation.chatroom.settings', params: { chatroomId } })
+}
+
+async function onUpdateGuestDisplayName(name: string): Promise<void> {
+  const claims = accessTokenClaims.value
+  const sessionId = claims?.sub as string | undefined
+  if (!sessionId) return
+  try {
+    await updateGuestDisplayName(sessionId, name)
+    // Update localStorage so the welcome-back UI shows the new name
+    const STORAGE_PREFIX = 'smap:guest:'
+    try {
+      const raw = localStorage.getItem(`${STORAGE_PREFIX}${chatroomId}`)
+      if (raw) {
+        const stored = JSON.parse(raw)
+        stored.display_name = name
+        localStorage.setItem(`${STORAGE_PREFIX}${chatroomId}`, JSON.stringify(stored))
+      }
+    } catch { /* non-fatal */ }
+    toast.success(t('conversation.guest.displayNameUpdated'))
+  } catch {
+    toast.error(t('conversation.guest.displayNameUpdateFailed'))
+  }
 }
 
 function senderName(m: Message): string {

@@ -16,9 +16,56 @@
           />
           <span class="presence-user__dot" />
         </span>
-        <span class="presence-user__name">{{ u.id.slice(0, 8) }}</span>
+
+        <template v-if="u.isYou && viewerIsGuest && !editingName">
+          <span class="presence-user__name">{{ viewerName || u.id.slice(0, 8) }}</span>
+          <SButton
+            variant="ghost"
+            icon-only
+            size="xs"
+            :aria-label="t('conversation.guest.editName')"
+            @click="startEditName"
+          >
+            <PencilIcon class="w-3.5 h-3.5" />
+          </SButton>
+        </template>
+
+        <template v-else-if="u.isYou && viewerIsGuest && editingName">
+          <form
+            class="presence-user__edit"
+            @submit.prevent="saveDisplayName"
+          >
+            <SInput
+              ref="editInputRef"
+              v-model="editNameValue"
+              size="sm"
+              :maxlength="100"
+              :placeholder="t('conversation.guest.displayNamePlaceholder')"
+            />
+            <SButton
+              type="submit"
+              variant="primary"
+              size="xs"
+              :disabled="!editNameValue.trim()"
+            >
+              {{ t('conversation.chatroom.save') }}
+            </SButton>
+            <SButton
+              variant="ghost"
+              size="xs"
+              @click="cancelEditName"
+            >
+              {{ t('conversation.chatroom.cancel') }}
+            </SButton>
+          </form>
+        </template>
+
+        <template v-else>
+          <span class="presence-user__name">{{ u.id.slice(0, 8) }}</span>
+        </template>
+
         <span
-          v-if="u.isYou"
+          v-if="u.isYou && !editingName"
           class="presence-user__you"
         >{{ t('conversation.chatroom.you') }}</span>
       </li>
@@ -40,18 +87,53 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SAvatar, SDivider } from '@shared/ui'
+import { PencilIcon } from '@heroicons/vue/24/outline'
+import { SAvatar, SButton, SDivider, SInput } from '@shared/ui'
 import ChatroomAgentStatusItem, {
   type AgentStatusEntry,
 } from './ChatroomAgentStatusItem.vue'
 
-defineProps<{
-  onlineUsers: Array<{ id: string; isYou: boolean }>
-  agents: AgentStatusEntry[]
+const props = withDefaults(
+  defineProps<{
+    onlineUsers: Array<{ id: string; isYou: boolean }>
+    agents: AgentStatusEntry[]
+    viewerIsGuest?: boolean
+    viewerName?: string
+  }>(),
+  { viewerIsGuest: false, viewerName: '' },
+)
+
+const emit = defineEmits<{
+  'update-display-name': [name: string]
 }>()
 
 const { t } = useI18n()
+const editingName = ref(false)
+const editNameValue = ref('')
+const editInputRef = useTemplateRef<InstanceType<typeof SInput>>('editInputRef')
+
+function startEditName(): void {
+  editNameValue.value = props.viewerName ?? ''
+  editingName.value = true
+  void nextTick(() => {
+    const el = editInputRef.value?.$el as HTMLElement | null
+    const input = el?.querySelector('input') ?? el
+    input?.focus()
+  })
+}
+
+function cancelEditName(): void {
+  editingName.value = false
+}
+
+function saveDisplayName(): void {
+  const trimmed = editNameValue.value.trim()
+  if (!trimmed) return
+  emit('update-display-name', trimmed)
+  editingName.value = false
+}
 </script>
 
 <style scoped>
@@ -86,12 +168,13 @@ const { t } = useI18n()
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 36px;
+  min-height: 36px;
 }
 
 .presence-user__avatar {
   position: relative;
   display: inline-flex;
+  flex-shrink: 0;
 }
 
 .presence-user__dot {
@@ -113,5 +196,13 @@ const { t } = useI18n()
 .presence-user__you {
   font-size: var(--font-size-xs);
   color: var(--color-muted);
+}
+
+.presence-user__edit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
 }
 </style>
