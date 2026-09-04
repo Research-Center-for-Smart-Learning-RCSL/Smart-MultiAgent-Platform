@@ -8,6 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
+import { accessTokenClaims, isGuestSession } from '@shared/transport'
 import { ApiError } from '@shared/errors'
 import {
   deleteMessage as apiDeleteMessage,
@@ -58,26 +59,32 @@ export function useChatroomMessages(
 
   const myId = computed(() => session.me?.id ?? null)
   const isAdmin = computed(() => session.me?.is_admin ?? false)
+  const myGuestId = computed(() => {
+    if (!isGuestSession.value) return null
+    const sub = accessTokenClaims.value?.sub
+    return typeof sub === 'string' ? sub : null
+  })
 
   // ---------- permission helpers ------------------------------------------
 
-  function isOwnUserMessage(m: Message): boolean {
-    return m.sender_type === 'user' && !!myId.value && m.sender_id === myId.value
+  function isOwnMessage(m: Message): boolean {
+    if (m.sender_type === 'user' && !!myId.value && m.sender_id === myId.value) return true
+    if (m.sender_type === 'guest' && !!myGuestId.value && m.sender_id === myGuestId.value) return true
+    return false
   }
 
   function canEdit(m: Message): boolean {
-    // An optimistic (not-yet-persisted) message has no server id to PATCH.
     if ((m as DisplayMessage)._status) return false
     if (isAdmin.value || isModerator()) return true
     return (
-      isOwnUserMessage(m) &&
+      isOwnMessage(m) &&
       Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
     )
   }
 
   function canDelete(m: Message): boolean {
     if ((m as DisplayMessage)._status) return false
-    return isAdmin.value || isModerator() || isOwnUserMessage(m)
+    return isAdmin.value || isModerator() || isOwnMessage(m)
   }
 
   // ---------- pagination ---------------------------------------------------
@@ -141,7 +148,7 @@ export function useChatroomMessages(
     const hidden = new Set<string>()
     for (let i = persisted.length - 1; i >= 0; i--) {
       const m = persisted[i]!
-      if (m.sender_type !== 'user') continue
+      if (m.sender_type !== 'user' && m.sender_type !== 'guest') continue
       const k = `${m.sender_id} ${m.content_md}`
       const n = need.get(k)
       if (n && n > 0) {
@@ -268,8 +275,8 @@ export function useChatroomMessages(
     const optimistic: DisplayMessage = {
       id: tempId,
       chatroom_id: chatroomId,
-      sender_type: 'user',
-      sender_id: myId.value,
+      sender_type: isGuestSession.value ? 'guest' : 'user',
+      sender_id: myGuestId.value ?? myId.value,
       content_md: text,
       metadata: {},
       version: 0,
