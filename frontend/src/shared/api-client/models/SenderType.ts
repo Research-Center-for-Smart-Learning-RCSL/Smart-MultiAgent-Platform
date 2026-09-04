@@ -2,4 +2,4 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type SenderType = 'user' | 'agent' | 'system';
+export type SenderType = 'user' | 'agent' | 'system' | 'guest';

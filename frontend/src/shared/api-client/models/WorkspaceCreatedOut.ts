@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceCreatedOut = {
-    concept_map_enabled: boolean;
-    created_at: string;
-    default_chatroom_id: string;
-    deleted_at: (string | null);
     id: string;
-    name: string;
     project_id: string;
+    name: string;
+    created_at: string;
+    deleted_at: (string | null);
+    concept_map_enabled: boolean;
+    default_chatroom_id: string;
 };
 

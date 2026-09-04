@@ -4,7 +4,7 @@
 /* eslint-disable */
 export type SkillBindingOut = {
     agent_id: string;
-    name: string;
     skill_id: string;
+    name: string;
 };
 

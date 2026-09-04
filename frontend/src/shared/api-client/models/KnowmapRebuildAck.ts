@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type KnowmapRebuildAck = {
+    status: string;
     config_id: string;
-    status: 'enqueued';
 };
 

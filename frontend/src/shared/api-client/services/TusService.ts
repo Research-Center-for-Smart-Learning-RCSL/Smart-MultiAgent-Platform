@@ -45,32 +45,6 @@ export class TusService {
         });
     }
     /**
-     * Tus Terminate
-     * @returns void
-     * @throws ApiError
-     */
-    public static tusTerminateApiTusUploadIdDelete({
-        uploadId,
-        tusResumable,
-    }: {
-        uploadId: string,
-        tusResumable: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/tus/{upload_id}',
-            path: {
-                'upload_id': uploadId,
-            },
-            headers: {
-                'Tus-Resumable': tusResumable,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Tus Head
      * @returns any Successful Response
      * @throws ApiError
@@ -122,6 +96,32 @@ export class TusService {
                 'Tus-Resumable': tusResumable,
                 'Upload-Offset': uploadOffset,
                 'Content-Type': contentType,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Tus Terminate
+     * @returns void
+     * @throws ApiError
+     */
+    public static tusTerminateApiTusUploadIdDelete({
+        uploadId,
+        tusResumable,
+    }: {
+        uploadId: string,
+        tusResumable: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/tus/{upload_id}',
+            path: {
+                'upload_id': uploadId,
+            },
+            headers: {
+                'Tus-Resumable': tusResumable,
             },
             errors: {
                 422: `Request Validation Problem`,

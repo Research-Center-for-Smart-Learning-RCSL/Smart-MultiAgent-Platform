@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AdminEntryOut = {
-    promoted_at: string;
-    promoted_by_user_id: (string | null);
     user_id: string;
+    promoted_by_user_id: (string | null);
+    promoted_at: string;
 };
 

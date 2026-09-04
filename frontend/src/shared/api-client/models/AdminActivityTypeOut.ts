@@ -13,18 +13,18 @@ import type { ActivityTypeScope } from './ActivityTypeScope';
  * non-admin surface ([R30.25]).
  */
 export type AdminActivityTypeOut = {
-    created_at: string;
-    echo_includes_content: boolean;
-    expose_payload_to_agent: boolean;
     id: string;
-    key: string;
-    name: string;
     project_id: (string | null);
     project_name: (string | null);
-    retention_days: (number | null);
     scope: ActivityTypeScope;
-    validator_config: Record<string, any>;
+    key: string;
+    name: string;
     validator_kind: string;
+    validator_config: Record<string, any>;
+    expose_payload_to_agent: boolean;
+    echo_includes_content: boolean;
+    retention_days: (number | null);
     version: number;
+    created_at: string;
 };
 

@@ -8,7 +8,7 @@ import type { GraphRagTriggerConfig } from './GraphRagTriggerConfig';
  */
 export type GraphRagConfigPatchIn = {
     builder_key_group_id?: (string | null);
-    recency_half_life_days?: (number | null);
     trigger_config?: (GraphRagTriggerConfig | null);
+    recency_half_life_days?: (number | null);
 };
 
