@@ -18,6 +18,7 @@ import { skillsRoutes } from '@slices/skills'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
 import { onUnauthorizedRedirect, isGuestSession, clearGuestContext, getGuestChatroomId } from '@shared/transport'
+import { useGuestSessionStore } from '@slices/conversation'
 
 import { runGuards, type GuardContext, type RouteMeta } from './guards'
 
@@ -84,7 +85,13 @@ onUnauthorizedRedirect(() => {
   // attemptRefresh clears the access token before this fires, so
   // isGuestSession is already false. Check the guest context ref instead.
   if (getGuestChatroomId()) {
+    const guestStore = useGuestSessionStore()
+    guestStore.markExpired()
+    const rejoinUrl = guestStore.rejoinUrl
     clearGuestContext()
+    if (rejoinUrl) {
+      router.push(rejoinUrl)
+    }
     return
   }
   const session = useSessionStore()
