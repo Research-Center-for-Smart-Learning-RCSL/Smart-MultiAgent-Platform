@@ -76,12 +76,13 @@ async def test_create_session_returns_tokens(service: GuestSessionService) -> No
         patch.object(service, "_rooms") as rooms,
         patch.object(service, "_sessions") as sessions,
         patch("contexts.conversation.application.guest_session_service.sign_guest_token") as sign,
-        patch("contexts.conversation.application.guest_session_service.audit"),
+        patch("contexts.conversation.application.guest_session_service.audit") as mock_audit,
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=None)
         sessions.count_active_for_update = AsyncMock(return_value=0)
         sessions.create = AsyncMock(return_value=new_session)
+        mock_audit.emit = AsyncMock()
         sign.return_value = ("jwt-token", MagicMock())
 
         result = await service.create_or_resume(
@@ -109,13 +110,14 @@ async def test_resume_returns_is_resuming_true(service: GuestSessionService) -> 
         patch.object(service, "_rooms") as rooms,
         patch.object(service, "_sessions") as sessions,
         patch("contexts.conversation.application.guest_session_service.sign_guest_token") as sign,
-        patch("contexts.conversation.application.guest_session_service.audit"),
+        patch("contexts.conversation.application.guest_session_service.audit") as mock_audit,
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=existing)
         sessions.update_last_seen = AsyncMock()
         sessions.update_refresh_hash = AsyncMock()
         sessions.update_display_name = AsyncMock()
+        mock_audit.emit = AsyncMock()
         sign.return_value = ("jwt-token", MagicMock())
 
         result = await service.create_or_resume(
@@ -215,13 +217,14 @@ async def test_refresh_returns_new_tokens(service: GuestSessionService) -> None:
         patch.object(service, "_sessions") as sessions,
         patch("contexts.conversation.application.guest_session_service.sign_guest_token") as sign,
         patch("contexts.conversation.application.guest_session_service.token_utils") as tu,
-        patch("contexts.conversation.application.guest_session_service.audit"),
+        patch("contexts.conversation.application.guest_session_service.audit") as mock_audit,
     ):
         rooms.get = AsyncMock(return_value=room)
         tu.hash_refresh.return_value = existing.refresh_token_hash
         tu.new_refresh_token.return_value = "new-refresh"
         sessions.find_by_refresh_hash = AsyncMock(return_value=existing)
         sessions.update_refresh_hash = AsyncMock()
+        mock_audit.emit = AsyncMock()
         sign.return_value = ("new-jwt", MagicMock())
 
         result = await service.refresh(
