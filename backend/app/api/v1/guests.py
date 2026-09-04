@@ -162,4 +162,32 @@ async def refresh_guest_session(
     return GuestRefreshOut(access_token=result.access_token)
 
 
+# -- Guest WS ticket (AC-7) --
+
+
+class GuestWsTicketOut(BaseModel):
+    ticket: str
+    expires_in: int
+
+
+@router.post("/ws-ticket", response_model=GuestWsTicketOut)
+async def guest_ws_ticket(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> GuestWsTicketOut:
+    """Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer."""
+    if not principal.is_guest:
+        raise GuestTokenInvalid("not a guest principal")
+
+    from shared_kernel.realtime import mint_ws_ticket
+
+    auth_header = request.headers.get("authorization", "")
+    scheme, _, raw_token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not raw_token:
+        raise GuestTokenInvalid("missing bearer token")
+
+    ticket, ttl = await mint_ws_ticket(raw_token)
+    return GuestWsTicketOut(ticket=ticket, expires_in=ttl)
+
+
 __all__ = ["router"]
