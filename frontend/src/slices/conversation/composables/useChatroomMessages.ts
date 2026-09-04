@@ -76,6 +76,8 @@ export function useChatroomMessages(
   function canEdit(m: Message): boolean {
     if ((m as DisplayMessage)._status) return false
     if (isAdmin.value || isModerator()) return true
+    // Backend edit_message rejects sender_type != USER; guests can only delete.
+    if (m.sender_type !== 'user') return false
     return (
       isOwnMessage(m) &&
       Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
