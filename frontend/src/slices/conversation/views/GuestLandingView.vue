@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { XCircleIcon } from '@heroicons/vue/24/outline'
+import { UserIcon, UserGroupIcon, XCircleIcon } from '@heroicons/vue/24/outline'
 import { SAuthCard, SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError, RateLimitError } from '@shared/errors'
 import { setAccessToken, setGuestContext } from '@shared/transport'
@@ -32,6 +32,7 @@ interface StoredGuest {
 
 type ViewState =
   | 'idle'
+  | 'choosing'
   | 'resuming'
   | 'enrolling'
   | 'invalid'
@@ -40,6 +41,11 @@ type ViewState =
 
 const state = ref<ViewState>('idle')
 const resumedName = ref('')
+const enterAsGuest = ref(false)
+
+const accountDisplayName = computed(
+  () => session.me?.display_name ?? session.me?.email ?? '',
+)
 
 function readStored(): StoredGuest | null {
   try {
@@ -106,7 +112,7 @@ async function enterChatroom(
   })
 }
 
-async function enrollRegisteredGuest(name: string): Promise<void> {
+async function enrollRegisteredGuest(name?: string): Promise<void> {
   await enrollGuest(chatroomId, guestToken, name)
   history.replaceState(null, '', `/c/${chatroomId}`)
   await router.replace({ name: 'conversation.chatroom', params: { chatroomId } })
@@ -115,9 +121,7 @@ async function enrollRegisteredGuest(name: string): Promise<void> {
 const doEnroll = handleSubmit(async (values) => {
   state.value = 'enrolling'
   try {
-    // Authenticated users keep their own JWT and use the registered-guest path.
-    // Phase 3 (AC-23) adds an explicit choice between guest and own account.
-    if (session.isAuthenticated) {
+    if (session.isAuthenticated && !enterAsGuest.value) {
       await enrollRegisteredGuest(values.displayName)
       return
     }
@@ -143,10 +147,6 @@ async function doResume(): Promise<void> {
     return
   }
   try {
-    if (session.isAuthenticated) {
-      await enrollRegisteredGuest(stored.display_name)
-      return
-    }
     const result = await createGuestSession(
       chatroomId,
       guestToken,
@@ -164,10 +164,25 @@ function switchToChangeName(): void {
   state.value = 'idle'
 }
 
+function chooseGuest(): void {
+  enterAsGuest.value = true
+  state.value = 'idle'
+}
+
+async function chooseOwnAccount(): Promise<void> {
+  state.value = 'enrolling'
+  try {
+    await enrollRegisteredGuest(accountDisplayName.value || undefined)
+  } catch (e) {
+    state.value = classifyError(e)
+  }
+}
+
 onMounted(() => {
-  // Authenticated users use the registered-guest path; localStorage rejoin
-  // is only for anonymous guests.
-  if (session.isAuthenticated) return
+  if (session.isAuthenticated) {
+    state.value = 'choosing'
+    return
+  }
   const stored = readStored()
   if (stored) {
     resumedName.value = stored.display_name
@@ -185,8 +200,41 @@ onMounted(() => {
       class="guest-content"
       aria-live="polite"
     >
+      <!-- Logged-in user choice (AC-23) -->
+      <template v-if="state === 'choosing'">
+        <p class="guest-desc">
+          {{ t('conversation.guest.chooseEntry') }}
+        </p>
+        <div class="guest-choice">
+          <button
+            class="choice-card"
+            @click="chooseOwnAccount"
+          >
+            <UserIcon
+              class="choice-card__icon"
+              aria-hidden="true"
+            />
+            <span class="choice-card__label">
+              {{ t('conversation.guest.enterAsUser', { name: accountDisplayName }) }}
+            </span>
+          </button>
+          <button
+            class="choice-card"
+            @click="chooseGuest"
+          >
+            <UserGroupIcon
+              class="choice-card__icon"
+              aria-hidden="true"
+            />
+            <span class="choice-card__label">
+              {{ t('conversation.guest.enterAsGuest') }}
+            </span>
+          </button>
+        </div>
+      </template>
+
       <!-- Returning guest: welcome back -->
-      <template v-if="state === 'resuming'">
+      <template v-else-if="state === 'resuming'">
         <p class="guest-desc">
           {{ t('conversation.guest.welcomeBack', { name: resumedName }) }}
         </p>
@@ -352,5 +400,43 @@ onMounted(() => {
 
 .state-action {
   margin-top: var(--space-2);
+}
+
+.guest-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.choice-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.choice-card:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.choice-card__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.choice-card__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-fg);
 }
 </style>
