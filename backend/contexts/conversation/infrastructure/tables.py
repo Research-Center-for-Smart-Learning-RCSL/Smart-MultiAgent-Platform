@@ -188,6 +188,23 @@ chatroom_member_groups = sa.Table(
     ),
 )
 
+guest_sessions = sa.Table(
+    "guest_sessions",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("display_name", sa.String(100), nullable=False),
+    sa.Column("browser_id", sa.Text, nullable=True),
+    sa.Column("refresh_token_hash", sa.Text, nullable=False, unique=True),
+    sa.Column("last_seen_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+
 messages = sa.Table(
     "messages",
     metadata,
@@ -202,8 +219,9 @@ messages = sa.Table(
         # Must match the DB type created in migration 0017 (PG ENUM
         # `message_sender_type`), not sa.Text — asyncpg refuses to bind a
         # VARCHAR parameter into an enum column (DatatypeMismatchError).
+        # "guest" added by migration 0085.
         "sender_type",
-        pg.ENUM("user", "agent", "system", name="message_sender_type", create_type=False),
+        pg.ENUM("user", "agent", "system", "guest", name="message_sender_type", create_type=False),
         nullable=False,
     ),
     sa.Column("sender_id", pg.UUID(as_uuid=True), nullable=True),

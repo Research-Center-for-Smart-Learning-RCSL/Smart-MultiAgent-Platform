@@ -163,6 +163,8 @@ class JwtSection(BaseSettings):
     # countdown. Purely a client-side UX lead time; carried here so the timeout
     # policy has a single source of truth.
     idle_warning_seconds: int = 60
+    guest_access_ttl_seconds: int = 4 * 3600  # 4 h
+    guest_refresh_ttl_seconds: int = 7 * 24 * 3600  # 7 days
     issuer: str = "smap.local"
     audience: str = "smap.api"
     # NOT YET IMPLEMENTED — reserved for future JWT rotation (R6.03).
@@ -417,6 +419,7 @@ class LimitsSection(BaseSettings):
     chat_per_min_user: int = 60
     upload_per_min_user: int = 10
     other_per_min_user: int = 300
+    max_guests_per_chatroom: int = 50
     ws_concurrent_per_user: int = 5
     # F-4 (R14.07a): per-workflow ceiling on event-triggered runs within a
     # rolling window. Above any human- or agent-paced event rate, two orders of
