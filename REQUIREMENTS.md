@@ -65,7 +65,7 @@ SMAP (Smart Multi-Agent Platform) is a self-hosted web application that lets use
 | **Org Member** | Non-owner member of an Org. |
 | **Project** | Collaboration unit. Owned by an Individual *or* by an Org. |
 | **Project Owner / Project Member** | Project-scoped roles. |
-| **Guest** | A registered Individual who has been invited into a specific Chat Room via a link. Has no permissions outside that room. |
+| **Guest** | An anonymous or registered visitor who has been granted access to a specific Chat Room via a guest link. An anonymous guest holds a chatroom-scoped session without a user account; a registered user may also enter via a guest link using their existing account. Guests have no permissions outside that room. |
 | **API Key** | A credential issued by a model provider and uploaded by a user. |
 | **Individual Key** | Key owned by an Individual, usable in any project they participate in. |
 | **Project Key** | Key attached to a specific project. Includes Individual Keys "carried" into a project (see §7). |
@@ -168,7 +168,7 @@ Roles are scoped to resources, not global. One user may simultaneously be `OrgOw
 - **[R5.01]** `Admin` is platform-level and NOT assignable through the UI; set via a bootstrap CLI or a `seed_admins` env list on first boot.
 - **[R5.02]** The **Original Creator** flag on an Org is a separate, immutable bit, orthogonal to `OrgOwner`. The Original Creator is always an Org Owner and cannot demote, leave, or be removed.
 - **[R5.03]** Individuals can create projects without an Org; such projects are owned by the Individual (`owner_type = 'user'`). Org Owners are automatically Project Owners on every project in their Org (`OrgOwner → ProjectOwner` inheritance is computed, not stored, to avoid drift).
-- **[R5.04]** `Guest` is a registered Individual account that has been granted access to a specific Chat Room via an invite link. Guest status is per-Chat-Room; a Guest in Room A may be a full member elsewhere.
+- **[R5.04]** `Guest` is a per-Chat-Room access grant obtained via a guest link. A guest may be (a) an anonymous visitor who holds a chatroom-scoped session backed by a `guest_sessions` row and a guest JWT (`token_use: "guest_access"`) without a user account, or (b) a registered Individual who enrolls via the legacy `chatroom_guests` path. Guest status is per-Chat-Room; a registered user who is a Guest in Room A may be a full member elsewhere. Anonymous guest sessions are scoped to a single chatroom; the JWT carries a `chatroom_id` claim enforced by the auth middleware and the room access check.
 - **[R5.06]** Member Group membership (§13.2a) is orthogonal to the role set. Like `Guest`, it is a per-resource grant evaluated by the chat-room access check, never a seventh role, and it confers no capability in the §5.2 matrix. The fixed role set of §5.1 is unchanged.
 
 ### 5.2 Permission matrix
@@ -216,7 +216,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 ### 6.1 Registration and login
 
 - **[R6.01]** Sign-up: email + password + CAPTCHA challenge (hCaptcha or Cloudflare Turnstile — Admin-configurable). Password policy: ≥ 10 chars, ≥ 1 letter, ≥ 1 digit, ≥ 1 symbol. Hashing: **Argon2id** (memory 64 MiB, time 3, parallelism 2). Argon2id is chosen over Bcrypt to avoid Bcrypt's 72-byte silent truncation and to get memory-hardness against GPU cracking.
-- **[R6.02]** Email verification: user receives a verification token link; account is in `pending` state until verified. Unverified accounts cannot create Orgs/Projects nor accept Guest invites. Verification tokens are delivered via `GET /api/auth/verify-email?token=<b64url>` (query form, magic-link pattern) and consumed server-side.
+- **[R6.02]** Email verification: user receives a verification token link; account is in `pending` state until verified. Unverified accounts cannot create Orgs/Projects nor accept project/org invites. **Exception:** anonymous guest-link access ([R5.04a]) requires no account and no email verification; the guest token in the URL is the sole credential. Verification tokens are delivered via `GET /api/auth/verify-email?token=<b64url>` (query form, magic-link pattern) and consumed server-side.
 - **[R6.03]** Login returns:
   - a short-lived **JWT access token** (15 min, signed **RS256**; signing private key stored as a Vault Transit key — never on the application filesystem; public key(s) distributed to backends for verification).
   - a long-lived **refresh token** (30 days, rotating; the hash of the token is the key in Redis `session:{sha256(refresh_token)}` with the session record as value).
@@ -260,7 +260,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 
 - **[R6.09]** Org invitations: Org Owner sends invite by email. If invitee has no account, the invite link lands on a sign-up page; after sign-up + email verification, they are automatically enrolled in the Org. The invite-creation response additionally returns the accept link to the inviter so an installation without outbound mail can deliver it out of band; the response is identical whether or not the address already has an account, and the link is returned only at creation, never by a read endpoint. An invitee who already has an account also receives the invite in their in-app invite inbox, with no mail involved.
 - **[R6.10]** Project invitations: same UX, Project-scoped.
-- **[R6.11]** Chat Room Guest links (§13): a URL token that anyone (registered or not) can open; if not logged in, user is redirected to register; after registration, they join the room as Guest.
+- **[R6.11]** Chat Room Guest links (§13): a URL token that anyone can open. The visitor enters a display name and joins the room immediately as an anonymous guest. No registration or login is required. A visitor who is already logged in is offered a choice between anonymous guest entry and entering with their registered account.
 - **[R6.12]** Guest links **cannot be revoked, expired, password-protected, or use-capped** (explicit stakeholder decision, Q43). Guest access is revoked only by deleting the Chat Room or banning the specific user.
 - **[R6.13]** Bans (Admin only): can ban by user-id, by email, or by IP. Banned users/IPs receive HTTP 403 on any endpoint. All bans are audit-logged.
 - **[R6.18]** An Admin may provision an account (email, optional display name) without the account holder present. The account is created `pending` and unverified with no password, and the Admin receives two single-use links to hand over: a set-password link (R6.05 semantics) and an email-verification link (R6.02 semantics). Both may be re-issued on demand. Provisioning does not bypass the email-domain policy of R19a.13, does not create any Org or Project membership, and does not mark the address verified: R6.02's gates apply to the provisioned account exactly as they apply to a self-registered one.
@@ -699,7 +699,9 @@ Five composable flags per chat room:
 ### 13.3 Guest links (Q18, Q43)
 
 - **[R13.05]** A Chat Room exposes a permanent URL of form `https://<host>/g/<chatroom_id>/<opaque_token>`.
-- **[R13.06]** Opening the URL without login lands on the registration page with the token preserved; after sign-up + email verification the user is auto-joined as Guest.
+- **[R13.06]** Opening the URL presents a display-name form. On submission, the server validates the guest token, creates an anonymous guest session, and issues a chatroom-scoped JWT. The visitor enters the chatroom without registration or email verification. Browser identity persistence (via `localStorage browser_id`) enables returning guests to resume their session.
+- **[R13.06a]** Anonymous guest sessions are capped at a deployment-configurable limit per chatroom (default 50). Active sessions are counted by `last_seen_at` within a 24-hour window. When the cap is reached, new enrollment returns HTTP 429 with problem type `/guest/cap-reached`.
+- **[R13.06b]** A guest session issues a 4-hour access JWT (`token_use: "guest_access"`) and a 7-day httpOnly refresh cookie scoped to the chatroom's refresh endpoint path. Silent refresh extends the session indefinitely while the cookie survives. On full expiry, the guest must re-enter via the guest link.
 - **[R13.07]** No expiry, no use cap, no password, **no revocation** (explicit stakeholder decision). To revoke access, delete the chat room or ban the user.
 
 ### 13.4 Input (Q44)
@@ -2005,7 +2007,7 @@ Three tiers, clearly named:
 
 - **[R24.41]** Markdown → HTML pipeline in one file: `slices/conversation/lib/renderMarkdown.ts`. Uses `markdown-it` → **DOMPurify** (complementing backend bleach per R13.14). Outputs a `v-html`-compatible string. No other file in the repo calls `v-html`.
 - **[R24.42]** KaTeX, Mermaid, and syntax-highlighting run **after** DOMPurify, using DOM-mutation APIs that cannot re-introduce script nodes.
-- **[R24.43]** Guest-link URLs contain the token in the path. The frontend strips tokens from Router history URLs after consumption (replace-state to `/c/<chatroom_id>`) so browsers don't leak tokens via `Referer` or history.
+- **[R24.43]** Guest-link URLs contain the token in the path. The frontend strips tokens from Router history URLs after consumption (replace-state to `/c/<chatroom_id>`) so browsers don't leak tokens via `Referer` or history. The guest token is retained in memory (Pinia store) for the duration of the session to enable session-expiry rejoin links; it is never written to `localStorage` or any persistent client storage.
 - **[R24.44]** CSRF: N/A in v1 (token in `Authorization` header, not cookies). If cookies are added later, double-submit CSRF is mandatory; a placeholder composable `useCsrfToken()` is reserved.
 
 ### 24.14 Build and bundling

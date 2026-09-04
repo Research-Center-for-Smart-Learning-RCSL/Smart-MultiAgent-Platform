@@ -316,7 +316,7 @@ first, but building them serially avoids the conflict.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
-- `2026-09-04-guest-anonymous-session` (feature, **draft**) — `depends_on: []`. Replace
+- `2026-09-04-guest-anonymous-session` (feature, **approved 2026-09-04**) — `depends_on: []`. Replace
   the current guest-link flow (full registration + email verification, 7+ screen
   transitions) with a lightweight anonymous session: click link, enter display name,
   enter chatroom. New `guest_sessions` table, chatroom-scoped guest JWT, extended
