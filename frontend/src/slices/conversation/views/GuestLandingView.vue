@@ -9,7 +9,8 @@ import { XCircleIcon } from '@heroicons/vue/24/outline'
 import { SAuthCard, SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError, RateLimitError } from '@shared/errors'
 import { setAccessToken, setGuestContext } from '@shared/transport'
-import { createGuestSession } from '../api'
+import { useSessionStore } from '@shared/stores/session'
+import { createGuestSession, enrollGuest } from '../api'
 
 const STORAGE_PREFIX = 'smap:guest:'
 
@@ -17,6 +18,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
+const session = useSessionStore()
 const chatroomId = route.params.chatroomId as string
 const guestToken = route.params.guestToken as string
 
@@ -101,11 +103,23 @@ async function enterChatroom(
   })
 }
 
+async function enrollRegisteredGuest(name: string): Promise<void> {
+  await enrollGuest(chatroomId, guestToken, name)
+  history.replaceState(null, '', `/c/${chatroomId}`)
+  await router.replace({ name: 'conversation.chatroom', params: { chatroomId } })
+}
+
 const doEnroll = handleSubmit(async (values) => {
   state.value = 'enrolling'
-  const stored = readStored()
-  const browserId = stored?.browser_id ?? crypto.randomUUID()
   try {
+    // Authenticated users keep their own JWT and use the registered-guest path.
+    // Phase 3 (AC-23) adds an explicit choice between guest and own account.
+    if (session.isAuthenticated) {
+      await enrollRegisteredGuest(values.displayName)
+      return
+    }
+    const stored = readStored()
+    const browserId = stored?.browser_id ?? crypto.randomUUID()
     const result = await createGuestSession(
       chatroomId,
       guestToken,
@@ -126,6 +140,10 @@ async function doResume(): Promise<void> {
     return
   }
   try {
+    if (session.isAuthenticated) {
+      await enrollRegisteredGuest(stored.display_name)
+      return
+    }
     const result = await createGuestSession(
       chatroomId,
       guestToken,
@@ -144,6 +162,9 @@ function switchToChangeName(): void {
 }
 
 onMounted(() => {
+  // Authenticated users use the registered-guest path; localStorage rejoin
+  // is only for anonymous guests.
+  if (session.isAuthenticated) return
   const stored = readStored()
   if (stored) {
     resumedName.value = stored.display_name
