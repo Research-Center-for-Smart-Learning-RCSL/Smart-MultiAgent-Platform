@@ -110,6 +110,10 @@ async def authenticate_subprotocol(ws: WebSocket) -> WsAuth:
     token = await get_redis().getdel(_WS_TICKET_PREFIX + ticket)
     if not token:
         raise WsAuthError("unknown or expired ws ticket")
+
+    if _is_guest_token(token):
+        return _authenticate_guest(token, proto)
+
     try:
         claims = jwt.verify_access_token(token)
     except jwt.JwtError as exc:
@@ -138,6 +142,9 @@ async def authenticate_subprotocol(ws: WebSocket) -> WsAuth:
 
 async def refresh_principal(access_token: str) -> RefreshedPrincipal:
     """Re-verify a token presented via in-socket refresh."""
+    if _is_guest_token(access_token):
+        return _refresh_guest(access_token)
+
     try:
         claims = jwt.verify_access_token(access_token)
     except jwt.JwtError as exc:
@@ -154,6 +161,58 @@ async def refresh_principal(access_token: str) -> RefreshedPrincipal:
             is_admin=profile.is_admin,
             email_verified=profile.email_verified,
         )
+    return RefreshedPrincipal(principal=principal, expires_at=claims.exp, jti=claims.jti)
+
+
+def _is_guest_token(token: str) -> bool:
+    """Peek at the unverified JWT payload to check token_use."""
+    import base64
+    import json
+
+    try:
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded))
+        return data.get("token_use") == "guest_access"
+    except Exception:
+        return False
+
+
+def _authenticate_guest(token: str, proto: str) -> WsAuth:
+    try:
+        claims = jwt.verify_guest_token(token)
+    except jwt.JwtError as exc:
+        raise WsAuthError(f"invalid guest token: {exc}") from exc
+
+    principal = Principal(
+        user_id=claims.guest_session_id,
+        is_admin=False,
+        email_verified=False,
+        is_guest=True,
+        chatroom_id=claims.chatroom_id,
+    )
+    return WsAuth(
+        principal=principal,
+        subprotocol=proto,
+        access_token=token,
+        expires_at=claims.exp,
+        jti=claims.jti,
+    )
+
+
+def _refresh_guest(access_token: str) -> RefreshedPrincipal:
+    try:
+        claims = jwt.verify_guest_token(access_token)
+    except jwt.JwtError as exc:
+        raise WsAuthError(f"guest refresh failed: {exc}") from exc
+
+    principal = Principal(
+        user_id=claims.guest_session_id,
+        is_admin=False,
+        email_verified=False,
+        is_guest=True,
+        chatroom_id=claims.chatroom_id,
+    )
     return RefreshedPrincipal(principal=principal, expires_at=claims.exp, jti=claims.jti)
 
 
