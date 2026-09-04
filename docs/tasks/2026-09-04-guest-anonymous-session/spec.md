@@ -814,6 +814,14 @@ verification gate.
   The server still receives browser_id and confirms the resume (or creates a new session
   if the old one expired).
 
+- **D-6: Authenticated users use registered-guest enrollment, not anonymous session.**
+  The spec says guest links always create anonymous sessions regardless of login state,
+  with a choice UI in Phase 3 (AC-23). The Phase 2 implementation preserves the
+  authenticated user's JWT by falling back to the existing `enrollGuest` path when
+  `session.isAuthenticated` is true. Without this, `setAccessToken(guestJWT)` would
+  silently overwrite the user's access token, breaking their session for non-chatroom
+  endpoints. Phase 3's choice UI replaces this guard.
+
 ## 16. Follow-ups
 
 - **FU-1: Guest session analytics.** Dashboard for room owners showing guest session
@@ -827,3 +835,19 @@ verification gate.
 - **FU-4: Guest link QR code.** Generate a QR code for the guest link URL in the
   settings panel, for classroom/workshop scenarios where participants scan from a
   projector.
+- **FU-5: browser_id partial index should be UNIQUE.** The Phase 1 migration
+  (`0085_guest_sessions.py:79`) creates a non-unique partial index on
+  `(chatroom_id, browser_id)`. Two concurrent requests from the same browser can
+  insert duplicate rows, causing `find_by_browser_id`'s `one_or_none()` to raise
+  `MultipleResultsFound`. Fix: make the partial index unique.
+- **FU-6: Separate rate-limit bucket for guest ws-ticket.** The `/api/guest/` prefix
+  is in the AUTH rate-limit bucket (D-3), so the authenticated `ws-ticket` endpoint
+  competes with anonymous session creation. Behind NAT, active guests' WS reconnects
+  can starve new session creation. The ws-ticket endpoint should have its own bucket.
+- **FU-7: guest_session_service redundant update_last_seen on resume.** The resume
+  path calls `update_last_seen` immediately before `update_refresh_hash`, which also
+  sets `last_seen_at`. One extra DB write per resume.
+- **FU-8: guest_ws_ticket token extraction uses partition() without strip().** If a
+  reverse proxy normalizes the Authorization header with extra whitespace, the
+  `partition(' ')` extraction in `guest_ws_ticket` captures leading whitespace that
+  the middleware's `split+strip` does not, contaminating the Redis-stashed token.
