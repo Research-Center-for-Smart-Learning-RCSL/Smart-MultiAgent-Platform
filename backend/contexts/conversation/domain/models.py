@@ -13,6 +13,7 @@ class SenderType(str, enum.Enum):
     USER = "user"
     AGENT = "agent"
     SYSTEM = "system"
+    GUEST = "guest"
 
 
 class ExportSenderScope(str, enum.Enum):
@@ -224,6 +225,17 @@ class MessageAttachment:
     extracted_at: datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class GuestSession:
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    display_name: str
+    browser_id: str | None
+    refresh_token_hash: str
+    last_seen_at: datetime
+    created_at: datetime
+
+
 __all__ = [
     "ActivityControlGrant",
     "AgentObservation",
@@ -234,6 +246,7 @@ __all__ = [
     "ChatroomAgentRole",
     "ChatroomGuest",
     "DraftReadGrant",
+    "GuestSession",
     "Message",
     "MessageAttachment",
     "MessageEdit",

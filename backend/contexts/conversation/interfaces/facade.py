@@ -16,6 +16,10 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.access import visible_room_ids
+from contexts.conversation.application.guest_session_service import (
+    GuestRefreshResult,
+    GuestSessionResult,
+)
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AttachmentExtractionStatus,
@@ -271,6 +275,40 @@ class ConversationFacade:
 
     async def list_guests(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
         return await self._guests.list(chatroom_id)
+
+    async def create_or_resume_guest_session(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        guest_token: str,
+        display_name: str,
+        browser_id: str | None = None,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> GuestSessionResult:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).create_or_resume(
+            chatroom_id=chatroom_id,
+            guest_token=guest_token,
+            display_name=display_name,
+            browser_id=browser_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+        )
+
+    async def refresh_guest_session(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        refresh_token: str,
+    ) -> GuestRefreshResult:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).refresh(
+            chatroom_id=chatroom_id,
+            refresh_token=refresh_token,
+        )
 
     async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Human author ids present in the room's live message history (capped)."""
