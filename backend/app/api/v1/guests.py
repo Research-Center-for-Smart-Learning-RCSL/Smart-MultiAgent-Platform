@@ -69,7 +69,6 @@ class GuestSessionIn(BaseModel):
 
 class GuestSessionOut(BaseModel):
     access_token: str
-    refresh_token: str
     guest_session_id: uuid.UUID
     display_name: str
     is_resuming: bool
@@ -111,15 +110,14 @@ async def create_guest_session(
         key=_refresh_cookie_name(chatroom_id),
         value=result.refresh_token,
         httponly=True,
-        secure=True,
-        samesite="strict",
+        secure=settings.security.session_cookie_secure,
+        samesite=settings.security.session_cookie_samesite,
         max_age=settings.jwt.guest_refresh_ttl_seconds,
         path=f"/api/guest/{chatroom_id}",
     )
 
     return GuestSessionOut(
         access_token=result.access_token,
-        refresh_token=result.refresh_token,
         guest_session_id=result.guest_session_id,
         display_name=result.display_name,
         is_resuming=result.is_resuming,
@@ -153,8 +151,8 @@ async def refresh_guest_session(
         key=cookie_name,
         value=result.refresh_token,
         httponly=True,
-        secure=True,
-        samesite="strict",
+        secure=settings.security.session_cookie_secure,
+        samesite=settings.security.session_cookie_samesite,
         max_age=settings.jwt.guest_refresh_ttl_seconds,
         path=f"/api/guest/{chatroom_id}",
     )
