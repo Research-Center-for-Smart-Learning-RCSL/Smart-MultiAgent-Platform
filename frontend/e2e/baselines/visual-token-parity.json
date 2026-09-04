@@ -5129,7 +5129,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|presence-user": [
-   "16px|400|24px|||||||||8px|8px|<measured>|"
+   "16px|400|24px|||||||||8px|8px|36px|"
   ],
   "span|presence-user__avatar": [
    "16px|400|24px|||||||||||<measured>|"
@@ -5399,7 +5399,7 @@
    "16px|400|24px|||||||||||<measured>|"
   ],
   "li|presence-user": [
-   "16px|400|24px|||||||||8px|8px|<measured>|"
+   "16px|400|24px|||||||||8px|8px|36px|"
   ],
   "span|presence-user__avatar": [
    "16px|400|24px|||||||||||<measured>|"

@@ -34,6 +34,13 @@ from contexts.agents.infrastructure.examples.catalogue import load_pack
 _NOW = dt.datetime(2026, 8, 13, tzinfo=dt.UTC)
 _ROOM_PACK = "creative-thinking-room"
 _DESIGN_PACK = "creative-thinking-design"
+_ALL_PACKS = {
+    "creative-thinking-room",
+    "creative-thinking-design",
+    "creative-thinking-prompt-assistant",
+    "creative-thinking-prompt-defense",
+    "prompt-assistant",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -407,7 +414,7 @@ class TestCatalogue:
         catalogue = await service.list_catalogue(uuid.uuid4())
 
         by_key = {p.pack_key: p for p in catalogue}
-        assert set(by_key) == {_ROOM_PACK, _DESIGN_PACK}
+        assert set(by_key) == _ALL_PACKS
         room = by_key[_ROOM_PACK]
         assert [a.installed for a in room.agents] == [True, False, False]
         assert room.fully_installed is False

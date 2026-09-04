@@ -2,4 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type SenderType = 'user' | 'agent' | 'system' | 'guest';
+export type GuestRefreshOut = {
+    access_token: string;
+};
+
