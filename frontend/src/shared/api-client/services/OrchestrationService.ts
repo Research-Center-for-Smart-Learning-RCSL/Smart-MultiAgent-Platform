@@ -12,6 +12,27 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class OrchestrationService {
     /**
+     * Read A2A DLQ entries for an agent
+     * @returns DlqEntryOut Successful Response
+     * @throws ApiError
+     */
+    public static getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({
+        agentId,
+    }: {
+        agentId: string,
+    }): CancelablePromise<Array<DlqEntryOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orchestration/agents/{agent_id}/dlq',
+            path: {
+                'agent_id': agentId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Get approval gate with votes
      * @returns ApprovalWithVotesOut Successful Response
      * @throws ApiError
@@ -26,62 +47,6 @@ export class OrchestrationService {
             url: '/api/orchestration/approvals/{approval_id}',
             path: {
                 'approval_id': approvalId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List approvals for a workflow run
-     * @returns ApprovalOut Successful Response
-     * @throws ApiError
-     */
-    public static listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet({
-        workflowRunId,
-        limit = 100,
-        offset,
-    }: {
-        workflowRunId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<ApprovalOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/orchestration/workflow-runs/{workflow_run_id}/approvals',
-            path: {
-                'workflow_run_id': workflowRunId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Get a single instruction record
-     * @returns InstructionOut Successful Response
-     * @throws ApiError
-     */
-    public static getInstructionApiOrchestrationInstructionsInstructionIdGet({
-        instructionId,
-    }: {
-        instructionId: string,
-    }): CancelablePromise<InstructionOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/orchestration/instructions/{instruction_id}',
-            path: {
-                'instruction_id': instructionId,
             },
             errors: {
                 422: `Request Validation Problem`,
@@ -113,41 +78,6 @@ export class OrchestrationService {
             url: '/api/orchestration/chains/{chain_id}/instructions',
             path: {
                 'chain_id': chainId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List sub-agents spawned during a workflow run
-     * @returns AgentInstanceOut Successful Response
-     * @throws ApiError
-     */
-    public static listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet({
-        workflowRunId,
-        limit = 100,
-        offset,
-    }: {
-        workflowRunId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<AgentInstanceOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/orchestration/workflow-runs/{workflow_run_id}/subagents',
-            path: {
-                'workflow_run_id': workflowRunId,
             },
             query: {
                 'limit': limit,
@@ -194,20 +124,90 @@ export class OrchestrationService {
         });
     }
     /**
-     * Read A2A DLQ entries for an agent
-     * @returns DlqEntryOut Successful Response
+     * Get a single instruction record
+     * @returns InstructionOut Successful Response
      * @throws ApiError
      */
-    public static getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({
-        agentId,
+    public static getInstructionApiOrchestrationInstructionsInstructionIdGet({
+        instructionId,
     }: {
-        agentId: string,
-    }): CancelablePromise<Array<DlqEntryOut>> {
+        instructionId: string,
+    }): CancelablePromise<InstructionOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/orchestration/agents/{agent_id}/dlq',
+            url: '/api/orchestration/instructions/{instruction_id}',
             path: {
-                'agent_id': agentId,
+                'instruction_id': instructionId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List approvals for a workflow run
+     * @returns ApprovalOut Successful Response
+     * @throws ApiError
+     */
+    public static listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet({
+        workflowRunId,
+        limit = 100,
+        offset,
+    }: {
+        workflowRunId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<ApprovalOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orchestration/workflow-runs/{workflow_run_id}/approvals',
+            path: {
+                'workflow_run_id': workflowRunId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List sub-agents spawned during a workflow run
+     * @returns AgentInstanceOut Successful Response
+     * @throws ApiError
+     */
+    public static listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet({
+        workflowRunId,
+        limit = 100,
+        offset,
+    }: {
+        workflowRunId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<AgentInstanceOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orchestration/workflow-runs/{workflow_run_id}/subagents',
+            path: {
+                'workflow_run_id': workflowRunId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Request Validation Problem`,

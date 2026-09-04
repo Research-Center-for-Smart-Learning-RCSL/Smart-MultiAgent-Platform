@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type GraphNodeOut = {
-    id: string;
-    degree: number;
     build_id: (string | null);
+    degree: number;
+    id: string;
     type: string;
 };
 

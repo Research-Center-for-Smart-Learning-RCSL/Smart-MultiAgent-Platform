@@ -4,15 +4,15 @@
 /* eslint-disable */
 import type { InstructionState } from './InstructionState';
 export type InstructionOut = {
-    id: string;
     chain_id: string;
-    path: Array<string>;
     depth: number;
-    issuer_agent_id: string;
-    target_agent_id: string;
-    payload: Record<string, any>;
-    state: InstructionState;
+    id: string;
     issued_at: string;
+    issuer_agent_id: string;
+    path: Array<string>;
+    payload: Record<string, any>;
     resolved_at: (string | null);
+    state: InstructionState;
+    target_agent_id: string;
 };
 
