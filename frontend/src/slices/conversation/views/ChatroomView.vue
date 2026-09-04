@@ -24,6 +24,7 @@
       :people-open="peopleDrawerOpen"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
       :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
+      :can-settings="!(roomQuery.data.value?.viewer_is_guest ?? false)"
       @back="goBack"
       @search="surfaces.open('search')"
       @settings="goSettings"
