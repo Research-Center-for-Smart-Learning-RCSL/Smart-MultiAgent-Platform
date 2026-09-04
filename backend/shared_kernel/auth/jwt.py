@@ -262,10 +262,37 @@ def verify_guest_token(token: str) -> GuestClaims:
     )
 
 
+def peek_token_use(token: str) -> str | None:
+    """Read ``token_use`` from the unverified JWT payload.
+
+    Used only to choose which verifier to call; the verifier itself validates
+    the claim after signature verification.
+    """
+    import base64 as _b64
+    import json as _json
+
+    try:
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        data: dict[str, object] = _json.loads(_b64.urlsafe_b64decode(padded))
+        val = data.get("token_use")
+        return str(val) if isinstance(val, str) else None
+    except Exception:
+        return None
+
+
+def is_guest_token(token: str) -> bool:
+    """Check whether ``token`` carries a ``guest_access`` token_use claim
+    without verifying its signature."""
+    return peek_token_use(token) == _TOKEN_USE_GUEST
+
+
 __all__ = [
     "AccessClaims",
     "GuestClaims",
     "JwtError",
+    "is_guest_token",
+    "peek_token_use",
     "sign_access_token",
     "sign_guest_token",
     "verify_access_token",
