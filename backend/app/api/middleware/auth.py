@@ -79,12 +79,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
-    async def _handle_guest(
+    async def _handle_guest(  # type: ignore[no-untyped-def]
         self,
         token: str,
         ctx: RequestContext,
         request: Request,
-        call_next,  # type: ignore[no-untyped-def]
+        call_next,
     ) -> Response:
         try:
             claims = jwt.verify_guest_token(token)

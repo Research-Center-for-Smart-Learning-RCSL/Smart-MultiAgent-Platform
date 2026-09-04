@@ -36,11 +36,8 @@ async def test_cleanup_deletes_old_sessions() -> None:
     with (
         patch("app.workers.tasks.guest_cleanup.get_sessionmaker", return_value=mock_sm),
         patch(
-            "app.workers.tasks.guest_cleanup.GuestSessionRepository",
+            "contexts.conversation.infrastructure.repositories.GuestSessionRepository",
             return_value=mock_repo,
-        ),
-        patch(
-            "contexts.conversation.infrastructure.repositories.guest_session_repo.GuestSessionRepository",
         ),
     ):
         result = await guest_session_cleanup({})

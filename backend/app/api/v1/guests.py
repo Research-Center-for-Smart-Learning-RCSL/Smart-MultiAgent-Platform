@@ -88,12 +88,12 @@ def _refresh_cookie_name(chatroom_id: uuid.UUID) -> str:
     response_model=GuestSessionOut,
 )
 async def create_guest_session(
+    body: GuestSessionIn,
+    response: Response,
     chatroom_id: uuid.UUID = Path(...),
     guest_token: str = Path(..., min_length=16, max_length=128),
-    body: GuestSessionIn = ...,
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
-    response: Response = ...,
 ) -> GuestSessionOut:
     facade = ConversationFacade(db)
     result = await facade.create_or_resume_guest_session(
@@ -131,9 +131,9 @@ async def create_guest_session(
 )
 async def refresh_guest_session(
     request: Request,
+    response: Response,
     chatroom_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
-    response: Response = ...,
 ) -> GuestRefreshOut:
     cookie_name = _refresh_cookie_name(chatroom_id)
     refresh_token = request.cookies.get(cookie_name)
@@ -173,8 +173,8 @@ class GuestDisplayNameIn(BaseModel):
     response_model=None,
 )
 async def update_guest_display_name(
+    body: GuestDisplayNameIn,
     guest_session_id: uuid.UUID = Path(...),
-    body: GuestDisplayNameIn = ...,
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:

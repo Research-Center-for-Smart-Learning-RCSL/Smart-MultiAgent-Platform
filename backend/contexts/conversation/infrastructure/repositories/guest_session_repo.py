@@ -132,4 +132,4 @@ class GuestSessionRepository:
         result = await self._db.execute(
             t.guest_sessions.delete().where(t.guest_sessions.c.last_seen_at < cutoff)
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount or 0

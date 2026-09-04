@@ -62,7 +62,10 @@ class GuestSessionService:
         display_name: str,
     ) -> str:
         """Validate and persist a new display name. Returns the normalised name."""
-        display_name = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
+        normalised = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
+        if normalised is None:
+            raise GuestTokenInvalid(str(guest_session_id))
+        display_name = normalised
         session = await self._sessions.find_by_id(guest_session_id)
         if session is None:
             raise GuestTokenInvalid(str(guest_session_id))
@@ -87,7 +90,10 @@ class GuestSessionService:
         if not room.allow_guest_links:
             raise GuestTokenInvalid(str(chatroom_id))
 
-        display_name = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
+        normalised = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
+        if normalised is None:
+            raise GuestTokenInvalid(str(chatroom_id))
+        display_name = normalised
 
         if browser_id:
             existing = await self._sessions.find_by_browser_id(chatroom_id=chatroom_id, browser_id=browser_id)
