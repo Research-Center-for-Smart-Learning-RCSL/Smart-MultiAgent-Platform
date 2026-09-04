@@ -50,23 +50,15 @@ async def test_guest_access_matching_room_returns_is_guest() -> None:
     fake_project.id = fake_ws.project_id
 
     with (
-        patch(
-            "contexts.conversation.application.access.ChatroomRepository"
-        ) as room_cls,
-        patch(
-            "contexts.conversation.application.access.WorkspaceRepository"
-        ) as ws_cls,
-        patch(
-            "contexts.conversation.application.access.TenancyFacade"
-        ) as tenancy_cls,
+        patch("contexts.conversation.application.access.ChatroomRepository") as room_cls,
+        patch("contexts.conversation.application.access.WorkspaceRepository") as ws_cls,
+        patch("contexts.conversation.application.access.TenancyFacade") as tenancy_cls,
     ):
         room_cls.return_value.get = AsyncMock(return_value=fake_room)
         ws_cls.return_value.get = AsyncMock(return_value=fake_ws)
         tenancy_cls.return_value.get_project = AsyncMock(return_value=fake_project)
 
-        result = await _resolve_guest_access(
-            db, principal=principal, chatroom_id=cr_id
-        )
+        result = await _resolve_guest_access(db, principal=principal, chatroom_id=cr_id)
 
     assert result.is_guest is True
     assert result.roles == frozenset()
@@ -89,24 +81,16 @@ async def test_guest_access_deleted_project_raises_not_found() -> None:
     db = AsyncMock()
 
     with (
-        patch(
-            "contexts.conversation.application.access.ChatroomRepository"
-        ) as room_cls,
-        patch(
-            "contexts.conversation.application.access.WorkspaceRepository"
-        ) as ws_cls,
-        patch(
-            "contexts.conversation.application.access.TenancyFacade"
-        ) as tenancy_cls,
+        patch("contexts.conversation.application.access.ChatroomRepository") as room_cls,
+        patch("contexts.conversation.application.access.WorkspaceRepository") as ws_cls,
+        patch("contexts.conversation.application.access.TenancyFacade") as tenancy_cls,
     ):
         room_cls.return_value.get = AsyncMock(return_value=fake_room)
         ws_cls.return_value.get = AsyncMock(return_value=fake_ws)
         tenancy_cls.return_value.get_project = AsyncMock(return_value=None)
 
         with pytest.raises(ChatroomNotFound):
-            await _resolve_guest_access(
-                db, principal=principal, chatroom_id=cr_id
-            )
+            await _resolve_guest_access(db, principal=principal, chatroom_id=cr_id)
 
 
 @pytest.mark.asyncio
@@ -118,9 +102,7 @@ async def test_guest_access_wrong_room_raises_forbidden() -> None:
     db = AsyncMock()
 
     with pytest.raises(ForbiddenInRoom):
-        await _resolve_guest_access(
-            db, principal=principal, chatroom_id=other_id
-        )
+        await _resolve_guest_access(db, principal=principal, chatroom_id=other_id)
 
 
 # -- sender type --

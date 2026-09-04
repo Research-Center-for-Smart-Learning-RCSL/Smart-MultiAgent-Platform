@@ -49,13 +49,13 @@ from app.workers.tasks.conversation import (
     extract_attachment_text,
     file_scan_requested,
 )
-from app.workers.tasks.guest_cleanup import guest_session_cleanup
 from app.workers.tasks.graphrag import (
     GRAPHRAG_BUILD_TIMEOUT_S,
     graphrag_build,
     graphrag_reconcile,
     graphrag_silence_sweep,
 )
+from app.workers.tasks.guest_cleanup import guest_session_cleanup
 from app.workers.tasks.knowledge_ingest import knowledge_ingest_reconcile
 from app.workers.tasks.knowmap import (
     KNOWMAP_BUILD_TIMEOUT_S,

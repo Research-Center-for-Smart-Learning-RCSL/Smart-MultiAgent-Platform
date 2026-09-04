@@ -54,15 +54,11 @@ class GuestSessionRepository:
 
     async def find_by_id(self, session_id: uuid.UUID) -> GuestSession | None:
         row = (
-            await self._db.execute(
-                t.guest_sessions.select().where(t.guest_sessions.c.id == session_id)
-            )
+            await self._db.execute(t.guest_sessions.select().where(t.guest_sessions.c.id == session_id))
         ).one_or_none()
         return _row_to_guest_session(row) if row else None
 
-    async def find_by_browser_id(
-        self, *, chatroom_id: uuid.UUID, browser_id: str
-    ) -> GuestSession | None:
+    async def find_by_browser_id(self, *, chatroom_id: uuid.UUID, browser_id: str) -> GuestSession | None:
         row = (
             await self._db.execute(
                 t.guest_sessions.select().where(
@@ -75,23 +71,19 @@ class GuestSessionRepository:
         ).one_or_none()
         return _row_to_guest_session(row) if row else None
 
-    async def find_by_refresh_hash(
-        self, *, refresh_token_hash: str
-    ) -> GuestSession | None:
+    async def find_by_refresh_hash(self, *, refresh_token_hash: str) -> GuestSession | None:
         row = (
             await self._db.execute(
-                t.guest_sessions.select().where(
-                    t.guest_sessions.c.refresh_token_hash == refresh_token_hash
-                )
+                t.guest_sessions.select().where(t.guest_sessions.c.refresh_token_hash == refresh_token_hash)
             )
         ).one_or_none()
         return _row_to_guest_session(row) if row else None
 
-    async def count_active(
-        self, chatroom_id: uuid.UUID, *, since: datetime
-    ) -> int:
+    async def count_active(self, chatroom_id: uuid.UUID, *, since: datetime) -> int:
         result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(t.guest_sessions).where(
+            sa.select(sa.func.count())
+            .select_from(t.guest_sessions)
+            .where(
                 sa.and_(
                     t.guest_sessions.c.chatroom_id == chatroom_id,
                     t.guest_sessions.c.last_seen_at > since,
@@ -100,9 +92,7 @@ class GuestSessionRepository:
         )
         return result.scalar_one()
 
-    async def count_active_for_update(
-        self, chatroom_id: uuid.UUID, *, since: datetime
-    ) -> int:
+    async def count_active_for_update(self, chatroom_id: uuid.UUID, *, since: datetime) -> int:
         """count_active with FOR UPDATE lock on the matching rows to prevent
         TOCTOU races in guest cap enforcement."""
         locked = (
@@ -116,30 +106,22 @@ class GuestSessionRepository:
             .with_for_update()
             .subquery()
         )
-        result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(locked)
-        )
+        result = await self._db.execute(sa.select(sa.func.count()).select_from(locked))
         return result.scalar_one()
 
     async def update_last_seen(self, session_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.guest_sessions.update()
-            .where(t.guest_sessions.c.id == session_id)
-            .values(last_seen_at=now())
+            t.guest_sessions.update().where(t.guest_sessions.c.id == session_id).values(last_seen_at=now())
         )
 
-    async def update_display_name(
-        self, session_id: uuid.UUID, display_name: str
-    ) -> None:
+    async def update_display_name(self, session_id: uuid.UUID, display_name: str) -> None:
         await self._db.execute(
             t.guest_sessions.update()
             .where(t.guest_sessions.c.id == session_id)
             .values(display_name=display_name)
         )
 
-    async def update_refresh_hash(
-        self, session_id: uuid.UUID, refresh_token_hash: str
-    ) -> None:
+    async def update_refresh_hash(self, session_id: uuid.UUID, refresh_token_hash: str) -> None:
         await self._db.execute(
             t.guest_sessions.update()
             .where(t.guest_sessions.c.id == session_id)
@@ -148,8 +130,6 @@ class GuestSessionRepository:
 
     async def delete_older_than(self, cutoff: datetime) -> int:
         result = await self._db.execute(
-            t.guest_sessions.delete().where(
-                t.guest_sessions.c.last_seen_at < cutoff
-            )
+            t.guest_sessions.delete().where(t.guest_sessions.c.last_seen_at < cutoff)
         )
         return result.rowcount  # type: ignore[return-value]

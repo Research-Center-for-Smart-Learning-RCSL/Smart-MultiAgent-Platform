@@ -118,11 +118,13 @@ def test_verify_rejects_access_token_use(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_verify_rejects_expired_guest_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    claims = _guest_claims(overrides={
-        "iat": int(time.time()) - 7200,
-        "nbf": int(time.time()) - 7200,
-        "exp": int(time.time()) - 3600,
-    })
+    claims = _guest_claims(
+        overrides={
+            "iat": int(time.time()) - 7200,
+            "nbf": int(time.time()) - 7200,
+            "exp": int(time.time()) - 3600,
+        }
+    )
     monkeypatch.setattr(jwtmod, "get_vault_client", lambda: _FakeVault(claims))
 
     with pytest.raises(jwtmod.JwtError, match="expired"):
@@ -165,11 +167,13 @@ def test_verify_rejects_missing_nbf(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_verify_rejects_future_iat(monkeypatch: pytest.MonkeyPatch) -> None:
     future = int(time.time()) + 3600
-    claims = _guest_claims(overrides={
-        "iat": future,
-        "nbf": future,
-        "exp": future + 14400,
-    })
+    claims = _guest_claims(
+        overrides={
+            "iat": future,
+            "nbf": future,
+            "exp": future + 14400,
+        }
+    )
     monkeypatch.setattr(jwtmod, "get_vault_client", lambda: _FakeVault(claims))
 
     with pytest.raises(jwtmod.JwtError, match="future"):

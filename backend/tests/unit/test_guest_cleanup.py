@@ -14,7 +14,7 @@ from app.workers.tasks.guest_cleanup import _CLEANUP_WINDOW, guest_session_clean
 
 
 def test_cleanup_window_is_30_days() -> None:
-    assert _CLEANUP_WINDOW == timedelta(days=30)
+    assert timedelta(days=30) == _CLEANUP_WINDOW
 
 
 @pytest.mark.asyncio
@@ -34,19 +34,16 @@ async def test_cleanup_deletes_old_sessions() -> None:
     mock_sm = MagicMock(return_value=mock_session)
 
     with (
-        patch(
-            "app.workers.tasks.guest_cleanup.get_sessionmaker", return_value=mock_sm
-        ),
+        patch("app.workers.tasks.guest_cleanup.get_sessionmaker", return_value=mock_sm),
         patch(
             "app.workers.tasks.guest_cleanup.GuestSessionRepository",
             return_value=mock_repo,
-        ) as repo_cls,
-    ):
-        # The import inside the function needs patching at the right level
-        with patch(
+        ),
+        patch(
             "contexts.conversation.infrastructure.repositories.guest_session_repo.GuestSessionRepository",
-        ):
-            result = await guest_session_cleanup({})
+        ),
+    ):
+        result = await guest_session_cleanup({})
 
     assert result == 5
     mock_repo.delete_older_than.assert_called_once()

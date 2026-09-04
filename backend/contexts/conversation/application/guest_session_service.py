@@ -90,18 +90,14 @@ class GuestSessionService:
         display_name = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
 
         if browser_id:
-            existing = await self._sessions.find_by_browser_id(
-                chatroom_id=chatroom_id, browser_id=browser_id
-            )
+            existing = await self._sessions.find_by_browser_id(chatroom_id=chatroom_id, browser_id=browser_id)
             if existing:
                 if existing.display_name != display_name:
                     await self._sessions.update_display_name(existing.id, display_name)
                 await self._sessions.update_last_seen(existing.id)
 
                 refresh_token = token_utils.new_refresh_token()
-                await self._sessions.update_refresh_hash(
-                    existing.id, token_utils.hash_refresh(refresh_token)
-                )
+                await self._sessions.update_refresh_hash(existing.id, token_utils.hash_refresh(refresh_token))
 
                 jwt_token, _ = sign_guest_token(
                     guest_session_id=existing.id,
@@ -184,16 +180,12 @@ class GuestSessionService:
             raise GuestTokenInvalid(str(chatroom_id))
 
         token_hash = token_utils.hash_refresh(refresh_token)
-        session = await self._sessions.find_by_refresh_hash(
-            refresh_token_hash=token_hash
-        )
+        session = await self._sessions.find_by_refresh_hash(refresh_token_hash=token_hash)
         if session is None or session.chatroom_id != chatroom_id:
             raise GuestTokenInvalid(str(chatroom_id))
 
         new_refresh = token_utils.new_refresh_token()
-        await self._sessions.update_refresh_hash(
-            session.id, token_utils.hash_refresh(new_refresh)
-        )
+        await self._sessions.update_refresh_hash(session.id, token_utils.hash_refresh(new_refresh))
 
         jwt_token, _ = sign_guest_token(
             guest_session_id=session.id,
