@@ -520,6 +520,16 @@ export async function createGuestSession(
   return res.data
 }
 
+export async function updateGuestDisplayName(
+  guestSessionId: string,
+  displayName: string,
+): Promise<void> {
+  await http.put(
+    `/guest/session/${encodeURIComponent(guestSessionId)}/display-name`,
+    { display_name: displayName },
+  )
+}
+
 // ---- /compact slash command (G.10) ---------------------------------------
 
 export async function compactChatroom(
