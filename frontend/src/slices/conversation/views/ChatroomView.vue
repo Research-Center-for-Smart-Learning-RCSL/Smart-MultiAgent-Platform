@@ -473,7 +473,9 @@ const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
 const viewerIsGuest = computed(() => isGuestSession.value)
+const guestNameOverride = ref<string | null>(null)
 const guestViewerName = computed(() => {
+  if (guestNameOverride.value !== null) return guestNameOverride.value
   const claims = accessTokenClaims.value
   return typeof claims?.display_name === 'string' ? claims.display_name : ''
 })
@@ -986,6 +988,12 @@ const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
   else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
 })
 
+watch(connectionState, (state) => {
+  if (state === 'live' && isGuestSession.value && guestSessionStore.sessionState !== 'active') {
+    guestSessionStore.sessionState = 'active'
+  }
+})
+
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
 
@@ -1191,6 +1199,7 @@ async function onUpdateGuestDisplayName(name: string): Promise<void> {
   if (!sessionId) return
   try {
     await updateGuestDisplayName(sessionId, name)
+    guestNameOverride.value = name
     // Update localStorage so the welcome-back UI shows the new name
     const STORAGE_PREFIX = 'smap:guest:'
     try {
