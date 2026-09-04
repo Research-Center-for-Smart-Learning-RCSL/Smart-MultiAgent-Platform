@@ -67,6 +67,7 @@ npm-debug.log*
 .eslintcache
 
 # ==== Frontend build / test output ====
+frontend/openapi.json
 frontend/dist/
 frontend/.vite/
 frontend/stats.html
