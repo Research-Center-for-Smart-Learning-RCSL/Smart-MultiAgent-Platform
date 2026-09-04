@@ -633,20 +633,20 @@ a Phase 1 deliverable (cleanup worker).
 
 ### Phase 2 -- Frontend direct entry
 
-- [ ] AC-12: An unauthenticated visitor clicking a guest link sees the display-name
+- [x] AC-12: An unauthenticated visitor clicking a guest link sees the display-name
   form directly, without passing through Landing.vue's brand animation or the
   login page.
-- [ ] AC-13: After entering a display name and submitting, the visitor enters the
+- [x] AC-13: After entering a display name and submitting, the visitor enters the
   chatroom within one navigation (no intermediate pages).
-- [ ] AC-14: The guest token is stripped from the browser URL after enrollment
+- [x] AC-14: The guest token is stripped from the browser URL after enrollment
   (R24.43).
-- [ ] AC-15: A returning guest (same browser, same chatroom) sees "Welcome back,
+- [x] AC-15: A returning guest (same browser, same chatroom) sees "Welcome back,
   {name}" with an option to change the display name.
-- [ ] AC-16: The guest's access JWT is refreshed silently before expiry using the
+- [x] AC-16: The guest's access JWT is refreshed silently before expiry using the
   httpOnly cookie. No user interaction required.
-- [ ] AC-17: The guest's WebSocket connection is established via the guest ticket
+- [x] AC-17: The guest's WebSocket connection is established via the guest ticket
   endpoint and remains connected across JWT refreshes.
-- [ ] AC-18: When the guest cap is reached, the enrollment form shows a clear
+- [x] AC-18: When the guest cap is reached, the enrollment form shows a clear
   "chatroom is full" message (not a generic error).
 
 ### Phase 3 -- UX polish
@@ -799,6 +799,20 @@ verification gate.
 - **D-3: Guest endpoints placed in AUTH rate-limit bucket.** The spec requires per-IP
   rate limiting matching the login endpoint. Added `/api/guest/` prefix to the AUTH
   bucket in the rate-limit middleware.
+
+- **D-4: localStorage stores display_name alongside browser_id.** The spec lists
+  `{ browser_id, guest_session_id }` for the localStorage entry. The implementation
+  adds `display_name` so the "Welcome back, {name}" UI works without a probe API call
+  on mount. A server-side probe would require calling `createGuestSession` with an
+  empty display name, which fails validation when the browser_id does not match an
+  existing session.
+
+- **D-5: Rejoin detection is client-side, not a server probe.** The spec describes
+  passing browser_id to the session endpoint on mount for rejoin detection. The
+  implementation reads stored display_name from localStorage and shows the welcome-back
+  UI immediately, deferring the server call to when the user clicks "Enter Chatroom".
+  The server still receives browser_id and confirms the resume (or creates a new session
+  if the old one expired).
 
 ## 16. Follow-ups
 
