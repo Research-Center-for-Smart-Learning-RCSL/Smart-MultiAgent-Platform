@@ -231,7 +231,8 @@ async def send_message(
         trigger_message_id=msg.id,
     )
     await _dispatch_message_workflow_signal(
-        chatroom_id, body.content_md,
+        chatroom_id,
+        body.content_md,
         sender_type=msg.sender_type.value,
     )
     return _to_out(msg, await service.list_attachments(msg.id))
@@ -368,7 +369,10 @@ async def _dispatch_mention_wakeups(
 
 
 async def _dispatch_message_workflow_signal(
-    chatroom_id: uuid.UUID, content: str, *, sender_type: str,
+    chatroom_id: uuid.UUID,
+    content: str,
+    *,
+    sender_type: str,
 ) -> None:
     """Fan a ``message_received`` signal to workflows (K.4): resume parked
     ``message_in_room`` waits and start dormant ``message_received`` triggers.

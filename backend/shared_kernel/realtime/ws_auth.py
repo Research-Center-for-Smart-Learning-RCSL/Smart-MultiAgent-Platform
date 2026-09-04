@@ -164,8 +164,6 @@ async def refresh_principal(access_token: str) -> RefreshedPrincipal:
     return RefreshedPrincipal(principal=principal, expires_at=claims.exp, jti=claims.jti)
 
 
-
-
 async def _authenticate_guest(token: str, proto: str) -> WsAuth:
     try:
         claims = jwt.verify_guest_token(token)

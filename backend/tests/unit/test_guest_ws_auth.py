@@ -24,9 +24,7 @@ from shared_kernel.realtime.ws_auth import (
 
 def _make_jwt(token_use: str = "guest_access") -> str:
     header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"token_use": token_use}).encode()
-    ).rstrip(b"=")
+    payload = base64.urlsafe_b64encode(json.dumps({"token_use": token_use}).encode()).rstrip(b"=")
     return f"{header.decode()}.{payload.decode()}.sig"
 
 

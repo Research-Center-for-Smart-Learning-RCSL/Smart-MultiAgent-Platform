@@ -42,14 +42,16 @@ def guest_app() -> FastAPI:
         ctx = getattr(request.state, "auth_ctx", None)
         if ctx and ctx.principal:
             p = ctx.principal
-            return JSONResponse({
-                "user_id": str(p.user_id),
-                "is_guest": p.is_guest,
-                "chatroom_id": str(p.chatroom_id) if p.chatroom_id else None,
-                "is_admin": p.is_admin,
-                "email_verified": p.email_verified,
-                "session_id": str(ctx.session_id) if ctx.session_id else None,
-            })
+            return JSONResponse(
+                {
+                    "user_id": str(p.user_id),
+                    "is_guest": p.is_guest,
+                    "chatroom_id": str(p.chatroom_id) if p.chatroom_id else None,
+                    "is_admin": p.is_admin,
+                    "email_verified": p.email_verified,
+                    "session_id": str(ctx.session_id) if ctx.session_id else None,
+                }
+            )
         return JSONResponse({"user_id": None})
 
     return app
@@ -70,9 +72,7 @@ def test_peek_guest_token_use() -> None:
 
 def test_peek_access_token_use() -> None:
     header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"token_use": "access"}).encode()
-    ).rstrip(b"=")
+    payload = base64.urlsafe_b64encode(json.dumps({"token_use": "access"}).encode()).rstrip(b"=")
     token = f"{header.decode()}.{payload.decode()}.sig"
     assert peek_token_use(token) == "access"
 
