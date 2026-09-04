@@ -11,9 +11,7 @@ import { ApiError, RateLimitError } from '@shared/errors'
 import { setAccessToken, setGuestContext } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { createGuestSession, enrollGuest } from '../api'
-import { useGuestSessionStore } from '../stores/guestSession'
-
-const STORAGE_PREFIX = 'smap:guest:'
+import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -49,7 +47,7 @@ const accountDisplayName = computed(
 
 function readStored(): StoredGuest | null {
   try {
-    const raw = localStorage.getItem(`${STORAGE_PREFIX}${chatroomId}`)
+    const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<StoredGuest>
     if (parsed.browser_id && parsed.display_name) return parsed as StoredGuest
@@ -61,7 +59,7 @@ function readStored(): StoredGuest | null {
 
 function writeStored(data: StoredGuest): void {
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${chatroomId}`, JSON.stringify(data))
+    localStorage.setItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`, JSON.stringify(data))
   } catch {
     // localStorage unavailable -- non-fatal
   }
