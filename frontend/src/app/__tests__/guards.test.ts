@@ -8,10 +8,10 @@ import {
   type RouteMeta,
 } from '../guards'
 
-const authed: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: false, roles: [] }
-const unauthed: GuardContext = { isAuthenticated: false, isVerified: false, isAdmin: false, roles: [] }
-const admin: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: true, roles: ['admin'] }
-const unverified: GuardContext = { isAuthenticated: true, isVerified: false, isAdmin: false, roles: [] }
+const authed: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: false, roles: [], hasGuestSession: false }
+const unauthed: GuardContext = { isAuthenticated: false, isVerified: false, isAdmin: false, roles: [], hasGuestSession: false }
+const admin: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: true, roles: ['admin'], hasGuestSession: false }
+const unverified: GuardContext = { isAuthenticated: true, isVerified: false, isAdmin: false, roles: [], hasGuestSession: false }
 
 describe('authGuard', () => {
   it('passes when no requiresAuth', () => {
@@ -27,6 +27,20 @@ describe('authGuard', () => {
     expect(result).toEqual({
       name: 'identity.login',
       query: { redirect: '/dashboard' },
+    })
+  })
+
+  it('passes when unauthenticated but has guest session on allowGuestSession route', () => {
+    const guest: GuardContext = { ...unauthed, hasGuestSession: true }
+    expect(authGuard({ requiresAuth: true, allowGuestSession: true }, guest, '/chatrooms/x')).toBe(true)
+  })
+
+  it('redirects when unauthenticated guest on non-allowGuestSession route', () => {
+    const guest: GuardContext = { ...unauthed, hasGuestSession: true }
+    const result = authGuard({ requiresAuth: true }, guest, '/settings')
+    expect(result).toEqual({
+      name: 'identity.login',
+      query: { redirect: '/settings' },
     })
   })
 })
@@ -65,7 +79,7 @@ describe('roleGuard', () => {
   it('passes when user has any of the required roles', () => {
     const projectOwner: GuardContext = {
       isAuthenticated: true, isVerified: true, isAdmin: false,
-      roles: ['project_owner'],
+      roles: ['project_owner'], hasGuestSession: false,
     }
     expect(roleGuard({ requiredRoles: ['admin', 'project_owner'] }, projectOwner)).toBe(true)
   })
