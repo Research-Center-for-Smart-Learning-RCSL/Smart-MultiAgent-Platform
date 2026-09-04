@@ -80,7 +80,7 @@ async def test_create_session_returns_tokens(service: GuestSessionService) -> No
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=None)
-        sessions.count_active = AsyncMock(return_value=0)
+        sessions.count_active_for_update = AsyncMock(return_value=0)
         sessions.create = AsyncMock(return_value=new_session)
         sign.return_value = ("jwt-token", MagicMock())
 
@@ -143,7 +143,7 @@ async def test_cap_reached_raises(service: GuestSessionService) -> None:
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=None)
-        sessions.count_active = AsyncMock(return_value=50)
+        sessions.count_active_for_update = AsyncMock(return_value=50)
 
         with pytest.raises(GuestCapReached):
             await service.create_or_resume(
