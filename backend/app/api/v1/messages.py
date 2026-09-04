@@ -230,7 +230,10 @@ async def send_message(
         bound_agent_ids=bound_ids,
         trigger_message_id=msg.id,
     )
-    await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
+    await _dispatch_message_workflow_signal(
+        chatroom_id, body.content_md,
+        sender_type=msg.sender_type.value,
+    )
     return _to_out(msg, await service.list_attachments(msg.id))
 
 
@@ -364,7 +367,9 @@ async def _dispatch_mention_wakeups(
         await _rollback_quietly(db)
 
 
-async def _dispatch_message_workflow_signal(chatroom_id: uuid.UUID, content: str) -> None:
+async def _dispatch_message_workflow_signal(
+    chatroom_id: uuid.UUID, content: str, *, sender_type: str,
+) -> None:
     """Fan a ``message_received`` signal to workflows (K.4): resume parked
     ``message_in_room`` waits and start dormant ``message_received`` triggers.
     Best-effort and post-commit — never fails the user's send."""
@@ -374,7 +379,7 @@ async def _dispatch_message_workflow_signal(chatroom_id: uuid.UUID, content: str
             "message",
             {
                 "chatroom_id": str(chatroom_id),
-                "sender_type": "user",
+                "sender_type": sender_type,
                 "content": content,
             },
         )
