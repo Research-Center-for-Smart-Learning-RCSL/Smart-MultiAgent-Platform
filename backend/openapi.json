@@ -1,4 +1,4 @@
-﻿{
+{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -6051,21 +6051,6 @@
         "title": "GroupPatchIn",
         "type": "object"
       },
-      "GuestDisplayNameIn": {
-        "properties": {
-          "display_name": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_name"
-        ],
-        "title": "GuestDisplayNameIn",
-        "type": "object"
-      },
       "GuestEnrollIn": {
         "properties": {
           "display_name": {
@@ -6106,93 +6091,6 @@
           "guest_token"
         ],
         "title": "GuestLinkOut",
-        "type": "object"
-      },
-      "GuestRefreshOut": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token"
-        ],
-        "title": "GuestRefreshOut",
-        "type": "object"
-      },
-      "GuestSessionIn": {
-        "properties": {
-          "browser_id": {
-            "anyOf": [
-              {
-                "maxLength": 512,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Browser Id"
-          },
-          "display_name": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_name"
-        ],
-        "title": "GuestSessionIn",
-        "type": "object"
-      },
-      "GuestSessionOut": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "display_name": {
-            "title": "Display Name",
-            "type": "string"
-          },
-          "guest_session_id": {
-            "format": "uuid",
-            "title": "Guest Session Id",
-            "type": "string"
-          },
-          "is_resuming": {
-            "title": "Is Resuming",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "access_token",
-          "guest_session_id",
-          "display_name",
-          "is_resuming"
-        ],
-        "title": "GuestSessionOut",
-        "type": "object"
-      },
-      "GuestWsTicketOut": {
-        "properties": {
-          "expires_in": {
-            "title": "Expires In",
-            "type": "integer"
-          },
-          "ticket": {
-            "title": "Ticket",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ticket",
-          "expires_in"
-        ],
-        "title": "GuestWsTicketOut",
         "type": "object"
       },
       "IdentityOut": {
@@ -9495,8 +9393,7 @@
         "enum": [
           "user",
           "agent",
-          "system",
-          "guest"
+          "system"
         ],
         "title": "SenderType",
         "type": "string"
@@ -20161,117 +20058,6 @@
         ]
       }
     },
-    "/api/guest/session/{guest_session_id}/display-name": {
-      "put": {
-        "operationId": "update_guest_display_name_api_guest_session__guest_session_id__display_name_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "guest_session_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Guest Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GuestDisplayNameIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationProblem"
-                }
-              }
-            },
-            "description": "Request Validation Problem"
-          }
-        },
-        "summary": "Update Guest Display Name",
-        "tags": [
-          "guests"
-        ]
-      }
-    },
-    "/api/guest/ws-ticket": {
-      "post": {
-        "description": "Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer.",
-        "operationId": "guest_ws_ticket_api_guest_ws_ticket_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GuestWsTicketOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Guest Ws Ticket",
-        "tags": [
-          "guests"
-        ]
-      }
-    },
-    "/api/guest/{chatroom_id}/refresh": {
-      "post": {
-        "operationId": "refresh_guest_session_api_guest__chatroom_id__refresh_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "chatroom_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Chatroom Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GuestRefreshOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationProblem"
-                }
-              }
-            },
-            "description": "Request Validation Problem"
-          }
-        },
-        "summary": "Refresh Guest Session",
-        "tags": [
-          "guests"
-        ]
-      }
-    },
     "/api/guest/{chatroom_id}/{guest_token}/enroll": {
       "post": {
         "operationId": "enroll_guest_api_guest__chatroom_id___guest_token__enroll_post",
@@ -20324,70 +20110,6 @@
           }
         },
         "summary": "Enroll Guest",
-        "tags": [
-          "guests"
-        ]
-      }
-    },
-    "/api/guest/{chatroom_id}/{guest_token}/session": {
-      "post": {
-        "operationId": "create_guest_session_api_guest__chatroom_id___guest_token__session_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "chatroom_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Chatroom Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "guest_token",
-            "required": true,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 16,
-              "title": "Guest Token",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GuestSessionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GuestSessionOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationProblem"
-                }
-              }
-            },
-            "description": "Request Validation Problem"
-          }
-        },
-        "summary": "Create Guest Session",
         "tags": [
           "guests"
         ]
