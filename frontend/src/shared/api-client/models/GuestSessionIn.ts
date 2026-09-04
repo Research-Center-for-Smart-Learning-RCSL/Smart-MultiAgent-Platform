@@ -2,4 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type SenderType = 'user' | 'agent' | 'system' | 'guest';
+export type GuestSessionIn = {
+    browser_id?: (string | null);
+    display_name: string;
+};
+
