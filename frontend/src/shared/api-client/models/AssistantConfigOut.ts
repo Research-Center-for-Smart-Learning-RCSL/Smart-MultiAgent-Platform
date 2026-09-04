@@ -5,16 +5,16 @@
 import type { FileOut } from './FileOut';
 import type { KeyMetaOut } from './KeyMetaOut';
 export type AssistantConfigOut = {
-    scope: string;
+    daily_request_limit_per_user: number;
     enabled: boolean;
-    system_prompt: string;
-    key_id: (string | null);
+    files: Array<FileOut>;
+    hide_platform_templates: boolean;
     key: (KeyMetaOut | null);
+    key_id: (string | null);
     key_revoked: boolean;
     model_id: (string | null);
-    daily_request_limit_per_user: number;
-    hide_platform_templates: boolean;
+    scope: string;
+    system_prompt: string;
     version: number;
-    files: Array<FileOut>;
 };
 

@@ -11,7 +11,7 @@
  */
 export type GraphRagTriggerConfig = {
     every_n_messages?: (number | null);
-    silence_minutes?: (number | null);
     manual?: boolean;
+    silence_minutes?: (number | null);
 };
 

@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type MessageSendIn = {
-    content_md?: string;
     attachment_ids?: Array<string>;
+    content_md?: string;
     mention_agent_ids?: Array<string>;
 };
 

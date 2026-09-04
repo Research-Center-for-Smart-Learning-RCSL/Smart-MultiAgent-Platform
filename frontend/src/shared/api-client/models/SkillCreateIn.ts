@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SkillCreateIn = {
-    name: string;
-    description: string;
-    body?: string;
-    requires?: Array<string>;
     allowed_tools?: Array<string>;
+    body?: string;
+    description: string;
+    name: string;
+    requires?: Array<string>;
 };
 

@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ChatroomMemberOut = {
-    user_id: string;
     display_name: (string | null);
+    user_id: string;
 };
 

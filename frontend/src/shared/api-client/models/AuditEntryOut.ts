@@ -3,15 +3,15 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AuditEntryOut = {
-    id: number;
-    actor_user_id: (string | null);
-    actor_ip: (string | null);
     action: string;
-    resource_type: (string | null);
-    resource_id: (string | null);
-    metadata: Record<string, any>;
-    session_id: (string | null);
-    request_id: (string | null);
+    actor_ip: (string | null);
+    actor_user_id: (string | null);
     created_at: string;
+    id: number;
+    metadata: Record<string, any>;
+    request_id: (string | null);
+    resource_id: (string | null);
+    resource_type: (string | null);
+    session_id: (string | null);
 };
 

@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ProjectSummaryOut = {
+    created_at: string;
+    deleted_at: (string | null);
     id: string;
     name: string;
-    owner_user_id: (string | null);
     owner_org_id: (string | null);
-    deleted_at: (string | null);
-    created_at: string;
+    owner_user_id: (string | null);
 };
 

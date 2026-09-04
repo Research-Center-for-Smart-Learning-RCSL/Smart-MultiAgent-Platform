@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RateLimitPatchIn = {
-    window_sec?: (number | null);
     max_count?: (number | null);
     scope?: (string | null);
+    window_sec?: (number | null);
 };
 

@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type UsageOut = {
-    window: string;
+    errors: number;
     input_tokens: number;
     output_tokens: number;
     requests: number;
-    errors: number;
+    window: string;
 };
 

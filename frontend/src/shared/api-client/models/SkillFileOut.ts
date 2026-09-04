@@ -10,15 +10,15 @@
  * being unreadable; the UI derives that state from the collection's scan statuses.
  */
 export type SkillFileOut = {
+    created_at: string;
+    extracted_chars: number;
     id: string;
-    skill_id: string;
-    path: string;
     kind: string;
     mime: string;
-    size_bytes: number;
-    sha256: string;
+    path: string;
     scan_status: string;
-    extracted_chars: number;
-    created_at: string;
+    sha256: string;
+    size_bytes: number;
+    skill_id: string;
 };
 

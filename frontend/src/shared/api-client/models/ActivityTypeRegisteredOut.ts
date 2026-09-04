@@ -13,19 +13,19 @@ import type { ValidatorKind } from './ValidatorKind';
  * types under one key and everything that selects by key alone selects both.
  */
 export type ActivityTypeRegisteredOut = {
+    created_at: (string | null);
+    echo_includes_content: boolean;
+    expose_payload_to_agent: boolean;
+    group_config?: (Record<string, any> | null);
     id: string;
-    project_id: (string | null);
-    scope: ActivityTypeScope;
     key: string;
     name: string;
     payload_schema: Record<string, any>;
-    validator_kind: ValidatorKind;
-    validator_config: Record<string, any>;
+    project_id: (string | null);
     retention_days: (number | null);
-    expose_payload_to_agent: boolean;
-    echo_includes_content: boolean;
-    created_at: (string | null);
-    group_config?: (Record<string, any> | null);
+    scope: ActivityTypeScope;
     shadowed_by_platform?: boolean;
+    validator_config: Record<string, any>;
+    validator_kind: ValidatorKind;
 };
 

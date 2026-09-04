@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AgentRef = {
-    agent_id: string;
-    role?: ('normal' | 'observer' | null);
-    may_control_activities?: (boolean | null);
     activity_type_allowlist?: (Array<string> | null);
+    agent_id: string;
+    may_control_activities?: (boolean | null);
     may_read_drafts?: (boolean | null);
+    role?: ('normal' | 'observer' | null);
 };
 

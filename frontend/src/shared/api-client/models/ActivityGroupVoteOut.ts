@@ -10,8 +10,8 @@
  * counts and an empty list — and no agent reaches this surface at all.
  */
 export type ActivityGroupVoteOut = {
-    user_id: string;
     approve: boolean;
     created_at: (string | null);
+    user_id: string;
 };
 
