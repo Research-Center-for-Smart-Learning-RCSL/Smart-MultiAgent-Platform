@@ -197,6 +197,32 @@
          would renumber the composer and every breakpoint override of it. AC-11
          wants the chip directly above the composer, which is where this row
          already is. -->
+    <SAlert
+      v-if="guestSessionStore.sessionState === 'expired'"
+      variant="warning"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.guest.sessionExpired') }}
+      <template #actions>
+        <SButton
+          v-if="guestSessionStore.rejoinUrl"
+          variant="ghost"
+          size="sm"
+          @click="$router.push(guestSessionStore.rejoinUrl!)"
+        >
+          {{ t('conversation.guest.rejoin') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <SAlert
+      v-if="guestSessionStore.sessionState === 'disabled'"
+      variant="danger"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.guest.guestDisabled') }}
+    </SAlert>
+
     <div class="chatroom__typing">
       <ChatroomTypingIndicator :names="typingNames" />
       <SDraftDisclosureChip v-if="draftsReadable" />
@@ -392,6 +418,8 @@ import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
+import { isGuestSession } from '@shared/transport'
+import { useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
@@ -936,6 +964,16 @@ const TYPING_DEBOUNCE_MS = 3000
 // composer is intentionally NOT gated on `connected` — a flapping/degraded WS
 // must not lock the user out of sending. The pill shows `connectionState`.
 const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId, reconcileOlder)
+const guestSessionStore = useGuestSessionStore()
+
+const CLOSE_AUTH_FAILED = 4401
+const CLOSE_GUEST_DISABLED = 4403
+
+const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
+  if (!isGuestSession.value) return
+  if (code === CLOSE_AUTH_FAILED) guestSessionStore.markExpired()
+  else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
+})
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
@@ -999,6 +1037,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isUnmounted = true
   document.removeEventListener('keydown', onKeyDown)
+  unsubscribeCloseCode()
   if (typingTimer !== null) {
     clearTimeout(typingTimer)
     typingTimer = null
@@ -1390,6 +1429,11 @@ function onExportSubmit(opts: ExportOptions): void {
   .chatroom--compact .chatroom__presence {
     transition: none;
   }
+}
+
+.chatroom__guest-banner {
+  grid-column: 2;
+  margin: var(--space-2) var(--space-4) 0;
 }
 
 .chatroom__typing {

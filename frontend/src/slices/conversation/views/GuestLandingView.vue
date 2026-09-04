@@ -11,6 +11,7 @@ import { ApiError, RateLimitError } from '@shared/errors'
 import { setAccessToken, setGuestContext } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { createGuestSession, enrollGuest } from '../api'
+import { useGuestSessionStore } from '../stores/guestSession'
 
 const STORAGE_PREFIX = 'smap:guest:'
 
@@ -19,6 +20,7 @@ const route = useRoute()
 const router = useRouter()
 
 const session = useSessionStore()
+const guestSessionStore = useGuestSessionStore()
 const chatroomId = route.params.chatroomId as string
 const guestToken = route.params.guestToken as string
 
@@ -93,6 +95,7 @@ async function enterChatroom(
 ): Promise<void> {
   setAccessToken(accessToken)
   setGuestContext(chatroomId)
+  guestSessionStore.setGuestToken(chatroomId, guestToken)
   writeStored({ browser_id: browserId, guest_session_id: guestSessionId, display_name: name })
 
   // Strip the token from the URL (R24.43) before navigating to the room.
