@@ -316,6 +316,14 @@ first, but building them serially avoids the conflict.
   worth confirming with the user whether this blueprint's remaining scope is still live or
   its status is simply stale, before treating it as unblocked work.
 
+- `2026-09-04-guest-anonymous-session` (feature, **draft**) — `depends_on: []`. Replace
+  the current guest-link flow (full registration + email verification, 7+ screen
+  transitions) with a lightweight anonymous session: click link, enter display name,
+  enter chatroom. New `guest_sessions` table, chatroom-scoped guest JWT, extended
+  `Principal`, `"guest"` sender type. Three implementation phases (backend core, frontend
+  direct entry, UX polish), each intended for a separate session. Amends R5.04, R6.02,
+  R6.11, R13.06; adds R13.06a, R13.06b.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
