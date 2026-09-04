@@ -501,7 +501,6 @@ export async function enrollGuest(
 
 export interface GuestSessionResult {
   access_token: string
-  refresh_token: string
   guest_session_id: string
   display_name: string
   is_resuming: boolean
