@@ -11,11 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from contexts.conversation.application.access import (
-    RoomAccess,
-    _resolve_guest_access,
-)
-from contexts.conversation.domain.errors import ForbiddenInRoom
+from contexts.conversation.application.access import _resolve_guest_access
+from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom
 from contexts.conversation.domain.models import SenderType
 from shared_kernel.auth.permissions import Principal
 
@@ -49,6 +46,9 @@ async def test_guest_access_matching_room_returns_is_guest() -> None:
 
     db = AsyncMock()
 
+    fake_project = MagicMock()
+    fake_project.id = fake_ws.project_id
+
     with (
         patch(
             "contexts.conversation.application.access.ChatroomRepository"
@@ -56,9 +56,13 @@ async def test_guest_access_matching_room_returns_is_guest() -> None:
         patch(
             "contexts.conversation.application.access.WorkspaceRepository"
         ) as ws_cls,
+        patch(
+            "contexts.conversation.application.access.TenancyFacade"
+        ) as tenancy_cls,
     ):
         room_cls.return_value.get = AsyncMock(return_value=fake_room)
         ws_cls.return_value.get = AsyncMock(return_value=fake_ws)
+        tenancy_cls.return_value.get_project = AsyncMock(return_value=fake_project)
 
         result = await _resolve_guest_access(
             db, principal=principal, chatroom_id=cr_id
@@ -67,6 +71,42 @@ async def test_guest_access_matching_room_returns_is_guest() -> None:
     assert result.is_guest is True
     assert result.roles == frozenset()
     assert result.chatroom == fake_room
+    assert result.project_id == fake_project.id
+
+
+@pytest.mark.asyncio
+async def test_guest_access_deleted_project_raises_not_found() -> None:
+    cr_id = uuid.uuid4()
+    principal = _guest_principal(chatroom_id=cr_id)
+
+    fake_room = MagicMock()
+    fake_room.id = cr_id
+    fake_room.workspace_id = uuid.uuid4()
+
+    fake_ws = MagicMock()
+    fake_ws.project_id = uuid.uuid4()
+
+    db = AsyncMock()
+
+    with (
+        patch(
+            "contexts.conversation.application.access.ChatroomRepository"
+        ) as room_cls,
+        patch(
+            "contexts.conversation.application.access.WorkspaceRepository"
+        ) as ws_cls,
+        patch(
+            "contexts.conversation.application.access.TenancyFacade"
+        ) as tenancy_cls,
+    ):
+        room_cls.return_value.get = AsyncMock(return_value=fake_room)
+        ws_cls.return_value.get = AsyncMock(return_value=fake_ws)
+        tenancy_cls.return_value.get_project = AsyncMock(return_value=None)
+
+        with pytest.raises(ChatroomNotFound):
+            await _resolve_guest_access(
+                db, principal=principal, chatroom_id=cr_id
+            )
 
 
 @pytest.mark.asyncio
