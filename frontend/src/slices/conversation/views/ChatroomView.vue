@@ -1227,7 +1227,7 @@ function senderName(m: Message): string {
     if (claims?.sub === m.sender_id && typeof claims?.display_name === 'string') {
       return guestNameOverride.value ?? claims.display_name
     }
-    return m.sender_id.slice(0, 8)
+    return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
   }
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
 }
