@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -97,6 +97,27 @@ class GuestSessionRepository:
                     t.guest_sessions.c.last_seen_at > since,
                 )
             )
+        )
+        return result.scalar_one()
+
+    async def count_active_for_update(
+        self, chatroom_id: uuid.UUID, *, since: datetime
+    ) -> int:
+        """count_active with FOR UPDATE lock on the matching rows to prevent
+        TOCTOU races in guest cap enforcement."""
+        locked = (
+            sa.select(t.guest_sessions.c.id)
+            .where(
+                sa.and_(
+                    t.guest_sessions.c.chatroom_id == chatroom_id,
+                    t.guest_sessions.c.last_seen_at > since,
+                )
+            )
+            .with_for_update()
+            .subquery()
+        )
+        result = await self._db.execute(
+            sa.select(sa.func.count()).select_from(locked)
         )
         return result.scalar_one()
 

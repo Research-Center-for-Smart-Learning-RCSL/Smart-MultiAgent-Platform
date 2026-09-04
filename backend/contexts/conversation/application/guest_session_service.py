@@ -27,7 +27,7 @@ from contexts.conversation.infrastructure.repositories import (
 from shared_kernel import audit
 from shared_kernel.auth import tokens as token_utils
 from shared_kernel.auth.clients import now
-from shared_kernel.auth.jwt import GuestClaims, sign_guest_token
+from shared_kernel.auth.jwt import sign_guest_token
 from shared_kernel.labels import MAX_GUEST_LABEL, normalise_label
 
 _ACTIVE_WINDOW = timedelta(hours=24)
@@ -118,7 +118,7 @@ class GuestSessionService:
 
         settings = get_settings()
         since = now() - _ACTIVE_WINDOW
-        active_count = await self._sessions.count_active(chatroom_id, since=since)
+        active_count = await self._sessions.count_active_for_update(chatroom_id, since=since)
         if active_count >= settings.limits.max_guests_per_chatroom:
             raise GuestCapReached(str(chatroom_id))
 
