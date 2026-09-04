@@ -91,6 +91,9 @@ async def resolve_room_access(
 ) -> RoomAccess:
     """Fetch the chatroom, resolve parent project, compute the caller's roles
     and guest flag. Raises `ChatroomNotFound` if the room is missing."""
+    if principal.is_guest:
+        return await _resolve_guest_access(db, principal=principal, chatroom_id=chatroom_id)
+
     chatrooms = ChatroomRepository(db)
     workspaces = WorkspaceRepository(db)
     tenancy = TenancyFacade(db)
@@ -125,6 +128,36 @@ async def resolve_room_access(
         roles=roles,
         is_guest=is_guest,
         in_bound_group=await _in_bound_group(db, principal=principal, chatroom=chatroom),
+    )
+
+
+async def _resolve_guest_access(
+    db: AsyncSession,
+    *,
+    principal: Principal,
+    chatroom_id: uuid.UUID,
+) -> RoomAccess:
+    """Shortcut for anonymous guest principals (R13.06).
+
+    The guest JWT carries a chatroom_id claim; access is scoped to that room.
+    Any other chatroom_id is rejected outright.
+    """
+    if principal.chatroom_id != chatroom_id:
+        raise ForbiddenInRoom(str(chatroom_id))
+
+    chatroom = await ChatroomRepository(db).get(chatroom_id)
+    if chatroom is None:
+        raise ChatroomNotFound(str(chatroom_id))
+
+    workspace = await WorkspaceRepository(db).get(chatroom.workspace_id)
+    if workspace is None:
+        raise WorkspaceNotFound(str(chatroom.workspace_id))
+
+    return RoomAccess(
+        chatroom=chatroom,
+        project_id=workspace.project_id,
+        roles=frozenset(),
+        is_guest=True,
     )
 
 
