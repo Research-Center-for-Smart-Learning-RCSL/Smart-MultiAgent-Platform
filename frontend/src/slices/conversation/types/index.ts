@@ -42,7 +42,7 @@ export interface Chatroom {
   is_moderator?: boolean
 }
 
-export type SenderType = 'user' | 'agent' | 'system'
+export type SenderType = 'user' | 'agent' | 'system' | 'guest'
 
 // R28.01 — binding role. `role` is present on bound-agent rows only for the
 // room creator (R28.10); everyone else receives a shape identical to the

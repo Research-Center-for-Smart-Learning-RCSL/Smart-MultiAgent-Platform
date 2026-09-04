@@ -1222,6 +1222,13 @@ function senderName(m: Message): string {
   if (m.sender_type === 'user' && m.sender_id) {
     return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
   }
+  if (m.sender_type === 'guest' && m.sender_id) {
+    const claims = accessTokenClaims.value
+    if (claims?.sub === m.sender_id && typeof claims?.display_name === 'string') {
+      return guestNameOverride.value ?? claims.display_name
+    }
+    return m.sender_id.slice(0, 8)
+  }
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
 }
 
