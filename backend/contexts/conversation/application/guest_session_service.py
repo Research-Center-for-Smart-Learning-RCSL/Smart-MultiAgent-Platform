@@ -55,6 +55,20 @@ class GuestSessionService:
         self._rooms = ChatroomRepository(db)
         self._sessions = GuestSessionRepository(db)
 
+    async def update_display_name(
+        self,
+        *,
+        guest_session_id: uuid.UUID,
+        display_name: str,
+    ) -> str:
+        """Validate and persist a new display name. Returns the normalised name."""
+        display_name = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
+        session = await self._sessions.find_by_id(guest_session_id)
+        if session is None:
+            raise GuestTokenInvalid(str(guest_session_id))
+        await self._sessions.update_display_name(guest_session_id, display_name)
+        return display_name
+
     async def create_or_resume(
         self,
         *,

@@ -310,6 +310,19 @@ class ConversationFacade:
             refresh_token=refresh_token,
         )
 
+    async def update_guest_display_name(
+        self,
+        *,
+        guest_session_id: uuid.UUID,
+        display_name: str,
+    ) -> str:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).update_display_name(
+            guest_session_id=guest_session_id,
+            display_name=display_name,
+        )
+
     async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Human author ids present in the room's live message history (capped)."""
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
