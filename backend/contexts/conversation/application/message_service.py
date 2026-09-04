@@ -148,15 +148,16 @@ class MessageService:
         attachment_ids: Sequence[uuid.UUID] | None = None,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        sender_type: SenderType = SenderType.USER,
     ) -> Message:
-        """A user sending a message from a chat UI. Agents publish via a
+        """A user or guest sending a message from a chat UI. Agents publish via a
         different surface (workers). `metadata` is optional — None is stored
         as `{}`. `attachment_ids`, if provided, are bound to the new message
         via `MessageAttachmentRepository.bind_to_message` which defends
         against cross-room / cross-user id injection."""
         msg = await self._messages.create(
             chatroom_id=chatroom_id,
-            sender_type=SenderType.USER,
+            sender_type=sender_type,
             sender_id=sender_user_id,
             content_md=content_md,
             metadata=metadata or {},

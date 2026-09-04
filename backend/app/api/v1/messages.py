@@ -196,6 +196,7 @@ async def send_message(
         attachment_ids=list(body.attachment_ids) if body.attachment_ids else None,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        sender_type=SenderType.GUEST if principal.is_guest else SenderType.USER,
     )
     # Durable-commit the message *before* dispatching wake-ups: the worker's
     # turn loads room history on a separate connection and must see this row
@@ -468,7 +469,7 @@ async def delete_message(
     # Matrix row 20 MESSAGE_DELETE: own-only for members/guests, ALLOW for
     # project owners and org owners, plus Admin bypass. Evaluated inline so
     # the service stays AuthZ-agnostic (it only hard-deletes + audits).
-    is_author = msg.sender_id == principal.user_id and msg.sender_type.value == "user"
+    is_author = msg.sender_id == principal.user_id and msg.sender_type.value in ("user", "guest")
     if not (principal.is_admin or access.is_moderator or is_author):
         _raise_forbidden("cannot delete a message you do not own")
 
