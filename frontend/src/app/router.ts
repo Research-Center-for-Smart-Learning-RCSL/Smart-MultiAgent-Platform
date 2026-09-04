@@ -17,7 +17,7 @@ import { promptStudioRoutes } from '@slices/prompt-studio'
 import { skillsRoutes } from '@slices/skills'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
-import { onUnauthorizedRedirect } from '@shared/transport'
+import { onUnauthorizedRedirect, isGuestSession, clearGuestContext, getGuestChatroomId } from '@shared/transport'
 
 import { runGuards, type GuardContext, type RouteMeta } from './guards'
 
@@ -65,19 +65,28 @@ router.beforeEach((to: RouteLocationNormalized) => {
     isVerified: session.isVerified,
     isAdmin,
     roles,
+    hasGuestSession: isGuestSession.value,
   }
   const metaRequiresAuth = to.meta.requiresAuth as boolean | undefined
   const metaRequiresVerifiedEmail = to.meta.requiresVerifiedEmail as boolean | undefined
   const metaRequiredRoles = to.meta.requiredRoles as string[] | undefined
+  const metaAllowGuestSession = to.meta.allowGuestSession as boolean | undefined
   const meta: RouteMeta = {
     ...(metaRequiresAuth !== undefined && { requiresAuth: metaRequiresAuth }),
     ...(metaRequiresVerifiedEmail !== undefined && { requiresVerifiedEmail: metaRequiresVerifiedEmail }),
     ...(metaRequiredRoles !== undefined && { requiredRoles: metaRequiredRoles }),
+    ...(metaAllowGuestSession !== undefined && { allowGuestSession: metaAllowGuestSession }),
   }
   return runGuards(meta, ctx, to.fullPath)
 })
 
 onUnauthorizedRedirect(() => {
+  // attemptRefresh clears the access token before this fires, so
+  // isGuestSession is already false. Check the guest context ref instead.
+  if (getGuestChatroomId()) {
+    clearGuestContext()
+    return
+  }
   const session = useSessionStore()
   session.clear()
   if (router.currentRoute.value.meta.requiresAuth) {
