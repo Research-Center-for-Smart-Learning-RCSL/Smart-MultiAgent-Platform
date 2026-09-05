@@ -96,6 +96,8 @@ async def test_probe_server_error_summarises_without_secret() -> None:
 
 def test_dispatch_covers_every_provider() -> None:
     # Every enum member must have a probe — missing one is a bug that must
-    # not ship. The D.∞ gate explicitly requires cohere rerank coverage.
+    # not ship. OPENAI_COMPAT is dispatched separately in probe() via base_url.
     for member in ApiKeyProvider:
+        if member is ApiKeyProvider.OPENAI_COMPAT:
+            continue
         assert member in PROBES

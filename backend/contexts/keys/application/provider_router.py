@@ -674,8 +674,9 @@ class ProviderRouter:
         if adapter is None:
             raise ValueError(f"no adapter for provider {key.provider.value}")
 
-        if key.config:
-            request = replace(request, provider_config=key.config)
+        cfg = getattr(key, "config", None)
+        if cfg:
+            request = replace(request, provider_config=cfg)
         secret = await self._unwrap_secret(key_id)
         t0 = time.monotonic()
         try:
@@ -735,8 +736,9 @@ class ProviderRouter:
         if not isinstance(adapter_obj, StreamingAdapter):
             raise ValueError(f"no streaming adapter for provider {key.provider.value}")
 
-        if key.config:
-            request = replace(request, provider_config=key.config)
+        cfg = getattr(key, "config", None)
+        if cfg:
+            request = replace(request, provider_config=cfg)
         secret_bytes = await self._unwrap_secret(key_id)
         t0 = time.monotonic()
         terminal = _StreamTerminal()
@@ -907,8 +909,9 @@ class ProviderRouter:
     @staticmethod
     def _inject_provider_config(em: _EligibleMember, request: ProviderRequest) -> ProviderRequest:
         """Thread the key's per-key config into the request (R7.16)."""
-        if em.key.config:
-            return replace(request, provider_config=em.key.config)
+        cfg = getattr(em.key, "config", None)
+        if cfg:
+            return replace(request, provider_config=cfg)
         return request
 
     async def _unwrap_secret(self, key_id: uuid.UUID) -> bytes:
