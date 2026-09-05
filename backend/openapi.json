@@ -100,7 +100,7 @@
           "auth"
         ],
         "summary": "Captcha Config",
-        "description": "Public CAPTCHA config for the registration widget (R19a.12).\n\nUnauthenticated by design \u2014 the SPA fetches this before the user has any\ncredentials. Returns only the public provider/sitekey/mode; the verify\nsecret never leaves the backend. When ``mode=off`` the SPA renders no widget.",
+        "description": "Public CAPTCHA config for the registration widget (R19a.12).\n\nUnauthenticated by design — the SPA fetches this before the user has any\ncredentials. Returns only the public provider/sitekey/mode; the verify\nsecret never leaves the backend. When ``mode=off`` the SPA renders no widget.",
         "operationId": "captcha_config_api_auth_captcha_config_get",
         "responses": {
           "200": {
@@ -122,7 +122,7 @@
           "auth"
         ],
         "summary": "Session Policy",
-        "description": "Idle-timeout policy for the SPA's inactivity logout (R6.03-adjacent).\n\nUnauthenticated by design \u2014 it carries no secrets, only the two timing\nvalues the client needs to drive its \"are you still there?\" countdown so the\nwarning UI and the server-enforced idle window share one source of truth.",
+        "description": "Idle-timeout policy for the SPA's inactivity logout (R6.03-adjacent).\n\nUnauthenticated by design — it carries no secrets, only the two timing\nvalues the client needs to drive its \"are you still there?\" countdown so the\nwarning UI and the server-enforced idle window share one source of truth.",
         "operationId": "session_policy_api_auth_session_policy_get",
         "responses": {
           "200": {
@@ -639,7 +639,7 @@
           "auth"
         ],
         "summary": "Issue Ws Ticket",
-        "description": "Mint a short-lived, single-use ticket for a WebSocket handshake (FE-7).\n\nBrowsers cannot set `Authorization` on a WS upgrade, so the credential\nmust ride in `Sec-WebSocket-Protocol` \u2014 a header proxies and access logs\nrecord. Placing the JWT there leaks it; instead this endpoint (reached\nover HTTPS, where the bearer token sits in the redacted `Authorization`\nheader) stashes the access token behind an opaque ticket the handshake\nredeems exactly once. A ticket later found in a log is already consumed.\n\nThe `current_principal` dependency gates the call; the raw token is read\nstraight off the header so the exact JWT the caller presented is what the\nWS handshake later verifies.",
+        "description": "Mint a short-lived, single-use ticket for a WebSocket handshake (FE-7).\n\nBrowsers cannot set `Authorization` on a WS upgrade, so the credential\nmust ride in `Sec-WebSocket-Protocol` — a header proxies and access logs\nrecord. Placing the JWT there leaks it; instead this endpoint (reached\nover HTTPS, where the bearer token sits in the redacted `Authorization`\nheader) stashes the access token behind an opaque ticket the handshake\nredeems exactly once. A ticket later found in a log is already consumed.\n\nThe `current_principal` dependency gates the call; the raw token is read\nstraight off the header so the exact JWT the caller presented is what the\nWS handshake later verifies.",
         "operationId": "issue_ws_ticket_api_auth_ws_ticket_post",
         "responses": {
           "200": {
@@ -2140,7 +2140,7 @@
           "projects"
         ],
         "summary": "List Invitable Members",
-        "description": "Parent-Org members this project may still invite (R6.10, Q-6).\n\nEmpty for a project with no parent Org, and empty for a caller who is not a\nmember of that Org \u2014 both are a 200 with `[]`, never a 404: an absent pool is\na state, not a missing resource, and the second case must not be\ndistinguishable from the first.",
+        "description": "Parent-Org members this project may still invite (R6.10, Q-6).\n\nEmpty for a project with no parent Org, and empty for a caller who is not a\nmember of that Org — both are a 200 with `[]`, never a 404: an absent pool is\na state, not a missing resource, and the second case must not be\ndistinguishable from the first.",
         "operationId": "list_invitable_members_api_projects__project_id__invitable_members_get",
         "parameters": [
           {
@@ -2390,7 +2390,7 @@
           "invites"
         ],
         "summary": "Accept By Token",
-        "description": "Redeem an invite from its emailed token link (R6.09).\n\nThe token authorises acceptance (it proves the holder received the invite\nlink), so no email match is required \u2014 but the caller must still be logged\nin AND email-verified (R6.02), same as the by-id accept path.",
+        "description": "Redeem an invite from its emailed token link (R6.09).\n\nThe token authorises acceptance (it proves the holder received the invite\nlink), so no email match is required — but the caller must still be logged\nin AND email-verified (R6.02), same as the by-id accept path.",
         "operationId": "accept_by_token_api_invites_accept_by_token_post",
         "requestBody": {
           "content": {
@@ -3896,7 +3896,7 @@
           "admin"
         ],
         "summary": "Put Activity Policy",
-        "description": "Create or replace the platform policy.\n\n``If-Match`` carries the version the admin's form was built against and is\nrequired once a policy exists; without it a concurrent edit would be silently\noverwritten. A non-integer header is rejected as a mismatch rather than\nignored \u2014 treating an unparseable precondition as \"no precondition\" would\ndefeat the point.",
+        "description": "Create or replace the platform policy.\n\n``If-Match`` carries the version the admin's form was built against and is\nrequired once a policy exists; without it a concurrent edit would be silently\noverwritten. A non-integer header is rejected as a mismatch rather than\nignored — treating an unparseable precondition as \"no precondition\" would\ndefeat the point.",
         "operationId": "put_activity_policy_api_admin_activity_policy_put",
         "parameters": [
           {
@@ -4122,7 +4122,7 @@
           "admin"
         ],
         "summary": "Install Activity Example",
-        "description": "Install a shipped course as platform-scoped types ([R30.32]).\n\nIdempotent by key, so a re-run after a partial failure is safe. `course_key`\nis a client-supplied path segment, which is what makes the loader's anchored\ntraversal guard load-bearing here rather than merely tidy \u2014 it now bounds a\nnetwork-reachable path.",
+        "description": "Install a shipped course as platform-scoped types ([R30.32]).\n\nIdempotent by key, so a re-run after a partial failure is safe. `course_key`\nis a client-supplied path segment, which is what makes the loader's anchored\ntraversal guard load-bearing here rather than merely tidy — it now bounds a\nnetwork-reachable path.",
         "operationId": "install_activity_example_api_admin_activity_examples__course_key__install_post",
         "parameters": [
           {
@@ -4220,7 +4220,7 @@
           "admin"
         ],
         "summary": "Delete Platform Activity Type",
-        "description": "Remove an installed example ([R30.32]).\n\nThe cascade legitimately spans every tenant: the type is going away for\neveryone, so every active activation ends, every open session closes, and\nevery project's opt-in is revoked. Durable-commit before the fan-out, so no\nroom is told its activation ended before it is.\n\nRe-installing the course mints a new type id, so every project that had\nenabled this example must enable it again \u2014 the revocation is not undone.",
+        "description": "Remove an installed example ([R30.32]).\n\nThe cascade legitimately spans every tenant: the type is going away for\neveryone, so every active activation ends, every open session closes, and\nevery project's opt-in is revoked. Durable-commit before the fan-out, so no\nroom is told its activation ended before it is.\n\nRe-installing the course mints a new type id, so every project that had\nenabled this example must enable it again — the revocation is not undone.",
         "operationId": "delete_platform_activity_type_api_admin_activity_types__type_id__delete",
         "parameters": [
           {
@@ -4347,7 +4347,7 @@
           "admin"
         ],
         "summary": "Put Email Domain Policy",
-        "description": "Replace the policy. Permitted only while the rollout state is `active`.\n\n``If-Match`` carries the version the Admin's form was built against and is\nrequired: the row always exists by the time this route is reachable (the\nstartup import creates it), so there is no \"first write\" case that could\nlegitimately omit it. A missing or unparseable precondition is a mismatch\nrather than \"no precondition\" \u2014 treating an unreadable header as permission\nto overwrite would defeat the point of having one.",
+        "description": "Replace the policy. Permitted only while the rollout state is `active`.\n\n``If-Match`` carries the version the Admin's form was built against and is\nrequired: the row always exists by the time this route is reachable (the\nstartup import creates it), so there is no \"first write\" case that could\nlegitimately omit it. A missing or unparseable precondition is a mismatch\nrather than \"no precondition\" — treating an unreadable header as permission\nto overwrite would defeat the point of having one.",
         "operationId": "put_email_domain_policy_api_admin_email_domain_policy_put",
         "parameters": [
           {
@@ -4521,7 +4521,7 @@
           "keys"
         ],
         "summary": "List My Keys",
-        "description": "List every key the caller owns (masked, no secrets).\n\nThe `project_count` badge counts only carries the caller can still see \u2014\nproject not soft-deleted AND caller still a member \u2014 so it matches the\nper-key detail view's project list, which applies the same filter\n(otherwise a stale carry into a left/deleted project inflates the badge).",
+        "description": "List every key the caller owns (masked, no secrets).\n\nThe `project_count` badge counts only carries the caller can still see —\nproject not soft-deleted AND caller still a member — so it matches the\nper-key detail view's project list, which applies the same filter\n(otherwise a stale carry into a left/deleted project inflates the badge).",
         "operationId": "list_my_keys_api_keys_get",
         "parameters": [
           {
@@ -4584,7 +4584,7 @@
           "keys"
         ],
         "summary": "Upload Key",
-        "description": "Upload a new provider key (\u00a77.2 flow).\n\nAuthZ: KEY_UPLOAD is granted to any role carrying a user scope (\u00a75.2 #2).\nThere is no path-param scope here; we still run the decision through the\nmatrix so admin-bypass + email-verification policy apply uniformly. The\nmatrix row accepts any non-guest role, so we only need the principal to\nhave *some* role \u2014 i.e. be a logged-in user. The `current_principal`\ndependency already enforces that.",
+        "description": "Upload a new provider key (§7.2 flow).\n\nAuthZ: KEY_UPLOAD is granted to any role carrying a user scope (§5.2 #2).\nThere is no path-param scope here; we still run the decision through the\nmatrix so admin-bypass + email-verification policy apply uniformly. The\nmatrix row accepts any non-guest role, so we only need the principal to\nhave *some* role — i.e. be a logged-in user. The `current_principal`\ndependency already enforces that.",
         "operationId": "upload_key_api_keys_post",
         "requestBody": {
           "required": true,
@@ -4705,7 +4705,7 @@
           "keys"
         ],
         "summary": "List Key Projects",
-        "description": "Reverse view: which projects this key is carried into (owner-only).\n\nOwnership is enforced inside `KeysFacade.projects_for_key`. Results are\nfiltered to projects the caller is still a member of \u2014 a key owner who has\nleft a project must not see that project's data even if the carry revocation\nfanout had not yet run (R7.03 / CLAUDE.md AuthZ rule).",
+        "description": "Reverse view: which projects this key is carried into (owner-only).\n\nOwnership is enforced inside `KeysFacade.projects_for_key`. Results are\nfiltered to projects the caller is still a member of — a key owner who has\nleft a project must not see that project's data even if the carry revocation\nfanout had not yet run (R7.03 / CLAUDE.md AuthZ rule).",
         "operationId": "list_key_projects_api_keys__key_id__projects_get",
         "parameters": [
           {
@@ -6488,7 +6488,7 @@
           "agent-groups"
         ],
         "summary": "List Groups",
-        "description": "List a project's agent groups (Phase 4\u03b1). Read \u21d2 project membership.",
+        "description": "List a project's agent groups (Phase 4α). Read ⇒ project membership.",
         "operationId": "list_groups_api_projects__project_id__agent_groups_get",
         "parameters": [
           {
@@ -6614,7 +6614,7 @@
           "agent-groups"
         ],
         "summary": "Get Group",
-        "description": "Read a single agent group (Phase 4\u03b1). Read \u21d2 project membership.",
+        "description": "Read a single agent group (Phase 4α). Read ⇒ project membership.",
         "operationId": "get_group_api_agent_groups__group_id__get",
         "parameters": [
           {
@@ -6656,7 +6656,7 @@
           "agent-groups"
         ],
         "summary": "Rename Group",
-        "description": "Rename an agent group (Phase 4\u03b1) \u2014 strict Project-Owner only.",
+        "description": "Rename an agent group (Phase 4α) — strict Project-Owner only.",
         "operationId": "rename_group_api_agent_groups__group_id__patch",
         "parameters": [
           {
@@ -6708,7 +6708,7 @@
           "agent-groups"
         ],
         "summary": "Delete Group",
-        "description": "Delete an agent group (WS6 R11.20) \u2014 strict Project-Owner only.\n\nPurges the group-owned Concept Map's Neo4j subgraph + Qdrant points as part\nof the delete so no external-store data is orphaned (AC-10). Member rows are\nleft in place; the group tombstone makes them inert on every read path.",
+        "description": "Delete an agent group (WS6 R11.20) — strict Project-Owner only.\n\nPurges the group-owned Concept Map's Neo4j subgraph + Qdrant points as part\nof the delete so no external-store data is orphaned (AC-10). Member rows are\nleft in place; the group tombstone makes them inert on every read path.",
         "operationId": "delete_group_api_agent_groups__group_id__delete",
         "parameters": [
           {
@@ -6745,7 +6745,7 @@
           "agent-groups"
         ],
         "summary": "Set Concept Map Enabled",
-        "description": "Toggle the group's Concept Map privacy opt-in (R11.10) \u2014 Project-Owner only.",
+        "description": "Toggle the group's Concept Map privacy opt-in (R11.10) — Project-Owner only.",
         "operationId": "set_concept_map_enabled_api_agent_groups__group_id__concept_map_enabled_put",
         "parameters": [
           {
@@ -7134,7 +7134,7 @@
           "activities"
         ],
         "summary": "List Activity Types",
-        "description": "Membership gate is unchanged \u2014 a non-owner member still legitimately\nlists types (that is how a facilitator picks one to activate). Only\n`validator_config` is owner-gated (R30.25): it may hold answer keys and,\nonce sealed validator credentials exist, secrets.",
+        "description": "Membership gate is unchanged — a non-owner member still legitimately\nlists types (that is how a facilitator picks one to activate). Only\n`validator_config` is owner-gated (R30.25): it may hold answer keys and,\nonce sealed validator credentials exist, secrets.",
         "operationId": "list_activity_types_api_projects__project_id__activity_types_get",
         "parameters": [
           {
@@ -7289,7 +7289,7 @@
           "activities"
         ],
         "summary": "List Platform Activity Examples",
-        "description": "The installed platform examples, with this project's enabled state.\n\nProject Owner rather than plain membership: the only thing this listing is for\nis deciding what to enable, which is the owner's call ([R30.23]). It is also\nwhy the catalogue being visible to every owner is acceptable \u2014 installed\nexamples are platform metadata, not another tenant's data (OQ-2).",
+        "description": "The installed platform examples, with this project's enabled state.\n\nProject Owner rather than plain membership: the only thing this listing is for\nis deciding what to enable, which is the owner's call ([R30.23]). It is also\nwhy the catalogue being visible to every owner is acceptable — installed\nexamples are platform metadata, not another tenant's data (OQ-2).",
         "operationId": "list_platform_activity_examples_api_projects__project_id__activity_examples_get",
         "parameters": [
           {
@@ -7711,7 +7711,7 @@
           "activities"
         ],
         "summary": "Get Activity Session Completion",
-        "description": "The caller's own session for this round, or ``null`` if they have none.\n\nThe read counterpart of the completion PATCH. Without it a participant who\nreloads cannot know they had already declared themselves finished: they hold\nno session id to ask with, and the panel would render the toggle in the wrong\nstate. Creates nothing \u2014 looking at the panel is not answering.",
+        "description": "The caller's own session for this round, or ``null`` if they have none.\n\nThe read counterpart of the completion PATCH. Without it a participant who\nreloads cannot know they had already declared themselves finished: they hold\nno session id to ask with, and the panel would render the toggle in the wrong\nstate. Creates nothing — looking at the panel is not answering.",
         "operationId": "get_activity_session_completion_api_chatrooms__chatroom_id__activity_activations__activation_id__completion_get",
         "parameters": [
           {
@@ -8088,7 +8088,7 @@
           "activities"
         ],
         "summary": "Create Activity Group Proposal",
-        "description": "Propose this group's answer to the live round (AC-5).\n\n``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of\nsubmitting, and a reader who may not answer may not start a vote that would\nanswer for them either. The group gates are the service's \u2014 this route knows\nnothing about groups beyond forwarding the id the caller named.\n\nCreating one can also settle it, when the fraction over the pinned set rounds\ndown to the proposer's own approval. The post-commit fan-out is therefore the\nvote route's, not a shorter version of it.",
+        "description": "Propose this group's answer to the live round (AC-5).\n\n``ensure_can_send``, not ``ensure_can_read``: proposing is the first half of\nsubmitting, and a reader who may not answer may not start a vote that would\nanswer for them either. The group gates are the service's — this route knows\nnothing about groups beyond forwarding the id the caller named.\n\nCreating one can also settle it, when the fraction over the pinned set rounds\ndown to the proposer's own approval. The post-commit fan-out is therefore the\nvote route's, not a shorter version of it.",
         "operationId": "create_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals_post",
         "parameters": [
           {
@@ -8140,7 +8140,7 @@
           "activities"
         ],
         "summary": "List Activity Group Proposals",
-        "description": "The live proposals this caller may see for one round, and the groups they\nmay propose for (AC-12).\n\nRoom access is necessary and not sufficient: the service narrows to the\ncaller's own bound groups, or to every bound group for the room creator. A\nroom member in no group sees an empty list rather than a 403 \u2014 there is\nnothing being withheld from them, there is simply nothing of theirs.\n\nBoth halves in one response because the participant panel needs both to\nrender anything at all, and two reads could disagree about which groups this\ncaller is in.",
+        "description": "The live proposals this caller may see for one round, and the groups they\nmay propose for (AC-12).\n\nRoom access is necessary and not sufficient: the service narrows to the\ncaller's own bound groups, or to every bound group for the room creator. A\nroom member in no group sees an empty list rather than a 403 — there is\nnothing being withheld from them, there is simply nothing of theirs.\n\nBoth halves in one response because the participant panel needs both to\nrender anything at all, and two reads could disagree about which groups this\ncaller is in.",
         "operationId": "list_activity_group_proposals_api_chatrooms__chatroom_id__activity_proposals_get",
         "parameters": [
           {
@@ -8194,7 +8194,7 @@
           "activities"
         ],
         "summary": "Vote On Activity Group Proposal",
-        "description": "Record this caller's vote, and submit if it carries the proposal.\n\nEverything after the commit is the submit path's own post-commit fan-out,\nreached with the submission an acceptance produced \u2014 so a group submission\nreaches the room, the validation worker and the reactive rules by exactly the\nroutes an individual one does.",
+        "description": "Record this caller's vote, and submit if it carries the proposal.\n\nEverything after the commit is the submit path's own post-commit fan-out,\nreached with the submission an acceptance produced — so a group submission\nreaches the room, the validation worker and the reactive rules by exactly the\nroutes an individual one does.",
         "operationId": "vote_on_activity_group_proposal_api_chatrooms__chatroom_id__activity_proposals__proposal_id__votes_post",
         "parameters": [
           {
@@ -8364,7 +8364,7 @@
           "activities"
         ],
         "summary": "List Activity Validators",
-        "description": "List the registered first-party in-process validators (R30.24). Global and\nprocess-scoped \u2014 availability never varies per project \u2014 so any authenticated\ncaller reads the same set the picker draws from. Exposes ids/titles only.",
+        "description": "List the registered first-party in-process validators (R30.24). Global and\nprocess-scoped — availability never varies per project — so any authenticated\ncaller reads the same set the picker draws from. Exposes ids/titles only.",
         "operationId": "list_activity_validators_api_activity_validators_get",
         "responses": {
           "200": {
@@ -8650,7 +8650,7 @@
           "rag"
         ],
         "summary": "Delete Rag Config",
-        "description": "\u00a722.7 \u2014 soft-delete a RAG config and cascade its children.\n\nDOM-1: a config's child documents/chunks/vectors/blobs are not removed\nby the soft delete on its own row. ``RagConfigService.soft_delete``\nhard-deletes the document rows (``rag_chunks`` cascade via FK); this\nendpoint then commits and purges the Qdrant points + MinIO blobs\nbest-effort. Ordering matters (DOM-4): the commit is the point of no\nreturn, so the destructive infra step always trails a durable audit row.",
+        "description": "§22.7 — soft-delete a RAG config and cascade its children.\n\nDOM-1: a config's child documents/chunks/vectors/blobs are not removed\nby the soft delete on its own row. ``RagConfigService.soft_delete``\nhard-deletes the document rows (``rag_chunks`` cascade via FK); this\nendpoint then commits and purges the Qdrant points + MinIO blobs\nbest-effort. Ordering matters (DOM-4): the commit is the point of no\nreturn, so the destructive infra step always trails a durable audit row.",
         "operationId": "delete_rag_config_api_rag_configs__config_id__delete",
         "parameters": [
           {
@@ -8812,7 +8812,7 @@
           "rag"
         ],
         "summary": "Delete Rag Document",
-        "description": "\u00a722.7 \u2014 hard-delete a RAG document.\n\nRemoves the row + ``rag_chunks`` (FK cascade), then cleans up the Qdrant\npoints and MinIO blob best-effort. Ordering matters (DOM-4): the DB row\nand audit record are written and committed *first* \u2014 the previous code\ndeleted the Qdrant points and blob before the row/audit, so a rollback\ncould leave an undeletable tombstone whose vectors+blob were already\ngone, with no audit row of the destructive action.\n\nAuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's\nproject. We do NOT require Project Owner here \u2014 the R10.10 owner gate\ncovers ingestion (write) only; deletion follows the standard edit\ncapability so non-owner editors can clean up their own uploads.\n\nDOM-7: a missing document and an existing-but-forbidden document both\nreturn 404. Branching on existence before authorization (the old code\nreturned 204 for any missing id) leaked a cross-tenant UUID enumeration\noracle; deletion is therefore no longer idempotent for a vanished id.",
+        "description": "§22.7 — hard-delete a RAG document.\n\nRemoves the row + ``rag_chunks`` (FK cascade), then cleans up the Qdrant\npoints and MinIO blob best-effort. Ordering matters (DOM-4): the DB row\nand audit record are written and committed *first* — the previous code\ndeleted the Qdrant points and blob before the row/audit, so a rollback\ncould leave an undeletable tombstone whose vectors+blob were already\ngone, with no audit row of the destructive action.\n\nAuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's\nproject. We do NOT require Project Owner here — the R10.10 owner gate\ncovers ingestion (write) only; deletion follows the standard edit\ncapability so non-owner editors can clean up their own uploads.\n\nDOM-7: a missing document and an existing-but-forbidden document both\nreturn 404. Branching on existence before authorization (the old code\nreturned 204 for any missing id) leaked a cross-tenant UUID enumeration\noracle; deletion is therefore no longer idempotent for a vanished id.",
         "operationId": "delete_rag_document_api_rag_documents__document_id__delete",
         "parameters": [
           {
@@ -8849,7 +8849,7 @@
           "rag"
         ],
         "summary": "Set Document Agents",
-        "description": "Replace a document's per-agent allowlist.\n\nAuthZ: ``RESOURCE_CREATE_EDIT`` at the parent config's project AND Project\nOwner \u2014 re-scoping which agents can retrieve a document is a corpus\naccess-control decision, so it is owner-gated to match document upload\n(R10.10), not the weaker edit-only bar. DOM-7: a missing document and an\nexisting-but-forbidden one both return 404 so the endpoint is not a\ncross-tenant UUID oracle.",
+        "description": "Replace a document's per-agent allowlist.\n\nAuthZ: ``RESOURCE_CREATE_EDIT`` at the parent config's project AND Project\nOwner — re-scoping which agents can retrieve a document is a corpus\naccess-control decision, so it is owner-gated to match document upload\n(R10.10), not the weaker edit-only bar. DOM-7: a missing document and an\nexisting-but-forbidden one both return 404 so the endpoint is not a\ncross-tenant UUID oracle.",
         "operationId": "set_document_agents_api_rag_documents__document_id__agents_patch",
         "parameters": [
           {
@@ -9117,7 +9117,7 @@
           "graphrag"
         ],
         "summary": "Update Config",
-        "description": "R11.05 \u2014 edit trigger config or builder key group.\n\nAuthZ matches DELETE: ``RESOURCE_CREATE_EDIT`` at the config's project.",
+        "description": "R11.05 — edit trigger config or builder key group.\n\nAuthZ matches DELETE: ``RESOURCE_CREATE_EDIT`` at the config's project.",
         "operationId": "update_config_api_graphrag__config_id__patch",
         "parameters": [
           {
@@ -9169,7 +9169,7 @@
           "graphrag"
         ],
         "summary": "Delete Config",
-        "description": "\u00a722.8 \u2014 soft-delete a GraphRAG config and cascade its external stores.\n\nDOM-2: the config's entity vectors live in the shared\n``graphrag_{project_id}`` Qdrant collection tagged with ``config_id``.\nThe old code cascaded only the Neo4j subgraph, so those vectors leaked\nforever \u2014 and, being in a collection shared with sibling configs, kept\nsurfacing in their retrieval. We now delete them via ``delete_by_config``.\n\nDOM-4: the soft delete + audit row are committed *first* \u2014 that commit is\nthe point of no return \u2014 and only then are the irreversible Neo4j +\nQdrant deletes attempted, best-effort, recorded in a follow-up audit row.",
+        "description": "§22.8 — soft-delete a GraphRAG config and cascade its external stores.\n\nDOM-2: the config's entity vectors live in the shared\n``graphrag_{project_id}`` Qdrant collection tagged with ``config_id``.\nThe old code cascaded only the Neo4j subgraph, so those vectors leaked\nforever — and, being in a collection shared with sibling configs, kept\nsurfacing in their retrieval. We now delete them via ``delete_by_config``.\n\nDOM-4: the soft delete + audit row are committed *first* — that commit is\nthe point of no return — and only then are the irreversible Neo4j +\nQdrant deletes attempted, best-effort, recorded in a follow-up audit row.",
         "operationId": "delete_config_api_graphrag__config_id__delete",
         "parameters": [
           {
@@ -9348,7 +9348,7 @@
           "graphrag"
         ],
         "summary": "Read Agent Concept Map Coverage",
-        "description": "Read-only coverage: every Concept Map that could feed an agent's retrieval.\n\nTransparency, not an attach (R11.09) \u2014 the maps of the agent's chatrooms, the\nagent_groups it belongs to, and those chatrooms' workspaces, each flagged with\nwhether it is currently active. AuthZ matches ``read_config``: membership at\nthe agent's project.",
+        "description": "Read-only coverage: every Concept Map that could feed an agent's retrieval.\n\nTransparency, not an attach (R11.09) — the maps of the agent's chatrooms, the\nagent_groups it belongs to, and those chatrooms' workspaces, each flagged with\nwhether it is currently active. AuthZ matches ``read_config``: membership at\nthe agent's project.",
         "operationId": "read_agent_concept_map_coverage_api_agents__agent_id__concept_map_coverage_get",
         "parameters": [
           {
@@ -9745,7 +9745,7 @@
           "knowmap"
         ],
         "summary": "Read Knowmap Graph",
-        "description": "Read a bounded view of the config's knowledge graph (Phase 3\u03b2, R11.24).\n\nAuthZ matches ``read_knowmap_config``: membership at the config's project.\nThe limit is clamped so a large graph can never stream an unbounded\npayload to the browser \u2014 mirrors ``graphrag.py``'s ``read_graph``, which\nthis route now matches structurally too: through ``KnowledgeFacade``\nrather than instantiating application-layer services directly (found in\ncode review \u2014 this file's other routes still bypass the facade, a\npre-existing pattern this one deliberately does not extend further).",
+        "description": "Read a bounded view of the config's knowledge graph (Phase 3β, R11.24).\n\nAuthZ matches ``read_knowmap_config``: membership at the config's project.\nThe limit is clamped so a large graph can never stream an unbounded\npayload to the browser — mirrors ``graphrag.py``'s ``read_graph``, which\nthis route now matches structurally too: through ``KnowledgeFacade``\nrather than instantiating application-layer services directly (found in\ncode review — this file's other routes still bypass the facade, a\npre-existing pattern this one deliberately does not extend further).",
         "operationId": "read_knowmap_graph_api_knowmap_configs__config_id__graph_get",
         "parameters": [
           {
@@ -10017,7 +10017,7 @@
           "knowmap-admin"
         ],
         "summary": "Admin Reset",
-        "description": "Mirrors graphrag.py's admin_reset, down to the platform-admin check.\n\nKnowledge Maps had no reset until\ndocs/tasks/2026-07-17-graphrag-reset-expired-recovery/, which made\n``recovery_unavailable`` reachable here \u2014 a state outside the reconciler's sweep\nset, so without this route an operator's only option would have been a rebuild.\n\nAuthZ deliberately matches the Concept Map's: platform admin, no project scoping.\nThat is weaker than every other route in this module (FU-2 in the dossier), and\ndiverging here would have made the two resets inconsistent while fixing neither.",
+        "description": "Mirrors graphrag.py's admin_reset, down to the platform-admin check.\n\nKnowledge Maps had no reset until\ndocs/tasks/2026-07-17-graphrag-reset-expired-recovery/, which made\n``recovery_unavailable`` reachable here — a state outside the reconciler's sweep\nset, so without this route an operator's only option would have been a rebuild.\n\nAuthZ deliberately matches the Concept Map's: platform admin, no project scoping.\nThat is weaker than every other route in this module (FU-2 in the dossier), and\ndiverging here would have made the two resets inconsistent while fixing neither.",
         "operationId": "admin_reset_api_admin_knowmap__config_id__reset_post",
         "parameters": [
           {
@@ -10273,7 +10273,7 @@
           "member-groups"
         ],
         "summary": "List Member Groups",
-        "description": "R13.31 \u2014 a manager sees the project's groups, anyone else sees their own.",
+        "description": "R13.31 — a manager sees the project's groups, anyone else sees their own.",
         "operationId": "list_member_groups_api_projects__project_id__member_groups_get",
         "parameters": [
           {
@@ -10876,7 +10876,7 @@
           "workspaces"
         ],
         "summary": "Set Concept Map Enabled",
-        "description": "Toggle the workspace's Concept Map privacy opt-in (R11.10) \u2014 Project-Owner only.\n\nEnabling exposes the shared workspace map to retrieval, so this is gated on\nstrict Project-Owner authority (not the RESOURCE_CREATE_EDIT capability that\nguards ordinary workspace edits), matching the group-owner toggle.",
+        "description": "Toggle the workspace's Concept Map privacy opt-in (R11.10) — Project-Owner only.\n\nEnabling exposes the shared workspace map to retrieval, so this is gated on\nstrict Project-Owner authority (not the RESOURCE_CREATE_EDIT capability that\nguards ordinary workspace edits), matching the group-owner toggle.",
         "operationId": "set_concept_map_enabled_api_workspaces__workspace_id__concept_map_enabled_put",
         "parameters": [
           {
@@ -11192,7 +11192,7 @@
           "chatrooms"
         ],
         "summary": "List Chatroom Member Groups",
-        "description": "This room's live Member Group bindings (R13.29).\n\nA binding whose group was since deleted is omitted. The stored row is left\nalone \u2014 the ACL already ignores it, and the repository deliberately does not\nread tenancy's `deleted_at` \u2014 but it must not be *reported*, because the\nsettings UI sends this list straight back on the next edit and the PUT\nrefuses a deleted id. Reading raw rows here wedged the picker permanently.",
+        "description": "This room's live Member Group bindings (R13.29).\n\nA binding whose group was since deleted is omitted. The stored row is left\nalone — the ACL already ignores it, and the repository deliberately does not\nread tenancy's `deleted_at` — but it must not be *reported*, because the\nsettings UI sends this list straight back on the next edit and the PUT\nrefuses a deleted id. Reading raw rows here wedged the picker permanently.",
         "operationId": "list_chatroom_member_groups_api_chatrooms__chatroom_id__member_groups_get",
         "parameters": [
           {
@@ -11234,7 +11234,7 @@
           "chatrooms"
         ],
         "summary": "Set Chatroom Member Groups",
-        "description": "Replace this room's Member Group bindings (R13.29).\n\nSEC: every id is checked to belong to **this room's** project before it is\nwritten. Without that, an owner of project A could bind a group from project B\nto a room in A and hand B's members a room they have no standing in \u2014 a\ncross-project grant assembled entirely out of ids the caller is allowed to\nknow. The check reads the group rows rather than trusting the request.",
+        "description": "Replace this room's Member Group bindings (R13.29).\n\nSEC: every id is checked to belong to **this room's** project before it is\nwritten. Without that, an owner of project A could bind a group from project B\nto a room in A and hand B's members a room they have no standing in — a\ncross-project grant assembled entirely out of ids the caller is allowed to\nknow. The check reads the group rows rather than trusting the request.",
         "operationId": "set_chatroom_member_groups_api_chatrooms__chatroom_id__member_groups_put",
         "parameters": [
           {
@@ -11506,7 +11506,7 @@
           "chatrooms"
         ],
         "summary": "Patch Chatroom Agent Activity Control",
-        "description": "Delegate activity start/end authority in this room to a bound agent ([R30.37]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings \u2014 and matching the gate on starting a round itself, which is\nthe authority being handed out. Nobody who cannot start an activity may grant\nthe power to.\n\nEvery type id is resolved for the room's own project before anything is\nwritten. That check has to live here: the conversation context stores the\nallowlist but cannot see an activity type ([R30.05]), so the route is the only\nlayer that can perform it \u2014 the same shape as ``_assert_mcp_binding_in_project``\nin ``activities.py``. Resolving before writing is what keeps a cross-project or\ndeleted id a 422 rather than a stored id that quietly resolves to nothing later.",
+        "description": "Delegate activity start/end authority in this room to a bound agent ([R30.37]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings — and matching the gate on starting a round itself, which is\nthe authority being handed out. Nobody who cannot start an activity may grant\nthe power to.\n\nEvery type id is resolved for the room's own project before anything is\nwritten. That check has to live here: the conversation context stores the\nallowlist but cannot see an activity type ([R30.05]), so the route is the only\nlayer that can perform it — the same shape as ``_assert_mcp_binding_in_project``\nin ``activities.py``. Resolving before writing is what keeps a cross-project or\ndeleted id a 422 rather than a stored id that quietly resolves to nothing later.",
         "operationId": "patch_chatroom_agent_activity_control_api_chatrooms__chatroom_id__agents__agent_id__activity_control_patch",
         "parameters": [
           {
@@ -11563,7 +11563,7 @@
           "chatrooms"
         ],
         "summary": "Patch Chatroom Agent Draft Access",
-        "description": "Let one bound agent read this room's unsent text ([R32.03]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings. It is the strictest gate available and this is the surface that\nmost deserves it: what is being handed out is the ability to read text the people\nin this room have not chosen to send.\n\n**Its own route rather than a field on the role patch**, for the reason\n``activity-control`` is: a different authority with a different meaning, so the\naudit trail carries one action per decision and a role change cannot silently\ncarry a grant along with it.\n\nUnlike ``activity-control`` there is nothing to validate before writing \u2014 no\nallowlist, no cross-context resolution \u2014 because the read-time gates in\n``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore\nexactly as narrow as the room's own activity types already are.",
+        "description": "Let one bound agent read this room's unsent text ([R32.03]).\n\n``ensure_room_creator``, matching every other authority decision about this\nroom's bindings. It is the strictest gate available and this is the surface that\nmost deserves it: what is being handed out is the ability to read text the people\nin this room have not chosen to send.\n\n**Its own route rather than a field on the role patch**, for the reason\n``activity-control`` is: a different authority with a different meaning, so the\naudit trail carries one action per decision and a role change cannot silently\ncarry a grant along with it.\n\nUnlike ``activity-control`` there is nothing to validate before writing — no\nallowlist, no cross-context resolution — because the read-time gates in\n``draft_tools`` are what bound this authority ([R32.04]). A grant is therefore\nexactly as narrow as the room's own activity types already are.",
         "operationId": "patch_chatroom_agent_draft_access_api_chatrooms__chatroom_id__agents__agent_id__draft_access_patch",
         "parameters": [
           {
@@ -11620,7 +11620,7 @@
           "chatrooms"
         ],
         "summary": "List Chatroom Members",
-        "description": "Resolve human participants to display names so the client can label\nmessage authors (REST history + live WS messages share one map).\n\nOnly ``user_id`` + ``display_name`` is returned \u2014 never email \u2014 so a room\nmember (including a guest) cannot harvest other participants' login\nidentifiers. The id set is the union of distinct human message authors and\nenrolled guests; a guest's per-room display name takes precedence over their\naccount display name. Names left unset resolve to ``null`` and the client\nfalls back to a short id.",
+        "description": "Resolve human participants to display names so the client can label\nmessage authors (REST history + live WS messages share one map).\n\nOnly ``user_id`` + ``display_name`` is returned — never email — so a room\nmember (including a guest) cannot harvest other participants' login\nidentifiers. The id set is the union of distinct human message authors and\nenrolled guests; a guest's per-room display name takes precedence over their\naccount display name. Names left unset resolve to ``null`` and the client\nfalls back to a short id.",
         "operationId": "list_chatroom_members_api_chatrooms__chatroom_id__members_get",
         "parameters": [
           {
@@ -17639,7 +17639,7 @@
           "skills"
         ],
         "summary": "Admin Skill Metrics",
-        "description": "[R31.11] / AC-15 \u2014 the ratio of agent-private to shared skills.\n\nNot decoration: \u00a75's premise is that skills are shared at project scope and above.\nIf most end up agent-scoped, Skills has degraded into the \u00a79.2 prompt-strategy\nfeature it replaced, and this endpoint is what makes that visible rather than a\nmatter of opinion at the six-month review.\n\nDeclared **before** `/{skill_id}`: FastAPI matches in declaration order, and the\nUUID-typed path below would otherwise claim \"metrics\" and 422 it.",
+        "description": "[R31.11] / AC-15 — the ratio of agent-private to shared skills.\n\nNot decoration: §5's premise is that skills are shared at project scope and above.\nIf most end up agent-scoped, Skills has degraded into the §9.2 prompt-strategy\nfeature it replaced, and this endpoint is what makes that visible rather than a\nmatter of opinion at the six-month review.\n\nDeclared **before** `/{skill_id}`: FastAPI matches in declaration order, and the\nUUID-typed path below would otherwise claim \"metrics\" and 422 it.",
         "operationId": "admin_skill_metrics_api_admin_skills_metrics_get",
         "responses": {
           "200": {
@@ -18306,7 +18306,7 @@
           "skills"
         ],
         "summary": "Bind Skill",
-        "description": "Bind a skill to an agent.\n\nThe path carries no scope, so the capability check below authorizes the *agent* only.\n`resolve_bindable` inside `bind` is what proves the skill's scope contains it \u2014 taking\n`skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.",
+        "description": "Bind a skill to an agent.\n\nThe path carries no scope, so the capability check below authorizes the *agent* only.\n`resolve_bindable` inside `bind` is what proves the skill's scope contains it — taking\n`skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.",
         "operationId": "bind_skill_api_agents__agent_id__skill_bindings__skill_id__put",
         "parameters": [
           {
@@ -18397,7 +18397,7 @@
           "skills"
         ],
         "summary": "Get Import Status",
-        "description": "Poll a bundle import. The initiator (or an admin) only \u2014 the job id is a capability.\n\nDeliberately not scope-gated: the initiator is recorded on the job and is the fence, the\nsame shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not\na leak of whether the id is live.",
+        "description": "Poll a bundle import. The initiator (or an admin) only — the job id is a capability.\n\nDeliberately not scope-gated: the initiator is recorded on the job and is the fence, the\nsame shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not\na leak of whether the id is live.",
         "operationId": "get_import_status_api_skills_imports__task_id__get",
         "parameters": [
           {
@@ -18441,7 +18441,7 @@
           "skills"
         ],
         "summary": "Get Export Status",
-        "description": "Poll a bundle export; once ready, carry the presigned download URL.\n\n\u00a76 names only the import status endpoint by path; export equally needs a status/fetch\n(D-58 records this). The URL dictates the download's filename and content type via the\npresigned response headers, so the object's stored metadata never reaches the browser.",
+        "description": "Poll a bundle export; once ready, carry the presigned download URL.\n\n§6 names only the import status endpoint by path; export equally needs a status/fetch\n(D-58 records this). The URL dictates the download's filename and content type via the\npresigned response headers, so the object's stored metadata never reaches the browser.",
         "operationId": "get_export_status_api_skills_exports__task_id__get",
         "parameters": [
           {
@@ -19466,7 +19466,7 @@
           "items"
         ],
         "title": "ActivityGroupProposalsOut",
-        "description": "One round's group state for one caller.\n\n``eligible_groups`` is the caller's own bound-group membership, which is\nalso the participant surface's only signal that group mode applies at all \u2014\nan empty list means this caller submits individually, whatever the type\ndeclares."
+        "description": "One round's group state for one caller.\n\n``eligible_groups`` is the caller's own bound-group membership, which is\nalso the participant surface's only signal that group mode applies at all —\nan empty list means this caller submits individually, whatever the type\ndeclares."
       },
       "ActivityGroupVoteIn": {
         "properties": {
@@ -19511,7 +19511,7 @@
           "created_at"
         ],
         "title": "ActivityGroupVoteOut",
-        "description": "One pinned voter's decision ([R30.42]).\n\nOnly ever populated for a caller entitled to the per-person record: the\nproposal's pinned voters and the room creator. Every other reader gets the\ncounts and an empty list \u2014 and no agent reaches this surface at all."
+        "description": "One pinned voter's decision ([R30.42]).\n\nOnly ever populated for a caller entitled to the per-person record: the\nproposal's pinned voters and the room creator. Every other reader gets the\ncounts and an empty list — and no agent reaches this surface at all."
       },
       "ActivityMemberGroupRefOut": {
         "properties": {
@@ -19584,7 +19584,7 @@
           "retention_days_max"
         ],
         "title": "ActivityPolicyPublicOut",
-        "description": "The platform governance policy as an author needs to see it ([R30.29]).\n\nAny authenticated caller, like the validator listing above: the policy is\nplatform configuration, not a secret, and an owner would learn the same facts\nfrom a 409 on their first save. Reading it up front is what lets the authoring\nform pre-fill a default and disable a locked switch instead of letting the\nowner fill in a form that cannot be accepted.\n\nDeliberately omits ``updated_by_user_id`` \u2014 who set the policy is an admin\nconcern and is on the admin surface."
+        "description": "The platform governance policy as an author needs to see it ([R30.29]).\n\nAny authenticated caller, like the validator listing above: the policy is\nplatform configuration, not a secret, and an owner would learn the same facts\nfrom a 409 on their first save. Reading it up front is what lets the authoring\nform pre-fill a default and disable a locked switch instead of letting the\nowner fill in a form that cannot be accepted.\n\nDeliberately omits ``updated_by_user_id`` — who set the policy is an admin\nconcern and is on the admin surface."
       },
       "ActivitySessionCompletionIn": {
         "properties": {
@@ -20148,7 +20148,7 @@
           "payload_schema"
         ],
         "title": "ActivityTypePublicOut",
-        "description": "The participant rendering contract (R30.26): identity, key, display\nname, payload schema, and the consent fraction \u2014 and nothing else. No\n`validator_config`, which is confidential to Project Owners (R30.25).\nReachable through the room-access chain, never through project membership."
+        "description": "The participant rendering contract (R30.26): identity, key, display\nname, payload schema, and the consent fraction — and nothing else. No\n`validator_config`, which is confidential to Project Owners (R30.25).\nReachable through the room-access chain, never through project membership."
       },
       "ActivityTypeRegisteredOut": {
         "properties": {
@@ -20266,7 +20266,7 @@
           "platform"
         ],
         "title": "ActivityTypeScope",
-        "description": "Who owns an ``ActivityType`` ([R30.02]).\n\n``PROJECT`` is the original and only pre-0076 case: the row belongs to one\nproject and ``project_id`` is set. ``PLATFORM`` is a shipped example a\nplatform admin installed: no owning project, reachable from a project only\nthrough a ``ProjectActivityTypeOptIn`` row ([R30.33]).\n\nDeliberately two values, mirroring ``ActivityPolicy.scope`` \u2014 a per-org layer\nwould be a third value, which is a row-level concern rather than a rewrite."
+        "description": "Who owns an ``ActivityType`` ([R30.02]).\n\n``PROJECT`` is the original and only pre-0076 case: the row belongs to one\nproject and ``project_id`` is set. ``PLATFORM`` is a shipped example a\nplatform admin installed: no owning project, reachable from a project only\nthrough a ``ProjectActivityTypeOptIn`` row ([R30.33]).\n\nDeliberately two values, mirroring ``ActivityPolicy.scope`` — a per-org layer\nwould be a third value, which is a row-level concern rather than a rewrite."
       },
       "ActivityTypeUpdateIn": {
         "properties": {
@@ -20609,7 +20609,7 @@
           "updated_by_user_id"
         ],
         "title": "AdminActivityPolicyOut",
-        "description": "The platform governance policy ([R30.29]).\n\n``version`` is 0 when no policy has ever been saved \u2014 the client uses that to\nknow it is creating rather than replacing, and must not send ``If-Match``."
+        "description": "The platform governance policy ([R30.29]).\n\n``version`` is 0 when no policy has ever been saved — the client uses that to\nknow it is creating rather than replacing, and must not send ``If-Match``."
       },
       "AdminActivityTypeOut": {
         "properties": {
@@ -20706,7 +20706,7 @@
           "created_at"
         ],
         "title": "AdminActivityTypeOut",
-        "description": "One activity type, platform-wide.\n\nCarries `validator_config` deliberately (Q-3 of the dossier): an admin already\nreads it through the project API by bypass, so withholding it here buys no\nconfidentiality and costs a screen switch during triage. It may hold answer\nkeys, so this model stays admin-only \u2014 it must not be reused by a\nnon-admin surface ([R30.25])."
+        "description": "One activity type, platform-wide.\n\nCarries `validator_config` deliberately (Q-3 of the dossier): an admin already\nreads it through the project API by bypass, so withholding it here buys no\nconfidentiality and costs a screen switch during triage. It may hold answer\nkeys, so this model stays admin-only — it must not be reused by a\nnon-admin surface ([R30.25])."
       },
       "AdminCatalogueTypeOut": {
         "properties": {
@@ -20883,7 +20883,7 @@
           "approximate"
         ],
         "title": "AdminPolicyImpactOut",
-        "description": "What a candidate policy would block.\n\nLets the admin form warn before a tightening strands a class ([R30.30]).\n``violating_activations`` counts activities running at this moment whose type\nthe candidate would refuse \u2014 they keep running, because enforcement is at\nauthoring and activation start, so this is the number an admin tightening for\na consent reason has to see before saving.\n\n``approximate`` is true when either scan hit its bound, so the counts are\nfloors rather than a silent truncation."
+        "description": "What a candidate policy would block.\n\nLets the admin form warn before a tightening strands a class ([R30.30]).\n``violating_activations`` counts activities running at this moment whose type\nthe candidate would refuse — they keep running, because enforcement is at\nauthoring and activation start, so this is the number an admin tightening for\na consent reason has to see before saving.\n\n``approximate`` is true when either scan hit its bound, so the counts are\nfloors rather than a silent truncation."
       },
       "AdminPromoteIn": {
         "properties": {
@@ -20920,7 +20920,7 @@
           "granted"
         ],
         "title": "AgentActivityControlIn",
-        "description": "Grant or revoke one bound agent's activity start/end authority ([R30.37]).\n\n``activity_type_ids`` is required whenever ``granted`` is true and is validated\nagainst the room's project before anything is written \u2014 an unresolvable id is a\n422, never a silently dropped entry. On a revoke it is ignored: the stored\nallowlist is left in place so the teacher's selection survives a re-grant."
+        "description": "Grant or revoke one bound agent's activity start/end authority ([R30.37]).\n\n``activity_type_ids`` is required whenever ``granted`` is true and is validated\nagainst the room's project before anything is written — an unresolvable id is a\n422, never a silently dropped entry. On a revoke it is ignored: the stored\nallowlist is left in place so the teacher's selection survives a re-grant."
       },
       "AgentConceptMapCoverageEntryOut": {
         "properties": {
@@ -20989,7 +20989,7 @@
           "last_build_error"
         ],
         "title": "AgentConceptMapCoverageEntryOut",
-        "description": "One Concept Map covering an agent (Phase 4\u03b1 R11.09, read-only)."
+        "description": "One Concept Map covering an agent (Phase 4α R11.09, read-only)."
       },
       "AgentConceptMapCoverageOut": {
         "properties": {
@@ -21026,7 +21026,8 @@
             "enum": [
               "claude",
               "openai",
-              "gemini"
+              "gemini",
+              "openai_compat"
             ],
             "title": "Model Hint"
           },
@@ -21197,7 +21198,7 @@
           "granted"
         ],
         "title": "AgentDraftAccessIn",
-        "description": "Grant or revoke one bound agent's live-draft reading ([R32.03]).\n\nOne field, deliberately. Its sibling ``AgentActivityControlIn`` carries an\nallowlist because activity control is authority over a *set* of worksheets the\nteacher chooses; draft reading has no such set. What a granted agent may\nactually read is decided per call by the activity type's own\n``expose_payload_to_agent`` and by the platform payload policy ([R32.04]) \u2014 the\nsame two gates a submitted payload passes. A list here would be a third gate to\nkeep in step with those two, and the state where they disagreed would be a draft\nreadable on looser terms than its own submission."
+        "description": "Grant or revoke one bound agent's live-draft reading ([R32.03]).\n\nOne field, deliberately. Its sibling ``AgentActivityControlIn`` carries an\nallowlist because activity control is authority over a *set* of worksheets the\nteacher chooses; draft reading has no such set. What a granted agent may\nactually read is decided per call by the activity type's own\n``expose_payload_to_agent`` and by the platform payload policy ([R32.04]) — the\nsame two gates a submitted payload passes. A list here would be a third gate to\nkeep in step with those two, and the state where they disagreed would be a draft\nreadable on looser terms than its own submission."
       },
       "AgentEffort": {
         "type": "string",
@@ -21211,7 +21212,7 @@
           "max"
         ],
         "title": "AgentEffort",
-        "description": "Cross-provider reasoning-effort level, mapped per-provider at the\nadapter boundary (Claude ``output_config.effort`` / OpenAI\n``reasoning_effort`` / Gemini ``thinkingConfig.thinkingLevel``). ``None``\non an agent means the parameter is not sent and the provider's own default\napplies.\n\nThe union of every value any provider accepts (Q-3, R9.03a) \u2014 which subset\na given model accepts is a capability-table field\n(``model_specs.ChatModelSpec.effort_values``), not an enum concern. A\nvalue a model does not accept is never sent (see the adapters); the form\nonly offers a value the selected model's spec lists."
+        "description": "Cross-provider reasoning-effort level, mapped per-provider at the\nadapter boundary (Claude ``output_config.effort`` / OpenAI\n``reasoning_effort`` / Gemini ``thinkingConfig.thinkingLevel``). ``None``\non an agent means the parameter is not sent and the provider's own default\napplies.\n\nThe union of every value any provider accepts (Q-3, R9.03a) — which subset\na given model accepts is a capability-table field\n(``model_specs.ChatModelSpec.effort_values``), not an enum concern. A\nvalue a model does not accept is never sent (see the adapters); the form\nonly offers a value the selected model's spec lists."
       },
       "AgentGroupCreateIn": {
         "properties": {
@@ -21635,7 +21636,8 @@
                 "enum": [
                   "claude",
                   "openai",
-                  "gemini"
+                  "gemini",
+                  "openai_compat"
                 ]
               },
               {
@@ -23395,7 +23397,7 @@
           "status"
         ],
         "title": "BundleJobOut",
-        "description": "The 202 body for import/export \u2014 a task id to poll."
+        "description": "The 202 body for import/export — a task id to poll."
       },
       "BundleJobStatus": {
         "type": "string",
@@ -23576,7 +23578,7 @@
           "verified_on"
         ],
         "title": "ChatModelSpecOut",
-        "description": "Per-model request-shaping capabilities (R9.03a) \u2014 what the agent-config\nform needs to disable a control the selected model refuses, and to bound\nthe context-token-cap input by the model's own window rather than the\nprovider's."
+        "description": "Per-model request-shaping capabilities (R9.03a) — what the agent-config\nform needs to disable a control the selected model refuses, and to bound\nthe context-token-cap input by the model's own window rather than the\nprovider's."
       },
       "ChatroomCreateIn": {
         "properties": {
@@ -23936,7 +23938,7 @@
           "owner_name"
         ],
         "title": "ConceptMapOwnerOptionOut",
-        "description": "A selectable owner for the Concept Maps overview create picker (Phase 4\u03b1)."
+        "description": "A selectable owner for the Concept Maps overview create picker (Phase 4α)."
       },
       "ConfigEnvelopeOut": {
         "properties": {
@@ -24061,7 +24063,7 @@
           "mode"
         ],
         "title": "EmailDomainPolicyIn",
-        "description": "A full replacement, not a patch.\n\nBounds are declared here as well as in the domain normaliser so an oversized\nbody is rejected at the boundary rather than after being parsed and\nnormalised \u2014 the normaliser is the decision, this is the cost control."
+        "description": "A full replacement, not a patch.\n\nBounds are declared here as well as in the domain normaliser so an oversized\nbody is rejected at the boundary rather than after being parsed and\nnormalised — the normaliser is the decision, this is the cost control."
       },
       "EmailDomainPolicyMode": {
         "type": "string",
@@ -24138,7 +24140,7 @@
           "editable"
         ],
         "title": "EmailDomainPolicyOut",
-        "description": "The stored policy plus the rollout facts the Admin UI needs.\n\n``rollout_state`` is not decoration: the form is read-only outside `active`,\nand without it the UI could only discover that by attempting a write and\nreading a 409. ``legacy_mirrored_version`` is the rollback marker \u2014 equal to\n``version`` means the legacy triple has been written and read back, which is\nthe documented precondition for starting an old image."
+        "description": "The stored policy plus the rollout facts the Admin UI needs.\n\n``rollout_state`` is not decoration: the form is read-only outside `active`,\nand without it the UI could only discover that by attempting a write and\nreading a 409. ``legacy_mirrored_version`` is the rollback marker — equal to\n``version`` means the legacy triple has been written and read back, which is\nthe documented precondition for starting an old image."
       },
       "EmailDomainPolicyRolloutState": {
         "type": "string",
@@ -24148,7 +24150,7 @@
           "rollback_frozen"
         ],
         "title": "EmailDomainPolicyRolloutState",
-        "description": "Which store a new reader must treat as authoritative.\n\n``COMPATIBILITY`` \u2014 the legacy Redis triple still governs, because replicas\nthat know only those three keys may still be serving. Admin writes are fenced.\n\n``ACTIVE`` \u2014 PostgreSQL governs, with a disposable Redis mirror in front of\nit. The only phase in which an Admin may write.\n\n``ROLLBACK_FROZEN`` \u2014 PostgreSQL governs and is frozen, while the legacy\ntriple is rewritten beneath it so old images can be started. Writes are\nfenced so the verified mirror cannot go stale the moment it is taken."
+        "description": "Which store a new reader must treat as authoritative.\n\n``COMPATIBILITY`` — the legacy Redis triple still governs, because replicas\nthat know only those three keys may still be serving. Admin writes are fenced.\n\n``ACTIVE`` — PostgreSQL governs, with a disposable Redis mirror in front of\nit. The only phase in which an Admin may write.\n\n``ROLLBACK_FROZEN`` — PostgreSQL governs and is frozen, while the legacy\ntriple is rewritten beneath it so old images can be started. Writes are\nfenced so the verified mirror cannot go stale the moment it is taken."
       },
       "EmbedModelOut": {
         "properties": {
@@ -24266,7 +24268,8 @@
                 "enum": [
                   "claude",
                   "openai",
-                  "gemini"
+                  "gemini",
+                  "openai_compat"
                 ]
               },
               {
@@ -24916,7 +24919,7 @@
         },
         "type": "object",
         "title": "GraphRagConfigPatchIn",
-        "description": "Partial update \u2014 all fields optional. Omitted = unchanged."
+        "description": "Partial update — all fields optional. Omitted = unchanged."
       },
       "GraphRagStatusOut": {
         "properties": {
@@ -26065,7 +26068,7 @@
           "deleted_at"
         ],
         "title": "KnowmapConfigPatchOut",
-        "description": "PATCH response \u2014 the config plus any agents auto-detached by a builder\nkey-group change that collided with their consumer group (R11.25 / F-14).\n\nDedicated subclass so the shared GET/create ``KnowmapConfigOut`` shape stays\nunbroadened. ``detached_agent_ids`` is empty on any non-colliding change."
+        "description": "PATCH response — the config plus any agents auto-detached by a builder\nkey-group change that collided with their consumer group (R11.25 / F-14).\n\nDedicated subclass so the shared GET/create ``KnowmapConfigOut`` shape stays\nunbroadened. ``detached_agent_ids`` is empty on any non-colliding change."
       },
       "KnowmapDocumentAgentsPatchIn": {
         "properties": {
@@ -27250,7 +27253,7 @@
           "enabled"
         ],
         "title": "PlatformExampleOut",
-        "description": "An installed platform example as a Project Owner sees it ([R30.32]).\n\nCarries the two governance flags because enabling one is a consent decision:\n``expose_payload_to_agent`` means participant text reaches the project's\nconfigured LLM provider, and the owner making that choice has to be told so at\nthe moment they make it.\n\nNo ``validator_config`` \u2014 it may hold answer keys and is owner-confidential\n([R30.25]). Its absence here is not a redaction to re-add later: this listing\nexists to choose a type, not to inspect one."
+        "description": "An installed platform example as a Project Owner sees it ([R30.32]).\n\nCarries the two governance flags because enabling one is a consent decision:\n``expose_payload_to_agent`` means participant text reaches the project's\nconfigured LLM provider, and the owner making that choice has to be told so at\nthe moment they make it.\n\nNo ``validator_config`` — it may hold answer keys and is owner-confidential\n([R30.25]). Its absence here is not a redaction to re-add later: this listing\nexists to choose a type, not to inspect one."
       },
       "PresenceOut": {
         "properties": {
@@ -29072,7 +29075,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "SkillPatchIn",
-        "description": "Every field optional; missing means unchanged.\n\n`name` is **absent by construction, not optional**: it is the key the model invokes,\nthe key bindings and bundle exports are addressed by, and the directory name under\n/workspace/skills/. Renaming is a copy (Q-11/AC-39). With `extra=\"forbid\"` a client\nthat sends `name` gets a 422 rather than a silent no-op \u2014 which is the point: a\nrename that appears to work but does not is worse than a rejection."
+        "description": "Every field optional; missing means unchanged.\n\n`name` is **absent by construction, not optional**: it is the key the model invokes,\nthe key bindings and bundle exports are addressed by, and the directory name under\n/workspace/skills/. Renaming is a copy (Q-11/AC-39). With `extra=\"forbid\"` a client\nthat sends `name` gets a 422 rather than a silent no-op — which is the point: a\nrename that appears to work but does not is worse than a rejection."
       },
       "SkillScope": {
         "type": "string",
@@ -29105,7 +29108,7 @@
           "total"
         ],
         "title": "SkillScopeCountsOut",
-        "description": "[R31.11] \u2014 live skills per scope, keyed by the scope's wire value.\n\nA map rather than four named fields: the scope set is the domain enum's, and four\nhand-written columns would drift from it silently the day a fifth scope lands\n(FU-14 already tracks one)."
+        "description": "[R31.11] — live skills per scope, keyed by the scope's wire value.\n\nA map rather than four named fields: the scope set is the domain enum's, and four\nhand-written columns would drift from it silently the day a fifth scope lands\n(FU-14 already tracks one)."
       },
       "SkillSummaryOut": {
         "properties": {
@@ -29225,7 +29228,7 @@
           "deleted_at"
         ],
         "title": "SkillSummaryOut",
-        "description": "A skill without its body \u2014 what a listing needs.\n\nThe body is bounded only by `_MAX_BODY` (256 KiB) and `limit` reaches 500, so\nincluding it here would let one request return ~128 MB to render a menu of names. It\nis served by the detail endpoint, one skill at a time, to the caller who asked for it."
+        "description": "A skill without its body — what a listing needs.\n\nThe body is bounded only by `_MAX_BODY` (256 KiB) and `limit` reaches 500, so\nincluding it here would let one request return ~128 MB to render a menu of names. It\nis served by the detail endpoint, one skill at a time, to the caller who asked for it."
       },
       "StepOut": {
         "properties": {

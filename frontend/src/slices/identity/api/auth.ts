@@ -28,7 +28,7 @@ export interface CaptchaConfig {
 export interface TokenPair {
   access_token: string
   refresh_token?: string  // server now sets this via httpOnly cookie; field kept for compatibility
-  token_type: 'Bearer'
+  token_type: string
   expires_in: number
 }
 

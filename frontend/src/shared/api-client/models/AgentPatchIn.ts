@@ -5,7 +5,7 @@
 import type { AgentEffort } from './AgentEffort';
 export type AgentPatchIn = {
     name?: (string | null);
-    model_hint?: ('claude' | 'openai' | 'gemini' | null);
+    model_hint?: ('claude' | 'openai' | 'gemini' | 'openai_compat' | null);
     model_id?: (string | null);
     effort?: (AgentEffort | null);
     key_group_id?: (string | null);

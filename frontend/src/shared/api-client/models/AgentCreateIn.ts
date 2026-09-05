@@ -5,7 +5,7 @@
 import type { AgentEffort } from './AgentEffort';
 export type AgentCreateIn = {
     name: string;
-    model_hint: 'claude' | 'openai' | 'gemini';
+    model_hint: 'claude' | 'openai' | 'gemini' | 'openai_compat';
     model_id?: (string | null);
     effort?: (AgentEffort | null);
     key_group_id: string;
