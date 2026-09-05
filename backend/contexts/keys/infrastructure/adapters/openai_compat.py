@@ -216,8 +216,8 @@ class OpenAICompatAdapter:
         raise ValueError(f"openai_compat does not serve {request.capability.value}")
 
     async def _chat(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
-        url = f"{_base_url(request)}/v1/chat/completions"
-        validate_base_url(_base_url(request))
+        validated = validate_base_url(_base_url(request))
+        url = f"{validated}/v1/chat/completions"
         timeout = _timeout(request)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=_chat_body(request, stream=False), headers=_headers(secret))
@@ -234,8 +234,8 @@ class OpenAICompatAdapter:
 
     async def _embed(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
         payload = request.payload
-        url = f"{_base_url(request)}/v1/embeddings"
-        validate_base_url(_base_url(request))
+        validated = validate_base_url(_base_url(request))
+        url = f"{validated}/v1/embeddings"
         body = {
             "model": base.resolve_model(payload, ApiKeyProvider.OPENAI_COMPAT),
             "input": payload["input"],
@@ -258,11 +258,12 @@ class OpenAICompatAdapter:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"openai_compat does not stream {request.capability.value}")
 
-        url = f"{_base_url(request)}/v1/chat/completions"
-        validate_base_url(_base_url(request))
+        validated = validate_base_url(_base_url(request))
+        url = f"{validated}/v1/chat/completions"
         timeout = _stream_timeout(request)
 
-        # Accumulate tool call fragments across deltas.
+        # Accumulate text and tool call fragments across deltas.
+        text_parts: list[str] = []
         tool_accum: dict[int, dict[str, Any]] = {}
         input_tokens = 0
         output_tokens = 0
@@ -313,6 +314,7 @@ class OpenAICompatAdapter:
                 # Text delta
                 chunk = delta.get("content")
                 if chunk:
+                    text_parts.append(chunk)
                     yield TokenDelta(chunk)
                 # Tool call deltas
                 for tc_delta in delta.get("tool_calls") or []:
@@ -339,7 +341,7 @@ class OpenAICompatAdapter:
             for _, tc in sorted(tool_accum.items())
         ]
         body: dict[str, Any] = {
-            "text": "",
+            "text": "".join(text_parts),
             "tool_calls": tool_calls,
             "finish_reason": finish_reason,
         }
