@@ -25,7 +25,7 @@ import { useConfirmDialog, useToast, useClientPagination, useListStagger } from 
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
-import type { ApiKey, ApiKeyProvider } from '../api/keys'
+import type { ApiKey, ApiKeyProvider, OpenAICompatConfig } from '../api/keys'
 import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
@@ -63,11 +63,11 @@ const actionItems = computed(() => [
 // back to `Record<string, unknown>`.
 const tableKeys = computed(() => paginatedKeys.value.map((k) => ({ ...k })))
 
-async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string; config?: Record<string, unknown> }) {
+async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string; config?: OpenAICompatConfig }) {
   if (uploading.value) return
   uploading.value = true
   try {
-    await upload(p.provider, p.name, p.secret, p.config as Parameters<typeof upload>[3])
+    await upload(p.provider, p.name, p.secret, p.config)
     showUpload.value = false
     toast.success(t('keys.form.uploaded'))
   } catch {
