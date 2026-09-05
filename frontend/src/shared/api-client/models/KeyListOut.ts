@@ -10,14 +10,15 @@ import type { ProbeStatus } from './ProbeStatus';
  * of a field that has no meaning there.
  */
 export type KeyListOut = {
-    created_at: string;
     id: string;
-    last_test_at: (string | null);
-    masked_preview: string;
-    name: string;
-    project_count: number;
     provider: ApiKeyProvider;
-    test_error: (string | null);
+    name: string;
+    masked_preview: string;
     test_status: ProbeStatus;
+    test_error: (string | null);
+    last_test_at: (string | null);
+    created_at: string;
+    config?: Record<string, any>;
+    project_count: number;
 };
 

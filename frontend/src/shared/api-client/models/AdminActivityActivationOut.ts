@@ -3,13 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AdminActivityActivationOut = {
+    id: string;
+    chatroom_id: string;
+    chatroom_name: (string | null);
     activity_type_id: string;
     activity_type_key: (string | null);
     activity_type_name: (string | null);
-    chatroom_id: string;
-    chatroom_name: (string | null);
-    created_at: string;
-    id: string;
     started_by_user_id: string;
+    created_at: string;
 };
 

@@ -4,11 +4,11 @@
 /* eslint-disable */
 import type { ApiKeyProvider } from './ApiKeyProvider';
 export type GroupOut = {
-    created_at: string;
     id: string;
-    member_count?: number;
-    name: string;
     project_id: string;
+    name: string;
+    created_at: string;
+    member_count?: number;
     providers?: Array<ApiKeyProvider>;
 };
 

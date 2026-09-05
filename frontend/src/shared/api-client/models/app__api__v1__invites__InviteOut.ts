@@ -5,14 +5,14 @@
 import type { InviteScope } from './InviteScope';
 import type { InviteState } from './InviteState';
 export type app__api__v1__invites__InviteOut = {
-    created_at: string;
-    expires_at: string;
     id: string;
-    invitee_email: string;
-    role: 'owner' | 'member';
+    scope_type: InviteScope;
     scope_id: string;
     scope_name: string;
-    scope_type: InviteScope;
+    role: 'owner' | 'member';
+    invitee_email: string;
     state: InviteState;
+    expires_at: string;
+    created_at: string;
 };
 

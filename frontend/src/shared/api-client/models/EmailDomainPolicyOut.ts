@@ -14,13 +14,13 @@ import type { EmailDomainPolicyRolloutState } from './EmailDomainPolicyRolloutSt
  * the documented precondition for starting an old image.
  */
 export type EmailDomainPolicyOut = {
+    mode: EmailDomainPolicyMode;
     allow: Array<string>;
     deny: Array<string>;
-    editable: boolean;
-    legacy_mirrored_version: (number | null);
-    mode: EmailDomainPolicyMode;
-    rollout_state: EmailDomainPolicyRolloutState;
-    updated_at: (string | null);
     version: number;
+    rollout_state: EmailDomainPolicyRolloutState;
+    legacy_mirrored_version: (number | null);
+    updated_at: (string | null);
+    editable: boolean;
 };
 

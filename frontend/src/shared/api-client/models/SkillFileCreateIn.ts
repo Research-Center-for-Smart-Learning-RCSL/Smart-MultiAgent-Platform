@@ -12,8 +12,8 @@
  * 422 rather than a silent no-op.
  */
 export type SkillFileCreateIn = {
+    path: string;
     content: string;
     mime?: string;
-    path: string;
 };
 

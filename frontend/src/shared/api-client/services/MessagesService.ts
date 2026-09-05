@@ -67,27 +67,6 @@ export class MessagesService {
         });
     }
     /**
-     * Delete Message
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteMessageApiMessagesMessageIdDelete({
-        messageId,
-    }: {
-        messageId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/messages/{message_id}',
-            path: {
-                'message_id': messageId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Read Message
      * @returns MessageOut Successful Response
      * @throws ApiError
@@ -133,6 +112,27 @@ export class MessagesService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Message
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteMessageApiMessagesMessageIdDelete({
+        messageId,
+    }: {
+        messageId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/messages/{message_id}',
+            path: {
+                'message_id': messageId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },

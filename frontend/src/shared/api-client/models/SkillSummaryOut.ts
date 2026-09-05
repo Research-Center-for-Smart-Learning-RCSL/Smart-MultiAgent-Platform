@@ -11,20 +11,20 @@ import type { SkillScope } from './SkillScope';
  * is served by the detail endpoint, one skill at a time, to the caller who asked for it.
  */
 export type SkillSummaryOut = {
-    allowed_tools: Array<string>;
-    body_sha256: string;
-    bundle_sha256: (string | null);
-    created_at: string;
-    created_by: (string | null);
-    deleted_at: (string | null);
-    description: string;
-    diverged: boolean;
     id: string;
-    name: string;
-    owner_id: (string | null);
-    requires: Array<string>;
     scope: SkillScope;
+    owner_id: (string | null);
+    name: string;
+    description: string;
+    body_sha256: string;
     source: string;
+    bundle_sha256: (string | null);
+    diverged: boolean;
+    requires: Array<string>;
+    allowed_tools: Array<string>;
+    created_by: (string | null);
     version: number;
+    created_at: string;
+    deleted_at: (string | null);
 };
 
