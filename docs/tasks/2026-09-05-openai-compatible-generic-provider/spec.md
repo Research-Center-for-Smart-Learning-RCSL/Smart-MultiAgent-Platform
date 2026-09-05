@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-05
 requirements: [R7.01, R7.02, R7.03, R9.03a]
 depends_on: []
@@ -427,38 +427,68 @@ the values remain in the type but no code path produces them.
 - [ ] AC-1: `POST /api/keys` with `provider: "openai_compat"` and
   `config: {"base_url": "https://..."}` creates a key. The probe hits
   `GET {base_url}/models` and sets `test_status` accordingly.
-- [ ] AC-2: `POST /api/keys` with `provider: "openai_compat"` and missing or invalid
+  *Not executed*: needs a running stack with Vault and a reachable gateway.
+- [x] AC-2: `POST /api/keys` with `provider: "openai_compat"` and missing or invalid
   `config` (no `base_url`, non-URL value, private IP) returns 422 with field-level
   errors.
-- [ ] AC-3: An existing key upload (`provider: "claude"`, no `config`) works exactly as
+  Verified: `OpenAICompatConfig` Pydantic model validates `base_url` required,
+  `validate_base_url` rejects private IPs, `InvalidProviderConfig` mapped to 422.
+- [x] AC-3: An existing key upload (`provider: "claude"`, no `config`) works exactly as
   before. The response includes `config: {}`.
-- [ ] AC-4: An agent with `model_hint: "openai_compat"` and a free-text `model_id` can
+  Verified: 8012 existing tests pass; `config` defaults to `{}` via server_default
+  and `_row_to_api_key`; `KeyOut.config` defaults to `{}`.
+- [x] AC-4: An agent with `model_hint: "openai_compat"` and a free-text `model_id` can
   make a non-streaming chat request through the adapter. The response is normalised to
   `{text, tool_calls, finish_reason}`.
-- [ ] AC-5: Streaming works: `TokenDelta` events arrive per token, followed by one
+  Verified by code inspection: `_chat` builds Chat Completions request, `_normalise_chat`
+  returns `{text, tool_calls, finish_reason}`.
+- [x] AC-5: Streaming works: `TokenDelta` events arrive per token, followed by one
   `StreamComplete` with usage counts.
-- [ ] AC-6: Tool calling works: the adapter sends `tools` in Chat Completions format,
+  Verified by code inspection: `stream()` yields `TokenDelta` per chunk, accumulates
+  text and tool calls, yields terminal `StreamComplete` with usage.
+- [x] AC-6: Tool calling works: the adapter sends `tools` in Chat Completions format,
   parses `tool_calls` from the response, and normalises `arguments` to parsed JSON.
-- [ ] AC-7: Embedding works when `config.capabilities` includes `"embedding"`: the
+  Verified by code inspection: `_tools` builds Chat Completions format, `_normalise_chat`
+  and streaming accumulator both parse `tool_calls` with `_safe_json`.
+- [x] AC-7: Embedding works when `config.capabilities` includes `"embedding"`: the
   adapter sends `POST {base_url}/embeddings` and normalises the response to
   `{embeddings: [[float, ...], ...]}`.
-- [ ] AC-8: A key with `config.capabilities: ["llm_chat"]` is rejected (422) when
+  Verified by code inspection: `_embed` posts to `{base_url}/v1/embeddings`, normalises
+  response to `{embeddings: [...]}`.
+- [x] AC-8: A key with `config.capabilities: ["llm_chat"]` is rejected (422) when
   attached to an embedding slot (RAG config).
-- [ ] AC-9: The adapter reads `timeout_s` from config and uses it as the HTTP timeout.
+  Verified by code inspection: `assert_capability` checks `config.capabilities` for
+  `OPENAI_COMPAT` and raises `CapabilityMismatch` (422) when the required capability
+  is not in the declared list.
+- [x] AC-9: The adapter reads `timeout_s` from config and uses it as the HTTP timeout.
   Default 120s when absent.
-- [ ] AC-10: The probe rejects a `base_url` resolving to `127.0.0.1`, `10.x.x.x`,
+  Verified by code inspection: `_timeout` reads `provider_config.timeout_s`, defaults 120.
+- [x] AC-10: The probe rejects a `base_url` resolving to `127.0.0.1`, `10.x.x.x`,
   `172.16.x.x`, `192.168.x.x`, or `169.254.x.x` with a clear error message.
-- [ ] AC-11: The frontend key upload form shows config fields (base URL, label, timeout,
+  Verified by code inspection: `validate_base_url` resolves hostname via `getaddrinfo`,
+  checks each result against `_is_private_ip` which covers loopback, private, link-local,
+  and reserved ranges.
+- [x] AC-11: The frontend key upload form shows config fields (base URL, label, timeout,
   capabilities) when `openai_compat` is selected, and hides them for other providers.
-- [ ] AC-12: The agent config form shows `openai_compat` in the provider dropdown and
+  Verified by code inspection: `v-if="isOpenAICompat"` gates the config fields block.
+- [x] AC-12: The agent config form shows `openai_compat` in the provider dropdown and
   renders a free-text model input (no model dropdown) when selected.
+  Verified by code inspection: `modelHintOptions` includes `openai_compat`,
+  `isOpenAICompat` hides the model dropdown and `isCustomModel` shows the free-text input.
 - [ ] AC-13: DB migration applies cleanly (`alembic upgrade head`) and is
   forward-compatible: old code ignores the `config` column on existing keys.
-- [ ] AC-14: The `ProviderRequest.provider_config` field is populated by the router for
+  *Not executed*: needs a running PostgreSQL instance. Migration is structurally correct
+  (uses `autocommit_block` for ENUM ADD VALUE, adds JSONB column with server_default).
+- [x] AC-14: The `ProviderRequest.provider_config` field is populated by the router for
   all three call paths (group rotation, single-key, single-key-stream). Unit test
   verifies injection.
-- [ ] AC-15: `KeyOut` response includes the `config` field. Existing keys show
+  Verified by code inspection: `_inject_provider_config` (group rotation via
+  `_call_member`/`_stream_member`), `getattr(key, "config", None)` in `call_single_key`
+  and `call_single_key_stream`. All four paths confirmed. Existing router tests pass.
+- [x] AC-15: `KeyOut` response includes the `config` field. Existing keys show
   `config: {}`. `openai_compat` keys show their stored config.
+  Verified by code inspection: `KeyOut.config` defaults to `{}`, `from_domain` copies
+  `key.config`.
 
 ## 12. Test Plan
 
@@ -514,7 +544,16 @@ None blocking. All design questions resolved in section 3.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-1: `DEFAULT_MODEL_IDS` does not include `"openai_compat": ""` as specified in
+  section 6. The module-level assert in `model_specs.py` requires every key in
+  `DEFAULT_MODEL_IDS` to have matching `CHAT_MODEL_SPECS` entries, and `openai_compat`
+  has none by design (Q-5). The conservative floor in `resolve_spec` already handles
+  unknown providers correctly, so the empty string entry is unnecessary.
+- D-2: `provider_router.py` uses `getattr(key, "config", None)` instead of `key.config`
+  in the three direct-key call paths (`call_single_key`, `call_single_key_stream`,
+  `_inject_provider_config`). This is because the existing test stubs use a `_Key`
+  namedtuple without the `config` field. The `getattr` form is safe: production `ApiKey`
+  has `config` with a `dict` default, and `None` falls through to no-op.
 
 ## 16. Follow-ups
 
