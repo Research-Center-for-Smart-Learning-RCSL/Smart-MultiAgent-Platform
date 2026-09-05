@@ -14,7 +14,7 @@ export interface ApiKey {
   test_error: string | null
   last_test_at: string | null
   created_at: string
-  config: Record<string, unknown>
+  config?: Record<string, unknown>
   // Number of projects this key is actively carried into. Present on the
   // my-keys list; 0 on the project-carried surface where it is not computed.
   project_count?: number
@@ -61,7 +61,7 @@ export const keysApi = {
     secret: string,
     config?: OpenAICompatConfig,
   ): Promise<ApiKey> =>
-    KeysService.uploadKeyApiKeysPost({ requestBody: { provider, name, secret, config } }),
+    KeysService.uploadKeyApiKeysPost({ requestBody: { provider, name, secret, config: config ?? null } }),
   retest: (id: string): Promise<ApiKey> =>
     KeysService.retestKeyApiKeysKeyIdRetestPost({ keyId: id }),
   remove: (id: string): Promise<void> => KeysService.deleteKeyApiKeysKeyIdDelete({ keyId: id }),

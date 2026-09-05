@@ -239,7 +239,7 @@ function onClose() {
                   v-model="configChatEnabled"
                   type="checkbox"
                   class="rounded"
-                />
+                >
                 {{ CAP_LABELS.llm_chat }}
               </label>
               <label class="inline-flex items-center gap-1.5 text-sm">
@@ -247,7 +247,7 @@ function onClose() {
                   v-model="configEmbedEnabled"
                   type="checkbox"
                   class="rounded"
-                />
+                >
                 {{ CAP_LABELS.embedding }}
               </label>
             </div>
