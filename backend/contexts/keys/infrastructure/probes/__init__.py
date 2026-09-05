@@ -35,9 +35,7 @@ PROBES = {
 }
 
 
-async def probe(
-    provider: ApiKeyProvider, secret: str, config: dict[str, Any] | None = None
-) -> ProbeResult:
+async def probe(provider: ApiKeyProvider, secret: str, config: dict[str, Any] | None = None) -> ProbeResult:
     """Run the provider's probe (R7.02).
 
     For ``OPENAI_COMPAT``, extracts ``base_url`` from ``config`` and passes

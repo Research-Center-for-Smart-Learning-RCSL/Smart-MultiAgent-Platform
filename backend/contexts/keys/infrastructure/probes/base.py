@@ -191,7 +191,7 @@ def validate_base_url(url: str) -> str:
         raise ValueError(f"cannot resolve hostname {hostname!r}") from None
 
     for _family, _, _, _, sockaddr in infos:
-        addr = sockaddr[0]
+        addr = str(sockaddr[0])
         if _is_private_ip(addr):
             raise ValueError(f"base_url resolves to a private address ({addr})")
 
