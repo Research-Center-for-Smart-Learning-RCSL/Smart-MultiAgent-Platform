@@ -63,11 +63,11 @@ const actionItems = computed(() => [
 // back to `Record<string, unknown>`.
 const tableKeys = computed(() => paginatedKeys.value.map((k) => ({ ...k })))
 
-async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
+async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string; config?: Record<string, unknown> }) {
   if (uploading.value) return
   uploading.value = true
   try {
-    await upload(p.provider, p.name, p.secret)
+    await upload(p.provider, p.name, p.secret, p.config as Parameters<typeof upload>[3])
     showUpload.value = false
     toast.success(t('keys.form.uploaded'))
   } catch {

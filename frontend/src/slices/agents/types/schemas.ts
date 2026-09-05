@@ -17,7 +17,7 @@ const zeroOrEmptyToNull = (v: unknown): unknown =>
 
 export const agentCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  model_hint: z.enum(['claude', 'openai', 'gemini']),
+  model_hint: z.enum(['claude', 'openai', 'gemini', 'openai_compat']),
   model_id: z.preprocess(
     emptyToNull,
     z.string().trim().max(200).nullable().default(null),

@@ -2,7 +2,7 @@ import { computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { errorMessage } from '@shared/errors'
 import { keysKeys } from '../queries'
-import { keysApi, type ApiKey, type ApiKeyProvider } from '../api/keys'
+import { keysApi, type ApiKey, type ApiKeyProvider, type OpenAICompatConfig } from '../api/keys'
 
 export function useMyKeys() {
   const qc = useQueryClient()
@@ -23,8 +23,9 @@ export function useMyKeys() {
     provider: ApiKeyProvider,
     name: string,
     secret: string,
+    config?: OpenAICompatConfig,
   ): Promise<ApiKey | null> {
-    const created = await keysApi.upload(provider, name, secret)
+    const created = await keysApi.upload(provider, name, secret, config)
     await qc.invalidateQueries({ queryKey: keysKeys.myKeys() })
     return created
   }

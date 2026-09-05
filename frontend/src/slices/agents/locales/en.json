@@ -108,7 +108,8 @@
       "modelHints": {
         "claude": "Anthropic Claude",
         "openai": "OpenAI",
-        "gemini": "Google Gemini"
+        "gemini": "Google Gemini",
+        "openai_compat": "OpenAI Compatible"
       },
       "modelId": "Model",
       "modelIdHelp": "Pick a preset model, or choose Custom to enter any model ID. Provider default is used when none is selected.",
