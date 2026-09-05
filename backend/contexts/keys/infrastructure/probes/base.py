@@ -174,9 +174,7 @@ def validate_base_url(url: str) -> str:
     """
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
-    if scheme == "https":
-        pass
-    elif scheme == "http" and _allow_http():
+    if scheme == "https" or (scheme == "http" and _allow_http()):
         pass
     else:
         raise ValueError(
@@ -192,7 +190,7 @@ def validate_base_url(url: str) -> str:
     except socket.gaierror:
         raise ValueError(f"cannot resolve hostname {hostname!r}") from None
 
-    for family, _, _, _, sockaddr in infos:
+    for _family, _, _, _, sockaddr in infos:
         addr = sockaddr[0]
         if _is_private_ip(addr):
             raise ValueError(f"base_url resolves to a private address ({addr})")

@@ -14,7 +14,6 @@ Uses only the universally supported subset of Chat Completions:
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -30,8 +29,6 @@ from contexts.keys.application.provider_router import (
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
 from contexts.keys.infrastructure.adapters import base
 from contexts.keys.infrastructure.probes.base import validate_base_url
-
-_log = logging.getLogger(__name__)
 
 
 def _headers(secret: str) -> dict[str, str]:
@@ -92,11 +89,13 @@ def _messages(payload: dict[str, Any], *, vision: bool) -> list[dict[str, Any]]:
     for m in payload.get("messages", []):
         role = m.get("role")
         if role == "tool":
-            msgs.append({
-                "role": "tool",
-                "tool_call_id": m.get("tool_call_id"),
-                "content": m.get("content", ""),
-            })
+            msgs.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": m.get("tool_call_id"),
+                    "content": m.get("content", ""),
+                }
+            )
         elif role == "assistant" and m.get("tool_calls"):
             tc_list = [
                 {
@@ -117,10 +116,12 @@ def _messages(payload: dict[str, Any], *, vision: bool) -> list[dict[str, Any]]:
             content = m.get("content", "")
             if isinstance(content, list):
                 content = _content_parts(content, vision=vision)
-            msgs.append({
-                "role": role if role in ("user", "assistant", "system") else "user",
-                "content": content,
-            })
+            msgs.append(
+                {
+                    "role": role if role in ("user", "assistant", "system") else "user",
+                    "content": content,
+                }
+            )
     return msgs
 
 
@@ -182,11 +183,13 @@ def _normalise_chat(data: dict[str, Any]) -> dict[str, Any]:
     tool_calls: list[dict[str, Any]] = []
     for tc in msg.get("tool_calls") or []:
         fn = tc.get("function") or {}
-        tool_calls.append({
-            "id": tc.get("id"),
-            "name": fn.get("name"),
-            "arguments": _safe_json(fn.get("arguments", "")),
-        })
+        tool_calls.append(
+            {
+                "id": tc.get("id"),
+                "name": fn.get("name"),
+                "arguments": _safe_json(fn.get("arguments", "")),
+            }
+        )
     return {
         "text": text,
         "tool_calls": tool_calls,
@@ -264,66 +267,67 @@ class OpenAICompatAdapter:
         input_tokens = 0
         output_tokens = 0
         finish_reason: str | None = None
-        got_terminal = False
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
+        async with (
+            httpx.AsyncClient(timeout=timeout) as client,
+            client.stream(
                 "POST",
                 url,
                 json=_chat_body(request, stream=True),
                 headers=_headers(secret),
-            ) as resp:
-                if resp.status_code != 200:
-                    await resp.aread()
+            ) as resp,
+        ):
+            if resp.status_code != 200:
+                await resp.aread()
+                yield StreamComplete(
+                    ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
+                )
+                return
+            async for data_str in base.iter_sse_lines(resp):
+                ev = json.loads(data_str)
+                if ev.get("error"):
+                    err = ev["error"]
+                    kind = err.get("type") or err.get("code")
                     yield StreamComplete(
-                        ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
+                        ProviderCallResult(
+                            http_status=500,
+                            body=base.scrub_stream_error(500, kind),
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                        )
                     )
                     return
-                async for data_str in base.iter_sse_lines(resp):
-                    ev = json.loads(data_str)
-                    if ev.get("error"):
-                        err = ev["error"]
-                        kind = err.get("type") or err.get("code")
-                        yield StreamComplete(
-                            ProviderCallResult(
-                                http_status=500,
-                                body=base.scrub_stream_error(500, kind),
-                                input_tokens=input_tokens,
-                                output_tokens=output_tokens,
-                            )
-                        )
-                        return
-                    # Usage chunk (stream_options.include_usage)
-                    usage = ev.get("usage")
-                    if usage:
-                        input_tokens = int(usage.get("prompt_tokens", 0))
-                        output_tokens = int(usage.get("completion_tokens", 0))
-                    choices = ev.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
-                    fr = choice.get("finish_reason")
-                    if fr:
-                        finish_reason = fr
-                    # Text delta
-                    chunk = delta.get("content")
-                    if chunk:
-                        yield TokenDelta(chunk)
-                    # Tool call deltas
-                    for tc_delta in delta.get("tool_calls") or []:
-                        idx = tc_delta.get("index", 0)
-                        if idx not in tool_accum:
-                            tool_accum[idx] = {
-                                "id": tc_delta.get("id", ""),
-                                "name": "",
-                                "arguments": "",
-                            }
-                        fn = tc_delta.get("function") or {}
-                        if fn.get("name"):
-                            tool_accum[idx]["name"] = fn["name"]
-                        if fn.get("arguments"):
-                            tool_accum[idx]["arguments"] += fn["arguments"]
+                # Usage chunk (stream_options.include_usage)
+                usage = ev.get("usage")
+                if usage:
+                    input_tokens = int(usage.get("prompt_tokens", 0))
+                    output_tokens = int(usage.get("completion_tokens", 0))
+                choices = ev.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta") or {}
+                fr = choice.get("finish_reason")
+                if fr:
+                    finish_reason = fr
+                # Text delta
+                chunk = delta.get("content")
+                if chunk:
+                    yield TokenDelta(chunk)
+                # Tool call deltas
+                for tc_delta in delta.get("tool_calls") or []:
+                    idx = tc_delta.get("index", 0)
+                    if idx not in tool_accum:
+                        tool_accum[idx] = {
+                            "id": tc_delta.get("id", ""),
+                            "name": "",
+                            "arguments": "",
+                        }
+                    fn = tc_delta.get("function") or {}
+                    if fn.get("name"):
+                        tool_accum[idx]["name"] = fn["name"]
+                    if fn.get("arguments"):
+                        tool_accum[idx]["arguments"] += fn["arguments"]
 
         # Assemble terminal result.
         tool_calls = [
