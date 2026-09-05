@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceOut = {
-    id: string;
-    project_id: string;
-    name: string;
+    concept_map_enabled: boolean;
     created_at: string;
     deleted_at: (string | null);
-    concept_map_enabled: boolean;
+    id: string;
+    name: string;
+    project_id: string;
 };
 

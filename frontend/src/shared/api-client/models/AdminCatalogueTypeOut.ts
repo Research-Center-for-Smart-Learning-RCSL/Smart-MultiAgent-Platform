@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AdminCatalogueTypeOut = {
+    echo_includes_content: boolean;
+    expose_payload_to_agent: boolean;
+    installed_type_id: (string | null);
     key: string;
     name: string;
-    expose_payload_to_agent: boolean;
-    echo_includes_content: boolean;
     retention_days: (number | null);
-    installed_type_id: (string | null);
 };
 

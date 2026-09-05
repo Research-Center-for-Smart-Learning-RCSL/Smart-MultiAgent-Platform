@@ -11,10 +11,10 @@ import type { GraphRagTriggerConfig } from './GraphRagTriggerConfig';
  * a ``workspace``.
  */
 export type GraphRagConfigCreateIn = {
-    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
-    owner_id: string;
     builder_key_group_id: string;
-    trigger_config?: GraphRagTriggerConfig;
+    owner_id: string;
+    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
     recency_half_life_days?: (number | null);
+    trigger_config?: GraphRagTriggerConfig;
 };
 

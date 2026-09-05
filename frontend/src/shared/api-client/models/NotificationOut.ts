@@ -4,12 +4,12 @@
 /* eslint-disable */
 import type { NotificationKind } from './NotificationKind';
 export type NotificationOut = {
+    body: (string | null);
+    created_at: string;
     id: string;
     kind: NotificationKind;
-    title: string;
-    body: (string | null);
     metadata: Record<string, any>;
     read_at: (string | null);
-    created_at: string;
+    title: string;
 };
 

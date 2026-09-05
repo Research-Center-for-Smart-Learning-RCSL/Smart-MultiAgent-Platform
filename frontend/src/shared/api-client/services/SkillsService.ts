@@ -28,6 +28,440 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class SkillsService {
     /**
+     * Admin List Skills
+     * @returns SkillPageOut Successful Response
+     * @throws ApiError
+     */
+    public static adminListSkillsApiAdminSkillsGet({
+        includeDeleted = false,
+        limit = 100,
+        offset,
+    }: {
+        includeDeleted?: boolean,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<SkillPageOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills',
+            query: {
+                'include_deleted': includeDeleted,
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Create Skill
+     * @returns SkillOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCreateSkillApiAdminSkillsPost({
+        requestBody,
+    }: {
+        requestBody: SkillCreateIn,
+    }): CancelablePromise<SkillOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static adminImportBundleApiAdminSkillsImportPost({
+        formData,
+    }: {
+        formData: Body_admin_import_bundle_api_admin_skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/import',
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Skill Metrics
+     * [R31.11] / AC-15 — the ratio of agent-private to shared skills.
+     *
+     * Not decoration: §5's premise is that skills are shared at project scope and above.
+     * If most end up agent-scoped, Skills has degraded into the §9.2 prompt-strategy
+     * feature it replaced, and this endpoint is what makes that visible rather than a
+     * matter of opinion at the six-month review.
+     *
+     * Declared **before** `/{skill_id}`: FastAPI matches in declaration order, and the
+     * UUID-typed path below would otherwise claim "metrics" and 422 it.
+     * @returns SkillScopeCountsOut Successful Response
+     * @throws ApiError
+     */
+    public static adminSkillMetricsApiAdminSkillsMetricsGet(): CancelablePromise<SkillScopeCountsOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/metrics',
+        });
+    }
+    /**
+     * Admin Delete Skill
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeleteSkillApiAdminSkillsSkillIdDelete({
+        skillId,
+        ifMatch,
+    }: {
+        skillId: string,
+        ifMatch?: (string | null),
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/skills/{skill_id}',
+            path: {
+                'skill_id': skillId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Get Skill
+     * @returns SkillOut Successful Response
+     * @throws ApiError
+     */
+    public static adminGetSkillApiAdminSkillsSkillIdGet({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<SkillOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/{skill_id}',
+            path: {
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Patch Skill
+     * @returns SkillOut Successful Response
+     * @throws ApiError
+     */
+    public static adminPatchSkillApiAdminSkillsSkillIdPatch({
+        skillId,
+        requestBody,
+        ifMatch,
+    }: {
+        skillId: string,
+        requestBody: SkillPatchIn,
+        ifMatch?: (string | null),
+    }): CancelablePromise<SkillOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/admin/skills/{skill_id}',
+            path: {
+                'skill_id': skillId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Copy Skill
+     * @returns SkillOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCopySkillApiAdminSkillsSkillIdCopyPost({
+        skillId,
+        requestBody,
+    }: {
+        skillId: string,
+        requestBody: SkillCopyIn,
+    }): CancelablePromise<SkillOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/copy',
+            path: {
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Export Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static adminExportBundleApiAdminSkillsSkillIdExportGet({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/{skill_id}/export',
+            path: {
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin List Files
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminListFilesApiAdminSkillsSkillIdFilesGet({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<Array<SkillFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/skills/{skill_id}/files',
+            path: {
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Create File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCreateFileApiAdminSkillsSkillIdFilesPost({
+        skillId,
+        requestBody,
+    }: {
+        skillId: string,
+        requestBody: SkillFileCreateIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/files',
+            path: {
+                'skill_id': skillId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Upload File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminUploadFileApiAdminSkillsSkillIdFilesUploadPost({
+        skillId,
+        formData,
+    }: {
+        skillId: string,
+        formData: Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/files/upload',
+            path: {
+                'skill_id': skillId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeleteFileApiAdminSkillsSkillIdFilesFileIdDelete({
+        skillId,
+        fileId,
+    }: {
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/skills/{skill_id}/files/{file_id}',
+            path: {
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Patch File
+     * @returns SkillFileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminPatchFileApiAdminSkillsSkillIdFilesFileIdPatch({
+        skillId,
+        fileId,
+        requestBody,
+    }: {
+        skillId: string,
+        fileId: string,
+        requestBody: SkillFilePatchIn,
+    }): CancelablePromise<SkillFileOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/admin/skills/{skill_id}/files/{file_id}',
+            path: {
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Restore Skill
+     * @returns SkillOut Successful Response
+     * @throws ApiError
+     */
+    public static adminRestoreSkillApiAdminSkillsSkillIdRestorePost({
+        skillId,
+    }: {
+        skillId: string,
+    }): CancelablePromise<SkillOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/skills/{skill_id}/restore',
+            path: {
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Bindings
+     * @returns SkillBindingOut Successful Response
+     * @throws ApiError
+     */
+    public static listBindingsApiAgentsAgentIdSkillBindingsGet({
+        agentId,
+    }: {
+        agentId: string,
+    }): CancelablePromise<Array<SkillBindingOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/skill-bindings',
+            path: {
+                'agent_id': agentId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Unbind Skill
+     * @returns void
+     * @throws ApiError
+     */
+    public static unbindSkillApiAgentsAgentIdSkillBindingsSkillIdDelete({
+        agentId,
+        skillId,
+    }: {
+        agentId: string,
+        skillId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agents/{agent_id}/skill-bindings/{skill_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Bind Skill
+     * Bind a skill to an agent.
+     *
+     * The path carries no scope, so the capability check below authorizes the *agent* only.
+     * `resolve_bindable` inside `bind` is what proves the skill's scope contains it — taking
+     * `skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.
+     * @returns void
+     * @throws ApiError
+     */
+    public static bindSkillApiAgentsAgentIdSkillBindingsSkillIdPut({
+        agentId,
+        skillId,
+    }: {
+        agentId: string,
+        skillId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/agents/{agent_id}/skill-bindings/{skill_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Agent List Skills
      * @returns SkillPageOut Successful Response
      * @throws ApiError
@@ -91,6 +525,60 @@ export class SkillsService {
         });
     }
     /**
+     * Agent Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static agentImportBundleApiAgentsAgentIdSkillsImportPost({
+        agentId,
+        formData,
+    }: {
+        agentId: string,
+        formData: Body_agent_import_bundle_api_agents__agent_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/skills/import',
+            path: {
+                'agent_id': agentId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Agent Delete Skill
+     * @returns void
+     * @throws ApiError
+     */
+    public static agentDeleteSkillApiAgentsAgentIdSkillsSkillIdDelete({
+        agentId,
+        skillId,
+        ifMatch,
+    }: {
+        agentId: string,
+        skillId: string,
+        ifMatch?: (string | null),
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agents/{agent_id}/skills/{skill_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Agent Get Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -148,59 +636,6 @@ export class SkillsService {
         });
     }
     /**
-     * Agent Delete Skill
-     * @returns void
-     * @throws ApiError
-     */
-    public static agentDeleteSkillApiAgentsAgentIdSkillsSkillIdDelete({
-        agentId,
-        skillId,
-        ifMatch,
-    }: {
-        agentId: string,
-        skillId: string,
-        ifMatch?: (string | null),
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/agents/{agent_id}/skills/{skill_id}',
-            path: {
-                'agent_id': agentId,
-                'skill_id': skillId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Agent Restore Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static agentRestoreSkillApiAgentsAgentIdSkillsSkillIdRestorePost({
-        agentId,
-        skillId,
-    }: {
-        agentId: string,
-        skillId: string,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/agents/{agent_id}/skills/{skill_id}/restore',
-            path: {
-                'agent_id': agentId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Agent Copy Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -223,31 +658,6 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Agent Import Bundle
-     * @returns BundleJobOut Successful Response
-     * @throws ApiError
-     */
-    public static agentImportBundleApiAgentsAgentIdSkillsImportPost({
-        agentId,
-        formData,
-    }: {
-        agentId: string,
-        formData: Body_agent_import_bundle_api_agents__agent_id__skills_import_post,
-    }): CancelablePromise<BundleJobOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/agents/{agent_id}/skills/import',
-            path: {
-                'agent_id': agentId,
-            },
-            formData: formData,
-            mediaType: 'multipart/form-data',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -358,6 +768,33 @@ export class SkillsService {
         });
     }
     /**
+     * Agent Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static agentDeleteFileApiAgentsAgentIdSkillsSkillIdFilesFileIdDelete({
+        agentId,
+        skillId,
+        fileId,
+    }: {
+        agentId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'agent_id': agentId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Agent Patch File
      * @returns SkillFileOut Successful Response
      * @throws ApiError
@@ -389,414 +826,23 @@ export class SkillsService {
         });
     }
     /**
-     * Agent Delete File
-     * @returns void
+     * Agent Restore Skill
+     * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static agentDeleteFileApiAgentsAgentIdSkillsSkillIdFilesFileIdDelete({
+    public static agentRestoreSkillApiAgentsAgentIdSkillsSkillIdRestorePost({
         agentId,
         skillId,
-        fileId,
     }: {
         agentId: string,
         skillId: string,
-        fileId: string,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/agents/{agent_id}/skills/{skill_id}/files/{file_id}',
+            method: 'POST',
+            url: '/api/agents/{agent_id}/skills/{skill_id}/restore',
             path: {
                 'agent_id': agentId,
                 'skill_id': skillId,
-                'file_id': fileId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project List Skills
-     * @returns SkillPageOut Successful Response
-     * @throws ApiError
-     */
-    public static projectListSkillsApiProjectsProjectIdSkillsGet({
-        projectId,
-        includeDeleted = false,
-        limit = 100,
-        offset,
-    }: {
-        projectId: string,
-        includeDeleted?: boolean,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<SkillPageOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/skills',
-            path: {
-                'project_id': projectId,
-            },
-            query: {
-                'include_deleted': includeDeleted,
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Create Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static projectCreateSkillApiProjectsProjectIdSkillsPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: SkillCreateIn,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Get Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static projectGetSkillApiProjectsProjectIdSkillsSkillIdGet({
-        projectId,
-        skillId,
-    }: {
-        projectId: string,
-        skillId: string,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/skills/{skill_id}',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Patch Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static projectPatchSkillApiProjectsProjectIdSkillsSkillIdPatch({
-        projectId,
-        skillId,
-        requestBody,
-        ifMatch,
-    }: {
-        projectId: string,
-        skillId: string,
-        requestBody: SkillPatchIn,
-        ifMatch?: (string | null),
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/projects/{project_id}/skills/{skill_id}',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Delete Skill
-     * @returns void
-     * @throws ApiError
-     */
-    public static projectDeleteSkillApiProjectsProjectIdSkillsSkillIdDelete({
-        projectId,
-        skillId,
-        ifMatch,
-    }: {
-        projectId: string,
-        skillId: string,
-        ifMatch?: (string | null),
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}/skills/{skill_id}',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Restore Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static projectRestoreSkillApiProjectsProjectIdSkillsSkillIdRestorePost({
-        projectId,
-        skillId,
-    }: {
-        projectId: string,
-        skillId: string,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills/{skill_id}/restore',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Copy Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static projectCopySkillApiProjectsProjectIdSkillsSkillIdCopyPost({
-        projectId,
-        skillId,
-        requestBody,
-    }: {
-        projectId: string,
-        skillId: string,
-        requestBody: SkillCopyIn,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills/{skill_id}/copy',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Import Bundle
-     * @returns BundleJobOut Successful Response
-     * @throws ApiError
-     */
-    public static projectImportBundleApiProjectsProjectIdSkillsImportPost({
-        projectId,
-        formData,
-    }: {
-        projectId: string,
-        formData: Body_project_import_bundle_api_projects__project_id__skills_import_post,
-    }): CancelablePromise<BundleJobOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills/import',
-            path: {
-                'project_id': projectId,
-            },
-            formData: formData,
-            mediaType: 'multipart/form-data',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Export Bundle
-     * @returns BundleJobOut Successful Response
-     * @throws ApiError
-     */
-    public static projectExportBundleApiProjectsProjectIdSkillsSkillIdExportGet({
-        projectId,
-        skillId,
-    }: {
-        projectId: string,
-        skillId: string,
-    }): CancelablePromise<BundleJobOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/skills/{skill_id}/export',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project List Files
-     * @returns SkillFileOut Successful Response
-     * @throws ApiError
-     */
-    public static projectListFilesApiProjectsProjectIdSkillsSkillIdFilesGet({
-        projectId,
-        skillId,
-    }: {
-        projectId: string,
-        skillId: string,
-    }): CancelablePromise<Array<SkillFileOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/skills/{skill_id}/files',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Create File
-     * @returns SkillFileOut Successful Response
-     * @throws ApiError
-     */
-    public static projectCreateFileApiProjectsProjectIdSkillsSkillIdFilesPost({
-        projectId,
-        skillId,
-        requestBody,
-    }: {
-        projectId: string,
-        skillId: string,
-        requestBody: SkillFileCreateIn,
-    }): CancelablePromise<SkillFileOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills/{skill_id}/files',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Upload File
-     * @returns SkillFileOut Successful Response
-     * @throws ApiError
-     */
-    public static projectUploadFileApiProjectsProjectIdSkillsSkillIdFilesUploadPost({
-        projectId,
-        skillId,
-        formData,
-    }: {
-        projectId: string,
-        skillId: string,
-        formData: Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post,
-    }): CancelablePromise<SkillFileOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/skills/{skill_id}/files/upload',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-            },
-            formData: formData,
-            mediaType: 'multipart/form-data',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Patch File
-     * @returns SkillFileOut Successful Response
-     * @throws ApiError
-     */
-    public static projectPatchFileApiProjectsProjectIdSkillsSkillIdFilesFileIdPatch({
-        projectId,
-        skillId,
-        fileId,
-        requestBody,
-    }: {
-        projectId: string,
-        skillId: string,
-        fileId: string,
-        requestBody: SkillFilePatchIn,
-    }): CancelablePromise<SkillFileOut> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-                'file_id': fileId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Project Delete File
-     * @returns void
-     * @throws ApiError
-     */
-    public static projectDeleteFileApiProjectsProjectIdSkillsSkillIdFilesFileIdDelete({
-        projectId,
-        skillId,
-        fileId,
-    }: {
-        projectId: string,
-        skillId: string,
-        fileId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
-            path: {
-                'project_id': projectId,
-                'skill_id': skillId,
-                'file_id': fileId,
             },
             errors: {
                 422: `Request Validation Problem`,
@@ -867,6 +913,60 @@ export class SkillsService {
         });
     }
     /**
+     * Org Import Bundle
+     * @returns BundleJobOut Successful Response
+     * @throws ApiError
+     */
+    public static orgImportBundleApiOrgsOrgIdSkillsImportPost({
+        orgId,
+        formData,
+    }: {
+        orgId: string,
+        formData: Body_org_import_bundle_api_orgs__org_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/skills/import',
+            path: {
+                'org_id': orgId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Org Delete Skill
+     * @returns void
+     * @throws ApiError
+     */
+    public static orgDeleteSkillApiOrgsOrgIdSkillsSkillIdDelete({
+        orgId,
+        skillId,
+        ifMatch,
+    }: {
+        orgId: string,
+        skillId: string,
+        ifMatch?: (string | null),
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/orgs/{org_id}/skills/{skill_id}',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Org Get Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -924,59 +1024,6 @@ export class SkillsService {
         });
     }
     /**
-     * Org Delete Skill
-     * @returns void
-     * @throws ApiError
-     */
-    public static orgDeleteSkillApiOrgsOrgIdSkillsSkillIdDelete({
-        orgId,
-        skillId,
-        ifMatch,
-    }: {
-        orgId: string,
-        skillId: string,
-        ifMatch?: (string | null),
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/orgs/{org_id}/skills/{skill_id}',
-            path: {
-                'org_id': orgId,
-                'skill_id': skillId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Org Restore Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static orgRestoreSkillApiOrgsOrgIdSkillsSkillIdRestorePost({
-        orgId,
-        skillId,
-    }: {
-        orgId: string,
-        skillId: string,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/orgs/{org_id}/skills/{skill_id}/restore',
-            path: {
-                'org_id': orgId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Org Copy Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
@@ -999,31 +1046,6 @@ export class SkillsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Org Import Bundle
-     * @returns BundleJobOut Successful Response
-     * @throws ApiError
-     */
-    public static orgImportBundleApiOrgsOrgIdSkillsImportPost({
-        orgId,
-        formData,
-    }: {
-        orgId: string,
-        formData: Body_org_import_bundle_api_orgs__org_id__skills_import_post,
-    }): CancelablePromise<BundleJobOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/orgs/{org_id}/skills/import',
-            path: {
-                'org_id': orgId,
-            },
-            formData: formData,
-            mediaType: 'multipart/form-data',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -1134,6 +1156,33 @@ export class SkillsService {
         });
     }
     /**
+     * Org Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static orgDeleteFileApiOrgsOrgIdSkillsSkillIdFilesFileIdDelete({
+        orgId,
+        skillId,
+        fileId,
+    }: {
+        orgId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'org_id': orgId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Org Patch File
      * @returns SkillFileOut Successful Response
      * @throws ApiError
@@ -1165,26 +1214,23 @@ export class SkillsService {
         });
     }
     /**
-     * Org Delete File
-     * @returns void
+     * Org Restore Skill
+     * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static orgDeleteFileApiOrgsOrgIdSkillsSkillIdFilesFileIdDelete({
+    public static orgRestoreSkillApiOrgsOrgIdSkillsSkillIdRestorePost({
         orgId,
         skillId,
-        fileId,
     }: {
         orgId: string,
         skillId: string,
-        fileId: string,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/orgs/{org_id}/skills/{skill_id}/files/{file_id}',
+            method: 'POST',
+            url: '/api/orgs/{org_id}/skills/{skill_id}/restore',
             path: {
                 'org_id': orgId,
                 'skill_id': skillId,
-                'file_id': fileId,
             },
             errors: {
                 422: `Request Validation Problem`,
@@ -1192,15 +1238,17 @@ export class SkillsService {
         });
     }
     /**
-     * Admin List Skills
+     * Project List Skills
      * @returns SkillPageOut Successful Response
      * @throws ApiError
      */
-    public static adminListSkillsApiAdminSkillsGet({
+    public static projectListSkillsApiProjectsProjectIdSkillsGet({
+        projectId,
         includeDeleted = false,
         limit = 100,
         offset,
     }: {
+        projectId: string,
         includeDeleted?: boolean,
         /**
          * Max items to return
@@ -1213,7 +1261,10 @@ export class SkillsService {
     }): CancelablePromise<SkillPageOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/admin/skills',
+            url: '/api/projects/{project_id}/skills',
+            path: {
+                'project_id': projectId,
+            },
             query: {
                 'include_deleted': includeDeleted,
                 'limit': limit,
@@ -1225,18 +1276,23 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Create Skill
+     * Project Create Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static adminCreateSkillApiAdminSkillsPost({
+    public static projectCreateSkillApiProjectsProjectIdSkillsPost({
+        projectId,
         requestBody,
     }: {
+        projectId: string,
         requestBody: SkillCreateIn,
     }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/admin/skills',
+            url: '/api/projects/{project_id}/skills',
+            path: {
+                'project_id': projectId,
+            },
             body: requestBody,
             mediaType: 'application/json',
             errors: {
@@ -1245,39 +1301,76 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Skill Metrics
-     * [R31.11] / AC-15 — the ratio of agent-private to shared skills.
-     *
-     * Not decoration: §5's premise is that skills are shared at project scope and above.
-     * If most end up agent-scoped, Skills has degraded into the §9.2 prompt-strategy
-     * feature it replaced, and this endpoint is what makes that visible rather than a
-     * matter of opinion at the six-month review.
-     *
-     * Declared **before** `/{skill_id}`: FastAPI matches in declaration order, and the
-     * UUID-typed path below would otherwise claim "metrics" and 422 it.
-     * @returns SkillScopeCountsOut Successful Response
+     * Project Import Bundle
+     * @returns BundleJobOut Successful Response
      * @throws ApiError
      */
-    public static adminSkillMetricsApiAdminSkillsMetricsGet(): CancelablePromise<SkillScopeCountsOut> {
+    public static projectImportBundleApiProjectsProjectIdSkillsImportPost({
+        projectId,
+        formData,
+    }: {
+        projectId: string,
+        formData: Body_project_import_bundle_api_projects__project_id__skills_import_post,
+    }): CancelablePromise<BundleJobOut> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/admin/skills/metrics',
+            method: 'POST',
+            url: '/api/projects/{project_id}/skills/import',
+            path: {
+                'project_id': projectId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
         });
     }
     /**
-     * Admin Get Skill
+     * Project Delete Skill
+     * @returns void
+     * @throws ApiError
+     */
+    public static projectDeleteSkillApiProjectsProjectIdSkillsSkillIdDelete({
+        projectId,
+        skillId,
+        ifMatch,
+    }: {
+        projectId: string,
+        skillId: string,
+        ifMatch?: (string | null),
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/skills/{skill_id}',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Project Get Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static adminGetSkillApiAdminSkillsSkillIdGet({
+    public static projectGetSkillApiProjectsProjectIdSkillsSkillIdGet({
+        projectId,
         skillId,
     }: {
+        projectId: string,
         skillId: string,
     }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/admin/skills/{skill_id}',
+            url: '/api/projects/{project_id}/skills/{skill_id}',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             errors: {
@@ -1286,23 +1379,26 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Patch Skill
+     * Project Patch Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static adminPatchSkillApiAdminSkillsSkillIdPatch({
+    public static projectPatchSkillApiProjectsProjectIdSkillsSkillIdPatch({
+        projectId,
         skillId,
         requestBody,
         ifMatch,
     }: {
+        projectId: string,
         skillId: string,
         requestBody: SkillPatchIn,
         ifMatch?: (string | null),
     }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
             method: 'PATCH',
-            url: '/api/admin/skills/{skill_id}',
+            url: '/api/projects/{project_id}/skills/{skill_id}',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             headers: {
@@ -1316,68 +1412,24 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Delete Skill
-     * @returns void
-     * @throws ApiError
-     */
-    public static adminDeleteSkillApiAdminSkillsSkillIdDelete({
-        skillId,
-        ifMatch,
-    }: {
-        skillId: string,
-        ifMatch?: (string | null),
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/admin/skills/{skill_id}',
-            path: {
-                'skill_id': skillId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Restore Skill
+     * Project Copy Skill
      * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static adminRestoreSkillApiAdminSkillsSkillIdRestorePost({
-        skillId,
-    }: {
-        skillId: string,
-    }): CancelablePromise<SkillOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/admin/skills/{skill_id}/restore',
-            path: {
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Copy Skill
-     * @returns SkillOut Successful Response
-     * @throws ApiError
-     */
-    public static adminCopySkillApiAdminSkillsSkillIdCopyPost({
+    public static projectCopySkillApiProjectsProjectIdSkillsSkillIdCopyPost({
+        projectId,
         skillId,
         requestBody,
     }: {
+        projectId: string,
         skillId: string,
         requestBody: SkillCopyIn,
     }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/admin/skills/{skill_id}/copy',
+            url: '/api/projects/{project_id}/skills/{skill_id}/copy',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             body: requestBody,
@@ -1388,39 +1440,22 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Import Bundle
+     * Project Export Bundle
      * @returns BundleJobOut Successful Response
      * @throws ApiError
      */
-    public static adminImportBundleApiAdminSkillsImportPost({
-        formData,
-    }: {
-        formData: Body_admin_import_bundle_api_admin_skills_import_post,
-    }): CancelablePromise<BundleJobOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/admin/skills/import',
-            formData: formData,
-            mediaType: 'multipart/form-data',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Export Bundle
-     * @returns BundleJobOut Successful Response
-     * @throws ApiError
-     */
-    public static adminExportBundleApiAdminSkillsSkillIdExportGet({
+    public static projectExportBundleApiProjectsProjectIdSkillsSkillIdExportGet({
+        projectId,
         skillId,
     }: {
+        projectId: string,
         skillId: string,
     }): CancelablePromise<BundleJobOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/admin/skills/{skill_id}/export',
+            url: '/api/projects/{project_id}/skills/{skill_id}/export',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             errors: {
@@ -1429,19 +1464,22 @@ export class SkillsService {
         });
     }
     /**
-     * Admin List Files
+     * Project List Files
      * @returns SkillFileOut Successful Response
      * @throws ApiError
      */
-    public static adminListFilesApiAdminSkillsSkillIdFilesGet({
+    public static projectListFilesApiProjectsProjectIdSkillsSkillIdFilesGet({
+        projectId,
         skillId,
     }: {
+        projectId: string,
         skillId: string,
     }): CancelablePromise<Array<SkillFileOut>> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/admin/skills/{skill_id}/files',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             errors: {
@@ -1450,21 +1488,24 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Create File
+     * Project Create File
      * @returns SkillFileOut Successful Response
      * @throws ApiError
      */
-    public static adminCreateFileApiAdminSkillsSkillIdFilesPost({
+    public static projectCreateFileApiProjectsProjectIdSkillsSkillIdFilesPost({
+        projectId,
         skillId,
         requestBody,
     }: {
+        projectId: string,
         skillId: string,
         requestBody: SkillFileCreateIn,
     }): CancelablePromise<SkillFileOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/admin/skills/{skill_id}/files',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             body: requestBody,
@@ -1475,21 +1516,24 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Upload File
+     * Project Upload File
      * @returns SkillFileOut Successful Response
      * @throws ApiError
      */
-    public static adminUploadFileApiAdminSkillsSkillIdFilesUploadPost({
+    public static projectUploadFileApiProjectsProjectIdSkillsSkillIdFilesUploadPost({
+        projectId,
         skillId,
         formData,
     }: {
+        projectId: string,
         skillId: string,
-        formData: Body_admin_upload_file_api_admin_skills__skill_id__files_upload_post,
+        formData: Body_project_upload_file_api_projects__project_id__skills__skill_id__files_upload_post,
     }): CancelablePromise<SkillFileOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/admin/skills/{skill_id}/files/upload',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/upload',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
             },
             formData: formData,
@@ -1500,23 +1544,53 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Patch File
+     * Project Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static projectDeleteFileApiProjectsProjectIdSkillsSkillIdFilesFileIdDelete({
+        projectId,
+        skillId,
+        fileId,
+    }: {
+        projectId: string,
+        skillId: string,
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
+            path: {
+                'project_id': projectId,
+                'skill_id': skillId,
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Project Patch File
      * @returns SkillFileOut Successful Response
      * @throws ApiError
      */
-    public static adminPatchFileApiAdminSkillsSkillIdFilesFileIdPatch({
+    public static projectPatchFileApiProjectsProjectIdSkillsSkillIdFilesFileIdPatch({
+        projectId,
         skillId,
         fileId,
         requestBody,
     }: {
+        projectId: string,
         skillId: string,
         fileId: string,
         requestBody: SkillFilePatchIn,
     }): CancelablePromise<SkillFileOut> {
         return __request(OpenAPI, {
             method: 'PATCH',
-            url: '/api/admin/skills/{skill_id}/files/{file_id}',
+            url: '/api/projects/{project_id}/skills/{skill_id}/files/{file_id}',
             path: {
+                'project_id': projectId,
                 'skill_id': skillId,
                 'file_id': fileId,
             },
@@ -1528,123 +1602,23 @@ export class SkillsService {
         });
     }
     /**
-     * Admin Delete File
-     * @returns void
+     * Project Restore Skill
+     * @returns SkillOut Successful Response
      * @throws ApiError
      */
-    public static adminDeleteFileApiAdminSkillsSkillIdFilesFileIdDelete({
-        skillId,
-        fileId,
-    }: {
-        skillId: string,
-        fileId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/admin/skills/{skill_id}/files/{file_id}',
-            path: {
-                'skill_id': skillId,
-                'file_id': fileId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List Bindings
-     * @returns SkillBindingOut Successful Response
-     * @throws ApiError
-     */
-    public static listBindingsApiAgentsAgentIdSkillBindingsGet({
-        agentId,
-    }: {
-        agentId: string,
-    }): CancelablePromise<Array<SkillBindingOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/agents/{agent_id}/skill-bindings',
-            path: {
-                'agent_id': agentId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Bind Skill
-     * Bind a skill to an agent.
-     *
-     * The path carries no scope, so the capability check below authorizes the *agent* only.
-     * `resolve_bindable` inside `bind` is what proves the skill's scope contains it — taking
-     * `skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.
-     * @returns void
-     * @throws ApiError
-     */
-    public static bindSkillApiAgentsAgentIdSkillBindingsSkillIdPut({
-        agentId,
+    public static projectRestoreSkillApiProjectsProjectIdSkillsSkillIdRestorePost({
+        projectId,
         skillId,
     }: {
-        agentId: string,
+        projectId: string,
         skillId: string,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<SkillOut> {
         return __request(OpenAPI, {
-            method: 'PUT',
-            url: '/api/agents/{agent_id}/skill-bindings/{skill_id}',
+            method: 'POST',
+            url: '/api/projects/{project_id}/skills/{skill_id}/restore',
             path: {
-                'agent_id': agentId,
+                'project_id': projectId,
                 'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Unbind Skill
-     * @returns void
-     * @throws ApiError
-     */
-    public static unbindSkillApiAgentsAgentIdSkillBindingsSkillIdDelete({
-        agentId,
-        skillId,
-    }: {
-        agentId: string,
-        skillId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/agents/{agent_id}/skill-bindings/{skill_id}',
-            path: {
-                'agent_id': agentId,
-                'skill_id': skillId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Get Import Status
-     * Poll a bundle import. The initiator (or an admin) only — the job id is a capability.
-     *
-     * Deliberately not scope-gated: the initiator is recorded on the job and is the fence, the
-     * same shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not
-     * a leak of whether the id is live.
-     * @returns BundleImportStatusOut Successful Response
-     * @throws ApiError
-     */
-    public static getImportStatusApiSkillsImportsTaskIdGet({
-        taskId,
-    }: {
-        taskId: string,
-    }): CancelablePromise<BundleImportStatusOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/skills/imports/{task_id}',
-            path: {
-                'task_id': taskId,
             },
             errors: {
                 422: `Request Validation Problem`,
@@ -1669,6 +1643,32 @@ export class SkillsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/skills/exports/{task_id}',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Import Status
+     * Poll a bundle import. The initiator (or an admin) only — the job id is a capability.
+     *
+     * Deliberately not scope-gated: the initiator is recorded on the job and is the fence, the
+     * same shape `GET /api/exports/{job_id}` uses. A stranger with a guessed id gets a 403, not
+     * a leak of whether the id is live.
+     * @returns BundleImportStatusOut Successful Response
+     * @throws ApiError
+     */
+    public static getImportStatusApiSkillsImportsTaskIdGet({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<BundleImportStatusOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/skills/imports/{task_id}',
             path: {
                 'task_id': taskId,
             },

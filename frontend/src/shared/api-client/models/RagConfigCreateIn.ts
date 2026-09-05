@@ -3,16 +3,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RagConfigCreateIn = {
-    name: string;
-    chunk_strategy: 'fixed' | 'semantic';
     chunk_params?: Record<string, any>;
+    chunk_strategy: 'fixed' | 'semantic';
     embed_key_id: string;
-    embed_provider: 'openai' | 'gemini' | 'voyage';
     embed_model: string;
+    embed_provider: 'openai' | 'gemini' | 'voyage';
+    name: string;
     rerank_enabled?: boolean;
     rerank_key_id?: (string | null);
-    rerank_provider?: ('cohere' | 'bge' | null);
     rerank_model?: (string | null);
+    rerank_provider?: ('cohere' | 'bge' | null);
     top_k?: number;
 };
 

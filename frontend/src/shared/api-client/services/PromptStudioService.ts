@@ -21,6 +21,165 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class PromptStudioService {
     /**
+     * Admin Get Config
+     * @returns ConfigEnvelopeOut Successful Response
+     * @throws ApiError
+     */
+    public static adminGetConfigApiAdminPromptAssistantConfigGet(): CancelablePromise<ConfigEnvelopeOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/prompt-assistant/config',
+        });
+    }
+    /**
+     * Admin Put Config
+     * @returns AssistantConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static adminPutConfigApiAdminPromptAssistantConfigPut({
+        requestBody,
+        ifMatch,
+    }: {
+        requestBody: AssistantConfigPutIn,
+        ifMatch?: (string | null),
+    }): CancelablePromise<AssistantConfigOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/admin/prompt-assistant/config',
+            headers: {
+                'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Upload File
+     * @returns FileOut Successful Response
+     * @throws ApiError
+     */
+    public static adminUploadFileApiAdminPromptAssistantConfigFilesPost({
+        formData,
+    }: {
+        formData: Body_admin_upload_file_api_admin_prompt_assistant_config_files_post,
+    }): CancelablePromise<FileOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/prompt-assistant/config/files',
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Delete File
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeleteFileApiAdminPromptAssistantConfigFilesFileIdDelete({
+        fileId,
+    }: {
+        fileId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/prompt-assistant/config/files/{file_id}',
+            path: {
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin List Templates
+     * @returns TemplateOut Successful Response
+     * @throws ApiError
+     */
+    public static adminListTemplatesApiAdminPromptTemplatesGet(): CancelablePromise<Array<TemplateOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/prompt-templates',
+        });
+    }
+    /**
+     * Admin Create Template
+     * @returns TemplateOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCreateTemplateApiAdminPromptTemplatesPost({
+        requestBody,
+    }: {
+        requestBody: TemplateCreateIn,
+    }): CancelablePromise<TemplateOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/prompt-templates',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Delete Template
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeleteTemplateApiAdminPromptTemplatesTemplateIdDelete({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/prompt-templates/{template_id}',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Patch Template
+     * @returns TemplateOut Successful Response
+     * @throws ApiError
+     */
+    public static adminPatchTemplateApiAdminPromptTemplatesTemplateIdPatch({
+        templateId,
+        ifMatch,
+        requestBody,
+    }: {
+        templateId: string,
+        ifMatch: string,
+        requestBody: TemplatePatchIn,
+    }): CancelablePromise<TemplateOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/admin/prompt-templates/{template_id}',
+            path: {
+                'template_id': templateId,
+            },
+            headers: {
+                'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Me Get Config
      * @returns ConfigEnvelopeOut Successful Response
      * @throws ApiError
@@ -129,6 +288,27 @@ export class PromptStudioService {
         });
     }
     /**
+     * Me Delete Template
+     * @returns void
+     * @throws ApiError
+     */
+    public static meDeleteTemplateApiMePromptTemplatesTemplateIdDelete({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/me/prompt-templates/{template_id}',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Me Patch Template
      * @returns TemplateOut Successful Response
      * @throws ApiError
@@ -153,27 +333,6 @@ export class PromptStudioService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Me Delete Template
-     * @returns void
-     * @throws ApiError
-     */
-    public static meDeleteTemplateApiMePromptTemplatesTemplateIdDelete({
-        templateId,
-    }: {
-        templateId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/me/prompt-templates/{template_id}',
-            path: {
-                'template_id': templateId,
-            },
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -326,6 +485,30 @@ export class PromptStudioService {
         });
     }
     /**
+     * Org Delete Template
+     * @returns void
+     * @throws ApiError
+     */
+    public static orgDeleteTemplateApiOrgsOrgIdPromptTemplatesTemplateIdDelete({
+        orgId,
+        templateId,
+    }: {
+        orgId: string,
+        templateId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/orgs/{org_id}/prompt-templates/{template_id}',
+            path: {
+                'org_id': orgId,
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Org Patch Template
      * @returns TemplateOut Successful Response
      * @throws ApiError
@@ -359,189 +542,6 @@ export class PromptStudioService {
         });
     }
     /**
-     * Org Delete Template
-     * @returns void
-     * @throws ApiError
-     */
-    public static orgDeleteTemplateApiOrgsOrgIdPromptTemplatesTemplateIdDelete({
-        orgId,
-        templateId,
-    }: {
-        orgId: string,
-        templateId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/orgs/{org_id}/prompt-templates/{template_id}',
-            path: {
-                'org_id': orgId,
-                'template_id': templateId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Get Config
-     * @returns ConfigEnvelopeOut Successful Response
-     * @throws ApiError
-     */
-    public static adminGetConfigApiAdminPromptAssistantConfigGet(): CancelablePromise<ConfigEnvelopeOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/admin/prompt-assistant/config',
-        });
-    }
-    /**
-     * Admin Put Config
-     * @returns AssistantConfigOut Successful Response
-     * @throws ApiError
-     */
-    public static adminPutConfigApiAdminPromptAssistantConfigPut({
-        requestBody,
-        ifMatch,
-    }: {
-        requestBody: AssistantConfigPutIn,
-        ifMatch?: (string | null),
-    }): CancelablePromise<AssistantConfigOut> {
-        return __request(OpenAPI, {
-            method: 'PUT',
-            url: '/api/admin/prompt-assistant/config',
-            headers: {
-                'If-Match': ifMatch,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Upload File
-     * @returns FileOut Successful Response
-     * @throws ApiError
-     */
-    public static adminUploadFileApiAdminPromptAssistantConfigFilesPost({
-        formData,
-    }: {
-        formData: Body_admin_upload_file_api_admin_prompt_assistant_config_files_post,
-    }): CancelablePromise<FileOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/admin/prompt-assistant/config/files',
-            formData: formData,
-            mediaType: 'multipart/form-data',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Delete File
-     * @returns void
-     * @throws ApiError
-     */
-    public static adminDeleteFileApiAdminPromptAssistantConfigFilesFileIdDelete({
-        fileId,
-    }: {
-        fileId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/admin/prompt-assistant/config/files/{file_id}',
-            path: {
-                'file_id': fileId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin List Templates
-     * @returns TemplateOut Successful Response
-     * @throws ApiError
-     */
-    public static adminListTemplatesApiAdminPromptTemplatesGet(): CancelablePromise<Array<TemplateOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/admin/prompt-templates',
-        });
-    }
-    /**
-     * Admin Create Template
-     * @returns TemplateOut Successful Response
-     * @throws ApiError
-     */
-    public static adminCreateTemplateApiAdminPromptTemplatesPost({
-        requestBody,
-    }: {
-        requestBody: TemplateCreateIn,
-    }): CancelablePromise<TemplateOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/admin/prompt-templates',
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Patch Template
-     * @returns TemplateOut Successful Response
-     * @throws ApiError
-     */
-    public static adminPatchTemplateApiAdminPromptTemplatesTemplateIdPatch({
-        templateId,
-        ifMatch,
-        requestBody,
-    }: {
-        templateId: string,
-        ifMatch: string,
-        requestBody: TemplatePatchIn,
-    }): CancelablePromise<TemplateOut> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/admin/prompt-templates/{template_id}',
-            path: {
-                'template_id': templateId,
-            },
-            headers: {
-                'If-Match': ifMatch,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Admin Delete Template
-     * @returns void
-     * @throws ApiError
-     */
-    public static adminDeleteTemplateApiAdminPromptTemplatesTemplateIdDelete({
-        templateId,
-    }: {
-        templateId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/admin/prompt-templates/{template_id}',
-            path: {
-                'template_id': templateId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Project Resolved Assistant
      * @returns ResolvedAssistantOut Successful Response
      * @throws ApiError
@@ -563,27 +563,6 @@ export class PromptStudioService {
         });
     }
     /**
-     * Project Merged Templates
-     * @returns TemplateOut Successful Response
-     * @throws ApiError
-     */
-    public static projectMergedTemplatesApiProjectsProjectIdPromptTemplatesGet({
-        projectId,
-    }: {
-        projectId: string,
-    }): CancelablePromise<Array<TemplateOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/prompt-templates',
-            path: {
-                'project_id': projectId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Create Session
      * @returns SessionCreatedOut Successful Response
      * @throws ApiError
@@ -596,6 +575,27 @@ export class PromptStudioService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/prompt-assistant/sessions',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Project Merged Templates
+     * @returns TemplateOut Successful Response
+     * @throws ApiError
+     */
+    public static projectMergedTemplatesApiProjectsProjectIdPromptTemplatesGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<Array<TemplateOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/prompt-templates',
             path: {
                 'project_id': projectId,
             },

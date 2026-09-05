@@ -67,18 +67,18 @@ export class OrgsService {
         });
     }
     /**
-     * Get Org Quotas
-     * @returns OrgQuotasOut Successful Response
+     * Delete Org
+     * @returns void
      * @throws ApiError
      */
-    public static getOrgQuotasApiOrgsOrgIdQuotasGet({
+    public static deleteOrgApiOrgsOrgIdDelete({
         orgId,
     }: {
         orgId: string,
-    }): CancelablePromise<OrgQuotasOut> {
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/orgs/{org_id}/quotas',
+            method: 'DELETE',
+            url: '/api/orgs/{org_id}',
             path: {
                 'org_id': orgId,
             },
@@ -139,42 +139,25 @@ export class OrgsService {
         });
     }
     /**
-     * Delete Org
-     * @returns void
+     * Create Invite
+     * @returns app__api__v1__orgs__InviteOut Successful Response
      * @throws ApiError
      */
-    public static deleteOrgApiOrgsOrgIdDelete({
+    public static createInviteApiOrgsOrgIdInvitesPost({
         orgId,
+        requestBody,
     }: {
         orgId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/orgs/{org_id}',
-            path: {
-                'org_id': orgId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Restore Org
-     * @returns void
-     * @throws ApiError
-     */
-    public static restoreOrgApiOrgsOrgIdRestorePost({
-        orgId,
-    }: {
-        orgId: string,
-    }): CancelablePromise<void> {
+        requestBody: app__api__v1__orgs__InviteCreateIn,
+    }): CancelablePromise<app__api__v1__orgs__InviteOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/orgs/{org_id}/restore',
+            url: '/api/orgs/{org_id}/invites',
             path: {
                 'org_id': orgId,
             },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -268,56 +251,6 @@ export class OrgsService {
         });
     }
     /**
-     * Create Invite
-     * @returns app__api__v1__orgs__InviteOut Successful Response
-     * @throws ApiError
-     */
-    public static createInviteApiOrgsOrgIdInvitesPost({
-        orgId,
-        requestBody,
-    }: {
-        orgId: string,
-        requestBody: app__api__v1__orgs__InviteCreateIn,
-    }): CancelablePromise<app__api__v1__orgs__InviteOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/orgs/{org_id}/invites',
-            path: {
-                'org_id': orgId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Transfer Initiate
-     * @returns TransferOut Successful Response
-     * @throws ApiError
-     */
-    public static transferInitiateApiOrgsOrgIdOriginalCreatorTransfersPost({
-        orgId,
-        requestBody,
-    }: {
-        orgId: string,
-        requestBody: TransferInitIn,
-    }): CancelablePromise<TransferOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/orgs/{org_id}/original-creator-transfers',
-            path: {
-                'org_id': orgId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Transfer List
      * @returns TransferOut Successful Response
      * @throws ApiError
@@ -353,24 +286,25 @@ export class OrgsService {
         });
     }
     /**
-     * Transfer Accept
+     * Transfer Initiate
      * @returns TransferOut Successful Response
      * @throws ApiError
      */
-    public static transferAcceptApiOrgsOrgIdOriginalCreatorTransfersTransferIdAcceptPost({
+    public static transferInitiateApiOrgsOrgIdOriginalCreatorTransfersPost({
         orgId,
-        transferId,
+        requestBody,
     }: {
         orgId: string,
-        transferId: string,
+        requestBody: TransferInitIn,
     }): CancelablePromise<TransferOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/orgs/{org_id}/original-creator-transfers/{transfer_id}/accept',
+            url: '/api/orgs/{org_id}/original-creator-transfers',
             path: {
                 'org_id': orgId,
-                'transfer_id': transferId,
             },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -401,6 +335,30 @@ export class OrgsService {
         });
     }
     /**
+     * Transfer Accept
+     * @returns TransferOut Successful Response
+     * @throws ApiError
+     */
+    public static transferAcceptApiOrgsOrgIdOriginalCreatorTransfersTransferIdAcceptPost({
+        orgId,
+        transferId,
+    }: {
+        orgId: string,
+        transferId: string,
+    }): CancelablePromise<TransferOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/original-creator-transfers/{transfer_id}/accept',
+            path: {
+                'org_id': orgId,
+                'transfer_id': transferId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Transfer Reject
      * @returns void
      * @throws ApiError
@@ -418,6 +376,48 @@ export class OrgsService {
             path: {
                 'org_id': orgId,
                 'transfer_id': transferId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Org Quotas
+     * @returns OrgQuotasOut Successful Response
+     * @throws ApiError
+     */
+    public static getOrgQuotasApiOrgsOrgIdQuotasGet({
+        orgId,
+    }: {
+        orgId: string,
+    }): CancelablePromise<OrgQuotasOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orgs/{org_id}/quotas',
+            path: {
+                'org_id': orgId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Restore Org
+     * @returns void
+     * @throws ApiError
+     */
+    public static restoreOrgApiOrgsOrgIdRestorePost({
+        orgId,
+    }: {
+        orgId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/restore',
+            path: {
+                'org_id': orgId,
             },
             errors: {
                 422: `Request Validation Problem`,

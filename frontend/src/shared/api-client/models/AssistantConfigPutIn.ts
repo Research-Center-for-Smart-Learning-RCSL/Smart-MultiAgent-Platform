@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AssistantConfigPutIn = {
-    system_prompt?: string;
-    key_id?: (string | null);
-    model_id?: (string | null);
     daily_request_limit_per_user?: number;
     enabled?: boolean;
     hide_platform_templates?: boolean;
+    key_id?: (string | null);
+    model_id?: (string | null);
+    system_prompt?: string;
 };
 

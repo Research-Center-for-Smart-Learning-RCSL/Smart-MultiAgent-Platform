@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RagConfigPatchIn = {
-    name?: (string | null);
-    top_k?: (number | null);
     chunk_params?: (Record<string, any> | null);
+    name?: (string | null);
     rerank_enabled?: (boolean | null);
     rerank_key_id?: (string | null);
-    rerank_provider?: ('cohere' | 'bge' | null);
     rerank_model?: (string | null);
+    rerank_provider?: ('cohere' | 'bge' | null);
+    top_k?: (number | null);
 };
 

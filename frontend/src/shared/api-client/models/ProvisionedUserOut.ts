@@ -5,7 +5,7 @@
 import type { ActivationLinksOut } from './ActivationLinksOut';
 import type { UserSummaryOut } from './UserSummaryOut';
 export type ProvisionedUserOut = {
-    user: UserSummaryOut;
     activation_links: ActivationLinksOut;
+    user: UserSummaryOut;
 };
 
