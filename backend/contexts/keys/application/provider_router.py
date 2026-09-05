@@ -88,6 +88,10 @@ class ProviderRequest:
     # Non-agent traffic discriminator recorded on the usage event (e.g.
     # 'prompt_assistant'); NULL for ordinary agent/chatroom calls.
     usage_context: str | None = None
+    # Per-key provider config (R7.16). Populated by the router from the key's
+    # ``config`` column before calling the adapter. Only ``openai_compat``
+    # reads it; other adapters ignore it.
+    provider_config: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,6 +528,7 @@ class ProviderRouter:
         """
         if not await self._is_still_eligible(group_id, em.key.id, request):
             raise _KeyVanished(em.key.id)
+        request = self._inject_provider_config(em, request)
         secret_bytes = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         first_token = False
@@ -669,6 +674,8 @@ class ProviderRouter:
         if adapter is None:
             raise ValueError(f"no adapter for provider {key.provider.value}")
 
+        if key.config:
+            request = replace(request, provider_config=key.config)
         secret = await self._unwrap_secret(key_id)
         t0 = time.monotonic()
         try:
@@ -728,6 +735,8 @@ class ProviderRouter:
         if not isinstance(adapter_obj, StreamingAdapter):
             raise ValueError(f"no streaming adapter for provider {key.provider.value}")
 
+        if key.config:
+            request = replace(request, provider_config=key.config)
         secret_bytes = await self._unwrap_secret(key_id)
         t0 = time.monotonic()
         terminal = _StreamTerminal()
@@ -858,6 +867,7 @@ class ProviderRouter:
     ) -> tuple[ErrorOutcome, ProviderCallResult | None]:
         if not await self._is_still_eligible(group_id, em.key.id, request):
             raise _KeyVanished(em.key.id)
+        request = self._inject_provider_config(em, request)
         secret = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         try:
@@ -893,6 +903,13 @@ class ProviderRouter:
             provider=em.key.provider,
         )
         return outcome, (result if outcome.reason is RotationReason.OK else None)
+
+    @staticmethod
+    def _inject_provider_config(em: _EligibleMember, request: ProviderRequest) -> ProviderRequest:
+        """Thread the key's per-key config into the request (R7.16)."""
+        if em.key.config:
+            return replace(request, provider_config=em.key.config)
+        return request
 
     async def _unwrap_secret(self, key_id: uuid.UUID) -> bytes:
         cached = DEK_CACHE.get(key_id)

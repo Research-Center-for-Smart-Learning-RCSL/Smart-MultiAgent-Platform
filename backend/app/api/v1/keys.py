@@ -9,6 +9,7 @@ so a pydantic debug repr cannot surface it either.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -41,6 +42,7 @@ class KeyUploadIn(BaseModel):
     # `repr=False` blocks accidental leak through a pydantic error message or
     # a debug log that dumps the model.
     secret: str = Field(min_length=1, max_length=4096, repr=False)
+    config: dict[str, Any] | None = None
 
 
 class KeyOut(BaseModel):
@@ -52,6 +54,7 @@ class KeyOut(BaseModel):
     test_error: str | None
     last_test_at: str | None
     created_at: str
+    config: dict[str, Any] = {}
 
     @classmethod
     def from_domain(cls, key: ApiKey) -> KeyOut:
@@ -64,6 +67,7 @@ class KeyOut(BaseModel):
             test_error=key.test_error,
             last_test_at=(key.last_test_at.isoformat() if key.last_test_at else None),
             created_at=key.created_at.isoformat(),
+            config=key.config,
         )
 
 
@@ -204,6 +208,7 @@ async def upload_key(
         provider=payload.provider,
         name=payload.name,
         secret=payload.secret,
+        config=payload.config,
         actor_ip=str(ctx.actor_ip) if ctx.actor_ip else None,
         request_id=ctx.request_id,
     )

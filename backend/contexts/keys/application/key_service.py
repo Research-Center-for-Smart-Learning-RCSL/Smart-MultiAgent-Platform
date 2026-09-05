@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,6 +80,7 @@ class KeyService:
         provider: ApiKeyProvider,
         name: str,
         secret: str,
+        config: dict[str, Any] | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> UploadedKey:
@@ -89,7 +91,20 @@ class KeyService:
         cases still get persisted per R7.3 so the user can fix the name/label
         and retest without re-pasting the secret.
         """
-        probe_result = await probe(provider, secret)
+        validated_config: dict[str, Any] = {}
+        if provider is ApiKeyProvider.OPENAI_COMPAT:
+            from contexts.keys.application.openai_compat_config import OpenAICompatConfig
+            from contexts.keys.domain.errors import InvalidProviderConfig
+
+            if not config:
+                raise InvalidProviderConfig(detail="config is required for openai_compat")
+            try:
+                validated = OpenAICompatConfig(**config)
+            except Exception as exc:
+                raise InvalidProviderConfig(detail=str(exc)) from exc
+            validated_config = validated.to_dict()
+
+        probe_result = await probe(provider, secret, config=validated_config or None)
 
         # Generate the id client-side so AAD and the insert row agree without
         # a second Vault round-trip (R7.06 step 3 — AAD bound to logical id).
@@ -113,6 +128,7 @@ class KeyService:
             test_status=probe_result.status,
             test_error=probe_result.error,
             last_test_at=now,
+            config=validated_config,
         )
 
         # `key.uploaded` is the *persistence* event — it fires regardless of
