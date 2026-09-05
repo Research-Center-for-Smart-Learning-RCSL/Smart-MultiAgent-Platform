@@ -280,6 +280,9 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   | `gemini` (Google) | ✓ | ✓ | ✗ |
   | `voyage` | ✗ | ✓ | ✗ |
   | `cohere` | ✗ | ✗ | ✓ |
+  | `openai_compat` | configurable | configurable | ✗ |
+
+  `openai_compat` is a generic provider for any endpoint serving the OpenAI Chat Completions wire protocol. Its capabilities (`llm_chat`, `embedding`) are declared per key in a `config` object at upload time; the defaults are `llm_chat` and `embedding`. The `config` object carries `base_url` (required), `label` (optional display name), `timeout_s` (optional HTTP timeout in seconds, default 120, max 3600), and `capabilities` (optional subset of `["llm_chat", "embedding"]`).
 
   A Key may be used only where its provider declares the capability. A Key Group (§7.4) accepts only `llm_chat`-capable keys. RAG embedding configs (§10.1) accept only `embedding`-capable keys. RAG rerank configs (§10.2) accept only `rerank`-capable keys. Validation is done at Agent/RAG save time by the backend; mismatches are rejected with 422.
 
@@ -289,6 +292,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   - Gemini: `GET /v1/models`.
   - Voyage: `POST /v1/embeddings` with `input:["ping"]`.
   - Cohere: `GET /v1/models`.
+  - OpenAI-compatible (`openai_compat`): `GET {config.base_url}/models`. The base URL is user-supplied and validated at upload time: must be HTTPS (HTTP allowed only with `SMAP_ALLOW_HTTP_PROVIDERS=true`), must not resolve to a private, link-local, or loopback IP address. DNS resolution is re-checked at call time to prevent rebinding.
   These are invoked at upload time (R7.03 §7.2).
 
 ### 7.2 Upload flow
@@ -353,6 +357,8 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 5. Postgres backups are encrypted at rest (operator-managed) but even a full Postgres dump does not leak plaintext keys without access to Vault.
 
 **[R7.15]** No API, UI, or admin tool shall decrypt a key to display it. Decryption is invoked only by the Agent Runner for outbound calls, and the plaintext does not cross process boundaries.
+
+**[R7.16]** The `api_keys` table carries a `config` JSONB column (default `'{}'`). For `openai_compat` keys, this column stores the validated provider configuration (`base_url`, `label`, `timeout_s`, `capabilities`). For all other providers, it is empty (`{}`). The config is validated at upload time against a strict schema; invalid config is rejected with 422. The config is not encrypted (it contains no secrets).
 
 ---
 

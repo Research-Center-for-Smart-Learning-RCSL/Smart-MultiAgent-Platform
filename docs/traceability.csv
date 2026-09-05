@@ -43,6 +43,7 @@ R7.12,"7. API Key Management","Every outbound provider call is recorded: (key_id
 R7.13,"7. API Key Management","Usage is retained for 13 months to allow year-over-year comparisons. After 13 months, rows older than the cutoff are aggregated into daily totals and the raw rows deleted."
 R7.14,"7. API Key Management","SMAP does not reconcile with provider-side bills. The counters reflect only SMAP-side observations (stakeholder decision: no billing responsibility)."
 R7.15,"7. API Key Management","No API, UI, or admin tool shall decrypt a key to display it. Decryption is invoked only by the Agent Runner for outbound calls, and the plaintext does not cross process boundaries."
+R7.16,"7. API Key Management","The api_keys table carries a config JSONB column (default '{}'). For openai_compat keys, this column stores the validated provider configuration (base_url, label, timeout_s, capabilities). For all other providers, it is empty ({}). The config is validated at upload time against a strict schema; invalid config is rejected with 422. The config is not encrypted (it contains no secrets)."
 R8.01,"8. Organizations, Individuals, Projects","Any verified Individual can create an Org. The creator is tagged is_original_creator = true, role = OrgOwner. Both bits are persisted."
 R8.02,"8. Organizations, Individuals, Projects","An Org may have multiple Org Owners."
 R8.03,"8. Organizations, Individuals, Projects","The Original Creator cannot:"
