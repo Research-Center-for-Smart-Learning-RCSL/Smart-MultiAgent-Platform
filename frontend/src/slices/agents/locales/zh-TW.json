@@ -108,7 +108,8 @@
       "modelHints": {
         "claude": "Anthropic Claude",
         "openai": "OpenAI",
-        "gemini": "Google Gemini"
+        "gemini": "Google Gemini",
+        "openai_compat": "OpenAI 相容"
       },
       "modelId": "模型",
       "modelIdHelp": "選擇預設清單中的模型，或選「自訂」輸入任意模型 ID；未選擇時使用提供者預設值。",

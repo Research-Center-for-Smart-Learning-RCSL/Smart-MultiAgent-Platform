@@ -254,8 +254,10 @@ const chatModelIdsForHint = computed(() => chatModelsForHint.value.map((m) => m.
 // The model the runtime uses when model_id is left unset, surfaced in the
 // "provider default" option label so the user sees which model that resolves to.
 const defaultModelForHint = computed(() => currentChatEntry.value?.default ?? '')
+const isOpenAICompat = computed(() => modelHint.value === 'openai_compat')
 const isCustomModel = computed(
   () =>
+    isOpenAICompat.value ||
     customModel.value ||
     (!!modelId.value &&
       // Catalog loaded and the saved id isn't a preset -> custom. Also show the
@@ -756,6 +758,7 @@ const modelHintOptions = computed(() => [
   { value: 'claude', label: t('agents.form.modelHints.claude') },
   { value: 'openai', label: t('agents.form.modelHints.openai') },
   { value: 'gemini', label: t('agents.form.modelHints.gemini') },
+  { value: 'openai_compat', label: t('agents.form.modelHints.openai_compat') },
 ])
 
 const keyGroupOptions = computed(() =>
@@ -937,6 +940,7 @@ const breadcrumbs = computed(() => [
                 :help="t('agents.form.modelIdHelp')"
               >
                 <SSelect
+                  v-if="!isOpenAICompat"
                   v-model="modelSelectValue"
                   :options="modelIdOptions"
                 />

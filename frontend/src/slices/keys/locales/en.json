@@ -162,7 +162,17 @@
       "uploaded": "API key uploaded successfully.",
       "uploadFailed": "Failed to upload API key.",
       "securityTitle": "Encrypted storage",
-      "securityBody": "Your key will be envelope-encrypted via Vault Transit. The plaintext will never be stored or returned after upload."
+      "securityBody": "Your key will be envelope-encrypted via Vault Transit. The plaintext will never be stored or returned after upload.",
+      "baseUrl": "Base URL",
+      "baseUrlPlaceholder": "https://your-gateway.example.com",
+      "label": "Display Label",
+      "labelPlaceholder": "e.g., AI Nexus Production",
+      "timeout": "Timeout (seconds)",
+      "timeoutPlaceholder": "120 (default)",
+      "capabilities": "Capabilities"
+    },
+    "providers": {
+      "openai_compat": "OpenAI Compatible"
     },
     "search": {
       "title": "Search Keys",

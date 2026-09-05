@@ -162,7 +162,17 @@
       "uploaded": "API 金鑰上傳成功。",
       "uploadFailed": "上傳 API 金鑰失敗。",
       "securityTitle": "加密儲存",
-      "securityBody": "您的金鑰將透過 Vault Transit 進行信封加密。上傳後永遠不會儲存或返回明文。"
+      "securityBody": "您的金鑰將透過 Vault Transit 進行信封加密。上傳後永遠不會儲存或返回明文。",
+      "baseUrl": "基礎網址",
+      "baseUrlPlaceholder": "https://your-gateway.example.com",
+      "label": "顯示標籤",
+      "labelPlaceholder": "例如：AI Nexus Production",
+      "timeout": "逾時時間（秒）",
+      "timeoutPlaceholder": "120（預設）",
+      "capabilities": "功能"
+    },
+    "providers": {
+      "openai_compat": "OpenAI 相容"
     },
     "search": {
       "title": "搜尋金鑰",

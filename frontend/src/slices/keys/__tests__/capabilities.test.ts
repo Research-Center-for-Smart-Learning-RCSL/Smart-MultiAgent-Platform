@@ -11,6 +11,7 @@ describe('R7.01 capabilities (FE mirror)', () => {
       gemini: ['llm_chat', 'embedding'],
       voyage: ['embedding'],
       cohere: ['rerank'],
+      openai_compat: ['llm_chat', 'embedding'],
     })
   })
 })

@@ -9,6 +9,7 @@ const DISPLAY_NAMES: Record<ApiKeyProvider, string> = {
   gemini: 'Gemini',
   voyage: 'Voyage',
   cohere: 'Cohere',
+  openai_compat: 'Custom',
 }
 
 const CAP_LABELS: Record<string, string> = {
