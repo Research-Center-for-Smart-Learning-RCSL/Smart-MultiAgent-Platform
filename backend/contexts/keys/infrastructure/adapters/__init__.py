@@ -9,11 +9,12 @@ first production construction site.
 One adapter per provider (the router maps ``key.provider`` → one adapter), each
 serving every capability that provider offers per the R7.01 table:
 
-    claude  → LLM_CHAT (stream)
-    openai  → LLM_CHAT (stream) + EMBEDDING
-    gemini  → LLM_CHAT (stream) + EMBEDDING
-    voyage  → EMBEDDING
-    cohere  → RERANK
+    claude       → LLM_CHAT (stream)
+    openai       → LLM_CHAT (stream) + EMBEDDING
+    gemini       → LLM_CHAT (stream) + EMBEDDING
+    voyage       → EMBEDDING
+    cohere       → RERANK
+    openai_compat → LLM_CHAT (stream) + EMBEDDING
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from contexts.keys.infrastructure.adapters.anthropic import AnthropicAdapter
 from contexts.keys.infrastructure.adapters.cohere import CohereAdapter
 from contexts.keys.infrastructure.adapters.gemini import GeminiAdapter
 from contexts.keys.infrastructure.adapters.openai import OpenAIAdapter
+from contexts.keys.infrastructure.adapters.openai_compat import OpenAICompatAdapter
 from contexts.keys.infrastructure.adapters.voyage import VoyageAdapter
 
 
@@ -41,6 +43,7 @@ def build_adapters() -> dict[ApiKeyProvider, ProviderAdapter]:
         ApiKeyProvider.GEMINI: GeminiAdapter(),
         ApiKeyProvider.VOYAGE: VoyageAdapter(),
         ApiKeyProvider.COHERE: CohereAdapter(),
+        ApiKeyProvider.OPENAI_COMPAT: OpenAICompatAdapter(),
     }
 
 
@@ -59,6 +62,7 @@ __all__ = [
     "CohereAdapter",
     "GeminiAdapter",
     "OpenAIAdapter",
+    "OpenAICompatAdapter",
     "VoyageAdapter",
     "build_adapters",
     "build_router",
