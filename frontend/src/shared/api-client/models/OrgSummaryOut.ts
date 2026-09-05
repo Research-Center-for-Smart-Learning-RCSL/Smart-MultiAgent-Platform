@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type OrgSummaryOut = {
-    id: string;
-    name: string;
+    created_at: string;
     creator_user_id: string;
     deleted_at: (string | null);
-    created_at: string;
+    id: string;
+    name: string;
 };
 

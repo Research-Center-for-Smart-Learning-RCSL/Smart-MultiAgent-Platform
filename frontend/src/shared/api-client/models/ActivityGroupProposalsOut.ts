@@ -13,7 +13,7 @@ import type { ActivityMemberGroupRefOut } from './ActivityMemberGroupRefOut';
  * declares.
  */
 export type ActivityGroupProposalsOut = {
-    items: Array<ActivityGroupProposalOut>;
     eligible_groups?: Array<ActivityMemberGroupRefOut>;
+    items: Array<ActivityGroupProposalOut>;
 };
 

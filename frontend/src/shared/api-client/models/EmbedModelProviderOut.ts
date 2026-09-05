@@ -4,8 +4,8 @@
 /* eslint-disable */
 import type { EmbedModelOut } from './EmbedModelOut';
 export type EmbedModelProviderOut = {
-    provider: string;
-    models: Array<EmbedModelOut>;
     default: string;
+    models: Array<EmbedModelOut>;
+    provider: string;
 };
 

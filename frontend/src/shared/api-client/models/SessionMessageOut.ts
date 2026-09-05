@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SessionMessageOut = {
-    role: string;
     content: string;
     error: boolean;
+    role: string;
 };
 

@@ -4,9 +4,9 @@
 /* eslint-disable */
 import type { ApiKeyProvider } from './ApiKeyProvider';
 export type KeyUploadIn = {
-    provider: ApiKeyProvider;
-    name: string;
-    secret: string;
     config?: (Record<string, any> | null);
+    name: string;
+    provider: ApiKeyProvider;
+    secret: string;
 };
 

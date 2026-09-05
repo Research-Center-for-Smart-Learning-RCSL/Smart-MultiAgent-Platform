@@ -8,10 +8,10 @@ import type { GraphNodeOut } from './GraphNodeOut';
  * Bounded node/edge view for the knowledge-graph visualizer (viz P0).
  */
 export type GraphOut = {
-    config_id: string;
-    nodes: Array<GraphNodeOut>;
-    edges: Array<GraphEdgeOut>;
-    truncated: boolean;
     build_state_blocked: boolean;
+    config_id: string;
+    edges: Array<GraphEdgeOut>;
+    nodes: Array<GraphNodeOut>;
+    truncated: boolean;
 };
 

@@ -10,9 +10,9 @@
  * never by a read path.
  */
 export type ActivationLinksOut = {
-    set_password_url: string;
-    verify_email_url: string;
     set_password_expires_at: string;
+    set_password_url: string;
     verify_email_expires_at: string;
+    verify_email_url: string;
 };
 

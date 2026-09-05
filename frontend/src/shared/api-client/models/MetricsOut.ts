@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type MetricsOut = {
-    total_users: number;
+    total_audit_entries: number;
     total_orgs: number;
     total_projects: number;
-    total_audit_entries: number;
+    total_users: number;
 };
 

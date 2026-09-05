@@ -9,8 +9,8 @@
  * is a normal, successful outcome and the admin needs to see why.
  */
 export type AdminInstallReportOut = {
+    already_present: Array<string>;
     course_key: string;
     created: Array<string>;
-    already_present: Array<string>;
 };
 

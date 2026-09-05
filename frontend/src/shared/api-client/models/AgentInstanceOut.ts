@@ -3,14 +3,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AgentInstanceOut = {
-    id: string;
     agent_id: string;
-    parent_id: (string | null);
     chatroom_id: (string | null);
-    run_context: Record<string, any>;
-    task_description: (string | null);
-    state: string;
-    spawned_at: string;
     destroyed_at: (string | null);
+    id: string;
+    parent_id: (string | null);
+    run_context: Record<string, any>;
+    spawned_at: string;
+    state: string;
+    task_description: (string | null);
 };
 

@@ -5,8 +5,8 @@
 import type { BuildState } from './BuildState';
 export type GraphRagStatusOut = {
     id: string;
-    state: BuildState;
     last_build_at: (string | null);
     last_build_error: (string | null);
+    state: BuildState;
 };
 

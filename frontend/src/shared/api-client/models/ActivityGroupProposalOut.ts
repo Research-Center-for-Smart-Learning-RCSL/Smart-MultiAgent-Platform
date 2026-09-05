@@ -12,23 +12,23 @@ import type { ActivityGroupVoteOut } from './ActivityGroupVoteOut';
  * contents.
  */
 export type ActivityGroupProposalOut = {
-    id: string;
-    chatroom_id: string;
     activation_id: string;
     activity_type_id: string;
-    member_group_id: string;
-    proposer_user_id: string;
-    payload: Record<string, any>;
-    status: string;
-    required_approvals: number;
     approvals: number;
+    chatroom_id: string;
+    created_at: (string | null);
+    expires_at: (string | null);
+    id: string;
+    member_group_id: string;
+    payload: Record<string, any>;
+    proposer_user_id: string;
     rejections: number;
+    required_approvals: number;
+    resolved_at: (string | null);
+    status: string;
+    submission_id: (string | null);
     undecided: number;
     voter_count: number;
     votes: Array<ActivityGroupVoteOut>;
-    created_at: (string | null);
-    expires_at: (string | null);
-    resolved_at: (string | null);
-    submission_id: (string | null);
 };
 

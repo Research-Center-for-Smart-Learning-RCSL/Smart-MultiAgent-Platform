@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type MemberGroupOut = {
-    id: string;
-    project_id: string;
-    name: string;
-    version: number;
     created_at: string;
+    id: string;
+    name: string;
+    project_id: string;
+    version: number;
 };
 
