@@ -2,4 +2,4 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type AgentModelHint = 'claude' | 'openai' | 'gemini';
+export type AgentModelHint = 'claude' | 'openai' | 'gemini' | 'openai_compat';

@@ -11,10 +11,10 @@ import type { InstalledPackAgentOut } from './InstalledPackAgentOut';
  * the reason for.
  */
 export type ExamplePackInstallReportOut = {
-    already_present: Array<string>;
-    created: Array<InstalledPackAgentOut>;
-    group_created: boolean;
-    group_id: string;
     pack_key: string;
+    created: Array<InstalledPackAgentOut>;
+    already_present: Array<string>;
+    group_id: string;
+    group_created: boolean;
 };
 

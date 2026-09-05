@@ -5,4 +5,4 @@
 /**
  * Accepted providers for `api_keys.provider` (R7.01).
  */
-export type ApiKeyProvider = 'claude' | 'openai' | 'gemini' | 'voyage' | 'cohere';
+export type ApiKeyProvider = 'claude' | 'openai' | 'gemini' | 'voyage' | 'cohere' | 'openai_compat';

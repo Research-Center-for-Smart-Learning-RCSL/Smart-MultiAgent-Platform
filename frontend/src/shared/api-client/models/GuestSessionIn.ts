@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type GuestSessionIn = {
-    browser_id?: (string | null);
     display_name: string;
+    browser_id?: (string | null);
 };
 

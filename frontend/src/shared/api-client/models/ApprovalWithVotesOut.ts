@@ -6,15 +6,15 @@ import type { ApprovalMode } from './ApprovalMode';
 import type { ApprovalState } from './ApprovalState';
 import type { ApprovalVoteOut } from './ApprovalVoteOut';
 export type ApprovalWithVotesOut = {
-    approver_agent_ids: Array<string>;
-    ended_at: (string | null);
     id: string;
-    leader_agent_id: string;
-    mode: ApprovalMode;
-    started_at: string;
-    state: ApprovalState;
-    timeout_seconds: number;
-    votes: Array<ApprovalVoteOut>;
     workflow_run_id: string;
+    mode: ApprovalMode;
+    leader_agent_id: string;
+    approver_agent_ids: Array<string>;
+    timeout_seconds: number;
+    state: ApprovalState;
+    started_at: string;
+    ended_at: (string | null);
+    votes: Array<ApprovalVoteOut>;
 };
 
