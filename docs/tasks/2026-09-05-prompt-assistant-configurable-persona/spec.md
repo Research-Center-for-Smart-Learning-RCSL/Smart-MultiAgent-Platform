@@ -395,17 +395,17 @@ immediately; the columns become inert.
 
 | AC | Level | Location |
 |---|---|---|
-| AC-1 | Unit | `tests/unit/contexts/prompt_studio/test_models.py` |
-| AC-2 | Unit | `tests/unit/contexts/prompt_studio/test_prompts.py` (existing file, new cases) |
-| AC-3 | Unit | `tests/unit/workers/test_prompt_assistant_turn.py` (existing or new) |
+| AC-1 | Unit | `tests/unit/test_prompt_studio_services.py` (extend) |
+| AC-2 | Unit | `tests/unit/test_prompt_studio_prompts.py` (new) |
+| AC-3 | Unit | `tests/unit/test_prompt_assistant_worker.py` (existing, new cases) |
 | AC-4 | DB | `pytest.mark.db` migration test: apply, verify columns + seeded rows |
-| AC-5 | Unit | `tests/unit/contexts/prompt_studio/test_config_service.py` |
-| AC-6 | Unit | `tests/unit/api/v1/test_prompt_studio_admin_presets.py` |
-| AC-7 | Unit | `tests/unit/api/v1/test_prompt_studio.py` (existing, new cases) |
-| AC-8 | Unit | `tests/unit/contexts/prompt_studio/test_config_service.py` |
+| AC-5 | Unit | `tests/unit/test_prompt_studio_services.py` (extend) |
+| AC-6 | Unit | `tests/unit/test_prompt_studio_admin_presets.py` (new) |
+| AC-7 | Unit | `tests/unit/test_prompt_studio_routes.py` (new or extend existing route tests) |
+| AC-8 | Unit | `tests/unit/test_prompt_studio_services.py` (extend) |
 | AC-9 | Component | `frontend/src/slices/admin/__tests__/AdminPromptPresetListView.test.ts` |
 | AC-10 | Component | `frontend/src/slices/prompt-studio/__tests__/PersonalPromptStudioView.test.ts` (extend) |
-| AC-11 | Unit | `tests/unit/contexts/prompt_studio/test_prompts.py` |
+| AC-11 | Unit | `tests/unit/test_prompt_studio_prompts.py` (new, same file as AC-2) |
 | AC-12 | Unit | Existing audit emission tests, extended for new mutations |
 | AC-13 | Lint | `pnpm lint` (i18n gate) |
 | AC-14 | Script | `pnpm run gen:api` + `pnpm run check:openapi-drift` |
