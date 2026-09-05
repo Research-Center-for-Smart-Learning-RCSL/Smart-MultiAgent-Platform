@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from typing import Final
+from urllib.parse import urlparse
 
 import httpx
 
@@ -145,6 +148,58 @@ def summarise_http_failure(response: httpx.Response) -> str:
     return f"HTTP {response.status_code} ({'; '.join(parts)})"
 
 
+def _is_private_ip(addr: str) -> bool:
+    """True if the address is loopback, private, link-local, or reserved."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return True
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+
+
+def _allow_http() -> bool:
+    import os
+
+    return os.environ.get("SMAP_ALLOW_HTTP_PROVIDERS", "").lower() in ("1", "true", "yes")
+
+
+def validate_base_url(url: str) -> str:
+    """Validate and normalise a user-supplied base URL for SSRF safety.
+
+    Rejects private/loopback/link-local IPs and non-HTTPS schemes (unless
+    ``SMAP_ALLOW_HTTP_PROVIDERS`` is set for local dev). Returns the
+    normalised URL (trailing slash stripped).
+
+    Raises ``ValueError`` with a user-facing message on failure.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme == "https":
+        pass
+    elif scheme == "http" and _allow_http():
+        pass
+    else:
+        raise ValueError(
+            "base_url must use HTTPS" if not _allow_http() else "base_url must use HTTP or HTTPS"
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("base_url has no hostname")
+
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise ValueError(f"cannot resolve hostname {hostname!r}") from None
+
+    for family, _, _, _, sockaddr in infos:
+        addr = sockaddr[0]
+        if _is_private_ip(addr):
+            raise ValueError(f"base_url resolves to a private address ({addr})")
+
+    return url.rstrip("/")
+
+
 __all__ = [
     "ProbeResult",
     "ProbeStatus",
@@ -152,4 +207,5 @@ __all__ = [
     "probe_url",
     "safe_ident",
     "summarise_http_failure",
+    "validate_base_url",
 ]
