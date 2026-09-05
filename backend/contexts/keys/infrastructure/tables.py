@@ -29,6 +29,7 @@ api_keys = sa.Table(
             "gemini",
             "voyage",
             "cohere",
+            "openai_compat",
             name="api_key_provider",
             create_type=False,
         ),
@@ -57,6 +58,7 @@ api_keys = sa.Table(
     sa.Column("test_error", sa.Text, nullable=True),
     sa.Column("last_test_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 

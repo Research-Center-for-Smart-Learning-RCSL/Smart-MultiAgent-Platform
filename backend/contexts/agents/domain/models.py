@@ -19,6 +19,7 @@ class AgentModelHint(str, enum.Enum):
     CLAUDE = "claude"
     OPENAI = "openai"
     GEMINI = "gemini"
+    OPENAI_COMPAT = "openai_compat"
 
 
 # `CHAT_MODEL_CATALOG` / `DEFAULT_CHAT_MODELS` / `CONTEXT_LIMITS` are derived
