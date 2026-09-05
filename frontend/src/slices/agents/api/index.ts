@@ -279,7 +279,7 @@ export interface KnowmapDocument {
 // from `GraphragBuild` (no `accepted`/`state` fields) — matches the backend's
 // actual response, not GraphRAG's.
 export interface KnowmapRebuildAck {
-  status: 'enqueued'
+  status: string
   config_id: string
 }
 

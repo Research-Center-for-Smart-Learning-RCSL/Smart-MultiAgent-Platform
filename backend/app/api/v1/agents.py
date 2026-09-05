@@ -238,7 +238,7 @@ class AgentCreateIn(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     name: str = Field(min_length=1, max_length=200)
-    model_hint: Literal["claude", "openai", "gemini"]
+    model_hint: Literal["claude", "openai", "gemini", "openai_compat"]
     model_id: str | None = Field(default=None, max_length=200)
     effort: AgentEffort | None = None
     key_group_id: uuid.UUID
@@ -286,7 +286,7 @@ class AgentPatchIn(BaseModel):
     model_config = {"extra": "forbid", "protected_namespaces": ()}
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    model_hint: Literal["claude", "openai", "gemini"] | None = None
+    model_hint: Literal["claude", "openai", "gemini", "openai_compat"] | None = None
     model_id: str | None = Field(default=None, max_length=200)
     effort: AgentEffort | None = None
     key_group_id: uuid.UUID | None = None
@@ -526,7 +526,7 @@ class ExamplePackInstallIn(BaseModel):
     # None means "resolve from the key group": a pack names a preferred provider
     # but never a key, and a project holding a different vendor's key must still
     # be able to install the example.
-    model_hint: Literal["claude", "openai", "gemini"] | None = None
+    model_hint: Literal["claude", "openai", "gemini", "openai_compat"] | None = None
 
 
 class InstalledPackAgentOut(BaseModel):

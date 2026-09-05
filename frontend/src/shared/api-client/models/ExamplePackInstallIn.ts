@@ -4,6 +4,6 @@
 /* eslint-disable */
 export type ExamplePackInstallIn = {
     key_group_id: string;
-    model_hint?: ('claude' | 'openai' | 'gemini' | null);
+    model_hint?: ('claude' | 'openai' | 'gemini' | 'openai_compat' | null);
 };
 
