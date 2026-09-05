@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { SBadge } from '@shared/ui'
 import { CAPABILITIES, type ApiKeyProvider } from '../api/keys'
 
@@ -9,7 +10,7 @@ const DISPLAY_NAMES: Record<ApiKeyProvider, string> = {
   gemini: 'Gemini',
   voyage: 'Voyage',
   cohere: 'Cohere',
-  openai_compat: 'Custom',
+  openai_compat: '',
 }
 
 const CAP_LABELS: Record<string, string> = {
@@ -18,9 +19,14 @@ const CAP_LABELS: Record<string, string> = {
   rerank: 'rerank',
 }
 
+const { t } = useI18n()
 const props = defineProps<{ provider: ApiKeyProvider }>()
 const caps = computed(() => CAPABILITIES[props.provider])
-const displayName = computed(() => DISPLAY_NAMES[props.provider])
+const displayName = computed(() =>
+  props.provider === 'openai_compat'
+    ? t('keys.providers.openai_compat')
+    : DISPLAY_NAMES[props.provider],
+)
 </script>
 
 <template>

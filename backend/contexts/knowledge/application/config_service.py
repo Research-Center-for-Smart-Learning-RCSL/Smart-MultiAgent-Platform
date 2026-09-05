@@ -114,7 +114,7 @@ class RagConfigService:
                 f"embed_key provider {key.provider.value!r} != config provider {provider!r}"
             )
         try:
-            assert_capability(ApiKeyProvider(key.provider.value), _EMBED)
+            assert_capability(ApiKeyProvider(key.provider.value), _EMBED, config=getattr(key, "config", None))
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
 
@@ -160,7 +160,9 @@ class RagConfigService:
         if key.provider.value != provider:
             raise CapabilityMismatch(f"rerank_key provider {key.provider.value!r} != {provider!r}")
         try:
-            assert_capability(ApiKeyProvider(key.provider.value), _RERANK)
+            assert_capability(
+                ApiKeyProvider(key.provider.value), _RERANK, config=getattr(key, "config", None)
+            )
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
 
