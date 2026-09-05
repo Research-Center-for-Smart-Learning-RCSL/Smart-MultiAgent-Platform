@@ -149,7 +149,7 @@ class KeyGroupService:
             raise KeyNotFound(str(key_id))
 
         # R7.01 — only llm_chat-capable providers may join a group.
-        assert_capability(ApiKeyProvider(key.provider), _LLM_CHAT)
+        assert_capability(ApiKeyProvider(key.provider), _LLM_CHAT, config=key.config)
 
         # R7.04 — the key must already be carried into the group's project.
         carried = await self._carries.list_active_in_project(group.project_id)

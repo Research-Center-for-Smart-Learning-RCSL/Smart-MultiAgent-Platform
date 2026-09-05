@@ -564,7 +564,20 @@ None blocking. All design questions resolved in section 3.
   `KeyError` at runtime. Add a startup check or derive the dict from the enum.
 - FU-3: Derive `modelHintOptions` from the backend catalog/enum instead of hardcoding
   the three-member array in `AgentDetailView.vue`.
-- FU-4: Gateway-specific workarounds. If specific gateways need adapter-level
+- FU-4: Gateway-specific workarounds (Q-9). If specific gateways need adapter-level
   workarounds (Ollama's object-typed tool arguments, Nexus's `think` extension), add
   optional config flags (e.g. `config.quirks: ["ollama_tool_args"]`) rather than
   per-vendor adapters.
+- FU-5: SSRF DNS rebinding: `validate_base_url` resolves DNS and checks for private
+  IPs, then httpx resolves DNS independently at connect time. A short-TTL DNS record
+  alternating between a public and private IP could bypass the check. Fix requires
+  either a custom httpx transport that pins the resolved IP, or routing openai_compat
+  traffic through the egress proxy. Found by /code-review.
+- FU-6: `validate_base_url` calls blocking `socket.getaddrinfo` on the async event
+  loop. Should use `loop.getaddrinfo()` or `run_in_executor()`. Found by /code-review.
+- FU-7: Extract `_safe_json` from `openai_compat.py` and `openai.py` into
+  `adapters/base.py`. Both copies parse untrusted provider JSON identically.
+  Found by /code-review.
+- FU-8: Frontend `KeyUploadForm.vue` does not validate `base_url` non-empty or at
+  least one capability checked before submit. Backend catches it with 422 but the
+  user sees a generic error instead of inline field validation. Found by /code-review.

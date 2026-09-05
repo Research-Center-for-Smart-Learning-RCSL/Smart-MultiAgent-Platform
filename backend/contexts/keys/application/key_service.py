@@ -197,7 +197,7 @@ class KeyService:
 
         plaintext = bytearray(env.decrypt_envelope(record, env.api_key_aad(key_id)))
         try:
-            result = await probe(key.provider, plaintext.decode("utf-8"))
+            result = await probe(key.provider, plaintext.decode("utf-8"), config=key.config or None)
         finally:
             plaintext[:] = b"\x00" * len(plaintext)  # zero the mutable buffer in-place
 
