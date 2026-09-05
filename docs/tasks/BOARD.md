@@ -249,6 +249,15 @@ first, but building them serially avoids the conflict.
   reported nine non-existent "stale" rows — the 16 IDs that pattern cannot see are 4 % of the
   corpus, and getting this wrong looks like a finding rather than a bug.
 
+### Prompt assistant configurable persona
+
+- `2026-09-05-prompt-assistant-configurable-persona` (feature, **draft**) - `depends_on: []`.
+  Makes the Prompt Studio assistant's persona fully configurable per scope and seeds the three
+  prompt-assistant agent packs as platform-scope config presets. Adds `persona_prompt`, `name`,
+  `description` to `AssistantConfig`; platform scope gains multi-preset support; new admin
+  CRUD for platform presets. Migration seeds three rows from the pack JSONs (`enabled=false`,
+  `key_id=NULL`). No file overlap with any active dossier.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
