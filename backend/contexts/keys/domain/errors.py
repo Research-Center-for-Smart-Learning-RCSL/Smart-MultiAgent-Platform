@@ -128,9 +128,9 @@ class GroupMemberConflict(KeysError):
 
 __all__ = [
     "CapabilityMismatch",
-    "InvalidProviderConfig",
     "GroupMemberConflict",
     "GroupWrongProject",
+    "InvalidProviderConfig",
     "KeyGroupExhausted",
     "KeyNotFound",
     "KeyNotOwnedByCaller",
