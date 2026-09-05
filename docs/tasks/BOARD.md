@@ -251,7 +251,7 @@ first, but building them serially avoids the conflict.
 
 ### Prompt assistant configurable persona
 
-- `2026-09-05-prompt-assistant-configurable-persona` (feature, **draft**) - `depends_on: []`.
+- `2026-09-05-prompt-assistant-configurable-persona` (feature, **approved 2026-09-05**) - `depends_on: []`.
   Makes the Prompt Studio assistant's persona fully configurable per scope and seeds the three
   prompt-assistant agent packs as platform-scope config presets. Adds `persona_prompt`, `name`,
   `description` to `AssistantConfig`; platform scope gains multi-preset support; new admin

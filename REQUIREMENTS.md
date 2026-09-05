@@ -2163,8 +2163,8 @@ Added by the 2026-07-05 design session (task dossier: `docs/tasks/2026-07-05-pro
 ### 29.1 Assistant and configuration scopes
 
 - **[R29.01]** The agent create/edit view offers an AI prompt assistant as a side chat panel scoped to drafting the agent's `system_prompt`. The assistant has no tool access.
-- **[R29.02]** Assistant configurations exist at three scopes: platform (Admin), org (Org Owner), personal (any verified Individual). At most one configuration per scope holder.
-- **[R29.03]** A configuration comprises: assistant system prompt (≤ 20 000 chars), reference files, one pinned provider key owned by the configurer, model selection, per-user daily request cap, and an enabled flag.
+- **[R29.02]** Assistant configurations exist at three scopes: platform (Admin), org (Org Owner), personal (any verified Individual). Org and personal scopes hold at most one configuration per scope holder. Platform scope may hold multiple named configurations (presets); each has a name and description.
+- **[R29.03]** A configuration comprises: assistant persona prompt (optional, ≤ 100 000 chars; when set, replaces the default assistant identity), assistant supplementary guidance prompt (≤ 20 000 chars), reference files, one pinned provider key owned by the configurer, model selection, per-user daily request cap, and an enabled flag. Platform-scope configurations additionally carry a name (≤ 100 chars) and description (≤ 300 chars).
 - **[R29.04]** Effective-config resolution for a project: requesting user's enabled personal config → owning org's enabled config (org-owned projects only) → enabled platform config → assistant unavailable. Disabled configs are skipped.
 
 ### 29.2 Invocation and quotas
@@ -2185,6 +2185,11 @@ Added by the 2026-07-05 design session (task dossier: `docs/tasks/2026-07-05-pro
 
 - **[R29.13]** All configuration, file, and template mutations are audit-logged (§17).
 - **[R29.14]** All assistant/template API responses expose key metadata only; plaintext never (extends R7.03).
+
+### 29.5 Configurable persona and platform presets
+
+- **[R29.15]** The assembled assistant system message always includes a hardcoded reference-material-as-data framing after the persona (whether custom or default), regardless of the configuration source. This framing is not suppressible by any configuration field.
+- **[R29.16]** Platform admins manage platform-scope configuration presets via dedicated CRUD endpoints. A preset is seeded `enabled=false` with no pinned key; the admin must configure a key and enable it before it becomes usable through the resolution chain.
 
 ---
 
