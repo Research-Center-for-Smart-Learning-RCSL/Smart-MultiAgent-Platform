@@ -276,7 +276,6 @@ DEFAULT_MODEL_IDS: dict[str, str] = {
     "claude": "claude-sonnet-4-6",
     "openai": "gpt-5.4",
     "gemini": "gemini-3.5-flash",
-    "openai_compat": "",
 }
 
 
