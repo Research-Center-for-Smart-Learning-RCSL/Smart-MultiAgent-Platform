@@ -98,6 +98,16 @@ class UsageQuotaExceeded(KeysError):
     code = "keys/usage-quota-exceeded"
 
 
+class InvalidProviderConfig(KeysError):
+    """Config validation failed for a provider that requires it (R7.16)."""
+
+    code = "keys/invalid-provider-config"
+
+    def __init__(self, *, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class SearchActivationConflict(KeysError):
     """Two writers raced to activate a search key for the same project (§12.4)."""
 
@@ -118,6 +128,7 @@ class GroupMemberConflict(KeysError):
 
 __all__ = [
     "CapabilityMismatch",
+    "InvalidProviderConfig",
     "GroupMemberConflict",
     "GroupWrongProject",
     "KeyGroupExhausted",

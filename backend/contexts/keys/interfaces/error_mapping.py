@@ -54,6 +54,11 @@ _MAP: ErrorMap = {
         409,
         "Key already in group or priority conflict",
     ),
+    errors.InvalidProviderConfig: (
+        "keys/invalid-provider-config",
+        422,
+        "Invalid provider configuration",
+    ),
 }
 
 
@@ -68,6 +73,8 @@ def _extras(exc: Exception) -> dict[str, Any]:
     elif isinstance(exc, errors.KeyGroupExhausted):
         extras["group_id"] = str(exc.group_id)
         extras["reason"] = exc.reason
+    elif isinstance(exc, errors.InvalidProviderConfig):
+        extras["config_detail"] = exc.detail
     return extras
 
 

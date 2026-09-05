@@ -24,7 +24,7 @@ agents = sa.Table(
     sa.Column("name", sa.Text, nullable=False),
     sa.Column(
         "model_hint",
-        pg.ENUM("claude", "openai", "gemini", name="agent_model_hint", create_type=False),
+        pg.ENUM("claude", "openai", "gemini", "openai_compat", name="agent_model_hint", create_type=False),
         nullable=False,
     ),
     sa.Column(

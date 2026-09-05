@@ -34,6 +34,7 @@ def _row_to_api_key(row: Any) -> ApiKey:
         transit_key_version=row.transit_key_version,
         hmac_key_version=row.hmac_key_version,
         created_at=row.created_at,
+        config=row.config if hasattr(row, "config") and row.config is not None else {},
         deleted_at=row.deleted_at,
     )
 
@@ -65,6 +66,7 @@ class ApiKeyRepository:
         test_status: ProbeStatus,
         test_error: str | None,
         last_test_at: Any,
+        config: dict[str, Any] | None = None,
     ) -> ApiKey:
         if not envelope.ciphertext or not envelope.nonce or not envelope.ciphertext_hmac:
             raise ValueError(
@@ -91,6 +93,7 @@ class ApiKeyRepository:
                 test_status=test_status.value,
                 test_error=test_error,
                 last_test_at=last_test_at,
+                config=config or {},
             )
             .returning(t.api_keys)
         )

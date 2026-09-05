@@ -513,17 +513,15 @@ each row for its own list — the frontmatter wins over this preamble.
   warning in the settings UI, and its OQ-1 records that a guest can never join a group
   submission at all.
 
-### From the 2026-09-05 OpenAI-compatible provider work
+## In progress
 
-- `2026-09-05-openai-compatible-generic-provider` (feature, **approved 2026-09-05**) --
+- `2026-09-05-openai-compatible-generic-provider` (feature, **in-progress 2026-09-05**) --
   `depends_on: []`. Adds `openai_compat` to `ApiKeyProvider` with per-key `config` JSONB so
   any OpenAI Chat Completions-compatible gateway (RCSL AI Nexus, Ollama, vLLM, LiteLLM, Azure
   OpenAI) can be connected without a per-vendor enum or adapter. One new adapter, one new probe,
   one migration (widens both `api_key_provider` and `agent_model_hint` enums, adds `config`
   column). Frontend: conditional config fields on key upload, free-text model input in agent
   config. SRS Delta applied at approval: amends [R7.01], [R7.02], adds [R7.16].
-
-## In progress
 
 - (implemented 2026-09-04) `2026-09-04-guest-anonymous-session`. All three phases complete,
   all 23 ACs ticked. Phase 3 (UX polish) on branch `guest-anon-phase2`: settings gear hiding,

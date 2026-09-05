@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 
 class ApiKeyProvider(str, enum.Enum):
@@ -33,6 +33,7 @@ class ApiKeyProvider(str, enum.Enum):
     GEMINI = "gemini"
     VOYAGE = "voyage"
     COHERE = "cohere"
+    OPENAI_COMPAT = "openai_compat"
 
 
 class ProviderCapability(str, enum.Enum):
@@ -50,6 +51,7 @@ _CAPABILITIES: Final[dict[ApiKeyProvider, frozenset[ProviderCapability]]] = {
     ApiKeyProvider.GEMINI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
     ApiKeyProvider.VOYAGE: frozenset({ProviderCapability.EMBEDDING}),
     ApiKeyProvider.COHERE: frozenset({ProviderCapability.RERANK}),
+    ApiKeyProvider.OPENAI_COMPAT: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
 }
 
 
@@ -74,16 +76,32 @@ class CapabilityRequirement:
     capability: ProviderCapability
 
 
-def assert_capability(provider: ApiKeyProvider, requirement: CapabilityRequirement) -> None:
+def assert_capability(
+    provider: ApiKeyProvider,
+    requirement: CapabilityRequirement,
+    *,
+    config: dict[str, Any] | None = None,
+) -> None:
     """Raise `CapabilityMismatch` if `provider` cannot fulfil `requirement`.
 
+    For ``OPENAI_COMPAT``, the static table is the ceiling; per-key
+    ``config.capabilities`` narrows the effective set so a chat-only key
+    is rejected at attach time rather than at first call.
+
     The caller catches this at the HTTP edge and maps it to
-    `https://smap.local/problems/keys/capability-mismatch` (422).
+    ``https://smap.local/problems/keys/capability-mismatch`` (422).
     """
     if not supports(provider, requirement.capability):
         from contexts.keys.domain.errors import CapabilityMismatch
 
         raise CapabilityMismatch(provider=provider, required=requirement.capability)
+
+    if provider is ApiKeyProvider.OPENAI_COMPAT and config:
+        declared = config.get("capabilities")
+        if isinstance(declared, list) and requirement.capability.value not in declared:
+            from contexts.keys.domain.errors import CapabilityMismatch
+
+            raise CapabilityMismatch(provider=provider, required=requirement.capability)
 
 
 __all__ = [

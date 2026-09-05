@@ -8,8 +8,9 @@ translate to/from pydantic schemas at the edge.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.providers import ApiKeyProvider
@@ -30,7 +31,8 @@ class ApiKey:
     transit_key_version: int
     hmac_key_version: int
     created_at: datetime
-    deleted_at: datetime | None
+    config: dict[str, Any] = field(default_factory=dict)
+    deleted_at: datetime | None = None
 
 
 def mask_preview(plaintext: str) -> str:
