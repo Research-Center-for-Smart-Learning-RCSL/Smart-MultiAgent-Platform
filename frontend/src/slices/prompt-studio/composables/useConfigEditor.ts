@@ -94,7 +94,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
     try {
       await deleteFileMutation.mutateAsync(fileId)
     } catch {
-      toast.error(t('promptStudio.config.uploadFailed'))
+      toast.error(t('promptStudio.config.deleteFileFailed'))
     }
   }
 

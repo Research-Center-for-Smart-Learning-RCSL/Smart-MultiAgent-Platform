@@ -132,7 +132,7 @@ export function usePresetEditor(presetIdSource: MaybeRefOrGetter<string | null>)
     try {
       await deleteFileMutation.mutateAsync({ id, fileId })
     } catch {
-      toast.error(t('promptStudio.config.uploadFailed'))
+      toast.error(t('promptStudio.config.deleteFileFailed'))
     }
   }
 
