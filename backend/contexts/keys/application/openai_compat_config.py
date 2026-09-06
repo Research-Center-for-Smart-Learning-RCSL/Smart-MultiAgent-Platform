@@ -17,6 +17,10 @@ class OpenAICompatConfig(BaseModel, extra="forbid"):
     label: str = Field(default="OpenAI Compatible", max_length=100)
     timeout_s: int = Field(default=120, ge=10, le=3600)
     capabilities: list[str] = Field(default_factory=lambda: ["llm_chat", "embedding"])
+    proxy_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Extra headers merged into every outbound request (e.g. proxy auth).",
+    )
 
     @field_validator("capabilities")
     @classmethod

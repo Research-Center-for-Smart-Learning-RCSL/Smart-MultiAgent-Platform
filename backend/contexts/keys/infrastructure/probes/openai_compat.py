@@ -18,14 +18,21 @@ from contexts.keys.infrastructure.probes.base import (
 )
 
 
-async def probe_openai_compat(secret: str, *, base_url: str) -> ProbeResult:
+async def probe_openai_compat(
+    secret: str,
+    *,
+    base_url: str,
+    proxy_headers: dict[str, str] | None = None,
+) -> ProbeResult:
     try:
         validated_url = validate_base_url(base_url)
     except ValueError as exc:
         return ProbeResult.failed(str(exc))
 
     url = f"{validated_url}/v1/models"
-    headers = {"Authorization": f"Bearer {secret}"}
+    headers: dict[str, str] = {"Authorization": f"Bearer {secret}"}
+    if proxy_headers:
+        headers.update(proxy_headers)
     try:
         async with new_http_client() as client:
             resp = await client.get(url, headers=headers)

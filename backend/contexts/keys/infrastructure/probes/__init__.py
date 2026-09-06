@@ -44,7 +44,9 @@ async def probe(provider: ApiKeyProvider, secret: str, config: dict[str, Any] | 
     if provider is ApiKeyProvider.OPENAI_COMPAT:
         if not config or not config.get("base_url"):
             return ProbeResult.failed("config.base_url is required for openai_compat")
-        return await probe_openai_compat(secret, base_url=config["base_url"])
+        return await probe_openai_compat(
+            secret, base_url=config["base_url"], proxy_headers=config.get("proxy_headers")
+        )
     return await PROBES[provider](secret)
 
 

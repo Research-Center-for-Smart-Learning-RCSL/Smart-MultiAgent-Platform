@@ -31,8 +31,11 @@ from contexts.keys.infrastructure.adapters import base
 from contexts.keys.infrastructure.probes.base import validate_base_url
 
 
-def _headers(secret: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+def _headers(secret: str, proxy_headers: dict[str, str] | None = None) -> dict[str, str]:
+    h = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+    if proxy_headers:
+        h.update(proxy_headers)
+    return h
 
 
 def _base_url(request: ProviderRequest) -> str:
@@ -41,6 +44,11 @@ def _base_url(request: ProviderRequest) -> str:
     if not url:
         raise ValueError("provider_config.base_url is required for openai_compat")
     return str(url).rstrip("/")
+
+
+def _proxy_headers(request: ProviderRequest) -> dict[str, str] | None:
+    cfg = request.provider_config or {}
+    return cfg.get("proxy_headers") or None
 
 
 def _timeout(request: ProviderRequest) -> httpx.Timeout:
@@ -220,7 +228,7 @@ class OpenAICompatAdapter:
         url = f"{validated}/v1/chat/completions"
         timeout = _timeout(request)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=_chat_body(request, stream=False), headers=_headers(secret))
+            resp = await client.post(url, json=_chat_body(request, stream=False), headers=_headers(secret, _proxy_headers(request)))
         if resp.status_code != 200:
             return ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
         data = resp.json()
@@ -242,7 +250,7 @@ class OpenAICompatAdapter:
         }
         timeout = _timeout(request)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=body, headers=_headers(secret))
+            resp = await client.post(url, json=body, headers=_headers(secret, _proxy_headers(request)))
         if resp.status_code != 200:
             return ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
         data = resp.json()
@@ -275,7 +283,7 @@ class OpenAICompatAdapter:
                 "POST",
                 url,
                 json=_chat_body(request, stream=True),
-                headers=_headers(secret),
+                headers=_headers(secret, _proxy_headers(request)),
             ) as resp,
         ):
             if resp.status_code != 200:
