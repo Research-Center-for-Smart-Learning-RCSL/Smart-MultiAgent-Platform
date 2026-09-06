@@ -1,14 +1,9 @@
 <template>
   <section class="workflow-runs">
-    <SPageHeader :title="$t('workflow.runs.title')">
-      <template #prepend>
-        <router-link
-          :to="{ name: 'workflow.list', params: { workspaceId } }"
-          class="text-sm text-muted hover:underline"
-        >
-          &larr; {{ $t('workflow.runs.backToList') }}
-        </router-link>
-      </template>
+    <SPageHeader
+      :title="$t('workflow.runs.title')"
+      :breadcrumbs="breadcrumbs"
+    >
       <SButton
         v-if="isAuthorized"
         variant="secondary"
@@ -131,6 +126,13 @@ const qc = useQueryClient()
 const workflowId = route.params.workflowId as string
 const workspaceId = route.params.workspaceId as string
 const showArchive = ref(false)
+
+const breadcrumbs = computed(() => [
+  {
+    label: t('workflow.list.title'),
+    to: { name: 'workflow.list', params: { workspaceId } },
+  },
+])
 
 // The run list is itself a backstage read ([R14.10]), so this both gates the
 // page and decides whether to surface the deeper backstage link.

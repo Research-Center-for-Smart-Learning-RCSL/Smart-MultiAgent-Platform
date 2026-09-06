@@ -14,6 +14,10 @@ const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 
+const breadcrumbs = computed(() => [
+  { label: t('promptStudio.admin.title'), to: { name: 'admin.promptStudio' } },
+])
+
 const presetsQuery = usePresetsQuery()
 const deleteMutation = useDeletePresetMutation()
 
@@ -48,6 +52,7 @@ async function onDelete(preset: AssistantConfig): Promise<void> {
     <SPageHeader
       :title="t('promptStudio.presets.title')"
       :subtitle="t('promptStudio.presets.subtitle')"
+      :breadcrumbs="breadcrumbs"
     >
       <template #actions>
         <SButton

@@ -27,7 +27,10 @@
       {{ $t('admin.userDetail.notFound') }}
     </SAlert>
     <template v-else>
-      <SPageHeader :title="query.data.value.email" />
+      <SPageHeader
+        :title="query.data.value.email"
+        :breadcrumbs="breadcrumbs"
+      />
 
       <SCard class="mt-4">
         <dl class="admin-user-detail__fields">
@@ -119,6 +122,10 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const route = useRoute()
 const userId = route.params.userId as string
+
+const breadcrumbs = computed(() => [
+  { label: t('admin.users.title'), to: { name: 'admin.users' } },
+])
 
 const query = useQuery({
   queryKey: adminKeys.user(userId),

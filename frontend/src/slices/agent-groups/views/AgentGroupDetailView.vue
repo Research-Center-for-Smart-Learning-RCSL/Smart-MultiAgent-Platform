@@ -48,6 +48,15 @@ const { isAuthorized, decided } = useProjectRole(() => projectId.value)
 // `decided` so it never flashes to a confirmed owner/admin.
 const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
+const breadcrumbs = computed(() => [
+  {
+    label: t('agentGroups.list.title'),
+    ...(projectId.value && {
+      to: { name: 'agentGroups.list', params: { projectId: projectId.value } },
+    }),
+  },
+])
+
 const membersQuery = useQuery({
   queryKey: computed(() => agentGroupKeys.members(groupId)),
   queryFn: async () => (await agentGroupsApi.listMembers(groupId)).members,
@@ -138,7 +147,10 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
     </SAlert>
 
     <template v-else>
-      <SPageHeader :title="group.name" />
+      <SPageHeader
+        :title="group.name"
+        :breadcrumbs="breadcrumbs"
+      />
 
       <div class="mt-6 space-y-6 max-w-2xl">
         <!-- Members -->

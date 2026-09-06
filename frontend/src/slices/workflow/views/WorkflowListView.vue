@@ -1,6 +1,9 @@
 <template>
   <section class="workflow-list">
-    <SPageHeader :title="$t('workflow.list.title')" />
+    <SPageHeader
+      :title="$t('workflow.list.title')"
+      :breadcrumbs="breadcrumbs"
+    />
 
     <!-- Inline create form (spec 1.3) -->
     <form
@@ -114,7 +117,7 @@ import type { Column } from '@shared/ui/STable.vue'
 import { useConfirmDialog, useToast, useListStagger } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { formatDate } from '@shared/utils/datetime'
-import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
+import { createWorkflow, deleteWorkflow, getWorkspace, listWorkflows } from '../api'
 import type { Workflow } from '../types'
 import { wfKeys } from '../queries'
 import { useBackstageGuard } from '../composables/useBackstageGuard'
@@ -135,6 +138,22 @@ const route = useRoute()
 const qc = useQueryClient()
 const workspaceId = route.params.workspaceId as string
 const newName = ref('')
+
+const wsQuery = useQuery({
+  queryKey: ['workflow', 'workspace', workspaceId],
+  queryFn: () => getWorkspace(workspaceId),
+})
+const breadcrumbs = computed(() => {
+  const ws = wsQuery.data.value
+  return [
+    {
+      label: t('app.sidebar.workspaces'),
+      ...(ws && {
+        to: { name: 'conversation.workspaces', params: { projectId: ws.project_id } },
+      }),
+    },
+  ]
+})
 
 // Listing workflows is a backstage read ([R14.10]); creating one has always
 // needed CHAT_CREATE, which is the same audience.

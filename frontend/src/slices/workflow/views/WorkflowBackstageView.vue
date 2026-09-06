@@ -3,6 +3,7 @@
     <SPageHeader
       :title="$t('workflow.backstage.title')"
       :subtitle="$t('workflow.backstage.subtitle')"
+      :breadcrumbs="breadcrumbs"
     />
 
     <!-- Run selector -->
@@ -144,6 +145,7 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 
 import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 
@@ -157,10 +159,22 @@ import ApprovalCard from '../components/ApprovalCard.vue'
 import InstructChainView from '../components/InstructChainView.vue'
 import SubagentTree from '../components/SubagentTree.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const workflowId = route.params.workflowId as string
 const workspaceId = route.params.workspaceId as string
 const selectedRunId = ref('')
+
+const breadcrumbs = computed(() => [
+  {
+    label: t('workflow.list.title'),
+    to: { name: 'workflow.list', params: { workspaceId } },
+  },
+  {
+    label: t('workflow.runs.title'),
+    to: { name: 'workflow.runs', params: { workspaceId, workflowId } },
+  },
+])
 const agentNames = ref<Record<string, string>>({})
 
 // Authorization: platform admin OR project owner, redirecting once decided.
