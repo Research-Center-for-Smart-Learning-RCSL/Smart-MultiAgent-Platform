@@ -54,6 +54,7 @@ services:
       TS_AUTHKEY: ${SMAP_TAILSCALE_AUTHKEY:-}
       TS_HOSTNAME: smap-nexus-proxy
       TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
       TS_EXTRA_ARGS: "--accept-dns=false"
       NEXUS_TARGET: ${SMAP_NEXUS_TARGET:-100.108.250.62:8000}
     volumes:
