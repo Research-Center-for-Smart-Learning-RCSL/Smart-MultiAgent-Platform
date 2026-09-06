@@ -33,8 +33,55 @@ volumes:
   nginx_certs:
     external: true
     name: smap-staging_nginx_certs
+  tailscale_nexus_state:
 
 services:
+  # ---------- Tailscale sidecar for Nexus API gateway ----------
+  # Joins the tailnet and runs a TCP proxy so backend services can reach the
+  # Nexus LLM gateway (on a Tailscale peer) via http://tailscale-nexus:8000.
+  # Requires SMAP_TAILSCALE_AUTHKEY in .env (a Tailscale auth key for the node).
+  # The proxy target defaults to 100.108.250.62:8000; override with
+  # SMAP_NEXUS_TARGET in .env if the peer moves.
+  tailscale-nexus:
+    <<: *security-defaults
+    image: tailscale/tailscale:latest
+    container_name: smap_tailscale_nexus
+    restart: unless-stopped
+    cap_add: [NET_ADMIN, NET_RAW]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      TS_AUTHKEY: ${SMAP_TAILSCALE_AUTHKEY:-}
+      TS_HOSTNAME: smap-nexus-proxy
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: "--accept-dns=false"
+      NEXUS_TARGET: ${SMAP_NEXUS_TARGET:-100.108.250.62:8000}
+    volumes:
+      - tailscale_nexus_state:/var/lib/tailscale
+    networks: [backend_net]
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      apk add --no-cache socat >/dev/null 2>&1 || true;
+      /usr/local/bin/containerboot &
+      while ! tailscale status >/dev/null 2>&1; do sleep 2; done;
+      exec socat TCP-LISTEN:8000,fork,reuseaddr TCP:$$NEXUS_TARGET
+      "
+    healthcheck:
+      test: ["CMD", "tailscale", "status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
   # ---------- Socket proxy ----------
   docker-socket-proxy:
     <<: *security-defaults
@@ -138,6 +185,8 @@ services:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       SMAP_VAULT_ADDR: https://vault:8200
       SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+      SMAP_ALLOW_HTTP_PROVIDERS: ${SMAP_ALLOW_HTTP_PROVIDERS:-}
+      SMAP_SSRF_ALLOWED_CIDRS: ${SMAP_SSRF_ALLOWED_CIDRS:-}
     volumes:
       - ../vault/certs:/vault-tls:ro
     depends_on:
@@ -162,6 +211,8 @@ services:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       SMAP_VAULT_ADDR: https://vault:8200
       SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+      SMAP_ALLOW_HTTP_PROVIDERS: ${SMAP_ALLOW_HTTP_PROVIDERS:-}
+      SMAP_SSRF_ALLOWED_CIDRS: ${SMAP_SSRF_ALLOWED_CIDRS:-}
     volumes:
       - ../vault/certs:/vault-tls:ro
     depends_on:

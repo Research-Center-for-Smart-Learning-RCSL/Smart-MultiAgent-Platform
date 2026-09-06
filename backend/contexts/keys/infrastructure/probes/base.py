@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import re
 import socket
@@ -157,6 +158,45 @@ def _is_private_ip(addr: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
 
 
+@functools.lru_cache(maxsize=1)
+def _allowed_cidrs() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Parse ``SMAP_SSRF_ALLOWED_CIDRS`` once and cache the result.
+
+    The env var is a comma-separated list of CIDRs (e.g.
+    ``172.20.0.0/16,100.64.0.0/10``) whose private addresses are exempted
+    from the SSRF block in :func:`validate_base_url`.
+    """
+    import os
+
+    raw = os.environ.get("SMAP_SSRF_ALLOWED_CIDRS", "").strip()
+    if not raw:
+        return ()
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for cidr in raw.split(","):
+        cidr = cidr.strip()
+        if cidr:
+            nets.append(ipaddress.ip_network(cidr, strict=False))
+    return tuple(nets)
+
+
+def _is_ssrf_blocked(addr: str) -> bool:
+    """True when *addr* should be rejected by the SSRF check.
+
+    Public addresses always pass. Private addresses pass only when they
+    fall inside a CIDR listed in ``SMAP_SSRF_ALLOWED_CIDRS``.
+    """
+    if not _is_private_ip(addr):
+        return False
+    allowed = _allowed_cidrs()
+    if not allowed:
+        return True
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return True
+    return not any(ip in net for net in allowed)
+
+
 def _allow_http() -> bool:
     import os
 
@@ -166,9 +206,10 @@ def _allow_http() -> bool:
 def validate_base_url(url: str) -> str:
     """Validate and normalise a user-supplied base URL for SSRF safety.
 
-    Rejects private/loopback/link-local IPs and non-HTTPS schemes (unless
-    ``SMAP_ALLOW_HTTP_PROVIDERS`` is set for local dev). Returns the
-    normalised URL (trailing slash stripped).
+    Rejects private/loopback/link-local IPs — unless they fall inside a CIDR
+    listed in ``SMAP_SSRF_ALLOWED_CIDRS`` — and non-HTTPS schemes (unless
+    ``SMAP_ALLOW_HTTP_PROVIDERS`` is set). Returns the normalised URL
+    (trailing slash stripped).
 
     Raises ``ValueError`` with a user-facing message on failure.
     """
@@ -192,7 +233,7 @@ def validate_base_url(url: str) -> str:
 
     for _family, _, _, _, sockaddr in infos:
         addr = str(sockaddr[0])
-        if _is_private_ip(addr):
+        if _is_ssrf_blocked(addr):
             raise ValueError(f"base_url resolves to a private address ({addr})")
 
     return url.rstrip("/")
