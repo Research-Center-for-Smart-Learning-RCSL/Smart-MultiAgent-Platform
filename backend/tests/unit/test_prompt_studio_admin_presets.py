@@ -133,13 +133,39 @@ class TestAdminUpdatePreset:
 
 class TestAdminDeletePreset:
     async def test_delegates_to_delete_preset(self) -> None:
-        preset_id = uuid.uuid4()
-        with patch.object(ConfigService, "delete_preset", AsyncMock(return_value=None)) as delete:
+        preset = _preset()
+        with (
+            patch.object(ConfigService, "get_platform_preset_or_raise", AsyncMock(return_value=preset)),
+            patch.object(ConfigService, "list_files", AsyncMock(return_value=[])),
+            patch.object(ConfigService, "delete_preset", AsyncMock(return_value=None)) as delete,
+        ):
             await prompt_studio.admin_delete_preset(
-                config_id=preset_id, ctx=_CTX, principal=_ADMIN, db=MagicMock()
+                config_id=preset.id, ctx=_CTX, principal=_ADMIN, db=MagicMock()
             )
 
-        assert delete.call_args.kwargs["preset_id"] == preset_id
+        assert delete.call_args.kwargs["preset_id"] == preset.id
+
+    async def test_removes_each_reference_file_before_deleting_the_config_row(self) -> None:
+        # Regression (code-review finding): deleting the config row alone
+        # cascades the DB file rows without ever calling storage.remove(),
+        # orphaning the MinIO blobs.
+        preset = _preset()
+        file_a = SimpleNamespace(id=uuid.uuid4())
+        file_b = SimpleNamespace(id=uuid.uuid4())
+        with (
+            patch.object(ConfigService, "get_platform_preset_or_raise", AsyncMock(return_value=preset)),
+            patch.object(ConfigService, "list_files", AsyncMock(return_value=[file_a, file_b])),
+            patch.object(FileService, "remove_reference_file", AsyncMock(return_value=None)) as remove,
+            patch.object(ConfigService, "delete_preset", AsyncMock(return_value=None)) as delete,
+        ):
+            await prompt_studio.admin_delete_preset(
+                config_id=preset.id, ctx=_CTX, principal=_ADMIN, db=MagicMock()
+            )
+
+        removed_file_ids = {call.kwargs["file_id"] for call in remove.call_args_list}
+        assert removed_file_ids == {file_a.id, file_b.id}
+        assert all(call.kwargs["config_id"] == preset.id for call in remove.call_args_list)
+        delete.assert_awaited_once()
 
 
 class TestAdminPresetFiles:

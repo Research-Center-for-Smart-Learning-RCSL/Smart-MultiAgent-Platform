@@ -139,6 +139,34 @@ class ConfigService:
 
         return await self._configs.get_enabled_platform_preset()
 
+    async def resolve_effective_persona(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> str:
+        """Resolve the effective persona prompt independently of resolve_for_project().
+
+        Q-5: user persona -> org persona -> active platform preset's persona,
+        skipping disabled configs and scopes whose persona is blank, same
+        precedence as resolve_for_project() (R29.04) but not stopping at the
+        first *enabled* config the way that chain does for key/model/quota --
+        a user config can win the effective config for those while still
+        being empty on persona, in which case the org's or platform's persona
+        must still be reachable. Returns "" (caller falls back to
+        DEFAULT_PERSONA) when no scope in the chain has one set.
+        """
+        personal = await self._configs.get_by_scope(PromptScope.USER, user_id=user_id)
+        if personal is not None and personal.enabled and personal.persona_prompt.strip():
+            return personal.persona_prompt
+
+        owning_org_id = await resolve_owning_org_id(self._tenancy, project_id)
+        if owning_org_id is not None:
+            org_cfg = await self._configs.get_by_scope(PromptScope.ORG, org_id=owning_org_id)
+            if org_cfg is not None and org_cfg.enabled and org_cfg.persona_prompt.strip():
+                return org_cfg.persona_prompt
+
+        platform = await self._configs.get_enabled_platform_preset()
+        if platform is not None and platform.persona_prompt.strip():
+            return platform.persona_prompt
+
+        return ""
+
     async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
         """Metadata only -- the API layer's response DTOs never serialize extracted_text."""
         return await self._configs.list_files_meta(config_id)

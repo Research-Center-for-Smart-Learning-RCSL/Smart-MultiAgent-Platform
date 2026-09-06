@@ -12,10 +12,12 @@ import uuid
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.prompt_studio.domain.errors import (
     AssistantConfigNotFound,
+    PresetAlreadyActive,
     TemplateNotFound,
     VersionMismatch,
 )
@@ -184,13 +186,18 @@ class AssistantConfigRepository:
         user_id: uuid.UUID | None,
         values: dict[str, Any],
     ) -> AssistantConfig:
-        row = (
-            await self._db.execute(
-                t.prompt_assistant_configs.insert()
-                .values(scope=scope.value, org_id=org_id, user_id=user_id, **values)
-                .returning(t.prompt_assistant_configs)
-            )
-        ).one()
+        try:
+            row = (
+                await self._db.execute(
+                    t.prompt_assistant_configs.insert()
+                    .values(scope=scope.value, org_id=org_id, user_id=user_id, **values)
+                    .returning(t.prompt_assistant_configs)
+                )
+            ).one()
+        except IntegrityError as exc:
+            if "uq_prompt_assistant_config_platform_active" in str(exc.orig or exc).lower():
+                raise PresetAlreadyActive(scope.value) from exc
+            raise
         return _row_to_config(row)
 
     async def update(
@@ -203,7 +210,12 @@ class AssistantConfigRepository:
             .values(**values)
             .returning(t.prompt_assistant_configs)
         )
-        row = (await self._db.execute(stmt)).first()
+        try:
+            row = (await self._db.execute(stmt)).first()
+        except IntegrityError as exc:
+            if "uq_prompt_assistant_config_platform_active" in str(exc.orig or exc).lower():
+                raise PresetAlreadyActive(str(config_id)) from exc
+            raise
         if row is None:
             if await self.get_by_id(config_id) is None:
                 raise AssistantConfigNotFound(str(config_id))

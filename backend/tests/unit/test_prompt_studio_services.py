@@ -281,6 +281,101 @@ async def test_disabled_platform_resolves_none(monkeypatch) -> None:
     assert resolved is None
 
 
+# --- persona inheritance (Q-5) ----------------------------------------------
+#
+# Independent of resolve_for_project(): a user/org config can win the
+# effective config for key/model/quota while leaving persona_prompt blank, in
+# which case the org's or platform's persona must still be reachable rather
+# than silently falling to DEFAULT_PERSONA.
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_prefers_user_over_org_and_platform(monkeypatch) -> None:
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona="user persona"),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona="org persona"),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "user persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_falls_through_to_org_when_user_persona_is_blank(monkeypatch) -> None:
+    # The user's config is still what wins resolve_for_project() for key/model/
+    # quota (it is enabled) -- it just has no persona of its own.
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona="org persona"),
+        },
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    effective_config = await svc.resolve_for_project(project_id=uuid.uuid4(), user_id=uid)
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert effective_config is not None
+    assert effective_config.scope is PromptScope.USER
+    assert persona == "org persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_falls_through_to_platform_when_user_and_org_are_blank(monkeypatch) -> None:
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona=""),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "platform persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_skips_a_disabled_orgs_persona(monkeypatch) -> None:
+    # A disabled org config never wins resolve_for_project() either -- its
+    # persona must not leak through as if it were live.
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=False, org_id=org, persona="org persona"),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "platform persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_empty_when_nothing_in_the_chain_has_one(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    repo = _FakeConfigRepo({("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona="")})
+    svc = _make_config_service(
+        configs=repo, tenancy=_FakeTenancy(_FakeProject(None)), monkeypatch=monkeypatch
+    )
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == ""
+
+
 # --- pinned-key guards (R29.05) --------------------------------------------
 
 

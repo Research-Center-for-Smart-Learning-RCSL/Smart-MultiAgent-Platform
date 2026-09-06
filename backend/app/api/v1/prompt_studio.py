@@ -736,7 +736,22 @@ async def admin_delete_preset(
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await ConfigService(db).delete_preset(
+    # Deleting the config row alone would cascade the DB file-metadata rows
+    # (ON DELETE CASCADE) without ever touching their MinIO blobs -- route
+    # each reference file through FileService first so its storage.remove()
+    # actually runs, same as deleting one file at a time would.
+    config_service = ConfigService(db)
+    await config_service.get_platform_preset_or_raise(config_id)
+    file_service = FileService(db, get_minio_client())
+    for f in await config_service.list_files(config_id):
+        await file_service.remove_reference_file(
+            config_id=config_id,
+            file_id=f.id,
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    await config_service.delete_preset(
         preset_id=config_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
