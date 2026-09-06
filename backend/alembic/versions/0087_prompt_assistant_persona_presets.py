@@ -54,23 +54,22 @@ _SEEDS: tuple[tuple[str, str, str], ...] = (
 
 
 def upgrade() -> None:
-    op.add_column(
-        "prompt_assistant_configs",
-        sa.Column("persona_prompt", sa.Text(), nullable=False, server_default=sa.text("''")),
-    )
-    op.add_column(
-        "prompt_assistant_configs", sa.Column("name", sa.Text(), nullable=False, server_default=sa.text("''"))
-    )
-    op.add_column(
-        "prompt_assistant_configs",
-        sa.Column("description", sa.Text(), nullable=False, server_default=sa.text("''")),
-    )
+    # IF NOT EXISTS (rather than op.add_column, which has no such guard) so the
+    # whole migration -- not just the seed INSERT -- tolerates being run twice,
+    # e.g. a manual re-run against a database that already has these columns.
+    for column, definition in (
+        ("persona_prompt", "TEXT NOT NULL DEFAULT ''"),
+        ("name", "TEXT NOT NULL DEFAULT ''"),
+        ("description", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        op.execute(f"ALTER TABLE prompt_assistant_configs ADD COLUMN IF NOT EXISTS {column} {definition}")
 
     # Platform scope is no longer a singleton (R29.02 relaxed): replace "at most
-    # one platform row" with "at most one *enabled* platform row".
-    op.execute("DROP INDEX uq_prompt_assistant_config_platform")
+    # one platform row" with "at most one *enabled* platform row". IF EXISTS /
+    # IF NOT EXISTS for the same re-run tolerance as the columns above.
+    op.execute("DROP INDEX IF EXISTS uq_prompt_assistant_config_platform")
     op.execute(
-        "CREATE UNIQUE INDEX uq_prompt_assistant_config_platform_active "
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_prompt_assistant_config_platform_active "
         "ON prompt_assistant_configs (scope) WHERE scope = 'platform' AND enabled = true"
     )
 
@@ -90,7 +89,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     delete_stmt = sa.text(
-        "DELETE FROM prompt_assistant_configs WHERE scope = 'platform' AND name = ANY(:names)"
+        "DELETE FROM prompt_assistant_configs WHERE scope = 'platform' AND name IN :names"
     ).bindparams(sa.bindparam("names", expanding=True))
     bind.execute(delete_stmt, {"names": [name for name, _, _ in _SEEDS]})
     op.execute("DROP INDEX IF EXISTS uq_prompt_assistant_config_platform_active")
