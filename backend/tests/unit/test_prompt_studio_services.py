@@ -605,6 +605,46 @@ async def test_preset_crud_emits_the_matching_actions(monkeypatch) -> None:
     assert all(e.resource_type == "prompt_assistant_config" for e in emitted)
 
 
+@pytest.mark.asyncio
+async def test_auto_disabling_a_sibling_preset_is_itself_audited(monkeypatch) -> None:
+    # A preset being flipped off as a side effect of enabling another one is
+    # still a persisted state change to a distinct resource -- it must not be
+    # silent just because the caller's request named a different preset.
+    actor = uuid.uuid4()
+    emitted: list = []
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch, emitted=emitted)
+
+    first = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+    emitted.clear()
+
+    await svc.create_preset(
+        actor_user_id=actor,
+        name="B",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+
+    auto_disabled = [e for e in emitted if e.action == "prompt_studio.preset_auto_disabled"]
+    assert len(auto_disabled) == 1
+    assert auto_disabled[0].resource_id == first.id
+    assert auto_disabled[0].actor_user_id == actor
+
+
 # --- template service ------------------------------------------------------
 
 

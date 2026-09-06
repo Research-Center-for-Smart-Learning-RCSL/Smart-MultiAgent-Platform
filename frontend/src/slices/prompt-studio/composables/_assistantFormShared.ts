@@ -41,7 +41,7 @@ export function useChatKeyAndModelOptions(keyId: ComputedRef<string | null>) {
     ]
   })
 
-  return { keysQuery, catalogQuery, keyOptions, modelOptions }
+  return { keyOptions, modelOptions }
 }
 
 export function toastForSaveError(err: unknown, toast: ReturnType<typeof useToast>, t: (k: string) => string) {
