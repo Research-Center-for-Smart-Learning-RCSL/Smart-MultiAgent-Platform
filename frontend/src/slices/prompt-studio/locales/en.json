@@ -72,6 +72,7 @@
       "keyCapability": "The selected key's provider does not support chat.",
       "fileUploaded": "File added.",
       "uploadFailed": "Could not upload the file.",
+      "deleteFileFailed": "Could not delete the file.",
       "budgetError": "This file would exceed the 200 KB reference-text budget.",
       "formatError": "Unsupported file format.",
       "infectedError": "The file failed the virus scan.",
