@@ -381,13 +381,15 @@ immediately; the columns become inert.
 - [x] AC-3: The worker passes `config.persona_prompt` through the resolution chain to
   `build_system_text()`. A session using a config with a custom persona produces an
   LLM system message starting with that persona, not `DEFAULT_PERSONA`.
-- [ ] AC-4: Migration adds the three columns and seeds three platform-scope rows from
-  the pack JSON system_prompts. Seeded rows have `enabled=false`, `key_id=NULL`. Test
-  written (`tests/integration/test_migration_0087_schema.py`) and correct by code
-  review, but not executed locally -- this Windows dev box has no scratch Postgres
-  (`SMAP_SCRATCH_DATABASE_URL` unset, Docker daemon not running). CI's `db`-tier job
-  does set that variable (`.github/workflows/ci.yml:184`); check this box once that
-  job is green on the PR.
+- [x] AC-4: Migration adds the three columns and seeds three platform-scope rows from
+  the pack JSON system_prompts. Seeded rows have `enabled=false`, `key_id=NULL`.
+  Verified by CI's `backend-db` job (PR #187, run 34005922279) after two rounds of
+  fixes the job's real Postgres surfaced that this dev box's lack of a scratch DB
+  could not: `upgrade()` was not actually re-run-tolerant (bare `op.add_column` /
+  `DROP INDEX` / `CREATE UNIQUE INDEX` with no `IF [NOT] EXISTS` guards) and
+  `downgrade()`'s cleanup `DELETE` used `name = ANY(:names)` with an expanding
+  bindparam, which psycopg3 renders as a list, not an array -- `ANY()` needs an
+  array; switched to `name IN :names`. See D-11.
 - [x] AC-5: Platform scope supports multiple config rows (presets). Org and user scopes
   remain singleton (upsert semantics preserved).
 - [x] AC-6: `GET /api/admin/prompt-assistant/presets` returns all platform configs.
@@ -563,6 +565,22 @@ decisions, or an incidental correction found while implementing.
   `delete_preset`, and both file endpoints. Covered by
   `test_update_preset_rejects_a_non_platform_config_id` and
   `test_delete_preset_rejects_a_non_platform_config_id`.
+- **D-11 (CI-surfaced migration bugs, fixed):** With no scratch Postgres available on
+  the dev box that built this task, CI's `backend-db` job (PR #187) was the first real
+  execution of migration 0087 and its test suite, and it found two genuine bugs
+  code review had missed: (1) `upgrade()` was not actually re-run-tolerant despite the
+  migration's own docstring implying it was -- `op.add_column` has no `IF NOT EXISTS`
+  guard, and the index swap used bare `DROP INDEX` / `CREATE UNIQUE INDEX` with no
+  `IF EXISTS` / `IF NOT EXISTS` either, so `test_upgrade_is_idempotent_on_rerun` hit
+  `DuplicateColumn` on the very first `ALTER TABLE`. All three `ADD COLUMN`s and both
+  index statements are now idempotent. (2) `downgrade()`'s cleanup `DELETE` used
+  `name = ANY(:names)` with an expanding bindparam; psycopg3 renders that as a plain
+  parenthesized list, not an array, and Postgres's `ANY()` requires an array operand --
+  switched to `name IN :names`, the pairing expanding bindparams are actually for. A
+  third issue was in the test itself, not the migration:
+  `test_a_failed_upgrade_leaves_nothing_behind` asserted via `_platform_rows()`, which
+  selects `persona_prompt`/`name`/`description` -- columns that no longer exist once the
+  transaction under test has been rolled back; switched to a plain `COUNT(*)`.
 
 ## 16. Follow-ups
 
