@@ -128,7 +128,10 @@ class _FakeConfigRepo:
         return list(self.platform_presets)
 
     async def get_by_id(self, config_id):
-        return next((p for p in self.platform_presets if p.id == config_id), None)
+        found = next((p for p in self.platform_presets if p.id == config_id), None)
+        if found is not None:
+            return found
+        return next((c for c in self.by_scope.values() if c.id == config_id), None)
 
     async def create(self, *, scope, org_id, user_id, values):
         preset = _config(
@@ -506,6 +509,51 @@ async def test_delete_preset_missing_raises_not_found(monkeypatch) -> None:
     svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
     with pytest.raises(AssistantConfigNotFound):
         await svc.delete_preset(preset_id=uuid.uuid4(), actor_user_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_update_preset_rejects_a_non_platform_config_id(monkeypatch) -> None:
+    # Security fix: the id-addressed preset endpoints take a client-supplied
+    # config_id with no scope in the path. Without a scope check, an admin
+    # could target any org's singleton config through a route gated and
+    # documented for platform presets only -- there is no other DELETE for
+    # an org config anywhere in this router.
+    org_id = uuid.uuid4()
+    org_cfg = _config(PromptScope.ORG, enabled=True, org_id=org_id)
+    repo = _FakeConfigRepo({("org", org_id): org_cfg})
+    svc = _make_config_service(configs=repo, monkeypatch=monkeypatch)
+
+    with pytest.raises(AssistantConfigNotFound):
+        await svc.update_preset(
+            preset_id=org_cfg.id,
+            actor_user_id=uuid.uuid4(),
+            expected_version=org_cfg.version,
+            name="hijacked",
+            description="",
+            persona_prompt="",
+            system_prompt="",
+            key_id=None,
+            model_id=None,
+            daily_request_limit_per_user=50,
+            enabled=False,
+        )
+
+    unchanged = await repo.get_by_scope(PromptScope.ORG, org_id=org_id)
+    assert unchanged is not None
+    assert unchanged.name == org_cfg.name
+
+
+@pytest.mark.asyncio
+async def test_delete_preset_rejects_a_non_platform_config_id(monkeypatch) -> None:
+    user_id = uuid.uuid4()
+    user_cfg = _config(PromptScope.USER, enabled=True, user_id=user_id)
+    repo = _FakeConfigRepo({("user", user_id): user_cfg})
+    svc = _make_config_service(configs=repo, monkeypatch=monkeypatch)
+
+    with pytest.raises(AssistantConfigNotFound):
+        await svc.delete_preset(preset_id=user_cfg.id, actor_user_id=uuid.uuid4())
+
+    assert await repo.get_by_scope(PromptScope.USER, user_id=user_id) is not None
 
 
 @pytest.mark.asyncio

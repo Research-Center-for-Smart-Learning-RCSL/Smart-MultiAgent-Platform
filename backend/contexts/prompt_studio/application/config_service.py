@@ -143,10 +143,20 @@ class ConfigService:
         """Metadata only -- the API layer's response DTOs never serialize extracted_text."""
         return await self._configs.list_files_meta(config_id)
 
-    async def get_config_or_raise(self, config_id: uuid.UUID) -> AssistantConfig:
-        config = await self._configs.get_by_id(config_id)
-        if config is None:
-            raise AssistantConfigNotFound(str(config_id))
+    async def get_platform_preset_or_raise(self, preset_id: uuid.UUID) -> AssistantConfig:
+        """Fetch a config by id, scoped to platform only.
+
+        All four id-addressed preset endpoints (update/delete/upload-file/
+        delete-file) take a client-supplied ``config_id`` with no scope in the
+        path or body. A scope-agnostic lookup here would let an admin target
+        any org's or any user's singleton config through a route gated and
+        documented for platform presets only -- there being no separate
+        DELETE anywhere else in this router for an org/user config, that
+        would make this the only way to destroy one of those rows at all.
+        """
+        config = await self._configs.get_by_id(preset_id)
+        if config is None or config.scope is not PromptScope.PLATFORM:
+            raise AssistantConfigNotFound(str(preset_id))
         return config
 
     # -- platform preset CRUD (R29.16) ---------------------------------------
@@ -218,6 +228,7 @@ class ConfigService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> AssistantConfig:
+        await self.get_platform_preset_or_raise(preset_id)
         if key_id is not None:
             await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
         if enabled:
@@ -249,7 +260,7 @@ class ConfigService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> None:
-        preset = await self.get_config_or_raise(preset_id)
+        preset = await self.get_platform_preset_or_raise(preset_id)
         await self._configs.delete(preset_id)
         await self._emit_preset("prompt_studio.preset_deleted", preset, actor_user_id, actor_ip, request_id)
 

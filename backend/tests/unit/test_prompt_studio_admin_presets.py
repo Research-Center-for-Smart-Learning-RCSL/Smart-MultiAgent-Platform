@@ -164,7 +164,7 @@ class TestAdminPresetFiles:
             created_at=_NOW,
         )
         with (
-            patch.object(ConfigService, "get_config_or_raise", AsyncMock(return_value=preset)),
+            patch.object(ConfigService, "get_platform_preset_or_raise", AsyncMock(return_value=preset)),
             patch.object(FileService, "upload_reference_file", AsyncMock(return_value=file_out)),
         ):
             out = await prompt_studio.admin_upload_preset_file(
@@ -177,7 +177,7 @@ class TestAdminPresetFiles:
         preset = _preset()
         file_id = uuid.uuid4()
         with (
-            patch.object(ConfigService, "get_config_or_raise", AsyncMock(return_value=preset)),
+            patch.object(ConfigService, "get_platform_preset_or_raise", AsyncMock(return_value=preset)),
             patch.object(FileService, "remove_reference_file", AsyncMock(return_value=None)) as remove,
         ):
             await prompt_studio.admin_delete_preset_file(
