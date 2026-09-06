@@ -243,8 +243,11 @@ def test_a_failed_upgrade_leaves_nothing_behind(
         def _boom(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("index rebuild blew up mid-migration")
 
-        # The three add_column calls run for real; the first op.execute()
-        # call in upgrade() is the DROP INDEX statement -- blow up there.
+        # Every statement in upgrade() -- the three ADD COLUMNs, the index
+        # swap, and the seed -- goes through op.execute(), so this blows up on
+        # the very first one. That still proves the property this test is
+        # for: a mid-migration failure leaves nothing behind, not a partial
+        # schema change.
         monkeypatch.setattr(migration_0087.op, "execute", _boom)
         with pytest.raises(RuntimeError, match="blew up mid-migration"):
             migration_0087.upgrade()
@@ -253,4 +256,9 @@ def test_a_failed_upgrade_leaves_nothing_behind(
     for col in ("persona_prompt", "name", "description"):
         assert not _column_exists(scratch_conn, "prompt_assistant_configs", col)
     assert _index_exists(scratch_conn, "prompt_assistant_configs", _OLD_SINGLETON_INDEX)
-    assert len(_platform_rows(scratch_conn)) == 0
+    # _platform_rows() selects the new columns, which do not exist once the
+    # rollback above has undone the ADD COLUMNs too -- a plain count instead.
+    remaining = scratch_conn.execute(
+        sa.text("SELECT count(*) FROM prompt_assistant_configs WHERE scope = 'platform'")
+    ).scalar_one()
+    assert remaining == 0
