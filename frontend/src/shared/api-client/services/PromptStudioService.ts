@@ -3,9 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AssistantConfigOut } from '../models/AssistantConfigOut';
+import type { AssistantConfigPresetPutIn } from '../models/AssistantConfigPresetPutIn';
 import type { AssistantConfigPutIn } from '../models/AssistantConfigPutIn';
 import type { AssistantSessionOut } from '../models/AssistantSessionOut';
-import type { Body_admin_upload_file_api_admin_prompt_assistant_config_files_post } from '../models/Body_admin_upload_file_api_admin_prompt_assistant_config_files_post';
+import type { Body_admin_upload_preset_file_api_admin_prompt_assistant_presets__config_id__files_post } from '../models/Body_admin_upload_preset_file_api_admin_prompt_assistant_presets__config_id__files_post';
 import type { Body_me_upload_file_api_me_prompt_assistant_config_files_post } from '../models/Body_me_upload_file_api_me_prompt_assistant_config_files_post';
 import type { Body_org_upload_file_api_orgs__org_id__prompt_assistant_config_files_post } from '../models/Body_org_upload_file_api_orgs__org_id__prompt_assistant_config_files_post';
 import type { ConfigEnvelopeOut } from '../models/ConfigEnvelopeOut';
@@ -21,31 +22,77 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class PromptStudioService {
     /**
-     * Admin Get Config
-     * @returns ConfigEnvelopeOut Successful Response
-     * @throws ApiError
-     */
-    public static adminGetConfigApiAdminPromptAssistantConfigGet(): CancelablePromise<ConfigEnvelopeOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/admin/prompt-assistant/config',
-        });
-    }
-    /**
-     * Admin Put Config
+     * Admin List Presets
      * @returns AssistantConfigOut Successful Response
      * @throws ApiError
      */
-    public static adminPutConfigApiAdminPromptAssistantConfigPut({
+    public static adminListPresetsApiAdminPromptAssistantPresetsGet(): CancelablePromise<Array<AssistantConfigOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/prompt-assistant/presets',
+        });
+    }
+    /**
+     * Admin Create Preset
+     * @returns AssistantConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static adminCreatePresetApiAdminPromptAssistantPresetsPost({
         requestBody,
-        ifMatch,
     }: {
-        requestBody: AssistantConfigPutIn,
-        ifMatch?: (string | null),
+        requestBody: AssistantConfigPresetPutIn,
+    }): CancelablePromise<AssistantConfigOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/prompt-assistant/presets',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Delete Preset
+     * @returns void
+     * @throws ApiError
+     */
+    public static adminDeletePresetApiAdminPromptAssistantPresetsConfigIdDelete({
+        configId,
+    }: {
+        configId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/prompt-assistant/presets/{config_id}',
+            path: {
+                'config_id': configId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Admin Update Preset
+     * @returns AssistantConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static adminUpdatePresetApiAdminPromptAssistantPresetsConfigIdPut({
+        configId,
+        ifMatch,
+        requestBody,
+    }: {
+        configId: string,
+        ifMatch: string,
+        requestBody: AssistantConfigPresetPutIn,
     }): CancelablePromise<AssistantConfigOut> {
         return __request(OpenAPI, {
             method: 'PUT',
-            url: '/api/admin/prompt-assistant/config',
+            url: '/api/admin/prompt-assistant/presets/{config_id}',
+            path: {
+                'config_id': configId,
+            },
             headers: {
                 'If-Match': ifMatch,
             },
@@ -57,18 +104,23 @@ export class PromptStudioService {
         });
     }
     /**
-     * Admin Upload File
+     * Admin Upload Preset File
      * @returns FileOut Successful Response
      * @throws ApiError
      */
-    public static adminUploadFileApiAdminPromptAssistantConfigFilesPost({
+    public static adminUploadPresetFileApiAdminPromptAssistantPresetsConfigIdFilesPost({
+        configId,
         formData,
     }: {
-        formData: Body_admin_upload_file_api_admin_prompt_assistant_config_files_post,
+        configId: string,
+        formData: Body_admin_upload_preset_file_api_admin_prompt_assistant_presets__config_id__files_post,
     }): CancelablePromise<FileOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/admin/prompt-assistant/config/files',
+            url: '/api/admin/prompt-assistant/presets/{config_id}/files',
+            path: {
+                'config_id': configId,
+            },
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
@@ -77,19 +129,22 @@ export class PromptStudioService {
         });
     }
     /**
-     * Admin Delete File
+     * Admin Delete Preset File
      * @returns void
      * @throws ApiError
      */
-    public static adminDeleteFileApiAdminPromptAssistantConfigFilesFileIdDelete({
+    public static adminDeletePresetFileApiAdminPromptAssistantPresetsConfigIdFilesFileIdDelete({
+        configId,
         fileId,
     }: {
+        configId: string,
         fileId: string,
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/admin/prompt-assistant/config/files/{file_id}',
+            url: '/api/admin/prompt-assistant/presets/{config_id}/files/{file_id}',
             path: {
+                'config_id': configId,
                 'file_id': fileId,
             },
             errors: {

@@ -8,6 +8,8 @@ export { promptStudioKeys } from './queries'
 export { default as PromptAssistantPanel } from './components/PromptAssistantPanel.vue'
 export { default as PromptTemplatePicker } from './components/PromptTemplatePicker.vue'
 export { default as AdminPromptStudioView } from './views/AdminPromptStudioView.vue'
+export { default as AdminPromptPresetListView } from './views/AdminPromptPresetListView.vue'
+export { default as AdminPromptPresetEditView } from './views/AdminPromptPresetEditView.vue'
 export type { AssistantConfig, PromptTemplate, ResolvedAssistant } from './types'
 
 export function installPromptStudioSlice(): void {

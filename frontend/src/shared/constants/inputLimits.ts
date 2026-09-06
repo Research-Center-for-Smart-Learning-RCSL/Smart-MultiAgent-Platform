@@ -23,6 +23,19 @@ export const INPUT_LIMITS = {
    * substitute.
    */
   PROMPT_ASSISTANT_SYSTEM_PROMPT: 20_000,
+  /**
+   * The prompt-assistant config's persona prompt -- full override of the
+   * default assistant identity when set. Mirrors
+   * `backend/contexts/prompt_studio/domain/models.py` (`PERSONA_PROMPT_MAX`).
+   */
+  PROMPT_ASSISTANT_PERSONA_PROMPT: 100_000,
+  /** Platform preset name (`AssistantConfig.name`, platform scope only). Mirrors `ASSISTANT_CONFIG_NAME_MAX`. */
+  PROMPT_ASSISTANT_PRESET_NAME: 100,
+  /**
+   * Platform preset description (`AssistantConfig.description`). Mirrors
+   * `ASSISTANT_CONFIG_DESCRIPTION_MAX`.
+   */
+  PROMPT_ASSISTANT_PRESET_DESCRIPTION: 300,
   /** Generic resource name (agent, chatroom, workspace, org, project, workflow, RAG config, key group). */
   NAME: 200,
   /** Provider model id / embedding model name. */

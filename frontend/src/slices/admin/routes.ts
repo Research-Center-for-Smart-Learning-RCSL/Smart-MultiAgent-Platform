@@ -74,6 +74,22 @@ export const adminRoutes: RouteRecordRaw[] = [
         component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptStudioView),
       },
       {
+        path: 'prompt-assistant/presets',
+        name: 'admin.promptPresets',
+        component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptPresetListView),
+      },
+      {
+        // Must precede the :presetId route below so 'new' is not captured as an id.
+        path: 'prompt-assistant/presets/new',
+        name: 'admin.promptPresetNew',
+        component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptPresetEditView),
+      },
+      {
+        path: 'prompt-assistant/presets/:presetId',
+        name: 'admin.promptPresetEdit',
+        component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptPresetEditView),
+      },
+      {
         path: 'skills',
         name: 'admin.skills',
         component: () => import('@slices/skills').then((m) => m.AdminSkillsView),

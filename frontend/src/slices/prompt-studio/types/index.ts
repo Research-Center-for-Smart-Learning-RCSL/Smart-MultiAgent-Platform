@@ -24,8 +24,12 @@ export interface AssistantFile {
 }
 
 export interface AssistantConfig {
+  id: string
   scope: PromptScope
+  name: string
+  description: string
   enabled: boolean
+  persona_prompt: string
   system_prompt: string
   key_id: string | null
   key: KeyMeta | null
@@ -43,12 +47,27 @@ export interface ConfigEnvelope {
 }
 
 export interface AssistantConfigPutInput {
+  persona_prompt: string
   system_prompt: string
   key_id: string | null
   model_id: string | null
   daily_request_limit_per_user: number
   enabled: boolean
   hide_platform_templates: boolean
+}
+
+// Full editor payload for a platform preset -- used for both create (POST)
+// and update (PUT). Platform-only: name/description have no meaning for the
+// singleton org/user config (AssistantConfigPutInput above).
+export interface AssistantConfigPresetInput {
+  name: string
+  description: string
+  persona_prompt: string
+  system_prompt: string
+  key_id: string | null
+  model_id: string | null
+  daily_request_limit_per_user: number
+  enabled: boolean
 }
 
 export interface PromptTemplate {
@@ -87,8 +106,13 @@ export interface SessionCreated {
 }
 
 // Config-owner scope descriptor used by the shared form + api layer to target
-// the right endpoint family without the views duplicating URL logic.
+// the right endpoint family without the views duplicating URL logic. Platform
+// scope is no longer a singleton config (see AssistantConfigPresetInput
+// above) -- presets are addressed by id, not by scope.
 export type ConfigScopeRef =
   | { kind: 'user' }
   | { kind: 'org'; orgId: string }
-  | { kind: 'platform' }
+
+// Templates remain a singleton-per-scope resource including platform, unlike
+// the assistant config above.
+export type TemplateScopeRef = ConfigScopeRef | { kind: 'platform' }

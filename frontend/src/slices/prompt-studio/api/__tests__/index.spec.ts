@@ -46,15 +46,20 @@ const assistantSession = {
 function captureAll(): { value: CapturedRequest | null } {
   const { cap, on } = createRequestCapture()
   server.use(
-    // config (3 scopes)
+    // config (2 scopes -- platform is presets, below)
     on('get', '/api/me/prompt-assistant/config', configEnvelope),
     on('get', '/api/orgs/:oid/prompt-assistant/config', configEnvelope),
-    on('get', '/api/admin/prompt-assistant/config', configEnvelope),
     on('put', '/api/me/prompt-assistant/config', assistantConfig),
     on('put', '/api/orgs/:oid/prompt-assistant/config', assistantConfig),
-    on('put', '/api/admin/prompt-assistant/config', assistantConfig),
     on('delete', '/api/me/prompt-assistant/config/files/:fid', null, 204),
     on('delete', '/api/orgs/:oid/prompt-assistant/config/files/:fid', null, 204),
+    // platform presets (id-addressed, not scope-addressed)
+    on('get', '/api/admin/prompt-assistant/presets', [assistantConfig]),
+    on('post', '/api/admin/prompt-assistant/presets', assistantConfig, 201),
+    on('put', '/api/admin/prompt-assistant/presets/:cid', assistantConfig),
+    on('delete', '/api/admin/prompt-assistant/presets/:cid', null, 204),
+    on('post', '/api/admin/prompt-assistant/presets/:cid/files', fileOut, 201),
+    on('delete', '/api/admin/prompt-assistant/presets/:cid/files/:fid', null, 204),
     // templates (3 scopes)
     on('get', '/api/me/prompt-templates', [template]),
     on('get', '/api/orgs/:oid/prompt-templates', [template]),
@@ -74,14 +79,12 @@ function captureAll(): { value: CapturedRequest | null } {
 
 describe('prompt-studio api wire contract', () => {
   // ---- scope dispatch ----
-  it('getConfig dispatches user -> /me, org -> /orgs/{id}, platform -> /admin', async () => {
+  it('getConfig dispatches user -> /me, org -> /orgs/{id}', async () => {
     const cap = captureAll()
     await promptStudioApi.getConfig({ kind: 'user' })
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/me/prompt-assistant/config' })
     await promptStudioApi.getConfig({ kind: 'org', orgId: 'o_1' })
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/orgs/o_1/prompt-assistant/config' })
-    await promptStudioApi.getConfig({ kind: 'platform' })
-    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/admin/prompt-assistant/config' })
   })
 
   it('listTemplates dispatches across the three scopes', async () => {
@@ -98,6 +101,7 @@ describe('prompt-studio api wire contract', () => {
   it('putConfig PUTs the payload with If-Match when a version is given', async () => {
     const cap = captureAll()
     const payload = {
+      persona_prompt: '',
       system_prompt: 'hi',
       key_id: null,
       model_id: null,
@@ -116,7 +120,8 @@ describe('prompt-studio api wire contract', () => {
 
   it('putConfig omits If-Match when the version is null', async () => {
     const cap = captureAll()
-    await promptStudioApi.putConfig({ kind: 'platform' }, null, {
+    await promptStudioApi.putConfig({ kind: 'org', orgId: 'o_1' }, null, {
+      persona_prompt: '',
       system_prompt: 'hi',
       key_id: null,
       model_id: null,
@@ -124,8 +129,79 @@ describe('prompt-studio api wire contract', () => {
       enabled: true,
       hide_platform_templates: false,
     })
-    expect(cap.value).toMatchObject({ method: 'PUT', path: '/api/admin/prompt-assistant/config' })
+    expect(cap.value).toMatchObject({ method: 'PUT', path: '/api/orgs/o_1/prompt-assistant/config' })
     expect(cap.value?.ifMatch).toBeNull()
+  })
+
+  // ---- platform presets (id-addressed) ----
+  it('listPresets GETs the presets route', async () => {
+    const cap = captureAll()
+    await promptStudioApi.listPresets()
+    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/admin/prompt-assistant/presets' })
+  })
+
+  it('createPreset POSTs the full editor payload, no If-Match', async () => {
+    const cap = captureAll()
+    const payload = {
+      name: 'N',
+      description: 'D',
+      persona_prompt: 'P',
+      system_prompt: '',
+      key_id: null,
+      model_id: null,
+      daily_request_limit_per_user: 10,
+      enabled: false,
+    }
+    await promptStudioApi.createPreset(payload)
+    expect(cap.value).toMatchObject({
+      method: 'POST',
+      path: '/api/admin/prompt-assistant/presets',
+      body: payload,
+    })
+  })
+
+  it('updatePreset PUTs to the preset id with If-Match: String(version)', async () => {
+    const cap = captureAll()
+    await promptStudioApi.updatePreset('cfg_1', 2, {
+      name: 'N',
+      description: 'D',
+      persona_prompt: 'P',
+      system_prompt: '',
+      key_id: null,
+      model_id: null,
+      daily_request_limit_per_user: 10,
+      enabled: true,
+    })
+    expect(cap.value).toMatchObject({
+      method: 'PUT',
+      path: '/api/admin/prompt-assistant/presets/cfg_1',
+      ifMatch: '2',
+    })
+  })
+
+  it('deletePreset / deletePresetFile DELETE the preset-id-addressed routes', async () => {
+    const cap = captureAll()
+    await promptStudioApi.deletePreset('cfg_1')
+    expect(cap.value).toMatchObject({ method: 'DELETE', path: '/api/admin/prompt-assistant/presets/cfg_1' })
+    await promptStudioApi.deletePresetFile('cfg_1', 'f_1')
+    expect(cap.value).toMatchObject({
+      method: 'DELETE',
+      path: '/api/admin/prompt-assistant/presets/cfg_1/files/f_1',
+    })
+  })
+
+  it('uploadPresetFile POSTs multipart to the preset files route', async () => {
+    let hit: string | null = null
+    server.use(
+      mswHttp.post('/api/admin/prompt-assistant/presets/:cid/files', ({ request }) => {
+        hit = new URL(request.url).pathname
+        return HttpResponse.json(fileOut, { status: 201 })
+      }),
+    )
+    const file = new File(['x'], 'sys.txt', { type: 'text/plain' })
+    const out = await promptStudioApi.uploadPresetFile('cfg_1', file)
+    expect(hit).toBe('/api/admin/prompt-assistant/presets/cfg_1/files')
+    expect(out).toMatchObject({ id: 'f_1', scan_status: 'pending' })
   })
 
   it('patchTemplate PATCHes with If-Match: String(version) and the body', async () => {
