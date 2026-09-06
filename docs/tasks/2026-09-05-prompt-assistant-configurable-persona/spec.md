@@ -581,6 +581,50 @@ decisions, or an incidental correction found while implementing.
   `test_a_failed_upgrade_leaves_nothing_behind` asserted via `_platform_rows()`, which
   selects `persona_prompt`/`name`/`description` -- columns that no longer exist once the
   transaction under test has been rolled back; switched to a plain `COUNT(*)`.
+- **D-12 (`/code-review` finding, HIGH, fixed):** Q-5's persona inheritance chain (user
+  persona -> org persona -> active platform preset's persona -> `DEFAULT_PERSONA`) was
+  never actually implemented. `build_system_text()` only ever saw
+  `resolve_for_project()`'s *single* winning config's own `persona_prompt`, falling
+  straight to `DEFAULT_PERSONA` when that one config's persona was blank -- even though
+  a higher scope had a persona set, and even though the shipped UI help text explicitly
+  promises "Leave empty to inherit from the organization or platform default." AC-8 as
+  literally written ("The resolved config's `persona_prompt` is used") matched what was
+  built and does not by itself surface this gap; Q-5 is the requirement that does. Fixed
+  by a new `ConfigService.resolve_effective_persona()` that walks the same
+  user -> org -> platform precedence independently of which scope wins the effective
+  config for key/model/quota, skipping disabled configs and scopes whose persona is
+  blank. The worker now calls it instead of reading `config.persona_prompt` directly.
+- **D-13 (`/code-review` finding, MEDIUM-HIGH, fixed):** Two admins concurrently enabling
+  two different (both currently disabled) presets could race past
+  `_disable_other_enabled_presets`' app-level check -- each request's read finds no
+  enabled sibling yet -- and hit `uq_prompt_assistant_config_platform_active` as a raw,
+  unmapped `IntegrityError`, surfacing as a 500 instead of a clean conflict response.
+  Fixed by wrapping `AssistantConfigRepository.create()`/`update()`'s execute calls and
+  mapping that specific constraint name to a new `PresetAlreadyActive` domain error (409),
+  matching the existing `uq_agents_project_name_active` -> `AgentNameTaken` pattern in
+  the agents context.
+- **D-14 (`/code-review` finding, MEDIUM, fixed):** `delete_preset()` deleted the config
+  row and relied on `ON DELETE CASCADE` for its reference-file DB rows, but nothing
+  called `storage.remove()` for their MinIO blobs -- deleting a preset with reference
+  files orphaned those blobs permanently. `admin_delete_preset` now routes each reference
+  file through `FileService.remove_reference_file()` (which does call `storage.remove()`)
+  before deleting the config row itself.
+- **D-15 (`/code-review` finding, HIGH, accepted risk, not fixed):** This migration
+  seeds multiple platform-scope rows and this PR removes the singleton
+  `GET/PUT /api/admin/prompt-assistant/config` routes in the same release. `docs/operations.md`'s
+  **[O4.03]** requires every migration to stay compatible with at least N-1 concurrently-running
+  application versions during a rolling deploy (`backend-web` runs 3 replicas, rolling).
+  During the deploy window, an old-code replica still serving the removed routes would call
+  `AssistantConfigRepository.get_by_scope(PLATFORM)` -- a bare `.first()` with no
+  deterministic ordering -- against a table that, post-migration, already holds up to 4
+  platform rows (1 pre-existing possible + 3 seeded), instead of the one row that route's
+  logic assumes. Impact is bounded to platform-admin-only requests to an already-being-removed
+  route during a short rolling-restart window (config confusion, not data corruption or a
+  security issue), and fixing it properly would mean splitting this feature across two
+  releases (seed presets and keep the old singleton routes working against the relaxed
+  schema in one release; remove the old routes in the next) -- a scope increase not taken
+  in this task. Flagged for the user/ops team rather than fixed silently; a low-traffic or
+  coordinated rollout window for this specific release avoids the exposure entirely.
 
 ## 16. Follow-ups
 
@@ -601,3 +645,54 @@ decisions, or an incidental correction found while implementing.
   can set their own persona, and `daily_request_limit_per_user` already bounds turn
   volume), but worth a second look at whether 100K chars/turn multiplied across a
   scope's users is the intended cost profile.
+- **FU-5 (`/code-review`, HIGH but narrow, not fixed):** The per-user daily quota is
+  keyed by `(AssistantConfig.id, user_id, day)` (`session_store.py`). Platform presets
+  no longer have a fixed id for "the platform config" the way org/user singletons do --
+  an admin switching which preset is enabled changes the id `resolve_for_project()`
+  returns for every user under platform scope, silently resetting their daily counters
+  for the rest of that day. A separate, narrower race: the web process's optimistic
+  charge and the worker's refund both re-resolve the config independently
+  (`resolve_for_project()` is not idempotent across two calls once the enabled preset
+  can change between them), so a preset swap in that exact window could refund the wrong
+  preset's counter. Admin-triggered only, bounded to a counter-fairness annoyance, not a
+  security or data-integrity issue; deferred rather than redesigning quota keying around
+  scope+day instead of config-id+day.
+- **FU-6 (`/code-review`, MEDIUM, not fixed):** `FileService.upload_reference_file()` /
+  `remove_reference_file()` take a bare `config_id` with no scope check of their own --
+  the 4 current call sites each pre-check scope themselves
+  (`ConfigService.get_config`/`get_platform_preset_or_raise`), but nothing enforces that
+  a future 5th caller remembers to. Consider moving the scope check into `FileService`
+  itself so the invariant holds regardless of caller.
+- **FU-7 (`/code-review`, MEDIUM, not fixed):** `AssistantConfigPresetPutIn` defaults
+  every field, including `enabled`, so a PUT that omits a field is silently accepted
+  (200) rather than rejected (422) -- unreachable via the shipped frontend (it always
+  sends a full payload) but a footgun for any future direct API caller, since an omitted
+  `enabled` would silently disable an active preset.
+- **FU-8 (`/code-review`, LOW, not fixed):** `admin_list_presets` calls `_config_out`
+  once per preset in a loop, each issuing up to 2 sequential queries
+  (`list_files`, `get_key`) -- up to 2N+1 round trips for N presets. Fine at the
+  "single-digit count expected" scale the spec's own NFR checklist already accepted;
+  worth batching if the preset count ever grows materially.
+- **FU-9 (`/code-review`, LOW, not fixed):** `_disable_other_enabled_presets` fetches
+  and fully hydrates every platform row via `list_platform()` merely to find at most one
+  enabled sibling, instead of the already-existing targeted
+  `get_enabled_platform_preset()` used one function away in `resolve_for_project()`.
+  Same "fine at this scale" reasoning as FU-8.
+- **FU-10 (`/code-review`, LOW, pre-existing pattern, not fixed):** The 6 new preset
+  routes instantiate `ConfigService`/`FileService` directly rather than through
+  `PromptStudioFacade`, continuing this file's existing pattern for the org/user routes
+  rather than introducing it fresh. The `list_platform_presets()` facade method this PR
+  adds is consequently never called by anything. Not a regression, but if the facade
+  boundary in `backend/CLAUDE.md` is meant to be enforced here, this file needs a
+  broader pass, not a preset-only one.
+- **FU-11 (`/code-review`, LOW, not fixed):** Three DRY gaps between the preset and
+  singleton-config code paths, none correctness-affecting: (1) `admin_upload_preset_file`
+  /`admin_delete_preset_file` re-implement `_upload_file`/`_delete_file`'s bodies
+  verbatim, differing only in how the config is resolved; (2)
+  `AssistantConfigPresetPutIn`/`AssistantConfigPresetInput` duplicate 6-7 fields from
+  `AssistantConfigPutIn`/`AssistantConfigPutInput` on both backend and frontend instead
+  of composing/extending them; (3) `create_preset`/`update_preset` each re-assemble a
+  near-identical inline `values` dict and repeat the key-check-then-disable-siblings
+  sequence. A future field addition or validation change has to be made in 2-4 places
+  by hand with nothing to catch a missed one -- the same class of miss D-8 already
+  caught once for the audit-emit gap.

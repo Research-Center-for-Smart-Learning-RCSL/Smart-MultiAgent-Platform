@@ -556,6 +556,23 @@ each row for its own list — the frontmatter wins over this preamble.
   backend + frontend suites, lint, typecheck, and now CI) before being kept; the episode is
   filed as model-behavior feedback.
 
+  A `/code-review` pass after CI went green found 13 further findings (D-12 through D-15 in
+  the dossier). Fixed: Q-5's persona inheritance chain was simply never implemented --
+  `build_system_text()` only ever saw the one config `resolve_for_project()` picked, so a
+  user/org config that won on key/model/quota but had a blank `persona_prompt` fell straight
+  to `DEFAULT_PERSONA` instead of the org's or platform's persona the UI's own help text
+  promises (D-12, HIGH); a concurrent-enable race could surface a raw `IntegrityError` as a
+  500 instead of a mapped 409 (D-13); deleting a preset orphaned its reference files' MinIO
+  blobs (D-14). Accepted as a flagged, not-fixed risk: this migration seeds multiple platform
+  rows while removing the singleton admin config routes in the same release, which an
+  old-code replica could still be serving during a rolling deploy against the
+  already-relaxed schema — `docs/operations.md`'s [O4.03] N-1-compatibility policy, bounded
+  to a short admin-only exposure window (D-15). The remaining 9 findings (quota keyed by an
+  id that moves when the active preset changes, missing defense-in-depth in `FileService`,
+  permissive PUT defaults, N+1/full-table-scan queries at "single-digit preset count"
+  scale, facade-bypass matching this file's existing pattern, and three reuse/DRY gaps) are
+  FU-5 through FU-11 — non-blocking.
+
 - (implemented 2026-09-05) `2026-09-05-openai-compatible-generic-provider`. Nothing lists
   this slug in `depends_on`, so no row moves out of Blocked.
 
