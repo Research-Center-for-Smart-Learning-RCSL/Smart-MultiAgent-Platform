@@ -752,7 +752,7 @@ async def admin_upload_preset_file(
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> FileOut:
-    await ConfigService(db).get_config_or_raise(config_id)
+    await ConfigService(db).get_platform_preset_or_raise(config_id)
     if file.size is not None and file.size > _MAX_REFERENCE_UPLOAD:
         raise HTTPException(status_code=413, detail="file exceeds 5 MB limit")
     data = await file.read()
@@ -780,7 +780,7 @@ async def admin_delete_preset_file(
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await ConfigService(db).get_config_or_raise(config_id)
+    await ConfigService(db).get_platform_preset_or_raise(config_id)
     await FileService(db, get_minio_client()).remove_reference_file(
         config_id=config_id,
         file_id=file_id,
