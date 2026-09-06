@@ -118,6 +118,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
             if f.scan_status is ScanStatus.CLEAN and f.extracted_text
         ]
         system_text = build_system_text(
+            persona_prompt=config.persona_prompt,
             config_system_prompt=config.system_prompt,
             reference_texts=reference_texts,
             editor_draft=editor_draft,

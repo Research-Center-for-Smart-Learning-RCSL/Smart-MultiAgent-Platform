@@ -52,6 +52,9 @@ _ATTACHMENT_SEGMENT = "/attachments"
 _DOCUMENT_SEGMENT = "/documents"
 # §29 prompt-assistant reference-file uploads (all three scopes end this way).
 _PROMPT_FILES_SEGMENT = "/prompt-assistant/config/files"
+# Platform presets are id-addressed (no fixed "config" segment), so the upload
+# path is .../prompt-assistant/presets/{config_id}/files instead.
+_PROMPT_PRESET_FILES_PREFIX = "/prompt-assistant/presets/"
 
 
 def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
@@ -71,6 +74,7 @@ def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
         or _ATTACHMENT_SEGMENT in path
         or _DOCUMENT_SEGMENT in path
         or _PROMPT_FILES_SEGMENT in path
+        or (_PROMPT_PRESET_FILES_PREFIX in path and path.endswith("/files"))
     ):
         return ratelimit.Bucket.UPLOAD
     return ratelimit.Bucket.OTHER

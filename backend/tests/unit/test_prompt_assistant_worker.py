@@ -42,12 +42,15 @@ def _fake_sessionmaker():
     return _FakeDb
 
 
-def _config(*, model_id: str | None, key_id: uuid.UUID | None) -> AssistantConfig:
+def _config(*, model_id: str | None, key_id: uuid.UUID | None, persona_prompt: str = "") -> AssistantConfig:
     return AssistantConfig(
         id=uuid.uuid4(),
         scope=PromptScope.USER,
         org_id=None,
         user_id=uuid.uuid4(),
+        persona_prompt=persona_prompt,
+        name="",
+        description="",
         system_prompt="be helpful",
         key_id=key_id,
         model_id=model_id,
@@ -212,6 +215,24 @@ async def test_explicit_model_id_is_used_verbatim(monkeypatch) -> None:
 
     assert result == "ok"
     assert router.captured_request.payload["model"] == "gpt-5.4-mini"
+
+
+@pytest.mark.asyncio
+async def test_custom_persona_flows_through_to_system_text(monkeypatch) -> None:
+    # AC-3: a session using a config with a custom persona produces a system
+    # message starting with that persona, not DEFAULT_PERSONA.
+    key = SimpleNamespace(provider=SimpleNamespace(value="claude"))
+    config = _config(model_id="claude-sonnet-4-6", key_id=uuid.uuid4(), persona_prompt="You are Marvin.")
+    session = _session()
+    store = _FakeStore(session)
+    router = _FakeRouter()
+
+    _patch_common(monkeypatch, config=config, key=key, store=store, router=router)
+
+    result = await worker_mod.prompt_assistant_turn({}, str(session.session_id), "")
+
+    assert result == "ok"
+    assert router.captured_request.payload["system"].startswith("You are Marvin.")
 
 
 @pytest.mark.asyncio

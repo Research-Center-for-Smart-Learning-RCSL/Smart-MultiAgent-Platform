@@ -15,6 +15,9 @@ from datetime import datetime
 
 # --- Bounds (§29 / R29.03, R29.06, R29.10) ---------------------------------
 SYSTEM_PROMPT_MAX = 20_000
+PERSONA_PROMPT_MAX = 100_000
+ASSISTANT_CONFIG_NAME_MAX = 100
+ASSISTANT_CONFIG_DESCRIPTION_MAX = 300
 TEMPLATE_NAME_MAX = 100
 TEMPLATE_DESC_MAX = 300
 TEMPLATE_BODY_MAX = 100_000
@@ -47,10 +50,20 @@ class ScanStatus(str, enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class AssistantConfig:
+    """A configuration row. Platform scope may hold multiple rows (presets,
+    identified by ``id``); org and user scopes remain singleton per scope
+    holder (§29 / R29.02, relaxed for platform)."""
+
     id: uuid.UUID
     scope: PromptScope
     org_id: uuid.UUID | None
     user_id: uuid.UUID | None
+    # Full persona override (replaces DEFAULT_PERSONA in prompts.py when
+    # non-empty). system_prompt below is supplementary guidance, unchanged.
+    persona_prompt: str
+    # Meaningful only for scope=platform, where multiple named presets exist.
+    name: str
+    description: str
     system_prompt: str
     key_id: uuid.UUID | None
     model_id: str | None
@@ -125,11 +138,14 @@ class TemplateDraft:
 
 __all__ = [
     "ALLOWED_FILE_EXTENSIONS",
+    "ASSISTANT_CONFIG_DESCRIPTION_MAX",
+    "ASSISTANT_CONFIG_NAME_MAX",
     "ASSISTANT_MAX_TOKENS",
     "DEFAULT_DAILY_REQUEST_LIMIT",
     "EXTRACTED_TEXT_BUDGET",
     "FILE_MAX_BYTES",
     "MAX_USER_MESSAGE_CHARS",
+    "PERSONA_PROMPT_MAX",
     "SESSION_MAX_MESSAGES",
     "SESSION_TTL_SECONDS",
     "SYSTEM_PROMPT_MAX",
