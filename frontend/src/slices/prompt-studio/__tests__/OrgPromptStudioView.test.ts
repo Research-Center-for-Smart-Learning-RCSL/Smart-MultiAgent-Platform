@@ -23,5 +23,7 @@ describe('OrgPromptStudioView', () => {
     expect(wrapper.text()).toContain('Assistant configuration')
     // The org scope exposes the platform-template hide toggle.
     expect(wrapper.text()).toContain("Hide platform templates")
+    // AC-10: the persona field is present for org scope too.
+    expect(wrapper.text()).toContain('Assistant persona')
   })
 })
