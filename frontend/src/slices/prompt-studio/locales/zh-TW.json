@@ -76,7 +76,8 @@
       "budgetError": "此檔案會超過 200 KB 的參考文字額度。",
       "formatError": "不支援的檔案格式。",
       "infectedError": "檔案未通過病毒掃描。",
-      "saveFirst": "請先儲存設定再上傳檔案。"
+      "saveFirst": "請先儲存設定再上傳檔案。",
+      "loadFirst": "設定仍在載入中，請稍後再試。"
     },
     "templates": {
       "heading": "提示詞範本",

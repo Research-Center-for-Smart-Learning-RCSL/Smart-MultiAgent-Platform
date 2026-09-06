@@ -105,6 +105,9 @@ class _FakeConfigService:
     async def resolve_effective_persona(self, *, project_id, user_id):
         return self._effective_persona
 
+    async def resolve_config_and_persona(self, *, project_id, user_id):
+        return self._config, self._effective_persona
+
 
 class _FakeKeysFacade:
     def __init__(self, key) -> None:

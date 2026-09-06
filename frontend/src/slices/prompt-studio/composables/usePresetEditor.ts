@@ -103,7 +103,11 @@ export function usePresetEditor(presetIdSource: MaybeRefOrGetter<string | null>)
         return created.id
       }
       const id = presetId.value
-      await updateMutation.mutateAsync({ id, version: version.value ?? 0, payload: { ...form } })
+      if (version.value === null) {
+        toast.error(t('promptStudio.config.loadFirst'))
+        return undefined
+      }
+      await updateMutation.mutateAsync({ id, version: version.value, payload: { ...form } })
       toast.success(t('promptStudio.config.saved'))
       return undefined
     } catch (err) {

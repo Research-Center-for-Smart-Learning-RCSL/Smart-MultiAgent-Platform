@@ -151,21 +151,44 @@ class ConfigService:
         must still be reachable. Returns "" (caller falls back to
         DEFAULT_PERSONA) when no scope in the chain has one set.
         """
+        _, persona = await self.resolve_config_and_persona(project_id=project_id, user_id=user_id)
+        return persona
+
+    async def resolve_config_and_persona(
+        self, *, project_id: uuid.UUID, user_id: uuid.UUID
+    ) -> tuple[AssistantConfig | None, str]:
+        """Single-pass resolution of both the effective config and persona.
+
+        Walks user -> org -> platform once, returning both:
+        - the first *enabled* config (for key/model/quota)
+        - the first non-blank persona from an *enabled* config (Q-5)
+        """
+        effective: AssistantConfig | None = None
+        persona = ""
+
         personal = await self._configs.get_by_scope(PromptScope.USER, user_id=user_id)
-        if personal is not None and personal.enabled and personal.persona_prompt.strip():
-            return personal.persona_prompt
+        if personal is not None and personal.enabled:
+            effective = personal
+            if personal.persona_prompt.strip():
+                persona = personal.persona_prompt
 
         owning_org_id = await resolve_owning_org_id(self._tenancy, project_id)
         if owning_org_id is not None:
             org_cfg = await self._configs.get_by_scope(PromptScope.ORG, org_id=owning_org_id)
-            if org_cfg is not None and org_cfg.enabled and org_cfg.persona_prompt.strip():
-                return org_cfg.persona_prompt
+            if org_cfg is not None and org_cfg.enabled:
+                if effective is None:
+                    effective = org_cfg
+                if not persona and org_cfg.persona_prompt.strip():
+                    persona = org_cfg.persona_prompt
 
         platform = await self._configs.get_enabled_platform_preset()
-        if platform is not None and platform.persona_prompt.strip():
-            return platform.persona_prompt
+        if platform is not None:
+            if effective is None:
+                effective = platform
+            if not persona and platform.persona_prompt.strip():
+                persona = platform.persona_prompt
 
-        return ""
+        return effective, persona
 
     async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
         """Metadata only -- the API layer's response DTOs never serialize extracted_text."""

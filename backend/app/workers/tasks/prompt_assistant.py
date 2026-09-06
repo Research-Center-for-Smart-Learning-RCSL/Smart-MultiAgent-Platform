@@ -67,7 +67,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
 
     sm = get_sessionmaker()
     async with sm() as db:
-        config = await ConfigService(db).resolve_for_project(
+        config, effective_persona = await ConfigService(db).resolve_config_and_persona(
             project_id=session.project_id, user_id=session.user_id
         )
         if config is None or config.key_id is None:
@@ -117,14 +117,6 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
             for f in files
             if f.scan_status is ScanStatus.CLEAN and f.extracted_text
         ]
-        # Persona inheritance (Q-5) is its own chain, independent of which
-        # scope's config won resolve_for_project() for key/model/quota: a
-        # user config can be the effective config while leaving persona_prompt
-        # blank, in which case the org's or platform's persona must still
-        # apply rather than falling straight to DEFAULT_PERSONA.
-        effective_persona = await ConfigService(db).resolve_effective_persona(
-            project_id=session.project_id, user_id=session.user_id
-        )
         system_text = build_system_text(
             persona_prompt=effective_persona,
             config_system_prompt=config.system_prompt,

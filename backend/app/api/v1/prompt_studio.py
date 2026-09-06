@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
-from app.api.v1.deps import parse_if_match
+from app.api.v1.deps import parse_if_match, require_if_match
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.prompt_studio.application.config_service import ConfigService
 from contexts.prompt_studio.application.file_service import FileService
@@ -707,8 +707,7 @@ async def admin_update_preset(
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> AssistantConfigOut:
-    expected = parse_if_match(if_match)
-    assert expected is not None  # If-Match header is required on PUT
+    expected = require_if_match(if_match)
     preset = await ConfigService(db).update_preset(
         preset_id=config_id,
         actor_user_id=principal.user_id,
@@ -736,12 +735,9 @@ async def admin_delete_preset(
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    # Deleting the config row alone would cascade the DB file-metadata rows
-    # (ON DELETE CASCADE) without ever touching their MinIO blobs -- route
-    # each reference file through FileService first so its storage.remove()
-    # actually runs, same as deleting one file at a time would.
+    # delete_preset internally validates existence; cleaning MinIO blobs
+    # first so ON DELETE CASCADE does not orphan them.
     config_service = ConfigService(db)
-    await config_service.get_platform_preset_or_raise(config_id)
     file_service = FileService(db, get_minio_client())
     for f in await config_service.list_files(config_id):
         await file_service.remove_reference_file(

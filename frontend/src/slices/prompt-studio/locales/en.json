@@ -76,7 +76,8 @@
       "budgetError": "This file would exceed the 200 KB reference-text budget.",
       "formatError": "Unsupported file format.",
       "infectedError": "The file failed the virus scan.",
-      "saveFirst": "Save the configuration before uploading files."
+      "saveFirst": "Save the configuration before uploading files.",
+      "loadFirst": "Configuration is still loading. Please try again."
     },
     "templates": {
       "heading": "Prompt templates",
