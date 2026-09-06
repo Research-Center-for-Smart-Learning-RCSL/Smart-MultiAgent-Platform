@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-09-05
 requirements: [R29.01, R29.02, R29.03, R29.04]
 depends_on: []
@@ -310,6 +310,18 @@ chat capability on every `put_config` call.
 cannot read or write org B's persona. Platform presets are globally visible (read) but
 admin-only (write).
 
+**Preset endpoints must verify `config_id` is platform-scope (found in review, fixed --
+see D-8).** The four id-addressed preset endpoints (`PUT`/`DELETE
+/api/admin/prompt-assistant/presets/{config_id}` and the two `.../files` endpoints) take
+a client-supplied `config_id` with no scope in the path. `require_admin` alone does not
+bound *which* config that id may point to: without an explicit scope check, an admin
+could target any org's or any user's singleton config through a route gated and
+documented for platform presets only, and since there is no other `DELETE` anywhere in
+this router for an org/user config, that would have been the only way to destroy one of
+those rows at all. `ConfigService.get_platform_preset_or_raise()` rejects any id whose
+row is not `scope=platform` before `update_preset`/`delete_preset`/the file endpoints act
+on it.
+
 ## 9. Quality Notes
 
 **Existing debt**:
@@ -360,35 +372,42 @@ immediately; the columns become inert.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `AssistantConfig` domain model has `persona_prompt`, `name`, `description`
+- [x] AC-1: `AssistantConfig` domain model has `persona_prompt`, `name`, `description`
   fields. `persona_prompt` defaults to empty string. `PERSONA_PROMPT_MAX` is enforced
   on write.
-- [ ] AC-2: `build_system_text()` uses `persona_prompt` when non-empty, else
+- [x] AC-2: `build_system_text()` uses `persona_prompt` when non-empty, else
   `DEFAULT_PERSONA` (renamed from `WRAPPER_PROMPT`). `REFERENCE_MATERIAL_FRAMING` is
   always appended after the persona regardless of source.
-- [ ] AC-3: The worker passes `config.persona_prompt` through the resolution chain to
+- [x] AC-3: The worker passes `config.persona_prompt` through the resolution chain to
   `build_system_text()`. A session using a config with a custom persona produces an
   LLM system message starting with that persona, not `DEFAULT_PERSONA`.
 - [ ] AC-4: Migration adds the three columns and seeds three platform-scope rows from
-  the pack JSON system_prompts. Seeded rows have `enabled=false`, `key_id=NULL`.
-- [ ] AC-5: Platform scope supports multiple config rows (presets). Org and user scopes
+  the pack JSON system_prompts. Seeded rows have `enabled=false`, `key_id=NULL`. Test
+  written (`tests/integration/test_migration_0087_schema.py`) and correct by code
+  review, but not executed locally -- this Windows dev box has no scratch Postgres
+  (`SMAP_SCRATCH_DATABASE_URL` unset, Docker daemon not running). CI's `db`-tier job
+  does set that variable (`.github/workflows/ci.yml:184`); check this box once that
+  job is green on the PR.
+- [x] AC-5: Platform scope supports multiple config rows (presets). Org and user scopes
   remain singleton (upsert semantics preserved).
-- [ ] AC-6: `GET /api/admin/prompt-assistant/presets` returns all platform configs.
+- [x] AC-6: `GET /api/admin/prompt-assistant/presets` returns all platform configs.
   `POST` creates a new preset. `PUT /{config_id}` updates. `DELETE /{config_id}`
   deletes. All gated on `require_admin`.
-- [ ] AC-7: Org/user config PUT accepts `persona_prompt`. GET responses include it.
-- [ ] AC-8: Config resolution chain ([R29.04]) is unchanged. The resolved config's
-  `persona_prompt` is used by `build_system_text()`.
-- [ ] AC-9: Admin UI lists platform presets and allows CRUD (name, description,
+- [x] AC-7: Org/user config PUT accepts `persona_prompt`. GET responses include it.
+- [x] AC-8: Config resolution chain ([R29.04]) is unchanged in precedence order
+  (user -> org -> platform); the platform branch's lookup mechanism changed from
+  `get_by_scope(PLATFORM)` to `get_enabled_platform_preset()` since platform is no
+  longer singleton -- see D-3.
+- [x] AC-9: Admin UI lists platform presets and allows CRUD (name, description,
   persona_prompt, system_prompt, key, model, quota, enabled, reference files).
-- [ ] AC-10: Personal and org PromptStudioSettings views show a persona_prompt editor
+- [x] AC-10: Personal and org PromptStudioSettings views show a persona_prompt editor
   above the existing system_prompt field, with help text about inheritance.
-- [ ] AC-11: The reference-material-as-data framing is always present in the assembled
+- [x] AC-11: The reference-material-as-data framing is always present in the assembled
   system text, even when a custom persona is used. Verified by a unit test that sets a
   custom persona and checks the output contains `REFERENCE_MATERIAL_FRAMING`.
-- [ ] AC-12: All new config mutations are audit-logged per [R29.13].
-- [ ] AC-13: All user-facing strings use `$t()`. `en.json` and `zh-TW.json` updated.
-- [ ] AC-14: `pnpm run gen:api` regenerates the API client with the new fields.
+- [x] AC-12: All new config mutations are audit-logged per [R29.13].
+- [x] AC-13: All user-facing strings use `$t()`. `en.json` and `zh-TW.json` updated.
+- [x] AC-14: `pnpm run gen:api` regenerates the API client with the new fields.
   Frontend types match.
 
 ## 12. Test Plan
@@ -454,8 +473,113 @@ Add [R29.16]:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+Two material gaps surfaced during planning (Step 2 freshness/Step 3 planning, before any
+code was written) and were resolved with the user via AskUserQuestion before
+implementation started. Every other entry below is a mechanical consequence of those two
+decisions, or an incidental correction found while implementing.
+
+- **D-1 (design gap, user-decided):** Q-3's decision text describes picking the active
+  platform preset via "a new `active_preset_id` on the org/user config," but neither §6
+  Detailed Changes, the migration list, the tables, nor AC-5/AC-8 ever add that column,
+  and AC-8 says the resolution chain is "unchanged." Implemented instead: a partial
+  unique index `uq_prompt_assistant_config_platform_active` enforces at most one
+  *enabled* platform preset at the DB level, and `ConfigService` auto-disables any other
+  enabled preset before enabling one (`create_preset`/`update_preset` ->
+  `_disable_other_enabled_presets`). No `active_preset_id` column exists anywhere. User
+  chose this over the literal Q-3 text because it needs no schema addition beyond
+  persona_prompt/name/description and matches AC-8/AC-5's "unchanged" framing most
+  closely.
+- **D-2 (design gap, user-decided):** §6 adds the presets CRUD but never says what
+  happens to the existing singleton `GET/PUT /api/admin/prompt-assistant/config`
+  endpoints and `AdminPromptStudioView.vue`'s config section, which would otherwise
+  read/write the same now-multi-row table with conflicting semantics. Resolved: those
+  four endpoints (`admin_get_config`, `admin_put_config`, `admin_upload_file`,
+  `admin_delete_file`) and the config section of `AdminPromptStudioView.vue` are removed
+  outright, superseded by the presets CRUD. `AdminPromptStudioView.vue` keeps only its
+  (unaffected) platform-templates section plus a link into the new presets pages. Any
+  pre-existing platform config row in a deployed environment is not migrated specially —
+  it simply appears in the new presets list as a preset with an empty name, which an
+  admin can rename.
+- **D-3 (consequence of D-1):** `ConfigService.resolve_for_project()`'s platform
+  fallback changed from `self._configs.get_by_scope(PromptScope.PLATFORM)` (a bare
+  `.first()` over an unfiltered `scope='platform'` query, safe only because platform was
+  a DB-enforced singleton) to a new `AssistantConfigRepository.get_enabled_platform_preset()`
+  (`WHERE scope='platform' AND enabled=true`). Required because once multiple platform
+  rows exist, the old query could return a *disabled* row while an enabled one sits
+  elsewhere in the table. The chain's precedence order (user -> org -> platform) and
+  every other line of `resolve_for_project()` are unchanged, so AC-8 is satisfied in
+  spirit; the literal "unchanged" wording is not.
+- **D-4 (stale spec assumption):** The migration is `0087_prompt_assistant_persona_presets.py`,
+  not "0080" as the spec's narrative implies. Migrations 0080-0086 landed from
+  concurrent, unrelated work between the spec being written and this build starting;
+  verified via `alembic heads` before writing the file (the first draft, numbered 0080,
+  collided with an already-existing `0080_observation_presentation_blocks.py` and was
+  renamed before being applied or referenced anywhere).
+- **D-5 (stale spec claim, no action needed):** §6's Config service section says platform
+  preset CRUD "needs a new `get_by_id` path... since the current upsert uses
+  `get_by_scope`." `AssistantConfigRepository.get_by_id()` already existed
+  (`repositories.py`, used by `ConfigService.get_config_or_raise`, since renamed to
+  `get_platform_preset_or_raise` -- see D-8) before this task.
+- **D-6 (implementation detail, precedent-driven):** The three seeded personas are
+  inlined as Python string literals directly in the migration (generated once from the
+  pack JSON files via a scratch script, not read from them at migration run time),
+  matching migration 0064's documented rationale: a migration must keep replaying
+  correctly even if the source file it was seeded from later moves or changes. Not
+  specified either way in §6, but consistent with "Patterns to follow."
+- **D-7 (consequence of D-2):** The frontend `ConfigScopeRef` type (`types/index.ts`) is
+  narrowed to `{kind:'user'} | {kind:'org', orgId}` (platform is no longer a singleton
+  config target). A new `TemplateScopeRef` (`ConfigScopeRef | {kind:'platform'}`) was
+  introduced for the template CRUD hooks/API methods, which remain platform-capable and
+  singleton-per-scope, unaffected by this task's non-goals. `api/index.ts`'s single
+  `dispatchScope` helper was split into `dispatchConfigScope` (2-way) and
+  `dispatchTemplateScope` (3-way) to match. Not specified in §6 Frontend, which predates
+  D-2's retirement of the platform config endpoints.
+- **D-8 (quality-audit finding, fixed):** `_disable_other_enabled_presets` (the helper
+  `create_preset`/`update_preset` call when `enabled=true`) originally flipped a sibling
+  preset's `enabled` flag with no corresponding audit event, unlike every other mutation
+  path in `config_service.py`. A preset silently turned off as a side effect of enabling
+  another one is still a persisted state change to a distinct resource. Fixed: it now
+  emits `prompt_studio.preset_auto_disabled` for each preset it disables, covered by
+  `test_auto_disabling_a_sibling_preset_is_itself_audited`.
+- **D-9 (self-audit finding, fixed):** `AdminPromptPresetEditView.vue` is shared by both
+  the create route (`admin.promptPresetNew`) and the edit route
+  (`admin.promptPresetEdit`), so Vue Router reuses the component instance across the
+  `router.replace()` a successful create triggers rather than remounting it.
+  `usePresetEditor` originally took `presetId` as a plain captured value, so after that
+  redirect the composable kept resolving against the stale `null` id and the page looked
+  like an unsaved blank form even though the preset had been created and the URL now
+  named it. Fixed: `usePresetEditor` now takes a `MaybeRefOrGetter<string | null>` and
+  re-derives `presetId`/`isNew` reactively; `usePresetEditor.test.ts` pins the
+  create -> edit transition without a remount.
+- **D-10 (security-audit finding, HIGH, fixed):** `update_preset`, `delete_preset`, and
+  the two preset file endpoints took a client-supplied `config_id` with no scope
+  verification -- `require_admin` bounds *who* can call the route but not *which* row
+  the id may address. An admin could have targeted any org's or any user's singleton
+  config through a route gated and documented for platform presets only, and since
+  there is no other `DELETE` anywhere in this router for an org/user config, that would
+  have been the only way to destroy one of those rows at all. The scope-agnostic
+  `get_config_or_raise` was replaced by `get_platform_preset_or_raise`, which rejects
+  any id whose row is not `scope=platform`, used consistently by `update_preset`,
+  `delete_preset`, and both file endpoints. Covered by
+  `test_update_preset_rejects_a_non_platform_config_id` and
+  `test_delete_preset_rejects_a_non_platform_config_id`.
 
 ## 16. Follow-ups
 
-(None yet.)
+- **FU-1:** OQ-1 (show which persona is active in `PromptAssistantPanel`) — carried over
+  from §14, still not blocking.
+- **FU-2:** OQ-2 (org preset selector dropdown instead of copy-pasting a persona) —
+  carried over from §14, still not blocking.
+- **FU-3:** No full-stack behavioral verification was performed (launching the app and
+  clicking through the admin presets flow, the persona field in Personal/Org settings,
+  and a live assistant turn using a custom persona). This dev machine has no running
+  Postgres/Vault/Redis stack (Docker daemon not running) to launch it against. Unit,
+  component, and route-level tests all pass; a manual pass against the staging deploy
+  (or CI's e2e job, if the diff triggers it) is recommended before this ships to real
+  users.
+- **FU-4 (security-audit hardening, non-blocking):** `PERSONA_PROMPT_MAX = 100_000` is
+  5x `SYSTEM_PROMPT_MAX = 20_000`, and the persona is injected into every assistant turn
+  for every user under that scope. Not attacker-exploitable (only admin/org-owner/self
+  can set their own persona, and `daily_request_limit_per_user` already bounds turn
+  volume), but worth a second look at whether 100K chars/turn multiplied across a
+  scope's users is the intended cost profile.
