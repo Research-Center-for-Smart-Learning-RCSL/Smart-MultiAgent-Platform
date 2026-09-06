@@ -179,7 +179,9 @@ class ConfigService:
         if key_id is not None:
             await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
         if enabled:
-            await self._disable_other_enabled_presets(except_id=None)
+            await self._disable_other_enabled_presets(
+                except_id=None, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            )
         preset = await self._configs.create(
             scope=PromptScope.PLATFORM,
             org_id=None,
@@ -219,7 +221,9 @@ class ConfigService:
         if key_id is not None:
             await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
         if enabled:
-            await self._disable_other_enabled_presets(except_id=preset_id)
+            await self._disable_other_enabled_presets(
+                except_id=preset_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            )
         preset = await self._configs.update(
             preset_id,
             expected_version=expected_version,
@@ -249,11 +253,21 @@ class ConfigService:
         await self._configs.delete(preset_id)
         await self._emit_preset("prompt_studio.preset_deleted", preset, actor_user_id, actor_ip, request_id)
 
-    async def _disable_other_enabled_presets(self, *, except_id: uuid.UUID | None) -> None:
+    async def _disable_other_enabled_presets(
+        self,
+        *,
+        except_id: uuid.UUID | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> None:
         for other in await self._configs.list_platform():
             if other.enabled and other.id != except_id:
-                await self._configs.update(
+                disabled = await self._configs.update(
                     other.id, expected_version=other.version, values={"enabled": False}
+                )
+                await self._emit_preset(
+                    "prompt_studio.preset_auto_disabled", disabled, actor_user_id, actor_ip, request_id
                 )
 
     async def _emit_preset(

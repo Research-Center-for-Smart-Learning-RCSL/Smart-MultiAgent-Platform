@@ -31,13 +31,13 @@ const {
   save,
   uploadFile,
   deleteFile,
-} = usePresetEditor(presetId.value)
+} = usePresetEditor(() => presetId.value)
 
 // A preset id in the URL that isn't in the list once it has loaded is a bad
 // link, not a loading state -- distinct from "still fetching" (isNew is the
 // create route, which never resolves to a preset by design).
 const notFound = computed(
-  () => !isNew && !presetsQuery.isPending.value && !presetsQuery.isError.value && preset.value === null,
+  () => !isNew.value && !presetsQuery.isPending.value && !presetsQuery.isError.value && preset.value === null,
 )
 
 async function onSave(): Promise<void> {
