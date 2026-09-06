@@ -34,6 +34,24 @@ const { isAuthorized, decided } = useProjectRole(() => projectId.value)
 // `decided` so it never flashes to a confirmed owner/admin.
 const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
+const breadcrumbs = computed(() => {
+  const ws = workspace.value
+  return [
+    {
+      label: t('conversation.workspaces.title'),
+      ...(ws && {
+        to: { name: 'conversation.workspaces', params: { projectId: ws.project_id } },
+      }),
+    },
+    {
+      label: ws?.name ?? '',
+      ...(ws && {
+        to: { name: 'conversation.chatrooms', params: { workspaceId: workspaceId } },
+      }),
+    },
+  ]
+})
+
 const privacyMutation = useMutation({
   mutationFn: (enabled: boolean) => setWorkspaceConceptMapEnabled(workspaceId, enabled),
   onSuccess: () => qc.invalidateQueries({ queryKey: workspaceKey.value }),
@@ -58,7 +76,10 @@ const privacyMutation = useMutation({
     </SAlert>
 
     <template v-else>
-      <SPageHeader :title="workspace.name" />
+      <SPageHeader
+        :title="t('conversation.conceptMap.settings')"
+        :breadcrumbs="breadcrumbs"
+      />
 
       <div class="mt-6 space-y-6 max-w-2xl">
         <!-- Privacy opt-in (wide layer) -->

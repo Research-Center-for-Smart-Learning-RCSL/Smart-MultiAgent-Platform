@@ -97,11 +97,14 @@ const {
 
 const session = useSessionStore()
 const projectId = ref<string | undefined>(undefined)
+const workspaceName = ref<string | undefined>(undefined)
 watchEffect(async () => {
   const r = room.value
   if (r && !projectId.value) {
     try {
-      projectId.value = (await getWorkspace(r.workspace_id)).project_id
+      const ws = await getWorkspace(r.workspace_id)
+      projectId.value = ws.project_id
+      workspaceName.value = ws.name
     } catch {
       /* leave undefined — creator gate stays closed, which is safe */
     }
@@ -259,7 +262,7 @@ const breadcrumbs = computed(() => {
   const r = room.value
   return [
     {
-      label: t('conversation.chatrooms.title'),
+      label: workspaceName.value ?? t('conversation.workspaces.title'),
       ...(r && {
         to: { name: 'conversation.chatrooms', params: { workspaceId: r.workspace_id } },
       }),

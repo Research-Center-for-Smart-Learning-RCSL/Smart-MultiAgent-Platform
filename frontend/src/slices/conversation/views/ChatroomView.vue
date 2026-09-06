@@ -1186,7 +1186,12 @@ onMounted(() => window.addEventListener('keydown', onWindowKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onWindowKeydown))
 
 function goBack(): void {
-  router.back()
+  const wsId = roomQuery.data.value?.workspace_id
+  if (wsId) {
+    router.push({ name: 'conversation.chatrooms', params: { workspaceId: wsId } })
+  } else {
+    router.back()
+  }
 }
 
 function goSettings(): void {

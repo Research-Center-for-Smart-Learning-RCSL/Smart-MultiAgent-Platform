@@ -26,6 +26,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useProjectRole } from '@slices/tenancy'
 import {
   createWorkspace,
@@ -44,6 +45,14 @@ const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const projectId = route.params.projectId as string
+const wsStore = useWorkspaceStore()
+
+const breadcrumbs = computed(() => [
+  {
+    label: wsStore.projectName ?? t('app.sidebar.projects'),
+    to: { name: 'tenancy.projectList' },
+  },
+])
 
 const search = ref('')
 
@@ -154,7 +163,10 @@ function openWorkspace(ws: Workspace): void {
 
 <template>
   <div>
-    <SPageHeader :title="t('conversation.workspaces.title')">
+    <SPageHeader
+      :title="t('conversation.workspaces.title')"
+      :breadcrumbs="breadcrumbs"
+    >
       <template #actions>
         <SButton
           variant="primary"
