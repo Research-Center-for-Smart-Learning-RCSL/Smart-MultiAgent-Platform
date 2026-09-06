@@ -1,9 +1,12 @@
 """`/api/**/prompt-assistant` + `/api/**/prompt-templates` — §29.
 
-Three configuration scopes share one presentational contract:
+Org and personal config share one singleton presentational contract:
 - ``/api/me/...``            self-service, any verified user (own scope)
 - ``/api/orgs/{org_id}/...`` Org Owner (PROMPT_STUDIO_ORG_MANAGE)
-- ``/api/admin/...``         platform, ``require_admin``
+
+Platform scope is not a singleton (R29.02 relaxed, R29.16): it holds multiple
+named presets, managed via ``/api/admin/prompt-assistant/presets`` CRUD
+(``require_admin``) rather than the singleton get/put contract above.
 
 Plus project-scoped resolved reads (``require_membership``) and the streaming
 session endpoints. Routers stay thin over the application services; key
@@ -37,7 +40,10 @@ from contexts.prompt_studio.application.session_service import SessionService
 from contexts.prompt_studio.application.template_service import TemplateService
 from contexts.prompt_studio.domain.errors import AssistantConfigNotFound
 from contexts.prompt_studio.domain.models import (
+    ASSISTANT_CONFIG_DESCRIPTION_MAX,
+    ASSISTANT_CONFIG_NAME_MAX,
     MAX_USER_MESSAGE_CHARS,
+    PERSONA_PROMPT_MAX,
     SYSTEM_PROMPT_MAX,
     TEMPLATE_BODY_MAX,
     TEMPLATE_DESC_MAX,
@@ -94,8 +100,12 @@ class FileOut(BaseModel):
 class AssistantConfigOut(BaseModel):
     model_config = {"protected_namespaces": ()}
 
+    id: uuid.UUID
     scope: str
+    name: str
+    description: str
     enabled: bool
+    persona_prompt: str
     system_prompt: str
     key_id: uuid.UUID | None
     key: KeyMetaOut | None
@@ -115,12 +125,29 @@ class ConfigEnvelopeOut(BaseModel):
 class AssistantConfigPutIn(BaseModel):
     model_config = {"extra": "forbid", "protected_namespaces": ()}
 
+    persona_prompt: str = Field(default="", max_length=PERSONA_PROMPT_MAX)
     system_prompt: str = Field(default="", max_length=SYSTEM_PROMPT_MAX)
     key_id: uuid.UUID | None = None
     model_id: str | None = Field(default=None, max_length=200)
     daily_request_limit_per_user: int = Field(default=50, ge=1, le=100_000)
     enabled: bool = False
     hide_platform_templates: bool = False
+
+
+class AssistantConfigPresetPutIn(BaseModel):
+    """Full editor payload for a platform preset — used for both create (POST,
+    no If-Match) and update (PUT, If-Match required)."""
+
+    model_config = {"extra": "forbid", "protected_namespaces": ()}
+
+    name: str = Field(default="", max_length=ASSISTANT_CONFIG_NAME_MAX)
+    description: str = Field(default="", max_length=ASSISTANT_CONFIG_DESCRIPTION_MAX)
+    persona_prompt: str = Field(default="", max_length=PERSONA_PROMPT_MAX)
+    system_prompt: str = Field(default="", max_length=SYSTEM_PROMPT_MAX)
+    key_id: uuid.UUID | None = None
+    model_id: str | None = Field(default=None, max_length=200)
+    daily_request_limit_per_user: int = Field(default=50, ge=1, le=100_000)
+    enabled: bool = False
 
 
 class TemplateOut(BaseModel):
@@ -229,8 +256,12 @@ async def _config_out(db: AsyncSession, config: AssistantConfig) -> AssistantCon
                 masked_preview=key.masked_preview,
             )
     return AssistantConfigOut(
+        id=config.id,
         scope=config.scope.value,
+        name=config.name,
+        description=config.description,
         enabled=config.enabled,
+        persona_prompt=config.persona_prompt,
         system_prompt=config.system_prompt,
         key_id=config.key_id,
         key=key_meta,
@@ -278,6 +309,7 @@ async def _put_config(
         scope=scope,
         org_id=org_id,
         user_id=user_id,
+        persona_prompt=body.persona_prompt,
         system_prompt=body.system_prompt,
         key_id=body.key_id,
         model_id=body.model_id,
@@ -634,45 +666,143 @@ async def org_delete_template(
 # ---------------------------------------------------------------------------
 
 
-@admin_router.get("/prompt-assistant/config")
-async def admin_get_config(
+@admin_router.get("/prompt-assistant/presets")
+async def admin_list_presets(
     _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
-) -> ConfigEnvelopeOut:
-    return await _get_config(db, PromptScope.PLATFORM)
+) -> list[AssistantConfigOut]:
+    presets = await ConfigService(db).list_platform_presets()
+    return [await _config_out(db, p) for p in presets]
 
 
-@admin_router.put("/prompt-assistant/config")
-async def admin_put_config(
-    body: AssistantConfigPutIn,
-    if_match: str | None = Header(default=None, alias="If-Match"),
+@admin_router.post("/prompt-assistant/presets", status_code=status.HTTP_201_CREATED)
+async def admin_create_preset(
+    body: AssistantConfigPresetPutIn,
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> AssistantConfigOut:
-    return await _put_config(db, ctx, principal, PromptScope.PLATFORM, body, if_match)
+    preset = await ConfigService(db).create_preset(
+        actor_user_id=principal.user_id,
+        name=body.name,
+        description=body.description,
+        persona_prompt=body.persona_prompt,
+        system_prompt=body.system_prompt,
+        key_id=body.key_id,
+        model_id=body.model_id,
+        daily_request_limit_per_user=body.daily_request_limit_per_user,
+        enabled=body.enabled,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return await _config_out(db, preset)
 
 
-@admin_router.post("/prompt-assistant/config/files", status_code=status.HTTP_201_CREATED)
-async def admin_upload_file(
+@admin_router.put("/prompt-assistant/presets/{config_id}")
+async def admin_update_preset(
+    body: AssistantConfigPresetPutIn,
+    config_id: uuid.UUID = Path(...),
+    if_match: str = Header(..., alias="If-Match"),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> AssistantConfigOut:
+    expected = parse_if_match(if_match)
+    assert expected is not None  # If-Match header is required on PUT
+    preset = await ConfigService(db).update_preset(
+        preset_id=config_id,
+        actor_user_id=principal.user_id,
+        expected_version=expected,
+        name=body.name,
+        description=body.description,
+        persona_prompt=body.persona_prompt,
+        system_prompt=body.system_prompt,
+        key_id=body.key_id,
+        model_id=body.model_id,
+        daily_request_limit_per_user=body.daily_request_limit_per_user,
+        enabled=body.enabled,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return await _config_out(db, preset)
+
+
+@admin_router.delete(
+    "/prompt-assistant/presets/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
+async def admin_delete_preset(
+    config_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    # Deleting the config row alone would cascade the DB file-metadata rows
+    # (ON DELETE CASCADE) without ever touching their MinIO blobs -- route
+    # each reference file through FileService first so its storage.remove()
+    # actually runs, same as deleting one file at a time would.
+    config_service = ConfigService(db)
+    await config_service.get_platform_preset_or_raise(config_id)
+    file_service = FileService(db, get_minio_client())
+    for f in await config_service.list_files(config_id):
+        await file_service.remove_reference_file(
+            config_id=config_id,
+            file_id=f.id,
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    await config_service.delete_preset(
+        preset_id=config_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
+@admin_router.post("/prompt-assistant/presets/{config_id}/files", status_code=status.HTTP_201_CREATED)
+async def admin_upload_preset_file(
+    config_id: uuid.UUID = Path(...),
     file: UploadFile = File(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> FileOut:
-    return await _upload_file(db, ctx, principal, PromptScope.PLATFORM, file)
+    await ConfigService(db).get_platform_preset_or_raise(config_id)
+    if file.size is not None and file.size > _MAX_REFERENCE_UPLOAD:
+        raise HTTPException(status_code=413, detail="file exceeds 5 MB limit")
+    data = await file.read()
+    result = await FileService(db, get_minio_client()).upload_reference_file(
+        config_id=config_id,
+        filename=file.filename or "file",
+        data=data,
+        mime=file.content_type or "application/octet-stream",
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _file_out(result)
 
 
 @admin_router.delete(
-    "/prompt-assistant/config/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+    "/prompt-assistant/presets/{config_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
-async def admin_delete_file(
+async def admin_delete_preset_file(
+    config_id: uuid.UUID = Path(...),
     file_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await _delete_file(db, ctx, principal, PromptScope.PLATFORM, file_id)
+    await ConfigService(db).get_platform_preset_or_raise(config_id)
+    await FileService(db, get_minio_client()).remove_reference_file(
+        config_id=config_id,
+        file_id=file_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
 
 
 @admin_router.get("/prompt-templates")

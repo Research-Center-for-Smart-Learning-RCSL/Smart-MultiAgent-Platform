@@ -22,5 +22,9 @@ describe('PersonalPromptStudioView', () => {
     expect(wrapper.text()).toContain('Prompt Assistant')
     expect(wrapper.text()).toContain('Assistant configuration')
     expect(wrapper.text()).toContain('Prompt templates')
+    // AC-10: the persona field appears above the supplementary-guidance field,
+    // with help text about inheriting from org/platform when left empty.
+    expect(wrapper.text()).toContain('Assistant persona')
+    expect(wrapper.text()).toContain('inherit from the organization or platform default')
   })
 })

@@ -42,12 +42,15 @@ def _fake_sessionmaker():
     return _FakeDb
 
 
-def _config(*, model_id: str | None, key_id: uuid.UUID | None) -> AssistantConfig:
+def _config(*, model_id: str | None, key_id: uuid.UUID | None, persona_prompt: str = "") -> AssistantConfig:
     return AssistantConfig(
         id=uuid.uuid4(),
         scope=PromptScope.USER,
         org_id=None,
         user_id=uuid.uuid4(),
+        persona_prompt=persona_prompt,
+        name="",
+        description="",
         system_prompt="be helpful",
         key_id=key_id,
         model_id=model_id,
@@ -85,14 +88,22 @@ class _FakeStore:
 
 
 class _FakeConfigService:
-    def __init__(self, config: AssistantConfig | None) -> None:
+    def __init__(self, config: AssistantConfig | None, effective_persona: str | None = None) -> None:
         self._config = config
+        # Defaults to the resolved config's own persona, matching the tests
+        # that don't care about cross-scope inheritance (Q-5) specifically.
+        self._effective_persona = (
+            effective_persona if effective_persona is not None else (config.persona_prompt if config else "")
+        )
 
     def __call__(self, _db):
         return self
 
     async def resolve_for_project(self, *, project_id, user_id):
         return self._config
+
+    async def resolve_effective_persona(self, *, project_id, user_id):
+        return self._effective_persona
 
 
 class _FakeKeysFacade:
@@ -165,11 +176,11 @@ class _RaisingRouter:
         return _gen()
 
 
-def _patch_common(monkeypatch, *, config, key, store, router) -> None:
+def _patch_common(monkeypatch, *, config, key, store, router, effective_persona=None) -> None:
     monkeypatch.setattr(worker_mod, "get_sessionmaker", _fake_sessionmaker)
     monkeypatch.setattr(worker_mod, "get_redis", object)
     monkeypatch.setattr(worker_mod, "SessionStore", lambda _redis: store)
-    monkeypatch.setattr(worker_mod, "ConfigService", _FakeConfigService(config))
+    monkeypatch.setattr(worker_mod, "ConfigService", _FakeConfigService(config, effective_persona))
     monkeypatch.setattr(worker_mod, "KeysFacade", _FakeKeysFacade(key))
     monkeypatch.setattr(worker_mod, "AgentsFacade", _FakeAgentsFacade())
     monkeypatch.setattr(worker_mod, "AssistantConfigRepository", _FakeConfigRepo())
@@ -212,6 +223,55 @@ async def test_explicit_model_id_is_used_verbatim(monkeypatch) -> None:
 
     assert result == "ok"
     assert router.captured_request.payload["model"] == "gpt-5.4-mini"
+
+
+@pytest.mark.asyncio
+async def test_custom_persona_flows_through_to_system_text(monkeypatch) -> None:
+    # AC-3: a session using a config with a custom persona produces a system
+    # message starting with that persona, not DEFAULT_PERSONA.
+    key = SimpleNamespace(provider=SimpleNamespace(value="claude"))
+    config = _config(model_id="claude-sonnet-4-6", key_id=uuid.uuid4(), persona_prompt="You are Marvin.")
+    session = _session()
+    store = _FakeStore(session)
+    router = _FakeRouter()
+
+    _patch_common(monkeypatch, config=config, key=key, store=store, router=router)
+
+    result = await worker_mod.prompt_assistant_turn({}, str(session.session_id), "")
+
+    assert result == "ok"
+    assert router.captured_request.payload["system"].startswith("You are Marvin.")
+
+
+@pytest.mark.asyncio
+async def test_persona_is_inherited_from_a_higher_scope_when_the_effective_config_has_none(
+    monkeypatch,
+) -> None:
+    # Q-5 / code-review finding: the effective config (key/model/quota) and the
+    # effective persona are resolved by two independent chains. A user config
+    # can win resolve_for_project() while leaving persona_prompt blank, in
+    # which case the org's or platform's persona (resolve_effective_persona)
+    # must still reach build_system_text() -- not silently fall to
+    # DEFAULT_PERSONA just because the *winning* config had none.
+    key = SimpleNamespace(provider=SimpleNamespace(value="claude"))
+    config = _config(model_id="claude-sonnet-4-6", key_id=uuid.uuid4(), persona_prompt="")
+    session = _session()
+    store = _FakeStore(session)
+    router = _FakeRouter()
+
+    _patch_common(
+        monkeypatch,
+        config=config,
+        key=key,
+        store=store,
+        router=router,
+        effective_persona="You are the org's inherited persona.",
+    )
+
+    result = await worker_mod.prompt_assistant_turn({}, str(session.session_id), "")
+
+    assert result == "ok"
+    assert router.captured_request.payload["system"].startswith("You are the org's inherited persona.")
 
 
 @pytest.mark.asyncio

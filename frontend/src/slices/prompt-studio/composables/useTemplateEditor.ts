@@ -10,9 +10,9 @@ import {
   usePatchTemplateMutation,
   useTemplatesQuery,
 } from '../queries'
-import type { ConfigScopeRef } from '../types'
+import type { TemplateScopeRef } from '../types'
 
-export function useTemplateEditor(scope: ConfigScopeRef) {
+export function useTemplateEditor(scope: TemplateScopeRef) {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirmDialog()

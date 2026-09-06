@@ -16,6 +16,7 @@ import { asBinaryFormField } from '@shared/transport'
 
 import type {
   AssistantConfig,
+  AssistantConfigPresetInput,
   AssistantConfigPutInput,
   AssistantFile,
   ConfigEnvelope,
@@ -25,12 +26,21 @@ import type {
   SessionCreated,
   TemplateCreateInput,
   TemplatePatchInput,
+  TemplateScopeRef,
 } from '../types'
 
-// Route a scoped call to the per-scope generated method. `platform` targets the admin*
-// endpoints (the backend's platform-wide config), matching the old configBase() fallthrough.
-function dispatchScope<T>(
-  scope: ConfigScopeRef,
+// Route a scoped config call to the per-scope generated method. Platform
+// scope has no singleton config endpoint any more (see the preset* methods
+// below) -- only user/org remain.
+function dispatchConfigScope<T>(scope: ConfigScopeRef, handlers: { user: () => T; org: (orgId: string) => T }): T {
+  return scope.kind === 'user' ? handlers.user() : handlers.org(scope.orgId)
+}
+
+// Route a scoped template call to the per-scope generated method. `platform`
+// targets the admin* endpoints (platform-wide templates, unaffected by the
+// persona/preset work).
+function dispatchTemplateScope<T>(
+  scope: TemplateScopeRef,
   handlers: { user: () => T; org: (orgId: string) => T; platform: () => T },
 ): T {
   if (scope.kind === 'user') return handlers.user()
@@ -39,12 +49,11 @@ function dispatchScope<T>(
 }
 
 export const promptStudioApi = {
-  // --- config (scoped) ---
+  // --- config (scoped: user/org only -- platform is presets, below) ---
   getConfig: (scope: ConfigScopeRef): Promise<ConfigEnvelope> =>
-    dispatchScope(scope, {
+    dispatchConfigScope(scope, {
       user: () => PromptStudioService.meGetConfigApiMePromptAssistantConfigGet(),
       org: (orgId) => PromptStudioService.orgGetConfigApiOrgsOrgIdPromptAssistantConfigGet({ orgId }),
-      platform: () => PromptStudioService.adminGetConfigApiAdminPromptAssistantConfigGet(),
     }).then((r) => r as ConfigEnvelope),
 
   putConfig: (
@@ -54,7 +63,7 @@ export const promptStudioApi = {
   ): Promise<AssistantConfig> => {
     // null version -> no If-Match; the generated request core drops null headers.
     const ifMatch = version === null ? null : String(version)
-    return dispatchScope(scope, {
+    return dispatchConfigScope(scope, {
       user: () =>
         PromptStudioService.mePutConfigApiMePromptAssistantConfigPut({ requestBody: payload, ifMatch }),
       org: (orgId) =>
@@ -63,47 +72,73 @@ export const promptStudioApi = {
           requestBody: payload,
           ifMatch,
         }),
-      platform: () =>
-        PromptStudioService.adminPutConfigApiAdminPromptAssistantConfigPut({
-          requestBody: payload,
-          ifMatch,
-        }),
     }).then((r) => r as AssistantConfig)
   },
 
   uploadFile: (scope: ConfigScopeRef, file: File): Promise<AssistantFile> => {
     const formData = { file: asBinaryFormField(file) }
-    return dispatchScope(scope, {
+    return dispatchConfigScope(scope, {
       user: () => PromptStudioService.meUploadFileApiMePromptAssistantConfigFilesPost({ formData }),
       org: (orgId) =>
         PromptStudioService.orgUploadFileApiOrgsOrgIdPromptAssistantConfigFilesPost({ orgId, formData }),
-      platform: () =>
-        PromptStudioService.adminUploadFileApiAdminPromptAssistantConfigFilesPost({ formData }),
     }).then((r) => r as AssistantFile)
   },
 
   deleteFile: (scope: ConfigScopeRef, fileId: string) =>
-    dispatchScope(scope, {
+    dispatchConfigScope(scope, {
       user: () => PromptStudioService.meDeleteFileApiMePromptAssistantConfigFilesFileIdDelete({ fileId }),
       org: (orgId) =>
         PromptStudioService.orgDeleteFileApiOrgsOrgIdPromptAssistantConfigFilesFileIdDelete({
           orgId,
           fileId,
         }),
-      platform: () =>
-        PromptStudioService.adminDeleteFileApiAdminPromptAssistantConfigFilesFileIdDelete({ fileId }),
     }),
 
-  // --- templates (scoped CRUD) ---
-  listTemplates: (scope: ConfigScopeRef): Promise<PromptTemplate[]> =>
-    dispatchScope(scope, {
+  // --- platform presets (id-addressed, not scope-addressed; R29.16) ---
+  listPresets: (): Promise<AssistantConfig[]> =>
+    PromptStudioService.adminListPresetsApiAdminPromptAssistantPresetsGet().then((r) => r as AssistantConfig[]),
+
+  createPreset: (payload: AssistantConfigPresetInput): Promise<AssistantConfig> =>
+    PromptStudioService.adminCreatePresetApiAdminPromptAssistantPresetsPost({ requestBody: payload }).then(
+      (r) => r as AssistantConfig,
+    ),
+
+  updatePreset: (
+    presetId: string,
+    version: number,
+    payload: AssistantConfigPresetInput,
+  ): Promise<AssistantConfig> =>
+    PromptStudioService.adminUpdatePresetApiAdminPromptAssistantPresetsConfigIdPut({
+      configId: presetId,
+      ifMatch: String(version),
+      requestBody: payload,
+    }).then((r) => r as AssistantConfig),
+
+  deletePreset: (presetId: string) =>
+    PromptStudioService.adminDeletePresetApiAdminPromptAssistantPresetsConfigIdDelete({ configId: presetId }),
+
+  uploadPresetFile: (presetId: string, file: File): Promise<AssistantFile> =>
+    PromptStudioService.adminUploadPresetFileApiAdminPromptAssistantPresetsConfigIdFilesPost({
+      configId: presetId,
+      formData: { file: asBinaryFormField(file) },
+    }).then((r) => r as AssistantFile),
+
+  deletePresetFile: (presetId: string, fileId: string) =>
+    PromptStudioService.adminDeletePresetFileApiAdminPromptAssistantPresetsConfigIdFilesFileIdDelete({
+      configId: presetId,
+      fileId,
+    }),
+
+  // --- templates (scoped CRUD, including platform) ---
+  listTemplates: (scope: TemplateScopeRef): Promise<PromptTemplate[]> =>
+    dispatchTemplateScope(scope, {
       user: () => PromptStudioService.meListTemplatesApiMePromptTemplatesGet(),
       org: (orgId) => PromptStudioService.orgListTemplatesApiOrgsOrgIdPromptTemplatesGet({ orgId }),
       platform: () => PromptStudioService.adminListTemplatesApiAdminPromptTemplatesGet(),
     }).then((r) => r as PromptTemplate[]),
 
-  createTemplate: (scope: ConfigScopeRef, payload: TemplateCreateInput): Promise<PromptTemplate> =>
-    dispatchScope(scope, {
+  createTemplate: (scope: TemplateScopeRef, payload: TemplateCreateInput): Promise<PromptTemplate> =>
+    dispatchTemplateScope(scope, {
       user: () => PromptStudioService.meCreateTemplateApiMePromptTemplatesPost({ requestBody: payload }),
       org: (orgId) =>
         PromptStudioService.orgCreateTemplateApiOrgsOrgIdPromptTemplatesPost({ orgId, requestBody: payload }),
@@ -112,13 +147,13 @@ export const promptStudioApi = {
     }).then((r) => r as PromptTemplate),
 
   patchTemplate: (
-    scope: ConfigScopeRef,
+    scope: TemplateScopeRef,
     id: string,
     version: number,
     payload: TemplatePatchInput,
   ): Promise<PromptTemplate> => {
     const ifMatch = String(version)
-    return dispatchScope(scope, {
+    return dispatchTemplateScope(scope, {
       user: () =>
         PromptStudioService.mePatchTemplateApiMePromptTemplatesTemplateIdPatch({
           templateId: id,
@@ -141,8 +176,8 @@ export const promptStudioApi = {
     }).then((r) => r as PromptTemplate)
   },
 
-  deleteTemplate: (scope: ConfigScopeRef, id: string) =>
-    dispatchScope(scope, {
+  deleteTemplate: (scope: TemplateScopeRef, id: string) =>
+    dispatchTemplateScope(scope, {
       user: () => PromptStudioService.meDeleteTemplateApiMePromptTemplatesTemplateIdDelete({ templateId: id }),
       org: (orgId) =>
         PromptStudioService.orgDeleteTemplateApiOrgsOrgIdPromptTemplatesTemplateIdDelete({

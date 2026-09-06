@@ -81,6 +81,12 @@ class SessionLimitReached(PromptStudioError):
     code = "prompt-studio/session-limit"
 
 
+class PresetAlreadyActive(PromptStudioError):
+    """Another platform preset was concurrently enabled first (uq_prompt_assistant_config_platform_active)."""
+
+    code = "prompt-studio/preset-already-active"
+
+
 __all__ = [
     "AssistantConfigNotFound",
     "AssistantUnavailable",
@@ -91,6 +97,7 @@ __all__ = [
     "FileTooLarge",
     "PinnedKeyCapabilityMismatch",
     "PinnedKeyNotOwned",
+    "PresetAlreadyActive",
     "PromptStudioError",
     "ReferenceFileExtractionFailed",
     "ReferenceFileNotFound",

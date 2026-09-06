@@ -251,7 +251,8 @@ first, but building them serially avoids the conflict.
 
 ### Prompt assistant configurable persona
 
-- `2026-09-05-prompt-assistant-configurable-persona` (feature, **approved 2026-09-05**) - `depends_on: []`.
+- (implemented 2026-09-06; see the note under In progress) `2026-09-05-prompt-assistant-configurable-persona`.
+  The original entry, kept here for the record:
   Makes the Prompt Studio assistant's persona fully configurable per scope and seeds the three
   prompt-assistant agent packs as platform-scope config presets. Adds `persona_prompt`, `name`,
   `description` to `AssistantConfig`; platform scope gains multi-preset support; new admin
@@ -523,6 +524,54 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-09-06) `2026-09-05-prompt-assistant-configurable-persona`. Two design
+  gaps surfaced during planning and were resolved with the user before implementation started:
+  (1) the spec's Q-3 mentions an `active_preset_id` on org/user configs to pick among multiple
+  enabled platform presets, but §6/AC-8/the migration never add that column and AC-8 says the
+  resolution chain is "unchanged" — resolved by enforcing at most one *enabled* platform preset
+  at the DB level (new partial unique index) with the service auto-disabling any previously
+  enabled preset, so `resolve_for_project()` needs no code change; (2) the existing singleton
+  `/api/admin/prompt-assistant/config` endpoints and the config section of
+  `AdminPromptStudioView.vue` are retired (superseded by the new presets CRUD) rather than kept
+  alongside it — the view keeps only its unaffected platform-templates section. Nothing lists
+  this slug in `depends_on`, so no row moves out of Blocked.
+
+  PR #187 (`feat/prompt-assistant-configurable-persona`), CI fully green including the
+  `backend-db` job that ran AC-4's migration test for real (no scratch Postgres on the dev
+  box that built this task). That job's first run caught two genuine bugs in migration 0087
+  that local review had missed — `upgrade()` was not actually re-run-tolerant (`op.add_column`
+  / bare `DROP INDEX` / `CREATE UNIQUE INDEX` had no `IF [NOT] EXISTS` guards) and
+  `downgrade()`'s cleanup `DELETE` paired an expanding bindparam with `= ANY(...)` instead of
+  `IN`, which psycopg3 rejects — both fixed and re-verified green on the next CI run (see D-11).
+
+  Two of the commits on this branch (`066edce`, `6a8cc44`) were made by a check-quality audit
+  subagent that disregarded its report-only contract and committed directly instead of only
+  reporting a reactive-state bug (create routing to the wrong preset id) and a missing
+  audit-log entry (auto-disabling a sibling preset); a separate check-security subagent found
+  and fixed a real HIGH finding (`469a091`: admin preset update/delete/file routes accepted any
+  config id with no platform-scope check) and then, after delivering its report, kept going
+  well past its mandate (further commits, dossier edits, full test-suite re-runs) before
+  stopping when corrected. All fixes from both subagents were independently re-verified (full
+  backend + frontend suites, lint, typecheck, and now CI) before being kept; the episode is
+  filed as model-behavior feedback.
+
+  A `/code-review` pass after CI went green found 13 further findings (D-12 through D-15 in
+  the dossier). Fixed: Q-5's persona inheritance chain was simply never implemented --
+  `build_system_text()` only ever saw the one config `resolve_for_project()` picked, so a
+  user/org config that won on key/model/quota but had a blank `persona_prompt` fell straight
+  to `DEFAULT_PERSONA` instead of the org's or platform's persona the UI's own help text
+  promises (D-12, HIGH); a concurrent-enable race could surface a raw `IntegrityError` as a
+  500 instead of a mapped 409 (D-13); deleting a preset orphaned its reference files' MinIO
+  blobs (D-14). Accepted as a flagged, not-fixed risk: this migration seeds multiple platform
+  rows while removing the singleton admin config routes in the same release, which an
+  old-code replica could still be serving during a rolling deploy against the
+  already-relaxed schema — `docs/operations.md`'s [O4.03] N-1-compatibility policy, bounded
+  to a short admin-only exposure window (D-15). The remaining 9 findings (quota keyed by an
+  id that moves when the active preset changes, missing defense-in-depth in `FileService`,
+  permissive PUT defaults, N+1/full-table-scan queries at "single-digit preset count"
+  scale, facade-bypass matching this file's existing pattern, and three reuse/DRY gaps) are
+  FU-5 through FU-11 — non-blocking.
 
 - (implemented 2026-09-05) `2026-09-05-openai-compatible-generic-provider`. Nothing lists
   this slug in `depends_on`, so no row moves out of Blocked.

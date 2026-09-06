@@ -19,6 +19,7 @@ import contexts.prompt_studio.application.template_service as template_mod
 from contexts.prompt_studio.application.config_service import ConfigService
 from contexts.prompt_studio.application.template_service import TemplateService
 from contexts.prompt_studio.domain.errors import (
+    AssistantConfigNotFound,
     PinnedKeyCapabilityMismatch,
     PinnedKeyNotOwned,
     TemplateLimitReached,
@@ -36,19 +37,34 @@ from contexts.prompt_studio.domain.models import (
 _NOW = datetime(2026, 7, 5, tzinfo=UTC)
 
 
-def _config(scope: PromptScope, *, enabled: bool, org_id=None, user_id=None, hide=False) -> AssistantConfig:
+def _config(
+    scope: PromptScope,
+    *,
+    enabled: bool,
+    org_id=None,
+    user_id=None,
+    hide=False,
+    persona="",
+    name="",
+    description="",
+    config_id=None,
+    version=1,
+) -> AssistantConfig:
     return AssistantConfig(
-        id=uuid.uuid4(),
+        id=config_id or uuid.uuid4(),
         scope=scope,
         org_id=org_id,
         user_id=user_id,
+        persona_prompt=persona,
+        name=name,
+        description=description,
         system_prompt="sp",
         key_id=None,
         model_id=None,
         daily_request_limit_per_user=50,
         enabled=enabled,
         hide_platform_templates=hide,
-        version=1,
+        version=version,
         created_at=_NOW,
         updated_at=_NOW,
     )
@@ -75,12 +91,15 @@ class _FakeConfigRepo:
     by_scope: dict[tuple, AssistantConfig]
     meta_calls: list = None  # type: ignore[assignment]
     full_calls: list = None  # type: ignore[assignment]
+    platform_presets: list = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.meta_calls is None:
             self.meta_calls = []
         if self.full_calls is None:
             self.full_calls = []
+        if self.platform_presets is None:
+            self.platform_presets = []
 
     async def get_by_scope(self, scope, *, org_id=None, user_id=None):
         if scope is PromptScope.PLATFORM:
@@ -89,6 +108,12 @@ class _FakeConfigRepo:
             return self.by_scope.get(("org", org_id))
         return self.by_scope.get(("user", user_id))
 
+    async def get_enabled_platform_preset(self):
+        platform = self.by_scope.get(("platform",))
+        if platform is not None and platform.enabled:
+            return platform
+        return next((p for p in self.platform_presets if p.enabled), None)
+
     async def list_files_meta(self, config_id):
         self.meta_calls.append(config_id)
         return []
@@ -96,6 +121,55 @@ class _FakeConfigRepo:
     async def list_files(self, config_id):
         self.full_calls.append(config_id)
         return []
+
+    # -- platform preset CRUD (test double for AssistantConfigRepository) ---
+
+    async def list_platform(self):
+        return list(self.platform_presets)
+
+    async def get_by_id(self, config_id):
+        found = next((p for p in self.platform_presets if p.id == config_id), None)
+        if found is not None:
+            return found
+        return next((c for c in self.by_scope.values() if c.id == config_id), None)
+
+    async def create(self, *, scope, org_id, user_id, values):
+        preset = _config(
+            scope,
+            enabled=values["enabled"],
+            org_id=org_id,
+            user_id=user_id,
+            persona=values.get("persona_prompt", ""),
+            name=values.get("name", ""),
+            description=values.get("description", ""),
+        )
+        self.platform_presets.append(preset)
+        return preset
+
+    async def update(self, config_id, *, expected_version, values):
+        for i, p in enumerate(self.platform_presets):
+            if p.id == config_id:
+                if p.version != expected_version:
+                    raise VersionMismatch(str(config_id))
+                updated = _config(
+                    p.scope,
+                    enabled=values.get("enabled", p.enabled),
+                    org_id=p.org_id,
+                    user_id=p.user_id,
+                    persona=values.get("persona_prompt", p.persona_prompt),
+                    name=values.get("name", p.name),
+                    description=values.get("description", p.description),
+                    config_id=p.id,
+                    version=p.version + 1,
+                )
+                self.platform_presets[i] = updated
+                return updated
+        raise AssistantConfigNotFound(str(config_id))
+
+    async def delete(self, config_id):
+        before = len(self.platform_presets)
+        self.platform_presets = [p for p in self.platform_presets if p.id != config_id]
+        return len(self.platform_presets) < before
 
 
 @dataclass
@@ -128,11 +202,12 @@ class _FakeTenancy:
         return self._project
 
 
-def _make_config_service(*, configs, keys=None, tenancy=None, monkeypatch) -> ConfigService:
-    async def _noop_emit(*_a, **_k):
-        return None
+def _make_config_service(*, configs, keys=None, tenancy=None, monkeypatch, emitted=None) -> ConfigService:
+    async def _record_emit(_db, event):
+        if emitted is not None:
+            emitted.append(event)
 
-    monkeypatch.setattr(config_mod.audit, "emit", _noop_emit)
+    monkeypatch.setattr(config_mod.audit, "emit", _record_emit)
     svc = ConfigService.__new__(ConfigService)
     svc._db = object()
     svc._configs = configs
@@ -206,6 +281,101 @@ async def test_disabled_platform_resolves_none(monkeypatch) -> None:
     assert resolved is None
 
 
+# --- persona inheritance (Q-5) ----------------------------------------------
+#
+# Independent of resolve_for_project(): a user/org config can win the
+# effective config for key/model/quota while leaving persona_prompt blank, in
+# which case the org's or platform's persona must still be reachable rather
+# than silently falling to DEFAULT_PERSONA.
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_prefers_user_over_org_and_platform(monkeypatch) -> None:
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona="user persona"),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona="org persona"),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "user persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_falls_through_to_org_when_user_persona_is_blank(monkeypatch) -> None:
+    # The user's config is still what wins resolve_for_project() for key/model/
+    # quota (it is enabled) -- it just has no persona of its own.
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona="org persona"),
+        },
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    effective_config = await svc.resolve_for_project(project_id=uuid.uuid4(), user_id=uid)
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert effective_config is not None
+    assert effective_config.scope is PromptScope.USER
+    assert persona == "org persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_falls_through_to_platform_when_user_and_org_are_blank(monkeypatch) -> None:
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=True, org_id=org, persona=""),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "platform persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_skips_a_disabled_orgs_persona(monkeypatch) -> None:
+    # A disabled org config never wins resolve_for_project() either -- its
+    # persona must not leak through as if it were live.
+    uid, org = uuid.uuid4(), uuid.uuid4()
+    repo = _FakeConfigRepo(
+        {
+            ("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona=""),
+            ("org", org): _config(PromptScope.ORG, enabled=False, org_id=org, persona="org persona"),
+        },
+        platform_presets=[_config(PromptScope.PLATFORM, enabled=True, persona="platform persona")],
+    )
+    svc = _make_config_service(configs=repo, tenancy=_FakeTenancy(_FakeProject(org)), monkeypatch=monkeypatch)
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == "platform persona"
+
+
+@pytest.mark.asyncio
+async def test_effective_persona_empty_when_nothing_in_the_chain_has_one(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    repo = _FakeConfigRepo({("user", uid): _config(PromptScope.USER, enabled=True, user_id=uid, persona="")})
+    svc = _make_config_service(
+        configs=repo, tenancy=_FakeTenancy(_FakeProject(None)), monkeypatch=monkeypatch
+    )
+
+    persona = await svc.resolve_effective_persona(project_id=uuid.uuid4(), user_id=uid)
+
+    assert persona == ""
+
+
 # --- pinned-key guards (R29.05) --------------------------------------------
 
 
@@ -223,6 +393,7 @@ async def test_put_config_rejects_unowned_key(monkeypatch) -> None:
             scope=PromptScope.USER,
             org_id=None,
             user_id=actor,
+            persona_prompt="",
             system_prompt="x",
             key_id=uuid.uuid4(),
             model_id=None,
@@ -247,6 +418,7 @@ async def test_put_config_rejects_wrong_capability(monkeypatch) -> None:
             scope=PromptScope.USER,
             org_id=None,
             user_id=actor,
+            persona_prompt="",
             system_prompt="x",
             key_id=uuid.uuid4(),
             model_id=None,
@@ -272,6 +444,7 @@ async def test_put_config_existing_requires_if_match(monkeypatch) -> None:
             scope=PromptScope.USER,
             org_id=None,
             user_id=actor,
+            persona_prompt="",
             system_prompt="x",
             key_id=None,
             model_id=None,
@@ -295,6 +468,324 @@ async def test_list_files_uses_metadata_only_projection(monkeypatch) -> None:
 
     assert repo.meta_calls == [config_id]
     assert repo.full_calls == []
+
+
+# --- platform preset CRUD (AC-5 / R29.16) -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_preset_lists_under_platform(monkeypatch) -> None:
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
+    actor = uuid.uuid4()
+
+    created = await svc.create_preset(
+        actor_user_id=actor,
+        name="General",
+        description="desc",
+        persona_prompt="persona",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=False,
+    )
+
+    assert created.scope is PromptScope.PLATFORM
+    presets = await svc.list_platform_presets()
+    assert [p.id for p in presets] == [created.id]
+
+
+@pytest.mark.asyncio
+async def test_enabling_a_preset_disables_the_previously_enabled_one(monkeypatch) -> None:
+    # R29.16 / Gap-1 resolution: at most one platform preset is enabled at a
+    # time -- enabling one auto-disables whichever was enabled before it, so
+    # resolve_for_project's platform fallback is never ambiguous.
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
+    actor = uuid.uuid4()
+
+    first = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+    second = await svc.create_preset(
+        actor_user_id=actor,
+        name="B",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+
+    presets = {p.id: p for p in await svc.list_platform_presets()}
+    assert presets[first.id].enabled is False
+    assert presets[second.id].enabled is True
+
+
+@pytest.mark.asyncio
+async def test_update_preset_to_enabled_disables_sibling(monkeypatch) -> None:
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
+    actor = uuid.uuid4()
+
+    first = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+    second = await svc.create_preset(
+        actor_user_id=actor,
+        name="B",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=False,
+    )
+
+    updated_second = await svc.update_preset(
+        preset_id=second.id,
+        actor_user_id=actor,
+        expected_version=second.version,
+        name="B",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+
+    presets = {p.id: p for p in await svc.list_platform_presets()}
+    assert presets[first.id].enabled is False
+    assert updated_second.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_delete_preset_removes_it(monkeypatch) -> None:
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
+    actor = uuid.uuid4()
+    preset = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=False,
+    )
+
+    await svc.delete_preset(preset_id=preset.id, actor_user_id=actor)
+
+    assert await svc.list_platform_presets() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_preset_missing_raises_not_found(monkeypatch) -> None:
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch)
+    with pytest.raises(AssistantConfigNotFound):
+        await svc.delete_preset(preset_id=uuid.uuid4(), actor_user_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_update_preset_rejects_a_non_platform_config_id(monkeypatch) -> None:
+    # Security fix: the id-addressed preset endpoints take a client-supplied
+    # config_id with no scope in the path. Without a scope check, an admin
+    # could target any org's singleton config through a route gated and
+    # documented for platform presets only -- there is no other DELETE for
+    # an org config anywhere in this router.
+    org_id = uuid.uuid4()
+    org_cfg = _config(PromptScope.ORG, enabled=True, org_id=org_id)
+    repo = _FakeConfigRepo({("org", org_id): org_cfg})
+    svc = _make_config_service(configs=repo, monkeypatch=monkeypatch)
+
+    with pytest.raises(AssistantConfigNotFound):
+        await svc.update_preset(
+            preset_id=org_cfg.id,
+            actor_user_id=uuid.uuid4(),
+            expected_version=org_cfg.version,
+            name="hijacked",
+            description="",
+            persona_prompt="",
+            system_prompt="",
+            key_id=None,
+            model_id=None,
+            daily_request_limit_per_user=50,
+            enabled=False,
+        )
+
+    unchanged = await repo.get_by_scope(PromptScope.ORG, org_id=org_id)
+    assert unchanged is not None
+    assert unchanged.name == org_cfg.name
+
+
+@pytest.mark.asyncio
+async def test_delete_preset_rejects_a_non_platform_config_id(monkeypatch) -> None:
+    user_id = uuid.uuid4()
+    user_cfg = _config(PromptScope.USER, enabled=True, user_id=user_id)
+    repo = _FakeConfigRepo({("user", user_id): user_cfg})
+    svc = _make_config_service(configs=repo, monkeypatch=monkeypatch)
+
+    with pytest.raises(AssistantConfigNotFound):
+        await svc.delete_preset(preset_id=user_cfg.id, actor_user_id=uuid.uuid4())
+
+    assert await repo.get_by_scope(PromptScope.USER, user_id=user_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_resolve_for_project_uses_enabled_platform_preset(monkeypatch) -> None:
+    # AC-5 / AC-8: resolve_for_project's platform fallback must see a preset
+    # created via create_preset, not just the legacy by_scope("platform") slot.
+    repo = _FakeConfigRepo({})
+    svc = _make_config_service(
+        configs=repo, tenancy=_FakeTenancy(_FakeProject(None)), monkeypatch=monkeypatch
+    )
+    actor = uuid.uuid4()
+    preset = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="custom persona",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+
+    resolved = await svc.resolve_for_project(project_id=uuid.uuid4(), user_id=uuid.uuid4())
+
+    assert resolved is not None
+    assert resolved.id == preset.id
+    assert resolved.persona_prompt == "custom persona"
+
+
+# --- audit logging (AC-12 / R29.13) -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_put_config_emits_config_created(monkeypatch) -> None:
+    actor = uuid.uuid4()
+    emitted: list = []
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch, emitted=emitted)
+
+    await svc.put_config(
+        actor_user_id=actor,
+        scope=PromptScope.USER,
+        org_id=None,
+        user_id=actor,
+        persona_prompt="p",
+        system_prompt="x",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+        hide_platform_templates=False,
+        expected_version=None,
+    )
+
+    assert [e.action for e in emitted] == ["prompt_studio.config_created"]
+    assert emitted[0].actor_user_id == actor
+
+
+@pytest.mark.asyncio
+async def test_preset_crud_emits_the_matching_actions(monkeypatch) -> None:
+    actor = uuid.uuid4()
+    emitted: list = []
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch, emitted=emitted)
+
+    preset = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=False,
+    )
+    await svc.update_preset(
+        preset_id=preset.id,
+        actor_user_id=actor,
+        expected_version=preset.version,
+        name="A2",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=False,
+    )
+    await svc.delete_preset(preset_id=preset.id, actor_user_id=actor)
+
+    assert [e.action for e in emitted] == [
+        "prompt_studio.preset_created",
+        "prompt_studio.preset_updated",
+        "prompt_studio.preset_deleted",
+    ]
+    assert all(e.actor_user_id == actor for e in emitted)
+    assert all(e.resource_type == "prompt_assistant_config" for e in emitted)
+
+
+@pytest.mark.asyncio
+async def test_auto_disabling_a_sibling_preset_is_itself_audited(monkeypatch) -> None:
+    # A preset being flipped off as a side effect of enabling another one is
+    # still a persisted state change to a distinct resource -- it must not be
+    # silent just because the caller's request named a different preset.
+    actor = uuid.uuid4()
+    emitted: list = []
+    svc = _make_config_service(configs=_FakeConfigRepo({}), monkeypatch=monkeypatch, emitted=emitted)
+
+    first = await svc.create_preset(
+        actor_user_id=actor,
+        name="A",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+    emitted.clear()
+
+    await svc.create_preset(
+        actor_user_id=actor,
+        name="B",
+        description="",
+        persona_prompt="",
+        system_prompt="",
+        key_id=None,
+        model_id=None,
+        daily_request_limit_per_user=50,
+        enabled=True,
+    )
+
+    auto_disabled = [e for e in emitted if e.action == "prompt_studio.preset_auto_disabled"]
+    assert len(auto_disabled) == 1
+    assert auto_disabled[0].resource_id == first.id
+    assert auto_disabled[0].actor_user_id == actor
 
 
 # --- template service ------------------------------------------------------

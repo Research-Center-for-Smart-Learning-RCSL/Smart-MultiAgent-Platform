@@ -52,6 +52,7 @@ class ConfigService:
         scope: PromptScope,
         org_id: uuid.UUID | None,
         user_id: uuid.UUID | None,
+        persona_prompt: str,
         system_prompt: str,
         key_id: uuid.UUID | None,
         model_id: str | None,
@@ -62,11 +63,13 @@ class ConfigService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> AssistantConfig:
-        """Create-or-replace the config for a scope holder.
+        """Create-or-replace the singleton config for an org/user scope holder.
 
         A pinned key must be owned by the configurer and support chat. When a
         config already exists, ``expected_version`` (from ``If-Match``) is
-        required and enforced for optimistic concurrency.
+        required and enforced for optimistic concurrency. Platform-scope
+        presets are managed separately (``create_preset`` / `update_preset`),
+        since platform scope is no longer a singleton (R29.02 relaxed).
         """
         if key_id is not None:
             await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
@@ -74,6 +77,7 @@ class ConfigService:
         existing = await self._configs.get_by_scope(scope, org_id=org_id, user_id=user_id)
         # hide_platform_templates is meaningful only for the org scope.
         values = {
+            "persona_prompt": persona_prompt,
             "system_prompt": system_prompt,
             "key_id": key_id,
             "model_id": model_id,
@@ -133,20 +137,198 @@ class ConfigService:
             if org_cfg is not None and org_cfg.enabled:
                 return org_cfg
 
-        platform = await self._configs.get_by_scope(PromptScope.PLATFORM)
-        if platform is not None and platform.enabled:
-            return platform
-        return None
+        return await self._configs.get_enabled_platform_preset()
+
+    async def resolve_effective_persona(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> str:
+        """Resolve the effective persona prompt independently of resolve_for_project().
+
+        Q-5: user persona -> org persona -> active platform preset's persona,
+        skipping disabled configs and scopes whose persona is blank, same
+        precedence as resolve_for_project() (R29.04) but not stopping at the
+        first *enabled* config the way that chain does for key/model/quota --
+        a user config can win the effective config for those while still
+        being empty on persona, in which case the org's or platform's persona
+        must still be reachable. Returns "" (caller falls back to
+        DEFAULT_PERSONA) when no scope in the chain has one set.
+        """
+        personal = await self._configs.get_by_scope(PromptScope.USER, user_id=user_id)
+        if personal is not None and personal.enabled and personal.persona_prompt.strip():
+            return personal.persona_prompt
+
+        owning_org_id = await resolve_owning_org_id(self._tenancy, project_id)
+        if owning_org_id is not None:
+            org_cfg = await self._configs.get_by_scope(PromptScope.ORG, org_id=owning_org_id)
+            if org_cfg is not None and org_cfg.enabled and org_cfg.persona_prompt.strip():
+                return org_cfg.persona_prompt
+
+        platform = await self._configs.get_enabled_platform_preset()
+        if platform is not None and platform.persona_prompt.strip():
+            return platform.persona_prompt
+
+        return ""
 
     async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
         """Metadata only -- the API layer's response DTOs never serialize extracted_text."""
         return await self._configs.list_files_meta(config_id)
 
-    async def get_config_or_raise(self, config_id: uuid.UUID) -> AssistantConfig:
-        config = await self._configs.get_by_id(config_id)
-        if config is None:
-            raise AssistantConfigNotFound(str(config_id))
+    async def get_platform_preset_or_raise(self, preset_id: uuid.UUID) -> AssistantConfig:
+        """Fetch a config by id, scoped to platform only.
+
+        All four id-addressed preset endpoints (update/delete/upload-file/
+        delete-file) take a client-supplied ``config_id`` with no scope in the
+        path or body. A scope-agnostic lookup here would let an admin target
+        any org's or any user's singleton config through a route gated and
+        documented for platform presets only -- there being no separate
+        DELETE anywhere else in this router for an org/user config, that
+        would make this the only way to destroy one of those rows at all.
+        """
+        config = await self._configs.get_by_id(preset_id)
+        if config is None or config.scope is not PromptScope.PLATFORM:
+            raise AssistantConfigNotFound(str(preset_id))
         return config
+
+    # -- platform preset CRUD (R29.16) ---------------------------------------
+    #
+    # Platform scope is the only scope that isn't a singleton: it holds
+    # multiple named presets. At most one may be enabled at a time (DB-enforced
+    # by uq_prompt_assistant_config_platform_active); enabling one here
+    # disables any other currently-enabled preset first, so the caller never
+    # has to turn the old one off by hand and resolve_for_project's
+    # get_enabled_platform_preset() always sees at most one candidate.
+
+    async def list_platform_presets(self) -> list[AssistantConfig]:
+        return await self._configs.list_platform()
+
+    async def create_preset(
+        self,
+        *,
+        actor_user_id: uuid.UUID,
+        name: str,
+        description: str,
+        persona_prompt: str,
+        system_prompt: str,
+        key_id: uuid.UUID | None,
+        model_id: str | None,
+        daily_request_limit_per_user: int,
+        enabled: bool,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> AssistantConfig:
+        if key_id is not None:
+            await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
+        if enabled:
+            await self._disable_other_enabled_presets(
+                except_id=None, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            )
+        preset = await self._configs.create(
+            scope=PromptScope.PLATFORM,
+            org_id=None,
+            user_id=None,
+            values={
+                "name": name,
+                "description": description,
+                "persona_prompt": persona_prompt,
+                "system_prompt": system_prompt,
+                "key_id": key_id,
+                "model_id": model_id,
+                "daily_request_limit_per_user": daily_request_limit_per_user,
+                "enabled": enabled,
+                "hide_platform_templates": False,
+            },
+        )
+        await self._emit_preset("prompt_studio.preset_created", preset, actor_user_id, actor_ip, request_id)
+        return preset
+
+    async def update_preset(
+        self,
+        *,
+        preset_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        expected_version: int,
+        name: str,
+        description: str,
+        persona_prompt: str,
+        system_prompt: str,
+        key_id: uuid.UUID | None,
+        model_id: str | None,
+        daily_request_limit_per_user: int,
+        enabled: bool,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> AssistantConfig:
+        await self.get_platform_preset_or_raise(preset_id)
+        if key_id is not None:
+            await self._assert_key_usable(actor_user_id=actor_user_id, key_id=key_id)
+        if enabled:
+            await self._disable_other_enabled_presets(
+                except_id=preset_id, actor_user_id=actor_user_id, actor_ip=actor_ip, request_id=request_id
+            )
+        preset = await self._configs.update(
+            preset_id,
+            expected_version=expected_version,
+            values={
+                "name": name,
+                "description": description,
+                "persona_prompt": persona_prompt,
+                "system_prompt": system_prompt,
+                "key_id": key_id,
+                "model_id": model_id,
+                "daily_request_limit_per_user": daily_request_limit_per_user,
+                "enabled": enabled,
+            },
+        )
+        await self._emit_preset("prompt_studio.preset_updated", preset, actor_user_id, actor_ip, request_id)
+        return preset
+
+    async def delete_preset(
+        self,
+        *,
+        preset_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        preset = await self.get_platform_preset_or_raise(preset_id)
+        await self._configs.delete(preset_id)
+        await self._emit_preset("prompt_studio.preset_deleted", preset, actor_user_id, actor_ip, request_id)
+
+    async def _disable_other_enabled_presets(
+        self,
+        *,
+        except_id: uuid.UUID | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> None:
+        for other in await self._configs.list_platform():
+            if other.enabled and other.id != except_id:
+                disabled = await self._configs.update(
+                    other.id, expected_version=other.version, values={"enabled": False}
+                )
+                await self._emit_preset(
+                    "prompt_studio.preset_auto_disabled", disabled, actor_user_id, actor_ip, request_id
+                )
+
+    async def _emit_preset(
+        self,
+        action: str,
+        preset: AssistantConfig,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> None:
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=action,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="prompt_assistant_config",
+                resource_id=preset.id,
+                metadata={"scope": "platform", "name": preset.name, "enabled": str(preset.enabled)},
+                request_id=request_id,
+            ),
+        )
 
 
 __all__ = ["ConfigService"]

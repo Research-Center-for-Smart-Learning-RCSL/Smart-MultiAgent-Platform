@@ -1,10 +1,7 @@
-import { useQuery } from '@tanstack/vue-query'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useModelCatalog, useToast } from '@shared/composables'
-import { isProblemWithType } from '@shared/transport'
-import { CAPABILITIES, keysApi, type ApiKey, type ApiKeyProvider } from '@slices/keys'
+import { useToast } from '@shared/composables'
 
 import {
   useConfigQuery,
@@ -13,9 +10,11 @@ import {
   useUploadFileMutation,
 } from '../queries'
 import type { AssistantConfigPutInput, ConfigScopeRef } from '../types'
+import { toastForSaveError, toastForUploadError, useChatKeyAndModelOptions } from './_assistantFormShared'
 
 function blankValue(): AssistantConfigPutInput {
   return {
+    persona_prompt: '',
     system_prompt: '',
     key_id: null,
     model_id: null,
@@ -31,11 +30,6 @@ export function useConfigEditor(scope: ConfigScopeRef) {
   const toast = useToast()
 
   const configQuery = useConfigQuery(scope)
-  const keysQuery = useQuery({
-    queryKey: ['prompt-studio', 'my-keys'],
-    queryFn: () => keysApi.list(),
-  })
-  const catalogQuery = useModelCatalog()
 
   const form = reactive<AssistantConfigPutInput>(blankValue())
   const version = ref<number | null>(null)
@@ -47,6 +41,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
       const cfg = env?.config
       if (cfg) {
         Object.assign(form, {
+          persona_prompt: cfg.persona_prompt,
           system_prompt: cfg.system_prompt,
           key_id: cfg.key_id,
           model_id: cfg.model_id,
@@ -66,31 +61,12 @@ export function useConfigEditor(scope: ConfigScopeRef) {
 
   const dirty = computed(() => JSON.stringify(form) !== baseline)
 
-  const chatKeys = computed<ApiKey[]>(() =>
-    (keysQuery.data.value ?? []).filter((k) =>
-      CAPABILITIES[k.provider as ApiKeyProvider]?.includes('llm_chat'),
-    ),
-  )
-
-  const keyOptions = computed(() =>
-    chatKeys.value.map((k) => ({ value: k.id, label: `${k.name} (${k.masked_preview})` })),
+  const { keyOptions, modelOptions } = useChatKeyAndModelOptions(
+    computed(() => form.key_id),
   )
 
   const keyRevoked = computed(() => configQuery.data.value?.config?.key_revoked === true)
   const files = computed(() => configQuery.data.value?.config?.files ?? [])
-
-  const modelOptions = computed(() => {
-    const keyId = form.key_id
-    if (!keyId) return []
-    const provider = chatKeys.value.find((k) => k.id === keyId)?.provider
-    if (!provider) return []
-    const entry = (catalogQuery.data.value?.chat ?? []).find((c) => c.provider === provider)
-    if (!entry) return []
-    return [
-      { value: '', label: t('promptStudio.config.modelDefault', { model: entry.default }) },
-      ...entry.models.map((m) => ({ value: m.model_id, label: m.model_id })),
-    ]
-  })
 
   const saveMutation = useSaveConfigMutation(scope)
   const uploadMutation = useUploadFileMutation(scope)
@@ -101,15 +77,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
       await saveMutation.mutateAsync({ version: version.value, payload: { ...form } })
       toast.success(t('promptStudio.config.saved'))
     } catch (err) {
-      if (isProblemWithType(err, 'prompt-studio/version-mismatch')) {
-        toast.warning(t('promptStudio.config.conflict'))
-      } else if (isProblemWithType(err, 'prompt-studio/key-not-owned')) {
-        toast.error(t('promptStudio.config.keyNotOwned'))
-      } else if (isProblemWithType(err, 'prompt-studio/key-capability')) {
-        toast.error(t('promptStudio.config.keyCapability'))
-      } else {
-        toast.error(t('promptStudio.config.saveFailed'))
-      }
+      toastForSaveError(err, toast, t)
     }
   }
 
@@ -118,17 +86,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
       await uploadMutation.mutateAsync(file)
       toast.success(t('promptStudio.config.fileUploaded'))
     } catch (err) {
-      if (isProblemWithType(err, 'prompt-studio/text-budget')) {
-        toast.error(t('promptStudio.config.budgetError'))
-      } else if (isProblemWithType(err, 'prompt-studio/file-format')) {
-        toast.error(t('promptStudio.config.formatError'))
-      } else if (isProblemWithType(err, 'prompt-studio/file-infected')) {
-        toast.error(t('promptStudio.config.infectedError'))
-      } else if (isProblemWithType(err, 'prompt-studio/config-not-found')) {
-        toast.error(t('promptStudio.config.saveFirst'))
-      } else {
-        toast.error(t('promptStudio.config.uploadFailed'))
-      }
+      toastForUploadError(err, toast, t)
     }
   }
 
@@ -136,7 +94,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
     try {
       await deleteFileMutation.mutateAsync(fileId)
     } catch {
-      toast.error(t('promptStudio.config.uploadFailed'))
+      toast.error(t('promptStudio.config.deleteFileFailed'))
     }
   }
 

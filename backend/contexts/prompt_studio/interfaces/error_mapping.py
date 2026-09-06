@@ -67,6 +67,11 @@ _MAP: ErrorMap = {
         429,
         "Assistant session message cap reached",
     ),
+    errors.PresetAlreadyActive: (
+        "prompt-studio/preset-already-active",
+        409,
+        "Another platform preset was enabled concurrently -- retry",
+    ),
 }
 
 

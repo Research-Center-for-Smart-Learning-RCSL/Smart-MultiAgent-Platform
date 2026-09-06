@@ -15,12 +15,18 @@ import SSelect from './SSelect.vue'
 
 // Structural contracts — kept local so shared/ui does not import a slice type.
 export interface ConfigFormValue {
+  persona_prompt: string
   system_prompt: string
   key_id: string | null
   model_id: string | null
   daily_request_limit_per_user: number
   enabled: boolean
-  hide_platform_templates: boolean
+  // Org scope only -- absent (never true) for preset mode, which has no
+  // notion of an owning org's project templates to hide.
+  hide_platform_templates?: boolean
+  // Platform-preset only (meaningless, and omitted, for user/org scope).
+  name?: string
+  description?: string
 }
 
 export interface ConfigFormFile {
@@ -39,7 +45,7 @@ interface Option {
 const props = withDefaults(
   defineProps<{
     modelValue: ConfigFormValue
-    scopeKind: 'platform' | 'org' | 'user'
+    scopeKind: 'platform' | 'org' | 'user' | 'preset'
     keyOptions: Option[]
     modelOptions: Option[]
     files: ConfigFormFile[]
@@ -82,6 +88,48 @@ function onFiles(files: File[]): void {
 
 <template>
   <div class="space-y-6">
+    <template v-if="scopeKind === 'preset'">
+      <SFormField
+        :label="t('promptStudio.config.presetNameLabel')"
+        name="preset_name"
+        required
+      >
+        <SInput
+          :model-value="modelValue.name ?? ''"
+          :maxlength="INPUT_LIMITS.PROMPT_ASSISTANT_PRESET_NAME"
+          @update:model-value="patch('name', String($event))"
+        />
+      </SFormField>
+      <SFormField
+        :label="t('promptStudio.config.presetDescriptionLabel')"
+        name="preset_description"
+      >
+        <SInput
+          :model-value="modelValue.description ?? ''"
+          :maxlength="INPUT_LIMITS.PROMPT_ASSISTANT_PRESET_DESCRIPTION"
+          @update:model-value="patch('description', String($event))"
+        />
+      </SFormField>
+    </template>
+
+    <SFormField
+      :label="t('promptStudio.config.personaPromptLabel')"
+      name="persona_prompt"
+      :help="t('promptStudio.config.personaPromptHelp')"
+    >
+      <SCodeEditor
+        language="markdown"
+        :rows="10"
+        :model-value="modelValue.persona_prompt"
+        :placeholder="t('promptStudio.config.personaPromptPlaceholder')"
+        @update:model-value="patch('persona_prompt', $event)"
+      />
+    </SFormField>
+    <SCharCount
+      :current="modelValue.persona_prompt.length"
+      :max="INPUT_LIMITS.PROMPT_ASSISTANT_PERSONA_PROMPT"
+    />
+
     <SFormField
       :label="t('promptStudio.config.systemPromptLabel')"
       name="system_prompt"
@@ -162,7 +210,7 @@ function onFiles(files: File[]): void {
     >
       <input
         type="checkbox"
-        :checked="modelValue.hide_platform_templates"
+        :checked="modelValue.hide_platform_templates ?? false"
         @change="patch('hide_platform_templates', ($event.target as HTMLInputElement).checked)"
       >
       {{ t('promptStudio.config.hidePlatformTemplatesLabel') }}
