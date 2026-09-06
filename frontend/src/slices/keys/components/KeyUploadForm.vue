@@ -4,7 +4,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { useI18n } from 'vue-i18n'
-import { LockClosedIcon } from '@heroicons/vue/24/outline'
+import { LockClosedIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 import { SModal, SFormField, SSelect, SInput, SButton, SBadge, SAlert } from '@shared/ui'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { CAPABILITIES, type ApiKeyProvider, type OpenAICompatConfig } from '../api/keys'
@@ -63,6 +63,8 @@ const configLabel = ref('')
 const configTimeout = ref<number | undefined>(undefined)
 const configChatEnabled = ref(true)
 const configEmbedEnabled = ref(true)
+const showAdvanced = ref(false)
+const proxyHeaderEntries = ref<Array<{ name: string; value: string }>>([])
 
 watch(
   () => props.open,
@@ -73,9 +75,25 @@ watch(
       configTimeout.value = undefined
       configChatEnabled.value = true
       configEmbedEnabled.value = true
+      showAdvanced.value = false
+      proxyHeaderEntries.value = []
     }
   },
 )
+
+function addProxyHeader() {
+  proxyHeaderEntries.value.push({ name: '', value: '' })
+}
+
+function removeProxyHeader(idx: number) {
+  proxyHeaderEntries.value.splice(idx, 1)
+}
+
+function buildProxyHeaders(): Record<string, string> | undefined {
+  const entries = proxyHeaderEntries.value.filter((e) => e.name.trim() && e.value.trim())
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(entries.map((e) => [e.name.trim(), e.value.trim()]))
+}
 
 const onSubmit = handleSubmit((values) => {
   const payload: {
@@ -88,11 +106,13 @@ const onSubmit = handleSubmit((values) => {
     const caps: Array<'llm_chat' | 'embedding'> = []
     if (configChatEnabled.value) caps.push('llm_chat')
     if (configEmbedEnabled.value) caps.push('embedding')
+    const ph = buildProxyHeaders()
     payload.config = {
       base_url: configBaseUrl.value.trim(),
       ...(configLabel.value.trim() ? { label: configLabel.value.trim() } : {}),
       ...(configTimeout.value ? { timeout_s: configTimeout.value } : {}),
       ...(caps.length < 2 ? { capabilities: caps } : {}),
+      ...(ph ? { proxy_headers: ph } : {}),
     }
   }
   emit('submit', payload)
@@ -102,6 +122,8 @@ const onSubmit = handleSubmit((values) => {
   configTimeout.value = undefined
   configChatEnabled.value = true
   configEmbedEnabled.value = true
+  showAdvanced.value = false
+  proxyHeaderEntries.value = []
 })
 
 function onClose() {
@@ -111,6 +133,8 @@ function onClose() {
   configTimeout.value = undefined
   configChatEnabled.value = true
   configEmbedEnabled.value = true
+  showAdvanced.value = false
+  proxyHeaderEntries.value = []
   emit('close')
 }
 </script>
@@ -252,6 +276,64 @@ function onClose() {
               </label>
             </div>
           </SFormField>
+
+          <div class="border-t border-gray-200 dark:border-gray-700 pt-3 mt-1">
+            <button
+              type="button"
+              class="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+              @click="showAdvanced = !showAdvanced"
+            >
+              <ChevronDownIcon
+                class="w-4 h-4 transition-transform"
+                :class="{ '-rotate-90': !showAdvanced }"
+              />
+              {{ t('keys.form.advanced') }}
+            </button>
+
+            <div
+              v-if="showAdvanced"
+              class="mt-3 flex flex-col gap-3"
+            >
+              <SFormField
+                :label="t('keys.form.proxyHeaders')"
+                name="config-proxy-headers"
+              >
+                <div class="flex flex-col gap-2">
+                  <div
+                    v-for="(entry, idx) in proxyHeaderEntries"
+                    :key="idx"
+                    class="flex gap-2 items-start"
+                  >
+                    <SInput
+                      v-model="entry.name"
+                      :placeholder="t('keys.form.headerName')"
+                      class="flex-1"
+                    />
+                    <SInput
+                      v-model="entry.value"
+                      type="password"
+                      :placeholder="t('keys.form.headerValue')"
+                      class="flex-1"
+                    />
+                    <button
+                      type="button"
+                      class="mt-1.5 text-gray-400 hover:text-red-500 text-sm"
+                      @click="removeProxyHeader(idx)"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-sm text-blue-600 dark:text-blue-400 hover:underline self-start"
+                    @click="addProxyHeader"
+                  >
+                    + {{ t('keys.form.addHeader') }}
+                  </button>
+                </div>
+              </SFormField>
+            </div>
+          </div>
         </template>
 
         <SAlert variant="info">

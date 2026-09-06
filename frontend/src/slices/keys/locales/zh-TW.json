@@ -169,7 +169,12 @@
       "labelPlaceholder": "例如：AI Nexus Production",
       "timeout": "逾時時間（秒）",
       "timeoutPlaceholder": "120（預設）",
-      "capabilities": "功能"
+      "capabilities": "功能",
+      "advanced": "進階設定",
+      "proxyHeaders": "代理標頭",
+      "headerName": "標頭名稱",
+      "headerValue": "標頭值",
+      "addHeader": "新增標頭"
     },
     "providers": {
       "openai_compat": "OpenAI 相容"

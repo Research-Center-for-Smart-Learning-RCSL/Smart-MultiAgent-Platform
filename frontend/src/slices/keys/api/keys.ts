@@ -46,6 +46,7 @@ export interface OpenAICompatConfig {
   label?: string
   timeout_s?: number
   capabilities?: ProviderCapability[]
+  proxy_headers?: Record<string, string>
 }
 
 // Thin wrappers over the generated KeysService (R24.13). Auth and problem+json

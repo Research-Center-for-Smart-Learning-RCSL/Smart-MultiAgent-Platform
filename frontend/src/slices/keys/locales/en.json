@@ -169,7 +169,12 @@
       "labelPlaceholder": "e.g., AI Nexus Production",
       "timeout": "Timeout (seconds)",
       "timeoutPlaceholder": "120 (default)",
-      "capabilities": "Capabilities"
+      "capabilities": "Capabilities",
+      "advanced": "Advanced",
+      "proxyHeaders": "Proxy Headers",
+      "headerName": "Header name",
+      "headerValue": "Header value",
+      "addHeader": "Add header"
     },
     "providers": {
       "openai_compat": "OpenAI Compatible"
