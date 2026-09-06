@@ -36,6 +36,9 @@ def _row_to_config(row: Any) -> AssistantConfig:
         scope=PromptScope(row.scope),
         org_id=row.org_id,
         user_id=row.user_id,
+        persona_prompt=row.persona_prompt,
+        name=row.name,
+        description=row.description,
         system_prompt=row.system_prompt,
         key_id=row.key_id,
         model_id=row.model_id,
@@ -149,6 +152,30 @@ class AssistantConfigRepository:
         row = (await self._db.execute(t.prompt_assistant_configs.select().where(pred))).first()
         return _row_to_config(row) if row else None
 
+    async def list_platform(self) -> list[AssistantConfig]:
+        """All platform-scope rows (presets) -- platform is no longer singleton."""
+        c = t.prompt_assistant_configs.c
+        rows = (
+            await self._db.execute(
+                t.prompt_assistant_configs.select()
+                .where(c.scope == PromptScope.PLATFORM.value)
+                .order_by(c.created_at)
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
+    async def get_enabled_platform_preset(self) -> AssistantConfig | None:
+        """The single enabled platform preset, if any (uq_prompt_assistant_config_platform_active)."""
+        c = t.prompt_assistant_configs.c
+        row = (
+            await self._db.execute(
+                t.prompt_assistant_configs.select().where(
+                    sa.and_(c.scope == PromptScope.PLATFORM.value, c.enabled.is_(True))
+                )
+            )
+        ).first()
+        return _row_to_config(row) if row else None
+
     async def create(
         self,
         *,
@@ -182,6 +209,12 @@ class AssistantConfigRepository:
                 raise AssistantConfigNotFound(str(config_id))
             raise VersionMismatch(str(config_id))
         return _row_to_config(row)
+
+    async def delete(self, config_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.prompt_assistant_configs.delete().where(t.prompt_assistant_configs.c.id == config_id)
+        )
+        return bool(rowcount(result))
 
     # -- reference files -----------------------------------------------------
 

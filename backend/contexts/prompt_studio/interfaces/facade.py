@@ -27,6 +27,9 @@ class PromptStudioFacade:
     ) -> AssistantConfig | None:
         return await ConfigService(self._db).resolve_for_project(project_id=project_id, user_id=user_id)
 
+    async def list_platform_presets(self) -> list[AssistantConfig]:
+        return await ConfigService(self._db).list_platform_presets()
+
     async def verify_session_owner(self, session_id: uuid.UUID, actor_user_id: uuid.UUID) -> bool:
         """True iff *session_id* exists and belongs to *actor_user_id*.
 

@@ -34,7 +34,8 @@ from shared_kernel.auth.ratelimit import Bucket, Scope, default_policies
         # §29 prompt-assistant reference-file uploads (all three scopes).
         ("POST", "/api/me/prompt-assistant/config/files", Bucket.UPLOAD),
         ("POST", "/api/orgs/abc/prompt-assistant/config/files", Bucket.UPLOAD),
-        ("POST", "/api/admin/prompt-assistant/config/files", Bucket.UPLOAD),
+        # Platform scope is preset-CRUD, not the singleton config/files shape.
+        ("POST", "/api/admin/prompt-assistant/presets/abc-123/files", Bucket.UPLOAD),
         # ... but non-file prompt-studio POSTs stay in OTHER.
         ("POST", "/api/me/prompt-templates", Bucket.OTHER),
         # Other default — everything that isn't one of the above.

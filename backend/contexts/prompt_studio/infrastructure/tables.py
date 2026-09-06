@@ -1,6 +1,8 @@
 """SQLAlchemy Core tables for the prompt_studio context.
 
-DDL is owned by ``alembic/versions/0042_prompt_studio.py``; this module exists
+DDL is owned by ``alembic/versions/0042_prompt_studio.py`` (plus the
+``persona_prompt``/``name``/``description`` columns and indexes added by
+``0087_prompt_assistant_persona_presets.py``); this module exists
 so application queries can target typed columns and so ``app.db_registry`` can
 import the bindings on boot. PG ENUM types are created ``create_type=False``
 here and mirrored exactly by the migration (memory rule: ORM enum type match).
@@ -40,6 +42,11 @@ prompt_assistant_configs = sa.Table(
     sa.Column("scope", _SCOPE_ENUM, nullable=False),
     sa.Column("org_id", pg.UUID(as_uuid=True), sa.ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True),
     sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
+    # Full persona override (replaces prompts.DEFAULT_PERSONA when non-empty, R29.15).
+    sa.Column("persona_prompt", sa.Text, nullable=False, server_default=sa.text("''")),
+    # Meaningful only for scope='platform', where multiple named presets exist.
+    sa.Column("name", sa.Text, nullable=False, server_default=sa.text("''")),
+    sa.Column("description", sa.Text, nullable=False, server_default=sa.text("''")),
     sa.Column("system_prompt", sa.Text, nullable=False, server_default=sa.text("''")),
     # Pinned provider key, owned by the configurer. SET NULL on hard-delete so a
     # revoked key leaves a resolvable-but-broken config the UI can flag, rather
