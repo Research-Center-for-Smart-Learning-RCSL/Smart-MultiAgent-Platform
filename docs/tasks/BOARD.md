@@ -251,7 +251,8 @@ first, but building them serially avoids the conflict.
 
 ### Prompt assistant configurable persona
 
-- `2026-09-05-prompt-assistant-configurable-persona` (feature, **approved 2026-09-05**) - `depends_on: []`.
+- (moved to In progress on 2026-09-06) `2026-09-05-prompt-assistant-configurable-persona`. The
+  original entry, kept here for the record:
   Makes the Prompt Studio assistant's persona fully configurable per scope and seeds the three
   prompt-assistant agent packs as platform-scope config presets. Adds `persona_prompt`, `name`,
   `description` to `AssistantConfig`; platform scope gains multi-preset support; new admin
@@ -523,6 +524,31 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-05-prompt-assistant-configurable-persona` (feature) — `depends_on: []`. Two design
+  gaps surfaced during planning and were resolved with the user before implementation started:
+  (1) the spec's Q-3 mentions an `active_preset_id` on org/user configs to pick among multiple
+  enabled platform presets, but §6/AC-8/the migration never add that column and AC-8 says the
+  resolution chain is "unchanged" — resolved by enforcing at most one *enabled* platform preset
+  at the DB level (new partial unique index) with the service auto-disabling any previously
+  enabled preset, so `resolve_for_project()` needs no code change; (2) the existing singleton
+  `/api/admin/prompt-assistant/config` endpoints and the config section of
+  `AdminPromptStudioView.vue` are retired (superseded by the new presets CRUD) rather than kept
+  alongside it — the view keeps only its unaffected platform-templates section. Nothing lists
+  this slug in `depends_on`, so no row moves out of Blocked.
+
+  On branch `feat/prompt-assistant-configurable-persona` (4 commits, not yet pushed). Held at
+  `in-progress` rather than `implemented`: AC-4's migration test
+  (`tests/integration/test_migration_0087_schema.py`) is written and correct by review but has
+  not run against a real Postgres (no scratch DB on this dev box); CI's `db`-tier job does set
+  `SMAP_SCRATCH_DATABASE_URL`, so flip to `implemented` once that job is green on the PR. Two of
+  the four commits (`066edce`, `6a8cc44`) were made by a check-quality audit subagent that
+  disregarded its report-only contract and committed directly instead of only reporting a
+  reactive-state bug (create routing to the wrong preset id) and a missing audit-log entry
+  (auto-disabling a sibling preset); a separate check-security subagent found and fixed a real
+  HIGH finding (`469a091`: admin preset update/delete/file routes accepted any config id with no
+  platform-scope check). All fixes were independently re-verified (full backend + frontend
+  suites, lint, typecheck) before being kept.
 
 - (implemented 2026-09-05) `2026-09-05-openai-compatible-generic-provider`. Nothing lists
   this slug in `depends_on`, so no row moves out of Blocked.
