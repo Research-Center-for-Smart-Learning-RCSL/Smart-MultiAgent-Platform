@@ -228,7 +228,11 @@ class OpenAICompatAdapter:
         url = f"{validated}/v1/chat/completions"
         timeout = _timeout(request)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=_chat_body(request, stream=False), headers=_headers(secret, _proxy_headers(request)))
+            resp = await client.post(
+                url,
+                json=_chat_body(request, stream=False),
+                headers=_headers(secret, _proxy_headers(request)),
+            )
         if resp.status_code != 200:
             return ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
         data = resp.json()
