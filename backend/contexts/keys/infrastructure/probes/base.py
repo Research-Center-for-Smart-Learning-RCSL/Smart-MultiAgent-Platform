@@ -173,9 +173,9 @@ def _allowed_cidrs() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...
         return ()
     nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for cidr in raw.split(","):
-        cidr = cidr.strip()
-        if cidr:
-            nets.append(ipaddress.ip_network(cidr, strict=False))
+        stripped_cidr = cidr.strip()
+        if stripped_cidr:
+            nets.append(ipaddress.ip_network(stripped_cidr, strict=False))
     return tuple(nets)
 
 
