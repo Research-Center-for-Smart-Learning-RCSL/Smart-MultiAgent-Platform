@@ -277,8 +277,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 - `2026-09-10-canvas-crdt-sync` (feature, **approved**) -- Phase 2: real-time CRDT sync
   via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. Ready.
-- `2026-09-10-canvas-ai-write` (feature, **approved**) -- Phase 3: AI agents write to
-  canvas via `write_to_canvas` built-in tool. New `may_write_canvas` grant. Ready.
+- (moved to In progress on 2026-09-10) `2026-09-10-canvas-ai-write`.
 - `2026-09-10-canvas-export` (feature, **approved**) -- Export canvas to PNG/SVG via
   Excalidraw's client-side export utilities. Ready.
 - `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
