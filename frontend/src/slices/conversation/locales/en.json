@@ -319,6 +319,8 @@
       "activityControlFailed": "Could not update activity control for this agent.",
       "activityControlNeedsTypes": "Pick at least one activity before granting control.",
       "draftAccessFailed": "Could not update unsent-text permission for this agent.",
+      "canvasAccessFailed": "Could not update canvas reading permission for this agent.",
+      "canvasWriteAccessFailed": "Could not update canvas writing permission for this agent.",
       "allowMemberGroups": "Specific member groups",
       "allowMemberGroupsDesc": "Only members of the groups selected below. Turning this on closes the room to the rest of the project.",
       "memberGroupsExclusiveTitle": "This changes who can enter the room",

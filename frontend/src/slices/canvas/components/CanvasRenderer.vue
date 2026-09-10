@@ -16,16 +16,23 @@ let excalidrawApi: any = null
 let reactRoot: any = null
 
 function objectsToExcalidrawElements(objects: CanvasObject[]): unknown[] {
-  return objects.map((obj) => ({
-    id: obj.id,
-    type: mapKindToExcalidrawType(obj.kind),
-    x: obj.position_x,
-    y: obj.position_y,
-    width: obj.width,
-    height: obj.height,
-    text: obj.content ?? undefined,
-    ...((obj.style as Record<string, unknown>) ?? {}),
-  }))
+  return objects.map((obj) => {
+    const base: Record<string, unknown> = {
+      id: obj.id,
+      type: mapKindToExcalidrawType(obj.kind),
+      x: obj.position_x,
+      y: obj.position_y,
+      width: obj.width,
+      height: obj.height,
+      text: obj.content ?? undefined,
+      ...((obj.style as Record<string, unknown>) ?? {}),
+    }
+    if (obj.created_by_agent_id) {
+      base.strokeColor = '#6366f1'
+      base.backgroundColor = '#eef2ff'
+    }
+    return base
+  })
 }
 
 function mapKindToExcalidrawType(kind: string): string {

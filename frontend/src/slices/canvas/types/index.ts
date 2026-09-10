@@ -21,6 +21,7 @@ export interface CanvasObject {
   style: Record<string, unknown>
   created_by_user_id: string | null
   created_by_guest_id: string | null
+  created_by_agent_id: string | null
   created_at: string
   updated_at: string
   image_url?: string | null

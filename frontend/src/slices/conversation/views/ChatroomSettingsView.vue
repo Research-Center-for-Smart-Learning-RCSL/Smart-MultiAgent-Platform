@@ -90,6 +90,7 @@ const {
   onRemoveAgent,
   onSetActivityControl,
   onSetCanvasAccess,
+  onSetCanvasWriteAccess,
   onSetDraftAccess,
   onSetRole,
   saveWakeupConfig,
@@ -802,7 +803,8 @@ watchEffect(() => {
               v-if="isCreator"
               :agent="agent"
               :busy="bindingBusy"
-              @save="(granted) => onSetCanvasAccess(agent.id, granted)"
+              @save-read="(granted) => onSetCanvasAccess(agent.id, granted)"
+              @save-write="(granted) => onSetCanvasWriteAccess(agent.id, granted)"
             />
             <SWakeupEditor
               :model-value="agent.wakeup_config"

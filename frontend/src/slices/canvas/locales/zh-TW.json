@@ -26,6 +26,9 @@
     "loadError": "載入畫布失敗",
     "objects": "個物件",
     "agentGrant": "讀取畫布",
-    "agentGrantDescription": "允許此代理在其上下文中查看畫布內容"
+    "agentGrantDescription": "允許此代理在其上下文中查看畫布內容",
+    "mayWriteCanvas": "寫入畫布",
+    "mayWriteCanvasDescription": "允許此代理建立、更新和刪除畫布物件",
+    "agentCreated": "由 AI 代理建立"
   }
 }

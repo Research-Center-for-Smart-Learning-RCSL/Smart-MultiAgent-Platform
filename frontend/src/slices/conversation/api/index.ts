@@ -190,6 +190,7 @@ export interface BoundAgentRef {
   // Live draft reading ([R32.03]), creator-only on the same terms again.
   may_read_drafts?: boolean
   may_read_canvas?: boolean
+  may_write_canvas?: boolean
 }
 
 export async function listChatroomAgents(
@@ -218,6 +219,8 @@ export async function listChatroomAgents(
     ...(r.may_read_drafts != null ? { may_read_drafts: r.may_read_drafts } : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- field not yet in generated client; gen:api will add it
     ...((r as any).may_read_canvas != null ? { may_read_canvas: (r as any).may_read_canvas } : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- field not yet in generated client; gen:api will add it
+    ...((r as any).may_write_canvas != null ? { may_write_canvas: (r as any).may_write_canvas } : {}),
   }))
 }
 
@@ -272,6 +275,19 @@ export async function setChatroomAgentCanvasAccess(
   granted: boolean,
 ): Promise<void> {
   await http.patch(`/api/chatrooms/${chatroomId}/agents/${agentId}/canvas-access`, {
+    granted,
+  })
+}
+
+/** Grant or revoke one bound agent's canvas writing ([R13.56]).
+ *
+ *  Creator-only server-side. No allowlist. */
+export async function setChatroomAgentCanvasWriteAccess(
+  chatroomId: string,
+  agentId: string,
+  granted: boolean,
+): Promise<void> {
+  await http.patch(`/api/chatrooms/${chatroomId}/agents/${agentId}/canvas-write-access`, {
     granted,
   })
 }

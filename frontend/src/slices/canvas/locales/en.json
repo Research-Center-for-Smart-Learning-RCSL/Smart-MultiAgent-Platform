@@ -26,6 +26,9 @@
     "loadError": "Failed to load canvas",
     "objects": "objects",
     "agentGrant": "Canvas reading",
-    "agentGrantDescription": "Allow this agent to see canvas content in its context"
+    "agentGrantDescription": "Allow this agent to see canvas content in its context",
+    "mayWriteCanvas": "Canvas writing",
+    "mayWriteCanvasDescription": "Allow this agent to create, update, and delete canvas objects",
+    "agentCreated": "Created by AI agent"
   }
 }

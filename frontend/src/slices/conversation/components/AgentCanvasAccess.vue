@@ -10,30 +10,48 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  save: [granted: boolean]
+  'save-read': [granted: boolean]
+  'save-write': [granted: boolean]
 }>()
 
 const { t } = useI18n()
 
-const granted = computed(() => props.agent.may_read_canvas === true)
+const readGranted = computed(() => props.agent.may_read_canvas === true)
+const writeGranted = computed(() => props.agent.may_write_canvas === true)
 
-function onToggle(next: boolean): void {
-  emit('save', next)
+function onToggleRead(next: boolean): void {
+  emit('save-read', next)
+}
+
+function onToggleWrite(next: boolean): void {
+  emit('save-write', next)
 }
 </script>
 
 <template>
   <div class="canvas-access">
     <SToggle
-      :model-value="granted"
+      :model-value="readGranted"
       size="sm"
       :disabled="busy"
-      @update:model-value="onToggle"
+      @update:model-value="onToggleRead"
     >
       {{ t('canvas.agentGrant') }}
     </SToggle>
     <p class="access-row__desc">
       {{ t('canvas.agentGrantDescription') }}
+    </p>
+
+    <SToggle
+      :model-value="writeGranted"
+      size="sm"
+      :disabled="busy"
+      @update:model-value="onToggleWrite"
+    >
+      {{ t('canvas.mayWriteCanvas') }}
+    </SToggle>
+    <p class="access-row__desc">
+      {{ t('canvas.mayWriteCanvasDescription') }}
     </p>
   </div>
 </template>
