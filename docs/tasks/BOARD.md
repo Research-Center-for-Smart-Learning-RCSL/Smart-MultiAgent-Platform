@@ -259,6 +259,25 @@ first, but building them serially avoids the conflict.
   CRUD for platform presets. Migration seeds three rows from the pack JSONs (`enabled=false`,
   `key_id=NULL`). No file overlap with any active dossier.
 
+### From 2026-09-10
+
+- `2026-09-10-collaborative-canvas` (feature, **draft**) -- `depends_on: []`. Adds a
+  real-time collaborative spatial canvas to each chatroom (sticky notes, text, images,
+  drawings). Split-pane UI beside the chat feed. AI agents read canvas content via a
+  dedicated `CanvasContextProvider` gated on a `may_read_canvas` grant. Named "Canvas"
+  to avoid collision with the existing `Workspace` entity. Phased: Phase 1 (this dossier)
+  is snapshot-based; Phase 2 (CRDT real-time sync) and Phase 3 (AI writes to canvas) are
+  separate follow-up dossiers. New bounded context `contexts/canvas/`. Migration adds
+  three tables. No file overlap with any active dossier (Q-7, Q-8 record the
+  `turn_engine.py` disjoint-region check against the two active dossiers).
+
+- `2026-09-10-proxy-headers-security-hardening` (bugfix, **draft**) -- `depends_on: []`.
+  Three security defects in the `proxy_headers` field added to `OpenAICompatConfig`:
+  (a) `Authorization` header override bypasses Vault-decrypted secret, (b) no validation
+  (no blocklist, size limit, or CRLF check), (c) plaintext storage of potentially secret
+  values contradicts `[R7.16]`. Fix: Pydantic blocklist validator, encrypted storage via
+  a dedicated Vault Transit envelope column, defensive header merge order.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
