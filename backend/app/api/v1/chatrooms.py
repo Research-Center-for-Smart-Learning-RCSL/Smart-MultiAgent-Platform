@@ -169,6 +169,7 @@ class AgentRef(BaseModel):
     # succeeds and grants nothing; granting is its own route.
     may_read_drafts: bool | None = None
     may_read_canvas: bool | None = None
+    may_write_canvas: bool | None = None
 
 
 class AgentRolePatchIn(BaseModel):
@@ -778,6 +779,7 @@ async def list_chatroom_agents(
             # this field would say which one, and that is the creator's to know.
             may_read_drafts=r.may_read_drafts if creator else None,
             may_read_canvas=r.may_read_canvas if creator else None,
+            may_write_canvas=r.may_write_canvas if creator else None,
         )
         for r in rows
     ]
@@ -1042,6 +1044,46 @@ async def patch_chatroom_agent_canvas_access(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_room_creator(access, principal=principal)
     written = await ConversationFacade(db).set_agent_canvas_grant(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        granted=body.granted,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if not written:
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    await _emit_chatroom_updated(
+        db,
+        chatroom_id,
+        room_visible=False,
+        creator_user_id=access.chatroom.created_by_user_id,
+    )
+
+
+class AgentCanvasWriteAccessIn(BaseModel):
+    """Grant or revoke one bound agent's canvas writing ([R13.56])."""
+
+    granted: bool
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}/canvas-write-access",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_canvas_write_access(
+    body: AgentCanvasWriteAccessIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Let one bound agent write to this room's canvas ([R13.56])."""
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    written = await ConversationFacade(db).set_agent_canvas_write_grant(
         chatroom_id=chatroom_id,
         agent_id=agent_id,
         granted=body.granted,

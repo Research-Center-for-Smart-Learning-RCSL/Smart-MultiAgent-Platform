@@ -606,6 +606,39 @@ class ChatroomService:
         )
         return True
 
+    async def set_agent_canvas_write_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Grant or revoke one bound agent's canvas writing ([R13.56])."""
+        written = await self._agents.set_canvas_write_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            granted_by_user_id=actor_user_id,
+        )
+        if not written:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.agent_canvas_write_grant_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom_agent",
+                resource_id=chatroom_id,
+                metadata={"agent_id": str(agent_id), "granted": granted},
+                request_id=request_id,
+            ),
+        )
+        return True
+
     async def remove_agent(
         self,
         *,

@@ -112,6 +112,7 @@ class ChatroomAgent:
     # written by different routes. Never read one to infer the other.
     may_read_drafts: bool = False
     may_read_canvas: bool = False
+    may_write_canvas: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +121,14 @@ class CanvasReadGrant:
 
     Same shape as :class:`DraftReadGrant`: holding one *is* the authorization.
     """
+
+    agent_id: uuid.UUID
+    granted_by_user_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CanvasWriteGrant:
+    """A live delegation of canvas-object writing in one room ([R13.56])."""
 
     agent_id: uuid.UUID
     granted_by_user_id: uuid.UUID

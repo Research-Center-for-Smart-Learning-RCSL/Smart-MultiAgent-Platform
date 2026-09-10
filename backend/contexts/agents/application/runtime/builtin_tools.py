@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     # call time, so a runtime import here would be a cycle. `from __future__ import
     # annotations` keeps the signature below a string.
     from contexts.agents.application.runtime.activity_tools import ActivityControlContext
+    from contexts.agents.application.runtime.canvas_tools import CanvasWriteContext
     from contexts.agents.application.runtime.draft_tools import DraftAccessContext
     from contexts.agents.application.runtime.observer_tools import ObservationPresentationContext
 
@@ -875,6 +876,7 @@ def build_agent_tools(
     observation_presentation: ObservationPresentationContext | None = None,
     observation_block_sink: list[dict[str, Any]] | None = None,
     draft_access: DraftAccessContext | None = None,
+    canvas_write: CanvasWriteContext | None = None,
 ) -> list[Tool]:
     """Assemble the agent's enabled tools for one turn.
 
@@ -987,6 +989,10 @@ def build_agent_tools(
         from contexts.agents.application.runtime.draft_tools import build_read_drafts_tool
 
         out.append(build_read_drafts_tool(db, agent=agent, access=draft_access))
+    if canvas_write is not None:
+        from contexts.agents.application.runtime.canvas_tools import build_canvas_write_tools
+
+        out.extend(build_canvas_write_tools(db, agent=agent, context=canvas_write))
     return out + functions
 
 

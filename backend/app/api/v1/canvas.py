@@ -91,6 +91,7 @@ class CanvasObjectOut(BaseModel):
     style: dict[str, Any]
     created_by_user_id: uuid.UUID | None
     created_by_guest_id: uuid.UUID | None
+    created_by_agent_id: uuid.UUID | None
     created_at: str
     updated_at: str
     image_url: str | None = None
@@ -111,6 +112,7 @@ class CanvasObjectOut(BaseModel):
             style=o.style,
             created_by_user_id=o.created_by_user_id,
             created_by_guest_id=o.created_by_guest_id,
+            created_by_agent_id=o.created_by_agent_id,
             created_at=o.created_at.isoformat(),
             updated_at=o.updated_at.isoformat(),
             image_url=image_url,

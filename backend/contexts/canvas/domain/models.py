@@ -45,6 +45,7 @@ class CanvasObject:
     style: dict[str, Any] = field(default_factory=dict)
     created_by_user_id: uuid.UUID | None = None
     created_by_guest_id: uuid.UUID | None = None
+    created_by_agent_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -68,6 +68,12 @@ canvas_objects = sa.Table(
         sa.ForeignKey("guest_sessions.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    sa.Column(
+        "created_by_agent_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )

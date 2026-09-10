@@ -45,6 +45,7 @@ def _row_to_object(row: Any) -> CanvasObject:
         style=row.style or {},
         created_by_user_id=row.created_by_user_id,
         created_by_guest_id=row.created_by_guest_id,
+        created_by_agent_id=row.created_by_agent_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

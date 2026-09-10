@@ -151,26 +151,28 @@ class CanvasService:
         style: dict[str, Any] | None = None,
         created_by_user_id: uuid.UUID | None = None,
         created_by_guest_id: uuid.UUID | None = None,
+        created_by_agent_id: uuid.UUID | None = None,
         actor_user_id: uuid.UUID | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasObject:
-        obj = await self._repo.create_object(
-            values={
-                "canvas_id": canvas_id,
-                "kind": kind.value,
-                "position_x": position_x,
-                "position_y": position_y,
-                "width": width,
-                "height": height,
-                "z_index": z_index,
-                "content": content,
-                "minio_path": minio_path,
-                "style": style or {},
-                "created_by_user_id": created_by_user_id,
-                "created_by_guest_id": created_by_guest_id,
-            }
-        )
+        vals: dict[str, Any] = {
+            "canvas_id": canvas_id,
+            "kind": kind.value,
+            "position_x": position_x,
+            "position_y": position_y,
+            "width": width,
+            "height": height,
+            "z_index": z_index,
+            "content": content,
+            "minio_path": minio_path,
+            "style": style or {},
+            "created_by_user_id": created_by_user_id,
+            "created_by_guest_id": created_by_guest_id,
+        }
+        if created_by_agent_id is not None:
+            vals["created_by_agent_id"] = created_by_agent_id
+        obj = await self._repo.create_object(values=vals)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -183,9 +185,16 @@ class CanvasService:
                 request_id=request_id,
             ),
         )
+        event_data: dict[str, Any] = {
+            "canvas_id": str(canvas_id),
+            "object_id": str(obj.id),
+            "kind": kind.value,
+        }
+        if created_by_agent_id is not None:
+            event_data["agent_id"] = str(created_by_agent_id)
         await Publisher(self._room_channel_fn(chatroom_id)).emit(
             "canvas.object_created",
-            {"canvas_id": str(canvas_id), "object_id": str(obj.id), "kind": kind.value},
+            event_data,
         )
         return obj
 

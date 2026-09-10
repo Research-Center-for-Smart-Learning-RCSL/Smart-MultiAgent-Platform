@@ -1543,6 +1543,7 @@ class TurnEngine:
                 build_agent_tools,
                 default_builtin_deps,
             )
+            from contexts.agents.application.runtime.canvas_tools import resolve_canvas_write
             from contexts.agents.application.runtime.draft_tools import resolve_draft_access
             from contexts.agents.application.runtime.observer_tools import (
                 resolve_observation_presentation,
@@ -1569,6 +1570,7 @@ class TurnEngine:
             # headless turn itself, so "a room is required" is stated once, in the
             # resolver, rather than repeated at every call site.
             draft_access = await resolve_draft_access(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
+            canvas_write = await resolve_canvas_write(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
             # `_persist_artifacts` falls back through `_sandbox()`, and an
@@ -1591,6 +1593,7 @@ class TurnEngine:
                 observation_presentation=observation_presentation,
                 observation_block_sink=observation_block_sink,
                 draft_access=draft_access,
+                canvas_write=canvas_write,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
