@@ -261,7 +261,7 @@ first, but building them serially avoids the conflict.
 
 ### From 2026-09-10
 
-- `2026-09-10-collaborative-canvas` (feature, **draft**) -- `depends_on: []`. Adds a
+- `2026-09-10-collaborative-canvas` (feature, **approved 2026-09-10**) -- `depends_on: []`. Adds a
   real-time collaborative spatial canvas to each chatroom (sticky notes, text, images,
   drawings). Split-pane UI beside the chat feed. AI agents read canvas content via a
   dedicated `CanvasContextProvider` gated on a `may_read_canvas` grant. Named "Canvas"
@@ -271,7 +271,7 @@ first, but building them serially avoids the conflict.
   three tables. No file overlap with any active dossier (Q-7, Q-8 record the
   `turn_engine.py` disjoint-region check against the two active dossiers).
 
-- `2026-09-10-proxy-headers-security-hardening` (bugfix, **draft**) -- `depends_on: []`.
+- `2026-09-10-proxy-headers-security-hardening` (bugfix, **approved 2026-09-10**) -- `depends_on: []`.
   Three security defects in the `proxy_headers` field added to `OpenAICompatConfig`:
   (a) `Authorization` header override bypasses Vault-decrypted secret, (b) no validation
   (no blocklist, size limit, or CRLF check), (c) plaintext storage of potentially secret

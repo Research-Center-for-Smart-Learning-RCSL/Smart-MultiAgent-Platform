@@ -282,7 +282,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   | `cohere` | ✗ | ✗ | ✓ |
   | `openai_compat` | configurable | configurable | ✗ |
 
-  `openai_compat` is a generic provider for any endpoint serving the OpenAI Chat Completions wire protocol. Its capabilities (`llm_chat`, `embedding`) are declared per key in a `config` object at upload time; the defaults are `llm_chat` and `embedding`. The `config` object carries `base_url` (required), `label` (optional display name), `timeout_s` (optional HTTP timeout in seconds, default 120, max 3600), and `capabilities` (optional subset of `["llm_chat", "embedding"]`).
+  `openai_compat` is a generic provider for any endpoint serving the OpenAI Chat Completions wire protocol. Its capabilities (`llm_chat`, `embedding`) are declared per key in a `config` object at upload time; the defaults are `llm_chat` and `embedding`. The `config` object carries `base_url` (required), `label` (optional display name), `timeout_s` (optional HTTP timeout in seconds, default 120, max 3600), and `capabilities` (optional subset of `["llm_chat", "embedding"]`). An optional `proxy_headers` dict supplies extra HTTP headers merged into every outbound request (e.g. proxy authentication); these are stored encrypted and validated against a blocklist of protocol-sensitive header names.
 
   A Key may be used only where its provider declares the capability. A Key Group (§7.4) accepts only `llm_chat`-capable keys. RAG embedding configs (§10.1) accept only `embedding`-capable keys. RAG rerank configs (§10.2) accept only `rerank`-capable keys. Validation is done at Agent/RAG save time by the backend; mismatches are rejected with 422.
 
@@ -358,7 +358,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 
 **[R7.15]** No API, UI, or admin tool shall decrypt a key to display it. Decryption is invoked only by the Agent Runner for outbound calls, and the plaintext does not cross process boundaries.
 
-**[R7.16]** The `api_keys` table carries a `config` JSONB column (default `'{}'`). For `openai_compat` keys, this column stores the validated provider configuration (`base_url`, `label`, `timeout_s`, `capabilities`). For all other providers, it is empty (`{}`). The config is validated at upload time against a strict schema; invalid config is rejected with 422. The config is not encrypted (it contains no secrets).
+**[R7.16]** The `api_keys` table carries a `config` JSONB column (default `'{}'`). For `openai_compat` keys, this column stores the validated provider configuration (`base_url`, `label`, `timeout_s`, `capabilities`). For all other providers, it is empty (`{}`). The config is validated at upload time against a strict schema; invalid config is rejected with 422. The config is not encrypted (it contains no secrets). `openai_compat` keys may additionally carry `proxy_headers` (extra HTTP headers merged into every outbound request): these are stored encrypted via the same Vault Transit envelope as the key secret, not in the plaintext `config` column. Header names are validated against a blocklist (Authorization, Content-Type, Content-Length, Host, Transfer-Encoding, Connection, Upgrade, Proxy-Authorization) and constrained to 20 entries with name max 128 and value max 4096 characters; CRLF in names or values is rejected.
 
 ---
 
@@ -764,6 +764,28 @@ Five composable flags per chat room:
 - **[R13.25]** Messages older than **5 years** (R13.15) are hard-deleted nightly. Each purge emits an audit event `message.purged_by_retention` with `{chatroom_id, count, oldest_kept_at}`. Associated attachments (if still in MinIO) are likewise deleted. The 5-year window is a platform default and is not user-configurable in v1.
 
 ### 13.10 Derived content and deletion
+
+### 13.11 Collaborative Canvas
+
+- **[R13.33]** A Chatroom may have at most one Canvas. The Canvas is created on demand (first access) and follows the chatroom's lifecycle: deleting the chatroom cascade-deletes the canvas, all its objects, and all stored images.
+
+- **[R13.34]** Canvas object types: sticky note, text block, image, freeform drawing, shape, connector. Each object has a position, dimensions, z-index and style metadata.
+
+- **[R13.35]** Canvas access mirrors chatroom access: any principal who can read the chatroom can view the canvas; any principal who can send messages (including guests when `allow_guest_links` is set) can create, edit and delete canvas objects.
+
+- **[R13.36]** Canvas images are stored in MinIO under a dedicated key prefix within the existing chat-uploads bucket, following the same AV scan and MIME allowlist pipeline as chat attachments. Maximum image size: 10 MB. Maximum images per canvas: 50.
+
+- **[R13.37]** Guest canvas mutations are rate-limited per session (default 60 operations per minute). Exceeding the limit returns HTTP 429 with problem type `/canvas/rate-limit-exceeded`.
+
+- **[R13.38]** An AI agent bound to the chatroom may receive a natural-language digest of the canvas content as a system-prompt block, gated by two conditions: (a) the canvas's `expose_to_agents` flag is true (default), and (b) the agent's `may_read_canvas` grant is set on its chatroom binding. The digest is capped at 2 000 characters and is generated from the canvas objects, not from raw coordinate data.
+
+- **[R13.39]** Canvas mutations publish events on the chatroom's WebSocket channel. Other connected clients update their local canvas state on receiving these events. In a later phase, a dedicated WebSocket channel carries CRDT deltas for real-time collaborative editing.
+
+- **[R13.40]** Canvas snapshots persist the full object state and a generated `agent_digest`. Snapshots are created manually by users or automatically on periodic intervals. The most recent snapshot's digest is what the CanvasContextProvider serves to the agent turn.
+
+- **[R13.41]** Every canvas endpoint and WebSocket connection verifies chatroom access. A principal whose room access is revoked is disconnected from both the chatroom and canvas WebSocket channels.
+
+### 13.12 Derived content and deletion
 
 - **[R13.26]** **Compaction summaries** (R9.10) are **derived content**: a summary's text is generated from the messages it folds and may reproduce parts of them. Deletion (R13.16, R13.24) removes the message row, its search index entry and its edit history, but does **not** rewrite or remove any summary that folded it — the folded content may persist inside that summary. The UI must disclose this at the point of deletion. **Exception:** the retention purge (R13.25) *does* reach derived copies — every summary whose folded set intersects the purged messages is hard-deleted in the same sweep, so no content survives its retention horizon in derived form. Removal rather than a metadata edit is required because a summary row is itself user-visible (it renders in the room and is included in exports), so anything short of deleting it would leave the derived content readable. Messages the deleted summary folded that are still inside the horizon are unaffected — they were never removed, and a compacting agent re-folds them on its next turn.
 
