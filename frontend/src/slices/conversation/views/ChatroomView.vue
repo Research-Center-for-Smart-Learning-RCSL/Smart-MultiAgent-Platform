@@ -399,15 +399,6 @@
       />
     </SDrawer>
 
-    <LazyCanvasPanel
-      v-if="canvasSplit.isOpen.value"
-      class="chatroom__canvas"
-      :chatroom-id="chatroomId"
-      :is-fullscreen="canvasSplit.isFullscreen.value"
-      @close="canvasSplit.close()"
-      @toggle-fullscreen="canvasSplit.toggleFullscreen()"
-    />
-
     <ChatroomExportModal
       :open="exportOpen"
       :job="exportJob"

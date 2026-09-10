@@ -14,6 +14,7 @@ Twelve slices. Every slice may import `@shared`; cross-slice imports beyond that
 | `agents` | Agent CRUD, RAG config, GraphRAG config/build status, Concept Map panel, MCP egress allowlist |
 | `agent-groups` | Agent-group CRUD, membership, and the group-owned Concept Map panel |
 | `activities` | Chatroom-hosted "activity" plugins (host/panel components + a plugin SDK), per-project activity-type CRUD |
+| `canvas` | Collaborative spatial canvas within chatrooms (Excalidraw-based, snapshot-based in Phase 1) |
 | `conversation` | Workspaces, chatrooms, messages/attachments, WebSocket presence, search, observations |
 | `workflow` | Visual workflow editor (Vue Flow), runs, backstage, approvals, DLQ viewer, orchestration |
 | `admin` | Admin console: users/admins/IP-bans/orgs/projects/audit/ops/rate-limits/metrics, impersonation; also mounts the platform-wide Prompt Studio and Skills admin views |
@@ -33,8 +34,9 @@ Declared in `frontend/eslint.config.js`'s `SLICE_DEPS` map — the executable so
 | `agents` | `skills`, `prompt-studio`, `keys`, `tenancy`, `identity` |
 | `agent-groups` | `agents`, `keys`, `tenancy`, `identity` |
 | `activities` | `agents`, `tenancy` (hosted inside `conversation` via a plugin bridge, must never import `conversation` back) |
+| `canvas` | — (leaf; `conversation` imports it one-way) |
 | `workflow` | `agent-groups`, `agents`, `keys`, `tenancy`, `identity` (hosted below `conversation`; wraps its own read-only workspace/chatroom lookups in `workflow/api` instead of importing `conversation`) |
-| `conversation` | `workflow`, `activities`, `agent-groups`, `agents`, `keys`, `tenancy`, `identity` |
+| `conversation` | `canvas`, `workflow`, `activities`, `agent-groups`, `agents`, `keys`, `tenancy`, `identity` |
 | `admin` | `prompt-studio`, `skills` |
 | `notifications` | `identity` |
 
