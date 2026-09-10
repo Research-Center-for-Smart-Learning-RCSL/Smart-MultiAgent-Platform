@@ -32,9 +32,11 @@ from contexts.keys.infrastructure.probes.base import validate_base_url
 
 
 def _headers(secret: str, proxy_headers: dict[str, str] | None = None) -> dict[str, str]:
-    h = {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
+    h: dict[str, str] = {}
     if proxy_headers:
         h.update(proxy_headers)
+    h["Authorization"] = f"Bearer {secret}"
+    h["Content-Type"] = "application/json"
     return h
 
 

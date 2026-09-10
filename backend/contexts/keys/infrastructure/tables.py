@@ -59,6 +59,7 @@ api_keys = sa.Table(
     sa.Column("last_test_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("encrypted_proxy_headers", pg.JSONB, nullable=True),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 

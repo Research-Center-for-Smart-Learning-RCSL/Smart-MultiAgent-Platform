@@ -910,9 +910,13 @@ class ProviderRouter:
     def _inject_provider_config(em: _EligibleMember, request: ProviderRequest) -> ProviderRequest:
         """Thread the key's per-key config into the request (R7.16)."""
         cfg = getattr(em.key, "config", None)
-        if cfg:
-            return replace(request, provider_config=cfg)
-        return request
+        if not cfg:
+            return request
+        merged = dict(cfg)
+        enc_ph = getattr(em.key, "encrypted_proxy_headers", None)
+        if enc_ph:
+            merged["proxy_headers"] = env.decrypt_proxy_headers(enc_ph, em.key.id)
+        return replace(request, provider_config=merged)
 
     async def _unwrap_secret(self, key_id: uuid.UUID) -> bytes:
         cached = DEK_CACHE.get(key_id)

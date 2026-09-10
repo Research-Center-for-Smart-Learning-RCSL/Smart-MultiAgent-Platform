@@ -27,8 +27,10 @@ SoC:
 
 from __future__ import annotations
 
+import base64
+import json
 import uuid
-from typing import Final
+from typing import Any, Final
 
 from shared_kernel.infra.vault import EnvelopeRecord, _parse_transit_version
 
@@ -48,6 +50,14 @@ def api_key_aad(key_id: uuid.UUID) -> bytes:
 def search_key_aad(key_id: uuid.UUID) -> bytes:
     """Build the AAD for a `search_keys` row."""
     return f"{ENVELOPE_AAD_NS_SEARCH_KEYS}:{key_id}".encode("ascii")
+
+
+ENVELOPE_AAD_NS_PROXY_HEADERS: Final = "api_keys_proxy_headers"
+
+
+def proxy_headers_aad(key_id: uuid.UUID) -> bytes:
+    """Build the AAD for an `api_keys` row's encrypted proxy_headers."""
+    return f"{ENVELOPE_AAD_NS_PROXY_HEADERS}:{key_id}".encode("ascii")
 
 
 def encrypt_envelope(plaintext: bytes, aad: bytes) -> EnvelopeRecord:
@@ -70,6 +80,51 @@ def decrypt_envelope(record: EnvelopeRecord, aad: bytes) -> bytes:
     from shared_kernel.auth.clients import get_vault_client
 
     return get_vault_client().decrypt_envelope(record, aad)
+
+
+def envelope_to_jsonb(record: EnvelopeRecord) -> dict[str, Any]:
+    """Serialize an EnvelopeRecord to a dict suitable for JSONB storage."""
+    return {
+        "ct": base64.b64encode(record.ciphertext).decode("ascii"),
+        "nonce": base64.b64encode(record.nonce).decode("ascii"),
+        "dek": record.dek_wrapped,
+        "hmac": base64.b64encode(record.ciphertext_hmac).decode("ascii"),
+        "tv": record.transit_key_version,
+        "hv": record.hmac_key_version,
+    }
+
+
+def jsonb_to_envelope(data: dict[str, Any]) -> EnvelopeRecord:
+    """Deserialize a JSONB dict back to an EnvelopeRecord."""
+    return EnvelopeRecord(
+        ciphertext=base64.b64decode(data["ct"]),
+        nonce=base64.b64decode(data["nonce"]),
+        dek_wrapped=data["dek"],
+        ciphertext_hmac=base64.b64decode(data["hmac"]),
+        transit_key_version=data.get("tv", 0),
+        hmac_key_version=data.get("hv", 1),
+    )
+
+
+def encrypt_proxy_headers(headers: dict[str, str], key_id: uuid.UUID) -> dict[str, Any]:
+    """Encrypt a proxy_headers dict and return JSONB-ready envelope."""
+    plaintext = json.dumps(headers, separators=(",", ":")).encode("utf-8")
+    record = encrypt_envelope(plaintext, proxy_headers_aad(key_id))
+    return envelope_to_jsonb(record)
+
+
+def decrypt_proxy_headers(jsonb: dict[str, Any], key_id: uuid.UUID) -> dict[str, str]:
+    """Decrypt a JSONB-stored proxy_headers envelope.
+
+    Handles both encrypted envelopes (have "ct" key) and legacy plaintext
+    dicts migrated before Vault encryption was applied.
+    """
+    if "ct" in jsonb:
+        record = jsonb_to_envelope(jsonb)
+        plaintext = decrypt_envelope(record, proxy_headers_aad(key_id))
+        parsed: dict[str, str] = json.loads(plaintext)
+        return parsed
+    return {str(k): str(v) for k, v in jsonb.items()}
 
 
 def rewrap_envelope(record: EnvelopeRecord) -> EnvelopeRecord:
@@ -95,11 +150,17 @@ def rewrap_envelope(record: EnvelopeRecord) -> EnvelopeRecord:
 
 __all__ = [
     "ENVELOPE_AAD_NS_API_KEYS",
+    "ENVELOPE_AAD_NS_PROXY_HEADERS",
     "ENVELOPE_AAD_NS_SEARCH_KEYS",
     "EnvelopeRecord",
     "api_key_aad",
     "decrypt_envelope",
+    "decrypt_proxy_headers",
     "encrypt_envelope",
+    "encrypt_proxy_headers",
+    "envelope_to_jsonb",
+    "jsonb_to_envelope",
+    "proxy_headers_aad",
     "rewrap_envelope",
     "search_key_aad",
 ]
