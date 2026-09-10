@@ -92,6 +92,7 @@ class KeyService:
         and retest without re-pasting the secret.
         """
         validated_config: dict[str, Any] = {}
+        proxy_headers_plain: dict[str, str] | None = None
         if provider is ApiKeyProvider.OPENAI_COMPAT:
             from contexts.keys.application.openai_compat_config import OpenAICompatConfig
             from contexts.keys.domain.errors import InvalidProviderConfig
@@ -103,13 +104,21 @@ class KeyService:
             except Exception as exc:
                 raise InvalidProviderConfig(detail=str(exc)) from exc
             validated_config = validated.to_dict()
+            proxy_headers_plain = validated_config.pop("proxy_headers", None)
 
-        probe_result = await probe(provider, secret, config=validated_config or None)
+        probe_config = validated_config.copy() if validated_config else None
+        if probe_config and proxy_headers_plain:
+            probe_config["proxy_headers"] = proxy_headers_plain
+        probe_result = await probe(provider, secret, config=probe_config)
 
         # Generate the id client-side so AAD and the insert row agree without
         # a second Vault round-trip (R7.06 step 3 — AAD bound to logical id).
         key_id = uuid.uuid4()
         record = env.encrypt_envelope(secret.encode("utf-8"), env.api_key_aad(key_id))
+
+        encrypted_ph: dict[str, Any] | None = None
+        if proxy_headers_plain:
+            encrypted_ph = env.encrypt_proxy_headers(proxy_headers_plain, key_id)
 
         preview = mask_preview(secret)
         # Zeroise the caller's plaintext binding. Python cannot enforce scrub
@@ -129,6 +138,7 @@ class KeyService:
             test_error=probe_result.error,
             last_test_at=now,
             config=validated_config,
+            encrypted_proxy_headers=encrypted_ph,
         )
 
         # `key.uploaded` is the *persistence* event — it fires regardless of
@@ -197,7 +207,12 @@ class KeyService:
 
         plaintext = bytearray(env.decrypt_envelope(record, env.api_key_aad(key_id)))
         try:
-            result = await probe(key.provider, plaintext.decode("utf-8"), config=key.config or None)
+            retest_config = dict(key.config) if key.config else None
+            if retest_config and key.encrypted_proxy_headers:
+                retest_config["proxy_headers"] = env.decrypt_proxy_headers(
+                    key.encrypted_proxy_headers, key_id
+                )
+            result = await probe(key.provider, plaintext.decode("utf-8"), config=retest_config)
         finally:
             plaintext[:] = b"\x00" * len(plaintext)  # zero the mutable buffer in-place
 

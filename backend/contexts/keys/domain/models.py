@@ -32,6 +32,7 @@ class ApiKey:
     hmac_key_version: int
     created_at: datetime
     config: dict[str, Any] = field(default_factory=dict)
+    encrypted_proxy_headers: dict[str, Any] | None = None
     deleted_at: datetime | None = None
 
 

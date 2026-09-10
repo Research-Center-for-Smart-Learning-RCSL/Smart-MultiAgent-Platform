@@ -14,22 +14,34 @@ from __future__ import annotations
 
 from shared_kernel.security.envelope import (
     ENVELOPE_AAD_NS_API_KEYS,
+    ENVELOPE_AAD_NS_PROXY_HEADERS,
     ENVELOPE_AAD_NS_SEARCH_KEYS,
     EnvelopeRecord,
     api_key_aad,
     decrypt_envelope,
+    decrypt_proxy_headers,
     encrypt_envelope,
+    encrypt_proxy_headers,
+    envelope_to_jsonb,
+    jsonb_to_envelope,
+    proxy_headers_aad,
     rewrap_envelope,
     search_key_aad,
 )
 
 __all__ = [
     "ENVELOPE_AAD_NS_API_KEYS",
+    "ENVELOPE_AAD_NS_PROXY_HEADERS",
     "ENVELOPE_AAD_NS_SEARCH_KEYS",
     "EnvelopeRecord",
     "api_key_aad",
     "decrypt_envelope",
+    "decrypt_proxy_headers",
     "encrypt_envelope",
+    "encrypt_proxy_headers",
+    "envelope_to_jsonb",
+    "jsonb_to_envelope",
+    "proxy_headers_aad",
     "rewrap_envelope",
     "search_key_aad",
 ]
