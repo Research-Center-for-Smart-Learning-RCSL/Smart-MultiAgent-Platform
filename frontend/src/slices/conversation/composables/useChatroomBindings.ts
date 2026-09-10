@@ -12,6 +12,7 @@ import {
   listProjectAgents,
   removeChatroomAgent,
   setChatroomAgentActivityControl,
+  setChatroomAgentCanvasAccess,
   setChatroomAgentDraftAccess,
   setChatroomAgentRole,
 } from '../api'
@@ -35,6 +36,7 @@ export interface BoundAgent {
   // Live draft reading ([R32.03]), creator-only on the same terms and with the
   // same three-state meaning: `undefined` is "you are not told".
   may_read_drafts?: boolean
+  may_read_canvas?: boolean
 }
 
 export function useChatroomBindings(
@@ -57,6 +59,7 @@ export function useChatroomBindings(
   // so one record would invite reading a missing half as "false" rather than as
   // "not told".
   const boundDraftGrants = ref<Record<string, boolean | undefined>>({})
+  const boundCanvasGrants = ref<Record<string, boolean | undefined>>({})
   // The project's usable activity types, for the grant multi-select. Loaded once
   // with the bindings.
   const activityTypes = ref<ActivityType[]>([])
@@ -78,6 +81,7 @@ export function useChatroomBindings(
         const role = boundRoles.value[a.id]
         const grant = boundGrants.value[a.id]
         const draftGrant = boundDraftGrants.value[a.id]
+        const canvasGrant = boundCanvasGrants.value[a.id]
         return {
           id: a.id,
           name: a.name,
@@ -88,6 +92,7 @@ export function useChatroomBindings(
             activity_type_allowlist: grant.typeIds,
           }),
           ...(draftGrant !== undefined && { may_read_drafts: draftGrant }),
+          ...(canvasGrant !== undefined && { may_read_canvas: canvasGrant }),
         }
       }),
   )
@@ -128,6 +133,9 @@ export function useChatroomBindings(
       )
       boundDraftGrants.value = Object.fromEntries(
         bound.map((b) => [b.agent_id, b.may_read_drafts]),
+      )
+      boundCanvasGrants.value = Object.fromEntries(
+        bound.map((b) => [b.agent_id, b.may_read_canvas]),
       )
       // Separate from the two loads above: a project with no activity types is
       // ordinary, and so is a viewer who cannot list them, so neither may fail
@@ -241,6 +249,20 @@ export function useChatroomBindings(
     }
   }
 
+  async function onSetCanvasAccess(agentId: string, granted: boolean): Promise<void> {
+    if (bindingBusy.value) return
+    bindingBusy.value = true
+    bindingError.value = null
+    try {
+      await setChatroomAgentCanvasAccess(chatroomId, agentId, granted)
+      await loadBindings()
+    } catch {
+      bindingError.value = 'conversation.settings.canvasAccessFailed'
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
   async function onRemoveAgent(agentId: string): Promise<void> {
     if (bindingBusy.value) return
     bindingBusy.value = true
@@ -309,6 +331,7 @@ export function useChatroomBindings(
     onRemoveAgent,
     onSetActivityControl,
     onSetDraftAccess,
+    onSetCanvasAccess,
     onSetRole,
     saveWakeupConfig,
   }

@@ -189,6 +189,7 @@ export interface BoundAgentRef {
   activity_type_allowlist?: string[]
   // Live draft reading ([R32.03]), creator-only on the same terms again.
   may_read_drafts?: boolean
+  may_read_canvas?: boolean
 }
 
 export async function listChatroomAgents(
@@ -215,6 +216,7 @@ export async function listChatroomAgents(
     // `false` is a real answer a creator gets, and truth-testing it would render
     // an ungranted binding as "you are not told".
     ...(r.may_read_drafts != null ? { may_read_drafts: r.may_read_drafts } : {}),
+    ...(r.may_read_canvas != null ? { may_read_canvas: r.may_read_canvas } : {}),
   }))
 }
 
@@ -258,6 +260,19 @@ export async function setChatroomAgentDraftAccess(
       requestBody: { granted },
     },
   )
+}
+
+/** Grant or revoke one bound agent's canvas reading ([R13.38]).
+ *
+ *  Creator-only server-side. No allowlist. */
+export async function setChatroomAgentCanvasAccess(
+  chatroomId: string,
+  agentId: string,
+  granted: boolean,
+): Promise<void> {
+  await http.patch(`/api/chatrooms/${chatroomId}/agents/${agentId}/canvas-access`, {
+    granted,
+  })
 }
 
 // Human participants (message authors + guests) with their resolved display
