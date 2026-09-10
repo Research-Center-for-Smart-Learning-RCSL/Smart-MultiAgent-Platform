@@ -163,6 +163,7 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 },
                 request_id=ctx.request_id,
             ),
+            isolated=True,
         )
         return ToolResult(
             content=clip_tool_output(f"Created canvas object {obj.id} (kind={kind.value})."),
@@ -238,6 +239,7 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 },
                 request_id=ctx.request_id,
             ),
+            isolated=True,
         )
         return ToolResult(content=clip_tool_output(f"Updated canvas object {object_id}."))
 
@@ -296,6 +298,7 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 },
                 request_id=ctx.request_id,
             ),
+            isolated=True,
         )
         return ToolResult(content=clip_tool_output(f"Deleted canvas object {object_id}."))
 
