@@ -23,6 +23,7 @@ dependencies = [
   "argon2-cffi==23.1.*",
   "httpx>=0.27,<0.29",
   "bleach==6.4.*",
+  "defusedxml==0.7.*",  # safe SVG/XML parsing (XXE, billion-laughs prevention)
   "markdown-it-py>=3.0,<4.3",
   "google-re2==1.1.*",
   "jsonschema>=4.23,<4.27",  # workflow.schema.json validation (contexts/workflow); previously only resolved transitively via the dev-only pip-audit chain, so the runtime image lacked it
@@ -80,6 +81,7 @@ dev = [
   # `html5lib_shim.Filter`), so a wildcard lets CI typecheck against stubs no
   # developer has locally. Bump deliberately, with the mypy run in the same PR.
   "types-bleach==6.4.0.20260728",
+  "types-defusedxml==0.7.0.20260504",
   "types-redis==4.6.0.20241004",
 ]
 

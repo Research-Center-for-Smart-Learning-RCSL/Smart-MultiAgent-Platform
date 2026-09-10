@@ -602,10 +602,10 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
   `@radix-ui` peer dependency requirements. Excalidraw 0.18.1 uses radix-ui
   components that declare React ^16.8 || ^17.0 || ^18.0.
 
-- **D-5**: SVG server-side sanitization (stripping scripts and event handlers) is not
-  implemented in this task. The MIME allowlist accepts `image/svg+xml` but the
-  sanitization pipeline from `attachment_service.py` is not wired into the canvas
-  image upload path. FU-8 records this.
+- **D-5**: ~~SVG server-side sanitization was deferred~~ -- resolved by FU-8:
+  `shared_kernel/storage/svg_sanitize.py` strips scripts, event handlers, dangerous
+  elements and URI schemes via defusedxml + element/attribute whitelist. Wired into the
+  canvas image upload endpoint.
 
 - **D-6**: Integration and e2e tests (Test Plan, section 12) are not written in this
   task. The implementation is verified by mechanical gates (lint, typecheck, build) and
@@ -624,6 +624,6 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
 - FU-5: Full-text search over canvas object text.
 - FU-6: Canvas version history (browse/restore past snapshots).
 - FU-7: Canvas object comments / annotations.
-- FU-8: SVG server-side sanitization for canvas image uploads (D-5).
+- ~~FU-8: SVG server-side sanitization for canvas image uploads (D-5).~~ Done.
 - FU-9: Write integration and e2e tests per the Test Plan (D-6).
 - FU-10: Regenerate API client (`pnpm run gen:api`) and remove `any` casts (D-3).

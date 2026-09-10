@@ -23,6 +23,7 @@ from shared_kernel.auth.permissions import Principal
 from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import db_session
 from shared_kernel.storage.minio_client import MinioClient
+from shared_kernel.storage.svg_sanitize import SvgSanitizeError, sanitize_svg
 
 router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"])
 
@@ -430,6 +431,15 @@ async def upload_image(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Image too large (max {_CANVAS_IMAGE_MAX_BYTES // (1024 * 1024)} MB)",
         )
+
+    if file.content_type == "image/svg+xml":
+        try:
+            content = sanitize_svg(content)
+        except SvgSanitizeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid SVG: {exc}",
+            ) from exc
 
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
