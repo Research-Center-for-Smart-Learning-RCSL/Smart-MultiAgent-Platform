@@ -4403,10 +4403,10 @@ class TurnEngine:
         Gated on the agent's ``may_read_canvas`` grant on its chatroom binding.
         Best-effort: ``None`` on any failure.
         """
-        from contexts.conversation.infrastructure.repositories import ChatroomRepository
+        from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 
         try:
-            grant = await ChatroomRepository(self._db).canvas_read_grant(
+            grant = await ChatroomAgentRepository(self._db).canvas_read_grant(
                 chatroom_id=chatroom_id,
                 agent_id=agent_id,
             )

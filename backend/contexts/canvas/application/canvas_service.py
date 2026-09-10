@@ -20,6 +20,18 @@ _log = logging.getLogger(__name__)
 
 _MAX_IMAGES_PER_CANVAS = 50
 
+_ALLOWED_UPDATE_FIELDS = frozenset(
+    {
+        "position_x",
+        "position_y",
+        "width",
+        "height",
+        "z_index",
+        "content",
+        "style",
+    }
+)
+
 
 class CanvasService:
     def __init__(self, db: AsyncSession) -> None:
@@ -180,7 +192,7 @@ class CanvasService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasObject | None:
-        obj = await self._repo.update_object(object_id, values=values)
+        obj = await self._repo.update_object(object_id, canvas_id=canvas_id, values=values)
         if obj is None:
             return None
         await Publisher(room_channel(chatroom_id)).emit(
@@ -199,7 +211,7 @@ class CanvasService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        deleted = await self._repo.delete_object(object_id)
+        deleted = await self._repo.delete_object(object_id, canvas_id=canvas_id)
         if deleted:
             await audit.emit(
                 self._db,
@@ -234,19 +246,23 @@ class CanvasService:
     ) -> dict[str, Any]:
         results: dict[str, Any] = {"created": [], "updated": [], "deleted": 0}
         for item in creates or []:
-            item["canvas_id"] = canvas_id
+            create_vals = {**item, "canvas_id": canvas_id}
             if actor_user_id:
-                item.setdefault("created_by_user_id", actor_user_id)
+                create_vals.setdefault("created_by_user_id", actor_user_id)
             if actor_guest_id:
-                item.setdefault("created_by_guest_id", actor_guest_id)
-            obj = await self._repo.create_object(values=item)
+                create_vals.setdefault("created_by_guest_id", actor_guest_id)
+            obj = await self._repo.create_object(values=create_vals)
             results["created"].append(obj)
         for item in updates or []:
-            oid = item.pop("id")
-            await self._repo.update_object(oid, values=item)
+            oid = item.get("id")
+            if oid is None:
+                continue
+            filtered = {k: v for k, v in item.items() if k in _ALLOWED_UPDATE_FIELDS}
+            if filtered:
+                await self._repo.update_object(oid, canvas_id=canvas_id, values=filtered)
             results["updated"].append(oid)
         if deletes:
-            results["deleted"] = await self._repo.batch_delete_objects(deletes)
+            results["deleted"] = await self._repo.batch_delete_objects(deletes, canvas_id=canvas_id)
         await Publisher(room_channel(chatroom_id)).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
         return results
 

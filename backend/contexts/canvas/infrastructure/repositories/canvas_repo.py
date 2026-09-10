@@ -169,27 +169,46 @@ class CanvasRepository:
         ).one()
         return _row_to_object(row)
 
-    async def update_object(self, object_id: uuid.UUID, *, values: dict[str, Any]) -> CanvasObject | None:
+    async def update_object(
+        self, object_id: uuid.UUID, *, canvas_id: uuid.UUID, values: dict[str, Any]
+    ) -> CanvasObject | None:
         values["updated_at"] = now()
         row = (
             await self._db.execute(
                 t.canvas_objects.update()
-                .where(t.canvas_objects.c.id == object_id)
+                .where(
+                    sa.and_(
+                        t.canvas_objects.c.id == object_id,
+                        t.canvas_objects.c.canvas_id == canvas_id,
+                    )
+                )
                 .values(**values)
                 .returning(t.canvas_objects)
             )
         ).first()
         return _row_to_object(row) if row else None
 
-    async def delete_object(self, object_id: uuid.UUID) -> bool:
-        result = await self._db.execute(t.canvas_objects.delete().where(t.canvas_objects.c.id == object_id))
+    async def delete_object(self, object_id: uuid.UUID, *, canvas_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.canvas_objects.delete().where(
+                sa.and_(
+                    t.canvas_objects.c.id == object_id,
+                    t.canvas_objects.c.canvas_id == canvas_id,
+                )
+            )
+        )
         return bool(result.rowcount)
 
-    async def batch_delete_objects(self, object_ids: Sequence[uuid.UUID]) -> int:
+    async def batch_delete_objects(self, object_ids: Sequence[uuid.UUID], *, canvas_id: uuid.UUID) -> int:
         if not object_ids:
             return 0
         result = await self._db.execute(
-            t.canvas_objects.delete().where(t.canvas_objects.c.id.in_(object_ids))
+            t.canvas_objects.delete().where(
+                sa.and_(
+                    t.canvas_objects.c.id.in_(object_ids),
+                    t.canvas_objects.c.canvas_id == canvas_id,
+                )
+            )
         )
         return result.rowcount
 

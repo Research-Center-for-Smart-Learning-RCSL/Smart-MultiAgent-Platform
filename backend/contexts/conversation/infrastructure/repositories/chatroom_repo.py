@@ -641,7 +641,13 @@ class ChatroomAgentRepository:
             # CASE is exactly how the shared column becomes a bug.
             await self._db.execute(
                 t.chatroom_agents.update()
-                .where(sa.and_(where, t.chatroom_agents.c.may_control_activities.is_(False)))
+                .where(
+                    sa.and_(
+                        where,
+                        t.chatroom_agents.c.may_control_activities.is_(False),
+                        t.chatroom_agents.c.may_read_canvas.is_(False),
+                    )
+                )
                 .values(granted_by_user_id=None)
             )
         return True

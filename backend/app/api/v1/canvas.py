@@ -115,9 +115,20 @@ class CanvasObjectOut(BaseModel):
         )
 
 
+class BatchUpdateItem(BaseModel):
+    id: uuid.UUID
+    position_x: float | None = None
+    position_y: float | None = None
+    width: float | None = None
+    height: float | None = None
+    z_index: int | None = None
+    content: str | None = None
+    style: dict[str, Any] | None = None
+
+
 class BatchOpIn(BaseModel):
     creates: list[CanvasObjectIn] | None = None
-    updates: list[dict[str, Any]] | None = None
+    updates: list[BatchUpdateItem] | None = None
     deletes: list[uuid.UUID] | None = None
 
 
@@ -217,7 +228,7 @@ async def update_canvas_settings(
         chatroom_id=chatroom_id,
         expose_to_agents=body.expose_to_agents,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -242,7 +253,7 @@ async def delete_canvas(
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -295,7 +306,7 @@ async def create_object(
         created_by_user_id=_actor_user_id(principal),
         created_by_guest_id=_actor_guest_id(principal),
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -325,7 +336,7 @@ async def update_object(
         canvas_id=canvas.id,
         values=values,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -352,7 +363,7 @@ async def delete_object(
         chatroom_id=chatroom_id,
         canvas_id=canvas.id,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -374,14 +385,17 @@ async def batch_operate(
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     creates = [c.model_dump() for c in body.creates] if body.creates else None
+    updates = (
+        [u.model_dump(exclude_unset=True) | {"id": str(u.id)} for u in body.updates] if body.updates else None
+    )
     result = await facade.batch_operate(
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
         creates=creates,
-        updates=body.updates,
+        updates=updates,
         deletes=body.deletes,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         actor_guest_id=_actor_guest_id(principal),
         request_id=ctx.request_id,
     )
@@ -456,7 +470,7 @@ async def upload_image(
         created_by_user_id=_actor_user_id(principal),
         created_by_guest_id=_actor_guest_id(principal),
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()
@@ -501,7 +515,7 @@ async def create_snapshot(
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
         actor_user_id=_actor_user_id(principal),
-        actor_ip=ctx.client_ip,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     await db.commit()

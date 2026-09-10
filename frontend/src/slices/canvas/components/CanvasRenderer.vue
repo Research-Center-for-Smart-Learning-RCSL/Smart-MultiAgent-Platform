@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import type { CanvasObject } from '../types'
 
 const props = defineProps<{
@@ -82,16 +82,10 @@ onUnmounted(() => {
   }
 })
 
-watch(
-  () => props.objects,
-  () => {
-    // Re-mount on object refresh for Phase 1; Phase 2 uses CRDT sync
-    if (reactRoot) {
-      reactRoot.unmount()
-    }
-    nextTick(() => mountExcalidraw())
-  },
-)
+// Phase 1: Excalidraw is mounted once with initialData. Remote updates arrive
+// via WS query invalidation but the local Excalidraw instance is not re-mounted
+// to preserve undo history, scroll, and selection. Phase 2 (CRDT) will use
+// Excalidraw's Yjs provider for live element sync without remounting.
 </script>
 
 <template>
