@@ -12,6 +12,20 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+PROXY_HEADER_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "content-length",
+        "host",
+        "transfer-encoding",
+        "connection",
+        "upgrade",
+        "proxy-authorization",
+    }
+)
+
+
 class OpenAICompatConfig(BaseModel, extra="forbid"):
     base_url: str = Field(..., min_length=1, max_length=2048)
     label: str = Field(default="OpenAI Compatible", max_length=100)
@@ -21,6 +35,26 @@ class OpenAICompatConfig(BaseModel, extra="forbid"):
         default=None,
         description="Extra headers merged into every outbound request (e.g. proxy auth).",
     )
+
+    @field_validator("proxy_headers")
+    @classmethod
+    def validate_proxy_headers(cls, v: dict[str, str] | None) -> dict[str, str] | None:
+        if v is None or len(v) == 0:
+            return v
+        if len(v) > 20:
+            raise ValueError("proxy_headers: max 20 entries allowed")
+        for name, value in v.items():
+            if name.lower() in PROXY_HEADER_BLOCKLIST:
+                raise ValueError(f"proxy_headers: header {name!r} is blocked")
+            if len(name) > 128:
+                raise ValueError("proxy_headers: header name exceeds 128 chars")
+            if len(value) > 4096:
+                raise ValueError("proxy_headers: header value exceeds 4096 chars")
+            if "\r" in name or "\n" in name:
+                raise ValueError("proxy_headers: header name contains CR/LF")
+            if "\r" in value or "\n" in value:
+                raise ValueError("proxy_headers: header value contains CR/LF")
+        return v
 
     @field_validator("capabilities")
     @classmethod
