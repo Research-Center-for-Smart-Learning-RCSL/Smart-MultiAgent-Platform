@@ -11,6 +11,7 @@ from loguru import logger
 from contexts.identity.domain.errors import IdentityError
 
 from . import email_domain_policy as _email_domain_policy
+from . import encrypt_proxy_headers as _encrypt_proxy_headers
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
 from . import reconcile_model_catalog as _reconcile_model_catalog
@@ -170,6 +171,37 @@ def reconcile_model_catalog_cmd(
         logger.info("served but not catalogued: {}", sorted(report.unseen))
     if not report.stale and not report.unseen:
         logger.info("table matches upstream for {}", provider)
+
+
+@app.command("encrypt-proxy-headers")
+def encrypt_proxy_headers_cmd() -> None:
+    """Encrypt legacy plaintext proxy_headers from migration 0088.
+
+    Migration 0088 copies proxy_headers from config JSONB into the
+    encrypted_proxy_headers column without Vault encryption (Vault may
+    be sealed at migration time). This command re-encrypts any rows
+    still holding unencrypted proxy_headers.
+
+    Dry-run unless SMAP_ENCRYPT_PROXY_HEADERS_ARMED is set to a truthy
+    value. Idempotent.
+    """
+    report = _encrypt_proxy_headers.run()
+    logger.info(
+        "encrypt-proxy-headers complete dry_run={} scanned={} already_encrypted={} encrypted={} failed={}",
+        report.dry_run,
+        report.scanned,
+        report.already_encrypted,
+        report.encrypted,
+        report.failed,
+    )
+    if report.dry_run and report.encrypted:
+        logger.warning(
+            "{} row(s) need encryption. Re-run with {}=1 to encrypt.",
+            report.encrypted,
+            _encrypt_proxy_headers._ARMED_ENV,
+        )
+    if report.failed:
+        raise typer.Exit(code=1)
 
 
 def _run_transition(name: str, coro_factory: object) -> None:

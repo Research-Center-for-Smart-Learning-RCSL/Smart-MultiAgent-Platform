@@ -54,7 +54,7 @@ from contexts.keys.domain.groups import KeyGroupMember
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
 from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
-from contexts.keys.infrastructure.dek_cache import DEK_CACHE
+from contexts.keys.infrastructure.dek_cache import DEK_CACHE, PROXY_HEADERS_CACHE
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.keys.infrastructure.usage_events import record_usage_event
@@ -915,7 +915,13 @@ class ProviderRouter:
         merged = dict(cfg)
         enc_ph = getattr(em.key, "encrypted_proxy_headers", None)
         if enc_ph:
-            merged["proxy_headers"] = env.decrypt_proxy_headers(enc_ph, em.key.id)
+            cached_ph = PROXY_HEADERS_CACHE.get(em.key.id)
+            if cached_ph is not None:
+                merged["proxy_headers"] = cached_ph
+            else:
+                decrypted = env.decrypt_proxy_headers(enc_ph, em.key.id)
+                PROXY_HEADERS_CACHE.put(em.key.id, decrypted)
+                merged["proxy_headers"] = decrypted
         return replace(request, provider_config=merged)
 
     async def _unwrap_secret(self, key_id: uuid.UUID) -> bytes:
