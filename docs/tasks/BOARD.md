@@ -272,24 +272,23 @@ first, but building them serially avoids the conflict.
 
 ### Canvas follow-ups (from 2026-09-10-collaborative-canvas)
 
-Seven draft dossiers for the canvas feature's follow-up items. All depend on
-`2026-09-10-collaborative-canvas` (implemented). All are `draft` and need approval
-before `/build` will touch them.
+Seven approved dossiers for the canvas feature's follow-up items. All depend on
+`2026-09-10-collaborative-canvas` (implemented). All are `approved` and ready to build.
 
 - `2026-09-10-canvas-crdt-sync` (feature, **approved**) -- Phase 2: real-time CRDT sync
   via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. Ready.
-- `2026-09-10-canvas-ai-write` (feature, **draft**) -- Phase 3: AI agents write to
-  canvas via `write_to_canvas` built-in tool. New `may_write_canvas` grant.
-- `2026-09-10-canvas-export` (feature, **draft**) -- Export canvas to PNG/PDF via
-  Excalidraw's client-side export utilities.
-- `2026-09-10-canvas-templates` (feature, **draft**) -- Pre-built canvas templates
-  (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation.
-- `2026-09-10-canvas-search` (feature, **draft**) -- Full-text search over canvas
-  object text, integrated with existing chatroom search.
-- `2026-09-10-canvas-history` (feature, **draft**) -- Browse and restore past canvas
-  snapshots with preview and auto-save-before-restore.
-- `2026-09-10-canvas-comments` (feature, **draft**) -- Comment threads on individual
-  canvas objects with real-time updates.
+- `2026-09-10-canvas-ai-write` (feature, **approved**) -- Phase 3: AI agents write to
+  canvas via `write_to_canvas` built-in tool. New `may_write_canvas` grant. Ready.
+- `2026-09-10-canvas-export` (feature, **approved**) -- Export canvas to PNG/SVG via
+  Excalidraw's client-side export utilities. Ready.
+- `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
+  (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
+- `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
+  object text via PostgreSQL FTS. Ready.
+- `2026-09-10-canvas-history` (feature, **approved**) -- Browse and restore past canvas
+  snapshots with labels and auto-save-before-restore. Ready.
+- `2026-09-10-canvas-comments` (feature, **approved**) -- Comment threads on individual
+  canvas objects with real-time updates. Ready.
 
 ### Other ready work
 

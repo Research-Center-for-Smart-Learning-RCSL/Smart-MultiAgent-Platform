@@ -795,6 +795,36 @@ Five composable flags per chat room:
 
 - **[R13.55]** Each connected editor's cursor position, selected elements, display name, and assigned color are broadcast to all other editors on the same canvas via the Yjs awareness protocol. Awareness state is ephemeral and not persisted.
 
+- **[R13.56]** A room creator may grant an agent bound to the chatroom the ability to create, update, and delete canvas objects, via a `may_write_canvas` grant on the chatroom binding. The grant is independent of `may_read_canvas` and records the granting user. Revoking the grant does not delete objects the agent previously created.
+
+- **[R13.57]** An agent with `may_write_canvas` exercises the grant through three built-in runtime tools: `canvas_create_object`, `canvas_update_object`, and `canvas_delete_object`. Each tool accepts a structured JSON input matching the canvas object schema. The tools are available only during agent turns in rooms where the grant is set; they are absent from the tool list otherwise. Each tool invocation emits an audit event identifying the agent and the canvas operation.
+
+- **[R13.58]** A canvas object created by an agent carries `created_by_agent_id` (the agent's identity) alongside the existing `created_by_user_id` (the user whose turn triggered the write). The frontend visually distinguishes agent-created objects from user-created ones.
+
+- **[R13.59]** A canvas template is a named, immutable JSON layout definition. Each template has a scope (platform or project), a name, a description, and a `template_data` JSONB column holding objects in the same schema as `canvas_snapshots.snapshot_data`. Platform templates are readable by all authenticated users; project templates are readable by project members.
+
+- **[R13.60]** Applying a template to a canvas creates real canvas objects via `batch_operate`. Template objects become regular editable objects; no link to the source template is maintained. A template may only be applied to an empty canvas (no existing objects) unless the user explicitly confirms overwrite.
+
+- **[R13.61]** A project admin may create a project-scoped template from an existing canvas ("save as template"). The template captures the canvas's current object state as a snapshot. Deleting the source canvas does not affect the template.
+
+- **[R13.62]** Canvas objects with non-null text content are indexed for full-text search via a PostgreSQL tsvector column (`content_tsv`) maintained by a trigger. The index uses the `english` text search configuration. Only `note` and `text` object kinds produce index entries; other kinds have a null tsvector.
+
+- **[R13.63]** Canvas search is scoped to a single chatroom's canvas and respects the same access control as canvas read ([R13.44]). Results are ranked by `ts_rank_cd` and include `ts_headline` snippets. The endpoint returns at most 50 results per query.
+
+- **[R13.64]** A canvas snapshot may carry an optional label (max 200 characters) set at creation time. The label is user-facing text and must be sanitized (stripped of control characters and excessive whitespace).
+
+- **[R13.65]** A user who can send messages in the chatroom may restore any snapshot of that room's canvas. Restoring auto-saves the current canvas state as a new snapshot (labeled "Auto-save before restore") before replacing the current state with the historical snapshot's `snapshot_data`. The restore operation emits a `canvas.snapshot_restored` WebSocket event on the room channel.
+
+- **[R13.66]** Each canvas retains at most 50 snapshots. When creating a new snapshot would exceed the cap, the oldest snapshot (by `created_at`) is deleted before the new one is inserted.
+
+- **[R13.67]** A canvas object may have zero or more comments. Each comment carries plain text content (max 2000 characters), an author (user or guest), and a timestamp. Deleting a canvas object cascade-deletes all its comments.
+
+- **[R13.68]** Any principal who can send messages in the chatroom can create, edit (own only), and delete (own only) canvas object comments. Room creators and org admins may delete any comment. Guest comment mutations are rate-limited per [R13.46].
+
+- **[R13.69]** Comment mutations (create, edit, delete) publish events on the chatroom's room WebSocket channel (`canvas.comment_created`, `canvas.comment_updated`, `canvas.comment_deleted`). Connected clients update the comment list in real time.
+
+- **[R13.70]** Comment text is sanitized server-side before storage: control characters stripped, content capped at 2000 characters, validated at the Pydantic model boundary. No HTML or markdown rendering; comments display as plain text.
+
 ### 13.12 Derived content and deletion
 
 - **[R13.26]** **Compaction summaries** (R9.10) are **derived content**: a summary's text is generated from the messages it folds and may reproduce parts of them. Deletion (R13.16, R13.24) removes the message row, its search index entry and its edit history, but does **not** rewrite or remove any summary that folded it — the folded content may persist inside that summary. The UI must disclose this at the point of deletion. **Exception:** the retention purge (R13.25) *does* reach derived copies — every summary whose folded set intersects the purged messages is hard-deleted in the same sweep, so no content survives its retention horizon in derived form. Removal rather than a metadata edit is required because a summary row is itself user-visible (it renders in the room and is included in exports), so anything short of deleting it would leave the derived content readable. Messages the deleted summary folded that are still inside the horizon are unaffected — they were never removed, and a compacting agent re-folds them on its next turn.
