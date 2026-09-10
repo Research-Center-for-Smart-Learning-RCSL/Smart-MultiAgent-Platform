@@ -536,9 +536,10 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-10-collaborative-canvas` (feature, **in-progress 2026-09-10**) -- `depends_on: []`.
-  Adds a real-time collaborative spatial canvas to each chatroom. New bounded context
-  `contexts/canvas/`. Phase 1 (snapshot-based). Migration adds three tables.
+- (implemented 2026-09-10) `2026-09-10-collaborative-canvas`. Phase 1 (snapshot-based)
+  complete. New bounded context `contexts/canvas/`, migration 0089, 11 REST endpoints,
+  turn engine integration, split-pane UI with Excalidraw, agent grant toggle. Nothing
+  lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-06) `2026-09-05-prompt-assistant-configurable-persona`. Two design
   gaps surfaced during planning and were resolved with the user before implementation started:

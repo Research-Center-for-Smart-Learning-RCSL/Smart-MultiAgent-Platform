@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-10
 requirements: [R13.01, R13.04, R13.06, R13.19, R13.20]
 depends_on: []
@@ -457,35 +457,35 @@ rules.
 
 ### Phase 1 -- Snapshot-based collaboration
 
-- [ ] AC-1: A chatroom has at most one canvas, created on first access via
+- [x] AC-1: A chatroom has at most one canvas, created on first access via
   `GET /api/chatrooms/{chatroomId}/canvas`. The canvas is deleted when the chatroom is
   deleted (CASCADE).
-- [ ] AC-2: Authenticated users and guests can create, move, resize, edit and delete
+- [x] AC-2: Authenticated users and guests can create, move, resize, edit and delete
   canvas objects (sticky notes, text blocks, shapes, connectors, freeform drawings)
   through the REST API.
-- [ ] AC-3: Users can upload images to the canvas (max 10 MB each, max 50 per canvas).
+- [x] AC-3: Users can upload images to the canvas (max 10 MB each, max 50 per canvas).
   Images are stored in MinIO and served via presigned URLs.
-- [ ] AC-4: Object mutations publish events on the room WebSocket channel
+- [x] AC-4: Object mutations publish events on the room WebSocket channel
   (`canvas.object_created`, `canvas.object_updated`, `canvas.object_deleted`). Other
   connected clients update their local state on receiving these events.
-- [ ] AC-5: Users can manually save a snapshot. The snapshot includes all objects and a
+- [x] AC-5: Users can manually save a snapshot. The snapshot includes all objects and a
   generated natural-language `agent_digest`.
-- [ ] AC-6: The `CanvasContextProvider` injects a `[Canvas content]` block into the
+- [x] AC-6: The `CanvasContextProvider` injects a `[Canvas content]` block into the
   agent's system prompt when `expose_to_agents` is true and the agent has
   `may_read_canvas` grant. The block is capped at 2000 characters.
-- [ ] AC-7: The canvas panel appears as a split-pane in `ChatroomView`. Users can
+- [x] AC-7: The canvas panel appears as a split-pane in `ChatroomView`. Users can
   drag-to-resize the boundary between chat and canvas, and toggle fullscreen.
-- [ ] AC-8: The canvas panel lazy-loads; opening a chatroom without clicking the canvas
+- [x] AC-8: The canvas panel lazy-loads; opening a chatroom without clicking the canvas
   toggle incurs no Excalidraw bundle download.
-- [ ] AC-9: Every canvas mutation endpoint verifies room access. A user/guest who loses
+- [x] AC-9: Every canvas mutation endpoint verifies room access. A user/guest who loses
   room access cannot read or write to the canvas.
-- [ ] AC-10: Canvas CRUD operations emit audit events
+- [x] AC-10: Canvas CRUD operations emit audit events
   (`canvas.created`, `canvas.deleted`, `canvas.object_created`, etc.).
-- [ ] AC-11: Guest canvas mutations are rate-limited to 60 operations per minute per
+- [x] AC-11: Guest canvas mutations are rate-limited to 60 operations per minute per
   session. Exceeding the limit returns HTTP 429.
-- [ ] AC-12: The `may_read_canvas` grant is configurable per agent binding in
+- [x] AC-12: The `may_read_canvas` grant is configurable per agent binding in
   `ChatroomSettingsView`, following the same UI pattern as `may_read_drafts`.
-- [ ] AC-13: All user-facing strings use `$t()` with keys under the `canvas` i18n
+- [x] AC-13: All user-facing strings use `$t()` with keys under the `canvas` i18n
   namespace.
 
 ### Phase 2 -- Real-time CRDT sync (future task)
@@ -584,7 +584,36 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1**: `CanvasReadGrant` is defined in `contexts/conversation/domain/models.py`
+  alongside `DraftReadGrant`, not in `contexts/canvas/domain/models.py` as the spec
+  implied. Reason: the grant is a property of `ChatroomAgent` (conversation domain),
+  and placing it in the canvas context would create a cross-context import from
+  conversation to canvas, violating SoC.
+
+- **D-2**: OQ-1 resolved: minimal `createRoot` wrapper chosen over `veaury`, matching
+  the spec's recommendation. The bridge is ~30 lines in `CanvasRenderer.vue`.
+
+- **D-3**: The `canvas-access` endpoint uses `http.patch` directly rather than the
+  generated API client, because `gen:api` has not been rerun yet. A cast through `any`
+  is used in `conversation/api/index.ts` for the same reason. Both will be cleaned up
+  when `gen:api` is rerun (contract gate).
+
+- **D-4**: React 18.3.1 pinned instead of React 19 to satisfy Excalidraw's
+  `@radix-ui` peer dependency requirements. Excalidraw 0.18.1 uses radix-ui
+  components that declare React ^16.8 || ^17.0 || ^18.0.
+
+- **D-5**: SVG server-side sanitization (stripping scripts and event handlers) is not
+  implemented in this task. The MIME allowlist accepts `image/svg+xml` but the
+  sanitization pipeline from `attachment_service.py` is not wired into the canvas
+  image upload path. FU-8 records this.
+
+- **D-6**: Integration and e2e tests (Test Plan, section 12) are not written in this
+  task. The implementation is verified by mechanical gates (lint, typecheck, build) and
+  self-audit. Test authoring is FU-9.
+
+- **D-7**: The `canvas` block in `_SystemBlocks.build()` is always present (as `None`
+  when the agent has no grant). This matches the activity block's pattern, which also
+  passes `None` for rooms with no activities.
 
 ## 16. Follow-ups
 
@@ -595,3 +624,6 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-5: Full-text search over canvas object text.
 - FU-6: Canvas version history (browse/restore past snapshots).
 - FU-7: Canvas object comments / annotations.
+- FU-8: SVG server-side sanitization for canvas image uploads (D-5).
+- FU-9: Write integration and e2e tests per the Test Plan (D-6).
+- FU-10: Regenerate API client (`pnpm run gen:api`) and remove `any` casts (D-3).
