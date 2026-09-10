@@ -106,10 +106,12 @@ class KeyService:
             validated_config = validated.to_dict()
             proxy_headers_plain = validated_config.pop("proxy_headers", None)
 
-        probe_config = validated_config.copy() if validated_config else None
-        if probe_config and proxy_headers_plain:
+        probe_config: dict[str, Any] | None = dict(validated_config) if validated_config else None
+        if proxy_headers_plain:
+            if probe_config is None:
+                probe_config = {}
             probe_config["proxy_headers"] = proxy_headers_plain
-        probe_result = await probe(provider, secret, config=probe_config)
+        probe_result = await probe(provider, secret, config=probe_config or None)
 
         # Generate the id client-side so AAD and the insert row agree without
         # a second Vault round-trip (R7.06 step 3 — AAD bound to logical id).
