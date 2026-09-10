@@ -64,25 +64,27 @@ const configTimeout = ref<number | undefined>(undefined)
 const configChatEnabled = ref(true)
 const configEmbedEnabled = ref(true)
 const showAdvanced = ref(false)
-const proxyHeaderEntries = ref<Array<{ name: string; value: string }>>([])
+const proxyHeaderEntries = ref<Array<{ id: string; name: string; value: string }>>([])
+
+function resetConfigRefs() {
+  configBaseUrl.value = ''
+  configLabel.value = ''
+  configTimeout.value = undefined
+  configChatEnabled.value = true
+  configEmbedEnabled.value = true
+  showAdvanced.value = false
+  proxyHeaderEntries.value = []
+}
 
 watch(
   () => props.open,
   (open) => {
-    if (!open) {
-      configBaseUrl.value = ''
-      configLabel.value = ''
-      configTimeout.value = undefined
-      configChatEnabled.value = true
-      configEmbedEnabled.value = true
-      showAdvanced.value = false
-      proxyHeaderEntries.value = []
-    }
+    if (!open) resetConfigRefs()
   },
 )
 
 function addProxyHeader() {
-  proxyHeaderEntries.value.push({ name: '', value: '' })
+  proxyHeaderEntries.value.push({ id: crypto.randomUUID(), name: '', value: '' })
 }
 
 function removeProxyHeader(idx: number) {
@@ -90,9 +92,9 @@ function removeProxyHeader(idx: number) {
 }
 
 function buildProxyHeaders(): Record<string, string> | undefined {
-  const entries = proxyHeaderEntries.value.filter((e) => e.name.trim() && e.value.trim())
+  const entries = proxyHeaderEntries.value.filter((e) => e.name.trim())
   if (entries.length === 0) return undefined
-  return Object.fromEntries(entries.map((e) => [e.name.trim(), e.value.trim()]))
+  return Object.fromEntries(entries.map((e) => [e.name.trim(), e.value]))
 }
 
 const onSubmit = handleSubmit((values) => {
@@ -117,24 +119,12 @@ const onSubmit = handleSubmit((values) => {
   }
   emit('submit', payload)
   resetForm()
-  configBaseUrl.value = ''
-  configLabel.value = ''
-  configTimeout.value = undefined
-  configChatEnabled.value = true
-  configEmbedEnabled.value = true
-  showAdvanced.value = false
-  proxyHeaderEntries.value = []
+  resetConfigRefs()
 })
 
 function onClose() {
   resetForm()
-  configBaseUrl.value = ''
-  configLabel.value = ''
-  configTimeout.value = undefined
-  configChatEnabled.value = true
-  configEmbedEnabled.value = true
-  showAdvanced.value = false
-  proxyHeaderEntries.value = []
+  resetConfigRefs()
   emit('close')
 }
 </script>
@@ -301,7 +291,7 @@ function onClose() {
                 <div class="flex flex-col gap-2">
                   <div
                     v-for="(entry, idx) in proxyHeaderEntries"
-                    :key="idx"
+                    :key="entry.id"
                     class="flex gap-2 items-start"
                   >
                     <SInput
