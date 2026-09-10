@@ -4407,7 +4407,8 @@ class TurnEngine:
 
         try:
             grant = await ChatroomRepository(self._db).canvas_read_grant(
-                chatroom_id=chatroom_id, agent_id=agent_id,
+                chatroom_id=chatroom_id,
+                agent_id=agent_id,
             )
             if grant is None:
                 return None

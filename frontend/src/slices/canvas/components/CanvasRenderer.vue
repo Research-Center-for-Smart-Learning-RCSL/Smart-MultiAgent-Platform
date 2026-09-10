@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import type { CanvasObject } from '../types'
 
@@ -11,7 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLDivElement>()
-let excalidrawRoot: any = null
+let _excalidrawRoot: any = null
 let reactRoot: any = null
 
 function objectsToExcalidrawElements(objects: CanvasObject[]): unknown[] {
@@ -50,10 +51,11 @@ async function mountExcalidraw() {
     const elements = objectsToExcalidrawElements(props.objects)
 
     reactRoot = ReactDOM.createRoot(containerRef.value)
-    const App = React.createElement(Excalidraw, {
-      initialData: { elements },
-      onChange: (elements: unknown[]) => {
-        emit('change', elements)
+     
+    const App = React.createElement(Excalidraw as any, {
+      initialData: { elements: elements as any[] },
+      onChange: (els: readonly unknown[]) => {
+        emit('change', [...els])
       },
       UIOptions: {
         canvasActions: {
@@ -62,7 +64,7 @@ async function mountExcalidraw() {
           loadScene: false,
         },
       },
-    })
+    } as any)
     reactRoot.render(App)
   } catch (err) {
     console.error('Failed to mount Excalidraw:', err)
@@ -93,7 +95,10 @@ watch(
 </script>
 
 <template>
-  <div ref="containerRef" class="canvas-renderer" />
+  <div
+    ref="containerRef"
+    class="canvas-renderer"
+  />
 </template>
 
 <style scoped>

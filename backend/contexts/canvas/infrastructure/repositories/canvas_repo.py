@@ -95,17 +95,11 @@ class CanvasRepository:
 
     async def create(self, *, chatroom_id: uuid.UUID) -> Canvas:
         row = (
-            await self._db.execute(
-                t.canvases.insert()
-                .values(chatroom_id=chatroom_id)
-                .returning(t.canvases)
-            )
+            await self._db.execute(t.canvases.insert().values(chatroom_id=chatroom_id).returning(t.canvases))
         ).one()
         return _row_to_canvas(row)
 
-    async def update_settings(
-        self, canvas_id: uuid.UUID, *, expose_to_agents: bool
-    ) -> Canvas | None:
+    async def update_settings(self, canvas_id: uuid.UUID, *, expose_to_agents: bool) -> Canvas | None:
         row = (
             await self._db.execute(
                 t.canvases.update()
@@ -123,9 +117,7 @@ class CanvasRepository:
 
     async def soft_delete(self, canvas_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.canvases.update()
-            .where(t.canvases.c.id == canvas_id)
-            .values(deleted_at=now())
+            t.canvases.update().where(t.canvases.c.id == canvas_id).values(deleted_at=now())
         )
 
     # ---- canvas objects ----------------------------------------------------
@@ -146,15 +138,17 @@ class CanvasRepository:
 
     async def count_objects(self, canvas_id: uuid.UUID) -> int:
         result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(t.canvas_objects).where(
-                t.canvas_objects.c.canvas_id == canvas_id
-            )
+            sa.select(sa.func.count())
+            .select_from(t.canvas_objects)
+            .where(t.canvas_objects.c.canvas_id == canvas_id)
         )
         return result.scalar_one()
 
     async def count_images(self, canvas_id: uuid.UUID) -> int:
         result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(t.canvas_objects).where(
+            sa.select(sa.func.count())
+            .select_from(t.canvas_objects)
+            .where(
                 sa.and_(
                     t.canvas_objects.c.canvas_id == canvas_id,
                     t.canvas_objects.c.kind == CanvasObjectKind.IMAGE.value,
@@ -165,23 +159,17 @@ class CanvasRepository:
 
     async def get_object(self, object_id: uuid.UUID) -> CanvasObject | None:
         row = (
-            await self._db.execute(
-                t.canvas_objects.select().where(t.canvas_objects.c.id == object_id)
-            )
+            await self._db.execute(t.canvas_objects.select().where(t.canvas_objects.c.id == object_id))
         ).first()
         return _row_to_object(row) if row else None
 
     async def create_object(self, *, values: dict[str, Any]) -> CanvasObject:
         row = (
-            await self._db.execute(
-                t.canvas_objects.insert().values(**values).returning(t.canvas_objects)
-            )
+            await self._db.execute(t.canvas_objects.insert().values(**values).returning(t.canvas_objects))
         ).one()
         return _row_to_object(row)
 
-    async def update_object(
-        self, object_id: uuid.UUID, *, values: dict[str, Any]
-    ) -> CanvasObject | None:
+    async def update_object(self, object_id: uuid.UUID, *, values: dict[str, Any]) -> CanvasObject | None:
         values["updated_at"] = now()
         row = (
             await self._db.execute(
@@ -194,9 +182,7 @@ class CanvasRepository:
         return _row_to_object(row) if row else None
 
     async def delete_object(self, object_id: uuid.UUID) -> bool:
-        result = await self._db.execute(
-            t.canvas_objects.delete().where(t.canvas_objects.c.id == object_id)
-        )
+        result = await self._db.execute(t.canvas_objects.delete().where(t.canvas_objects.c.id == object_id))
         return bool(result.rowcount)
 
     async def batch_delete_objects(self, object_ids: Sequence[uuid.UUID]) -> int:
@@ -236,9 +222,7 @@ class CanvasRepository:
 
     async def create_snapshot(self, *, values: dict[str, Any]) -> CanvasSnapshot:
         row = (
-            await self._db.execute(
-                t.canvas_snapshots.insert().values(**values).returning(t.canvas_snapshots)
-            )
+            await self._db.execute(t.canvas_snapshots.insert().values(**values).returning(t.canvas_snapshots))
         ).one()
         return _row_to_snapshot(row)
 

@@ -36,8 +36,16 @@ canvas_objects = sa.Table(
     ),
     sa.Column(
         "kind",
-        pg.ENUM("note", "text", "image", "shape", "drawing", "connector",
-                name="canvas_object_kind", create_type=False),
+        pg.ENUM(
+            "note",
+            "text",
+            "image",
+            "shape",
+            "drawing",
+            "connector",
+            name="canvas_object_kind",
+            create_type=False,
+        ),
         nullable=False,
     ),
     sa.Column("content", sa.Text, nullable=True),

@@ -247,9 +247,7 @@ class CanvasService:
             results["updated"].append(oid)
         if deletes:
             results["deleted"] = await self._repo.batch_delete_objects(deletes)
-        await Publisher(room_channel(chatroom_id)).emit(
-            "canvas.batch_updated", {"canvas_id": str(canvas_id)}
-        )
+        await Publisher(room_channel(chatroom_id)).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
         return results
 
     async def count_images(self, canvas_id: uuid.UUID) -> int:

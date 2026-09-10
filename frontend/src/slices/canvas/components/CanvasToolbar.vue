@@ -93,8 +93,14 @@ const emit = defineEmits<{
       :title="isFullscreen ? t('canvas.exitFullscreen') : t('canvas.fullscreen')"
       @click="emit('toggleFullscreen')"
     >
-      <ArrowsPointingInIcon v-if="isFullscreen" class="canvas-toolbar__icon" />
-      <ArrowsPointingOutIcon v-else class="canvas-toolbar__icon" />
+      <ArrowsPointingInIcon
+        v-if="isFullscreen"
+        class="canvas-toolbar__icon"
+      />
+      <ArrowsPointingOutIcon
+        v-else
+        class="canvas-toolbar__icon"
+      />
     </button>
     <button
       class="canvas-toolbar__btn"

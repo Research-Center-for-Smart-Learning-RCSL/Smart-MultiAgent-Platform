@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const STORAGE_PREFIX = 'smap:canvas:'
 const DEFAULT_WIDTH_FRACTION = 0.45

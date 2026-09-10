@@ -1,4 +1,4 @@
-import { ref, computed, type Ref } from 'vue'
+import { computed, type Ref } from 'vue'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/vue-query'
 import { canvasKeys } from '../queries'
 import * as canvasApi from '../api'

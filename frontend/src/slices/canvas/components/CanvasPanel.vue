@@ -48,7 +48,7 @@ async function handleAddObject(kind: CanvasObjectKind) {
     position_y: 100 + Math.random() * 200,
     width: kind === 'text' ? 200 : 150,
     height: kind === 'text' ? 40 : 150,
-    content: kind === 'note' ? '' : kind === 'text' ? '' : undefined,
+    content: kind === 'note' ? '' : kind === 'text' ? '' : null,
   })
 }
 
@@ -80,13 +80,23 @@ async function toggleExposeToAgents() {
 </script>
 
 <template>
-  <div class="canvas-panel" :class="{ 'canvas-panel--fullscreen': isFullscreen }">
+  <div
+    class="canvas-panel"
+    :class="{ 'canvas-panel--fullscreen': isFullscreen }"
+  >
     <div class="canvas-panel__header">
       <span class="canvas-panel__title">{{ t('canvas.title') }}</span>
-      <span v-if="objects.length" class="canvas-panel__count">
+      <span
+        v-if="objects.length"
+        class="canvas-panel__count"
+      >
         {{ objects.length }} {{ t('canvas.objects') }}
       </span>
-      <button class="canvas-panel__close" :title="t('canvas.close')" @click="emit('close')">
+      <button
+        class="canvas-panel__close"
+        :title="t('canvas.close')"
+        @click="emit('close')"
+      >
         <XMarkIcon class="canvas-panel__close-icon" />
       </button>
     </div>
@@ -105,20 +115,30 @@ async function toggleExposeToAgents() {
       @open-settings="showSettings = !showSettings"
     />
 
-    <div v-if="showSettings" class="canvas-panel__settings">
-      <label class="canvas-panel__setting">
+    <div
+      v-if="showSettings"
+      class="canvas-panel__settings"
+    >
+      <label
+        for="canvas-expose-agents"
+        class="canvas-panel__setting"
+      >
         <input
+          id="canvas-expose-agents"
           type="checkbox"
           :checked="exposeToAgents"
           @change="toggleExposeToAgents"
-        />
+        >
         {{ t('canvas.exposeToAgents') }}
       </label>
     </div>
 
     <div class="canvas-panel__body">
       <SLoadingSpinner v-if="isLoading" />
-      <div v-else-if="error" class="canvas-panel__error">
+      <div
+        v-else-if="error"
+        class="canvas-panel__error"
+      >
         {{ t('canvas.loadError') }}
       </div>
       <SEmptyState
@@ -127,7 +147,10 @@ async function toggleExposeToAgents() {
         :description="t('canvas.emptyDescription')"
       />
       <Suspense v-else>
-        <CanvasRenderer :objects="objects" @change="handleChange" />
+        <CanvasRenderer
+          :objects="objects"
+          @change="handleChange"
+        />
         <template #fallback>
           <SLoadingSpinner />
         </template>
@@ -137,10 +160,11 @@ async function toggleExposeToAgents() {
     <input
       ref="fileInputRef"
       type="file"
+      :aria-label="t('canvas.uploadImage')"
       accept="image/png,image/jpeg,image/webp,image/svg+xml"
       hidden
       @change="onFileSelected"
-    />
+    >
   </div>
 </template>
 

@@ -326,9 +326,13 @@
       @toggle-fullscreen="canvasSplit.toggleFullscreen()"
     />
 
-    <!-- Resize handle between feed and canvas panel -->
+    <!-- Resize handle between feed and canvas panel. -->
+    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
     <div
       v-if="canvasSplit.isOpen.value && !canvasSplit.isFullscreen.value"
+      role="separator"
+      tabindex="0"
+      :aria-label="t('canvas.title')"
       class="chatroom__canvas-handle"
       @mousedown="canvasSplit.startDrag($event)"
     />

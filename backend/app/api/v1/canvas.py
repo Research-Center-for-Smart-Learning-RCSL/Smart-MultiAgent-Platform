@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.domain.models import CanvasObjectKind
@@ -25,7 +25,7 @@ from shared_kernel.storage.minio_client import MinioClient
 
 router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"])
 
-_CANVAS_IMAGE_MAX_BYTES = int(os.environ.get("CANVAS_IMAGE_MAX_BYTES", 10 * 1024 * 1024))
+_CANVAS_IMAGE_MAX_BYTES = int(os.environ.get("CANVAS_IMAGE_MAX_BYTES", str(10 * 1024 * 1024)))
 _ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 _GUEST_RATE_LIMIT_PER_MINUTE = 60
 
