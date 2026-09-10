@@ -45,9 +45,43 @@ class DekCache:
         self._entries.clear()
 
 
+@dataclass
+class _ProxyHeadersCacheEntry:
+    headers: dict[str, str]
+    loaded_at: float
+
+
+class ProxyHeadersCache:
+    """In-process cache for decrypted proxy headers -- same TTL as DEK cache."""
+
+    TTL_SECONDS = 60.0
+
+    def __init__(self) -> None:
+        self._entries: dict[uuid.UUID, _ProxyHeadersCacheEntry] = {}
+
+    def get(self, key_id: uuid.UUID) -> dict[str, str] | None:
+        entry = self._entries.get(key_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry.loaded_at > self.TTL_SECONDS:
+            self._entries.pop(key_id, None)
+            return None
+        return entry.headers
+
+    def put(self, key_id: uuid.UUID, headers: dict[str, str]) -> None:
+        self._entries[key_id] = _ProxyHeadersCacheEntry(headers, time.monotonic())
+
+    def drop(self, key_id: uuid.UUID) -> None:
+        self._entries.pop(key_id, None)
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+
 # Module singleton — the revocation listener punches entries out in response
 # to Redis pub/sub; the provider router reads/writes on every call.
 DEK_CACHE = DekCache()
+PROXY_HEADERS_CACHE = ProxyHeadersCache()
 
 
-__all__ = ["DEK_CACHE", "DekCache"]
+__all__ = ["DEK_CACHE", "PROXY_HEADERS_CACHE", "DekCache", "ProxyHeadersCache"]

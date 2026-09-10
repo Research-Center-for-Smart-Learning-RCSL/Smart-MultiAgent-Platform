@@ -15,7 +15,7 @@ import logging
 import uuid
 from contextlib import suppress
 
-from contexts.keys.infrastructure.dek_cache import DEK_CACHE
+from contexts.keys.infrastructure.dek_cache import DEK_CACHE, PROXY_HEADERS_CACHE
 from contexts.keys.infrastructure.key_revocation_events import (
     CHANNEL_KEY_CARRY_REVOKED,
     CHANNEL_KEY_REVOKED,
@@ -93,10 +93,14 @@ async def _listen_once() -> None:
 def _handle(channel: str, data: str) -> None:
     try:
         if channel == CHANNEL_KEY_REVOKED:
-            DEK_CACHE.drop(uuid.UUID(data))
+            kid = uuid.UUID(data)
+            DEK_CACHE.drop(kid)
+            PROXY_HEADERS_CACHE.drop(kid)
         elif channel == CHANNEL_KEY_CARRY_REVOKED:
             key_id, _project_id = data.split(":", 1)
-            DEK_CACHE.drop(uuid.UUID(key_id))
+            kid = uuid.UUID(key_id)
+            DEK_CACHE.drop(kid)
+            PROXY_HEADERS_CACHE.drop(kid)
     except (ValueError, KeyError):
         _log.warning("revocation message ignored channel=%s data=%r", channel, data)
 
