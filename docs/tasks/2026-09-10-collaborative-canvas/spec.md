@@ -607,9 +607,9 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
   elements and URI schemes via defusedxml + element/attribute whitelist. Wired into the
   canvas image upload endpoint.
 
-- **D-6**: Integration and e2e tests (Test Plan, section 12) are not written in this
-  task. The implementation is verified by mechanical gates (lint, typecheck, build) and
-  self-audit. Test authoring is FU-9.
+- **D-6**: ~~Integration and e2e tests were deferred~~ -- resolved by FU-9:
+  27 backend tests (12 digest, 6 context provider, 9 grant repository). Frontend e2e
+  tests remain deferred (Playwright, separate concern).
 
 - **D-7**: The `canvas` block in `_SystemBlocks.build()` is always present (as `None`
   when the agent has no grant). This matches the activity block's pattern, which also
@@ -625,5 +625,5 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
 - FU-6: Canvas version history (browse/restore past snapshots).
 - FU-7: Canvas object comments / annotations.
 - ~~FU-8: SVG server-side sanitization for canvas image uploads (D-5).~~ Done.
-- FU-9: Write integration and e2e tests per the Test Plan (D-6).
+- ~~FU-9: Write integration and e2e tests per the Test Plan (D-6).~~ Backend unit + integration tests done (27 tests). Frontend e2e deferred.
 - FU-10: Regenerate API client (`pnpm run gen:api`) and remove `any` casts (D-3).
