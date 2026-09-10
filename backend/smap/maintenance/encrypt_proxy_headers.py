@@ -13,6 +13,7 @@ Idempotent: already-encrypted rows are skipped. Dry-run by default.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ from sqlalchemy import create_engine
 
 from contexts.keys.infrastructure import tables as t
 from shared_kernel.security import envelope as env
+
+_log = logging.getLogger(__name__)
 
 _ARMED_ENV = "SMAP_ENCRYPT_PROXY_HEADERS_ARMED"
 
@@ -50,35 +53,37 @@ def run() -> EncryptReport:
     encrypted = 0
     failed = 0
 
-    with engine.begin() as conn:
+    with engine.connect() as conn:
         rows = conn.execute(
             sa.select(t.api_keys.c.id, t.api_keys.c.encrypted_proxy_headers).where(
                 t.api_keys.c.encrypted_proxy_headers.is_not(None)
             )
         ).all()
 
-        for row in rows:
-            scanned += 1
-            ph_jsonb = row.encrypted_proxy_headers
-            if not isinstance(ph_jsonb, dict) or not ph_jsonb:
-                continue
-            if "ct" in ph_jsonb:
-                already_encrypted += 1
-                continue
-            if dry_run:
-                encrypted += 1
-                continue
-            try:
-                key_id: uuid.UUID = row.id
-                encrypted_envelope = env.encrypt_proxy_headers(ph_jsonb, key_id)
+    for row in rows:
+        scanned += 1
+        ph_jsonb = row.encrypted_proxy_headers
+        if not isinstance(ph_jsonb, dict) or not ph_jsonb:
+            continue
+        if "ct" in ph_jsonb:
+            already_encrypted += 1
+            continue
+        if dry_run:
+            encrypted += 1
+            continue
+        key_id: uuid.UUID = row.id
+        try:
+            encrypted_envelope = env.encrypt_proxy_headers(ph_jsonb, key_id)
+            with engine.begin() as conn:
                 conn.execute(
                     t.api_keys.update()
                     .where(t.api_keys.c.id == key_id)
                     .values(encrypted_proxy_headers=encrypted_envelope)
                 )
-                encrypted += 1
-            except Exception:
-                failed += 1
+            encrypted += 1
+        except Exception:
+            _log.exception("failed to encrypt proxy_headers for key_id=%s", key_id)
+            failed += 1
 
     engine.dispose()
     return EncryptReport(
