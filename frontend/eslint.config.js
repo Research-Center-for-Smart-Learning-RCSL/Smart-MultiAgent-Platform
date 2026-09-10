@@ -32,7 +32,8 @@ const SLICE_DEPS = {
   // (ApprovalCard, DlqViewer) and calls its approval/wakeup api. workflow must
   // NOT import conversation back — it wraps the read-only workspace/chatroom
   // lookups it needs in its own api/ instead.
-  conversation:  ['workflow', 'activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
+  canvas:        [],
+  conversation:  ['canvas', 'workflow', 'activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   workflow:      ['agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   admin:         ['prompt-studio', 'skills'],
   notifications: ['identity'],

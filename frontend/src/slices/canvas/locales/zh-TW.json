@@ -1,0 +1,31 @@
+{
+  "canvas": {
+    "title": "畫布",
+    "open": "開啟畫布",
+    "close": "關閉畫布",
+    "fullscreen": "全螢幕",
+    "exitFullscreen": "退出全螢幕",
+    "save": "儲存快照",
+    "saving": "儲存中...",
+    "saved": "快照已儲存",
+    "settings": "畫布設定",
+    "exposeToAgents": "允許 AI 代理讀取畫布內容",
+    "delete": "刪除畫布",
+    "deleteConfirm": "確定要刪除此畫布和所有內容嗎？",
+    "empty": "開始協作",
+    "emptyDescription": "在此畫布上新增便利貼、文字、圖片和繪圖。",
+    "addNote": "新增便利貼",
+    "addText": "新增文字",
+    "addShape": "新增形狀",
+    "uploadImage": "上傳圖片",
+    "draw": "繪圖",
+    "addConnector": "新增連接線",
+    "imageLimitReached": "圖片數量已達上限（{max}）",
+    "imageTooLarge": "圖片太大（最大 {max} MB）",
+    "unsupportedImageType": "不支援的圖片類型",
+    "loadError": "載入畫布失敗",
+    "objects": "個物件",
+    "agentGrant": "讀取畫布",
+    "agentGrantDescription": "允許此代理在其上下文中查看畫布內容"
+  }
+}
