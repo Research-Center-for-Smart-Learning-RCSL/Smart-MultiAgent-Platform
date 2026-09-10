@@ -122,7 +122,8 @@ def decrypt_proxy_headers(jsonb: dict[str, Any], key_id: uuid.UUID) -> dict[str,
     if "ct" in jsonb:
         record = jsonb_to_envelope(jsonb)
         plaintext = decrypt_envelope(record, proxy_headers_aad(key_id))
-        return json.loads(plaintext)
+        parsed: dict[str, str] = json.loads(plaintext)
+        return parsed
     return {str(k): str(v) for k, v in jsonb.items()}
 
 

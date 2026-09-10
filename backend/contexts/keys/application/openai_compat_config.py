@@ -11,7 +11,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-
 PROXY_HEADER_BLOCKLIST: frozenset[str] = frozenset(
     {
         "authorization",
