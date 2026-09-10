@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-10
 requirements: [R13.42, R13.44, R13.47]
 depends_on: [2026-09-10-collaborative-canvas]
@@ -115,24 +115,24 @@ deployed.
 
 ## 5. Acceptance Criteria
 
-- [ ] AC-1: An agent with `may_write_canvas` can create a canvas object via
+- [x] AC-1: An agent with `may_write_canvas` can create a canvas object via
   `canvas_create_object`. The object appears on the canvas for all connected users.
-- [ ] AC-2: An agent with `may_write_canvas` can update an existing canvas object via
+- [x] AC-2: An agent with `may_write_canvas` can update an existing canvas object via
   `canvas_update_object` (change position, content, style).
-- [ ] AC-3: An agent with `may_write_canvas` can delete a canvas object via
+- [x] AC-3: An agent with `may_write_canvas` can delete a canvas object via
   `canvas_delete_object`.
-- [ ] AC-4: The tools are absent from the tool list for agents without the grant.
+- [x] AC-4: The tools are absent from the tool list for agents without the grant.
   Verified by checking tool registration output.
-- [ ] AC-5: Agent-created objects carry `created_by_agent_id` and are visually
+- [x] AC-5: Agent-created objects carry `created_by_agent_id` and are visually
   distinguished in the UI (agent avatar or color badge).
-- [ ] AC-6: Canvas writes by agents emit audit events with `agent_id` and `action`
+- [x] AC-6: Canvas writes by agents emit audit events with `agent_id` and `action`
   fields (`canvas.agent_object_created`, `canvas.agent_object_updated`,
   `canvas.agent_object_deleted`).
-- [ ] AC-7: The `may_write_canvas` toggle appears in the chatroom settings alongside
+- [x] AC-7: The `may_write_canvas` toggle appears in the chatroom settings alongside
   `may_read_canvas`. Granting and revoking works correctly.
-- [ ] AC-8: The canvas event payload for agent writes includes an `agent_id` field so
+- [x] AC-8: The canvas event payload for agent writes includes an `agent_id` field so
   the frontend can render the agent badge.
-- [ ] AC-9: Guest rate limiting ([R13.46]) does not apply to agent writes (agents are
+- [x] AC-9: Guest rate limiting ([R13.46]) does not apply to agent writes (agents are
   not guests). Agent writes are bounded by the per-turn tool-round cap instead.
 
 ## 6. Detailed Changes
@@ -319,7 +319,7 @@ None -- all questions resolved in Clarifications section.
 
 ## 12. Deviation Log
 
-(Populated during implementation.)
+No deviations from the approved spec.
 
 ## 13. Follow-ups
 
@@ -327,3 +327,7 @@ None -- all questions resolved in Clarifications section.
 - FU-2: Agent image placement tool (agent provides an image URL, platform downloads and
   places it).
 - FU-3: Phase 2 CRDT adapter for agent writes (push mutations into Yjs doc).
+- FU-4: Route `canvas_write_grant` through `ConversationFacade` instead of importing
+  `ChatroomAgentRepository` directly from infrastructure (pre-existing pattern from
+  `turn_engine.py:4409` canvas read grant; both should go through the facade like
+  `draft_read_grant` and `activity_control_grant` do).
