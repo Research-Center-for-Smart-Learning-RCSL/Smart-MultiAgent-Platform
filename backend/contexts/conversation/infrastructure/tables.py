@@ -114,6 +114,12 @@ chatroom_agents = sa.Table(
         server_default=sa.text("false"),
     ),
     sa.Column(
+        "may_read_canvas",
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
+    ),
+    sa.Column(
         "granted_by_user_id",
         pg.UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="SET NULL"),

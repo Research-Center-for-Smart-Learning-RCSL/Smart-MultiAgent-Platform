@@ -18,6 +18,7 @@ from contexts.activities.infrastructure import (  # noqa: F401
 from contexts.agent_groups.infrastructure import (  # noqa: F401
     tables as _agent_groups_tables,
 )
+from contexts.canvas.infrastructure import tables as _canvas_tables  # noqa: F401
 from contexts.agents.infrastructure import (  # noqa: F401
     mcp_tables as _agents_mcp_tables,
 )

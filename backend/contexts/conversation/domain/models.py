@@ -111,6 +111,18 @@ class ChatroomAgent:
     # grantor column — a binding may hold either, both, or neither, and the two are
     # written by different routes. Never read one to infer the other.
     may_read_drafts: bool = False
+    may_read_canvas: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CanvasReadGrant:
+    """A live delegation of canvas-content reading in one room ([R13.38]).
+
+    Same shape as :class:`DraftReadGrant`: holding one *is* the authorization.
+    """
+
+    agent_id: uuid.UUID
+    granted_by_user_id: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)

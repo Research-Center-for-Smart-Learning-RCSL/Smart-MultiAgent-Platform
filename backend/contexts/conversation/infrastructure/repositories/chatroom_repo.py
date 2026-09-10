@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.domain.errors import VersionMismatch
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
+    CanvasReadGrant,
     Chatroom,
     ChatroomAgent,
     ChatroomAgentRole,
@@ -414,6 +415,7 @@ class ChatroomAgentRepository:
                 activity_type_allowlist=_allowlist_from_json(r.activity_type_allowlist),
                 granted_by_user_id=r.granted_by_user_id,
                 may_read_drafts=bool(r.may_read_drafts),
+                may_read_canvas=bool(r.may_read_canvas),
             )
             for r in rows
         ]
@@ -719,6 +721,63 @@ class ChatroomAgentRepository:
         unsent text for a tool that is never offered.
         """
         return chatroom_id in await self.rooms_with_draft_readers([chatroom_id])
+
+    async def set_canvas_read_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        granted_by_user_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Write one binding's canvas-reading grant ([R13.38])."""
+        values: dict[str, Any] = {"may_read_canvas": granted}
+        if granted:
+            values["granted_by_user_id"] = granted_by_user_id
+        where = sa.and_(
+            t.chatroom_agents.c.chatroom_id == chatroom_id,
+            t.chatroom_agents.c.agent_id == agent_id,
+        )
+        result = await self._db.execute(t.chatroom_agents.update().where(where).values(**values))
+        if not result.rowcount:
+            return False
+        if not granted:
+            await self._db.execute(
+                t.chatroom_agents.update()
+                .where(
+                    sa.and_(
+                        where,
+                        t.chatroom_agents.c.may_control_activities.is_(False),
+                        t.chatroom_agents.c.may_read_drafts.is_(False),
+                    )
+                )
+                .values(granted_by_user_id=None)
+            )
+        return True
+
+    async def canvas_read_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> CanvasReadGrant | None:
+        """The live canvas-reading grant for one binding, or ``None`` ([R13.38])."""
+        row = (
+            await self._db.execute(
+                sa.select(
+                    t.chatroom_agents.c.may_read_canvas,
+                    t.chatroom_agents.c.granted_by_user_id,
+                ).where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        if row is None or not row.may_read_canvas or row.granted_by_user_id is None:
+            return None
+        return CanvasReadGrant(agent_id=agent_id, granted_by_user_id=row.granted_by_user_id)
 
     async def rooms_with_observers(
         self,
