@@ -531,42 +531,42 @@ New subsection **S13.11 Collaborative Canvas** in `REQUIREMENTS.md`:
 ```
 ### 13.11 Collaborative Canvas
 
-- **[R13.33]** A Chatroom may have at most one Canvas. The Canvas is created on demand
+- **[R13.42]** A Chatroom may have at most one Canvas. The Canvas is created on demand
   (first access) and follows the chatroom's lifecycle: deleting the chatroom
   cascade-deletes the canvas, all its objects, and all stored images.
 
-- **[R13.34]** Canvas object types: sticky note, text block, image, freeform drawing,
+- **[R13.43]** Canvas object types: sticky note, text block, image, freeform drawing,
   shape, connector. Each object has a position, dimensions, z-index and style metadata.
 
-- **[R13.35]** Canvas access mirrors chatroom access: any principal who can read the
+- **[R13.44]** Canvas access mirrors chatroom access: any principal who can read the
   chatroom can view the canvas; any principal who can send messages (including guests
   when `allow_guest_links` is set) can create, edit and delete canvas objects.
 
-- **[R13.36]** Canvas images are stored in MinIO under a dedicated key prefix within the
+- **[R13.45]** Canvas images are stored in MinIO under a dedicated key prefix within the
   existing chat-uploads bucket, following the same AV scan and MIME allowlist pipeline
   as chat attachments. Maximum image size: 10 MB. Maximum images per canvas: 50.
 
-- **[R13.37]** Guest canvas mutations are rate-limited per session (default 60 operations
+- **[R13.46]** Guest canvas mutations are rate-limited per session (default 60 operations
   per minute). Exceeding the limit returns HTTP 429 with problem type
   `/canvas/rate-limit-exceeded`.
 
-- **[R13.38]** An AI agent bound to the chatroom may receive a natural-language digest of
+- **[R13.47]** An AI agent bound to the chatroom may receive a natural-language digest of
   the canvas content as a system-prompt block, gated by two conditions: (a) the canvas's
   `expose_to_agents` flag is true (default), and (b) the agent's `may_read_canvas` grant
   is set on its chatroom binding. The digest is capped at 2 000 characters and is
   generated from the canvas objects, not from raw coordinate data.
 
-- **[R13.39]** Canvas mutations publish events on the chatroom's WebSocket channel. Other
+- **[R13.48]** Canvas mutations publish events on the chatroom's WebSocket channel. Other
   connected clients update their local canvas state on receiving these events. In a later
   phase, a dedicated WebSocket channel carries CRDT deltas for real-time collaborative
   editing.
 
-- **[R13.40]** Canvas snapshots persist the full object state and a generated
+- **[R13.49]** Canvas snapshots persist the full object state and a generated
   `agent_digest`. Snapshots are created manually by users or automatically on periodic
   intervals. The most recent snapshot's digest is what the CanvasContextProvider serves
   to the agent turn.
 
-- **[R13.41]** Every canvas endpoint and WebSocket connection verifies chatroom access.
+- **[R13.50]** Every canvas endpoint and WebSocket connection verifies chatroom access.
   A principal whose room access is revoked is disconnected from both the chatroom and
   canvas WebSocket channels.
 ```

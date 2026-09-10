@@ -131,14 +131,14 @@ const emit = defineEmits<{
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-muted);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .canvas-toolbar__btn:hover {
   background: var(--color-surface-hover);
-  color: var(--color-text);
+  color: var(--color-fg);
 }
 
 .canvas-toolbar__btn:disabled {

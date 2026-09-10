@@ -583,7 +583,7 @@ class ChatroomService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        """Grant or revoke one bound agent's canvas reading ([R13.38])."""
+        """Grant or revoke one bound agent's canvas reading ([R13.47])."""
         written = await self._agents.set_canvas_read_grant(
             chatroom_id=chatroom_id,
             agent_id=agent_id,

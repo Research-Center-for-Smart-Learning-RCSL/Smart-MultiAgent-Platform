@@ -12,7 +12,7 @@ FAILED=0
 # markdown renderer (loaded only when rendering chat messages). They cannot
 # fit the per-view lazy budget without a major refactor; budget enforcement
 # is intentionally relaxed for these named chunks.
-EXEMPT_PREFIXES='^(mermaid|hljs)-'
+EXEMPT_PREFIXES='^(mermaid|hljs|excalidraw)-'
 
 if [ ! -d "$DIST" ]; then
   echo "ERROR: $DIST not found. Run 'npm run build' first."

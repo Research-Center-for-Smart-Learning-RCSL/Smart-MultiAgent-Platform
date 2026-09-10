@@ -263,7 +263,7 @@ export async function setChatroomAgentDraftAccess(
   )
 }
 
-/** Grant or revoke one bound agent's canvas reading ([R13.38]).
+/** Grant or revoke one bound agent's canvas reading ([R13.47]).
  *
  *  Creator-only server-side. No allowlist. */
 export async function setChatroomAgentCanvasAccess(

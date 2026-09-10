@@ -508,7 +508,7 @@ class ConversationFacade:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        """Write the canvas grant ([R13.38]); ``False`` when not bound."""
+        """Write the canvas grant ([R13.47]); ``False`` when not bound."""
         from contexts.conversation.application.chatroom_service import ChatroomService
 
         return await ChatroomService(self._db).set_agent_canvas_grant(

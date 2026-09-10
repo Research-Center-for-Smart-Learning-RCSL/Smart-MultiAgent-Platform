@@ -1,7 +1,7 @@
 """Pure function that builds a natural-language digest of canvas objects.
 
 The digest is what the CanvasContextProvider injects into the agent's system
-prompt.  Capped at _MAX_DIGEST_CHARS to prevent context stuffing ([R13.38]).
+prompt.  Capped at _MAX_DIGEST_CHARS to prevent context stuffing ([R13.47]).
 """
 
 from __future__ import annotations

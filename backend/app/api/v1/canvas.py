@@ -1,4 +1,4 @@
-"""`/api/chatrooms/{chatroom_id}/canvas` -- Canvas CRUD endpoints ([R13.33]-[R13.41])."""
+"""`/api/chatrooms/{chatroom_id}/canvas` -- Canvas CRUD endpoints ([R13.42]-[R13.50])."""
 
 from __future__ import annotations
 
@@ -164,7 +164,7 @@ def _actor_guest_id(principal: Principal) -> uuid.UUID | None:
 
 
 async def _enforce_guest_rate_limit(principal: Principal) -> None:
-    """Rate-limit guest canvas mutations (AC-11, R13.37)."""
+    """Rate-limit guest canvas mutations (AC-11, R13.46)."""
     if not principal.is_guest:
         return
     guest_id = str(principal.user_id)

@@ -736,7 +736,7 @@ class ChatroomAgentRepository:
         granted: bool,
         granted_by_user_id: uuid.UUID | None = None,
     ) -> bool:
-        """Write one binding's canvas-reading grant ([R13.38])."""
+        """Write one binding's canvas-reading grant ([R13.47])."""
         values: dict[str, Any] = {"may_read_canvas": granted}
         if granted:
             values["granted_by_user_id"] = granted_by_user_id
@@ -767,7 +767,7 @@ class ChatroomAgentRepository:
         chatroom_id: uuid.UUID,
         agent_id: uuid.UUID,
     ) -> CanvasReadGrant | None:
-        """The live canvas-reading grant for one binding, or ``None`` ([R13.38])."""
+        """The live canvas-reading grant for one binding, or ``None`` ([R13.47])."""
         row = (
             await self._db.execute(
                 sa.select(

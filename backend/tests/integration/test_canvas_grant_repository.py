@@ -1,4 +1,4 @@
-"""The canvas-read grant against a real PostgreSQL ([R13.38]).
+"""The canvas-read grant against a real PostgreSQL ([R13.47]).
 
 Mirrors test_draft_grant_repository.py: the shared ``granted_by_user_id``
 column, the fail-closed null-grantor arm, and the room-scoped isolation all
@@ -86,7 +86,7 @@ class TestDefaultIsNoCanvasGrant:
         sessionmaker: async_sessionmaker[AsyncSession],
         binding: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
     ) -> None:
-        """[R13.38] default-deny: a binding starts with may_read_canvas=False."""
+        """[R13.47] default-deny: a binding starts with may_read_canvas=False."""
         chatroom_id, agent_id, _ = binding
         async with sessionmaker() as session:
             row = await _row(session, chatroom_id, agent_id)

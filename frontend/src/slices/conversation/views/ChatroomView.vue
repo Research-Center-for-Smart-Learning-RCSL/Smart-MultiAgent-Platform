@@ -1653,7 +1653,7 @@ function onExportSubmit(opts: ExportOptions): void {
 }
 
 .chatroom__canvas-handle:hover {
-  background: var(--color-primary);
+  background: var(--color-accent);
 }
 
 .chatroom--canvas-open .chatroom__typing,

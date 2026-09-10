@@ -1056,7 +1056,7 @@ class TurnEngine:
         # §30 (R30.15): recent structured activity events, for every agent's turn.
         # Coverage-gated (only present when the room has activities); built once.
         self._activity_provider = ActivityContextProvider(db)
-        # §13.11 (R13.38): canvas content digest, for agents with may_read_canvas.
+        # §13.11 (R13.47): canvas content digest, for agents with may_read_canvas.
         from contexts.canvas.application.canvas_context_provider import CanvasContextProvider
 
         self._canvas_provider = CanvasContextProvider(db)
@@ -4398,7 +4398,7 @@ class TurnEngine:
         *,
         agent_id: uuid.UUID,
     ) -> str | None:
-        """Delegate to the canvas :class:`CanvasContextProvider` (R13.38).
+        """Delegate to the canvas :class:`CanvasContextProvider` (R13.47).
 
         Gated on the agent's ``may_read_canvas`` grant on its chatroom binding.
         Best-effort: ``None`` on any failure.

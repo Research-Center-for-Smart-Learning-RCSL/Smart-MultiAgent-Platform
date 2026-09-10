@@ -200,7 +200,7 @@ async function toggleExposeToAgents() {
 
 .canvas-panel__count {
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  color: var(--color-muted);
 }
 
 .canvas-panel__close {
@@ -212,14 +212,14 @@ async function toggleExposeToAgents() {
   height: 28px;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
 
 .canvas-panel__close:hover {
   background: var(--color-surface-hover);
-  color: var(--color-text);
+  color: var(--color-fg);
 }
 
 .canvas-panel__close-icon {

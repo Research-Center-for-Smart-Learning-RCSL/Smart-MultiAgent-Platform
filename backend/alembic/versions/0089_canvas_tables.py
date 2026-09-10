@@ -1,6 +1,6 @@
 """Add canvas tables: canvases, canvas_objects, canvas_snapshots.
 
-New bounded context for the collaborative canvas feature ([R13.33]-[R13.41]).
+New bounded context for the collaborative canvas feature ([R13.42]-[R13.50]).
 Also adds may_read_canvas grant column to chatroom_agents.
 
 Reversible: DROP TABLE cascade and DROP TYPE.

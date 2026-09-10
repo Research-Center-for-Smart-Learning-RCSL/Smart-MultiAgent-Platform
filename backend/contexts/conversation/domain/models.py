@@ -116,7 +116,7 @@ class ChatroomAgent:
 
 @dataclass(frozen=True, slots=True)
 class CanvasReadGrant:
-    """A live delegation of canvas-content reading in one room ([R13.38]).
+    """A live delegation of canvas-content reading in one room ([R13.47]).
 
     Same shape as :class:`DraftReadGrant`: holding one *is* the authorization.
     """

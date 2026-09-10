@@ -1020,7 +1020,7 @@ async def patch_chatroom_agent_draft_access(
 
 
 class AgentCanvasAccessIn(BaseModel):
-    """Grant or revoke one bound agent's canvas reading ([R13.38])."""
+    """Grant or revoke one bound agent's canvas reading ([R13.47])."""
 
     granted: bool
 
@@ -1038,7 +1038,7 @@ async def patch_chatroom_agent_canvas_access(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    """Let one bound agent read this room's canvas content ([R13.38])."""
+    """Let one bound agent read this room's canvas content ([R13.47])."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_room_creator(access, principal=principal)
     written = await ConversationFacade(db).set_agent_canvas_grant(
