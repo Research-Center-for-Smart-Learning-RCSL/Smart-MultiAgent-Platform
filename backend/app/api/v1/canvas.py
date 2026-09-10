@@ -20,6 +20,7 @@ from contexts.conversation.application.access import (
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
+from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import db_session
 from shared_kernel.storage.minio_client import MinioClient
 
@@ -149,6 +150,24 @@ def _actor_guest_id(principal: Principal) -> uuid.UUID | None:
     return principal.guest_session_id if principal.is_guest else None
 
 
+async def _enforce_guest_rate_limit(principal: Principal) -> None:
+    """Rate-limit guest canvas mutations (AC-11, R13.37)."""
+    if not principal.is_guest:
+        return
+    guest_id = str(principal.guest_session_id or "unknown")
+    decision = await rate_check_raw(
+        key=f"rl:canvas-guest:{guest_id}",
+        window_sec=60,
+        max_count=_GUEST_RATE_LIMIT_PER_MINUTE,
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Canvas rate limit exceeded",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+
+
 def _canvas_image_key(
     *,
     project_id: uuid.UUID,
@@ -190,6 +209,7 @@ async def update_canvas_settings(
 ) -> CanvasOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     updated = await facade.update_settings(
@@ -215,6 +235,7 @@ async def delete_canvas(
 ) -> None:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     await facade.delete(
@@ -257,6 +278,7 @@ async def create_object(
 ) -> CanvasObjectOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     obj = await facade.create_object(
@@ -291,6 +313,7 @@ async def update_object(
 ) -> CanvasObjectOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     values = body.model_dump(exclude_unset=True)
@@ -321,6 +344,7 @@ async def delete_object(
 ) -> None:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     deleted = await facade.delete_object(
@@ -346,6 +370,7 @@ async def batch_operate(
 ) -> dict[str, Any]:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     creates = [c.model_dump() for c in body.creates] if body.creates else None
@@ -469,6 +494,7 @@ async def create_snapshot(
 ) -> SnapshotOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     snap = await facade.create_snapshot(
