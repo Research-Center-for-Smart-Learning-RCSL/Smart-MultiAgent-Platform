@@ -7,10 +7,13 @@
       'chatroom--mobile': isMobile,
       'chatroom--tablet': isTablet,
       'chatroom--compact': isCompactDesktop,
+      'chatroom--canvas-open': canvasSplit.isOpen.value && !canvasSplit.isFullscreen.value,
+      'chatroom--canvas-fullscreen': canvasSplit.isFullscreen.value,
     }"
     :style="[
       isMobile ? { '--kb-inset': `${keyboardInset}px` } : {},
       isDesktop ? { '--chatroom-rail-w': `${railWidth}px` } : {},
+      canvasSplit.isOpen.value ? { '--canvas-w': canvasSplit.canvasWidthPercent.value } : {},
     ]"
   >
     <ChatroomHeader
@@ -31,6 +34,7 @@
       @export="openExport"
       @toggle-agents="surfaces.toggle('agents')"
       @toggle-people="surfaces.toggle('people')"
+      @toggle-canvas="canvasSplit.toggle()"
     />
 
     <!-- One scrim for all three transient surfaces, because only one of them
@@ -313,6 +317,22 @@
       />
     </div>
 
+    <LazyCanvasPanel
+      v-if="canvasSplit.isOpen.value"
+      class="chatroom__canvas"
+      :chatroom-id="chatroomId"
+      :is-fullscreen="canvasSplit.isFullscreen.value"
+      @close="canvasSplit.close()"
+      @toggle-fullscreen="canvasSplit.toggleFullscreen()"
+    />
+
+    <!-- Resize handle between feed and canvas panel -->
+    <div
+      v-if="canvasSplit.isOpen.value && !canvasSplit.isFullscreen.value"
+      class="chatroom__canvas-handle"
+      @mousedown="canvasSplit.startDrag($event)"
+    />
+
     <!-- Agents drawer: mobile only (tablet keeps the agents rail). -->
     <SDrawer
       v-if="isMobile"
@@ -379,6 +399,15 @@
       />
     </SDrawer>
 
+    <LazyCanvasPanel
+      v-if="canvasSplit.isOpen.value"
+      class="chatroom__canvas"
+      :chatroom-id="chatroomId"
+      :is-fullscreen="canvasSplit.isFullscreen.value"
+      @close="canvasSplit.close()"
+      @toggle-fullscreen="canvasSplit.toggleFullscreen()"
+    />
+
     <ChatroomExportModal
       :open="exportOpen"
       :job="exportJob"
@@ -399,7 +428,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -423,6 +452,11 @@ import { useOrchestrationStore } from '@shared/stores/orchestration'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { ApprovalCard } from '@slices/workflow'
 import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
+import { useCanvasSplitPane } from '@slices/canvas'
+
+const LazyCanvasPanel = defineAsyncComponent(() =>
+  import('@slices/canvas').then((m) => m.CanvasPanel),
+)
 
 import { accessTokenClaims, isGuestSession } from '@shared/transport'
 import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
@@ -517,6 +551,10 @@ const {
   reserve: AGENTS_RAIL_WIDTH + RAIL_HANDLE_WIDTH + MIN_FEED_WIDTH,
 })
 store.setActive(chatroomId)
+
+// Canvas split-pane state. Lazy-loaded: the Excalidraw chunk is fetched only
+// when the user opens the canvas (AC-8).
+const canvasSplit = useCanvasSplitPane(() => chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
 
@@ -1102,6 +1140,14 @@ const exportOpen = ref(false)
 // focusing a detached node drops focus to <body>.
 watch([isMobile, isCompactDesktop], () => surfaces.reset())
 
+// At compact breakpoints the canvas hides the right rail, so close the people
+// surface when the canvas opens to avoid an invisible-but-active panel.
+watch(() => canvasSplit.isOpen.value, (open) => {
+  if (open && isCompactDesktop.value && peopleDrawerOpen.value) {
+    surfaces.close('people')
+  }
+})
+
 // Which surface the scrim is currently backing, and how far it reaches. Search
 // dims only the feed it is scoped to (07-conversation.md:750); a compact rail
 // overlay covers the composer as well, so its scrim has to reach the same
@@ -1577,6 +1623,66 @@ function onExportSubmit(opts: ExportOptions): void {
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* Canvas split-pane: adds a 5th and 6th column (handle + canvas) to the grid.
+   The canvas width is controlled via a CSS custom property set by the
+   useCanvasSplitPane composable. The right rail (presence) hides when the
+   canvas is open to keep the layout manageable. */
+.chatroom--canvas-open {
+  grid-template-columns: 220px minmax(0, 1fr) 6px minmax(300px, var(--canvas-w, 45%));
+}
+
+.chatroom--canvas-open .chatroom__presence {
+  display: none;
+}
+
+.chatroom--canvas-open .chatroom__rail-handle {
+  display: none;
+}
+
+.chatroom__canvas {
+  grid-column: 4;
+  grid-row: 1 / -1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chatroom__canvas-handle {
+  grid-column: 3;
+  grid-row: 2 / -1;
+  cursor: col-resize;
+  background: var(--color-border);
+  width: 6px;
+  transition: background 0.15s;
+}
+
+.chatroom__canvas-handle:hover {
+  background: var(--color-primary);
+}
+
+.chatroom--canvas-open .chatroom__typing,
+.chatroom--canvas-open .chatroom__composer {
+  grid-column: 2;
+}
+
+/* Canvas in compact layout: a two-column split (feed + canvas). */
+.chatroom--compact.chatroom--canvas-open {
+  grid-template-columns: minmax(0, 1fr) 6px minmax(300px, var(--canvas-w, 45%));
+}
+
+.chatroom--compact.chatroom--canvas-open .chatroom__feed,
+.chatroom--compact.chatroom--canvas-open .chatroom__typing,
+.chatroom--compact.chatroom--canvas-open .chatroom__composer {
+  grid-column: 1;
+}
+
+.chatroom--compact.chatroom--canvas-open .chatroom__canvas {
+  grid-column: 3;
+}
+
+.chatroom--compact.chatroom--canvas-open .chatroom__canvas-handle {
+  grid-column: 2;
 }
 
 /* Compact desktop (1024-1279), per 07-conversation.md:238 and the worked block
