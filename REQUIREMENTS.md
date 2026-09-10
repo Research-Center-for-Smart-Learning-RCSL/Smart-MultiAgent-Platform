@@ -785,6 +785,16 @@ Five composable flags per chat room:
 
 - **[R13.50]** Every canvas endpoint and WebSocket connection verifies chatroom access. A principal whose room access is revoked is disconnected from both the chatroom and canvas WebSocket channels.
 
+- **[R13.51]** The canvas WebSocket endpoint validates every incoming Yjs update via `pycrdt` before relay. Malformed updates are dropped with a structured error frame. Updates that would push the Yjs document past the 10 MB size cap are rejected. Corrupted CRDT state triggers a server-side reset to the last valid persisted state.
+
+- **[R13.52]** The canvas CRDT document state is persisted to `canvases.crdt_state` (BYTEA) every 30 seconds while at least one editor is connected, and once more when the last editor disconnects. Persistence is debounced: no write occurs if the document is unchanged since the last flush.
+
+- **[R13.53]** At most 10 concurrent WebSocket connections per canvas. The eleventh connection attempt receives a structured close frame (4009, "canvas editor limit reached") and is not admitted.
+
+- **[R13.54]** When a canvas that has `canvas_objects` rows but no `crdt_state` receives its first CRDT WebSocket connection, the server builds a Yjs document from the existing objects, persists it as `crdt_state`, and serves it to the connecting client. After migration, the `canvas_objects` table is treated as a read-only archive for that canvas.
+
+- **[R13.55]** Each connected editor's cursor position, selected elements, display name, and assigned color are broadcast to all other editors on the same canvas via the Yjs awareness protocol. Awareness state is ephemeral and not persisted.
+
 ### 13.12 Derived content and deletion
 
 - **[R13.26]** **Compaction summaries** (R9.10) are **derived content**: a summary's text is generated from the messages it folds and may reproduce parts of them. Deletion (R13.16, R13.24) removes the message row, its search index entry and its edit history, but does **not** rewrite or remove any summary that folded it — the folded content may persist inside that summary. The UI must disclose this at the point of deletion. **Exception:** the retention purge (R13.25) *does* reach derived copies — every summary whose folded set intersects the purged messages is hard-deleted in the same sweep, so no content survives its retention horizon in derived form. Removal rather than a metadata edit is required because a summary row is itself user-visible (it renders in the room and is included in exports), so anything short of deleting it would leave the derived content readable. Messages the deleted summary folded that are still inside the horizon are unaffected — they were never removed, and a compacting agent re-folds them on its next turn.

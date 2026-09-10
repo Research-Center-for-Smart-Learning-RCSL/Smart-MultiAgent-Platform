@@ -276,9 +276,8 @@ Seven draft dossiers for the canvas feature's follow-up items. All depend on
 `2026-09-10-collaborative-canvas` (implemented). All are `draft` and need approval
 before `/build` will touch them.
 
-- `2026-09-10-canvas-crdt-sync` (feature, **draft**) -- Phase 2: real-time CRDT sync
-  via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. AC-14
-  through AC-17 from the parent spec.
+- `2026-09-10-canvas-crdt-sync` (feature, **approved**) -- Phase 2: real-time CRDT sync
+  via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. Ready.
 - `2026-09-10-canvas-ai-write` (feature, **draft**) -- Phase 3: AI agents write to
   canvas via `write_to_canvas` built-in tool. New `may_write_canvas` grant.
 - `2026-09-10-canvas-export` (feature, **draft**) -- Export canvas to PNG/PDF via
