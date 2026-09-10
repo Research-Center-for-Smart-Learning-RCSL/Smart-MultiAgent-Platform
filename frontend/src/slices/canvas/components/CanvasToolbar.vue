@@ -116,8 +116,8 @@ const emit = defineEmits<{
 .canvas-toolbar {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px 8px;
+  gap: var(--space-0-5);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -155,6 +155,6 @@ const emit = defineEmits<{
   width: 1px;
   height: 20px;
   background: var(--color-border);
-  margin: 0 4px;
+  margin: 0 var(--space-1);
 }
 </style>

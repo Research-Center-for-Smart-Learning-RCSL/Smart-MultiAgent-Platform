@@ -197,7 +197,7 @@ class CanvasRepository:
                 )
             )
         )
-        return bool(result.rowcount)
+        return bool(result.rowcount)  # type: ignore[attr-defined]
 
     async def batch_delete_objects(self, object_ids: Sequence[uuid.UUID], *, canvas_id: uuid.UUID) -> int:
         if not object_ids:
@@ -210,7 +210,7 @@ class CanvasRepository:
                 )
             )
         )
-        return result.rowcount
+        return result.rowcount or 0  # type: ignore[attr-defined]
 
     # ---- snapshots ---------------------------------------------------------
 

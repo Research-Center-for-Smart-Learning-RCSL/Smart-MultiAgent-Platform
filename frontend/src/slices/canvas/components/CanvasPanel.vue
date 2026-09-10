@@ -188,13 +188,13 @@ async function toggleExposeToAgents() {
 .canvas-panel__header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
 .canvas-panel__title {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   font-size: var(--font-size-sm);
 }
 
@@ -228,7 +228,7 @@ async function toggleExposeToAgents() {
 }
 
 .canvas-panel__settings {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
 }
@@ -236,7 +236,7 @@ async function toggleExposeToAgents() {
 .canvas-panel__setting {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
 }
 

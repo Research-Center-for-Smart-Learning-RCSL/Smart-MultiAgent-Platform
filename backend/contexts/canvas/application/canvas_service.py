@@ -267,8 +267,8 @@ class CanvasService:
                 continue
             filtered = {k: v for k, v in item.items() if k in _ALLOWED_UPDATE_FIELDS}
             if filtered:
-                obj = await self._repo.update_object(oid, canvas_id=canvas_id, values=filtered)
-                if obj is not None:
+                updated = await self._repo.update_object(oid, canvas_id=canvas_id, values=filtered)
+                if updated is not None:
                     results["updated"].append(oid)
         if deletes:
             results["deleted"] = await self._repo.batch_delete_objects(deletes, canvas_id=canvas_id)

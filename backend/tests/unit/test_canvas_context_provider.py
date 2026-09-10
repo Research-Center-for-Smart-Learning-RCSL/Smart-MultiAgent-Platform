@@ -36,9 +36,7 @@ def mock_db() -> AsyncMock:
 
 class TestReturnsNoneWhenNoCanvas:
     async def test_no_canvas_row(self, mock_db: AsyncMock) -> None:
-        with patch(
-            "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-        ) as MockRepo:
+        with patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo:
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=None)
             result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
         assert result is None
@@ -46,9 +44,7 @@ class TestReturnsNoneWhenNoCanvas:
 
 class TestReturnsNoneWhenNotExposed:
     async def test_expose_false(self, mock_db: AsyncMock) -> None:
-        with patch(
-            "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-        ) as MockRepo:
+        with patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo:
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=_canvas(expose=False))
             result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
         assert result is None
@@ -57,16 +53,12 @@ class TestReturnsNoneWhenNotExposed:
 class TestReturnsFormattedBlock:
     async def test_with_digest(self, mock_db: AsyncMock) -> None:
         with (
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-            ) as MockRepo,
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasService"
-            ) as MockService,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasService") as MockService,
         ):
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=_canvas(expose=True))
             MockService.return_value.latest_digest = AsyncMock(
-                return_value="The canvas contains 1 sticky note.\n- Sticky note: \"hello\""
+                return_value='The canvas contains 1 sticky note.\n- Sticky note: "hello"'
             )
             result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
 
@@ -76,12 +68,8 @@ class TestReturnsFormattedBlock:
 
     async def test_empty_digest_returns_none(self, mock_db: AsyncMock) -> None:
         with (
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-            ) as MockRepo,
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasService"
-            ) as MockService,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasService") as MockService,
         ):
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=_canvas(expose=True))
             MockService.return_value.latest_digest = AsyncMock(return_value=None)
@@ -93,12 +81,8 @@ class TestDigestCapping:
     async def test_digest_capped_at_2000_chars(self, mock_db: AsyncMock) -> None:
         long_digest = "x" * 3000
         with (
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-            ) as MockRepo,
-            patch(
-                "contexts.canvas.application.canvas_context_provider.CanvasService"
-            ) as MockService,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
+            patch("contexts.canvas.application.canvas_context_provider.CanvasService") as MockService,
         ):
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=_canvas(expose=True))
             MockService.return_value.latest_digest = AsyncMock(return_value=long_digest)
@@ -111,9 +95,7 @@ class TestDigestCapping:
 
 class TestBestEffort:
     async def test_exception_returns_none(self, mock_db: AsyncMock) -> None:
-        with patch(
-            "contexts.canvas.application.canvas_context_provider.CanvasRepository"
-        ) as MockRepo:
+        with patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo:
             MockRepo.return_value.get_by_chatroom = AsyncMock(side_effect=RuntimeError("db down"))
             result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
         assert result is None

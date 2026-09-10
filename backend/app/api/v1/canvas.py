@@ -23,7 +23,7 @@ from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import db_session
-from shared_kernel.storage.minio_client import MinioClient
+from shared_kernel.storage import get_minio_client
 from shared_kernel.storage.svg_sanitize import SvgSanitizeError, sanitize_svg
 
 router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"])
@@ -160,14 +160,14 @@ def _actor_user_id(principal: Principal) -> uuid.UUID | None:
 
 
 def _actor_guest_id(principal: Principal) -> uuid.UUID | None:
-    return principal.guest_session_id if principal.is_guest else None
+    return principal.user_id if principal.is_guest else None
 
 
 async def _enforce_guest_rate_limit(principal: Principal) -> None:
     """Rate-limit guest canvas mutations (AC-11, R13.37)."""
     if not principal.is_guest:
         return
-    guest_id = str(principal.guest_session_id or "unknown")
+    guest_id = str(principal.user_id)
     decision = await rate_check_raw(
         key=f"rl:canvas-guest:{guest_id}",
         window_sec=60,
@@ -461,7 +461,7 @@ async def upload_image(
         filename=filename,
     )
 
-    minio = MinioClient()
+    minio = get_minio_client()
     await minio.put_object(
         bucket=minio.chat_uploads_bucket,
         key=key,

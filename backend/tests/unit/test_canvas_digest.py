@@ -73,9 +73,7 @@ class TestObjectLines:
         assert '"My idea"' in digest
 
     def test_image_shows_filename(self) -> None:
-        digest = build_canvas_digest(
-            [_obj(CanvasObjectKind.IMAGE, minio_path="proj/canvas/abc/photo.png")]
-        )
+        digest = build_canvas_digest([_obj(CanvasObjectKind.IMAGE, minio_path="proj/canvas/abc/photo.png")])
         assert digest is not None
         assert "photo.png" in digest
 

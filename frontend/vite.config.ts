@@ -42,6 +42,13 @@ export default defineConfig({
           // side-effectful hljs chunk into a static entry import (loaded on every
           // page). Leaving them automatic keeps them strictly on-demand.
           if (id.includes('@vue-flow/')) return 'vue-flow'
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/@excalidraw/')
+          ) {
+            return 'excalidraw'
+          }
           if (id.includes('node_modules/vue-i18n')) return 'vue-i18n'
           // Stable framework vendor — changes rarely, so a dedicated chunk
           // maximizes long-term browser caching across app deploys. (Only the
