@@ -261,15 +261,7 @@ first, but building them serially avoids the conflict.
 
 ### From 2026-09-10
 
-- `2026-09-10-collaborative-canvas` (feature, **approved 2026-09-10**) -- `depends_on: []`. Adds a
-  real-time collaborative spatial canvas to each chatroom (sticky notes, text, images,
-  drawings). Split-pane UI beside the chat feed. AI agents read canvas content via a
-  dedicated `CanvasContextProvider` gated on a `may_read_canvas` grant. Named "Canvas"
-  to avoid collision with the existing `Workspace` entity. Phased: Phase 1 (this dossier)
-  is snapshot-based; Phase 2 (CRDT real-time sync) and Phase 3 (AI writes to canvas) are
-  separate follow-up dossiers. New bounded context `contexts/canvas/`. Migration adds
-  three tables. No file overlap with any active dossier (Q-7, Q-8 record the
-  `turn_engine.py` disjoint-region check against the two active dossiers).
+- (moved to In progress on 2026-09-10) `2026-09-10-collaborative-canvas`.
 
 - (implemented 2026-09-10) `2026-09-10-proxy-headers-security-hardening`. Three security
   defects fixed: Pydantic blocklist validator (8 headers, case-insensitive, CRLF, size
@@ -543,6 +535,10 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-10-collaborative-canvas` (feature, **in-progress 2026-09-10**) -- `depends_on: []`.
+  Adds a real-time collaborative spatial canvas to each chatroom. New bounded context
+  `contexts/canvas/`. Phase 1 (snapshot-based). Migration adds three tables.
 
 - (implemented 2026-09-06) `2026-09-05-prompt-assistant-configurable-persona`. Two design
   gaps surfaced during planning and were resolved with the user before implementation started:
