@@ -89,14 +89,16 @@ class TestCanvasCreateTool:
             ) as mock_create,
             patch("shared_kernel.audit.emit", new_callable=AsyncMock),
         ):
-            result = await create_tool.invoke({
-                "kind": "note",
-                "position_x": 10.0,
-                "position_y": 20.0,
-                "width": 100.0,
-                "height": 50.0,
-                "content": "Hello from agent",
-            })
+            result = await create_tool.invoke(
+                {
+                    "kind": "note",
+                    "position_x": 10.0,
+                    "position_y": 20.0,
+                    "width": 100.0,
+                    "height": 50.0,
+                    "content": "Hello from agent",
+                }
+            )
         assert not result.is_error
         assert str(fake_obj.id) in result.content
         mock_create.assert_awaited_once()
@@ -111,13 +113,15 @@ class TestCanvasCreateTool:
         ctx = _context()
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         create_tool = tools[0]
-        result = await create_tool.invoke({
-            "kind": "image",
-            "position_x": 0,
-            "position_y": 0,
-            "width": 100,
-            "height": 100,
-        })
+        result = await create_tool.invoke(
+            {
+                "kind": "image",
+                "position_x": 0,
+                "position_y": 0,
+                "width": 100,
+                "height": 100,
+            }
+        )
         assert result.is_error
         assert "Invalid kind" in result.content
 
@@ -128,13 +132,15 @@ class TestCanvasCreateTool:
         ctx = _context()
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         create_tool = tools[0]
-        result = await create_tool.invoke({
-            "kind": "invalid",
-            "position_x": 0,
-            "position_y": 0,
-            "width": 100,
-            "height": 100,
-        })
+        result = await create_tool.invoke(
+            {
+                "kind": "invalid",
+                "position_x": 0,
+                "position_y": 0,
+                "width": 100,
+                "height": 100,
+            }
+        )
         assert result.is_error
         assert "Invalid kind" in result.content
 
@@ -157,10 +163,12 @@ class TestCanvasUpdateTool:
             ),
             patch("shared_kernel.audit.emit", new_callable=AsyncMock),
         ):
-            result = await update_tool.invoke({
-                "object_id": str(uuid.uuid4()),
-                "content": "Updated content",
-            })
+            result = await update_tool.invoke(
+                {
+                    "object_id": str(uuid.uuid4()),
+                    "content": "Updated content",
+                }
+            )
         assert not result.is_error
 
     @pytest.mark.asyncio
@@ -197,10 +205,12 @@ class TestCanvasUpdateTool:
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await update_tool.invoke({
-                "object_id": str(uuid.uuid4()),
-                "content": "x",
-            })
+            result = await update_tool.invoke(
+                {
+                    "object_id": str(uuid.uuid4()),
+                    "content": "x",
+                }
+            )
         assert result.is_error
         assert "not found" in result.content.lower()
 
@@ -267,17 +277,13 @@ class TestResolveCanvasWrite:
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await resolve_canvas_write(
-                db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4()
-            )
+            result = await resolve_canvas_write(db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
     async def test_none_when_no_canvas(self) -> None:
         db = _session()
-        grant = SimpleNamespace(
-            agent_id=uuid.uuid4(), granted_by_user_id=uuid.uuid4()
-        )
+        grant = SimpleNamespace(agent_id=uuid.uuid4(), granted_by_user_id=uuid.uuid4())
         with (
             patch(
                 "contexts.conversation.infrastructure.repositories.ChatroomAgentRepository.canvas_write_grant",
@@ -290,9 +296,7 @@ class TestResolveCanvasWrite:
                 return_value=None,
             ),
         ):
-            result = await resolve_canvas_write(
-                db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4()
-            )
+            result = await resolve_canvas_write(db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -316,9 +320,7 @@ class TestResolveCanvasWrite:
                 return_value=canvas,
             ),
         ):
-            result = await resolve_canvas_write(
-                db, chatroom_id=chatroom_id, agent_id=agent_id
-            )
+            result = await resolve_canvas_write(db, chatroom_id=chatroom_id, agent_id=agent_id)
         assert result is not None
         assert result.chatroom_id == chatroom_id
         assert result.canvas_id == canvas_id
@@ -333,7 +335,5 @@ class TestResolveCanvasWrite:
             new_callable=AsyncMock,
             side_effect=RuntimeError("boom"),
         ):
-            result = await resolve_canvas_write(
-                db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4()
-            )
+            result = await resolve_canvas_write(db, chatroom_id=uuid.uuid4(), agent_id=uuid.uuid4())
         assert result is None

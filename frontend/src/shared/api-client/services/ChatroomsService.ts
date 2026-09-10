@@ -3,6 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
+import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
+import type { AgentCanvasWriteAccessIn } from '../models/AgentCanvasWriteAccessIn';
 import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
 import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
@@ -233,6 +235,64 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/activity-control',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Canvas Access
+     * Let one bound agent read this room's canvas content ([R13.47]).
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentCanvasAccessApiChatroomsChatroomIdAgentsAgentIdCanvasAccessPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentCanvasAccessIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/canvas-access',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Canvas Write Access
+     * Let one bound agent write to this room's canvas ([R13.56]).
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentCanvasWriteAccessApiChatroomsChatroomIdAgentsAgentIdCanvasWriteAccessPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentCanvasWriteAccessIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/canvas-write-access',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,

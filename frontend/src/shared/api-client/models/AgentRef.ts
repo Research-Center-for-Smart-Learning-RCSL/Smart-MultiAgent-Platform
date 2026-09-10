@@ -6,7 +6,9 @@ export type AgentRef = {
     activity_type_allowlist?: (Array<string> | null);
     agent_id: string;
     may_control_activities?: (boolean | null);
+    may_read_canvas?: (boolean | null);
     may_read_drafts?: (boolean | null);
+    may_write_canvas?: (boolean | null);
     role?: ('normal' | 'observer' | null);
 };
 
