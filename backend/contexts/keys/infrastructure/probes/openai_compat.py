@@ -30,9 +30,10 @@ async def probe_openai_compat(
         return ProbeResult.failed(str(exc))
 
     url = f"{validated_url}/v1/models"
-    headers: dict[str, str] = {"Authorization": f"Bearer {secret}"}
+    headers: dict[str, str] = {}
     if proxy_headers:
         headers.update(proxy_headers)
+    headers["Authorization"] = f"Bearer {secret}"
     try:
         async with new_http_client() as client:
             resp = await client.get(url, headers=headers)
