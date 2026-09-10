@@ -217,10 +217,8 @@ export async function listChatroomAgents(
     // `false` is a real answer a creator gets, and truth-testing it would render
     // an ungranted binding as "you are not told".
     ...(r.may_read_drafts != null ? { may_read_drafts: r.may_read_drafts } : {}),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- field not yet in generated client; gen:api will add it
-    ...((r as any).may_read_canvas != null ? { may_read_canvas: (r as any).may_read_canvas } : {}),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- field not yet in generated client; gen:api will add it
-    ...((r as any).may_write_canvas != null ? { may_write_canvas: (r as any).may_write_canvas } : {}),
+    ...(r.may_read_canvas != null ? { may_read_canvas: r.may_read_canvas } : {}),
+    ...(r.may_write_canvas != null ? { may_write_canvas: r.may_write_canvas } : {}),
   }))
 }
 
