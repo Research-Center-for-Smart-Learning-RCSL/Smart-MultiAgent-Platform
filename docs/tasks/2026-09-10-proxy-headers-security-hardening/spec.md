@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-09-10
 requirements: [R7.16]
 depends_on: []
@@ -171,20 +171,20 @@ overwrites existing keys.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Regression tests from S8 fail before the fix and pass after.
-- [ ] AC-2: Uploading or editing a key with `proxy_headers` containing a blocklisted
+- [x] AC-1: Regression tests from S8 fail before the fix and pass after.
+- [x] AC-2: Uploading or editing a key with `proxy_headers` containing a blocklisted
   header name (case-insensitive) returns HTTP 422.
-- [ ] AC-3: `proxy_headers` values are stored encrypted (not in the `config` JSONB
+- [x] AC-3: `proxy_headers` values are stored encrypted (not in the `config` JSONB
   column in plaintext). Verified by direct DB query.
-- [ ] AC-4: The adapter's outbound `Authorization` header always uses the
+- [x] AC-4: The adapter's outbound `Authorization` header always uses the
   Vault-decrypted secret, regardless of `proxy_headers` content.
-- [ ] AC-5: `proxy_headers` entries are limited to 20, with name max 128 chars and
+- [x] AC-5: `proxy_headers` entries are limited to 20, with name max 128 chars and
   value max 4096 chars. CRLF in names or values is rejected with 422.
-- [ ] AC-6: The frontend allows empty header values (does not silently drop them).
-- [ ] AC-7: The frontend `v-for` uses a stable unique key per entry, not the array
+- [x] AC-6: The frontend allows empty header values (does not silently drop them).
+- [x] AC-7: The frontend `v-for` uses a stable unique key per entry, not the array
   index.
-- [ ] AC-8: The frontend reset logic is a single function called from all reset sites.
-- [ ] AC-9: `[R7.16]` in `REQUIREMENTS.md` is updated to list `proxy_headers` and
+- [x] AC-8: The frontend reset logic is a single function called from all reset sites.
+- [x] AC-9: `[R7.16]` in `REQUIREMENTS.md` is updated to list `proxy_headers` and
   state that it is encrypted.
 
 ## 11. SRS Delta
@@ -238,7 +238,19 @@ blocklist of protocol-sensitive header names.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- D-1: Encryption uses a single JSONB column (`encrypted_proxy_headers`) storing a
+  serialized `EnvelopeRecord` (base64 fields), rather than six separate columns
+  mirroring the existing secret envelope. Reason: cleaner, self-contained, same
+  security properties. The spec's option (b) said "dedicated `encrypted_config` column"
+  without prescribing the schema.
+- D-2: Migration copies existing plaintext `proxy_headers` into `encrypted_proxy_headers`
+  without Vault encryption (Vault may not be available at migration time). The
+  `decrypt_proxy_headers` helper handles both encrypted (has `ct` key) and legacy
+  plaintext formats. New uploads are always encrypted. Agreed with the spec's risk
+  section which anticipated this.
+- D-3: Self-audit found `probe_config` edge case where an empty `validated_config` dict
+  would prevent proxy_headers from being injected into the probe config. Fixed by
+  checking `proxy_headers_plain` independently of `probe_config` truthiness.
 
 ## 13. Follow-ups
 
@@ -246,3 +258,7 @@ Appended by /build.
   containing blocklisted header names. Requires a one-off DB scan.
 - FU-2: Consider adding a `proxy_headers` UI to the key edit form (currently only
   available on upload).
+- FU-3: Cache decrypted proxy_headers in `ProviderRouter` similarly to `DEK_CACHE` to
+  avoid a Vault Transit call on every request for keys with proxy_headers.
+- FU-4: Add a `smap maintenance encrypt-proxy-headers` command to encrypt legacy
+  plaintext proxy_headers that were migrated without Vault encryption.

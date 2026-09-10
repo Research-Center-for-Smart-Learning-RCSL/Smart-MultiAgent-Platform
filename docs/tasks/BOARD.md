@@ -271,12 +271,12 @@ first, but building them serially avoids the conflict.
   three tables. No file overlap with any active dossier (Q-7, Q-8 record the
   `turn_engine.py` disjoint-region check against the two active dossiers).
 
-- `2026-09-10-proxy-headers-security-hardening` (bugfix, **approved 2026-09-10**) -- `depends_on: []`.
-  Three security defects in the `proxy_headers` field added to `OpenAICompatConfig`:
-  (a) `Authorization` header override bypasses Vault-decrypted secret, (b) no validation
-  (no blocklist, size limit, or CRLF check), (c) plaintext storage of potentially secret
-  values contradicts `[R7.16]`. Fix: Pydantic blocklist validator, encrypted storage via
-  a dedicated Vault Transit envelope column, defensive header merge order.
+- (implemented 2026-09-10) `2026-09-10-proxy-headers-security-hardening`. Three security
+  defects fixed: Pydantic blocklist validator (8 headers, case-insensitive, CRLF, size
+  limits), encrypted storage via a dedicated JSONB column with Vault Transit envelope,
+  defensive header merge order (Authorization set after proxy_headers). Frontend: stable
+  v-for key, empty-value support, deduplicated reset. Migration 0088. Nothing lists this
+  slug in `depends_on`, so no row moves out of Blocked.
 
 ### Other ready work
 
