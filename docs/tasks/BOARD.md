@@ -270,6 +270,28 @@ first, but building them serially avoids the conflict.
   v-for key, empty-value support, deduplicated reset. Migration 0088. Nothing lists this
   slug in `depends_on`, so no row moves out of Blocked.
 
+### Canvas follow-ups (from 2026-09-10-collaborative-canvas)
+
+Seven draft dossiers for the canvas feature's follow-up items. All depend on
+`2026-09-10-collaborative-canvas` (implemented). All are `draft` and need approval
+before `/build` will touch them.
+
+- `2026-09-10-canvas-crdt-sync` (feature, **draft**) -- Phase 2: real-time CRDT sync
+  via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. AC-14
+  through AC-17 from the parent spec.
+- `2026-09-10-canvas-ai-write` (feature, **draft**) -- Phase 3: AI agents write to
+  canvas via `write_to_canvas` built-in tool. New `may_write_canvas` grant.
+- `2026-09-10-canvas-export` (feature, **draft**) -- Export canvas to PNG/PDF via
+  Excalidraw's client-side export utilities.
+- `2026-09-10-canvas-templates` (feature, **draft**) -- Pre-built canvas templates
+  (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation.
+- `2026-09-10-canvas-search` (feature, **draft**) -- Full-text search over canvas
+  object text, integrated with existing chatroom search.
+- `2026-09-10-canvas-history` (feature, **draft**) -- Browse and restore past canvas
+  snapshots with preview and auto-save-before-restore.
+- `2026-09-10-canvas-comments` (feature, **draft**) -- Comment threads on individual
+  canvas objects with real-time updates.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
