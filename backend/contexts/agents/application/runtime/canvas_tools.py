@@ -125,10 +125,9 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         from shared_kernel import audit
 
         kind_str = str(args.get("kind", ""))
-        try:
-            kind = CanvasObjectKind(kind_str)
-        except ValueError:
+        if kind_str not in _CANVAS_OBJECT_KINDS:
             return ToolResult(content=f"Invalid kind: {kind_str}", is_error=True)
+        kind = CanvasObjectKind(kind_str)
 
         facade = CanvasFacade(db, room_channel_fn=room_channel)
         obj = await facade.create_object(

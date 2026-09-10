@@ -104,6 +104,24 @@ class TestCanvasCreateTool:
         assert call_kw["created_by_agent_id"] == agent.id
 
     @pytest.mark.asyncio
+    async def test_create_rejects_image_kind(self) -> None:
+        """Image kind exists in CanvasObjectKind but is excluded from agent tools."""
+        db = _session()
+        agent = _agent()
+        ctx = _context()
+        tools = build_canvas_write_tools(db, agent=agent, context=ctx)
+        create_tool = tools[0]
+        result = await create_tool.invoke({
+            "kind": "image",
+            "position_x": 0,
+            "position_y": 0,
+            "width": 100,
+            "height": 100,
+        })
+        assert result.is_error
+        assert "Invalid kind" in result.content
+
+    @pytest.mark.asyncio
     async def test_create_invalid_kind(self) -> None:
         db = _session()
         agent = _agent()
