@@ -17,6 +17,7 @@ from contexts.conversation.application.access import (
     ensure_can_send,
     resolve_room_access,
 )
+from contexts.conversation.infrastructure.channels import room_channel
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -202,12 +203,10 @@ async def get_canvas(
 ) -> CanvasOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    facade = CanvasFacade(db)
-    canvas = await facade.get_or_create(
-        chatroom_id=chatroom_id,
-        actor_user_id=_actor_user_id(principal),
-    )
-    await db.commit()
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Canvas not found")
     return CanvasOut.from_domain(canvas)
 
 
@@ -222,7 +221,7 @@ async def update_canvas_settings(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     updated = await facade.update_settings(
         canvas_id=canvas.id,
@@ -248,7 +247,7 @@ async def delete_canvas(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     await facade.delete(
         canvas_id=canvas.id,
@@ -273,9 +272,10 @@ async def list_objects(
 ) -> list[CanvasObjectOut]:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    facade = CanvasFacade(db)
-    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
-    await db.commit()
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        return []
     objects = await facade.list_objects(canvas.id, limit=min(limit, 500), offset=offset)
     return [CanvasObjectOut.from_domain(o) for o in objects]
 
@@ -291,7 +291,7 @@ async def create_object(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     obj = await facade.create_object(
         canvas_id=canvas.id,
@@ -326,7 +326,7 @@ async def update_object(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     values = body.model_dump(exclude_unset=True)
     if not values:
@@ -357,7 +357,7 @@ async def delete_object(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     deleted = await facade.delete_object(
         object_id=object_id,
@@ -383,7 +383,7 @@ async def batch_operate(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     creates = [c.model_dump() for c in body.creates] if body.creates else None
     updates = (
@@ -418,6 +418,7 @@ async def upload_image(
 ) -> CanvasObjectOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
 
     if file.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(
@@ -441,7 +442,7 @@ async def upload_image(
                 detail=f"Invalid SVG: {exc}",
             ) from exc
 
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
 
     image_count = await facade.count_images(canvas.id)
@@ -502,9 +503,10 @@ async def list_snapshots(
 ) -> list[SnapshotOut]:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    facade = CanvasFacade(db)
-    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
-    await db.commit()
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        return []
     snapshots = await facade.list_snapshots(canvas.id, limit=min(limit, 50), offset=offset)
     return [SnapshotOut.from_domain(s) for s in snapshots]
 
@@ -519,7 +521,7 @@ async def create_snapshot(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
-    facade = CanvasFacade(db)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     snap = await facade.create_snapshot(
         canvas_id=canvas.id,

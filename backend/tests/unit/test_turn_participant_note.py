@@ -50,6 +50,7 @@ class TestParticipantNote:
             memory_block=None,
             skills_note=None,
             activity_block=None,
+            canvas_block=None,
             staged_note=None,
             notify_block=None,
         )

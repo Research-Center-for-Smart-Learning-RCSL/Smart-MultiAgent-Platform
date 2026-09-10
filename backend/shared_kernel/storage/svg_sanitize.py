@@ -53,7 +53,7 @@ _DANGEROUS_ELEMENTS: frozenset[str] = frozenset(
 
 _EVENT_HANDLER_RE = re.compile(r"^on", re.IGNORECASE)
 
-_DANGEROUS_URI_RE = re.compile(r"^\s*(javascript|data\s*:(?!image/))", re.IGNORECASE)
+_DANGEROUS_URI_RE = re.compile(r"^\s*(javascript|data\s*:)", re.IGNORECASE)
 
 _SAFE_ATTRS: frozenset[str] = frozenset(
     {

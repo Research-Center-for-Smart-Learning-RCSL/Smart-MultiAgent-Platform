@@ -60,6 +60,7 @@ def _legacy_fixed_system_text(
     memory_block: str | None,
     skills_note: str | None,
     activity_block: str | None,
+    canvas_block: str | None,
     staged_note: str | None,
     notify_block: str | None,
 ) -> str:
@@ -73,6 +74,8 @@ def _legacy_fixed_system_text(
         parts.append(skills_note)
     if activity_block:
         parts.append(activity_block)
+    if canvas_block:
+        parts.append(canvas_block)
     if staged_note:
         parts.append(staged_note)
     if notify_block:
@@ -96,6 +99,7 @@ def _legacy_render(
     memory_block: str | None,
     skills_note: str | None,
     activity_block: str | None,
+    canvas_block: str | None,
     staged_note: str | None,
     notify_block: str | None,
     include_participant_note: bool,
@@ -111,6 +115,8 @@ def _legacy_render(
         system_parts.append(skills_note)
     if activity_block:
         system_parts.append(activity_block)
+    if canvas_block:
+        system_parts.append(canvas_block)
     if staged_note:
         system_parts.append(staged_note)
     if notify_block:
@@ -129,6 +135,7 @@ _CASES = [
         "memory_block": memory_block,
         "skills_note": skills_note,
         "activity_block": activity_block,
+        "canvas_block": canvas_block,
         "staged_note": staged_note,
         "notify_block": notify_block,
     }
@@ -138,6 +145,7 @@ _CASES = [
         memory_block,
         skills_note,
         activity_block,
+        canvas_block,
         staged_note,
         notify_block,
     ) in (
@@ -147,6 +155,7 @@ _CASES = [
             ["[Your recent observations]\n- a", None],
             ["<<<SMAP_SKILLS_UNTRUSTED>>>\n- pdf-fill: Fills PDFs.\n<<<END_SMAP_SKILLS_UNTRUSTED>>>", None],
             ["[Recent room activity]\n- x", None],
+            ["[Canvas content]\n- 2 notes, 1 text block", None],
             ["[Files available in the code_exec workspace: /session/inputs/a.csv]", None],
             ["[Pending notifications]\n- n", None],
         )
@@ -308,6 +317,7 @@ _BUDGET_CASE = {
     "is_observer": False,
     "memory_block": None,
     "activity_block": None,
+    "canvas_block": None,
     "staged_note": None,
     "notify_block": None,
 }

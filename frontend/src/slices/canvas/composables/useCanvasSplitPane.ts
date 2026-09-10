@@ -21,9 +21,15 @@ export function useCanvasSplitPane(chatroomId: () => string) {
         const state = JSON.parse(raw)
         isOpen.value = state.open ?? false
         widthFraction.value = state.width ?? DEFAULT_WIDTH_FRACTION
+      } else {
+        isOpen.value = false
+        isFullscreen.value = false
+        widthFraction.value = DEFAULT_WIDTH_FRACTION
       }
     } catch {
-      // localStorage may be unavailable
+      isOpen.value = false
+      isFullscreen.value = false
+      widthFraction.value = DEFAULT_WIDTH_FRACTION
     }
   }
 

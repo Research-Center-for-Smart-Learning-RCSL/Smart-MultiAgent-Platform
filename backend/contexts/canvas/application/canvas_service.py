@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.canvas.domain.canvas_digest import build_canvas_digest
 from contexts.canvas.domain.models import Canvas, CanvasObject, CanvasObjectKind, CanvasSnapshot
 from contexts.canvas.infrastructure.repositories import CanvasRepository
-from contexts.conversation.infrastructure.channels import room_channel
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
 
@@ -34,11 +33,20 @@ _ALLOWED_UPDATE_FIELDS = frozenset(
 
 
 class CanvasService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        room_channel_fn: Callable[[uuid.UUID], str] | None = None,
+    ) -> None:
         self._db = db
         self._repo = CanvasRepository(db)
+        self._room_channel_fn = room_channel_fn or (lambda cid: f"ws:room:{cid}")
 
     # ---- canvas lifecycle --------------------------------------------------
+
+    async def get_by_chatroom(self, chatroom_id: uuid.UUID) -> Canvas | None:
+        return await self._repo.get_by_chatroom(chatroom_id)
 
     async def get_or_create(
         self,
@@ -91,7 +99,7 @@ class CanvasService:
                 request_id=request_id,
             ),
         )
-        await Publisher(room_channel(chatroom_id)).emit(
+        await Publisher(self._room_channel_fn(chatroom_id)).emit(
             "canvas.settings_updated",
             {"canvas_id": str(canvas_id), "expose_to_agents": expose_to_agents},
         )
@@ -175,7 +183,7 @@ class CanvasService:
                 request_id=request_id,
             ),
         )
-        await Publisher(room_channel(chatroom_id)).emit(
+        await Publisher(self._room_channel_fn(chatroom_id)).emit(
             "canvas.object_created",
             {"canvas_id": str(canvas_id), "object_id": str(obj.id), "kind": kind.value},
         )
@@ -195,7 +203,7 @@ class CanvasService:
         obj = await self._repo.update_object(object_id, canvas_id=canvas_id, values=values)
         if obj is None:
             return None
-        await Publisher(room_channel(chatroom_id)).emit(
+        await Publisher(self._room_channel_fn(chatroom_id)).emit(
             "canvas.object_updated",
             {"canvas_id": str(canvas_id), "object_id": str(object_id)},
         )
@@ -225,7 +233,7 @@ class CanvasService:
                     request_id=request_id,
                 ),
             )
-            await Publisher(room_channel(chatroom_id)).emit(
+            await Publisher(self._room_channel_fn(chatroom_id)).emit(
                 "canvas.object_deleted",
                 {"canvas_id": str(canvas_id), "object_id": str(object_id)},
             )
@@ -259,11 +267,13 @@ class CanvasService:
                 continue
             filtered = {k: v for k, v in item.items() if k in _ALLOWED_UPDATE_FIELDS}
             if filtered:
-                await self._repo.update_object(oid, canvas_id=canvas_id, values=filtered)
-            results["updated"].append(oid)
+                obj = await self._repo.update_object(oid, canvas_id=canvas_id, values=filtered)
+                if obj is not None:
+                    results["updated"].append(oid)
         if deletes:
             results["deleted"] = await self._repo.batch_delete_objects(deletes, canvas_id=canvas_id)
-        await Publisher(room_channel(chatroom_id)).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
+        channel = self._room_channel_fn(chatroom_id)
+        await Publisher(channel).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
         return results
 
     async def count_images(self, canvas_id: uuid.UUID) -> int:
@@ -328,7 +338,7 @@ class CanvasService:
                 request_id=request_id,
             ),
         )
-        await Publisher(room_channel(chatroom_id)).emit(
+        await Publisher(self._room_channel_fn(chatroom_id)).emit(
             "canvas.snapshot_created",
             {"canvas_id": str(canvas_id), "snapshot_id": str(snap.id)},
         )

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import type { CanvasObject } from '../types'
 
 const props = defineProps<{
@@ -12,7 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLDivElement>()
-let _excalidrawRoot: any = null
+let excalidrawApi: any = null
 let reactRoot: any = null
 
 function objectsToExcalidrawElements(objects: CanvasObject[]): unknown[] {
@@ -51,9 +51,12 @@ async function mountExcalidraw() {
     const elements = objectsToExcalidrawElements(props.objects)
 
     reactRoot = ReactDOM.createRoot(containerRef.value)
-     
+
     const App = React.createElement(Excalidraw as any, {
       initialData: { elements: elements as any[] },
+      excalidrawAPI: (api: any) => {
+        excalidrawApi = api
+      },
       onChange: (els: readonly unknown[]) => {
         emit('change', [...els])
       },
@@ -71,21 +74,26 @@ async function mountExcalidraw() {
   }
 }
 
+watch(
+  () => props.objects,
+  (newObjects) => {
+    if (!excalidrawApi) return
+    const elements = objectsToExcalidrawElements(newObjects)
+    excalidrawApi.updateScene({ elements })
+  },
+)
+
 onMounted(() => {
   mountExcalidraw()
 })
 
 onUnmounted(() => {
+  excalidrawApi = null
   if (reactRoot) {
     reactRoot.unmount()
     reactRoot = null
   }
 })
-
-// Phase 1: Excalidraw is mounted once with initialData. Remote updates arrive
-// via WS query invalidation but the local Excalidraw instance is not re-mounted
-// to preserve undo history, scroll, and selection. Phase 2 (CRDT) will use
-// Excalidraw's Yjs provider for live element sync without remounting.
 </script>
 
 <template>

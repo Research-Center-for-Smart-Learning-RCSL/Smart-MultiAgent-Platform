@@ -6,7 +6,7 @@ Thin pass-throughs to the application service (caller owns commit).
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +16,17 @@ from contexts.canvas.domain.models import Canvas, CanvasObject, CanvasObjectKind
 
 
 class CanvasFacade:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        room_channel_fn: Callable[[uuid.UUID], str] | None = None,
+    ) -> None:
         self._db = db
-        self._service = CanvasService(db)
+        self._service = CanvasService(db, room_channel_fn=room_channel_fn)
+
+    async def get_by_chatroom(self, chatroom_id: uuid.UUID) -> Canvas | None:
+        return await self._service.get_by_chatroom(chatroom_id)
 
     async def get_or_create(
         self,
