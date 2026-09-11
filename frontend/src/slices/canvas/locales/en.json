@@ -63,6 +63,7 @@
     "saveAsTemplate": "Save as template",
     "templateName": "Template name",
     "templateDescription": "Description (optional)",
-    "templateSaved": "Template saved"
+    "templateSaved": "Template saved",
+    "templateSaveFailed": "Failed to save template"
   }
 }

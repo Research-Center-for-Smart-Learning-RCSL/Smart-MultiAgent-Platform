@@ -112,6 +112,9 @@ const saveAsTemplateMut = useMutation({
     templateName.value = ''
     templateDescription.value = ''
   },
+  onError: () => {
+    toast.error(t('canvas.templateSaveFailed'))
+  },
 })
 
 function handleSaveAsTemplate() {

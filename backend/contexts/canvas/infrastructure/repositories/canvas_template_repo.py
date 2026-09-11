@@ -48,7 +48,7 @@ class CanvasTemplateRepository:
                     t.canvas_templates.c.project_id == project_id,
                 )
             )
-        else:
+        elif scope is None:
             conditions.append(t.canvas_templates.c.scope == CanvasTemplateScope.PLATFORM.value)
 
         rows = (

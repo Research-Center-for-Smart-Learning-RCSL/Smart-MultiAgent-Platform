@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,17 +15,18 @@ from contexts.canvas.application.template_service import (
     TemplateDataTooLarge,
     TooManyTemplateObjects,
 )
-from contexts.canvas.domain.models import CanvasTemplateScope
+from contexts.canvas.domain.models import CanvasObjectKind, CanvasTemplateScope
 from contexts.canvas.interfaces.facade import CanvasFacade
 from contexts.conversation.application.access import (
     ensure_can_send,
+    is_moderator_roles,
     resolve_room_access,
 )
 from contexts.conversation.infrastructure.channels import room_channel
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal, get_role_resolver
-from shared_kernel.auth.permissions import Principal, Role, Scope
+from shared_kernel.auth.permissions import Principal, Scope
 from shared_kernel.db.session import db_session
 
 router = APIRouter(prefix="/api/canvas-templates", tags=["canvas-templates"])
@@ -36,7 +37,7 @@ apply_router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["ca
 
 
 class TemplateObjectIn(BaseModel):
-    kind: str
+    kind: CanvasObjectKind
     position_x: float
     position_y: float
     width: float
@@ -44,14 +45,6 @@ class TemplateObjectIn(BaseModel):
     z_index: int = 0
     content: str | None = None
     style: dict[str, Any] | None = None
-
-    @field_validator("kind")
-    @classmethod
-    def validate_kind(cls, v: str) -> str:
-        allowed = {"note", "text", "image", "shape", "drawing", "connector"}
-        if v not in allowed:
-            raise ValueError(f"kind must be one of {sorted(allowed)}")
-        return v
 
 
 class TemplateDataIn(BaseModel):
@@ -124,7 +117,7 @@ async def _ensure_project_moderator(
     if principal.is_admin:
         return
     roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if Role.PROJECT_OWNER not in roles and Role.ORG_OWNER not in roles:
+    if not is_moderator_roles(roles):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Project admin required",
@@ -153,7 +146,7 @@ async def list_templates(
     if project_id is not None and not principal.is_admin:
         resolver = TenancyRoleResolver(db)
         roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-        if not roles and not principal.is_guest:
+        if not roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not a project member",

@@ -63,6 +63,7 @@
     "saveAsTemplate": "另存為範本",
     "templateName": "範本名稱",
     "templateDescription": "描述（選填）",
-    "templateSaved": "範本已儲存"
+    "templateSaved": "範本已儲存",
+    "templateSaveFailed": "儲存範本失敗"
   }
 }
