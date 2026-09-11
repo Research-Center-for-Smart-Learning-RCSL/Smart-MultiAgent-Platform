@@ -308,25 +308,38 @@ class CanvasService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasSnapshot:
-        objects = await self._repo.list_objects(canvas_id)
-        snapshot_data = {
-            "objects": [
-                {
-                    "id": str(obj.id),
-                    "kind": obj.kind.value,
-                    "content": obj.content,
-                    "minio_path": obj.minio_path,
-                    "position_x": obj.position_x,
-                    "position_y": obj.position_y,
-                    "width": obj.width,
-                    "height": obj.height,
-                    "z_index": obj.z_index,
-                    "style": obj.style,
-                }
-                for obj in objects
-            ]
-        }
-        digest = build_canvas_digest(list(objects))
+        from contexts.canvas.application.crdt_relay import get_crdt_relay
+        from contexts.canvas.application.canvas_context_provider import (
+            _elements_to_pseudo_objects,
+        )
+
+        relay = get_crdt_relay()
+        crdt_elements = relay.extract_elements_for_digest(canvas_id) if relay.has(canvas_id) else None
+
+        if crdt_elements is not None:
+            snapshot_data = {"elements": crdt_elements}
+            pseudo_objects = _elements_to_pseudo_objects(crdt_elements)
+            digest = build_canvas_digest(pseudo_objects)
+        else:
+            objects = await self._repo.list_objects(canvas_id)
+            snapshot_data = {
+                "objects": [
+                    {
+                        "id": str(obj.id),
+                        "kind": obj.kind.value,
+                        "content": obj.content,
+                        "minio_path": obj.minio_path,
+                        "position_x": obj.position_x,
+                        "position_y": obj.position_y,
+                        "width": obj.width,
+                        "height": obj.height,
+                        "z_index": obj.z_index,
+                        "style": obj.style,
+                    }
+                    for obj in objects
+                ]
+            }
+            digest = build_canvas_digest(list(objects))
         snap = await self._repo.create_snapshot(
             values={
                 "canvas_id": canvas_id,
@@ -354,6 +367,30 @@ class CanvasService:
         return snap
 
     async def latest_digest(self, canvas_id: uuid.UUID) -> str | None:
+        from contexts.canvas.application.crdt_relay import get_crdt_relay
+        from contexts.canvas.application.canvas_context_provider import (
+            _elements_to_pseudo_objects,
+        )
+
+        # Try CRDT first
+        relay = get_crdt_relay()
+        if relay.has(canvas_id):
+            elements = relay.extract_elements_for_digest(canvas_id)
+            if elements:
+                pseudo_objects = _elements_to_pseudo_objects(elements)
+                return build_canvas_digest(pseudo_objects)
+
+        # Try persisted crdt_state
+        crdt_state = await self._repo.get_crdt_state(canvas_id)
+        if crdt_state:
+            from contexts.canvas.application.canvas_context_provider import (
+                _digest_from_crdt_state,
+            )
+            digest = _digest_from_crdt_state(crdt_state)
+            if digest:
+                return digest
+
+        # Fall back to snapshot then objects
         snap = await self._repo.latest_snapshot(canvas_id)
         if snap and snap.agent_digest:
             return snap.agent_digest
