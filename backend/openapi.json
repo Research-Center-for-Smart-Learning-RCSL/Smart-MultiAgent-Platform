@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -3275,6 +3275,20 @@
         "title": "ApiKeyProvider",
         "type": "string"
       },
+      "ApplyTemplateIn": {
+        "properties": {
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ],
+        "title": "ApplyTemplateIn",
+        "type": "object"
+      },
       "ApprovalMode": {
         "enum": [
           "single",
@@ -4994,6 +5008,44 @@
           "created_at"
         ],
         "title": "CanvasOut",
+        "type": "object"
+      },
+      "CanvasSearchResult": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/CanvasObjectKind"
+          },
+          "object_id": {
+            "format": "uuid",
+            "title": "Object Id",
+            "type": "string"
+          },
+          "position_x": {
+            "title": "Position X",
+            "type": "number"
+          },
+          "position_y": {
+            "title": "Position Y",
+            "type": "number"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "number"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_id",
+          "kind",
+          "snippet",
+          "rank",
+          "position_x",
+          "position_y"
+        ],
+        "title": "CanvasSearchResult",
         "type": "object"
       },
       "CanvasSettingsIn": {
@@ -10050,6 +10102,33 @@
         "title": "RunTriggerIn",
         "type": "object"
       },
+      "SaveAsTemplateIn": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SaveAsTemplateIn",
+        "type": "object"
+      },
       "ScanStatus": {
         "enum": [
           "pending",
@@ -11139,47 +11218,51 @@
         "title": "StepState",
         "type": "string"
       },
-      "TemplateCreateIn": {
-        "additionalProperties": false,
+      "TemplateDataIn": {
         "properties": {
-          "body": {
-            "default": "",
-            "maxLength": 100000,
-            "title": "Body",
-            "type": "string"
-          },
-          "description": {
-            "default": "",
-            "maxLength": 300,
-            "title": "Description",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
+          "objects": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateObjectIn"
+            },
+            "maxItems": 200,
+            "title": "Objects",
+            "type": "array"
           }
         },
         "required": [
-          "name"
+          "objects"
         ],
-        "title": "TemplateCreateIn",
+        "title": "TemplateDataIn",
         "type": "object"
       },
-      "TemplateOut": {
+      "TemplateDetailOut": {
         "properties": {
-          "body": {
-            "title": "Body",
-            "type": "string"
-          },
           "created_at": {
             "title": "Created At",
             "type": "string"
           },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
           "description": {
-            "title": "Description",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
           },
           "id": {
             "format": "uuid",
@@ -11190,35 +11273,99 @@
             "title": "Name",
             "type": "string"
           },
-          "position": {
-            "title": "Position",
-            "type": "integer"
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "scope": {
             "title": "Scope",
             "type": "string"
           },
-          "updated_at": {
-            "title": "Updated At",
-            "type": "string"
-          },
-          "version": {
-            "title": "Version",
-            "type": "integer"
+          "template_data": {
+            "additionalProperties": true,
+            "title": "Template Data",
+            "type": "object"
           }
         },
         "required": [
           "id",
           "scope",
+          "project_id",
           "name",
           "description",
-          "body",
-          "position",
-          "version",
+          "created_by_user_id",
           "created_at",
-          "updated_at"
+          "template_data"
         ],
-        "title": "TemplateOut",
+        "title": "TemplateDetailOut",
+        "type": "object"
+      },
+      "TemplateObjectIn": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CanvasObjectKind"
+          },
+          "position_x": {
+            "title": "Position X",
+            "type": "number"
+          },
+          "position_y": {
+            "title": "Position Y",
+            "type": "number"
+          },
+          "style": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "position_x",
+          "position_y",
+          "width",
+          "height"
+        ],
+        "title": "TemplateObjectIn",
         "type": "object"
       },
       "TemplatePatchIn": {
@@ -12133,6 +12280,110 @@
         "title": "ConceptMapStatusOut",
         "type": "object"
       },
+      "app__api__v1__canvas_templates__TemplateCreateIn": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "template_data": {
+            "$ref": "#/components/schemas/TemplateDataIn"
+          }
+        },
+        "required": [
+          "name",
+          "project_id",
+          "template_data"
+        ],
+        "title": "TemplateCreateIn",
+        "type": "object"
+      },
+      "app__api__v1__canvas_templates__TemplateOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "project_id",
+          "name",
+          "description",
+          "created_by_user_id",
+          "created_at"
+        ],
+        "title": "TemplateOut",
+        "type": "object"
+      },
       "app__api__v1__invites__InviteOut": {
         "properties": {
           "created_at": {
@@ -12455,6 +12706,88 @@
           "email"
         ],
         "title": "InviteCreateIn",
+        "type": "object"
+      },
+      "app__api__v1__prompt_studio__TemplateCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "default": "",
+            "maxLength": 100000,
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TemplateCreateIn",
+        "type": "object"
+      },
+      "app__api__v1__prompt_studio__TemplateOut": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "name",
+          "description",
+          "body",
+          "position",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TemplateOut",
         "type": "object"
       },
       "app__api__v1__workspaces__ConceptMapStatusOut": {
@@ -14295,7 +14628,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TemplateOut"
+                    "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                   },
                   "title": "Response Admin List Templates Api Admin Prompt Templates Get",
                   "type": "array"
@@ -14316,7 +14649,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TemplateCreateIn"
+                "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateCreateIn"
               }
             }
           },
@@ -14327,7 +14660,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -14423,7 +14756,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -18559,6 +18892,192 @@
         ]
       }
     },
+    "/api/canvas-templates": {
+      "get": {
+        "operationId": "list_templates_api_canvas_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__v1__canvas_templates__TemplateOut"
+                  },
+                  "title": "Response List Templates Api Canvas Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Templates",
+        "tags": [
+          "canvas-templates"
+        ]
+      },
+      "post": {
+        "operationId": "create_template_api_canvas_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__v1__canvas_templates__TemplateCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__v1__canvas_templates__TemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Create Template",
+        "tags": [
+          "canvas-templates"
+        ]
+      }
+    },
+    "/api/canvas-templates/{template_id}": {
+      "delete": {
+        "operationId": "delete_template_api_canvas_templates__template_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Delete Template",
+        "tags": [
+          "canvas-templates"
+        ]
+      },
+      "get": {
+        "operationId": "get_template_api_canvas_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Template",
+        "tags": [
+          "canvas-templates"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}": {
       "delete": {
         "operationId": "delete_chatroom_api_chatrooms__chatroom_id__delete",
@@ -20324,6 +20843,61 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/canvas/apply-template": {
+      "post": {
+        "operationId": "apply_template_api_chatrooms__chatroom_id__canvas_apply_template_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Apply Template Api Chatrooms  Chatroom Id  Canvas Apply Template Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Apply Template",
+        "tags": [
+          "canvas"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/canvas/comments/{comment_id}": {
       "delete": {
         "operationId": "delete_comment_api_chatrooms__chatroom_id__canvas_comments__comment_id__delete",
@@ -20944,6 +21518,129 @@
           }
         },
         "summary": "Create Comment",
+        "tags": [
+          "canvas"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/canvas/save-as-template": {
+      "post": {
+        "operationId": "save_as_template_api_chatrooms__chatroom_id__canvas_save_as_template_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAsTemplateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__v1__canvas_templates__TemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Save As Template",
+        "tags": [
+          "canvas"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/canvas/search": {
+      "get": {
+        "operationId": "search_canvas_api_chatrooms__chatroom_id__canvas_search_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CanvasSearchResult"
+                  },
+                  "title": "Response Search Canvas Api Chatrooms  Chatroom Id  Canvas Search Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Search Canvas",
         "tags": [
           "canvas"
         ]
@@ -23898,7 +24595,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TemplateOut"
+                    "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                   },
                   "title": "Response Me List Templates Api Me Prompt Templates Get",
                   "type": "array"
@@ -23919,7 +24616,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TemplateCreateIn"
+                "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateCreateIn"
               }
             }
           },
@@ -23930,7 +24627,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -24026,7 +24723,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -26017,7 +26714,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TemplateOut"
+                    "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                   },
                   "title": "Response Org List Templates Api Orgs  Org Id  Prompt Templates Get",
                   "type": "array"
@@ -26060,7 +26757,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TemplateCreateIn"
+                "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateCreateIn"
               }
             }
           },
@@ -26071,7 +26768,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -26187,7 +26884,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplateOut"
+                  "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                 }
               }
             },
@@ -29612,7 +30309,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/TemplateOut"
+                    "$ref": "#/components/schemas/app__api__v1__prompt_studio__TemplateOut"
                   },
                   "title": "Response Project Merged Templates Api Projects  Project Id  Prompt Templates Get",
                   "type": "array"

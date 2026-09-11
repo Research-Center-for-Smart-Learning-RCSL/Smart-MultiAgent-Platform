@@ -2,15 +2,15 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type TemplateOut = {
-    id: string;
-    scope: string;
-    name: string;
-    description: string;
+export type app__api__v1__prompt_studio__TemplateOut = {
     body: string;
-    position: number;
-    version: number;
     created_at: string;
+    description: string;
+    id: string;
+    name: string;
+    position: number;
+    scope: string;
     updated_at: string;
+    version: number;
 };
 

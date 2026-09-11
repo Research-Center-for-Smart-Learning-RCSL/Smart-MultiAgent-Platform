@@ -4,9 +4,9 @@
 /* eslint-disable */
 export type ApprovalVoteOut = {
     approval_id: string;
-    voter_agent_id: string;
-    vote: boolean;
-    rationale: (string | null);
     cast_at: string;
+    rationale: (string | null);
+    vote: boolean;
+    voter_agent_id: string;
 };
 

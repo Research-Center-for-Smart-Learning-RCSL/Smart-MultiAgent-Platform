@@ -2,9 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type TemplateCreateIn = {
+export type SaveAsTemplateIn = {
+    description?: (string | null);
     name: string;
-    description?: string;
-    body?: string;
 };
 
