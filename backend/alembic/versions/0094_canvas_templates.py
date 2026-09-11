@@ -258,8 +258,8 @@ def upgrade() -> None:
     insert = sa.text(
         "INSERT INTO canvas_templates "
         "(id, scope, project_id, name, description, template_data, created_by_user_id) "
-        "SELECT :id, 'platform'::canvas_template_scope, NULL, :name, :description, "
-        ":template_data::jsonb, NULL "
+        "SELECT :id, CAST('platform' AS canvas_template_scope), NULL, :name, :description, "
+        "CAST(:template_data AS jsonb), NULL "
         "WHERE NOT EXISTS ("
         "  SELECT 1 FROM canvas_templates WHERE scope = 'platform' AND name = :name"
         ")"
