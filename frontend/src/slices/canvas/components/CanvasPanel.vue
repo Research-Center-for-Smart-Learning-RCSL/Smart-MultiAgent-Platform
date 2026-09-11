@@ -59,10 +59,6 @@ const { query: searchQuery, results: searchResults, isSearching } = useCanvasSea
 function handleSelectObject(objectId: string, positionX: number, positionY: number) {
   const api = getExcalidrawApi()
   if (!api) return
-  api.scrollToContent(undefined, {
-    fitToViewport: false,
-    viewportZoomFactor: 1,
-  })
   api.updateScene({
     appState: {
       selectedElementIds: { [objectId]: true },

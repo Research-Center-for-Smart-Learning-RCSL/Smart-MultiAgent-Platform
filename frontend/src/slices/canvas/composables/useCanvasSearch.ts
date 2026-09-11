@@ -1,4 +1,4 @@
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import DOMPurify from 'dompurify'
 import { canvasKeys } from '../queries'
@@ -34,6 +34,8 @@ export function useCanvasSearch(chatroomId: Ref<string>) {
       debouncedQuery.value = val.trim()
     }, 300)
   })
+
+  onUnmounted(() => clearTimeout(debounceTimer))
 
   const searchQuery = useQuery({
     queryKey: computed(() => canvasKeys.search(chatroomId.value, debouncedQuery.value)),
