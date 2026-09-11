@@ -137,7 +137,7 @@ class TestCrdtFallbackChain:
         """When no in-memory doc but crdt_state exists, digest comes from it."""
         import pycrdt
 
-        src = pycrdt.Doc()
+        src: pycrdt.Doc = pycrdt.Doc()
         elems_map = src.get("excalidraw-elements", type=pycrdt.Map)
         elem_id = str(uuid.uuid4())
         elems_map[elem_id] = pycrdt.Map(

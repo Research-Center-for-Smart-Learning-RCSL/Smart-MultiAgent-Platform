@@ -43,7 +43,7 @@ def _make_object(
 
 def _make_update_b64() -> str:
     """Create a valid Yjs update as base64."""
-    doc = pycrdt.Doc()
+    doc: pycrdt.Doc = pycrdt.Doc()
     elements = doc.get("elements", type=pycrdt.Array)
     elements.append(pycrdt.Map({"id": str(uuid.uuid4()), "type": "rectangle", "x": 0, "y": 0}))
     return base64.b64encode(doc.get_update()).decode("ascii")
@@ -59,7 +59,7 @@ class TestGetOrLoad:
 
     async def test_loads_from_crdt_state(self) -> None:
         # Prepare persisted state
-        src = pycrdt.Doc()
+        src: pycrdt.Doc = pycrdt.Doc()
         elems = src.get("elements", type=pycrdt.Array)
         elems.append(pycrdt.Map({"id": "e1", "type": "text"}))
         state = src.get_update()
@@ -127,7 +127,7 @@ class TestApplyUpdate:
         await relay.get_or_load(canvas_id)
 
         # Build a doc that clearly exceeds the 10 MB cap
-        doc = pycrdt.Doc()
+        doc: pycrdt.Doc = pycrdt.Doc()
         elems = doc.get("elements", type=pycrdt.Array)
         for i in range(600):
             elems.append(pycrdt.Map({"id": str(i), "data": "x" * 20000}))
@@ -217,7 +217,7 @@ class TestExtractElements:
         relay = CrdtRelay()
         canvas_id = uuid.uuid4()
 
-        doc = pycrdt.Doc()
+        doc: pycrdt.Doc = pycrdt.Doc()
         elems_map = doc.get("excalidraw-elements", type=pycrdt.Map)
         elems_map["e1"] = pycrdt.Map({"id": "e1", "type": "rect", "isDeleted": False})
         elems_map["e2"] = pycrdt.Map({"id": "e2", "type": "rect", "isDeleted": True})
