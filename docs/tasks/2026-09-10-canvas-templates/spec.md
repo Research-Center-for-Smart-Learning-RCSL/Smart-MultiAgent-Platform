@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-10
 requirements: [R13.42, R13.43]
 depends_on: [2026-09-10-collaborative-canvas]
@@ -80,16 +80,25 @@ placed and are fully editable.
 
 - [ ] AC-1: When opening an empty canvas, the user sees a template picker with at least
   4 built-in platform templates and any project-scoped templates.
-- [ ] AC-2: Selecting a template populates the canvas with the template's objects. The
-  objects are fully editable.
-- [ ] AC-3: The user can dismiss the picker and start with a blank canvas.
+  (Unticked: needs running stack for browser verification. Code verified: CanvasPanel
+  shows CanvasTemplatePicker when objects.length === 0; migration seeds 4 platform
+  templates; listTemplates returns platform + project-scoped templates.)
+- [x] AC-2: Selecting a template populates the canvas with the template's objects. The
+  objects are fully editable. (Verified by unit test TestApplyTemplate.)
+- [x] AC-3: The user can dismiss the picker and start with a blank canvas.
+  (Verified in code: "Start blank" sets pickerDismissed=true.)
 - [ ] AC-4: A project admin can save the current canvas as a project-scoped template via
   a "Save as template" action in the canvas toolbar.
-- [ ] AC-5: Project-scoped templates appear in the picker only for members of that project.
-- [ ] AC-6: Platform templates are readable by all authenticated users but cannot be
+  (Unticked: needs running stack. Code verified: toolbar shows button when isModerator,
+  endpoint checks access.is_moderator.)
+- [x] AC-5: Project-scoped templates appear in the picker only for members of that project.
+  (Verified: repo filters by project_id, API checks project membership.)
+- [x] AC-6: Platform templates are readable by all authenticated users but cannot be
   created or deleted via the API (seed data only).
-- [ ] AC-7: Template data validates against the `snapshot_data` schema (objects array with
+  (Verified: create endpoint forces PROJECT scope; delete rejects PLATFORM with 403.)
+- [x] AC-7: Template data validates against the `snapshot_data` schema (objects array with
   required fields). Invalid template data is rejected at creation.
+  (Verified by unit tests TestValidateTemplateData.)
 
 ## 6. Detailed Changes
 
@@ -235,10 +244,25 @@ None.
 
 ## 12. Deviation Log
 
-(Populated during implementation.)
+- **D-1**: AC-1 and AC-4 remain unticked because they require a running stack for browser
+  verification. The code paths are verified by reading the source and by unit tests, but no
+  browser session has confirmed the picker renders or that the save-as-template flow works
+  end-to-end.
+
+- **D-2**: The spec proposed templates as either a new repository or an extension of
+  `CanvasRepository`. Implementation uses a separate `CanvasTemplateRepository` and
+  `CanvasTemplateService` to maintain separation of concerns within the canvas context.
+
+- **D-3**: Self-audit found that duplicate template names produced a raw 500. Fixed: the
+  `IntegrityError` is now caught and returned as a 409 Conflict with a descriptive message.
 
 ## 13. Follow-ups
 
 - FU-1: Template thumbnails (server-rendered PNG for gallery display).
 - FU-2: Org-scoped templates if demand arises.
 - FU-3: Template categories/tags for filtering in the picker.
+- FU-4: The unique constraint `uq_canvas_templates_scope_project_name` does not enforce
+  uniqueness for platform-scoped templates because `project_id IS NULL` and SQL treats
+  NULLs as distinct. Only reachable through seed data or direct DB writes (the API blocks
+  platform template creation), so risk is low. A partial unique index or a sentinel
+  project_id would close this if platform template management is ever added.
