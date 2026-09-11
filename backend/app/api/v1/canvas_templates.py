@@ -176,9 +176,7 @@ async def get_template(
 
     if template.scope == CanvasTemplateScope.PROJECT and template.project_id and not principal.is_admin:
         resolver = TenancyRoleResolver(db)
-        roles = await resolver.roles_for(
-            principal, Scope(project_id=template.project_id)
-        )
+        roles = await resolver.roles_for(principal, Scope(project_id=template.project_id))
         if not roles:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
@@ -207,9 +205,7 @@ async def create_template(
             request_id=ctx.request_id,
         )
     except (TemplateDataTooLarge, TooManyTemplateObjects) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     await db.commit()
     return TemplateOut.from_domain(template)
 
@@ -327,8 +323,6 @@ async def save_as_template(
             request_id=ctx.request_id,
         )
     except (TemplateDataTooLarge, TooManyTemplateObjects) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     await db.commit()
     return TemplateOut.from_domain(template)

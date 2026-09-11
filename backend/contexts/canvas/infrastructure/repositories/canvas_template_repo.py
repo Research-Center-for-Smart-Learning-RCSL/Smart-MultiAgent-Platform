@@ -75,9 +75,7 @@ class CanvasTemplateRepository:
 
     async def create(self, *, values: dict[str, Any]) -> CanvasTemplate:
         row = (
-            await self._db.execute(
-                t.canvas_templates.insert().values(**values).returning(t.canvas_templates)
-            )
+            await self._db.execute(t.canvas_templates.insert().values(**values).returning(t.canvas_templates))
         ).one()
         return _row_to_template(row)
 

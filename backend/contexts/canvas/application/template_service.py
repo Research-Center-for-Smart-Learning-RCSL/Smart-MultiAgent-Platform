@@ -64,16 +64,12 @@ class CanvasTemplateService:
     def _validate_template_data(self, template_data: dict[str, Any]) -> None:
         raw = json.dumps(template_data, separators=(",", ":"))
         if len(raw.encode("utf-8")) > _MAX_TEMPLATE_DATA_BYTES:
-            raise TemplateDataTooLarge(
-                f"Template data exceeds {_MAX_TEMPLATE_DATA_BYTES // 1024} KB limit"
-            )
+            raise TemplateDataTooLarge(f"Template data exceeds {_MAX_TEMPLATE_DATA_BYTES // 1024} KB limit")
         objects = template_data.get("objects", [])
         if not isinstance(objects, list):
             raise ValueError("template_data.objects must be a list")
         if len(objects) > _MAX_TEMPLATE_OBJECTS:
-            raise TooManyTemplateObjects(
-                f"Template has {len(objects)} objects (max {_MAX_TEMPLATE_OBJECTS})"
-            )
+            raise TooManyTemplateObjects(f"Template has {len(objects)} objects (max {_MAX_TEMPLATE_OBJECTS})")
         required_fields = {"kind", "position_x", "position_y", "width", "height"}
         for i, obj in enumerate(objects):
             if not isinstance(obj, dict):
@@ -165,16 +161,18 @@ class CanvasTemplateService:
 
         creates = []
         for obj in template.template_data.get("objects", []):
-            creates.append({
-                "kind": obj["kind"],
-                "content": obj.get("content"),
-                "position_x": obj.get("position_x", 0),
-                "position_y": obj.get("position_y", 0),
-                "width": obj.get("width", 100),
-                "height": obj.get("height", 100),
-                "z_index": obj.get("z_index", 0),
-                "style": obj.get("style", {}),
-            })
+            creates.append(
+                {
+                    "kind": obj["kind"],
+                    "content": obj.get("content"),
+                    "position_x": obj.get("position_x", 0),
+                    "position_y": obj.get("position_y", 0),
+                    "width": obj.get("width", 100),
+                    "height": obj.get("height", 100),
+                    "z_index": obj.get("z_index", 0),
+                    "style": obj.get("style", {}),
+                }
+            )
 
         from contexts.canvas.application.canvas_service import CanvasService
 
