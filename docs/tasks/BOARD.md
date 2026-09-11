@@ -563,10 +563,12 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-10-canvas-history` (feature, **in-progress**). Browse and restore past
+- (implemented 2026-09-11) `2026-09-10-canvas-history`. Browse and restore past
   canvas snapshots with labels, auto-save-before-restore, 50-snapshot cap. Migration
-  0092, two new REST endpoints, history panel UI. Nothing lists this slug in
-  `depends_on`, so no row moves out of Blocked.
+  0092, two new REST endpoints, history panel UI. AC-1 through AC-5 unticked (need
+  running stack). AC-3 deferred (D-1: metadata preview instead of full Excalidraw
+  read-only render). Nothing lists this slug in `depends_on`, so no row moves out
+  of Blocked.
 
 - (implemented 2026-09-10) `2026-09-10-collaborative-canvas`. Phase 1 (snapshot-based)
   complete. New bounded context `contexts/canvas/`, migration 0089, 11 REST endpoints,

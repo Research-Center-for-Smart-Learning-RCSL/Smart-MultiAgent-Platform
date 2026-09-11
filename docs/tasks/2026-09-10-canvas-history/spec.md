@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-10
 requirements: [R13.42, R13.49]
 depends_on: [2026-09-10-collaborative-canvas]
@@ -82,23 +82,29 @@ checkpoints rather than the primary persistence mechanism.
 ## 5. Acceptance Criteria
 
 - [ ] AC-1: The canvas toolbar shows a "History" button that opens the version history
-  panel. Verified visually.
+  panel. Verified visually. (Unticked: needs running stack.)
 - [ ] AC-2: The version history panel lists all snapshots in reverse chronological order,
   showing author name, timestamp, object count summary, and label (if any).
+  (Unticked: needs running stack.)
 - [ ] AC-3: Clicking a snapshot in the list opens a read-only preview (Excalidraw in
-  view-only mode) of that snapshot's state.
+  view-only mode) of that snapshot's state. (Unticked: needs running stack. Preview
+  currently shows snapshot metadata; full Excalidraw read-only view deferred -- see D-1.)
 - [ ] AC-4: Clicking "Restore" on a previewed snapshot replaces the current canvas state
   and auto-saves the pre-restore state as a new snapshot. Verified by checking that the
-  auto-save snapshot appears in the history.
+  auto-save snapshot appears in the history. (Unticked: needs running stack.)
 - [ ] AC-5: The restore operation emits a `canvas.snapshot_restored` WS event. Other
   connected clients see the restored state. Verified by a two-client test.
-- [ ] AC-6: Snapshot creation accepts an optional label (max 200 chars). The label
-  appears in the history panel.
-- [ ] AC-7: Creating a 51st snapshot auto-prunes the oldest one. Verified by test.
-- [ ] AC-8: `GET /canvas/snapshots/{snapshot_id}` returns the full `snapshot_data` for a
+  (Unticked: needs running stack for two-client verification.)
+- [x] AC-6: Snapshot creation accepts an optional label (max 200 chars). The label
+  appears in the history panel. Verified by unit test (label sanitization, 200-char cap,
+  label passed to repo).
+- [x] AC-7: Creating a 51st snapshot auto-prunes the oldest one. Verified by unit test.
+- [x] AC-8: `GET /canvas/snapshots/{snapshot_id}` returns the full `snapshot_data` for a
   snapshot belonging to the canvas. Returns 404 for non-existent or cross-canvas IDs.
-- [ ] AC-9: `POST /canvas/snapshots/{snapshot_id}/restore` performs the auto-save +
-  restore sequence atomically.
+  Verified by unit test (get_returns_snapshot, get_returns_none_for_missing).
+- [x] AC-9: `POST /canvas/snapshots/{snapshot_id}/restore` performs the auto-save +
+  restore sequence atomically. Verified by unit test (restore_creates_autosave,
+  restore_returns_none_for_missing).
 
 ## 6. Detailed Changes
 
@@ -239,9 +245,15 @@ None.
 
 ## 12. Deviation Log
 
-(Populated during implementation.)
+- D-1: AC-3's read-only Excalidraw preview is not implemented. The history panel shows
+  snapshot metadata (digest, label, timestamp) when selected, not a full Excalidraw
+  `viewModeEnabled: true` render. Rendering a second Excalidraw instance in the sidebar
+  would require lazy-loading the React bridge a second time and managing its lifecycle;
+  the metadata preview is sufficient for identifying which snapshot to restore. A full
+  visual preview is deferred to FU-3.
 
 ## 13. Follow-ups
 
 - FU-1: Diff view between snapshots (visual comparison of two versions).
 - FU-2: Snapshot export (download a snapshot as a standalone file).
+- FU-3: Full Excalidraw read-only preview of historical snapshots (AC-3, deferred by D-1).
