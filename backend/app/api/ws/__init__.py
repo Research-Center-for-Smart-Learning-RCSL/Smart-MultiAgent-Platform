@@ -1,1 +1,1 @@
-"""WebSocket routes — eight dedicated paths (no multiplexed /ws)."""
+"""WebSocket routes — nine dedicated paths (no multiplexed /ws)."""

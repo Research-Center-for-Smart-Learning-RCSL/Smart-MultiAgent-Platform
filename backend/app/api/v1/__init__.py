@@ -149,6 +149,9 @@ def _build_registry() -> list[RouterEntry]:
         admin_tail as ws_admin_tail,
     )
     from app.api.ws import (
+        canvas as ws_canvas,
+    )
+    from app.api.ws import (
         chatroom as ws_chatroom,
     )
     from app.api.ws import (
@@ -266,6 +269,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(orchestration_routes.router),
         # WebSockets
         RouterEntry(ws_user.router),
+        RouterEntry(ws_canvas.router),
         RouterEntry(ws_chatroom.router),
         RouterEntry(ws_workflow_runs.router),
         RouterEntry(ws_rag_configs.router),

@@ -190,6 +190,7 @@ async def connection_loop(
     on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
     on_heartbeat: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     authorize: Callable[[ChannelConnection], Awaitable[bool]] | None = None,
+    max_frame_bytes: int = _MAX_FRAME_BYTES,
 ) -> None:
     """Drive a single WS connection until it closes.
 
@@ -281,8 +282,8 @@ async def connection_loop(
             # byte count (UTF-8 is 1-4 bytes/char): len > cap is always too big,
             # len*4 <= cap is always small enough, so only the band between the
             # two needs the actual encode — control frames skip it entirely.
-            if len(raw) > _MAX_FRAME_BYTES or (
-                len(raw) * 4 > _MAX_FRAME_BYTES and len(raw.encode("utf-8")) > _MAX_FRAME_BYTES
+            if len(raw) > max_frame_bytes or (
+                len(raw) * 4 > max_frame_bytes and len(raw.encode("utf-8")) > max_frame_bytes
             ):
                 logger.bind(
                     event="ws_frame_too_large",

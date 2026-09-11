@@ -57,6 +57,7 @@ dependencies = [
   # domain now imports it directly, and an undeclared direct import breaks the
   # day a transitive consumer drops it.
   "idna>=3.7,<4",
+  "pycrdt>=0.12,<1.0",
 ]
 
 [project.optional-dependencies]
