@@ -41,28 +41,16 @@ const emit = defineEmits<{
 }>()
 
 const snapshotLabel = ref('')
-const showLabelInput = ref(false)
 
 function handleSaveClick() {
-  if (showLabelInput.value) {
-    const label = snapshotLabel.value.trim() || undefined
-    emit('save', label)
-    snapshotLabel.value = ''
-    showLabelInput.value = false
-  } else {
-    showLabelInput.value = true
-  }
+  const label = snapshotLabel.value.trim() || undefined
+  emit('save', label)
+  snapshotLabel.value = ''
 }
 
 function handleSaveKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
-    const label = snapshotLabel.value.trim() || undefined
-    emit('save', label)
-    snapshotLabel.value = ''
-    showLabelInput.value = false
-  } else if (e.key === 'Escape') {
-    showLabelInput.value = false
-    snapshotLabel.value = ''
+    handleSaveClick()
   }
 }
 
@@ -142,6 +130,13 @@ function onExportSelect(key: string) {
       </template>
     </SDropdown>
     <div class="canvas-toolbar__save-group">
+      <input
+        v-model="snapshotLabel"
+        class="canvas-toolbar__label-input"
+        :placeholder="t('canvas.snapshotLabelPlaceholder')"
+        maxlength="200"
+        @keydown="handleSaveKeydown"
+      >
       <button
         class="canvas-toolbar__btn"
         :title="t('canvas.save')"
@@ -150,14 +145,6 @@ function onExportSelect(key: string) {
       >
         <CameraIcon class="canvas-toolbar__icon" />
       </button>
-      <input
-        v-if="showLabelInput"
-        v-model="snapshotLabel"
-        class="canvas-toolbar__label-input"
-        :placeholder="t('canvas.snapshotLabelPlaceholder')"
-        maxlength="200"
-        @keydown="handleSaveKeydown"
-      >
     </div>
     <button
       class="canvas-toolbar__btn"
@@ -236,7 +223,9 @@ function onExportSelect(key: string) {
 }
 
 .canvas-toolbar__label-input {
-  width: 160px;
+  flex: 1;
+  min-width: 80px;
+  max-width: 160px;
   padding: var(--space-0-5) var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
