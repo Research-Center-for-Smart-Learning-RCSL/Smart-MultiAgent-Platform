@@ -42,6 +42,17 @@
     "exportPng": "匯出為 PNG (1x)",
     "exportPng2x": "匯出為 PNG (2x)",
     "exportSvg": "匯出為 SVG",
-    "exporting": "匯出中..."
+    "exporting": "匯出中...",
+    "history": "歷史紀錄",
+    "historyTitle": "版本歷史",
+    "noSnapshots": "尚無快照",
+    "preview": "預覽",
+    "restore": "還原",
+    "restoreConfirm": "確定要還原此快照嗎？目前的狀態會先自動儲存。",
+    "restoring": "還原中...",
+    "restored": "快照已還原",
+    "snapshotLabel": "標籤（選填）",
+    "snapshotLabelPlaceholder": "描述此版本...",
+    "objectSummary": "{count} 個物件"
   }
 }

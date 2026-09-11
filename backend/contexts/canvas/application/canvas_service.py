@@ -18,6 +18,7 @@ from shared_kernel.realtime.pubsub import Publisher
 _log = logging.getLogger(__name__)
 
 _MAX_IMAGES_PER_CANVAS = 50
+_MAX_SNAPSHOTS_PER_CANVAS = 50
 
 _ALLOWED_UPDATE_FIELDS = frozenset(
     {
@@ -299,11 +300,15 @@ class CanvasService:
     ) -> Sequence[CanvasSnapshot]:
         return await self._repo.list_snapshots(canvas_id, limit=limit, offset=offset)
 
+    async def get_snapshot(self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID) -> CanvasSnapshot | None:
+        return await self._repo.get_snapshot(snapshot_id, canvas_id=canvas_id)
+
     async def create_snapshot(
         self,
         *,
         canvas_id: uuid.UUID,
         chatroom_id: uuid.UUID,
+        label: str | None = None,
         actor_user_id: uuid.UUID | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
@@ -312,6 +317,10 @@ class CanvasService:
             elements_to_pseudo_objects,
         )
         from contexts.canvas.application.crdt_relay import get_crdt_relay
+
+        count = await self._repo.count_snapshots(canvas_id)
+        if count >= _MAX_SNAPSHOTS_PER_CANVAS:
+            await self._repo.delete_oldest_snapshot(canvas_id)
 
         relay = get_crdt_relay()
         crdt_elements = relay.extract_elements_for_digest(canvas_id) if relay.has(canvas_id) else None
@@ -340,14 +349,17 @@ class CanvasService:
                 ]
             }
             digest = build_canvas_digest(list(objects))
-        snap = await self._repo.create_snapshot(
-            values={
-                "canvas_id": canvas_id,
-                "snapshot_data": snapshot_data,
-                "agent_digest": digest,
-                "created_by_user_id": actor_user_id,
-            }
-        )
+
+        values: dict[str, Any] = {
+            "canvas_id": canvas_id,
+            "snapshot_data": snapshot_data,
+            "agent_digest": digest,
+            "created_by_user_id": actor_user_id,
+        }
+        if label is not None:
+            values["label"] = label
+
+        snap = await self._repo.create_snapshot(values=values)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -356,7 +368,7 @@ class CanvasService:
                 actor_ip=actor_ip,
                 resource_type="canvas_snapshot",
                 resource_id=snap.id,
-                metadata={"canvas_id": str(canvas_id)},
+                metadata={"canvas_id": str(canvas_id), "label": label},
                 request_id=request_id,
             ),
         )
@@ -365,6 +377,105 @@ class CanvasService:
             {"canvas_id": str(canvas_id), "snapshot_id": str(snap.id)},
         )
         return snap
+
+    async def restore_snapshot(
+        self,
+        *,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        snapshot_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasSnapshot | None:
+        target = await self._repo.get_snapshot(snapshot_id, canvas_id=canvas_id)
+        if target is None:
+            return None
+
+        auto_save = await self.create_snapshot(
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            label="Auto-save before restore",
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+        all_objects = await self._repo.list_objects(canvas_id)
+        if all_objects:
+            await self._repo.batch_delete_objects([obj.id for obj in all_objects], canvas_id=canvas_id)
+
+        snapshot_data = target.snapshot_data
+        if "elements" in snapshot_data:
+            for elem in snapshot_data["elements"]:
+                kind_str = elem.get("type", "shape")
+                kind_map = {
+                    "rectangle": "shape",
+                    "ellipse": "shape",
+                    "diamond": "shape",
+                    "line": "connector",
+                    "arrow": "connector",
+                    "freedraw": "drawing",
+                    "text": "text",
+                    "image": "image",
+                }
+                mapped_kind = kind_map.get(kind_str, "shape")
+                await self._repo.create_object(
+                    values={
+                        "canvas_id": canvas_id,
+                        "kind": mapped_kind,
+                        "content": elem.get("text"),
+                        "position_x": elem.get("x", 0),
+                        "position_y": elem.get("y", 0),
+                        "width": elem.get("width", 100),
+                        "height": elem.get("height", 100),
+                        "z_index": 0,
+                        "style": {},
+                        "created_by_user_id": actor_user_id,
+                    }
+                )
+        elif "objects" in snapshot_data:
+            for obj_data in snapshot_data["objects"]:
+                await self._repo.create_object(
+                    values={
+                        "canvas_id": canvas_id,
+                        "kind": obj_data.get("kind", "shape"),
+                        "content": obj_data.get("content"),
+                        "minio_path": obj_data.get("minio_path"),
+                        "position_x": obj_data.get("position_x", 0),
+                        "position_y": obj_data.get("position_y", 0),
+                        "width": obj_data.get("width", 100),
+                        "height": obj_data.get("height", 100),
+                        "z_index": obj_data.get("z_index", 0),
+                        "style": obj_data.get("style", {}),
+                        "created_by_user_id": actor_user_id,
+                    }
+                )
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="canvas.snapshot_restored",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="canvas_snapshot",
+                resource_id=snapshot_id,
+                metadata={
+                    "canvas_id": str(canvas_id),
+                    "auto_save_id": str(auto_save.id),
+                },
+                request_id=request_id,
+            ),
+        )
+        await Publisher(self._room_channel_fn(chatroom_id)).emit(
+            "canvas.snapshot_restored",
+            {
+                "canvas_id": str(canvas_id),
+                "restored_snapshot_id": str(snapshot_id),
+                "auto_save_snapshot_id": str(auto_save.id),
+            },
+        )
+        return auto_save
 
     async def latest_digest(self, canvas_id: uuid.UUID) -> str | None:
         from contexts.canvas.application.canvas_context_provider import (

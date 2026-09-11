@@ -68,6 +68,7 @@ class CanvasSnapshot:
     created_at: datetime
     agent_digest: str | None = None
     created_by_user_id: uuid.UUID | None = None
+    label: str | None = None
 
 
 __all__ = [

@@ -54,7 +54,7 @@ export function useCanvasState(chatroomId: Ref<string>) {
   })
 
   const saveSnapshotMut = useMutation({
-    mutationFn: () => canvasApi.createSnapshot(chatroomId.value),
+    mutationFn: (body?: { label?: string }) => canvasApi.createSnapshot(chatroomId.value, body),
   })
 
   const updateSettingsMut = useMutation({

@@ -130,5 +130,6 @@ canvas_snapshots = sa.Table(
         sa.ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    sa.Column("label", sa.String(200), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )

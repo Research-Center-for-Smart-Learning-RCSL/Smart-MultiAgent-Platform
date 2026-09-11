@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   RectangleGroupIcon,
@@ -13,6 +13,7 @@ import {
   Cog6ToothIcon,
   LinkIcon,
   Square2StackIcon,
+  ClockIcon,
 } from '@heroicons/vue/24/outline'
 import SDropdown from '@shared/ui/SDropdown.vue'
 
@@ -31,12 +32,27 @@ const emit = defineEmits<{
   addConnector: []
   draw: []
   uploadImage: []
-  save: []
+  save: [label?: string]
   toggleFullscreen: []
   openSettings: []
+  openHistory: []
   exportPng: [scale: 1 | 2]
   exportSvg: []
 }>()
+
+const snapshotLabel = ref('')
+
+function handleSaveClick() {
+  const label = snapshotLabel.value.trim() || undefined
+  emit('save', label)
+  snapshotLabel.value = ''
+}
+
+function handleSaveKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    handleSaveClick()
+  }
+}
 
 const exportItems = computed(() => [
   { key: 'png-1x', label: t('canvas.exportPng') },
@@ -113,13 +129,29 @@ function onExportSelect(key: string) {
         </button>
       </template>
     </SDropdown>
+    <div class="canvas-toolbar__save-group">
+      <input
+        v-model="snapshotLabel"
+        class="canvas-toolbar__label-input"
+        :placeholder="t('canvas.snapshotLabelPlaceholder')"
+        maxlength="200"
+        @keydown="handleSaveKeydown"
+      >
+      <button
+        class="canvas-toolbar__btn"
+        :title="t('canvas.save')"
+        :disabled="isSaving"
+        @click="handleSaveClick"
+      >
+        <CameraIcon class="canvas-toolbar__icon" />
+      </button>
+    </div>
     <button
       class="canvas-toolbar__btn"
-      :title="t('canvas.save')"
-      :disabled="isSaving"
-      @click="emit('save')"
+      :title="t('canvas.history')"
+      @click="emit('openHistory')"
     >
-      <CameraIcon class="canvas-toolbar__icon" />
+      <ClockIcon class="canvas-toolbar__icon" />
     </button>
     <button
       class="canvas-toolbar__btn"
@@ -182,6 +214,29 @@ function onExportSelect(key: string) {
 .canvas-toolbar__icon {
   width: 18px;
   height: 18px;
+}
+
+.canvas-toolbar__save-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.canvas-toolbar__label-input {
+  flex: 1;
+  min-width: 80px;
+  max-width: 160px;
+  padding: var(--space-0-5) var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas);
+  color: var(--color-fg);
+  font-size: var(--font-size-xs);
+}
+
+.canvas-toolbar__label-input:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .canvas-toolbar__separator {

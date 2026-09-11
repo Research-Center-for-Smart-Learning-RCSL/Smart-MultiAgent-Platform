@@ -6,6 +6,7 @@ import type {
   CanvasObjectCreate,
   CanvasObjectPatch,
   CanvasSnapshot,
+  CanvasSnapshotDetail,
   BatchOp,
 } from '../types'
 
@@ -88,8 +89,34 @@ export async function listSnapshots(
   return data
 }
 
-export async function createSnapshot(chatroomId: string): Promise<CanvasSnapshot> {
-  const { data } = await http.post<CanvasSnapshot>(`${base(chatroomId)}/snapshots`)
+export async function getSnapshot(
+  chatroomId: string,
+  snapshotId: string,
+): Promise<CanvasSnapshotDetail> {
+  const { data } = await http.get<CanvasSnapshotDetail>(
+    `${base(chatroomId)}/snapshots/${snapshotId}`,
+  )
+  return data
+}
+
+export async function createSnapshot(
+  chatroomId: string,
+  body?: { label?: string },
+): Promise<CanvasSnapshot> {
+  const { data } = await http.post<CanvasSnapshot>(
+    `${base(chatroomId)}/snapshots`,
+    body ?? {},
+  )
+  return data
+}
+
+export async function restoreSnapshot(
+  chatroomId: string,
+  snapshotId: string,
+): Promise<CanvasSnapshot> {
+  const { data } = await http.post<CanvasSnapshot>(
+    `${base(chatroomId)}/snapshots/${snapshotId}/restore`,
+  )
   return data
 }
 

@@ -58,6 +58,7 @@ def _row_to_snapshot(row: Any) -> CanvasSnapshot:
         snapshot_data=row.snapshot_data,
         agent_digest=row.agent_digest,
         created_by_user_id=row.created_by_user_id,
+        label=row.label,
         created_at=row.created_at,
     )
 
@@ -259,6 +260,39 @@ class CanvasRepository:
             )
         ).first()
         return _row_to_snapshot(row) if row else None
+
+    async def get_snapshot(self, snapshot_id: uuid.UUID, *, canvas_id: uuid.UUID) -> CanvasSnapshot | None:
+        row = (
+            await self._db.execute(
+                t.canvas_snapshots.select().where(
+                    sa.and_(
+                        t.canvas_snapshots.c.id == snapshot_id,
+                        t.canvas_snapshots.c.canvas_id == canvas_id,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_snapshot(row) if row else None
+
+    async def count_snapshots(self, canvas_id: uuid.UUID) -> int:
+        result = await self._db.execute(
+            sa.select(sa.func.count())
+            .select_from(t.canvas_snapshots)
+            .where(t.canvas_snapshots.c.canvas_id == canvas_id)
+        )
+        return result.scalar_one()
+
+    async def delete_oldest_snapshot(self, canvas_id: uuid.UUID) -> None:
+        oldest = (
+            await self._db.execute(
+                sa.select(t.canvas_snapshots.c.id)
+                .where(t.canvas_snapshots.c.canvas_id == canvas_id)
+                .order_by(t.canvas_snapshots.c.created_at.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if oldest is not None:
+            await self._db.execute(t.canvas_snapshots.delete().where(t.canvas_snapshots.c.id == oldest))
 
     async def create_snapshot(self, *, values: dict[str, Any]) -> CanvasSnapshot:
         row = (

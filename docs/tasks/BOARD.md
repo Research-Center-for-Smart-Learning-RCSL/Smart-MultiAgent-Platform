@@ -291,8 +291,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
 - `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
   object text via PostgreSQL FTS. Ready.
-- `2026-09-10-canvas-history` (feature, **approved**) -- Browse and restore past canvas
-  snapshots with labels and auto-save-before-restore. Ready.
+- (moved to In progress) `2026-09-10-canvas-history`.
 - (implemented 2026-09-11) `2026-09-10-canvas-comments`. Comment threads on individual
   canvas objects. Migration 0091, five REST endpoints, comment popover UI, WS events.
   AC-1 through AC-4 unticked (need running stack for visual/browser verification).
@@ -563,6 +562,11 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-10-canvas-history` (feature, **in-progress**). Browse and restore past
+  canvas snapshots with labels, auto-save-before-restore, 50-snapshot cap. Migration
+  0092, two new REST endpoints, history panel UI. Nothing lists this slug in
+  `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-10) `2026-09-10-collaborative-canvas`. Phase 1 (snapshot-based)
   complete. New bounded context `contexts/canvas/`, migration 0089, 11 REST endpoints,

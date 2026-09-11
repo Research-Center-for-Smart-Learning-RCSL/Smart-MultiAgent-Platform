@@ -296,6 +296,8 @@ export type { SkillPatchIn } from './models/SkillPatchIn';
 export type { SkillScope } from './models/SkillScope';
 export type { SkillScopeCountsOut } from './models/SkillScopeCountsOut';
 export type { SkillSummaryOut } from './models/SkillSummaryOut';
+export type { SnapshotCreateIn } from './models/SnapshotCreateIn';
+export type { SnapshotDetailOut } from './models/SnapshotDetailOut';
 export type { SnapshotOut } from './models/SnapshotOut';
 export type { StepOut } from './models/StepOut';
 export type { StepState } from './models/StepState';
