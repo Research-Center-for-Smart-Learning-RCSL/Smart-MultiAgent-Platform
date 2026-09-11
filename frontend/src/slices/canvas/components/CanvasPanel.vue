@@ -4,8 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
 import CanvasHistory from './CanvasHistory.vue'
+import CanvasSearchResults from './CanvasSearchResults.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
+import { useCanvasSearch } from '../composables/useCanvasSearch'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
@@ -52,6 +54,23 @@ function getExcalidrawApi() {
 
 const chatroomNameRef = toRef(props, 'chatroomName')
 const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
+const { query: searchQuery, results: searchResults, isSearching } = useCanvasSearch(chatroomIdRef)
+
+function handleSelectObject(objectId: string, positionX: number, positionY: number) {
+  const api = getExcalidrawApi()
+  if (!api) return
+  api.scrollToContent(undefined, {
+    fitToViewport: false,
+    viewportZoomFactor: 1,
+  })
+  api.updateScene({
+    appState: {
+      selectedElementIds: { [objectId]: true },
+      scrollX: -positionX + 200,
+      scrollY: -positionY + 200,
+    },
+  })
+}
 
 const showSettings = ref(false)
 const showHistory = ref(false)
@@ -110,6 +129,7 @@ async function toggleExposeToAgents() {
     </div>
 
     <CanvasToolbar
+      v-model:search-query="searchQuery"
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
       :is-exporting="isExporting"
@@ -126,6 +146,17 @@ async function toggleExposeToAgents() {
       @export-svg="exportSvg"
       @open-history="toggleHistory"
     />
+
+    <div
+      v-if="searchQuery.trim()"
+      class="canvas-panel__search-results"
+    >
+      <CanvasSearchResults
+        :results="searchResults"
+        :is-searching="isSearching"
+        @select-object="handleSelectObject"
+      />
+    </div>
 
     <div
       v-if="showSettings"
@@ -307,5 +338,11 @@ async function toggleExposeToAgents() {
 .canvas-panel__error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
+}
+
+.canvas-panel__search-results {
+  position: relative;
+  z-index: 10;
+  padding: 0 var(--space-2);
 }
 </style>

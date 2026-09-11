@@ -53,6 +53,10 @@
     "restored": "快照已還原",
     "snapshotLabel": "標籤（選填）",
     "snapshotLabelPlaceholder": "描述此版本...",
+    "search": "搜尋",
+    "searchPlaceholder": "搜尋畫布...",
+    "searchClear": "清除搜尋",
+    "searchNoResults": "找不到符合的物件",
     "objectSummary": "{count} 個物件"
   }
 }

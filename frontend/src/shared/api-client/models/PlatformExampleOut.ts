@@ -15,12 +15,12 @@
  * exists to choose a type, not to inspect one.
  */
 export type PlatformExampleOut = {
-    echo_includes_content: boolean;
-    enabled: boolean;
-    expose_payload_to_agent: boolean;
     id: string;
     key: string;
     name: string;
+    expose_payload_to_agent: boolean;
+    echo_includes_content: boolean;
     retention_days: (number | null);
+    enabled: boolean;
 };
 

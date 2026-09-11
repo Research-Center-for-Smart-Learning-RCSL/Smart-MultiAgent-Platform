@@ -67,6 +67,16 @@ export interface BatchOp {
   deletes?: string[]
 }
 
+export interface CanvasSearchResult {
+  object_id: string
+  kind: CanvasObjectKind
+  content: string | null
+  snippet: string
+  rank: number
+  position_x: number
+  position_y: number
+}
+
 export interface CanvasComment {
   id: string
   object_id: string

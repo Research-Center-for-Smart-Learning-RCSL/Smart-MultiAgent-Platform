@@ -4,10 +4,10 @@
 /* eslint-disable */
 import type { BundleJobStatus } from './BundleJobStatus';
 export type BundleImportStatusOut = {
-    error: (string | null);
     job_id: string;
-    skill_id: (string | null);
     status: BundleJobStatus;
+    skill_id: (string | null);
     warnings: Array<string>;
+    error: (string | null);
 };
 

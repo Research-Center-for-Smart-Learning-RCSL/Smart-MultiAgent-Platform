@@ -11,7 +11,7 @@
  * allowlist is left in place so the teacher's selection survives a re-grant.
  */
 export type AgentActivityControlIn = {
-    activity_type_ids?: Array<string>;
     granted: boolean;
+    activity_type_ids?: Array<string>;
 };
 

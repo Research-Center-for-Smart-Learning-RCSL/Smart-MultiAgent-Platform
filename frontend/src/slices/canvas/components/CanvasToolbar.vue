@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   RectangleGroupIcon,
@@ -14,10 +14,14 @@ import {
   LinkIcon,
   Square2StackIcon,
   ClockIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import SDropdown from '@shared/ui/SDropdown.vue'
 
 const { t } = useI18n()
+
+const searchQuery = defineModel<string>('searchQuery', { default: '' })
 
 const props = defineProps<{
   isFullscreen: boolean
@@ -39,6 +43,25 @@ const emit = defineEmits<{
   exportPng: [scale: 1 | 2]
   exportSvg: []
 }>()
+
+const searchExpanded = ref(false)
+const searchInputRef = ref<HTMLInputElement>()
+
+function toggleSearch() {
+  searchExpanded.value = !searchExpanded.value
+  if (searchExpanded.value) {
+    nextTick(() => searchInputRef.value?.focus())
+  } else {
+    searchQuery.value = ''
+  }
+}
+
+function handleSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    searchExpanded.value = false
+    searchQuery.value = ''
+  }
+}
 
 const snapshotLabel = ref('')
 
@@ -111,6 +134,40 @@ function onExportSelect(key: string) {
     >
       <PhotoIcon class="canvas-toolbar__icon" />
     </button>
+
+    <div class="canvas-toolbar__separator" />
+
+    <div class="canvas-toolbar__search-group">
+      <button
+        class="canvas-toolbar__btn"
+        :class="{ 'canvas-toolbar__btn--active': searchExpanded }"
+        :title="t('canvas.search')"
+        @click="toggleSearch"
+      >
+        <MagnifyingGlassIcon class="canvas-toolbar__icon" />
+      </button>
+      <div
+        v-if="searchExpanded"
+        class="canvas-toolbar__search-input-wrap"
+      >
+        <input
+          ref="searchInputRef"
+          v-model="searchQuery"
+          class="canvas-toolbar__search-input"
+          :placeholder="t('canvas.searchPlaceholder')"
+          maxlength="500"
+          @keydown="handleSearchKeydown"
+        >
+        <button
+          v-if="searchQuery"
+          class="canvas-toolbar__search-clear"
+          :title="t('canvas.searchClear')"
+          @click="searchQuery = ''"
+        >
+          <XMarkIcon class="canvas-toolbar__icon-sm" />
+        </button>
+      </div>
+    </div>
 
     <div class="canvas-toolbar__separator" />
 
@@ -244,5 +301,62 @@ function onExportSelect(key: string) {
   height: 20px;
   background: var(--color-border);
   margin: 0 var(--space-1);
+}
+
+.canvas-toolbar__btn--active {
+  background: var(--color-surface-hover);
+  color: var(--color-accent);
+}
+
+.canvas-toolbar__search-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.canvas-toolbar__search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.canvas-toolbar__search-input {
+  width: 160px;
+  padding: var(--space-0-5) var(--space-1);
+  padding-right: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas);
+  color: var(--color-fg);
+  font-size: var(--font-size-xs);
+}
+
+.canvas-toolbar__search-input:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.canvas-toolbar__search-clear {
+  position: absolute;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.canvas-toolbar__search-clear:hover {
+  color: var(--color-fg);
+}
+
+.canvas-toolbar__icon-sm {
+  width: 14px;
+  height: 14px;
 }
 </style>

@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WsTicketOut = {
-    expires_in: number;
     ticket: string;
+    expires_in: number;
 };
 

@@ -69,20 +69,20 @@ export class SearchKeysService {
         });
     }
     /**
-     * Delete Search Key
-     * @returns void
+     * Retest Search Key
+     * @returns SearchKeyOut Successful Response
      * @throws ApiError
      */
-    public static deleteSearchKeyApiProjectsProjectIdSearchKeysKeyIdDelete({
+    public static retestSearchKeyApiProjectsProjectIdSearchKeysKeyIdRetestPost({
         projectId,
         keyId,
     }: {
         projectId: string,
         keyId: string,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<SearchKeyOut> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}/search-keys/{key_id}',
+            method: 'POST',
+            url: '/api/projects/{project_id}/search-keys/{key_id}/retest',
             path: {
                 'project_id': projectId,
                 'key_id': keyId,
@@ -117,20 +117,20 @@ export class SearchKeysService {
         });
     }
     /**
-     * Retest Search Key
-     * @returns SearchKeyOut Successful Response
+     * Delete Search Key
+     * @returns void
      * @throws ApiError
      */
-    public static retestSearchKeyApiProjectsProjectIdSearchKeysKeyIdRetestPost({
+    public static deleteSearchKeyApiProjectsProjectIdSearchKeysKeyIdDelete({
         projectId,
         keyId,
     }: {
         projectId: string,
         keyId: string,
-    }): CancelablePromise<SearchKeyOut> {
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/search-keys/{key_id}/retest',
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/search-keys/{key_id}',
             path: {
                 'project_id': projectId,
                 'key_id': keyId,

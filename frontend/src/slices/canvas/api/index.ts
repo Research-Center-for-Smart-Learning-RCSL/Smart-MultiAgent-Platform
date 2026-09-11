@@ -5,6 +5,7 @@ import type {
   CanvasObject,
   CanvasObjectCreate,
   CanvasObjectPatch,
+  CanvasSearchResult,
   CanvasSnapshot,
   CanvasSnapshotDetail,
   BatchOp,
@@ -116,6 +117,18 @@ export async function restoreSnapshot(
 ): Promise<CanvasSnapshot> {
   const { data } = await http.post<CanvasSnapshot>(
     `${base(chatroomId)}/snapshots/${snapshotId}/restore`,
+  )
+  return data
+}
+
+export async function searchCanvas(
+  chatroomId: string,
+  query: string,
+  params?: { limit?: number },
+): Promise<CanvasSearchResult[]> {
+  const { data } = await http.get<CanvasSearchResult[]>(
+    `${base(chatroomId)}/search`,
+    { params: { q: query, ...params } },
   )
   return data
 }

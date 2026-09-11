@@ -3,14 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { CanvasObjectKind } from './CanvasObjectKind';
-export type CanvasObjectIn = {
+export type CanvasSearchResult = {
+    object_id: string;
     kind: CanvasObjectKind;
+    content: (string | null);
+    snippet: string;
+    rank: number;
     position_x: number;
     position_y: number;
-    width: number;
-    height: number;
-    z_index?: number;
-    content?: (string | null);
-    style?: (Record<string, any> | null);
 };
 

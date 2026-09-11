@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type TemplateCreateIn = {
-    body?: string;
-    description?: string;
     name: string;
+    description?: string;
+    body?: string;
 };
 

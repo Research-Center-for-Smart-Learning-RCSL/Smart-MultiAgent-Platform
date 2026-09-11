@@ -397,6 +397,9 @@ export default [
       // Observer analyses (SRS §28) render through the same renderMarkdown()
       // → DOMPurify pipeline; same single-sanitiser contract.
       'src/slices/conversation/components/ObservationCard.vue',
+      // Canvas search snippets are DOMPurify-sanitised (ALLOWED_TAGS: ['mark'])
+      // in useCanvasSearch before reaching the template.
+      'src/slices/canvas/components/CanvasSearchResults.vue',
     ],
     rules: {
       'vue/no-v-html': 'off',

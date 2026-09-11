@@ -128,6 +128,7 @@ export type { CanvasObjectKind } from './models/CanvasObjectKind';
 export type { CanvasObjectOut } from './models/CanvasObjectOut';
 export type { CanvasObjectPatch } from './models/CanvasObjectPatch';
 export type { CanvasOut } from './models/CanvasOut';
+export type { CanvasSearchResult } from './models/CanvasSearchResult';
 export type { CanvasSettingsIn } from './models/CanvasSettingsIn';
 export type { CaptchaConfigOut } from './models/CaptchaConfigOut';
 export type { CarryIn } from './models/CarryIn';

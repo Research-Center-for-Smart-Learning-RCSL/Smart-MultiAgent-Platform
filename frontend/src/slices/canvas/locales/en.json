@@ -53,6 +53,10 @@
     "restored": "Snapshot restored",
     "snapshotLabel": "Label (optional)",
     "snapshotLabelPlaceholder": "Describe this version...",
+    "search": "Search",
+    "searchPlaceholder": "Search canvas...",
+    "searchClear": "Clear search",
+    "searchNoResults": "No matching objects found",
     "objectSummary": "{count} {count, plural, one {object} other {objects}}"
   }
 }

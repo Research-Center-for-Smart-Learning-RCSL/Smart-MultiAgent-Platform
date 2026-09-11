@@ -9,4 +9,6 @@ export const canvasKeys = {
     [...canvasKeys.all, 'comments', chatroomId, objectId] as const,
   commentCounts: (chatroomId: string) =>
     [...canvasKeys.all, 'comment-counts', chatroomId] as const,
+  search: (chatroomId: string, query: string) =>
+    [...canvasKeys.all, 'search', chatroomId, query] as const,
 }
