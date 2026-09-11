@@ -30,8 +30,10 @@ const inputRef = ref<HTMLTextAreaElement>()
 const currentUserId = computed(() => session.me?.id ?? null)
 
 function isOwnComment(comment: CanvasComment): boolean {
+  if (currentUserId.value === null) return false
   return (
-    currentUserId.value !== null && comment.created_by_user_id === currentUserId.value
+    comment.created_by_user_id === currentUserId.value ||
+    comment.created_by_guest_id === currentUserId.value
   )
 }
 

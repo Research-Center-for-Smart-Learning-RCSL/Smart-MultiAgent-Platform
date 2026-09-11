@@ -210,6 +210,12 @@ async def _enforce_guest_rate_limit(principal: Principal) -> None:
         )
 
 
+def _is_comment_author(comment: Any, principal: Principal) -> bool:
+    if principal.is_guest:
+        return bool(comment.created_by_guest_id == principal.user_id)
+    return bool(comment.created_by_user_id == principal.user_id)
+
+
 def _canvas_image_key(
     *,
     project_id: uuid.UUID,
@@ -655,7 +661,7 @@ async def update_comment(
     comment = await facade.get_comment(comment_id, canvas_id=canvas.id)
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    if comment.created_by_user_id != principal.user_id and not principal.is_admin:
+    if not _is_comment_author(comment, principal) and not principal.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the comment author")
     updated = await facade.update_comment(
         comment_id=comment_id,
@@ -690,7 +696,7 @@ async def delete_comment(
     comment = await facade.get_comment(comment_id, canvas_id=canvas.id)
     if comment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    is_author = comment.created_by_user_id == principal.user_id
+    is_author = _is_comment_author(comment, principal)
     is_creator_or_admin = principal.is_admin or is_room_creator(access, principal=principal)
     if not is_author and not is_creator_or_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot delete this comment")
@@ -706,5 +712,3 @@ async def delete_comment(
     await db.commit()
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
-
