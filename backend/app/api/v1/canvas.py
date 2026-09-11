@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from typing import Any
 
@@ -137,11 +138,16 @@ class BatchOpIn(BaseModel):
     deletes: list[uuid.UUID] | None = None
 
 
+class SnapshotCreateIn(BaseModel):
+    label: str | None = Field(None, max_length=200)
+
+
 class SnapshotOut(BaseModel):
     id: uuid.UUID
     canvas_id: uuid.UUID
     agent_digest: str | None
     created_by_user_id: uuid.UUID | None
+    label: str | None
     created_at: str
 
     @classmethod
@@ -151,6 +157,23 @@ class SnapshotOut(BaseModel):
             canvas_id=s.canvas_id,
             agent_digest=s.agent_digest,
             created_by_user_id=s.created_by_user_id,
+            label=s.label,
+            created_at=s.created_at.isoformat(),
+        )
+
+
+class SnapshotDetailOut(SnapshotOut):
+    snapshot_data: dict[str, Any]
+
+    @classmethod
+    def from_domain(cls, s: Any) -> SnapshotDetailOut:
+        return cls(
+            id=s.id,
+            canvas_id=s.canvas_id,
+            agent_digest=s.agent_digest,
+            created_by_user_id=s.created_by_user_id,
+            label=s.label,
+            snapshot_data=s.snapshot_data,
             created_at=s.created_at.isoformat(),
         )
 
@@ -214,6 +237,15 @@ def _is_comment_author(comment: Any, principal: Principal) -> bool:
     if principal.is_guest:
         return bool(comment.created_by_guest_id == principal.user_id)
     return bool(comment.created_by_user_id == principal.user_id)
+
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _sanitize_label(label: str) -> str:
+    cleaned = _CONTROL_CHARS_RE.sub("", label)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:200]
 
 
 def _canvas_image_key(
@@ -546,9 +578,55 @@ async def list_snapshots(
     return [SnapshotOut.from_domain(s) for s in snapshots]
 
 
+@router.get("/snapshots/{snapshot_id}")
+async def get_snapshot(
+    chatroom_id: uuid.UUID,
+    snapshot_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> SnapshotDetailOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    snap = await facade.get_snapshot(canvas.id, snapshot_id)
+    if snap is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return SnapshotDetailOut.from_domain(snap)
+
+
 @router.post("/snapshots", status_code=status.HTTP_201_CREATED)
 async def create_snapshot(
     chatroom_id: uuid.UUID,
+    body: SnapshotCreateIn | None = None,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+    ctx: RequestContext = Depends(current_context),
+) -> SnapshotOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
+    label = _sanitize_label(body.label) if body and body.label else None
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
+    snap = await facade.create_snapshot(
+        canvas_id=canvas.id,
+        chatroom_id=chatroom_id,
+        label=label,
+        actor_user_id=_actor_user_id(principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return SnapshotOut.from_domain(snap)
+
+
+@router.post("/snapshots/{snapshot_id}/restore")
+async def restore_snapshot(
+    chatroom_id: uuid.UUID,
+    snapshot_id: uuid.UUID,
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
     ctx: RequestContext = Depends(current_context),
@@ -557,16 +635,21 @@ async def create_snapshot(
     ensure_can_send(access, is_admin=principal.is_admin)
     await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
-    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
-    snap = await facade.create_snapshot(
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    auto_save = await facade.restore_snapshot(
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
+        snapshot_id=snapshot_id,
         actor_user_id=_actor_user_id(principal),
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    if auto_save is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     await db.commit()
-    return SnapshotOut.from_domain(snap)
+    return SnapshotOut.from_domain(auto_save)
 
 
 # ---- Comments ---------------------------------------------------------------

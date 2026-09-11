@@ -209,11 +209,17 @@ class CanvasFacade:
     ) -> Sequence[CanvasSnapshot]:
         return await self._service.list_snapshots(canvas_id, limit=limit, offset=offset)
 
+    async def get_snapshot(
+        self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID
+    ) -> CanvasSnapshot | None:
+        return await self._service.get_snapshot(canvas_id, snapshot_id)
+
     async def create_snapshot(
         self,
         *,
         canvas_id: uuid.UUID,
         chatroom_id: uuid.UUID,
+        label: str | None = None,
         actor_user_id: uuid.UUID | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
@@ -221,6 +227,26 @@ class CanvasFacade:
         return await self._service.create_snapshot(
             canvas_id=canvas_id,
             chatroom_id=chatroom_id,
+            label=label,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def restore_snapshot(
+        self,
+        *,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        snapshot_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasSnapshot | None:
+        return await self._service.restore_snapshot(
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            snapshot_id=snapshot_id,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
