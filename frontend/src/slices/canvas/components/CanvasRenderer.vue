@@ -179,6 +179,12 @@ onMounted(() => {
 })
 
 onUnmounted(teardown)
+
+function getExcalidrawApi() {
+  return excalidrawApi
+}
+
+defineExpose({ getExcalidrawApi })
 </script>
 
 <template>

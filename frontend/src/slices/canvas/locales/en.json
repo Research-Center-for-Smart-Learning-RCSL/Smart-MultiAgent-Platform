@@ -37,6 +37,11 @@
     "deleteCommentConfirm": "Are you sure you want to delete this comment?",
     "noComments": "No comments yet",
     "commentPlaceholder": "Write a comment...",
-    "guest": "Guest"
+    "guest": "Guest",
+    "export": "Export",
+    "exportPng": "Export as PNG (1x)",
+    "exportPng2x": "Export as PNG (2x)",
+    "exportSvg": "Export as SVG",
+    "exporting": "Exporting..."
   }
 }

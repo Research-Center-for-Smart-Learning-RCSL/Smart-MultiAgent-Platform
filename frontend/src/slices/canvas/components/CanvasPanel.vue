@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, toRef, defineAsyncComponent } from 'vue'
+import { ref, computed, toRef, defineAsyncComponent, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
 import { useCanvasState } from '../composables/useCanvasState'
+import { useCanvasExport } from '../composables/useCanvasExport'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
@@ -14,6 +15,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   chatroomId: string
+  chatroomName: string
   isFullscreen: boolean
 }>()
 
@@ -39,6 +41,20 @@ useCanvasSocket(chatroomIdRef)
 // CRDT sync via Yjs -- canvasId is derived from the REST canvas query
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
 const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
+const canvasRendererRef = ref<ComponentPublicInstance<any> | null>(null)
+const excalidrawApiRef = computed(() => canvasRendererRef.value?.getExcalidrawApi?.() ?? null)
+
+const chatroomNameRef = toRef(props, 'chatroomName')
+const { exportPng, exportSvg, isExporting } = useCanvasExport(excalidrawApiRef, chatroomNameRef)
+
+const hasElements = computed(() => {
+  const api = excalidrawApiRef.value
+  if (!api) return false
+  const els = api.getSceneElements()
+  return Array.isArray(els) && els.length > 0
+})
 
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
@@ -94,6 +110,8 @@ async function toggleExposeToAgents() {
     <CanvasToolbar
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
+      :is-exporting="isExporting"
+      :has-elements="hasElements"
       @add-note="() => {}"
       @add-text="() => {}"
       @add-shape="() => {}"
@@ -103,6 +121,8 @@ async function toggleExposeToAgents() {
       @save="handleSave"
       @toggle-fullscreen="emit('toggleFullscreen')"
       @open-settings="showSettings = !showSettings"
+      @export-png="exportPng"
+      @export-svg="exportSvg"
     />
 
     <div
@@ -140,6 +160,7 @@ async function toggleExposeToAgents() {
         <div class="canvas-panel__canvas-area">
           <Suspense>
             <CanvasRenderer
+              ref="canvasRendererRef"
               :doc="doc"
               :awareness="awareness"
             />

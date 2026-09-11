@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-09-10
 requirements: [R13.42, R13.43]
 depends_on: [2026-09-10-collaborative-canvas]

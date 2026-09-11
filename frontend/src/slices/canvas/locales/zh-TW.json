@@ -37,6 +37,11 @@
     "deleteCommentConfirm": "確定要刪除此留言嗎？",
     "noComments": "尚無留言",
     "commentPlaceholder": "撰寫留言...",
-    "guest": "訪客"
+    "guest": "訪客",
+    "export": "匯出",
+    "exportPng": "匯出為 PNG (1x)",
+    "exportPng2x": "匯出為 PNG (2x)",
+    "exportSvg": "匯出為 SVG",
+    "exporting": "匯出中..."
   }
 }
