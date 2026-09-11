@@ -288,8 +288,10 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   object text via PostgreSQL FTS. Ready.
 - `2026-09-10-canvas-history` (feature, **approved**) -- Browse and restore past canvas
   snapshots with labels and auto-save-before-restore. Ready.
-- `2026-09-10-canvas-comments` (feature, **approved**) -- Comment threads on individual
-  canvas objects with real-time updates. Ready.
+- (implemented 2026-09-11) `2026-09-10-canvas-comments`. Comment threads on individual
+  canvas objects. Migration 0091, five REST endpoints, comment popover UI, WS events.
+  AC-1 through AC-4 unticked (need running stack for visual/browser verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 ### Other ready work
 
