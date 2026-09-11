@@ -38,7 +38,7 @@ class CanvasTemplateRepository:
         scope: CanvasTemplateScope | None = None,
         project_id: uuid.UUID | None = None,
     ) -> Sequence[CanvasTemplate]:
-        conditions = [t.canvas_templates.c.deleted_at.is_(None)]
+        conditions: list[sa.ColumnElement[bool]] = [t.canvas_templates.c.deleted_at.is_(None)]
         if scope is not None:
             conditions.append(t.canvas_templates.c.scope == scope.value)
         if project_id is not None:
@@ -90,7 +90,7 @@ class CanvasTemplateRepository:
             )
             .values(deleted_at=now())
         )
-        return bool(result.rowcount)
+        return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
 __all__ = ["CanvasTemplateRepository"]
