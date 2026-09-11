@@ -4,8 +4,8 @@
 /* eslint-disable */
 export type KeyMetaOut = {
     id: string;
-    masked_preview: string;
-    name: string;
     provider: string;
+    name: string;
+    masked_preview: string;
 };
 

@@ -12,13 +12,13 @@ import type { RunState } from './RunState';
  * being returned as raw service dicts.
  */
 export type ArchivedRunOut = {
-    archived: boolean;
-    ended_at: (string | null);
     id: string;
-    started_at: string;
+    workflow_id: (string | null);
+    trigger_type: (string | null);
     started_by_user_id: (string | null);
     state: RunState;
-    trigger_type: (string | null);
-    workflow_id: (string | null);
+    started_at: string;
+    ended_at: (string | null);
+    archived: boolean;
 };
 

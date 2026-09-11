@@ -12,20 +12,20 @@ import type { ChunkStrategy } from './ChunkStrategy';
  * unbroadened. ``detached_agent_ids`` is empty on any non-colliding change.
  */
 export type KnowmapConfigPatchOut = {
+    id: string;
+    project_id: string;
+    name: string;
     builder_key_group_id: string;
-    chunk_params: Record<string, any>;
     chunk_strategy: ChunkStrategy;
+    chunk_params: Record<string, any>;
+    embed_provider: (string | null);
+    embed_model: (string | null);
+    embed_dim: (number | null);
+    last_build_state: BuildState;
+    last_build_at: (string | null);
+    last_build_error: (string | null);
     created_at: string;
     deleted_at: (string | null);
     detached_agent_ids?: Array<string>;
-    embed_dim: (number | null);
-    embed_model: (string | null);
-    embed_provider: (string | null);
-    id: string;
-    last_build_at: (string | null);
-    last_build_error: (string | null);
-    last_build_state: BuildState;
-    name: string;
-    project_id: string;
 };
 

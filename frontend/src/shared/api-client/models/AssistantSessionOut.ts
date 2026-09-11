@@ -4,7 +4,7 @@
 /* eslint-disable */
 import type { SessionMessageOut } from './SessionMessageOut';
 export type AssistantSessionOut = {
-    messages: Array<SessionMessageOut>;
     session_id: string;
+    messages: Array<SessionMessageOut>;
 };
 

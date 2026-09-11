@@ -3,16 +3,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ActivitySessionOut = {
-    activation_id: (string | null);
+    id: string;
     activity_type_id: string;
     chatroom_id: string;
+    subject_user_id: (string | null);
+    subject_member_group_id?: (string | null);
+    subject_kind?: string;
+    activation_id: (string | null);
+    status: string;
+    created_at: (string | null);
     closed_at: (string | null);
     completed_at: (string | null);
-    created_at: (string | null);
-    id: string;
-    status: string;
-    subject_kind?: string;
-    subject_member_group_id?: (string | null);
-    subject_user_id: (string | null);
 };
 

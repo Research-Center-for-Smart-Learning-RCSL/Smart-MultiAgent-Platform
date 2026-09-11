@@ -142,6 +142,8 @@ export type { ChatroomMemberOut } from './models/ChatroomMemberOut';
 export type { ChatroomOut } from './models/ChatroomOut';
 export type { ChatroomPatchIn } from './models/ChatroomPatchIn';
 export type { ChunkStrategy } from './models/ChunkStrategy';
+export type { CommentIn } from './models/CommentIn';
+export type { CommentOut } from './models/CommentOut';
 export type { ConceptMapEnabledIn } from './models/ConceptMapEnabledIn';
 export type { ConceptMapOwnerOptionOut } from './models/ConceptMapOwnerOptionOut';
 export type { ConfigEnvelopeOut } from './models/ConfigEnvelopeOut';

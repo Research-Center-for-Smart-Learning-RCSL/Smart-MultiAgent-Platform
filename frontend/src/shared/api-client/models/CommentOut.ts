@@ -2,11 +2,13 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type IpBanOut = {
+export type CommentOut = {
     id: string;
-    cidr: string;
-    reason: string;
-    banned_at: string;
+    object_id: string;
+    content: string;
     created_by_user_id: (string | null);
+    created_by_guest_id: (string | null);
+    created_at: string;
+    updated_at: string;
 };
 

@@ -2,9 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type TemplateCreateIn = {
-    name: string;
-    description?: string;
-    body?: string;
+export type CommentIn = {
+    content: string;
 };
 

@@ -3,14 +3,14 @@
 /* tslint:disable */
 /* eslint-disable */
 export type TemplateOut = {
-    body: string;
-    created_at: string;
-    description: string;
     id: string;
-    name: string;
-    position: number;
     scope: string;
-    updated_at: string;
+    name: string;
+    description: string;
+    body: string;
+    position: number;
     version: number;
+    created_at: string;
+    updated_at: string;
 };
 

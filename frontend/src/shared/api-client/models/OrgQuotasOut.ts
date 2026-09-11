@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type OrgQuotasOut = {
-    advisory_targets: Record<string, number>;
-    agents: number;
-    chatrooms: number;
-    computed_at: (string | null);
-    projects: number;
     users: number;
+    projects: number;
+    chatrooms: number;
+    agents: number;
     workflows: number;
+    computed_at: (string | null);
+    advisory_targets: Record<string, number>;
 };
 

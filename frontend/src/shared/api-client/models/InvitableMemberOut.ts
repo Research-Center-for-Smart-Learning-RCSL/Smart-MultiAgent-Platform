@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type InvitableMemberOut = {
-    email: string;
     user_id: string;
+    email: string;
 };
 

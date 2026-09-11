@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AllowlistEntryOut = {
-    added_at: string;
-    added_by_user_id: (string | null);
-    hostname: string;
     id: string;
-    note: (string | null);
     project_id: string;
+    hostname: string;
+    added_by_user_id: (string | null);
+    added_at: string;
+    note: (string | null);
 };
 
