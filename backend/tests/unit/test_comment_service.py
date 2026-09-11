@@ -135,9 +135,7 @@ class TestCreateComment:
     @pytest.mark.asyncio
     @patch("contexts.canvas.application.comment_service.Publisher")
     @patch("contexts.canvas.application.comment_service.audit")
-    async def test_publishes_ws_event(
-        self, mock_audit: AsyncMock, mock_publisher_cls: AsyncMock
-    ) -> None:
+    async def test_publishes_ws_event(self, mock_audit: AsyncMock, mock_publisher_cls: AsyncMock) -> None:
         expected = _comment()
         repo = _repo()
         repo.create_comment.return_value = expected
@@ -264,14 +262,10 @@ class TestListComments:
         repo.list_comments.return_value = comments
 
         svc = _service(repo)
-        result = await svc.list_comments(
-            _OBJECT_ID, canvas_id=_CANVAS_ID, limit=10, offset=0
-        )
+        result = await svc.list_comments(_OBJECT_ID, canvas_id=_CANVAS_ID, limit=10, offset=0)
 
         assert len(result) == 2
-        repo.list_comments.assert_awaited_once_with(
-            _OBJECT_ID, canvas_id=_CANVAS_ID, limit=10, offset=0
-        )
+        repo.list_comments.assert_awaited_once_with(_OBJECT_ID, canvas_id=_CANVAS_ID, limit=10, offset=0)
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_comments(self) -> None:
@@ -293,9 +287,7 @@ class TestCountCommentsByObject:
         repo.count_comments_by_object.return_value = {oid1: 3, oid2: 1}
 
         svc = _service(repo)
-        result = await svc.count_comments_by_object(
-            [oid1, oid2], canvas_id=_CANVAS_ID
-        )
+        result = await svc.count_comments_by_object([oid1, oid2], canvas_id=_CANVAS_ID)
 
         assert result == {oid1: 3, oid2: 1}
 
