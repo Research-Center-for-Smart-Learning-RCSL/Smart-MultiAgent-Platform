@@ -4,7 +4,15 @@ export { default as CanvasPanel } from './components/CanvasPanel.vue'
 export { useCanvasSplitPane } from './composables/useCanvasSplitPane'
 export { canvasKeys } from './queries'
 export { canvasRoutes } from './routes'
-export type { Canvas, CanvasComment, CanvasObject, CanvasSnapshot, CanvasSnapshotDetail } from './types'
+export type {
+  Canvas,
+  CanvasComment,
+  CanvasObject,
+  CanvasSnapshot,
+  CanvasSnapshotDetail,
+  CanvasTemplate,
+  CanvasTemplateDetail,
+} from './types'
 
 export function installCanvasSlice(): void {
   registerLocaleLoaders({

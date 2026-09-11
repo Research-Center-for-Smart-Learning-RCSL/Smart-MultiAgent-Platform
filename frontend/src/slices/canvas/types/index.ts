@@ -85,3 +85,17 @@ export interface CanvasComment {
   created_at: string
   updated_at: string
 }
+
+export interface CanvasTemplate {
+  id: string
+  scope: 'platform' | 'project'
+  project_id: string | null
+  name: string
+  description: string | null
+  created_by_user_id: string | null
+  created_at: string
+}
+
+export interface CanvasTemplateDetail extends CanvasTemplate {
+  template_data: { objects: CanvasObjectCreate[] }
+}

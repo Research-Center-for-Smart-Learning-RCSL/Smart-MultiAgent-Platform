@@ -5,6 +5,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
 import CanvasHistory from './CanvasHistory.vue'
 import CanvasSearchResults from './CanvasSearchResults.vue'
+import CanvasTemplatePicker from './CanvasTemplatePicker.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
 import { useCanvasSearch } from '../composables/useCanvasSearch'
@@ -19,7 +20,9 @@ const { t } = useI18n()
 const props = defineProps<{
   chatroomId: string
   chatroomName: string
+  projectId: string
   isFullscreen: boolean
+  isModerator: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,12 +34,14 @@ const chatroomIdRef = toRef(props, 'chatroomId')
 
 const {
   canvas,
+  objects,
   isLoading,
   error,
   uploadImage,
   saveSnapshot,
   updateSettings,
   isSavingSnapshot,
+  invalidateAll,
 } = useCanvasState(chatroomIdRef)
 
 useCanvasSocket(chatroomIdRef)
@@ -70,6 +75,20 @@ function handleSelectObject(objectId: string, positionX: number, positionY: numb
 
 const showSettings = ref(false)
 const showHistory = ref(false)
+const pickerDismissed = ref(false)
+
+const showTemplatePicker = computed(
+  () => !pickerDismissed.value && !isLoading.value && !error.value && objects.value.length === 0,
+)
+
+function onPickerDismissed() {
+  pickerDismissed.value = true
+}
+
+function onTemplateApplied() {
+  pickerDismissed.value = true
+  invalidateAll()
+}
 const fileInputRef = ref<HTMLInputElement>()
 
 function handleUploadImage() {
@@ -129,6 +148,8 @@ async function toggleExposeToAgents() {
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
       :is-exporting="isExporting"
+      :is-moderator="isModerator"
+      :chatroom-id="chatroomId"
       @add-note="() => {}"
       @add-text="() => {}"
       @add-shape="() => {}"
@@ -186,6 +207,14 @@ async function toggleExposeToAgents() {
         >
           <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
         </div>
+        <template v-else-if="showTemplatePicker">
+          <CanvasTemplatePicker
+            :chatroom-id="chatroomId"
+            :project-id="projectId"
+            @dismissed="onPickerDismissed"
+            @applied="onTemplateApplied"
+          />
+        </template>
         <template v-else>
           <div class="canvas-panel__canvas-area">
             <Suspense>

@@ -8,6 +8,8 @@ import type {
   CanvasSearchResult,
   CanvasSnapshot,
   CanvasSnapshotDetail,
+  CanvasTemplate,
+  CanvasTemplateDetail,
   BatchOp,
 } from '../types'
 
@@ -181,6 +183,57 @@ export async function getCommentCounts(
 ): Promise<Record<string, number>> {
   const { data } = await http.get<Record<string, number>>(
     `${base(chatroomId)}/objects/comment-counts`,
+  )
+  return data
+}
+
+// ---- Templates ---------------------------------------------------------------
+
+export async function listTemplates(
+  params?: { scope?: string; project_id?: string | undefined },
+): Promise<CanvasTemplate[]> {
+  const { data } = await http.get<CanvasTemplate[]>('/api/canvas-templates', { params })
+  return data
+}
+
+export async function getTemplate(templateId: string): Promise<CanvasTemplateDetail> {
+  const { data } = await http.get<CanvasTemplateDetail>(
+    `/api/canvas-templates/${templateId}`,
+  )
+  return data
+}
+
+export async function createTemplate(body: {
+  name: string
+  description?: string | null
+  project_id: string
+  template_data: { objects: Array<Record<string, unknown>> }
+}): Promise<CanvasTemplate> {
+  const { data } = await http.post<CanvasTemplate>('/api/canvas-templates', body)
+  return data
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  await http.delete(`/api/canvas-templates/${templateId}`)
+}
+
+export async function applyTemplate(
+  chatroomId: string,
+  templateId: string,
+): Promise<{ created: CanvasObject[]; updated: string[]; deleted: number }> {
+  const { data } = await http.post(`${base(chatroomId)}/apply-template`, {
+    template_id: templateId,
+  })
+  return data
+}
+
+export async function saveAsTemplate(
+  chatroomId: string,
+  body: { name: string; description?: string | null | undefined },
+): Promise<CanvasTemplate> {
+  const { data } = await http.post<CanvasTemplate>(
+    `${base(chatroomId)}/save-as-template`,
+    body,
   )
   return data
 }

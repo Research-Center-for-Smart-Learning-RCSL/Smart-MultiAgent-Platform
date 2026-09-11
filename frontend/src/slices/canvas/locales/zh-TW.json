@@ -57,6 +57,13 @@
     "searchPlaceholder": "搜尋畫布...",
     "searchClear": "清除搜尋",
     "searchNoResults": "找不到符合的物件",
-    "objectSummary": "{count} 個物件"
+    "objectSummary": "{count} 個物件",
+    "selectTemplate": "選擇範本",
+    "startBlank": "從空白開始",
+    "saveAsTemplate": "另存為範本",
+    "templateName": "範本名稱",
+    "templateDescription": "描述（選填）",
+    "templateSaved": "範本已儲存",
+    "applyingTemplate": "套用範本中..."
   }
 }

@@ -322,7 +322,9 @@
       class="chatroom__canvas"
       :chatroom-id="chatroomId"
       :chatroom-name="roomName"
+      :project-id="projectId"
       :is-fullscreen="canvasSplit.isFullscreen.value"
+      :is-moderator="roomQuery.data.value?.is_moderator ?? false"
       @close="canvasSplit.close()"
       @toggle-fullscreen="canvasSplit.toggleFullscreen()"
     />

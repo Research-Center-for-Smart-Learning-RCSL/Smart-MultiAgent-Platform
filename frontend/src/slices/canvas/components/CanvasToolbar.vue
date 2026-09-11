@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useMutation } from '@tanstack/vue-query'
 import {
   RectangleGroupIcon,
   DocumentTextIcon,
@@ -16,8 +17,11 @@ import {
   ClockIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
+  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
 import SDropdown from '@shared/ui/SDropdown.vue'
+import { useToast } from '@shared/composables/useToast'
+import * as canvasApi from '../api'
 
 const { t } = useI18n()
 
@@ -27,6 +31,8 @@ const props = defineProps<{
   isFullscreen: boolean
   isSaving: boolean
   isExporting: boolean
+  isModerator: boolean
+  chatroomId: string
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +93,35 @@ function onExportSelect(key: string) {
   if (key === 'png-1x') emit('exportPng', 1)
   else if (key === 'png-2x') emit('exportPng', 2)
   else if (key === 'svg') emit('exportSvg')
+}
+
+const toast = useToast()
+const showSaveAsTemplate = ref(false)
+const templateName = ref('')
+const templateDescription = ref('')
+
+const saveAsTemplateMut = useMutation({
+  mutationFn: () =>
+    canvasApi.saveAsTemplate(props.chatroomId, {
+      name: templateName.value.trim(),
+      description: templateDescription.value.trim() || undefined,
+    }),
+  onSuccess: () => {
+    toast.success(t('canvas.templateSaved'))
+    showSaveAsTemplate.value = false
+    templateName.value = ''
+    templateDescription.value = ''
+  },
+})
+
+function handleSaveAsTemplate() {
+  if (!templateName.value.trim()) return
+  saveAsTemplateMut.mutate()
+}
+
+function handleTemplateKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') handleSaveAsTemplate()
+  if (e.key === 'Escape') showSaveAsTemplate.value = false
 }
 </script>
 
@@ -224,6 +259,46 @@ function onExportSelect(key: string) {
         class="canvas-toolbar__icon"
       />
     </button>
+    <div
+      v-if="props.isModerator"
+      class="canvas-toolbar__save-template-group"
+    >
+      <button
+        class="canvas-toolbar__btn"
+        :class="{ 'canvas-toolbar__btn--active': showSaveAsTemplate }"
+        :title="t('canvas.saveAsTemplate')"
+        @click="showSaveAsTemplate = !showSaveAsTemplate"
+      >
+        <DocumentDuplicateIcon class="canvas-toolbar__icon" />
+      </button>
+      <div
+        v-if="showSaveAsTemplate"
+        class="canvas-toolbar__template-form"
+      >
+        <input
+          v-model="templateName"
+          class="canvas-toolbar__template-input"
+          :placeholder="t('canvas.templateName')"
+          maxlength="200"
+          @keydown="handleTemplateKeydown"
+        >
+        <input
+          v-model="templateDescription"
+          class="canvas-toolbar__template-input"
+          :placeholder="t('canvas.templateDescription')"
+          maxlength="1000"
+          @keydown="handleTemplateKeydown"
+        >
+        <button
+          class="canvas-toolbar__template-submit"
+          :disabled="!templateName.trim() || saveAsTemplateMut.isPending.value"
+          @click="handleSaveAsTemplate"
+        >
+          {{ t('canvas.saveAsTemplate') }}
+        </button>
+      </div>
+    </div>
+
     <button
       class="canvas-toolbar__btn"
       :title="t('canvas.settings')"
@@ -358,5 +433,60 @@ function onExportSelect(key: string) {
 .canvas-toolbar__icon-sm {
   width: 14px;
   height: 14px;
+}
+
+.canvas-toolbar__save-template-group {
+  position: relative;
+}
+
+.canvas-toolbar__template-form {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  margin-top: var(--space-1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
+  min-width: 220px;
+}
+
+.canvas-toolbar__template-input {
+  padding: var(--space-1) var(--space-1-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas);
+  color: var(--color-fg);
+  font-size: var(--font-size-xs);
+}
+
+.canvas-toolbar__template-input:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.canvas-toolbar__template-submit {
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.canvas-toolbar__template-submit:hover {
+  opacity: 0.9;
+}
+
+.canvas-toolbar__template-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

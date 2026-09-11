@@ -57,6 +57,13 @@
     "searchPlaceholder": "Search canvas...",
     "searchClear": "Clear search",
     "searchNoResults": "No matching objects found",
-    "objectSummary": "{count} {count, plural, one {object} other {objects}}"
+    "objectSummary": "{count} {count, plural, one {object} other {objects}}",
+    "selectTemplate": "Choose a template",
+    "startBlank": "Start blank",
+    "saveAsTemplate": "Save as template",
+    "templateName": "Template name",
+    "templateDescription": "Description (optional)",
+    "templateSaved": "Template saved",
+    "applyingTemplate": "Applying template..."
   }
 }
