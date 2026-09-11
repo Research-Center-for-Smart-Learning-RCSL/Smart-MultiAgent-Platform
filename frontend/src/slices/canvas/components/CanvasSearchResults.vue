@@ -128,7 +128,7 @@ function kindIcon(kind: string) {
 }
 
 .canvas-search-results__snippet :deep(mark) {
-  background: var(--color-warning-bg, #fef3c7);
+  background: var(--color-warning-tint);
   color: inherit;
   padding: 0 1px;
   border-radius: 2px;

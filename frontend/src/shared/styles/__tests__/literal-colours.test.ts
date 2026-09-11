@@ -22,6 +22,7 @@ const RETAINED: Record<string, string> = {
   'slices/workflow/components/WorkflowNodeComponent.vue':
     'node-type palette, plus three run-state tints mixed into --color-bg at a fixed 12%',
   'slices/agents/views/GraphragGraphView.vue': 'entity-type palette',
+  'slices/canvas/components/CanvasTemplatePicker.vue': 'object-kind preview palette for template thumbnails',
   // A brand mark is not ours to retheme.
   'slices/identity/views/LoginView.vue': "Google's G mark",
   'slices/identity/views/RegisterView.vue': "Google's G mark",

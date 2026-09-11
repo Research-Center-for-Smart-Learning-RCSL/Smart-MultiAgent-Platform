@@ -173,6 +173,13 @@ exempt(
   'slices/conversation/components/ObservationReleaseDialog.vue:margin-left:26px',
 )
 
+exempt(
+  'sub-element micro-sizing for icon alignment and mark highlight styling',
+  'slices/canvas/components/CanvasSearchResults.vue:margin-top:2px',
+  'slices/canvas/components/CanvasSearchResults.vue:line-height:1.4',
+  'slices/canvas/components/CanvasSearchResults.vue:padding:0 1px',
+)
+
 /**
  * Strips `@font-face { ... }` blocks, brace-counted.
  *

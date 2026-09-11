@@ -455,7 +455,7 @@ function handleTemplateKeydown(e: KeyboardEvent) {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--elevation-md, 0 4px 6px -1px rgb(0 0 0 / 0.1));
+  box-shadow: var(--elevation-2);
   min-width: 220px;
 }
 
@@ -478,7 +478,7 @@ function handleTemplateKeydown(e: KeyboardEvent) {
   border: none;
   border-radius: var(--radius-sm);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition: opacity 0.15s;
