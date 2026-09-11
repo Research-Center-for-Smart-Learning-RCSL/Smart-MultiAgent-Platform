@@ -11,6 +11,8 @@ import type { CanvasOut } from '../models/CanvasOut';
 import type { CanvasSettingsIn } from '../models/CanvasSettingsIn';
 import type { CommentIn } from '../models/CommentIn';
 import type { CommentOut } from '../models/CommentOut';
+import type { SnapshotCreateIn } from '../models/SnapshotCreateIn';
+import type { SnapshotDetailOut } from '../models/SnapshotDetailOut';
 import type { SnapshotOut } from '../models/SnapshotOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -408,14 +410,66 @@ export class CanvasService {
      */
     public static createSnapshotApiChatroomsChatroomIdCanvasSnapshotsPost({
         chatroomId,
+        requestBody,
     }: {
         chatroomId: string,
+        requestBody?: (SnapshotCreateIn | null),
     }): CancelablePromise<SnapshotOut> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/chatrooms/{chatroom_id}/canvas/snapshots',
             path: {
                 'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Snapshot
+     * @returns SnapshotDetailOut Successful Response
+     * @throws ApiError
+     */
+    public static getSnapshotApiChatroomsChatroomIdCanvasSnapshotsSnapshotIdGet({
+        chatroomId,
+        snapshotId,
+    }: {
+        chatroomId: string,
+        snapshotId: string,
+    }): CancelablePromise<SnapshotDetailOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/canvas/snapshots/{snapshot_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'snapshot_id': snapshotId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Restore Snapshot
+     * @returns SnapshotOut Successful Response
+     * @throws ApiError
+     */
+    public static restoreSnapshotApiChatroomsChatroomIdCanvasSnapshotsSnapshotIdRestorePost({
+        chatroomId,
+        snapshotId,
+    }: {
+        chatroomId: string,
+        snapshotId: string,
+    }): CancelablePromise<SnapshotOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/canvas/snapshots/{snapshot_id}/restore',
+            path: {
+                'chatroom_id': chatroomId,
+                'snapshot_id': snapshotId,
             },
             errors: {
                 422: `Request Validation Problem`,

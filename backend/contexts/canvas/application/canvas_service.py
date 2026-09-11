@@ -300,9 +300,7 @@ class CanvasService:
     ) -> Sequence[CanvasSnapshot]:
         return await self._repo.list_snapshots(canvas_id, limit=limit, offset=offset)
 
-    async def get_snapshot(
-        self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID
-    ) -> CanvasSnapshot | None:
+    async def get_snapshot(self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID) -> CanvasSnapshot | None:
         return await self._repo.get_snapshot(snapshot_id, canvas_id=canvas_id)
 
     async def create_snapshot(
@@ -405,9 +403,7 @@ class CanvasService:
 
         all_objects = await self._repo.list_objects(canvas_id)
         if all_objects:
-            await self._repo.batch_delete_objects(
-                [obj.id for obj in all_objects], canvas_id=canvas_id
-            )
+            await self._repo.batch_delete_objects([obj.id for obj in all_objects], canvas_id=canvas_id)
 
         snapshot_data = target.snapshot_data
         if "elements" in snapshot_data:

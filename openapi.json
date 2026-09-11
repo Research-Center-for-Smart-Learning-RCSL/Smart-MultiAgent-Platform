@@ -2,9 +2,9 @@
 rWarning: Field name "json" in "LoggingSection" shadows an a
 ttribute in parent "BaseSettings"
 At line:1 char:326
-+ ... ev\SMAP\backend; python scripts/export_openapi.py > op
++ ... SMAP\backend; python scripts/export_openapi.py > ../op
 enapi.json 2>&1
-+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (C:\dev\SMAP\ba 
    c... "BaseSettings":String) [], RemoteException
