@@ -210,13 +210,17 @@ _PLATFORM_TEMPLATES = [
 
 
 def upgrade() -> None:
-    canvas_template_scope = pg.ENUM("platform", "project", name="canvas_template_scope")
+    canvas_template_scope = pg.ENUM("platform", "project", name="canvas_template_scope", create_type=False)
     canvas_template_scope.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "canvas_templates",
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("scope", canvas_template_scope, nullable=False),
+        sa.Column(
+            "scope",
+            pg.ENUM("platform", "project", name="canvas_template_scope", create_type=False),
+            nullable=False,
+        ),
         sa.Column(
             "project_id",
             pg.UUID(as_uuid=True),
