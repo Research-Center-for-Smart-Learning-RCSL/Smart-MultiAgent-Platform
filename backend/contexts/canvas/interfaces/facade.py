@@ -12,7 +12,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.application.canvas_service import CanvasService
-from contexts.canvas.domain.models import Canvas, CanvasObject, CanvasObjectKind, CanvasSnapshot
+from contexts.canvas.application.comment_service import CommentService
+from contexts.canvas.domain.models import Canvas, CanvasComment, CanvasObject, CanvasObjectKind, CanvasSnapshot
 
 
 class CanvasFacade:
@@ -24,6 +25,7 @@ class CanvasFacade:
     ) -> None:
         self._db = db
         self._service = CanvasService(db, room_channel_fn=room_channel_fn)
+        self._comments = CommentService(db, room_channel_fn=room_channel_fn)
 
     async def get_by_chatroom(self, chatroom_id: uuid.UUID) -> Canvas | None:
         return await self._service.get_by_chatroom(chatroom_id)
@@ -216,6 +218,103 @@ class CanvasFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+        )
+
+
+    # ---- comments ------------------------------------------------------------
+
+    async def list_comments(
+        self,
+        object_id: uuid.UUID,
+        *,
+        canvas_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[CanvasComment]:
+        return await self._comments.list_comments(
+            object_id, canvas_id=canvas_id, limit=limit, offset=offset
+        )
+
+    async def get_comment(
+        self, comment_id: uuid.UUID, *, canvas_id: uuid.UUID
+    ) -> CanvasComment | None:
+        return await self._comments.get_comment(comment_id, canvas_id=canvas_id)
+
+    async def create_comment(
+        self,
+        *,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        object_id: uuid.UUID,
+        content: str,
+        created_by_user_id: uuid.UUID | None = None,
+        created_by_guest_id: uuid.UUID | None = None,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasComment:
+        return await self._comments.create_comment(
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            object_id=object_id,
+            content=content,
+            created_by_user_id=created_by_user_id,
+            created_by_guest_id=created_by_guest_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def update_comment(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        content: str,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasComment | None:
+        return await self._comments.update_comment(
+            comment_id=comment_id,
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            content=content,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def delete_comment(
+        self,
+        *,
+        comment_id: uuid.UUID,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        object_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        return await self._comments.delete_comment(
+            comment_id=comment_id,
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            object_id=object_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def count_comments_by_object(
+        self,
+        object_ids: Sequence[uuid.UUID],
+        *,
+        canvas_id: uuid.UUID,
+    ) -> dict[uuid.UUID, int]:
+        return await self._comments.count_comments_by_object(
+            object_ids, canvas_id=canvas_id
         )
 
 

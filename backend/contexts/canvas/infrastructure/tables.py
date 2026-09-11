@@ -78,6 +78,40 @@ canvas_objects = sa.Table(
     sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
+canvas_object_comments = sa.Table(
+    "canvas_object_comments",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "canvas_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("canvases.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "object_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("canvas_objects.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("content", sa.Text, nullable=False),
+    sa.Column(
+        "created_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column(
+        "created_by_guest_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("guest_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+)
+
 canvas_snapshots = sa.Table(
     "canvas_snapshots",
     metadata,
