@@ -44,17 +44,13 @@ const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
 const canvasRendererRef = ref<ComponentPublicInstance<any> | null>(null)
-const excalidrawApiRef = computed(() => canvasRendererRef.value?.getExcalidrawApi?.() ?? null)
+
+function getExcalidrawApi() {
+  return canvasRendererRef.value?.getExcalidrawApi?.() ?? null
+}
 
 const chatroomNameRef = toRef(props, 'chatroomName')
-const { exportPng, exportSvg, isExporting } = useCanvasExport(excalidrawApiRef, chatroomNameRef)
-
-const hasElements = computed(() => {
-  const api = excalidrawApiRef.value
-  if (!api) return false
-  const els = api.getSceneElements()
-  return Array.isArray(els) && els.length > 0
-})
+const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
 
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
@@ -111,7 +107,6 @@ async function toggleExposeToAgents() {
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
       :is-exporting="isExporting"
-      :has-elements="hasElements"
       @add-note="() => {}"
       @add-text="() => {}"
       @add-shape="() => {}"

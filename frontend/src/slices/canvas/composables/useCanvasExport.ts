@@ -33,13 +33,13 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 export function useCanvasExport(
-  excalidrawApi: Ref<ExcalidrawAPI | null>,
+  getExcalidrawApi: () => ExcalidrawAPI | null,
   chatroomName: Ref<string>,
 ) {
   const isExporting = ref(false)
 
   async function exportPng(scale: 1 | 2) {
-    const api = excalidrawApi.value
+    const api = getExcalidrawApi()
     if (!api) return
 
     isExporting.value = true
@@ -67,7 +67,7 @@ export function useCanvasExport(
   }
 
   async function exportSvg() {
-    const api = excalidrawApi.value
+    const api = getExcalidrawApi()
     if (!api) return
 
     isExporting.value = true

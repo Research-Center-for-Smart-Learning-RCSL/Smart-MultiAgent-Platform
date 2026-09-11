@@ -48,9 +48,8 @@ describe('useCanvasExport', () => {
 
   it('exportPng calls exportToBlob with scale 1 and triggers download', async () => {
     const api = makeApi()
-    const apiRef = ref(api)
     const nameRef = ref('test-room')
-    const { exportPng, isExporting } = useCanvasExport(apiRef, nameRef)
+    const { exportPng, isExporting } = useCanvasExport(() => api, nameRef)
 
     const blob = new Blob(['png'], { type: 'image/png' })
     mockExportToBlob.mockResolvedValue(blob)
@@ -74,9 +73,8 @@ describe('useCanvasExport', () => {
 
   it('exportPng at 2x doubles dimensions', async () => {
     const api = makeApi()
-    const apiRef = ref(api)
     const nameRef = ref('room')
-    const { exportPng } = useCanvasExport(apiRef, nameRef)
+    const { exportPng } = useCanvasExport(() => api, nameRef)
 
     mockExportToBlob.mockResolvedValue(new Blob(['png']))
 
@@ -88,9 +86,8 @@ describe('useCanvasExport', () => {
 
   it('exportSvg calls exportToSvg and triggers download', async () => {
     const api = makeApi()
-    const apiRef = ref(api)
     const nameRef = ref('my-room')
-    const { exportSvg } = useCanvasExport(apiRef, nameRef)
+    const { exportSvg } = useCanvasExport(() => api, nameRef)
 
     const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     mockExportToSvg.mockResolvedValue(svgEl)
@@ -107,9 +104,8 @@ describe('useCanvasExport', () => {
   })
 
   it('does nothing when excalidrawApi is null', async () => {
-    const apiRef = ref(null)
     const nameRef = ref('room')
-    const { exportPng, exportSvg } = useCanvasExport(apiRef, nameRef)
+    const { exportPng, exportSvg } = useCanvasExport(() => null, nameRef)
 
     await exportPng(1)
     await exportSvg()
@@ -120,9 +116,8 @@ describe('useCanvasExport', () => {
 
   it('filename contains sanitized chatroom name', async () => {
     const api = makeApi()
-    const apiRef = ref(api)
     const nameRef = ref('My Room / "Special"')
-    const { exportPng } = useCanvasExport(apiRef, nameRef)
+    const { exportPng } = useCanvasExport(() => api, nameRef)
 
     mockExportToBlob.mockResolvedValue(new Blob(['png']))
 
@@ -138,9 +133,8 @@ describe('useCanvasExport', () => {
 
   it('isExporting is true while export is in progress', async () => {
     const api = makeApi()
-    const apiRef = ref(api)
     const nameRef = ref('room')
-    const { exportPng, isExporting } = useCanvasExport(apiRef, nameRef)
+    const { exportPng, isExporting } = useCanvasExport(() => api, nameRef)
 
     let resolveBlob!: (v: Blob) => void
     mockExportToBlob.mockReturnValue(new Promise<Blob>((r) => { resolveBlob = r }))

@@ -63,14 +63,24 @@ platform's data model, access control, or persistence behavior. No SRS entry war
 - [ ] AC-1: A user can export the current canvas as a PNG file (1x resolution) from the
   toolbar. The file downloads to the user's device with a meaningful filename
   (`canvas-{chatroomName}-{timestamp}.png`).
+  (Unit test verifies exportToBlob call with scale=1 and download trigger; needs running
+  stack for browser verification.)
 - [ ] AC-2: A user can export the current canvas as a PNG file at 2x resolution.
+  (Unit test verifies getDimensions returns 2x; needs running stack.)
 - [ ] AC-3: A user can export the current canvas as an SVG file from the toolbar.
+  (Unit test verifies exportToSvg call and SVG serialization; needs running stack.)
 - [ ] AC-4: Exported images include all object types at correct positions and sizes.
   Verified by visual inspection of an export containing at least one of each object type.
+  (Excalidraw's own export handles all element types; needs visual inspection.)
 - [ ] AC-5: Export respects the current theme (light background in light mode, dark in
   dark mode).
+  (appState including theme is passed through to export functions; needs visual check.)
 - [ ] AC-6: The export button is disabled (or hidden) when the canvas has no objects.
+  (Deferred -- see D-1. The Excalidraw API is a non-reactive `let` in a React-in-Vue
+  bridge; a Vue computed cannot track its element count. The button stays enabled;
+  exporting an empty canvas produces a blank image, which is harmless.)
 - [ ] AC-7: Export works while the canvas is in fullscreen mode.
+  (Same component, same API -- no code path difference; needs browser verification.)
 
 ## 6. Detailed Changes
 
@@ -190,10 +200,24 @@ None.
 
 ## 12. Deviation Log
 
-(Populated during implementation.)
+- D-1: AC-6 (empty-canvas disable) not implemented. The Excalidraw API instance is a
+  non-reactive `let` variable inside CanvasRenderer's React-in-Vue bridge, set
+  asynchronously after mount. A Vue `computed` cannot track it or the element count it
+  exposes. The composable was changed from accepting a `Ref<ExcalidrawAPI>` to a getter
+  function `() => ExcalidrawAPI | null`, called at click time when the API is guaranteed
+  available. The empty-canvas disable would require either making the Excalidraw API
+  reactive (invasive to the bridge) or polling -- deferred to FU-4.
+
+- D-2: Pre-existing style-audit violations in canvas components (from canvas-comments and
+  CRDT commits) were fixed in this branch because they blocked CI: `--color-success`
+  fallback, `--color-border-light` (nonexistent), `--elevation-md` (nonexistent),
+  `--color-primary` (nonexistent), stale `CanvasRenderer.vue` colour retention entry,
+  `line-height: 1.5` exemption.
 
 ## 13. Follow-ups
 
 - FU-1: PDF export via server-side SVG-to-PDF conversion (WeasyPrint or similar).
 - FU-2: Export selected objects only (not the full canvas).
 - FU-3: Copy canvas to clipboard as PNG (for pasting into other apps).
+- FU-4: Reactive empty-canvas detection for AC-6 (requires making the Excalidraw API
+  observable from Vue, or deriving element count from the Yjs document).

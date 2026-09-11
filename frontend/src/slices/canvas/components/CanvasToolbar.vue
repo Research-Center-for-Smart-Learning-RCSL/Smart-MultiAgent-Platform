@@ -22,7 +22,6 @@ const props = defineProps<{
   isFullscreen: boolean
   isSaving: boolean
   isExporting: boolean
-  hasElements: boolean
 }>()
 
 const emit = defineEmits<{
@@ -108,7 +107,7 @@ function onExportSelect(key: string) {
         <button
           class="canvas-toolbar__btn"
           :title="t('canvas.export')"
-          :disabled="!props.hasElements || props.isExporting"
+          :disabled="props.isExporting"
         >
           <ArrowDownTrayIcon class="canvas-toolbar__icon" />
         </button>
