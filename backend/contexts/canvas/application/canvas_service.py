@@ -309,7 +309,7 @@ class CanvasService:
         request_id: uuid.UUID | None = None,
     ) -> CanvasSnapshot:
         from contexts.canvas.application.canvas_context_provider import (
-            _elements_to_pseudo_objects,
+            elements_to_pseudo_objects,
         )
         from contexts.canvas.application.crdt_relay import get_crdt_relay
 
@@ -318,7 +318,7 @@ class CanvasService:
 
         if crdt_elements is not None:
             snapshot_data = {"elements": crdt_elements}
-            pseudo_objects = _elements_to_pseudo_objects(crdt_elements)
+            pseudo_objects = elements_to_pseudo_objects(crdt_elements)
             digest = build_canvas_digest(pseudo_objects)
         else:
             objects = await self._repo.list_objects(canvas_id)
@@ -368,7 +368,7 @@ class CanvasService:
 
     async def latest_digest(self, canvas_id: uuid.UUID) -> str | None:
         from contexts.canvas.application.canvas_context_provider import (
-            _elements_to_pseudo_objects,
+            elements_to_pseudo_objects,
         )
         from contexts.canvas.application.crdt_relay import get_crdt_relay
 
@@ -377,7 +377,7 @@ class CanvasService:
         if relay.has(canvas_id):
             elements = relay.extract_elements_for_digest(canvas_id)
             if elements:
-                pseudo_objects = _elements_to_pseudo_objects(elements)
+                pseudo_objects = elements_to_pseudo_objects(elements)
                 return build_canvas_digest(pseudo_objects)
 
         # Try persisted crdt_state

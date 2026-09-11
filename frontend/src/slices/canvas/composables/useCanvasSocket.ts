@@ -1,6 +1,6 @@
 import { watch, onUnmounted, type Ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { wsManager } from '@shared/transport/ws-manager'
+import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
 import { canvasKeys } from '../queries'
 
 /**
@@ -26,13 +26,14 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
 
     for (const eventType of commentEvents) {
       unsubs.push(
-        channel.subscribe(eventType, (payload: { object_id?: string }) => {
+        channel.subscribe(eventType, (event: ChannelEvent) => {
           queryClient.invalidateQueries({
             queryKey: canvasKeys.commentCounts(chatroomId.value),
           })
-          if (payload.object_id) {
+          const objectId = event.object_id as string | undefined
+          if (objectId) {
             queryClient.invalidateQueries({
-              queryKey: canvasKeys.comments(chatroomId.value, payload.object_id),
+              queryKey: canvasKeys.comments(chatroomId.value, objectId),
             })
           }
         }),

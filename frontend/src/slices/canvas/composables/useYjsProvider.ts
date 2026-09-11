@@ -6,7 +6,7 @@ import {
   applyAwarenessUpdate,
 } from 'y-protocols/awareness'
 import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
-import { useSessionStore } from '@slices/identity'
+import { accessTokenClaims } from '@shared/transport'
 
 const AWARENESS_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
@@ -19,13 +19,13 @@ function pickColor(userId: string): string {
   for (let i = 0; i < userId.length; i++) {
     hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
   }
-  return AWARENESS_COLORS[Math.abs(hash) % AWARENESS_COLORS.length]
+  return AWARENESS_COLORS[Math.abs(hash) % AWARENESS_COLORS.length] ?? '#FF6B6B'
 }
 
 function toBase64(bytes: Uint8Array): string {
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    binary += String.fromCharCode(bytes[i]!)
   }
   return btoa(binary)
 }
@@ -51,19 +51,18 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
   const awareness = new Awareness(doc)
   const connected = ref(false)
 
-  const session = useSessionStore()
   let channel: ReturnType<typeof wsManager.channel> | null = null
   const unsubs: Array<() => void> = []
   let destroyed = false
 
-  // Set local awareness state
   function setLocalAwareness() {
-    const me = session.me
-    if (!me) return
+    const claims = accessTokenClaims.value
+    if (!claims) return
+    const userId = String(claims.sub ?? 'unknown')
     awareness.setLocalStateField('user', {
-      name: me.display_name || me.email.split('@')[0],
-      color: pickColor(me.id),
-      userId: me.id,
+      name: String(claims.display_name ?? claims.email ?? userId).split('@')[0],
+      color: pickColor(userId),
+      userId,
     })
   }
 

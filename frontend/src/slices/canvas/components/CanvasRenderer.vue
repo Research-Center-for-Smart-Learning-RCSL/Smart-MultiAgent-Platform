@@ -93,32 +93,39 @@ function onYjsChange(_event: any, transaction: any) {
   }
 }
 
-// Watch awareness for cursor/selection updates
+let awarenessHandler: (() => void) | null = null
+
+function onAwarenessChange() {
+  if (!excalidrawApi) return
+  const rawAwareness = toRaw(props.awareness)
+  const states = rawAwareness.getStates()
+  const collaborators = new Map<string, Record<string, unknown>>()
+
+  states.forEach((state: any, clientId: number) => {
+    if (clientId === rawAwareness.clientID) return
+    const user = state.user
+    if (!user) return
+    const entry: Record<string, unknown> = {}
+    if (state.cursor) entry.pointer = state.cursor
+    if (user.name) entry.username = user.name
+    if (user.color) {
+      entry.color = { background: `${user.color}33`, stroke: user.color }
+    }
+    collaborators.set(String(clientId), entry)
+  })
+
+  excalidrawApi.updateScene({ collaborators })
+}
+
 watch(
   () => props.awareness,
-  (awareness) => {
+  (awareness, oldAwareness) => {
+    if (oldAwareness && awarenessHandler) {
+      toRaw(oldAwareness).off('change', awarenessHandler)
+    }
     if (!awareness) return
-    const rawAwareness = toRaw(awareness)
-    rawAwareness.on('change', () => {
-      if (!excalidrawApi) return
-      const states = rawAwareness.getStates()
-      const collaborators = new Map<string, { pointer?: { x: number; y: number }; username?: string; color?: { background: string; stroke: string } }>()
-
-      states.forEach((state: any, clientId: number) => {
-        if (clientId === rawAwareness.clientID) return
-        const user = state.user
-        if (!user) return
-        collaborators.set(String(clientId), {
-          pointer: state.cursor ?? undefined,
-          username: user.name ?? undefined,
-          color: user.color
-            ? { background: `${user.color}33`, stroke: user.color }
-            : undefined,
-        })
-      })
-
-      excalidrawApi.updateScene({ collaborators })
-    })
+    awarenessHandler = onAwarenessChange
+    toRaw(awareness).on('change', awarenessHandler)
   },
   { immediate: true },
 )
@@ -128,6 +135,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (awarenessHandler) {
+    toRaw(props.awareness).off('change', awarenessHandler)
+    awarenessHandler = null
+  }
   const doc = toRaw(props.doc)
   const elementsArray = doc.getArray('elements')
   elementsArray.unobserve(onYjsChange)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, toRef, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { XMarkIcon, ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
 import CanvasCommentPopover from './CanvasCommentPopover.vue'
 import { useCanvasState } from '../composables/useCanvasState'
@@ -9,7 +9,6 @@ import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useCanvasComments } from '../composables/useCanvasComments'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
-import SEmptyState from '@shared/ui/SEmptyState.vue'
 
 const CanvasRenderer = defineAsyncComponent(() => import('./CanvasRenderer.vue'))
 
@@ -48,7 +47,6 @@ const showComments = ref(false)
 
 const {
   comments,
-  commentCounts,
   isLoading: commentsLoading,
   createComment,
   updateComment,
@@ -57,11 +55,6 @@ const {
 
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
-
-function openComments(objectId: string) {
-  selectedObjectId.value = objectId
-  showComments.value = true
-}
 
 function closeComments() {
   showComments.value = false
@@ -101,14 +94,6 @@ async function toggleExposeToAgents() {
   await updateSettings({ expose_to_agents: !exposeToAgents.value })
 }
 
-const hasContent = computed(() => {
-  try {
-    const elements = doc.getArray('elements')
-    return elements.length > 0
-  } catch {
-    return false
-  }
-})
 </script>
 
 <template>

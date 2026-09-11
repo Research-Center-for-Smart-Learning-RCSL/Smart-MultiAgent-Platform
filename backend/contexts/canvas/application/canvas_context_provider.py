@@ -28,7 +28,7 @@ _log = logging.getLogger(__name__)
 _MAX_DIGEST_CHARS = 2000
 
 
-def _elements_to_pseudo_objects(elements: list[dict[str, Any]]) -> list[CanvasObject]:
+def elements_to_pseudo_objects(elements: list[dict[str, Any]]) -> list[CanvasObject]:
     """Convert Excalidraw element dicts to CanvasObject-like for digest building."""
     from datetime import datetime
 
@@ -83,7 +83,7 @@ def _digest_from_crdt_state(crdt_state: bytes) -> str | None:
                 elem_dicts.append(d)
         if not elem_dicts:
             return None
-        pseudo_objects = _elements_to_pseudo_objects(elem_dicts)
+        pseudo_objects = elements_to_pseudo_objects(elem_dicts)
         return build_canvas_digest(pseudo_objects)
     except Exception:
         return None
@@ -116,7 +116,7 @@ class CanvasContextProvider:
             if relay.has(canvas.id):
                 elements = relay.extract_elements_for_digest(canvas.id)
                 if elements:
-                    pseudo_objects = _elements_to_pseudo_objects(elements)
+                    pseudo_objects = elements_to_pseudo_objects(elements)
                     digest = build_canvas_digest(pseudo_objects)
                     if digest:
                         return f"[Canvas content]\n{digest[:_MAX_DIGEST_CHARS]}"
