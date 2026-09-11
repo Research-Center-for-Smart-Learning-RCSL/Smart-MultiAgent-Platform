@@ -7,7 +7,7 @@ import CanvasCommentPopover from './CanvasCommentPopover.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useCanvasComments } from '../composables/useCanvasComments'
-import type { CanvasObjectKind } from '../types'
+import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 import SEmptyState from '@shared/ui/SEmptyState.vue'
 
@@ -26,12 +26,11 @@ const emit = defineEmits<{
 }>()
 
 const chatroomIdRef = toRef(props, 'chatroomId')
+
 const {
   canvas,
-  objects,
   isLoading,
   error,
-  createObject,
   uploadImage,
   saveSnapshot,
   updateSettings,
@@ -39,6 +38,10 @@ const {
 } = useCanvasState(chatroomIdRef)
 
 useCanvasSocket(chatroomIdRef)
+
+// CRDT sync via Yjs -- canvasId is derived from the REST canvas query
+const canvasIdRef = computed(() => canvas.value?.id ?? '')
+const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
 
 const selectedObjectId = ref<string | null>(null)
 const showComments = ref(false)
@@ -76,17 +79,6 @@ async function handleDeleteComment(commentId: string) {
   await deleteComment(commentId)
 }
 
-async function handleAddObject(kind: CanvasObjectKind) {
-  await createObject({
-    kind,
-    position_x: 100 + Math.random() * 200,
-    position_y: 100 + Math.random() * 200,
-    width: kind === 'text' ? 200 : 150,
-    height: kind === 'text' ? 40 : 150,
-    content: kind === 'note' ? '' : kind === 'text' ? '' : null,
-  })
-}
-
 function handleUploadImage() {
   fileInputRef.value?.click()
 }
@@ -103,19 +95,20 @@ async function handleSave() {
   await saveSnapshot()
 }
 
-function handleChange(_elements: unknown[]) {
-  // Phase 1: changes are saved manually via snapshot; Phase 2 will use CRDT sync
-}
-
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
 
 async function toggleExposeToAgents() {
   await updateSettings({ expose_to_agents: !exposeToAgents.value })
 }
 
-function getCommentCount(objectId: string): number {
-  return commentCounts.value[objectId] ?? 0
-}
+const hasContent = computed(() => {
+  try {
+    const elements = doc.getArray('elements')
+    return elements.length > 0
+  } catch {
+    return false
+  }
+})
 </script>
 
 <template>
@@ -126,11 +119,13 @@ function getCommentCount(objectId: string): number {
     <div class="canvas-panel__header">
       <span class="canvas-panel__title">{{ t('canvas.title') }}</span>
       <span
-        v-if="objects.length"
-        class="canvas-panel__count"
-      >
-        {{ objects.length }} {{ t('canvas.objects') }}
-      </span>
+        v-if="connected"
+        class="canvas-panel__status canvas-panel__status--connected"
+      />
+      <span
+        v-else
+        class="canvas-panel__status canvas-panel__status--disconnected"
+      />
       <button
         class="canvas-panel__close"
         :title="t('canvas.close')"
@@ -143,11 +138,11 @@ function getCommentCount(objectId: string): number {
     <CanvasToolbar
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
-      @add-note="handleAddObject('note')"
-      @add-text="handleAddObject('text')"
-      @add-shape="handleAddObject('shape')"
-      @add-connector="handleAddObject('connector')"
-      @draw="handleAddObject('drawing')"
+      @add-note="() => {}"
+      @add-text="() => {}"
+      @add-shape="() => {}"
+      @add-connector="() => {}"
+      @draw="() => {}"
       @upload-image="handleUploadImage"
       @save="handleSave"
       @toggle-fullscreen="emit('toggleFullscreen')"
@@ -185,43 +180,17 @@ function getCommentCount(objectId: string): number {
       >
         <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
       </div>
-      <div
-        v-else-if="objects.length === 0"
-        class="canvas-panel__centered"
-      >
-        <SEmptyState
-          :title="t('canvas.empty')"
-          :description="t('canvas.emptyDescription')"
-        />
-      </div>
       <template v-else>
         <div class="canvas-panel__canvas-area">
           <Suspense>
             <CanvasRenderer
-              :objects="objects"
-              @change="handleChange"
+              :doc="doc"
+              :awareness="awareness"
             />
             <template #fallback>
               <SLoadingSpinner />
             </template>
           </Suspense>
-
-          <div class="canvas-panel__object-list">
-            <button
-              v-for="obj in objects"
-              :key="obj.id"
-              class="canvas-panel__object-comment-btn"
-              :class="{ 'canvas-panel__object-comment-btn--active': selectedObjectId === obj.id && showComments }"
-              :title="t('canvas.comments')"
-              @click="openComments(obj.id)"
-            >
-              <ChatBubbleLeftIcon class="canvas-panel__comment-icon" />
-              <span
-                v-if="getCommentCount(obj.id) > 0"
-                class="canvas-panel__comment-badge"
-              >{{ getCommentCount(obj.id) }}</span>
-            </button>
-          </div>
         </div>
 
         <CanvasCommentPopover
@@ -277,9 +246,19 @@ function getCommentCount(objectId: string): number {
   font-size: var(--font-size-sm);
 }
 
-.canvas-panel__count {
-  font-size: var(--font-size-xs);
-  color: var(--color-muted);
+.canvas-panel__status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.canvas-panel__status--connected {
+  background: var(--color-success, #22c55e);
+}
+
+.canvas-panel__status--disconnected {
+  background: var(--color-muted);
 }
 
 .canvas-panel__close {
@@ -345,61 +324,5 @@ function getCommentCount(objectId: string): number {
 .canvas-panel__error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
-}
-
-.canvas-panel__object-list {
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  overflow-x: auto;
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.canvas-panel__object-comment-btn {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-
-.canvas-panel__object-comment-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-fg);
-}
-
-.canvas-panel__object-comment-btn--active {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.canvas-panel__comment-icon {
-  width: 14px;
-  height: 14px;
-}
-
-.canvas-panel__comment-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: var(--weight-semibold);
-  background: var(--color-primary);
-  color: white;
-  border-radius: 999px;
-  padding: 0 4px;
 }
 </style>

@@ -5,7 +5,8 @@ import { canvasKeys } from '../queries'
 
 /**
  * Subscribe to canvas-related events on the chatroom's room WebSocket channel.
- * Phase 1 uses the shared room channel; Phase 2 will use a dedicated canvas channel.
+ * Object CRUD events are handled by CRDT sync (Phase 2); this composable
+ * retains settings, snapshot, and comment events on the room channel.
  */
 export function useCanvasSocket(chatroomId: Ref<string>) {
   const queryClient = useQueryClient()
@@ -16,21 +17,6 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     if (!roomId) return
 
     const channel = wsManager.channel(`/chatroom/${roomId}`)
-
-    const canvasEvents = [
-      'canvas.object_created',
-      'canvas.object_updated',
-      'canvas.object_deleted',
-      'canvas.batch_updated',
-    ]
-
-    for (const eventType of canvasEvents) {
-      unsubs.push(
-        channel.subscribe(eventType, () => {
-          queryClient.invalidateQueries({ queryKey: canvasKeys.objects(chatroomId.value) })
-        }),
-      )
-    }
 
     const commentEvents = [
       'canvas.comment_created',

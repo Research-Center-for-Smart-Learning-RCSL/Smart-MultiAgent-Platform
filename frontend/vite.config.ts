@@ -45,7 +45,9 @@ export default defineConfig({
           if (
             id.includes('node_modules/react/') ||
             id.includes('node_modules/react-dom/') ||
-            id.includes('node_modules/@excalidraw/')
+            id.includes('node_modules/@excalidraw/') ||
+            id.includes('node_modules/yjs/') ||
+            id.includes('node_modules/y-protocols/')
           ) {
             return 'excalidraw'
           }

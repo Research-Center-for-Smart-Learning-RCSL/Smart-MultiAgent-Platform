@@ -1,51 +1,18 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
-import { ref, watch, onMounted, onUnmounted } from 'vue'
-import type { CanvasObject } from '../types'
+import { ref, onMounted, onUnmounted, watch, toRaw } from 'vue'
+import type * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 
 const props = defineProps<{
-  objects: CanvasObject[]
-}>()
-
-const emit = defineEmits<{
-  change: [elements: unknown[]]
+  doc: Y.Doc
+  awareness: Awareness
 }>()
 
 const containerRef = ref<HTMLDivElement>()
 let excalidrawApi: any = null
 let reactRoot: any = null
-
-function objectsToExcalidrawElements(objects: CanvasObject[]): unknown[] {
-  return objects.map((obj) => {
-    const base: Record<string, unknown> = {
-      id: obj.id,
-      type: mapKindToExcalidrawType(obj.kind),
-      x: obj.position_x,
-      y: obj.position_y,
-      width: obj.width,
-      height: obj.height,
-      text: obj.content ?? undefined,
-      ...((obj.style as Record<string, unknown>) ?? {}),
-    }
-    if (obj.created_by_agent_id) {
-      base.strokeColor = '#6366f1'
-      base.backgroundColor = '#eef2ff'
-    }
-    return base
-  })
-}
-
-function mapKindToExcalidrawType(kind: string): string {
-  switch (kind) {
-    case 'note': return 'rectangle'
-    case 'text': return 'text'
-    case 'image': return 'image'
-    case 'shape': return 'rectangle'
-    case 'drawing': return 'freedraw'
-    case 'connector': return 'arrow'
-    default: return 'rectangle'
-  }
-}
+let suppressOnChange = false
 
 async function mountExcalidraw() {
   if (!containerRef.value) return
@@ -55,17 +22,25 @@ async function mountExcalidraw() {
     const ReactDOM = await import('react-dom/client')
     const { Excalidraw } = await import('@excalidraw/excalidraw')
 
-    const elements = objectsToExcalidrawElements(props.objects)
+    const doc = toRaw(props.doc)
+    const elementsArray = doc.getArray('elements')
+
+    // Build initial elements from Yjs doc
+    const initialElements = elementsArray.toArray().map((item: any) => {
+      if (item.toJSON) return item.toJSON()
+      return item
+    })
 
     reactRoot = ReactDOM.createRoot(containerRef.value)
 
     const App = React.createElement(Excalidraw as any, {
-      initialData: { elements: elements as any[] },
+      initialData: { elements: initialElements as any[] },
       excalidrawAPI: (api: any) => {
         excalidrawApi = api
       },
-      onChange: (els: readonly unknown[]) => {
-        emit('change', [...els])
+      onChange: (elements: readonly any[]) => {
+        if (suppressOnChange) return
+        syncToYjs(elements)
       },
       UIOptions: {
         canvasActions: {
@@ -76,18 +51,76 @@ async function mountExcalidraw() {
       },
     } as any)
     reactRoot.render(App)
+
+    // Listen for remote Yjs changes
+    elementsArray.observe(onYjsChange)
   } catch (err) {
     console.error('Failed to mount Excalidraw:', err)
   }
 }
 
-watch(
-  () => props.objects,
-  (newObjects) => {
-    if (!excalidrawApi) return
-    const elements = objectsToExcalidrawElements(newObjects)
+function syncToYjs(elements: readonly any[]) {
+  const doc = toRaw(props.doc)
+  const elementsArray = doc.getArray('elements')
+
+  doc.transact(() => {
+    // Replace all elements in the Yjs array
+    if (elementsArray.length > 0) {
+      elementsArray.delete(0, elementsArray.length)
+    }
+    for (const el of elements) {
+      elementsArray.push([el])
+    }
+  }, 'local')
+}
+
+function onYjsChange(_event: any, transaction: any) {
+  if (transaction.origin === 'local') return
+  if (!excalidrawApi) return
+
+  const doc = toRaw(props.doc)
+  const elementsArray = doc.getArray('elements')
+  const elements = elementsArray.toArray().map((item: any) => {
+    if (item.toJSON) return item.toJSON()
+    return item
+  })
+
+  suppressOnChange = true
+  try {
     excalidrawApi.updateScene({ elements })
+  } finally {
+    suppressOnChange = false
+  }
+}
+
+// Watch awareness for cursor/selection updates
+watch(
+  () => props.awareness,
+  (awareness) => {
+    if (!awareness) return
+    const rawAwareness = toRaw(awareness)
+    rawAwareness.on('change', () => {
+      if (!excalidrawApi) return
+      const states = rawAwareness.getStates()
+      const collaborators = new Map<string, { pointer?: { x: number; y: number }; username?: string; color?: { background: string; stroke: string } }>()
+
+      states.forEach((state: any, clientId: number) => {
+        if (clientId === rawAwareness.clientID) return
+        const user = state.user
+        if (!user) return
+        collaborators.set(String(clientId), {
+          pointer: state.cursor ?? undefined,
+          username: user.name ?? undefined,
+          color: user.color
+            ? { background: `${user.color}33`, stroke: user.color }
+            : undefined,
+        })
+      })
+
+      excalidrawApi.updateScene({ collaborators })
+    })
   },
+  { immediate: true },
 )
 
 onMounted(() => {
@@ -95,6 +128,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  const doc = toRaw(props.doc)
+  const elementsArray = doc.getArray('elements')
+  elementsArray.unobserve(onYjsChange)
   excalidrawApi = null
   if (reactRoot) {
     reactRoot.unmount()
