@@ -213,6 +213,26 @@ class CanvasRepository:
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
 
+    # ---- crdt state --------------------------------------------------------
+
+    async def get_crdt_state(self, canvas_id: uuid.UUID) -> bytes | None:
+        row = (
+            await self._db.execute(
+                sa.select(t.canvases.c.crdt_state).where(
+                    sa.and_(
+                        t.canvases.c.id == canvas_id,
+                        t.canvases.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        return row.crdt_state if row else None
+
+    async def update_crdt_state(self, canvas_id: uuid.UUID, state: bytes) -> None:
+        await self._db.execute(
+            t.canvases.update().where(t.canvases.c.id == canvas_id).values(crdt_state=state)
+        )
+
     # ---- snapshots ---------------------------------------------------------
 
     async def list_snapshots(

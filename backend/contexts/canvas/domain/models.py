@@ -49,6 +49,18 @@ class CanvasObject:
 
 
 @dataclass(frozen=True, slots=True)
+class CanvasComment:
+    id: uuid.UUID
+    canvas_id: uuid.UUID
+    object_id: uuid.UUID
+    content: str
+    created_by_user_id: uuid.UUID | None
+    created_by_guest_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class CanvasSnapshot:
     id: uuid.UUID
     canvas_id: uuid.UUID
@@ -60,6 +72,7 @@ class CanvasSnapshot:
 
 __all__ = [
     "Canvas",
+    "CanvasComment",
     "CanvasObject",
     "CanvasObjectKind",
     "CanvasSnapshot",

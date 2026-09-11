@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   RectangleGroupIcon,
@@ -7,17 +8,20 @@ import {
   PencilIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
+  ArrowDownTrayIcon,
   CameraIcon,
   Cog6ToothIcon,
   LinkIcon,
   Square2StackIcon,
 } from '@heroicons/vue/24/outline'
+import SDropdown from '@shared/ui/SDropdown.vue'
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   isFullscreen: boolean
   isSaving: boolean
+  isExporting: boolean
 }>()
 
 const emit = defineEmits<{
@@ -30,7 +34,21 @@ const emit = defineEmits<{
   save: []
   toggleFullscreen: []
   openSettings: []
+  exportPng: [scale: 1 | 2]
+  exportSvg: []
 }>()
+
+const exportItems = computed(() => [
+  { key: 'png-1x', label: t('canvas.exportPng') },
+  { key: 'png-2x', label: t('canvas.exportPng2x') },
+  { key: 'svg', label: t('canvas.exportSvg') },
+])
+
+function onExportSelect(key: string) {
+  if (key === 'png-1x') emit('exportPng', 1)
+  else if (key === 'png-2x') emit('exportPng', 2)
+  else if (key === 'svg') emit('exportSvg')
+}
 </script>
 
 <template>
@@ -80,6 +98,21 @@ const emit = defineEmits<{
 
     <div class="canvas-toolbar__separator" />
 
+    <SDropdown
+      :items="exportItems"
+      placement="bottom-start"
+      @select="onExportSelect"
+    >
+      <template #trigger>
+        <button
+          class="canvas-toolbar__btn"
+          :title="t('canvas.export')"
+          :disabled="props.isExporting"
+        >
+          <ArrowDownTrayIcon class="canvas-toolbar__icon" />
+        </button>
+      </template>
+    </SDropdown>
     <button
       class="canvas-toolbar__btn"
       :title="t('canvas.save')"

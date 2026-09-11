@@ -1,50 +1,36 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
-import { ref, watch, onMounted, onUnmounted } from 'vue'
-import type { CanvasObject } from '../types'
+import { ref, onMounted, onUnmounted, watch, toRaw } from 'vue'
+import * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 
 const props = defineProps<{
-  objects: CanvasObject[]
-}>()
-
-const emit = defineEmits<{
-  change: [elements: unknown[]]
+  doc: Y.Doc
+  awareness: Awareness
 }>()
 
 const containerRef = ref<HTMLDivElement>()
 let excalidrawApi: any = null
 let reactRoot: any = null
 
-function objectsToExcalidrawElements(objects: CanvasObject[]): unknown[] {
-  return objects.map((obj) => {
-    const base: Record<string, unknown> = {
-      id: obj.id,
-      type: mapKindToExcalidrawType(obj.kind),
-      x: obj.position_x,
-      y: obj.position_y,
-      width: obj.width,
-      height: obj.height,
-      text: obj.content ?? undefined,
-      ...((obj.style as Record<string, unknown>) ?? {}),
-    }
-    if (obj.created_by_agent_id) {
-      base.strokeColor = '#6366f1'
-      base.backgroundColor = '#eef2ff'
-    }
-    return base
-  })
+// Generation counter: incremented on remote updates, checked in onChange.
+// React 18 fires onChange asynchronously; a boolean flag would already be
+// reset by the time the async callback runs. A counter survives the gap.
+let remoteUpdateGen = 0
+let lastSyncedGen = 0
+
+function getElementsMap(): Y.Map<any> {
+  return toRaw(props.doc).getMap('excalidraw-elements')
 }
 
-function mapKindToExcalidrawType(kind: string): string {
-  switch (kind) {
-    case 'note': return 'rectangle'
-    case 'text': return 'text'
-    case 'image': return 'image'
-    case 'shape': return 'rectangle'
-    case 'drawing': return 'freedraw'
-    case 'connector': return 'arrow'
-    default: return 'rectangle'
-  }
+function readElementsFromYjs(): any[] {
+  const ymap = getElementsMap()
+  const result: any[] = []
+  ymap.forEach((val: any) => {
+    const el = val instanceof Y.Map ? val.toJSON() : val
+    if (!el.isDeleted) result.push(el)
+  })
+  return result
 }
 
 async function mountExcalidraw() {
@@ -55,17 +41,21 @@ async function mountExcalidraw() {
     const ReactDOM = await import('react-dom/client')
     const { Excalidraw } = await import('@excalidraw/excalidraw')
 
-    const elements = objectsToExcalidrawElements(props.objects)
+    const initialElements = readElementsFromYjs()
 
     reactRoot = ReactDOM.createRoot(containerRef.value)
 
     const App = React.createElement(Excalidraw as any, {
-      initialData: { elements: elements as any[] },
+      initialData: { elements: initialElements as any[] },
       excalidrawAPI: (api: any) => {
         excalidrawApi = api
       },
-      onChange: (els: readonly unknown[]) => {
-        emit('change', [...els])
+      onChange: (elements: readonly any[]) => {
+        if (remoteUpdateGen !== lastSyncedGen) {
+          lastSyncedGen = remoteUpdateGen
+          return
+        }
+        syncToYjs(elements)
       },
       UIOptions: {
         canvasActions: {
@@ -76,17 +66,111 @@ async function mountExcalidraw() {
       },
     } as any)
     reactRoot.render(App)
+
+    getElementsMap().observeDeep(onYjsChange)
   } catch (err) {
     console.error('Failed to mount Excalidraw:', err)
   }
 }
 
+function syncToYjs(elements: readonly any[]) {
+  const doc = toRaw(props.doc)
+  const ymap = getElementsMap()
+
+  doc.transact(() => {
+    const seen = new Set<string>()
+    for (const el of elements) {
+      if (!el.id) continue
+      seen.add(el.id)
+      const existing = ymap.get(el.id)
+      if (existing instanceof Y.Map) {
+        // Update changed fields only
+        for (const [key, value] of Object.entries(el)) {
+          const cur = existing.get(key)
+          if (cur !== value && JSON.stringify(cur) !== JSON.stringify(value)) {
+            existing.set(key, value)
+          }
+        }
+      } else {
+        ymap.set(el.id, new Y.Map(Object.entries(el)))
+      }
+    }
+    // Mark deleted elements
+    ymap.forEach((_val: any, key: string) => {
+      if (!seen.has(key)) {
+        const entry = ymap.get(key)
+        if (entry instanceof Y.Map) {
+          entry.set('isDeleted', true)
+        }
+      }
+    })
+  }, 'local')
+}
+
+function onYjsChange(events: any[], transaction: any) {
+  if (transaction.origin === 'local') return
+  if (!excalidrawApi) return
+
+  remoteUpdateGen++
+  const elements = readElementsFromYjs()
+  excalidrawApi.updateScene({ elements })
+}
+
+let awarenessHandler: (() => void) | null = null
+
+function onAwarenessChange() {
+  if (!excalidrawApi) return
+  const rawAwareness = toRaw(props.awareness)
+  const states = rawAwareness.getStates()
+  const collaborators = new Map<string, Record<string, unknown>>()
+
+  states.forEach((state: any, clientId: number) => {
+    if (clientId === rawAwareness.clientID) return
+    const user = state.user
+    if (!user) return
+    const entry: Record<string, unknown> = {}
+    if (state.cursor) entry.pointer = state.cursor
+    if (user.name) entry.username = user.name
+    if (user.color) {
+      entry.color = { background: `${user.color}33`, stroke: user.color }
+    }
+    collaborators.set(String(clientId), entry)
+  })
+
+  excalidrawApi.updateScene({ collaborators })
+}
+
 watch(
-  () => props.objects,
-  (newObjects) => {
-    if (!excalidrawApi) return
-    const elements = objectsToExcalidrawElements(newObjects)
-    excalidrawApi.updateScene({ elements })
+  () => props.awareness,
+  (awareness, oldAwareness) => {
+    if (oldAwareness && awarenessHandler) {
+      toRaw(oldAwareness).off('change', awarenessHandler)
+    }
+    if (!awareness) return
+    awarenessHandler = onAwarenessChange
+    toRaw(awareness).on('change', awarenessHandler)
+  },
+  { immediate: true },
+)
+
+function teardown() {
+  if (awarenessHandler) {
+    toRaw(props.awareness).off('change', awarenessHandler)
+    awarenessHandler = null
+  }
+  try { getElementsMap().unobserveDeep(onYjsChange) } catch { /* doc may have changed */ }
+  excalidrawApi = null
+  if (reactRoot) {
+    reactRoot.unmount()
+    reactRoot = null
+  }
+}
+
+watch(
+  () => props.doc,
+  () => {
+    teardown()
+    mountExcalidraw()
   },
 )
 
@@ -94,13 +178,13 @@ onMounted(() => {
   mountExcalidraw()
 })
 
-onUnmounted(() => {
-  excalidrawApi = null
-  if (reactRoot) {
-    reactRoot.unmount()
-    reactRoot = null
-  }
-})
+onUnmounted(teardown)
+
+function getExcalidrawApi() {
+  return excalidrawApi
+}
+
+defineExpose({ getExcalidrawApi })
 </script>
 
 <template>

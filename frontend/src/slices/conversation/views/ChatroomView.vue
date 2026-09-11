@@ -321,6 +321,7 @@
       v-if="canvasSplit.isOpen.value"
       class="chatroom__canvas"
       :chatroom-id="chatroomId"
+      :chatroom-name="roomName"
       :is-fullscreen="canvasSplit.isFullscreen.value"
       @close="canvasSplit.close()"
       @toggle-fullscreen="canvasSplit.toggleFullscreen()"

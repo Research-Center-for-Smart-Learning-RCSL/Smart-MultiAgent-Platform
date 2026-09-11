@@ -61,3 +61,13 @@ export interface BatchOp {
   updates?: Array<{ id: string } & CanvasObjectPatch>
   deletes?: string[]
 }
+
+export interface CanvasComment {
+  id: string
+  object_id: string
+  content: string
+  created_by_user_id: string | null
+  created_by_guest_id: string | null
+  created_at: string
+  updated_at: string
+}

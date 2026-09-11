@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.domain.models import CanvasObjectKind
@@ -15,6 +15,7 @@ from contexts.canvas.interfaces.facade import CanvasFacade
 from contexts.conversation.application.access import (
     ensure_can_read,
     ensure_can_send,
+    is_room_creator,
     resolve_room_access,
 )
 from contexts.conversation.infrastructure.channels import room_channel
@@ -154,6 +155,32 @@ class SnapshotOut(BaseModel):
         )
 
 
+class CommentIn(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+class CommentOut(BaseModel):
+    id: uuid.UUID
+    object_id: uuid.UUID
+    content: str
+    created_by_user_id: uuid.UUID | None
+    created_by_guest_id: uuid.UUID | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(cls, c: Any) -> CommentOut:
+        return cls(
+            id=c.id,
+            object_id=c.object_id,
+            content=c.content,
+            created_by_user_id=c.created_by_user_id,
+            created_by_guest_id=c.created_by_guest_id,
+            created_at=c.created_at.isoformat(),
+            updated_at=c.updated_at.isoformat(),
+        )
+
+
 # ---- Helpers ----------------------------------------------------------------
 
 
@@ -181,6 +208,12 @@ async def _enforce_guest_rate_limit(principal: Principal) -> None:
             detail="Canvas rate limit exceeded",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
+
+
+def _is_comment_author(comment: Any, principal: Principal) -> bool:
+    if principal.is_guest:
+        return bool(comment.created_by_guest_id == principal.user_id)
+    return bool(comment.created_by_user_id == principal.user_id)
 
 
 def _canvas_image_key(
@@ -534,3 +567,151 @@ async def create_snapshot(
     )
     await db.commit()
     return SnapshotOut.from_domain(snap)
+
+
+# ---- Comments ---------------------------------------------------------------
+
+
+@router.get("/objects/comment-counts")
+async def get_comment_counts(
+    chatroom_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> dict[str, int]:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        return {}
+    objects = await facade.list_objects(canvas.id)
+    object_ids = [o.id for o in objects]
+    if not object_ids:
+        return {}
+    counts = await facade.count_comments_by_object(object_ids, canvas_id=canvas.id)
+    return {str(oid): cnt for oid, cnt in counts.items()}
+
+
+@router.get("/objects/{object_id}/comments")
+async def list_comments(
+    chatroom_id: uuid.UUID,
+    object_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[CommentOut]:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        return []
+    comments = await facade.list_comments(
+        object_id, canvas_id=canvas.id, limit=min(limit, 100), offset=offset
+    )
+    return [CommentOut.from_domain(c) for c in comments]
+
+
+@router.post("/objects/{object_id}/comments", status_code=status.HTTP_201_CREATED)
+async def create_comment(
+    chatroom_id: uuid.UUID,
+    object_id: uuid.UUID,
+    body: CommentIn,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+    ctx: RequestContext = Depends(current_context),
+) -> CommentOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
+    objects = await facade.list_objects(canvas.id)
+    if not any(o.id == object_id for o in objects):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Object not found on this canvas")
+    comment = await facade.create_comment(
+        canvas_id=canvas.id,
+        chatroom_id=chatroom_id,
+        object_id=object_id,
+        content=body.content,
+        created_by_user_id=_actor_user_id(principal),
+        created_by_guest_id=_actor_guest_id(principal),
+        actor_user_id=_actor_user_id(principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    return CommentOut.from_domain(comment)
+
+
+@router.patch("/comments/{comment_id}")
+async def update_comment(
+    chatroom_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    body: CommentIn,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+    ctx: RequestContext = Depends(current_context),
+) -> CommentOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    comment = await facade.get_comment(comment_id, canvas_id=canvas.id)
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if not _is_comment_author(comment, principal) and not principal.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the comment author")
+    updated = await facade.update_comment(
+        comment_id=comment_id,
+        canvas_id=canvas.id,
+        chatroom_id=chatroom_id,
+        content=body.content,
+        actor_user_id=_actor_user_id(principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return CommentOut.from_domain(updated)
+
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_comment(
+    chatroom_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+    ctx: RequestContext = Depends(current_context),
+) -> None:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_send(access, is_admin=principal.is_admin)
+    await _enforce_guest_rate_limit(principal)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    comment = await facade.get_comment(comment_id, canvas_id=canvas.id)
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    is_author = _is_comment_author(comment, principal)
+    is_creator_or_admin = principal.is_admin or is_room_creator(access, principal=principal)
+    if not is_author and not is_creator_or_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot delete this comment")
+    deleted = await facade.delete_comment(
+        comment_id=comment_id,
+        canvas_id=canvas.id,
+        chatroom_id=chatroom_id,
+        object_id=comment.object_id,
+        actor_user_id=_actor_user_id(principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)

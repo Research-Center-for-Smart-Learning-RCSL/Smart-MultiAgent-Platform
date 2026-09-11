@@ -275,21 +275,28 @@ first, but building them serially avoids the conflict.
 Seven approved dossiers for the canvas feature's follow-up items. All depend on
 `2026-09-10-collaborative-canvas` (implemented). All are `approved` and ready to build.
 
-- `2026-09-10-canvas-crdt-sync` (feature, **approved**) -- Phase 2: real-time CRDT sync
-  via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. Ready.
+- (implemented 2026-09-11) `2026-09-10-canvas-crdt-sync`. Phase 2: real-time CRDT
+  sync via Yjs. Dedicated WebSocket endpoint, pycrdt validation, cursor awareness,
+  30s persistence. AC-1/AC-2/AC-3/AC-12 unticked (need running stack). Nothing
+  lists this slug in `depends_on`, so no row moves out of Blocked.
 - (implemented 2026-09-10) `2026-09-10-canvas-ai-write`. Phase 3: AI agents
   write to canvas via three built-in tools. Migration 0090. Nothing lists this
   slug in `depends_on`, so no row moves out of Blocked.
-- `2026-09-10-canvas-export` (feature, **approved**) -- Export canvas to PNG/SVG via
-  Excalidraw's client-side export utilities. Ready.
+- (implemented 2026-09-11) `2026-09-10-canvas-export`. Client-side PNG/SVG
+  export via Excalidraw's exportToBlob/exportToSvg. AC-1 through AC-5 and AC-7
+  unticked (need running stack for browser verification). AC-6 deferred (D-1:
+  non-reactive Excalidraw API prevents reactive empty-canvas detection). Nothing
+  lists this slug in `depends_on`, so no row moves out of Blocked.
 - `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
   (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
 - `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
   object text via PostgreSQL FTS. Ready.
 - `2026-09-10-canvas-history` (feature, **approved**) -- Browse and restore past canvas
   snapshots with labels and auto-save-before-restore. Ready.
-- `2026-09-10-canvas-comments` (feature, **approved**) -- Comment threads on individual
-  canvas objects with real-time updates. Ready.
+- (implemented 2026-09-11) `2026-09-10-canvas-comments`. Comment threads on individual
+  canvas objects. Migration 0091, five REST endpoints, comment popover UI, WS events.
+  AC-1 through AC-4 unticked (need running stack for visual/browser verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 ### Other ready work
 

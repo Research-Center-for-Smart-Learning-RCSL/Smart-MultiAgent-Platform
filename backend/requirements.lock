@@ -150,6 +150,8 @@ pycparser==3.0
     # via cffi
 pycryptodome==3.23.0
     # via minio
+pycrdt==0.14.5
+    # via smap-backend (pyproject.toml)
 pydantic==2.13.4
     # via
     #   fastapi
@@ -257,7 +259,7 @@ uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn
-weasyprint==69.0
+weasyprint==70.0
     # via smap-backend (pyproject.toml)
 webencodings==0.5.1
     # via

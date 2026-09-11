@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, toRef, defineAsyncComponent } from 'vue'
+import { ref, computed, toRef, defineAsyncComponent, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
 import { useCanvasState } from '../composables/useCanvasState'
+import { useCanvasExport } from '../composables/useCanvasExport'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
-import type { CanvasObjectKind } from '../types'
+import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
-import SEmptyState from '@shared/ui/SEmptyState.vue'
 
 const CanvasRenderer = defineAsyncComponent(() => import('./CanvasRenderer.vue'))
 
@@ -15,6 +15,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   chatroomId: string
+  chatroomName: string
   isFullscreen: boolean
 }>()
 
@@ -24,12 +25,11 @@ const emit = defineEmits<{
 }>()
 
 const chatroomIdRef = toRef(props, 'chatroomId')
+
 const {
   canvas,
-  objects,
   isLoading,
   error,
-  createObject,
   uploadImage,
   saveSnapshot,
   updateSettings,
@@ -38,19 +38,22 @@ const {
 
 useCanvasSocket(chatroomIdRef)
 
+// CRDT sync via Yjs -- canvasId is derived from the REST canvas query
+const canvasIdRef = computed(() => canvas.value?.id ?? '')
+const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
+const canvasRendererRef = ref<ComponentPublicInstance<any> | null>(null)
+
+function getExcalidrawApi() {
+  return canvasRendererRef.value?.getExcalidrawApi?.() ?? null
+}
+
+const chatroomNameRef = toRef(props, 'chatroomName')
+const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
+
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
-
-async function handleAddObject(kind: CanvasObjectKind) {
-  await createObject({
-    kind,
-    position_x: 100 + Math.random() * 200,
-    position_y: 100 + Math.random() * 200,
-    width: kind === 'text' ? 200 : 150,
-    height: kind === 'text' ? 40 : 150,
-    content: kind === 'note' ? '' : kind === 'text' ? '' : null,
-  })
-}
 
 function handleUploadImage() {
   fileInputRef.value?.click()
@@ -68,15 +71,12 @@ async function handleSave() {
   await saveSnapshot()
 }
 
-function handleChange(_elements: unknown[]) {
-  // Phase 1: changes are saved manually via snapshot; Phase 2 will use CRDT sync
-}
-
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
 
 async function toggleExposeToAgents() {
   await updateSettings({ expose_to_agents: !exposeToAgents.value })
 }
+
 </script>
 
 <template>
@@ -87,11 +87,13 @@ async function toggleExposeToAgents() {
     <div class="canvas-panel__header">
       <span class="canvas-panel__title">{{ t('canvas.title') }}</span>
       <span
-        v-if="objects.length"
-        class="canvas-panel__count"
-      >
-        {{ objects.length }} {{ t('canvas.objects') }}
-      </span>
+        v-if="connected"
+        class="canvas-panel__status canvas-panel__status--connected"
+      />
+      <span
+        v-else
+        class="canvas-panel__status canvas-panel__status--disconnected"
+      />
       <button
         class="canvas-panel__close"
         :title="t('canvas.close')"
@@ -104,15 +106,18 @@ async function toggleExposeToAgents() {
     <CanvasToolbar
       :is-fullscreen="isFullscreen"
       :is-saving="!!isSavingSnapshot"
-      @add-note="handleAddObject('note')"
-      @add-text="handleAddObject('text')"
-      @add-shape="handleAddObject('shape')"
-      @add-connector="handleAddObject('connector')"
-      @draw="handleAddObject('drawing')"
+      :is-exporting="isExporting"
+      @add-note="() => {}"
+      @add-text="() => {}"
+      @add-shape="() => {}"
+      @add-connector="() => {}"
+      @draw="() => {}"
       @upload-image="handleUploadImage"
       @save="handleSave"
       @toggle-fullscreen="emit('toggleFullscreen')"
       @open-settings="showSettings = !showSettings"
+      @export-png="exportPng"
+      @export-svg="exportSvg"
     />
 
     <div
@@ -134,27 +139,32 @@ async function toggleExposeToAgents() {
     </div>
 
     <div class="canvas-panel__body">
-      <SLoadingSpinner v-if="isLoading" />
+      <div
+        v-if="isLoading"
+        class="canvas-panel__centered"
+      >
+        <SLoadingSpinner />
+      </div>
       <div
         v-else-if="error"
-        class="canvas-panel__error"
+        class="canvas-panel__centered"
       >
-        {{ t('canvas.loadError') }}
+        <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
       </div>
-      <SEmptyState
-        v-else-if="objects.length === 0"
-        :title="t('canvas.empty')"
-        :description="t('canvas.emptyDescription')"
-      />
-      <Suspense v-else>
-        <CanvasRenderer
-          :objects="objects"
-          @change="handleChange"
-        />
-        <template #fallback>
-          <SLoadingSpinner />
-        </template>
-      </Suspense>
+      <template v-else>
+        <div class="canvas-panel__canvas-area">
+          <Suspense>
+            <CanvasRenderer
+              ref="canvasRendererRef"
+              :doc="doc"
+              :awareness="awareness"
+            />
+            <template #fallback>
+              <SLoadingSpinner />
+            </template>
+          </Suspense>
+        </div>
+      </template>
     </div>
 
     <input
@@ -198,9 +208,19 @@ async function toggleExposeToAgents() {
   font-size: var(--font-size-sm);
 }
 
-.canvas-panel__count {
-  font-size: var(--font-size-xs);
-  color: var(--color-muted);
+.canvas-panel__status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.canvas-panel__status--connected {
+  background: var(--color-success);
+}
+
+.canvas-panel__status--disconnected {
+  background: var(--color-muted);
 }
 
 .canvas-panel__close {
@@ -244,6 +264,20 @@ async function toggleExposeToAgents() {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-panel__canvas-area {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-panel__centered {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;

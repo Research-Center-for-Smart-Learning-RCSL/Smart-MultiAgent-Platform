@@ -93,6 +93,93 @@ class TestDigestCapping:
         assert len(content_after_header) <= 2000
 
 
+class TestCrdtFallbackChain:
+    """AC-9: CanvasContextProvider returns digest from CRDT, not just snapshots."""
+
+    async def test_uses_in_memory_crdt(self, mock_db: AsyncMock) -> None:
+        """When CrdtRelay has the doc in memory, digest comes from it."""
+        import pycrdt
+
+        from contexts.canvas.application.crdt_relay import CrdtRelay
+
+        relay = CrdtRelay()
+        await relay.get_or_load(
+            _CANVAS_ID,
+            legacy_objects=[],
+        )
+        doc = relay._docs[_CANVAS_ID].doc
+        elems_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+        elem_id = str(uuid.uuid4())
+        elems_map[elem_id] = pycrdt.Map(
+            {
+                "id": elem_id,
+                "type": "rectangle",
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 100,
+                "isDeleted": False,
+            }
+        )
+
+        with (
+            patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
+            patch("contexts.canvas.application.canvas_context_provider.get_crdt_relay", return_value=relay),
+        ):
+            MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=_canvas(expose=True))
+            result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
+
+        assert result is not None
+        assert "[Canvas content]" in result
+        relay.evict(_CANVAS_ID)
+
+    async def test_uses_persisted_crdt_state(self, mock_db: AsyncMock) -> None:
+        """When no in-memory doc but crdt_state exists, digest comes from it."""
+        import pycrdt
+
+        src: pycrdt.Doc = pycrdt.Doc()
+        elems_map = src.get("excalidraw-elements", type=pycrdt.Map)
+        elem_id = str(uuid.uuid4())
+        elems_map[elem_id] = pycrdt.Map(
+            {
+                "id": elem_id,
+                "type": "text",
+                "text": "hello world",
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 50,
+                "isDeleted": False,
+            }
+        )
+        crdt_bytes = src.get_update()
+
+        canvas_with_crdt = Canvas(
+            id=_CANVAS_ID,
+            chatroom_id=_ROOM,
+            expose_to_agents=True,
+            created_at=_NOW,
+            crdt_state=crdt_bytes,
+        )
+
+        from contexts.canvas.application.crdt_relay import CrdtRelay
+
+        empty_relay = CrdtRelay()
+
+        with (
+            patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
+            patch(
+                "contexts.canvas.application.canvas_context_provider.get_crdt_relay", return_value=empty_relay
+            ),
+        ):
+            MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=canvas_with_crdt)
+            result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
+
+        assert result is not None
+        assert "[Canvas content]" in result
+        assert "text" in result.lower()
+
+
 class TestBestEffort:
     async def test_exception_returns_none(self, mock_db: AsyncMock) -> None:
         with patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo:
