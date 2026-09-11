@@ -250,29 +250,27 @@ def upgrade() -> None:
         postgresql_where=sa.text("deleted_at IS NULL AND project_id IS NOT NULL"),
     )
 
-    templates_table = sa.table(
-        "canvas_templates",
-        sa.column("id", pg.UUID(as_uuid=True)),
-        sa.column("scope", sa.Text),
-        sa.column("project_id", pg.UUID(as_uuid=True)),
-        sa.column("name", sa.String),
-        sa.column("description", sa.Text),
-        sa.column("template_data", pg.JSONB),
-        sa.column("created_by_user_id", pg.UUID(as_uuid=True)),
+    bind = op.get_bind()
+    insert = sa.text(
+        "INSERT INTO canvas_templates "
+        "(id, scope, project_id, name, description, template_data, created_by_user_id) "
+        "SELECT :id, 'platform'::canvas_template_scope, NULL, :name, :description, "
+        ":template_data::jsonb, NULL "
+        "WHERE NOT EXISTS ("
+        "  SELECT 1 FROM canvas_templates WHERE scope = 'platform' AND name = :name"
+        ")"
     )
 
     for tmpl in _PLATFORM_TEMPLATES:
         data = tmpl["template_data"]()
-        op.execute(
-            templates_table.insert().values(
-                id=uuid.uuid4(),
-                scope="platform",
-                project_id=None,
-                name=tmpl["name"],
-                description=tmpl["description"],
-                template_data=json.loads(json.dumps(data)),
-                created_by_user_id=None,
-            )
+        bind.execute(
+            insert,
+            {
+                "id": str(uuid.uuid4()),
+                "name": tmpl["name"],
+                "description": tmpl["description"],
+                "template_data": json.dumps(data),
+            },
         )
 
 
