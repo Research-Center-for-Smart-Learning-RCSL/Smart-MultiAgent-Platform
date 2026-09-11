@@ -79,6 +79,16 @@
       >
         <ArrowDownTrayIcon class="w-5 h-5" />
       </SButton>
+      <SButton
+        variant="ghost"
+        icon-only
+        size="sm"
+        :aria-label="t('canvas.title')"
+        data-testid="toggle-canvas"
+        @click="emit('toggle-canvas')"
+      >
+        <Squares2X2Icon class="w-5 h-5" />
+      </SButton>
     </template>
 
     <!-- People toggle: mobile + tablet as a drawer, compact desktop as an
@@ -132,6 +142,7 @@ import {
   SignalIcon,
   SignalSlashIcon,
   ArrowPathIcon,
+  Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 import { SButton, SDropdown } from '@shared/ui'
 import ObserverDisclosureChip from './ObserverDisclosureChip.vue'
@@ -170,6 +181,7 @@ const emit = defineEmits<{
   export: []
   'toggle-agents': []
   'toggle-people': []
+  'toggle-canvas': []
 }>()
 
 const { t } = useI18n()

@@ -319,6 +319,8 @@
       "activityControlFailed": "無法更新這個代理的活動控制設定。",
       "activityControlNeedsTypes": "授權前請至少勾選一個活動。",
       "draftAccessFailed": "無法更新這個代理讀取未送出文字的權限。",
+      "canvasAccessFailed": "無法更新此代理的畫布讀取權限。",
+      "canvasWriteAccessFailed": "無法更新此代理的畫布寫入權限。",
       "allowMemberGroups": "指定成員分組",
       "allowMemberGroupsDesc": "只有下方所選分組的成員。開啟此項會同時對專案其餘成員關閉此聊天室。",
       "memberGroupsExclusiveTitle": "這會改變誰能進入這個聊天室",

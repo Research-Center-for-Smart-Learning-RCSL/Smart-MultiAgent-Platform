@@ -42,6 +42,7 @@ import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
+import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
 
 const { t } = useI18n()
@@ -88,6 +89,8 @@ const {
   onAddAgent,
   onRemoveAgent,
   onSetActivityControl,
+  onSetCanvasAccess,
+  onSetCanvasWriteAccess,
   onSetDraftAccess,
   onSetRole,
   saveWakeupConfig,
@@ -795,6 +798,13 @@ watchEffect(() => {
               :busy="bindingBusy"
               :disclosed="flags.disclose_drafts"
               @save="(granted) => onSetDraftAccess(agent.id, granted)"
+            />
+            <AgentCanvasAccess
+              v-if="isCreator"
+              :agent="agent"
+              :busy="bindingBusy"
+              @save-read="(granted) => onSetCanvasAccess(agent.id, granted)"
+              @save-write="(granted) => onSetCanvasWriteAccess(agent.id, granted)"
             />
             <SWakeupEditor
               :model-value="agent.wakeup_config"

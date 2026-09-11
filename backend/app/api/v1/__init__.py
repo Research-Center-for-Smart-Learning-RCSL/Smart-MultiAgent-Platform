@@ -57,6 +57,9 @@ def _build_registry() -> list[RouterEntry]:
         auth as auth_routes,
     )
     from app.api.v1 import (
+        canvas as canvas_routes,
+    )
+    from app.api.v1 import (
         chatrooms as chatroom_routes,
     )
     from app.api.v1 import (
@@ -223,6 +226,8 @@ def _build_registry() -> list[RouterEntry]:
         # Member groups (§13.2a) — tenancy-owned, but read by the room ACL
         RouterEntry(member_group_routes.project_router),
         RouterEntry(member_group_routes.group_router),
+        # Canvas
+        RouterEntry(canvas_routes.router),
         # Conversation
         RouterEntry(workspace_routes.project_router),
         RouterEntry(workspace_routes.workspace_router),

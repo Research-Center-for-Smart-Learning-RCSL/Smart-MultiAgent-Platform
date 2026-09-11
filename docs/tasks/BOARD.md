@@ -261,15 +261,7 @@ first, but building them serially avoids the conflict.
 
 ### From 2026-09-10
 
-- `2026-09-10-collaborative-canvas` (feature, **approved 2026-09-10**) -- `depends_on: []`. Adds a
-  real-time collaborative spatial canvas to each chatroom (sticky notes, text, images,
-  drawings). Split-pane UI beside the chat feed. AI agents read canvas content via a
-  dedicated `CanvasContextProvider` gated on a `may_read_canvas` grant. Named "Canvas"
-  to avoid collision with the existing `Workspace` entity. Phased: Phase 1 (this dossier)
-  is snapshot-based; Phase 2 (CRDT real-time sync) and Phase 3 (AI writes to canvas) are
-  separate follow-up dossiers. New bounded context `contexts/canvas/`. Migration adds
-  three tables. No file overlap with any active dossier (Q-7, Q-8 record the
-  `turn_engine.py` disjoint-region check against the two active dossiers).
+- (moved to In progress on 2026-09-10) `2026-09-10-collaborative-canvas`.
 
 - (implemented 2026-09-10) `2026-09-10-proxy-headers-security-hardening`. Three security
   defects fixed: Pydantic blocklist validator (8 headers, case-insensitive, CRLF, size
@@ -277,6 +269,27 @@ first, but building them serially avoids the conflict.
   defensive header merge order (Authorization set after proxy_headers). Frontend: stable
   v-for key, empty-value support, deduplicated reset. Migration 0088. Nothing lists this
   slug in `depends_on`, so no row moves out of Blocked.
+
+### Canvas follow-ups (from 2026-09-10-collaborative-canvas)
+
+Seven approved dossiers for the canvas feature's follow-up items. All depend on
+`2026-09-10-collaborative-canvas` (implemented). All are `approved` and ready to build.
+
+- `2026-09-10-canvas-crdt-sync` (feature, **approved**) -- Phase 2: real-time CRDT sync
+  via Yjs. Dedicated WebSocket endpoint, cursor awareness, backend persistence. Ready.
+- (implemented 2026-09-10) `2026-09-10-canvas-ai-write`. Phase 3: AI agents
+  write to canvas via three built-in tools. Migration 0090. Nothing lists this
+  slug in `depends_on`, so no row moves out of Blocked.
+- `2026-09-10-canvas-export` (feature, **approved**) -- Export canvas to PNG/SVG via
+  Excalidraw's client-side export utilities. Ready.
+- `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
+  (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
+- `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
+  object text via PostgreSQL FTS. Ready.
+- `2026-09-10-canvas-history` (feature, **approved**) -- Browse and restore past canvas
+  snapshots with labels and auto-save-before-restore. Ready.
+- `2026-09-10-canvas-comments` (feature, **approved**) -- Comment threads on individual
+  canvas objects with real-time updates. Ready.
 
 ### Other ready work
 
@@ -543,6 +556,11 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-09-10) `2026-09-10-collaborative-canvas`. Phase 1 (snapshot-based)
+  complete. New bounded context `contexts/canvas/`, migration 0089, 11 REST endpoints,
+  turn engine integration, split-pane UI with Excalidraw, agent grant toggle. Nothing
+  lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-06) `2026-09-05-prompt-assistant-configurable-persona`. Two design
   gaps surfaced during planning and were resolved with the user before implementation started:

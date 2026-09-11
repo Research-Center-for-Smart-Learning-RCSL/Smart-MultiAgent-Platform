@@ -1,0 +1,290 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { BatchOpIn } from '../models/BatchOpIn';
+import type { Body_upload_image_api_chatrooms__chatroom_id__canvas_images_post } from '../models/Body_upload_image_api_chatrooms__chatroom_id__canvas_images_post';
+import type { CanvasObjectIn } from '../models/CanvasObjectIn';
+import type { CanvasObjectOut } from '../models/CanvasObjectOut';
+import type { CanvasObjectPatch } from '../models/CanvasObjectPatch';
+import type { CanvasOut } from '../models/CanvasOut';
+import type { CanvasSettingsIn } from '../models/CanvasSettingsIn';
+import type { SnapshotOut } from '../models/SnapshotOut';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import { OpenAPI } from '../core/OpenAPI';
+import { request as __request } from '../core/request';
+export class CanvasService {
+    /**
+     * Delete Canvas
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteCanvasApiChatroomsChatroomIdCanvasDelete({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/chatrooms/{chatroom_id}/canvas',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Canvas
+     * @returns CanvasOut Successful Response
+     * @throws ApiError
+     */
+    public static getCanvasApiChatroomsChatroomIdCanvasGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<CanvasOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/canvas',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Update Canvas Settings
+     * @returns CanvasOut Successful Response
+     * @throws ApiError
+     */
+    public static updateCanvasSettingsApiChatroomsChatroomIdCanvasPatch({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: CanvasSettingsIn,
+    }): CancelablePromise<CanvasOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/canvas',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Upload Image
+     * @returns CanvasObjectOut Successful Response
+     * @throws ApiError
+     */
+    public static uploadImageApiChatroomsChatroomIdCanvasImagesPost({
+        chatroomId,
+        formData,
+    }: {
+        chatroomId: string,
+        formData: Body_upload_image_api_chatrooms__chatroom_id__canvas_images_post,
+    }): CancelablePromise<CanvasObjectOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/canvas/images',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Objects
+     * @returns CanvasObjectOut Successful Response
+     * @throws ApiError
+     */
+    public static listObjectsApiChatroomsChatroomIdCanvasObjectsGet({
+        chatroomId,
+        limit = 500,
+        offset,
+    }: {
+        chatroomId: string,
+        limit?: number,
+        offset?: number,
+    }): CancelablePromise<Array<CanvasObjectOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/canvas/objects',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Object
+     * @returns CanvasObjectOut Successful Response
+     * @throws ApiError
+     */
+    public static createObjectApiChatroomsChatroomIdCanvasObjectsPost({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: CanvasObjectIn,
+    }): CancelablePromise<CanvasObjectOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/canvas/objects',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Batch Operate
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static batchOperateApiChatroomsChatroomIdCanvasObjectsBatchPost({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: BatchOpIn,
+    }): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/canvas/objects/batch',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Object
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteObjectApiChatroomsChatroomIdCanvasObjectsObjectIdDelete({
+        chatroomId,
+        objectId,
+    }: {
+        chatroomId: string,
+        objectId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/chatrooms/{chatroom_id}/canvas/objects/{object_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'object_id': objectId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Update Object
+     * @returns CanvasObjectOut Successful Response
+     * @throws ApiError
+     */
+    public static updateObjectApiChatroomsChatroomIdCanvasObjectsObjectIdPatch({
+        chatroomId,
+        objectId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        objectId: string,
+        requestBody: CanvasObjectPatch,
+    }): CancelablePromise<CanvasObjectOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/canvas/objects/{object_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'object_id': objectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Snapshots
+     * @returns SnapshotOut Successful Response
+     * @throws ApiError
+     */
+    public static listSnapshotsApiChatroomsChatroomIdCanvasSnapshotsGet({
+        chatroomId,
+        limit = 20,
+        offset,
+    }: {
+        chatroomId: string,
+        limit?: number,
+        offset?: number,
+    }): CancelablePromise<Array<SnapshotOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/canvas/snapshots',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Snapshot
+     * @returns SnapshotOut Successful Response
+     * @throws ApiError
+     */
+    public static createSnapshotApiChatroomsChatroomIdCanvasSnapshotsPost({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<SnapshotOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/canvas/snapshots',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+}

@@ -160,6 +160,8 @@ class TestWhichAgentIsTheCreatorsToKnow:
                         may_control_activities=False,
                         activity_type_allowlist=(),
                         may_read_drafts=True,
+                        may_read_canvas=False,
+                        may_write_canvas=False,
                     )
                 ]
 

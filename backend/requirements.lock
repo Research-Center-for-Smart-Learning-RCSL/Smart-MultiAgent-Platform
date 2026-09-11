@@ -56,6 +56,8 @@ cryptography==50.0.0
     #   smap-backend (pyproject.toml)
 cssselect2==0.9.0
     # via weasyprint
+defusedxml==0.7.1
+    # via smap-backend (pyproject.toml)
 dnspython==2.8.0
     # via email-validator
 docker==7.2.0

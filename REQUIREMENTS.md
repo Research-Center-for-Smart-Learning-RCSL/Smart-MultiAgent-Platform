@@ -767,23 +767,63 @@ Five composable flags per chat room:
 
 ### 13.11 Collaborative Canvas
 
-- **[R13.33]** A Chatroom may have at most one Canvas. The Canvas is created on demand (first access) and follows the chatroom's lifecycle: deleting the chatroom cascade-deletes the canvas, all its objects, and all stored images.
+- **[R13.42]** A Chatroom may have at most one Canvas. The Canvas is created on demand (first access) and follows the chatroom's lifecycle: deleting the chatroom cascade-deletes the canvas, all its objects, and all stored images.
 
-- **[R13.34]** Canvas object types: sticky note, text block, image, freeform drawing, shape, connector. Each object has a position, dimensions, z-index and style metadata.
+- **[R13.43]** Canvas object types: sticky note, text block, image, freeform drawing, shape, connector. Each object has a position, dimensions, z-index and style metadata.
 
-- **[R13.35]** Canvas access mirrors chatroom access: any principal who can read the chatroom can view the canvas; any principal who can send messages (including guests when `allow_guest_links` is set) can create, edit and delete canvas objects.
+- **[R13.44]** Canvas access mirrors chatroom access: any principal who can read the chatroom can view the canvas; any principal who can send messages (including guests when `allow_guest_links` is set) can create, edit and delete canvas objects.
 
-- **[R13.36]** Canvas images are stored in MinIO under a dedicated key prefix within the existing chat-uploads bucket, following the same AV scan and MIME allowlist pipeline as chat attachments. Maximum image size: 10 MB. Maximum images per canvas: 50.
+- **[R13.45]** Canvas images are stored in MinIO under a dedicated key prefix within the existing chat-uploads bucket, following the same AV scan and MIME allowlist pipeline as chat attachments. Maximum image size: 10 MB. Maximum images per canvas: 50.
 
-- **[R13.37]** Guest canvas mutations are rate-limited per session (default 60 operations per minute). Exceeding the limit returns HTTP 429 with problem type `/canvas/rate-limit-exceeded`.
+- **[R13.46]** Guest canvas mutations are rate-limited per session (default 60 operations per minute). Exceeding the limit returns HTTP 429 with problem type `/canvas/rate-limit-exceeded`.
 
-- **[R13.38]** An AI agent bound to the chatroom may receive a natural-language digest of the canvas content as a system-prompt block, gated by two conditions: (a) the canvas's `expose_to_agents` flag is true (default), and (b) the agent's `may_read_canvas` grant is set on its chatroom binding. The digest is capped at 2 000 characters and is generated from the canvas objects, not from raw coordinate data.
+- **[R13.47]** An AI agent bound to the chatroom may receive a natural-language digest of the canvas content as a system-prompt block, gated by two conditions: (a) the canvas's `expose_to_agents` flag is true (default), and (b) the agent's `may_read_canvas` grant is set on its chatroom binding. The digest is capped at 2 000 characters and is generated from the canvas objects, not from raw coordinate data.
 
-- **[R13.39]** Canvas mutations publish events on the chatroom's WebSocket channel. Other connected clients update their local canvas state on receiving these events. In a later phase, a dedicated WebSocket channel carries CRDT deltas for real-time collaborative editing.
+- **[R13.48]** Canvas mutations publish events on the chatroom's WebSocket channel. Other connected clients update their local canvas state on receiving these events. In a later phase, a dedicated WebSocket channel carries CRDT deltas for real-time collaborative editing.
 
-- **[R13.40]** Canvas snapshots persist the full object state and a generated `agent_digest`. Snapshots are created manually by users or automatically on periodic intervals. The most recent snapshot's digest is what the CanvasContextProvider serves to the agent turn.
+- **[R13.49]** Canvas snapshots persist the full object state and a generated `agent_digest`. Snapshots are created manually by users or automatically on periodic intervals. The most recent snapshot's digest is what the CanvasContextProvider serves to the agent turn.
 
-- **[R13.41]** Every canvas endpoint and WebSocket connection verifies chatroom access. A principal whose room access is revoked is disconnected from both the chatroom and canvas WebSocket channels.
+- **[R13.50]** Every canvas endpoint and WebSocket connection verifies chatroom access. A principal whose room access is revoked is disconnected from both the chatroom and canvas WebSocket channels.
+
+- **[R13.51]** The canvas WebSocket endpoint validates every incoming Yjs update via `pycrdt` before relay. Malformed updates are dropped with a structured error frame. Updates that would push the Yjs document past the 10 MB size cap are rejected. Corrupted CRDT state triggers a server-side reset to the last valid persisted state.
+
+- **[R13.52]** The canvas CRDT document state is persisted to `canvases.crdt_state` (BYTEA) every 30 seconds while at least one editor is connected, and once more when the last editor disconnects. Persistence is debounced: no write occurs if the document is unchanged since the last flush.
+
+- **[R13.53]** At most 10 concurrent WebSocket connections per canvas. The eleventh connection attempt receives a structured close frame (4009, "canvas editor limit reached") and is not admitted.
+
+- **[R13.54]** When a canvas that has `canvas_objects` rows but no `crdt_state` receives its first CRDT WebSocket connection, the server builds a Yjs document from the existing objects, persists it as `crdt_state`, and serves it to the connecting client. After migration, the `canvas_objects` table is treated as a read-only archive for that canvas.
+
+- **[R13.55]** Each connected editor's cursor position, selected elements, display name, and assigned color are broadcast to all other editors on the same canvas via the Yjs awareness protocol. Awareness state is ephemeral and not persisted.
+
+- **[R13.56]** A room creator may grant an agent bound to the chatroom the ability to create, update, and delete canvas objects, via a `may_write_canvas` grant on the chatroom binding. The grant is independent of `may_read_canvas` and records the granting user. Revoking the grant does not delete objects the agent previously created.
+
+- **[R13.57]** An agent with `may_write_canvas` exercises the grant through three built-in runtime tools: `canvas_create_object`, `canvas_update_object`, and `canvas_delete_object`. Each tool accepts a structured JSON input matching the canvas object schema. The tools are available only during agent turns in rooms where the grant is set; they are absent from the tool list otherwise. Each tool invocation emits an audit event identifying the agent and the canvas operation.
+
+- **[R13.58]** A canvas object created by an agent carries `created_by_agent_id` (the agent's identity) alongside the existing `created_by_user_id` (the user whose turn triggered the write). The frontend visually distinguishes agent-created objects from user-created ones.
+
+- **[R13.59]** A canvas template is a named, immutable JSON layout definition. Each template has a scope (platform or project), a name, a description, and a `template_data` JSONB column holding objects in the same schema as `canvas_snapshots.snapshot_data`. Platform templates are readable by all authenticated users; project templates are readable by project members.
+
+- **[R13.60]** Applying a template to a canvas creates real canvas objects via `batch_operate`. Template objects become regular editable objects; no link to the source template is maintained. A template may only be applied to an empty canvas (no existing objects) unless the user explicitly confirms overwrite.
+
+- **[R13.61]** A project admin may create a project-scoped template from an existing canvas ("save as template"). The template captures the canvas's current object state as a snapshot. Deleting the source canvas does not affect the template.
+
+- **[R13.62]** Canvas objects with non-null text content are indexed for full-text search via a PostgreSQL tsvector column (`content_tsv`) maintained by a trigger. The index uses the `english` text search configuration. Only `note` and `text` object kinds produce index entries; other kinds have a null tsvector.
+
+- **[R13.63]** Canvas search is scoped to a single chatroom's canvas and respects the same access control as canvas read ([R13.44]). Results are ranked by `ts_rank_cd` and include `ts_headline` snippets. The endpoint returns at most 50 results per query.
+
+- **[R13.64]** A canvas snapshot may carry an optional label (max 200 characters) set at creation time. The label is user-facing text and must be sanitized (stripped of control characters and excessive whitespace).
+
+- **[R13.65]** A user who can send messages in the chatroom may restore any snapshot of that room's canvas. Restoring auto-saves the current canvas state as a new snapshot (labeled "Auto-save before restore") before replacing the current state with the historical snapshot's `snapshot_data`. The restore operation emits a `canvas.snapshot_restored` WebSocket event on the room channel.
+
+- **[R13.66]** Each canvas retains at most 50 snapshots. When creating a new snapshot would exceed the cap, the oldest snapshot (by `created_at`) is deleted before the new one is inserted.
+
+- **[R13.67]** A canvas object may have zero or more comments. Each comment carries plain text content (max 2000 characters), an author (user or guest), and a timestamp. Deleting a canvas object cascade-deletes all its comments.
+
+- **[R13.68]** Any principal who can send messages in the chatroom can create, edit (own only), and delete (own only) canvas object comments. Room creators and org admins may delete any comment. Guest comment mutations are rate-limited per [R13.46].
+
+- **[R13.69]** Comment mutations (create, edit, delete) publish events on the chatroom's room WebSocket channel (`canvas.comment_created`, `canvas.comment_updated`, `canvas.comment_deleted`). Connected clients update the comment list in real time.
+
+- **[R13.70]** Comment text is sanitized server-side before storage: control characters stripped, content capped at 2000 characters, validated at the Pydantic model boundary. No HTML or markdown rendering; comments display as plain text.
 
 ### 13.12 Derived content and deletion
 

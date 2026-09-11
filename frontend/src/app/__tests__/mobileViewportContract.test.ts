@@ -289,6 +289,11 @@ describe('mobile viewport contract', () => {
         // centred and the skip hint sits at bottom: 7%.
         'app/components/LandingIntro.vue':
           'opaque entry curtain; deliberately edge-to-edge, no content against an edge',
+        // Fullscreen canvas overlay inside the app shell; the shell already
+        // carries safe-area insets, and the canvas is an interactive Excalidraw
+        // surface that handles its own viewport internally.
+        'slices/canvas/components/CanvasPanel.vue':
+          'fullscreen overlay inside the shell; shell carries the safe-area insets',
       }
 
       const SCANNED = /\.(vue|css|ts)$/

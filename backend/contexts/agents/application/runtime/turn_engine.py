@@ -909,6 +909,7 @@ class _SystemBlocks:
         memory_block: str | None,
         skills_note: str | None,
         activity_block: str | None,
+        canvas_block: str | None,
         staged_note: str | None,
         notify_block: str | None,
     ) -> _SystemBlocks:
@@ -930,6 +931,7 @@ class _SystemBlocks:
         # exists to declare rather than to hand-maintain in two places.
         blocks.append(_SystemBlock("skills", _BlockRole.MEASURED_AND_RENDERED, text=skills_note))
         blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
+        blocks.append(_SystemBlock("canvas", _BlockRole.MEASURED_AND_RENDERED, text=canvas_block))
         blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
         blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
         blocks.append(
@@ -1054,6 +1056,10 @@ class TurnEngine:
         # §30 (R30.15): recent structured activity events, for every agent's turn.
         # Coverage-gated (only present when the room has activities); built once.
         self._activity_provider = ActivityContextProvider(db)
+        # §13.11 (R13.47): canvas content digest, for agents with may_read_canvas.
+        from contexts.canvas.application.canvas_context_provider import CanvasContextProvider
+
+        self._canvas_provider = CanvasContextProvider(db)
         # Rooms whose one-shot POST /compact arming this engine consumed, mapped
         # to the Redis key that records the consumption — used to release the
         # claim if the turn that made it fails. Keyed by room alone: a turn
@@ -1285,6 +1291,7 @@ class TurnEngine:
                 memory_block=None,
                 skills_note=skills_note,
                 activity_block=None,
+                canvas_block=None,
                 staged_note=None,
                 notify_block=notify_block,
             )
@@ -1536,6 +1543,7 @@ class TurnEngine:
                 build_agent_tools,
                 default_builtin_deps,
             )
+            from contexts.agents.application.runtime.canvas_tools import resolve_canvas_write
             from contexts.agents.application.runtime.draft_tools import resolve_draft_access
             from contexts.agents.application.runtime.observer_tools import (
                 resolve_observation_presentation,
@@ -1562,6 +1570,7 @@ class TurnEngine:
             # headless turn itself, so "a room is required" is stated once, in the
             # resolver, rather than repeated at every call site.
             draft_access = await resolve_draft_access(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
+            canvas_write = await resolve_canvas_write(self._db, chatroom_id=chatroom_id, agent_id=agent.id)
             # `runner=self._sandbox()` so the tools and this engine share one
             # sandbox: `_hydrate_oversized` fetches through `deps.runner` while
             # `_persist_artifacts` falls back through `_sandbox()`, and an
@@ -1584,6 +1593,7 @@ class TurnEngine:
                 observation_presentation=observation_presentation,
                 observation_block_sink=observation_block_sink,
                 draft_access=draft_access,
+                canvas_write=canvas_write,
             )
         except Exception:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
@@ -2676,6 +2686,7 @@ class TurnEngine:
             # their own round trip for the same roster.
             guests = await self._room_guest_names(chatroom_id)
             activity_block = await self._activity_context(chatroom_id, guests=guests)
+            canvas_block = await self._canvas_context(chatroom_id, agent_id=agent.id)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
             # reply's metadata carries them. Collected here rather than inside the tool so
@@ -2701,6 +2712,7 @@ class TurnEngine:
                 memory_block=memory_block,
                 skills_note=skills_note,
                 activity_block=activity_block,
+                canvas_block=canvas_block,
                 staged_note=staged_note,
                 notify_block=notify_block,
             )
@@ -4382,6 +4394,30 @@ class TurnEngine:
             chatroom_id=chatroom_id,
             resolve_labels=lambda ids: self._room_display_labels(chatroom_id, ids, guests=guests),
         )
+
+    async def _canvas_context(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        agent_id: uuid.UUID,
+    ) -> str | None:
+        """Delegate to the canvas :class:`CanvasContextProvider` (R13.47).
+
+        Gated on the agent's ``may_read_canvas`` grant on its chatroom binding.
+        Best-effort: ``None`` on any failure.
+        """
+        from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+
+        try:
+            grant = await ChatroomAgentRepository(self._db).canvas_read_grant(
+                chatroom_id=chatroom_id,
+                agent_id=agent_id,
+            )
+            if grant is None:
+                return None
+            return await self._canvas_provider.query(chatroom_id=chatroom_id)
+        except Exception:
+            return None
 
     async def _audit(
         self,

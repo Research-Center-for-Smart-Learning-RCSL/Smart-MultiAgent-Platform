@@ -140,6 +140,10 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         # user LOCAL_FUNCTION allowed to shadow this one would be a tool the model
         # calls expecting the platform's consent gates and reaching something else.
         "read_drafts",
+        # Canvas writing ([R13.57]). Three grant-sourced tools.
+        "canvas_create_object",
+        "canvas_update_object",
+        "canvas_delete_object",
     }
 )
 

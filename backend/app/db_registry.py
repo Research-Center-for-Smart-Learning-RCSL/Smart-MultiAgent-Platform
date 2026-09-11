@@ -22,6 +22,7 @@ from contexts.agents.infrastructure import (  # noqa: F401
     mcp_tables as _agents_mcp_tables,
 )
 from contexts.agents.infrastructure import tables as _agents_tables  # noqa: F401
+from contexts.canvas.infrastructure import tables as _canvas_tables  # noqa: F401
 from contexts.conversation.infrastructure import (  # noqa: F401
     tables as _conversation_tables,
 )

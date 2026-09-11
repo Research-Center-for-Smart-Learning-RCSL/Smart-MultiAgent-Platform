@@ -498,6 +498,50 @@ class ConversationFacade:
             request_id=request_id,
         )
 
+    async def set_agent_canvas_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Write the canvas grant ([R13.47]); ``False`` when not bound."""
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).set_agent_canvas_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def set_agent_canvas_write_grant(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        granted: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Write the canvas write grant ([R13.56]); ``False`` when not bound."""
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).set_agent_canvas_write_grant(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            granted=granted,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_messages(
         self,
         chatroom_id: uuid.UUID,
