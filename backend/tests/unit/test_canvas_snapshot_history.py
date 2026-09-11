@@ -66,8 +66,7 @@ def _mock_audit() -> MagicMock:
 def _mock_publisher() -> MagicMock:
     pub_instance = MagicMock()
     pub_instance.emit = AsyncMock()
-    pub_cls = MagicMock(return_value=pub_instance)
-    return pub_cls
+    return MagicMock(return_value=pub_instance)
 
 
 def _mock_service() -> tuple[CanvasService, MagicMock]:

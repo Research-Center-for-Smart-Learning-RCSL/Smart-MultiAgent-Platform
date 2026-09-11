@@ -66,7 +66,7 @@ async function handleRestore(snapshotId: string) {
   const ok = await confirm({
     title: t('canvas.restore'),
     message: t('canvas.restoreConfirm'),
-    confirmText: t('canvas.restore'),
+    confirmLabel: t('canvas.restore'),
     variant: 'warning',
   })
   if (!ok) return
@@ -254,7 +254,7 @@ async function handleRestore(snapshotId: string) {
 
 .canvas-history__item--selected {
   background: var(--color-surface-active, var(--color-surface-hover));
-  border-left: 3px solid var(--color-primary);
+  border-left: 3px solid var(--color-accent);
 }
 
 .canvas-history__item-header {

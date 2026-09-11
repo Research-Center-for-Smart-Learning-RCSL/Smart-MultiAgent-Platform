@@ -236,7 +236,7 @@ function onExportSelect(key: string) {
 }
 
 .canvas-toolbar__label-input:focus {
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
 }
 
 .canvas-toolbar__separator {

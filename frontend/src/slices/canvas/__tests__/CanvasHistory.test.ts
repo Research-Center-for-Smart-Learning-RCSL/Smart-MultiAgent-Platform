@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ref } from 'vue'
 
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string) => key,
+  }),
+}))
+
 vi.mock('@shared/query-client', () => ({
   queryClient: {
     invalidateQueries: vi.fn(),
@@ -72,9 +78,6 @@ describe('CanvasHistory', () => {
           SRelativeTime: { template: '<span>time</span>' },
           SLoadingSpinner: { template: '<span>loading</span>' },
         },
-        mocks: {
-          $t: (key: string) => key,
-        },
       },
     })
 
@@ -90,9 +93,6 @@ describe('CanvasHistory', () => {
         stubs: {
           SRelativeTime: { template: '<span>time</span>' },
           SLoadingSpinner: { template: '<span>loading</span>' },
-        },
-        mocks: {
-          $t: (key: string) => key,
         },
       },
     })
