@@ -3,6 +3,7 @@ import { ref, computed, toRef, defineAsyncComponent, type ComponentPublicInstanc
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
+import CanvasHistory from './CanvasHistory.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
@@ -53,6 +54,7 @@ const chatroomNameRef = toRef(props, 'chatroomName')
 const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
 
 const showSettings = ref(false)
+const showHistory = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
 
 function handleUploadImage() {
@@ -67,8 +69,12 @@ async function onFileSelected(event: Event) {
   input.value = ''
 }
 
-async function handleSave() {
-  await saveSnapshot()
+async function handleSave(label?: string) {
+  await saveSnapshot(label ? { label } : undefined)
+}
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value
 }
 
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
@@ -118,6 +124,7 @@ async function toggleExposeToAgents() {
       @open-settings="showSettings = !showSettings"
       @export-png="exportPng"
       @export-svg="exportSvg"
+      @open-history="toggleHistory"
     />
 
     <div
@@ -138,33 +145,40 @@ async function toggleExposeToAgents() {
       </label>
     </div>
 
-    <div class="canvas-panel__body">
-      <div
-        v-if="isLoading"
-        class="canvas-panel__centered"
-      >
-        <SLoadingSpinner />
-      </div>
-      <div
-        v-else-if="error"
-        class="canvas-panel__centered"
-      >
-        <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
-      </div>
-      <template v-else>
-        <div class="canvas-panel__canvas-area">
-          <Suspense>
-            <CanvasRenderer
-              ref="canvasRendererRef"
-              :doc="doc"
-              :awareness="awareness"
-            />
-            <template #fallback>
-              <SLoadingSpinner />
-            </template>
-          </Suspense>
+    <div class="canvas-panel__content">
+      <div class="canvas-panel__body">
+        <div
+          v-if="isLoading"
+          class="canvas-panel__centered"
+        >
+          <SLoadingSpinner />
         </div>
-      </template>
+        <div
+          v-else-if="error"
+          class="canvas-panel__centered"
+        >
+          <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
+        </div>
+        <template v-else>
+          <div class="canvas-panel__canvas-area">
+            <Suspense>
+              <CanvasRenderer
+                ref="canvasRendererRef"
+                :doc="doc"
+                :awareness="awareness"
+              />
+              <template #fallback>
+                <SLoadingSpinner />
+              </template>
+            </Suspense>
+          </div>
+        </template>
+      </div>
+      <CanvasHistory
+        v-if="showHistory"
+        :chatroom-id="chatroomId"
+        @close="showHistory = false"
+      />
     </div>
 
     <input
@@ -258,6 +272,13 @@ async function toggleExposeToAgents() {
   align-items: center;
   gap: var(--space-2);
   cursor: pointer;
+}
+
+.canvas-panel__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
 }
 
 .canvas-panel__body {

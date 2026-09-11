@@ -47,6 +47,13 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     )
 
     unsubs.push(
+      channel.subscribe('canvas.snapshot_restored', () => {
+        queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
+        queryClient.invalidateQueries({ queryKey: canvasKeys.objects(chatroomId.value) })
+      }),
+    )
+
+    unsubs.push(
       channel.subscribe('canvas.settings_updated', () => {
         queryClient.invalidateQueries({ queryKey: canvasKeys.canvas(chatroomId.value) })
       }),

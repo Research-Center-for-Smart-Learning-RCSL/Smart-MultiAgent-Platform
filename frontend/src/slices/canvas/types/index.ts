@@ -32,7 +32,12 @@ export interface CanvasSnapshot {
   canvas_id: string
   agent_digest: string | null
   created_by_user_id: string | null
+  label: string | null
   created_at: string
+}
+
+export interface CanvasSnapshotDetail extends CanvasSnapshot {
+  snapshot_data: Record<string, unknown>
 }
 
 export interface CanvasObjectCreate {

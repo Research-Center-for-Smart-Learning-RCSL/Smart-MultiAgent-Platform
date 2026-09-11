@@ -42,6 +42,17 @@
     "exportPng": "Export as PNG (1x)",
     "exportPng2x": "Export as PNG (2x)",
     "exportSvg": "Export as SVG",
-    "exporting": "Exporting..."
+    "exporting": "Exporting...",
+    "history": "History",
+    "historyTitle": "Version History",
+    "noSnapshots": "No snapshots yet",
+    "preview": "Preview",
+    "restore": "Restore",
+    "restoreConfirm": "Restore this snapshot? Current state will be auto-saved first.",
+    "restoring": "Restoring...",
+    "restored": "Snapshot restored",
+    "snapshotLabel": "Label (optional)",
+    "snapshotLabelPlaceholder": "Describe this version...",
+    "objectSummary": "{count} {count, plural, one {object} other {objects}}"
   }
 }
