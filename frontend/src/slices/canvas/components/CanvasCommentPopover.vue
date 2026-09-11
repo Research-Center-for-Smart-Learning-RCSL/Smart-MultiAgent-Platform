@@ -301,7 +301,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .comment-item + .comment-item {
-  border-top: 1px solid var(--color-border-light, var(--color-border));
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .comment-item__header {

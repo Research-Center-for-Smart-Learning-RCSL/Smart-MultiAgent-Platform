@@ -221,7 +221,7 @@ async function toggleExposeToAgents() {
 }
 
 .canvas-panel__status--connected {
-  background: var(--color-success, #22c55e);
+  background: var(--color-success);
 }
 
 .canvas-panel__status--disconnected {
