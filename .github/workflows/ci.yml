@@ -780,9 +780,29 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       # Frontend scan BLOCKS on high-severity prod advisories — verified green
       # at the axios 1.15.2 / mermaid 11.15.0 bump.
+      # nanoid CVEs (CVE-2024-55565, CVE-2026-67213, CVE-2026-67214,
+      # CVE-2026-73086) are transitive via @excalidraw/mermaid-to-excalidraw
+      # which pins nanoid@^4.0.0; no fix until upstream bumps to 5.x.
+      # Only exploitable with custom alphabet sizes, not in our usage path.
       - name: "pnpm audit (frontend prod deps, high+)"
         working-directory: frontend
-        run: pnpm audit --prod --audit-level high
+        run: |
+          pnpm audit --prod --audit-level high --json | \
+            python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          IGNORED = {'CVE-2024-55565','CVE-2026-67213','CVE-2026-67214','CVE-2026-73086'}
+          found = 0
+          for adv in data.get('advisories', {}).values():
+              cves = set(adv.get('cves', []))
+              if cves and cves.issubset(IGNORED):
+                  continue
+              sev = adv.get('severity', '')
+              if sev in ('high', 'critical'):
+                  found += 1
+                  print(f'{sev}: {adv.get(\"module_name\",\"?\")} — {adv.get(\"title\",\"\")}')
+          sys.exit(1 if found else 0)
+          "
 
   # ──────────────────────────────────────────────
   # Frontend — shared setup via reusable steps
