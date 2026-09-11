@@ -230,9 +230,7 @@ class CanvasRepository:
 
     async def update_crdt_state(self, canvas_id: uuid.UUID, state: bytes) -> None:
         await self._db.execute(
-            t.canvases.update()
-            .where(t.canvases.c.id == canvas_id)
-            .values(crdt_state=state)
+            t.canvases.update().where(t.canvases.c.id == canvas_id).values(crdt_state=state)
         )
 
     # ---- snapshots ---------------------------------------------------------

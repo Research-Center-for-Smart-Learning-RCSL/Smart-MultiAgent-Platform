@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC
+from typing import Any
 
 import pycrdt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.canvas.application.crdt_relay import get_crdt_relay
 from contexts.canvas.application.canvas_service import CanvasService
+from contexts.canvas.application.crdt_relay import get_crdt_relay
 from contexts.canvas.domain.canvas_digest import build_canvas_digest
 from contexts.canvas.domain.models import CanvasObject, CanvasObjectKind
 from contexts.canvas.infrastructure.repositories import CanvasRepository
@@ -26,12 +28,12 @@ _log = logging.getLogger(__name__)
 _MAX_DIGEST_CHARS = 2000
 
 
-def _elements_to_pseudo_objects(elements: list[dict]) -> list[CanvasObject]:
+def _elements_to_pseudo_objects(elements: list[dict[str, Any]]) -> list[CanvasObject]:
     """Convert Excalidraw element dicts to CanvasObject-like for digest building."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc)
-    _TYPE_MAP = {
+    now = datetime.now(UTC)
+    type_map = {
         "rectangle": CanvasObjectKind.SHAPE,
         "ellipse": CanvasObjectKind.SHAPE,
         "diamond": CanvasObjectKind.SHAPE,
@@ -43,7 +45,7 @@ def _elements_to_pseudo_objects(elements: list[dict]) -> list[CanvasObject]:
     }
     result: list[CanvasObject] = []
     for elem in elements:
-        kind = _TYPE_MAP.get(elem.get("type", ""), CanvasObjectKind.SHAPE)
+        kind = type_map.get(elem.get("type", ""), CanvasObjectKind.SHAPE)
         result.append(
             CanvasObject(
                 id=uuid.UUID(elem["id"]) if "id" in elem else uuid.uuid4(),
@@ -66,7 +68,7 @@ def _elements_to_pseudo_objects(elements: list[dict]) -> list[CanvasObject]:
 def _digest_from_crdt_state(crdt_state: bytes) -> str | None:
     """Build digest from persisted CRDT state bytes."""
     try:
-        doc = pycrdt.Doc()
+        doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
         doc.apply_update(crdt_state)
         elements = doc.get("elements", type=pycrdt.Array)
         elem_dicts = []

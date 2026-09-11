@@ -10,6 +10,7 @@ Persistence: every 30s while editors connected + last-disconnect flush ([R13.52]
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -76,8 +77,7 @@ async def _unregister_editor(canvas_id: uuid.UUID, conn_id: uuid.UUID) -> int:
     r = get_redis()
     key = _editors_key(canvas_id)
     await r.zrem(key, str(conn_id))
-    count = await r.zcard(key)
-    return count
+    return await r.zcard(key)
 
 
 @router.websocket("/ws/canvas/{canvas_id}")
@@ -182,10 +182,12 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
         # Send initial state to client (sync step 1)
         state_b64 = relay.get_state_as_b64(canvas_id)
         if state_b64:
-            await conn.enqueue({
-                "type": "yjs-sync-step-1",
-                "data": state_b64,
-            })
+            await conn.enqueue(
+                {
+                    "type": "yjs-sync-step-1",
+                    "data": state_b64,
+                }
+            )
 
         _last_flush_ts = time.monotonic()
 
@@ -209,10 +211,12 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
             try:
                 delta_b64 = await relay.apply_update(canvas_id, data)
             except CrdtUpdateError as exc:
-                await conn.enqueue({
-                    "type": "error",
-                    "message": f"update rejected: {exc}",
-                })
+                await conn.enqueue(
+                    {
+                        "type": "error",
+                        "message": f"update rejected: {exc}",
+                    }
+                )
                 return
             # Relay to all other editors via the canvas channel
             await publisher.emit("yjs-update", {"data": delta_b64})
@@ -221,20 +225,20 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
             # Client is sending its state vector, server responds with missing updates
             state_b64 = relay.get_state_as_b64(canvas_id)
             if state_b64:
-                await conn.enqueue({
-                    "type": "yjs-sync-step-2",
-                    "data": state_b64,
-                })
+                await conn.enqueue(
+                    {
+                        "type": "yjs-sync-step-2",
+                        "data": state_b64,
+                    }
+                )
 
         elif msg_type == "yjs-sync-step-2":
             # Client sending missing updates to server
             data = msg.get("data")
             if not isinstance(data, str):
                 return
-            try:
+            with contextlib.suppress(CrdtUpdateError):
                 await relay.apply_update(canvas_id, data)
-            except CrdtUpdateError:
-                pass  # Sync step 2 failures are non-fatal
 
         elif msg_type == "awareness":
             if not await _check_guest_rate(conn):
@@ -243,10 +247,13 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
             if not isinstance(data, (str, dict)):
                 return
             # Pass-through: awareness is ephemeral, not persisted
-            await publisher.emit("awareness", {
-                "data": data,
-                "user_id": str(conn.principal.user_id),
-            })
+            await publisher.emit(
+                "awareness",
+                {
+                    "data": data,
+                    "user_id": str(conn.principal.user_id),
+                },
+            )
 
     async def on_heartbeat(conn: ChannelConnection) -> None:
         nonlocal _last_flush_ts

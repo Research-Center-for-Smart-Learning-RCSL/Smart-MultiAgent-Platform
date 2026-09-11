@@ -308,10 +308,10 @@ class CanvasService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasSnapshot:
-        from contexts.canvas.application.crdt_relay import get_crdt_relay
         from contexts.canvas.application.canvas_context_provider import (
             _elements_to_pseudo_objects,
         )
+        from contexts.canvas.application.crdt_relay import get_crdt_relay
 
         relay = get_crdt_relay()
         crdt_elements = relay.extract_elements_for_digest(canvas_id) if relay.has(canvas_id) else None
@@ -367,10 +367,10 @@ class CanvasService:
         return snap
 
     async def latest_digest(self, canvas_id: uuid.UUID) -> str | None:
-        from contexts.canvas.application.crdt_relay import get_crdt_relay
         from contexts.canvas.application.canvas_context_provider import (
             _elements_to_pseudo_objects,
         )
+        from contexts.canvas.application.crdt_relay import get_crdt_relay
 
         # Try CRDT first
         relay = get_crdt_relay()
@@ -386,6 +386,7 @@ class CanvasService:
             from contexts.canvas.application.canvas_context_provider import (
                 _digest_from_crdt_state,
             )
+
             digest = _digest_from_crdt_state(crdt_state)
             if digest:
                 return digest

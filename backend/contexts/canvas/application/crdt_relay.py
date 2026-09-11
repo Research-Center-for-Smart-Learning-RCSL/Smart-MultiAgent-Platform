@@ -42,7 +42,7 @@ class CrdtUpdateError(Exception):
 
 @dataclass
 class _CanvasDoc:
-    doc: pycrdt.Doc
+    doc: pycrdt.Doc  # type: ignore[type-arg]
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     dirty: bool = False
 
@@ -62,7 +62,7 @@ class CrdtRelay:
         *,
         crdt_state: bytes | None = None,
         legacy_objects: Sequence[CanvasObject] | None = None,
-    ) -> pycrdt.Doc:
+    ) -> pycrdt.Doc:  # type: ignore[type-arg]
         """Return the in-memory doc, loading or migrating as needed.
 
         ``crdt_state`` is the persisted BYTEA from the database.
@@ -71,7 +71,7 @@ class CrdtRelay:
         if canvas_id in self._docs:
             return self._docs[canvas_id].doc
 
-        doc = pycrdt.Doc()
+        doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
         if crdt_state:
             doc.apply_update(crdt_state)
         elif legacy_objects:
@@ -82,7 +82,7 @@ class CrdtRelay:
 
     def _migrate_from_objects(
         self,
-        doc: pycrdt.Doc,
+        doc: pycrdt.Doc,  # type: ignore[type-arg]
         objects: Sequence[CanvasObject],
     ) -> None:
         """Build a Yjs doc from Phase 1 canvas_objects ([R13.54]).
@@ -146,7 +146,7 @@ class CrdtRelay:
 
         async with entry.lock:
             # Validate by applying to a scratch doc first (size cap check)
-            scratch = pycrdt.Doc()
+            scratch: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
             scratch.apply_update(entry.doc.get_update())
             try:
                 scratch.apply_update(update_bytes)
@@ -155,9 +155,7 @@ class CrdtRelay:
 
             encoded = scratch.get_update()
             if len(encoded) > _MAX_DOC_SIZE_BYTES:
-                raise CrdtUpdateError(
-                    f"document would exceed {_MAX_DOC_SIZE_BYTES} byte cap"
-                )
+                raise CrdtUpdateError(f"document would exceed {_MAX_DOC_SIZE_BYTES} byte cap")
 
             # Apply to the real doc
             try:

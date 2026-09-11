@@ -110,12 +110,19 @@ class TestCrdtFallbackChain:
         # Manually insert an element into the in-memory doc
         doc = relay._docs[_CANVAS_ID].doc
         elements = doc.get("elements", type=pycrdt.Array)
-        elements.append(pycrdt.Map({
-            "id": str(uuid.uuid4()),
-            "type": "rectangle",
-            "x": 0, "y": 0, "width": 100, "height": 100,
-            "isDeleted": False,
-        }))
+        elements.append(
+            pycrdt.Map(
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "rectangle",
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 100,
+                    "isDeleted": False,
+                }
+            )
+        )
 
         with (
             patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
@@ -134,13 +141,20 @@ class TestCrdtFallbackChain:
 
         src = pycrdt.Doc()
         elems = src.get("elements", type=pycrdt.Array)
-        elems.append(pycrdt.Map({
-            "id": str(uuid.uuid4()),
-            "type": "text",
-            "text": "hello world",
-            "x": 0, "y": 0, "width": 100, "height": 50,
-            "isDeleted": False,
-        }))
+        elems.append(
+            pycrdt.Map(
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "text",
+                    "text": "hello world",
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 50,
+                    "isDeleted": False,
+                }
+            )
+        )
         crdt_bytes = src.get_update()
 
         canvas_with_crdt = Canvas(
@@ -157,7 +171,9 @@ class TestCrdtFallbackChain:
 
         with (
             patch("contexts.canvas.application.canvas_context_provider.CanvasRepository") as MockRepo,
-            patch("contexts.canvas.application.canvas_context_provider.get_crdt_relay", return_value=empty_relay),
+            patch(
+                "contexts.canvas.application.canvas_context_provider.get_crdt_relay", return_value=empty_relay
+            ),
         ):
             MockRepo.return_value.get_by_chatroom = AsyncMock(return_value=canvas_with_crdt)
             result = await CanvasContextProvider(mock_db).query(chatroom_id=_ROOM)
