@@ -282,7 +282,11 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 - (implemented 2026-09-10) `2026-09-10-canvas-ai-write`. Phase 3: AI agents
   write to canvas via three built-in tools. Migration 0090. Nothing lists this
   slug in `depends_on`, so no row moves out of Blocked.
-- (moved to In progress) `2026-09-10-canvas-export`.
+- (implemented 2026-09-11) `2026-09-10-canvas-export`. Client-side PNG/SVG
+  export via Excalidraw's exportToBlob/exportToSvg. AC-1 through AC-5 and AC-7
+  unticked (need running stack for browser verification). AC-6 deferred (D-1:
+  non-reactive Excalidraw API prevents reactive empty-canvas detection). Nothing
+  lists this slug in `depends_on`, so no row moves out of Blocked.
 - `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
   (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
 - `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
