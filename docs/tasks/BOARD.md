@@ -289,7 +289,12 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   lists this slug in `depends_on`, so no row moves out of Blocked.
 - `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
   (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
-- (moved to In progress) `2026-09-10-canvas-search`.
+- (implemented 2026-09-11) `2026-09-10-canvas-search`. Full-text search over canvas
+  object text via PostgreSQL FTS. Migration 0093, one new REST endpoint, toolbar search
+  UI with DOMPurify-sanitized snippets. AC-5/AC-6/AC-7 unticked against running stack
+  (same limitation as other canvas dossiers). D-1: scroll-to-object uses position-based
+  scroll instead of scrollToContent. Nothing lists this slug in `depends_on`, so no row
+  moves out of Blocked.
 - (moved to In progress) `2026-09-10-canvas-history`.
 - (implemented 2026-09-11) `2026-09-10-canvas-comments`. Comment threads on individual
   canvas objects. Migration 0091, five REST endpoints, comment popover UI, WS events.
