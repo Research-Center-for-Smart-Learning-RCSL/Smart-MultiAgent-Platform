@@ -55,10 +55,6 @@ const {
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
 
-function handleSelectObject(objectId: string) {
-  selectedObjectId.value = objectId
-}
-
 function openComments(objectId: string) {
   selectedObjectId.value = objectId
   showComments.value = true

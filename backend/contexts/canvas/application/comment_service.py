@@ -19,7 +19,7 @@ _MAX_COMMENT_LENGTH = 2000
 
 
 def _sanitize_content(text: str) -> str:
-    cleaned = "".join(ch for ch in text if ch == "\n" or ch == "\t" or not ch.isascii() or ch >= " ")
+    cleaned = "".join(ch for ch in text if ch in {"\n", "\t"} or not ch.isascii() or ch >= " ")
     return cleaned[:_MAX_COMMENT_LENGTH]
 
 
@@ -42,13 +42,9 @@ class CommentService:
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[CanvasComment]:
-        return await self._repo.list_comments(
-            object_id, canvas_id=canvas_id, limit=limit, offset=offset
-        )
+        return await self._repo.list_comments(object_id, canvas_id=canvas_id, limit=limit, offset=offset)
 
-    async def get_comment(
-        self, comment_id: uuid.UUID, *, canvas_id: uuid.UUID
-    ) -> CanvasComment | None:
+    async def get_comment(self, comment_id: uuid.UUID, *, canvas_id: uuid.UUID) -> CanvasComment | None:
         return await self._repo.get(comment_id, canvas_id=canvas_id)
 
     async def create_comment(
@@ -111,9 +107,7 @@ class CommentService:
         request_id: uuid.UUID | None = None,
     ) -> CanvasComment | None:
         sanitized = _sanitize_content(content)
-        comment = await self._repo.update_comment(
-            comment_id, canvas_id=canvas_id, content=sanitized
-        )
+        comment = await self._repo.update_comment(comment_id, canvas_id=canvas_id, content=sanitized)
         if comment is None:
             return None
         await audit.emit(

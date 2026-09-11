@@ -13,7 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.application.canvas_service import CanvasService
 from contexts.canvas.application.comment_service import CommentService
-from contexts.canvas.domain.models import Canvas, CanvasComment, CanvasObject, CanvasObjectKind, CanvasSnapshot
+from contexts.canvas.domain.models import (
+    Canvas,
+    CanvasComment,
+    CanvasObject,
+    CanvasObjectKind,
+    CanvasSnapshot,
+)
 
 
 class CanvasFacade:
@@ -220,7 +226,6 @@ class CanvasFacade:
             request_id=request_id,
         )
 
-
     # ---- comments ------------------------------------------------------------
 
     async def list_comments(
@@ -231,13 +236,9 @@ class CanvasFacade:
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[CanvasComment]:
-        return await self._comments.list_comments(
-            object_id, canvas_id=canvas_id, limit=limit, offset=offset
-        )
+        return await self._comments.list_comments(object_id, canvas_id=canvas_id, limit=limit, offset=offset)
 
-    async def get_comment(
-        self, comment_id: uuid.UUID, *, canvas_id: uuid.UUID
-    ) -> CanvasComment | None:
+    async def get_comment(self, comment_id: uuid.UUID, *, canvas_id: uuid.UUID) -> CanvasComment | None:
         return await self._comments.get_comment(comment_id, canvas_id=canvas_id)
 
     async def create_comment(
@@ -313,9 +314,7 @@ class CanvasFacade:
         *,
         canvas_id: uuid.UUID,
     ) -> dict[uuid.UUID, int]:
-        return await self._comments.count_comments_by_object(
-            object_ids, canvas_id=canvas_id
-        )
+        return await self._comments.count_comments_by_object(object_ids, canvas_id=canvas_id)
 
 
 __all__ = ["CanvasFacade"]

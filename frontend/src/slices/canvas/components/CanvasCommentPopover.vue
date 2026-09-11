@@ -10,7 +10,7 @@ const { t } = useI18n()
 const { confirm } = useConfirmDialog()
 const session = useSessionStore()
 
-const props = defineProps<{
+defineProps<{
   comments: CanvasComment[]
   isLoading: boolean
 }>()
@@ -164,6 +164,7 @@ function handleEditKeydown(e: KeyboardEvent) {
           <textarea
             v-model="editContent"
             class="comment-edit-input"
+            :aria-label="t('canvas.editComment')"
             maxlength="2000"
             rows="2"
             @keydown="handleEditKeydown"
@@ -197,6 +198,7 @@ function handleEditKeydown(e: KeyboardEvent) {
         ref="inputRef"
         v-model="newComment"
         class="comment-popover__textarea"
+        :aria-label="t('canvas.addComment')"
         :placeholder="t('canvas.commentPlaceholder')"
         maxlength="2000"
         rows="2"
