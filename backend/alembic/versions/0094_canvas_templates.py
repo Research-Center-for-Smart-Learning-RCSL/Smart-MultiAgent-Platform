@@ -254,26 +254,20 @@ def upgrade() -> None:
         postgresql_where=sa.text("deleted_at IS NULL AND project_id IS NOT NULL"),
     )
 
-    bind = op.get_bind()
-    insert = sa.text(
-        "INSERT INTO canvas_templates "
-        "(id, scope, project_id, name, description, template_data, created_by_user_id) "
-        "SELECT :id, CAST('platform' AS canvas_template_scope), NULL, :name, :description, "
-        "CAST(:template_data AS jsonb), NULL "
-        "WHERE NOT EXISTS ("
-        "  SELECT 1 FROM canvas_templates WHERE scope = 'platform' AND name = :name"
-        ")"
-    )
-
+    conn = op.get_bind()
     for tmpl in _PLATFORM_TEMPLATES:
         data = tmpl["template_data"]()
-        bind.execute(
-            insert,
+        conn.execute(
+            sa.text(
+                "INSERT INTO canvas_templates "
+                "(id, scope, project_id, name, description, template_data, created_by_user_id) "
+                "VALUES (gen_random_uuid(), CAST('platform' AS canvas_template_scope), "
+                "NULL, :p_name, :p_desc, CAST(:p_data AS jsonb), NULL)"
+            ),
             {
-                "id": str(uuid.uuid4()),
-                "name": tmpl["name"],
-                "description": tmpl["description"],
-                "template_data": json.dumps(data),
+                "p_name": tmpl["name"],
+                "p_desc": tmpl["description"],
+                "p_data": json.dumps(data),
             },
         )
 
