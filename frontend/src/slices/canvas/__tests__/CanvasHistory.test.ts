@@ -1,27 +1,53 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
+
+vi.mock('@shared/query-client', () => ({
+  queryClient: {
+    invalidateQueries: vi.fn(),
+    defaultQueryOptions: vi.fn(() => ({})),
+    getDefaultOptions: vi.fn(() => ({ queries: {} })),
+  },
+}))
+
+vi.mock('@shared/transport/axios', () => ({
+  http: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}))
+
+vi.mock('@shared/composables/useConfirmDialog', () => ({
+  useConfirmDialog: () => ({ confirm: vi.fn(async () => true) }),
+}))
+
+vi.mock('@shared/composables/useToast', () => ({
+  useToast: () => ({ success: vi.fn() }),
+}))
+
+const mockSnapshots = [
+  {
+    id: 'snap-1',
+    canvas_id: 'canvas-1',
+    agent_digest: '2 notes, 1 shape',
+    created_by_user_id: 'user-1',
+    label: 'My checkpoint',
+    created_at: '2026-09-10T12:00:00Z',
+  },
+  {
+    id: 'snap-2',
+    canvas_id: 'canvas-1',
+    agent_digest: '1 note',
+    created_by_user_id: null,
+    label: null,
+    created_at: '2026-09-10T11:00:00Z',
+  },
+]
 
 vi.mock('@tanstack/vue-query', () => ({
   useQuery: vi.fn(() => ({
-    data: ref([
-      {
-        id: 'snap-1',
-        canvas_id: 'canvas-1',
-        agent_digest: '2 notes, 1 shape',
-        created_by_user_id: 'user-1',
-        label: 'My checkpoint',
-        created_at: '2026-09-10T12:00:00Z',
-      },
-      {
-        id: 'snap-2',
-        canvas_id: 'canvas-1',
-        agent_digest: '1 note',
-        created_by_user_id: null,
-        label: null,
-        created_at: '2026-09-10T11:00:00Z',
-      },
-    ]),
+    data: ref(mockSnapshots),
     isLoading: ref(false),
     error: ref(null),
   })),
@@ -34,20 +60,7 @@ vi.mock('@tanstack/vue-query', () => ({
   })),
 }))
 
-vi.mock('@shared/composables/useConfirmDialog', () => ({
-  useConfirmDialog: () => ({ confirm: vi.fn(async () => true) }),
-}))
-
-vi.mock('@shared/composables/useToast', () => ({
-  useToast: () => ({ success: vi.fn() }),
-}))
-
-vi.mock('../api', () => ({
-  listSnapshots: vi.fn(async () => []),
-  getSnapshot: vi.fn(async () => ({})),
-  restoreSnapshot: vi.fn(async () => ({})),
-}))
-
+import { mount } from '@vue/test-utils'
 import CanvasHistory from '../components/CanvasHistory.vue'
 
 describe('CanvasHistory', () => {

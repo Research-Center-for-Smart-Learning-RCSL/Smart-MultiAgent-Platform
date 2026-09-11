@@ -109,9 +109,13 @@ async function handleRestore(snapshotId: string) {
         <div
           v-for="snap in snapshots"
           :key="snap.id"
+          role="button"
+          tabindex="0"
           class="canvas-history__item"
           :class="{ 'canvas-history__item--selected': previewSnapshotId === snap.id }"
           @click="selectSnapshot(snap.id)"
+          @keydown.enter="selectSnapshot(snap.id)"
+          @keydown.space.prevent="selectSnapshot(snap.id)"
         >
           <div class="canvas-history__item-header">
             <SRelativeTime
