@@ -114,6 +114,35 @@ canvas_object_comments = sa.Table(
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
+canvas_templates = sa.Table(
+    "canvas_templates",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "scope",
+        pg.ENUM("platform", "project", name="canvas_template_scope", create_type=False),
+        nullable=False,
+    ),
+    sa.Column(
+        "project_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    sa.Column("name", sa.String(200), nullable=False),
+    sa.Column("description", sa.Text, nullable=True),
+    sa.Column("template_data", pg.JSONB, nullable=False),
+    sa.Column(
+        "created_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.UniqueConstraint("scope", "project_id", "name", name="uq_canvas_templates_scope_project_name"),
+)
+
 canvas_snapshots = sa.Table(
     "canvas_snapshots",
     metadata,

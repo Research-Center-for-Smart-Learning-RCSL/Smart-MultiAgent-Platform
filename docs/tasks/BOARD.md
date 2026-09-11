@@ -287,8 +287,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   unticked (need running stack for browser verification). AC-6 deferred (D-1:
   non-reactive Excalidraw API prevents reactive empty-canvas detection). Nothing
   lists this slug in `depends_on`, so no row moves out of Blocked.
-- `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
-  (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
+- (moved to In progress) `2026-09-10-canvas-templates`.
 - (implemented 2026-09-11) `2026-09-10-canvas-search`. Full-text search over canvas
   object text via PostgreSQL FTS. Migration 0093, one new REST endpoint, toolbar search
   UI with DOMPurify-sanitized snippets. AC-5/AC-6/AC-7 unticked against running stack

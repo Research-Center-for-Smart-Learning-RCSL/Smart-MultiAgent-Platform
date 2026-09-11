@@ -13,12 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.application.canvas_service import CanvasService
 from contexts.canvas.application.comment_service import CommentService
+from contexts.canvas.application.template_service import CanvasTemplateService
 from contexts.canvas.domain.models import (
     Canvas,
     CanvasComment,
     CanvasObject,
     CanvasObjectKind,
     CanvasSnapshot,
+    CanvasTemplate,
+    CanvasTemplateScope,
 )
 
 
@@ -32,6 +35,7 @@ class CanvasFacade:
         self._db = db
         self._service = CanvasService(db, room_channel_fn=room_channel_fn)
         self._comments = CommentService(db, room_channel_fn=room_channel_fn)
+        self._templates = CanvasTemplateService(db, room_channel_fn=room_channel_fn)
 
     async def get_by_chatroom(self, chatroom_id: uuid.UUID) -> Canvas | None:
         return await self._service.get_by_chatroom(chatroom_id)
@@ -348,6 +352,99 @@ class CanvasFacade:
         canvas_id: uuid.UUID,
     ) -> dict[uuid.UUID, int]:
         return await self._comments.count_comments_by_object(object_ids, canvas_id=canvas_id)
+
+    # ---- templates -----------------------------------------------------------
+
+    async def list_templates(
+        self,
+        *,
+        scope: CanvasTemplateScope | None = None,
+        project_id: uuid.UUID | None = None,
+    ) -> Sequence[CanvasTemplate]:
+        return await self._templates.list_templates(scope=scope, project_id=project_id)
+
+    async def get_template(self, template_id: uuid.UUID) -> CanvasTemplate | None:
+        return await self._templates.get_template(template_id)
+
+    async def create_template(
+        self,
+        *,
+        scope: CanvasTemplateScope,
+        project_id: uuid.UUID | None,
+        name: str,
+        description: str | None,
+        template_data: dict[str, Any],
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasTemplate:
+        return await self._templates.create_template(
+            scope=scope,
+            project_id=project_id,
+            name=name,
+            description=description,
+            template_data=template_data,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def delete_template(
+        self,
+        template_id: uuid.UUID,
+        *,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        return await self._templates.delete_template(
+            template_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def apply_template(
+        self,
+        *,
+        canvas_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        template_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        actor_guest_id: uuid.UUID | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        return await self._templates.apply_template(
+            canvas_id=canvas_id,
+            chatroom_id=chatroom_id,
+            template_id=template_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            actor_guest_id=actor_guest_id,
+            request_id=request_id,
+        )
+
+    async def create_template_from_canvas(
+        self,
+        *,
+        canvas_id: uuid.UUID,
+        project_id: uuid.UUID,
+        name: str,
+        description: str | None,
+        actor_user_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> CanvasTemplate:
+        return await self._templates.create_from_canvas(
+            canvas_id=canvas_id,
+            project_id=project_id,
+            name=name,
+            description=description,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
 
 __all__ = ["CanvasFacade"]

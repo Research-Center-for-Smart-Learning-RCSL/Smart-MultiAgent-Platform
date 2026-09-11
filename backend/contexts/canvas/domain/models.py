@@ -9,6 +9,11 @@ from datetime import datetime
 from typing import Any
 
 
+class CanvasTemplateScope(str, enum.Enum):
+    PLATFORM = "platform"
+    PROJECT = "project"
+
+
 class CanvasObjectKind(str, enum.Enum):
     NOTE = "note"
     TEXT = "text"
@@ -71,10 +76,25 @@ class CanvasSnapshot:
     label: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CanvasTemplate:
+    id: uuid.UUID
+    scope: CanvasTemplateScope
+    project_id: uuid.UUID | None
+    name: str
+    description: str | None
+    template_data: dict[str, Any]
+    created_by_user_id: uuid.UUID | None
+    created_at: datetime
+    deleted_at: datetime | None = None
+
+
 __all__ = [
     "Canvas",
     "CanvasComment",
     "CanvasObject",
     "CanvasObjectKind",
     "CanvasSnapshot",
+    "CanvasTemplate",
+    "CanvasTemplateScope",
 ]

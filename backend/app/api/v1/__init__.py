@@ -60,6 +60,9 @@ def _build_registry() -> list[RouterEntry]:
         canvas as canvas_routes,
     )
     from app.api.v1 import (
+        canvas_templates as canvas_template_routes,
+    )
+    from app.api.v1 import (
         chatrooms as chatroom_routes,
     )
     from app.api.v1 import (
@@ -231,6 +234,8 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(member_group_routes.group_router),
         # Canvas
         RouterEntry(canvas_routes.router),
+        RouterEntry(canvas_template_routes.router),
+        RouterEntry(canvas_template_routes.apply_router),
         # Conversation
         RouterEntry(workspace_routes.project_router),
         RouterEntry(workspace_routes.workspace_router),
