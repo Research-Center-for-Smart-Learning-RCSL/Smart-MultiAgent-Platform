@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ProjectInviteOut = {
+    accept_url?: (string | null);
+    expires_at: string;
     id: string;
-    scope_id: string;
     invitee_email: string;
     role: 'owner' | 'member';
-    expires_at: string;
-    accept_url?: (string | null);
+    scope_id: string;
 };
 

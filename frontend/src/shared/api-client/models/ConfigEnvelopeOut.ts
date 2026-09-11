@@ -4,7 +4,7 @@
 /* eslint-disable */
 import type { AssistantConfigOut } from './AssistantConfigOut';
 export type ConfigEnvelopeOut = {
-    configured: boolean;
     config: (AssistantConfigOut | null);
+    configured: boolean;
 };
 

@@ -4,13 +4,13 @@
 /* eslint-disable */
 import type { RunState } from './RunState';
 export type RunOut = {
+    ended_at: (string | null);
     id: string;
-    workflow_id: string;
-    trigger_type: string;
+    started_at: string;
     started_by_user_id: (string | null);
     state: RunState;
+    trigger_type: string;
     variables: Record<string, any>;
-    started_at: string;
-    ended_at: (string | null);
+    workflow_id: string;
 };
 

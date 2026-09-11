@@ -15,8 +15,8 @@
  * floors rather than a silent truncation.
  */
 export type AdminPolicyImpactOut = {
-    violating_types: number;
-    violating_activations: number;
     approximate: boolean;
+    violating_activations: number;
+    violating_types: number;
 };
 
