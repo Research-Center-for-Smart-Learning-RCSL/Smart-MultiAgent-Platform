@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, toRef, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
+import CanvasCommentPopover from './CanvasCommentPopover.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
+import { useCanvasComments } from '../composables/useCanvasComments'
 import type { CanvasObjectKind } from '../types'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 import SEmptyState from '@shared/ui/SEmptyState.vue'
@@ -38,8 +40,45 @@ const {
 
 useCanvasSocket(chatroomIdRef)
 
+const selectedObjectId = ref<string | null>(null)
+const showComments = ref(false)
+
+const {
+  comments,
+  commentCounts,
+  isLoading: commentsLoading,
+  createComment,
+  updateComment,
+  deleteComment,
+} = useCanvasComments(chatroomIdRef, selectedObjectId)
+
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
+
+function handleSelectObject(objectId: string) {
+  selectedObjectId.value = objectId
+}
+
+function openComments(objectId: string) {
+  selectedObjectId.value = objectId
+  showComments.value = true
+}
+
+function closeComments() {
+  showComments.value = false
+}
+
+async function handleCreateComment(content: string) {
+  await createComment(content)
+}
+
+async function handleUpdateComment(commentId: string, content: string) {
+  await updateComment({ commentId, content })
+}
+
+async function handleDeleteComment(commentId: string) {
+  await deleteComment(commentId)
+}
 
 async function handleAddObject(kind: CanvasObjectKind) {
   await createObject({
@@ -76,6 +115,10 @@ const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
 
 async function toggleExposeToAgents() {
   await updateSettings({ expose_to_agents: !exposeToAgents.value })
+}
+
+function getCommentCount(objectId: string): number {
+  return commentCounts.value[objectId] ?? 0
 }
 </script>
 
@@ -146,15 +189,46 @@ async function toggleExposeToAgents() {
         :title="t('canvas.empty')"
         :description="t('canvas.emptyDescription')"
       />
-      <Suspense v-else>
-        <CanvasRenderer
-          :objects="objects"
-          @change="handleChange"
+      <template v-else>
+        <div class="canvas-panel__canvas-area">
+          <Suspense>
+            <CanvasRenderer
+              :objects="objects"
+              @change="handleChange"
+            />
+            <template #fallback>
+              <SLoadingSpinner />
+            </template>
+          </Suspense>
+
+          <div class="canvas-panel__object-list">
+            <button
+              v-for="obj in objects"
+              :key="obj.id"
+              class="canvas-panel__object-comment-btn"
+              :class="{ 'canvas-panel__object-comment-btn--active': selectedObjectId === obj.id && showComments }"
+              :title="t('canvas.comments')"
+              @click="openComments(obj.id)"
+            >
+              <ChatBubbleLeftIcon class="canvas-panel__comment-icon" />
+              <span
+                v-if="getCommentCount(obj.id) > 0"
+                class="canvas-panel__comment-badge"
+              >{{ getCommentCount(obj.id) }}</span>
+            </button>
+          </div>
+        </div>
+
+        <CanvasCommentPopover
+          v-if="showComments && selectedObjectId"
+          :comments="comments"
+          :is-loading="commentsLoading"
+          @create="handleCreateComment"
+          @update="handleUpdateComment"
+          @delete="handleDeleteComment"
+          @close="closeComments"
         />
-        <template #fallback>
-          <SLoadingSpinner />
-        </template>
-      </Suspense>
+      </template>
     </div>
 
     <input
@@ -245,12 +319,79 @@ async function toggleExposeToAgents() {
   min-height: 0;
   overflow: hidden;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+}
+
+.canvas-panel__canvas-area {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .canvas-panel__error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.canvas-panel__object-list {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  overflow-x: auto;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.canvas-panel__object-comment-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.canvas-panel__object-comment-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-fg);
+}
+
+.canvas-panel__object-comment-btn--active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.canvas-panel__comment-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.canvas-panel__comment-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  background: var(--color-primary);
+  color: white;
+  border-radius: 999px;
+  padding: 0 4px;
 }
 </style>

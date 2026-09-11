@@ -32,6 +32,27 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
       )
     }
 
+    const commentEvents = [
+      'canvas.comment_created',
+      'canvas.comment_updated',
+      'canvas.comment_deleted',
+    ]
+
+    for (const eventType of commentEvents) {
+      unsubs.push(
+        channel.subscribe(eventType, (payload: { object_id?: string }) => {
+          queryClient.invalidateQueries({
+            queryKey: canvasKeys.commentCounts(chatroomId.value),
+          })
+          if (payload.object_id) {
+            queryClient.invalidateQueries({
+              queryKey: canvasKeys.comments(chatroomId.value, payload.object_id),
+            })
+          }
+        }),
+      )
+    }
+
     unsubs.push(
       channel.subscribe('canvas.snapshot_created', () => {
         queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })

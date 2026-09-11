@@ -1,6 +1,7 @@
 import { http } from '@shared/transport'
 import type {
   Canvas,
+  CanvasComment,
   CanvasObject,
   CanvasObjectCreate,
   CanvasObjectPatch,
@@ -89,5 +90,57 @@ export async function listSnapshots(
 
 export async function createSnapshot(chatroomId: string): Promise<CanvasSnapshot> {
   const { data } = await http.post<CanvasSnapshot>(`${base(chatroomId)}/snapshots`)
+  return data
+}
+
+export async function listComments(
+  chatroomId: string,
+  objectId: string,
+  params?: { limit?: number; offset?: number },
+): Promise<CanvasComment[]> {
+  const { data } = await http.get<CanvasComment[]>(
+    `${base(chatroomId)}/objects/${objectId}/comments`,
+    { params },
+  )
+  return data
+}
+
+export async function createComment(
+  chatroomId: string,
+  objectId: string,
+  body: { content: string },
+): Promise<CanvasComment> {
+  const { data } = await http.post<CanvasComment>(
+    `${base(chatroomId)}/objects/${objectId}/comments`,
+    body,
+  )
+  return data
+}
+
+export async function updateComment(
+  chatroomId: string,
+  commentId: string,
+  body: { content: string },
+): Promise<CanvasComment> {
+  const { data } = await http.patch<CanvasComment>(
+    `${base(chatroomId)}/comments/${commentId}`,
+    body,
+  )
+  return data
+}
+
+export async function deleteComment(
+  chatroomId: string,
+  commentId: string,
+): Promise<void> {
+  await http.delete(`${base(chatroomId)}/comments/${commentId}`)
+}
+
+export async function getCommentCounts(
+  chatroomId: string,
+): Promise<Record<string, number>> {
+  const { data } = await http.get<Record<string, number>>(
+    `${base(chatroomId)}/objects/comment-counts`,
+  )
   return data
 }

@@ -29,6 +29,13 @@
     "agentGrantDescription": "允許此代理在其上下文中查看畫布內容",
     "mayWriteCanvas": "寫入畫布",
     "mayWriteCanvasDescription": "允許此代理建立、更新和刪除畫布物件",
-    "agentCreated": "由 AI 代理建立"
+    "agentCreated": "由 AI 代理建立",
+    "comments": "留言",
+    "addComment": "新增留言",
+    "editComment": "編輯留言",
+    "deleteComment": "刪除留言",
+    "deleteCommentConfirm": "確定要刪除此留言嗎？",
+    "noComments": "尚無留言",
+    "commentPlaceholder": "撰寫留言..."
   }
 }
