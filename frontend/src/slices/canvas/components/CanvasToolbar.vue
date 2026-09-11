@@ -229,14 +229,14 @@ function onExportSelect(key: string) {
   padding: var(--space-0-5) var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: var(--color-canvas, var(--color-surface));
+  background: var(--color-canvas);
   color: var(--color-fg);
   font-size: var(--font-size-xs);
-  outline: none;
 }
 
-.canvas-toolbar__label-input:focus {
+.canvas-toolbar__label-input:focus-visible {
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
 }
 
 .canvas-toolbar__separator {

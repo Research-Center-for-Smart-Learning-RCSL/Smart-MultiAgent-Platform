@@ -5,6 +5,10 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
   }),
+  createI18n: () => ({
+    global: { t: (key: string) => key },
+    install: vi.fn(),
+  }),
 }))
 
 vi.mock('@shared/query-client', () => ({

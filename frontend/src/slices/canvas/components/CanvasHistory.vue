@@ -253,7 +253,7 @@ async function handleRestore(snapshotId: string) {
 }
 
 .canvas-history__item--selected {
-  background: var(--color-surface-active, var(--color-surface-hover));
+  background: var(--color-surface-active);
   border-left: 3px solid var(--color-accent);
 }
 
@@ -316,7 +316,7 @@ async function handleRestore(snapshotId: string) {
 .canvas-history__preview {
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-border);
-  background: var(--color-surface-alt, var(--color-surface));
+  background: var(--color-surface);
 }
 
 .canvas-history__preview-label {
