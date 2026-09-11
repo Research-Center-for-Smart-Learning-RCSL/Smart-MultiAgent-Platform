@@ -87,12 +87,13 @@ class CrdtRelay:
     ) -> None:
         """Build a Yjs doc from Phase 1 canvas_objects ([R13.54]).
 
-        Creates an Excalidraw-compatible element array in the Yjs doc.
+        Creates a Y.Map keyed by element ID (``excalidraw-elements``).
         """
-        elements = doc.get("elements", type=pycrdt.Array)
+        elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
         for obj in objects:
+            elem_id = str(obj.id)
             element: dict[str, Any] = {
-                "id": str(obj.id),
+                "id": elem_id,
                 "type": _EXCALIDRAW_ELEMENT_KINDS.get(obj.kind.value, "rectangle"),
                 "x": obj.position_x,
                 "y": obj.position_y,
@@ -124,7 +125,7 @@ class CrdtRelay:
                     element["backgroundColor"] = obj.style["backgroundColor"]
                 if "strokeColor" in obj.style:
                     element["strokeColor"] = obj.style["strokeColor"]
-            elements.append(pycrdt.Map(element))
+            elements_map[elem_id] = pycrdt.Map(element)
 
     async def apply_update(
         self,
@@ -211,22 +212,27 @@ class CrdtRelay:
         if entry is None:
             return None
         try:
-            elements = entry.doc.get("elements", type=pycrdt.Array)
-            result: list[dict[str, Any]] = []
-            for item in elements:
-                if isinstance(item, pycrdt.Map):
-                    elem = dict(item)
-                    if elem.get("isDeleted"):
-                        continue
-                    result.append(elem)
-                elif isinstance(item, dict):
-                    if item.get("isDeleted"):
-                        continue
-                    result.append(item)
-            return result
+            return _extract_elements_from_doc(entry.doc)
         except Exception:
             _log.warning("failed to extract elements from CRDT doc %s", canvas_id, exc_info=True)
             return None
+
+
+def _extract_elements_from_doc(doc: pycrdt.Doc) -> list[dict[str, Any]]:  # type: ignore[type-arg]
+    """Shared extraction: reads from ``excalidraw-elements`` Y.Map."""
+    elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+    result: list[dict[str, Any]] = []
+    for key in elements_map:
+        item = elements_map[key]
+        if isinstance(item, pycrdt.Map):
+            elem = dict(item)
+        elif isinstance(item, dict):
+            elem = item
+        else:
+            continue
+        if not elem.get("isDeleted"):
+            result.append(elem)
+    return result
 
 
 # Singleton instance

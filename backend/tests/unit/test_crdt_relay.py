@@ -77,8 +77,8 @@ class TestGetOrLoad:
         objects = [_make_object("note", "sticky"), _make_object("text", "hello")]
         doc = await relay.get_or_load(canvas_id, legacy_objects=objects)
 
-        elements = doc.get("elements", type=pycrdt.Array)
-        assert len(elements) == 2
+        elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+        assert len(elements_map) == 2
 
     async def test_returns_cached_on_second_call(self) -> None:
         relay = CrdtRelay()
@@ -218,9 +218,9 @@ class TestExtractElements:
         canvas_id = uuid.uuid4()
 
         doc = pycrdt.Doc()
-        elems = doc.get("elements", type=pycrdt.Array)
-        elems.append(pycrdt.Map({"id": "e1", "type": "rect", "isDeleted": False}))
-        elems.append(pycrdt.Map({"id": "e2", "type": "rect", "isDeleted": True}))
+        elems_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+        elems_map["e1"] = pycrdt.Map({"id": "e1", "type": "rect", "isDeleted": False})
+        elems_map["e2"] = pycrdt.Map({"id": "e2", "type": "rect", "isDeleted": True})
         state = doc.get_update()
 
         await relay.get_or_load(canvas_id, crdt_state=state)

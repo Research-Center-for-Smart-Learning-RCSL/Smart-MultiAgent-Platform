@@ -3,10 +3,8 @@ import { ref, computed, toRef, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
-import CanvasCommentPopover from './CanvasCommentPopover.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
-import { useCanvasComments } from '../composables/useCanvasComments'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 
@@ -42,35 +40,8 @@ useCanvasSocket(chatroomIdRef)
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
 const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
 
-const selectedObjectId = ref<string | null>(null)
-const showComments = ref(false)
-
-const {
-  comments,
-  isLoading: commentsLoading,
-  createComment,
-  updateComment,
-  deleteComment,
-} = useCanvasComments(chatroomIdRef, selectedObjectId)
-
 const showSettings = ref(false)
 const fileInputRef = ref<HTMLInputElement>()
-
-function closeComments() {
-  showComments.value = false
-}
-
-async function handleCreateComment(content: string) {
-  await createComment(content)
-}
-
-async function handleUpdateComment(commentId: string, content: string) {
-  await updateComment({ commentId, content })
-}
-
-async function handleDeleteComment(commentId: string) {
-  await deleteComment(commentId)
-}
 
 function handleUploadImage() {
   fileInputRef.value?.click()
@@ -177,16 +148,6 @@ async function toggleExposeToAgents() {
             </template>
           </Suspense>
         </div>
-
-        <CanvasCommentPopover
-          v-if="showComments && selectedObjectId"
-          :comments="comments"
-          :is-loading="commentsLoading"
-          @create="handleCreateComment"
-          @update="handleUpdateComment"
-          @delete="handleDeleteComment"
-          @close="closeComments"
-        />
       </template>
     </div>
 

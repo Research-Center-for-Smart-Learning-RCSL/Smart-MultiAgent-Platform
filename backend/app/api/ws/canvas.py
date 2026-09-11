@@ -256,16 +256,13 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
             )
 
     async def on_heartbeat(conn: ChannelConnection) -> None:
-        nonlocal _last_flush_ts
         await _touch_editor(canvas_id, conn.connection_id)
-        # Periodic flush
         now_ts = time.monotonic()
         if now_ts - _last_flush_ts >= _FLUSH_INTERVAL_SECONDS:
             try:
                 await _flush_if_needed()
             except Exception:
                 _log.warning("periodic flush failed for canvas %s", canvas_id, exc_info=True)
-            _last_flush_ts = now_ts
 
     async def authorize(conn: ChannelConnection) -> bool:
         try:

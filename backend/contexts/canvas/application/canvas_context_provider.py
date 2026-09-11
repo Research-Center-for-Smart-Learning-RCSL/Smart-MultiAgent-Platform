@@ -48,7 +48,7 @@ def elements_to_pseudo_objects(elements: list[dict[str, Any]]) -> list[CanvasObj
         kind = type_map.get(elem.get("type", ""), CanvasObjectKind.SHAPE)
         result.append(
             CanvasObject(
-                id=uuid.UUID(elem["id"]) if "id" in elem else uuid.uuid4(),
+                id=uuid.uuid4(),
                 canvas_id=uuid.UUID(int=0),
                 kind=kind,
                 position_x=elem.get("x", 0),
@@ -68,19 +68,11 @@ def elements_to_pseudo_objects(elements: list[dict[str, Any]]) -> list[CanvasObj
 def _digest_from_crdt_state(crdt_state: bytes) -> str | None:
     """Build digest from persisted CRDT state bytes."""
     try:
+        from contexts.canvas.application.crdt_relay import _extract_elements_from_doc
+
         doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
         doc.apply_update(crdt_state)
-        elements = doc.get("elements", type=pycrdt.Array)
-        elem_dicts = []
-        for item in elements:
-            if isinstance(item, pycrdt.Map):
-                d = dict(item)
-            elif isinstance(item, dict):
-                d = item
-            else:
-                continue
-            if not d.get("isDeleted"):
-                elem_dicts.append(d)
+        elem_dicts = _extract_elements_from_doc(doc)
         if not elem_dicts:
             return None
         pseudo_objects = elements_to_pseudo_objects(elem_dicts)

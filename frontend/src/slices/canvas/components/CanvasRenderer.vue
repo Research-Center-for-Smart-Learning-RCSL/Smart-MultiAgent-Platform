@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
 import { ref, onMounted, onUnmounted, watch, toRaw } from 'vue'
-import type * as Y from 'yjs'
+import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 
 const props = defineProps<{
@@ -12,7 +12,26 @@ const props = defineProps<{
 const containerRef = ref<HTMLDivElement>()
 let excalidrawApi: any = null
 let reactRoot: any = null
-let suppressOnChange = false
+
+// Generation counter: incremented on remote updates, checked in onChange.
+// React 18 fires onChange asynchronously; a boolean flag would already be
+// reset by the time the async callback runs. A counter survives the gap.
+let remoteUpdateGen = 0
+let lastSyncedGen = 0
+
+function getElementsMap(): Y.Map<any> {
+  return toRaw(props.doc).getMap('excalidraw-elements')
+}
+
+function readElementsFromYjs(): any[] {
+  const ymap = getElementsMap()
+  const result: any[] = []
+  ymap.forEach((val: any) => {
+    const el = val instanceof Y.Map ? val.toJSON() : val
+    if (!el.isDeleted) result.push(el)
+  })
+  return result
+}
 
 async function mountExcalidraw() {
   if (!containerRef.value) return
@@ -22,14 +41,7 @@ async function mountExcalidraw() {
     const ReactDOM = await import('react-dom/client')
     const { Excalidraw } = await import('@excalidraw/excalidraw')
 
-    const doc = toRaw(props.doc)
-    const elementsArray = doc.getArray('elements')
-
-    // Build initial elements from Yjs doc
-    const initialElements = elementsArray.toArray().map((item: any) => {
-      if (item.toJSON) return item.toJSON()
-      return item
-    })
+    const initialElements = readElementsFromYjs()
 
     reactRoot = ReactDOM.createRoot(containerRef.value)
 
@@ -39,7 +51,10 @@ async function mountExcalidraw() {
         excalidrawApi = api
       },
       onChange: (elements: readonly any[]) => {
-        if (suppressOnChange) return
+        if (remoteUpdateGen !== lastSyncedGen) {
+          lastSyncedGen = remoteUpdateGen
+          return
+        }
         syncToYjs(elements)
       },
       UIOptions: {
@@ -52,8 +67,7 @@ async function mountExcalidraw() {
     } as any)
     reactRoot.render(App)
 
-    // Listen for remote Yjs changes
-    elementsArray.observe(onYjsChange)
+    getElementsMap().observeDeep(onYjsChange)
   } catch (err) {
     console.error('Failed to mount Excalidraw:', err)
   }
@@ -61,36 +75,45 @@ async function mountExcalidraw() {
 
 function syncToYjs(elements: readonly any[]) {
   const doc = toRaw(props.doc)
-  const elementsArray = doc.getArray('elements')
+  const ymap = getElementsMap()
 
   doc.transact(() => {
-    // Replace all elements in the Yjs array
-    if (elementsArray.length > 0) {
-      elementsArray.delete(0, elementsArray.length)
-    }
+    const seen = new Set<string>()
     for (const el of elements) {
-      elementsArray.push([el])
+      if (!el.id) continue
+      seen.add(el.id)
+      const existing = ymap.get(el.id)
+      if (existing instanceof Y.Map) {
+        // Update changed fields only
+        for (const [key, value] of Object.entries(el)) {
+          const cur = existing.get(key)
+          if (cur !== value && JSON.stringify(cur) !== JSON.stringify(value)) {
+            existing.set(key, value)
+          }
+        }
+      } else {
+        ymap.set(el.id, new Y.Map(Object.entries(el)))
+      }
     }
+    // Mark deleted elements
+    ymap.forEach((_val: any, key: string) => {
+      if (!seen.has(key)) {
+        const entry = ymap.get(key)
+        if (entry instanceof Y.Map) {
+          entry.set('isDeleted', true)
+        }
+      }
+    })
   }, 'local')
 }
 
-function onYjsChange(_event: any, transaction: any) {
+function onYjsChange(events: any[], transaction: any) {
   if (transaction.origin === 'local') return
   if (!excalidrawApi) return
 
-  const doc = toRaw(props.doc)
-  const elementsArray = doc.getArray('elements')
-  const elements = elementsArray.toArray().map((item: any) => {
-    if (item.toJSON) return item.toJSON()
-    return item
-  })
-
-  suppressOnChange = true
-  try {
-    excalidrawApi.updateScene({ elements })
-  } finally {
-    suppressOnChange = false
-  }
+  remoteUpdateGen++
+  const elements = readElementsFromYjs()
+  excalidrawApi.updateScene({ elements })
 }
 
 let awarenessHandler: (() => void) | null = null
@@ -139,9 +162,7 @@ onUnmounted(() => {
     toRaw(props.awareness).off('change', awarenessHandler)
     awarenessHandler = null
   }
-  const doc = toRaw(props.doc)
-  const elementsArray = doc.getArray('elements')
-  elementsArray.unobserve(onYjsChange)
+  getElementsMap().unobserveDeep(onYjsChange)
   excalidrawApi = null
   if (reactRoot) {
     reactRoot.unmount()

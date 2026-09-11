@@ -107,21 +107,19 @@ class TestCrdtFallbackChain:
             _CANVAS_ID,
             legacy_objects=[],
         )
-        # Manually insert an element into the in-memory doc
         doc = relay._docs[_CANVAS_ID].doc
-        elements = doc.get("elements", type=pycrdt.Array)
-        elements.append(
-            pycrdt.Map(
-                {
-                    "id": str(uuid.uuid4()),
-                    "type": "rectangle",
-                    "x": 0,
-                    "y": 0,
-                    "width": 100,
-                    "height": 100,
-                    "isDeleted": False,
-                }
-            )
+        elems_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+        elem_id = str(uuid.uuid4())
+        elems_map[elem_id] = pycrdt.Map(
+            {
+                "id": elem_id,
+                "type": "rectangle",
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 100,
+                "isDeleted": False,
+            }
         )
 
         with (
@@ -140,20 +138,19 @@ class TestCrdtFallbackChain:
         import pycrdt
 
         src = pycrdt.Doc()
-        elems = src.get("elements", type=pycrdt.Array)
-        elems.append(
-            pycrdt.Map(
-                {
-                    "id": str(uuid.uuid4()),
-                    "type": "text",
-                    "text": "hello world",
-                    "x": 0,
-                    "y": 0,
-                    "width": 100,
-                    "height": 50,
-                    "isDeleted": False,
-                }
-            )
+        elems_map = src.get("excalidraw-elements", type=pycrdt.Map)
+        elem_id = str(uuid.uuid4())
+        elems_map[elem_id] = pycrdt.Map(
+            {
+                "id": elem_id,
+                "type": "text",
+                "text": "hello world",
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 50,
+                "isDeleted": False,
+            }
         )
         crdt_bytes = src.get_update()
 
