@@ -286,6 +286,15 @@ class CanvasService:
         await Publisher(channel).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
         return results
 
+    async def search_objects(
+        self,
+        canvas_id: uuid.UUID,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> Sequence[tuple[CanvasObject, float, str]]:
+        return await self._repo.search(canvas_id, query, limit=limit)
+
     async def count_images(self, canvas_id: uuid.UUID) -> int:
         return await self._repo.count_images(canvas_id)
 

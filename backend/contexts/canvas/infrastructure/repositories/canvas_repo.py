@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.domain.models import (
@@ -213,6 +214,44 @@ class CanvasRepository:
             )
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
+
+    # ---- search -------------------------------------------------------------
+
+    async def search(
+        self,
+        canvas_id: uuid.UUID,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> Sequence[tuple[CanvasObject, float, str]]:
+        config = sa.cast(sa.literal("english"), REGCONFIG)
+        tsq = sa.func.plainto_tsquery(config, sa.literal(query))
+        stmt = (
+            sa.select(
+                t.canvas_objects,
+                sa.func.ts_rank_cd(t.canvas_objects.c.content_tsv, tsq).label("rank"),
+                sa.func.ts_headline(
+                    config,
+                    t.canvas_objects.c.content,
+                    tsq,
+                    sa.literal("StartSel=<mark>,StopSel=</mark>,MaxWords=35,MinWords=15,ShortWord=3"),
+                ).label("snippet"),
+            )
+            .where(
+                sa.and_(
+                    t.canvas_objects.c.canvas_id == canvas_id,
+                    t.canvas_objects.c.content_tsv.op("@@")(tsq),
+                )
+            )
+            .order_by(
+                sa.desc("rank"),
+                t.canvas_objects.c.created_at.desc(),
+                t.canvas_objects.c.id.desc(),
+            )
+            .limit(limit)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [(_row_to_object(r), r.rank, r.snippet) for r in rows]
 
     # ---- crdt state --------------------------------------------------------
 

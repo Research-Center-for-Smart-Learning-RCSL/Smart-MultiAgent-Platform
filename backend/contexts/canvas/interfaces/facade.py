@@ -198,6 +198,15 @@ class CanvasFacade:
             request_id=request_id,
         )
 
+    async def search_objects(
+        self,
+        canvas_id: uuid.UUID,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> Sequence[tuple[CanvasObject, float, str]]:
+        return await self._service.search_objects(canvas_id, query, limit=limit)
+
     async def count_images(self, canvas_id: uuid.UUID) -> int:
         return await self._service.count_images(canvas_id)
 

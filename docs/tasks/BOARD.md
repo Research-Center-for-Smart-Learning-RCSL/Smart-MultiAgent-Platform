@@ -289,8 +289,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   lists this slug in `depends_on`, so no row moves out of Blocked.
 - `2026-09-10-canvas-templates` (feature, **approved**) -- Pre-built canvas templates
   (brainstorming, retrospective, SWOT, mind map) selectable at canvas creation. Ready.
-- `2026-09-10-canvas-search` (feature, **approved**) -- Full-text search over canvas
-  object text via PostgreSQL FTS. Ready.
+- (moved to In progress) `2026-09-10-canvas-search`.
 - (moved to In progress) `2026-09-10-canvas-history`.
 - (implemented 2026-09-11) `2026-09-10-canvas-comments`. Comment threads on individual
   canvas objects. Migration 0091, five REST endpoints, comment popover UI, WS events.

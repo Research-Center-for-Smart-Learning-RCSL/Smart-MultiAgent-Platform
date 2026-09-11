@@ -7,7 +7,7 @@ import re
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,6 +178,16 @@ class SnapshotDetailOut(SnapshotOut):
         )
 
 
+class CanvasSearchResult(BaseModel):
+    object_id: uuid.UUID
+    kind: CanvasObjectKind
+    content: str | None
+    snippet: str
+    rank: float
+    position_x: float
+    position_y: float
+
+
 class CommentIn(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000)
 
@@ -275,6 +285,35 @@ async def get_canvas(
     if canvas is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Canvas not found")
     return CanvasOut.from_domain(canvas)
+
+
+@router.get("/search")
+async def search_canvas(
+    chatroom_id: uuid.UUID,
+    q: str = Query(..., min_length=1, max_length=500),
+    limit: int = Query(default=50, ge=1, le=50),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[CanvasSearchResult]:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    if canvas is None:
+        return []
+    results = await facade.search_objects(canvas.id, q, limit=limit)
+    return [
+        CanvasSearchResult(
+            object_id=obj.id,
+            kind=obj.kind,
+            content=obj.content,
+            snippet=snippet,
+            rank=rank,
+            position_x=obj.position_x,
+            position_y=obj.position_y,
+        )
+        for obj, rank, snippet in results
+    ]
 
 
 @router.patch("")

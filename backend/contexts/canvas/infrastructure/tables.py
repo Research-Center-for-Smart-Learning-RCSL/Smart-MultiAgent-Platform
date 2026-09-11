@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
+from sqlalchemy.dialects.postgresql import TSVECTOR
 
 from shared_kernel.db import metadata
 
@@ -76,6 +77,7 @@ canvas_objects = sa.Table(
     ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("content_tsv", TSVECTOR, nullable=True),
 )
 
 canvas_object_comments = sa.Table(
