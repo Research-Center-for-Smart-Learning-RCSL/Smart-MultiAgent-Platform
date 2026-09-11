@@ -35,7 +35,6 @@ describe('CanvasSearch API layer', () => {
       {
         object_id: 'obj-1',
         kind: 'note' as const,
-        content: 'test note content',
         snippet: 'test <mark>note</mark> content',
         rank: 0.5,
         position_x: 10,

@@ -181,7 +181,6 @@ class SnapshotDetailOut(SnapshotOut):
 class CanvasSearchResult(BaseModel):
     object_id: uuid.UUID
     kind: CanvasObjectKind
-    content: str | None
     snippet: str
     rank: float
     position_x: float
@@ -306,7 +305,6 @@ async def search_canvas(
         CanvasSearchResult(
             object_id=obj.id,
             kind=obj.kind,
-            content=obj.content,
             snippet=snippet,
             rank=rank,
             position_x=obj.position_x,

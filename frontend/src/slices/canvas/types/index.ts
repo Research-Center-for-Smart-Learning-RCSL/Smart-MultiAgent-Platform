@@ -70,7 +70,6 @@ export interface BatchOp {
 export interface CanvasSearchResult {
   object_id: string
   kind: CanvasObjectKind
-  content: string | null
   snippet: string
   rank: number
   position_x: number

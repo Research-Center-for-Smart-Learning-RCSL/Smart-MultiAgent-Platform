@@ -266,10 +266,17 @@ None.
   `scrollToContent` call was removed as redundant (it scrolls to all elements, not the
   target). The `selectedElementIds` mapping depends on Excalidraw element IDs matching
   canvas object UUIDs, which may not hold with CRDT-based sync; the position-based scroll
-  works regardless. Full visual verification requires a running stack.
+  works regardless. Full visual verification requires a running stack. Confirmed by
+  code review: Excalidraw uses nanoid-style IDs stored in Yjs, not backend UUIDs, so
+  `selectedElementIds` is a no-op. The position-based scroll is the working fallback.
+- D-2: `content` field removed from `CanvasSearchResult` response model. The spec
+  listed it but the frontend only renders the snippet; shipping the full object content
+  wastes bandwidth on potentially large text payloads. Found by code review.
 
 ## 13. Follow-ups
 
 - FU-1: Unified search UI combining message and canvas results.
 - FU-2: Multilingual search config (beyond `english`).
 - FU-3: Search highlighting overlay on the Excalidraw canvas (beyond scroll-to).
+- FU-4: Map backend canvas object UUIDs to Excalidraw element IDs for accurate
+  selection highlighting on search result click (D-1).
