@@ -153,22 +153,32 @@ watch(
   { immediate: true },
 )
 
-onMounted(() => {
-  mountExcalidraw()
-})
-
-onUnmounted(() => {
+function teardown() {
   if (awarenessHandler) {
     toRaw(props.awareness).off('change', awarenessHandler)
     awarenessHandler = null
   }
-  getElementsMap().unobserveDeep(onYjsChange)
+  try { getElementsMap().unobserveDeep(onYjsChange) } catch { /* doc may have changed */ }
   excalidrawApi = null
   if (reactRoot) {
     reactRoot.unmount()
     reactRoot = null
   }
+}
+
+watch(
+  () => props.doc,
+  () => {
+    teardown()
+    mountExcalidraw()
+  },
+)
+
+onMounted(() => {
+  mountExcalidraw()
 })
+
+onUnmounted(teardown)
 </script>
 
 <template>

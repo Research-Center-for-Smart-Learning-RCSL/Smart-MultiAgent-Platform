@@ -1,4 +1,4 @@
-import { ref, watch, onUnmounted, type Ref } from 'vue'
+import { ref, shallowRef, watch, onUnmounted, type Ref, type ShallowRef } from 'vue'
 import * as Y from 'yjs'
 import {
   Awareness,
@@ -40,33 +40,33 @@ function fromBase64(b64: string): Uint8Array {
 }
 
 export interface YjsProviderState {
-  doc: Y.Doc
-  awareness: Awareness
+  doc: ShallowRef<Y.Doc>
+  awareness: ShallowRef<Awareness>
   connected: Ref<boolean>
   destroy: () => void
 }
 
 export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
-  const doc = new Y.Doc()
-  const awareness = new Awareness(doc)
+  const doc = shallowRef<Y.Doc>(new Y.Doc())
+  const awareness = shallowRef<Awareness>(new Awareness(doc.value))
   const connected = ref(false)
 
   let channel: ReturnType<typeof wsManager.channel> | null = null
   const unsubs: Array<() => void> = []
   let destroyed = false
+  let prevCanvasPath: string | null = null
 
   function setLocalAwareness() {
     const claims = accessTokenClaims.value
     if (!claims) return
     const userId = String(claims.sub ?? 'unknown')
-    awareness.setLocalStateField('user', {
+    awareness.value.setLocalStateField('user', {
       name: String(claims.display_name ?? claims.email ?? userId).split('@')[0],
       color: pickColor(userId),
       userId,
     })
   }
 
-  // Handle doc updates: send to server
   function onDocUpdate(update: Uint8Array, origin: unknown) {
     if (origin === 'remote' || !channel) return
     channel.send({
@@ -75,14 +75,13 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
     })
   }
 
-  // Handle awareness updates: send to server
   function onAwarenessUpdate(
     { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
   ) {
     if (origin === 'remote' || !channel) return
     const changedClients = [...added, ...updated, ...removed]
-    const encodedUpdate = encodeAwarenessUpdate(awareness, changedClients)
+    const encodedUpdate = encodeAwarenessUpdate(awareness.value, changedClients)
     channel.send({
       type: 'awareness',
       data: toBase64(encodedUpdate),
@@ -93,15 +92,21 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
     cleanup()
     if (!id || destroyed) return
 
+    // Fresh doc and awareness for the new canvas
+    const newDoc = new Y.Doc()
+    const newAwareness = new Awareness(newDoc)
+    doc.value = newDoc
+    awareness.value = newAwareness
+
     const path = `/canvas/${id}`
+    prevCanvasPath = path
     channel = wsManager.channel(path)
 
-    // Subscribe to server messages
     unsubs.push(
       channel.subscribe('yjs-sync-step-1', (event: ChannelEvent) => {
         const data = event.data as string
         if (data) {
-          Y.applyUpdate(doc, fromBase64(data), 'remote')
+          Y.applyUpdate(newDoc, fromBase64(data), 'remote')
         }
       }),
     )
@@ -110,7 +115,7 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
       channel.subscribe('yjs-sync-step-2', (event: ChannelEvent) => {
         const data = event.data as string
         if (data) {
-          Y.applyUpdate(doc, fromBase64(data), 'remote')
+          Y.applyUpdate(newDoc, fromBase64(data), 'remote')
         }
       }),
     )
@@ -119,7 +124,7 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
       channel.subscribe('yjs-update', (event: ChannelEvent) => {
         const data = event.data as string
         if (data) {
-          Y.applyUpdate(doc, fromBase64(data), 'remote')
+          Y.applyUpdate(newDoc, fromBase64(data), 'remote')
         }
       }),
     )
@@ -128,7 +133,7 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
       channel.subscribe('awareness', (event: ChannelEvent) => {
         const data = event.data as string
         if (data) {
-          applyAwarenessUpdate(awareness, fromBase64(data), 'remote')
+          applyAwarenessUpdate(newAwareness, fromBase64(data), 'remote')
         }
       }),
     )
@@ -138,8 +143,7 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
         connected.value = isConnected
         if (isConnected) {
           setLocalAwareness()
-          // Send sync step 1 (our state vector)
-          const sv = Y.encodeStateVector(doc)
+          const sv = Y.encodeStateVector(newDoc)
           channel?.send({
             type: 'yjs-sync-step-1',
             data: toBase64(sv),
@@ -148,24 +152,21 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
       }),
     )
 
-    // Listen for local doc updates
-    doc.on('update', onDocUpdate)
-
-    // Listen for local awareness changes
-    awareness.on('update', onAwarenessUpdate)
+    newDoc.on('update', onDocUpdate)
+    newAwareness.on('update', onAwarenessUpdate)
 
     channel.connect()
   }
 
   function cleanup() {
-    doc.off('update', onDocUpdate)
-    awareness.off('update', onAwarenessUpdate)
+    doc.value.off('update', onDocUpdate)
+    awareness.value.off('update', onAwarenessUpdate)
     unsubs.forEach((fn) => fn())
     unsubs.length = 0
-    if (channel) {
-      const path = `/canvas/${canvasId.value}`
-      wsManager.close(path)
+    if (channel && prevCanvasPath) {
+      wsManager.close(prevCanvasPath)
       channel = null
+      prevCanvasPath = null
     }
     connected.value = false
   }
@@ -180,8 +181,8 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
   function destroy() {
     destroyed = true
     cleanup()
-    awareness.destroy()
-    doc.destroy()
+    awareness.value.destroy()
+    doc.value.destroy()
   }
 
   return { doc, awareness, connected, destroy }
