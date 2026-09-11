@@ -27,8 +27,6 @@ const RETAINED: Record<string, string> = {
   'slices/identity/views/RegisterView.vue': "Google's G mark",
   // #000 in a mask is an alpha selector, not a colour.
   'app/views/Landing.vue': 'mask-image alpha stops',
-  // Excalidraw element properties, not CSS — tokens are not applicable.
-  'slices/canvas/components/CanvasRenderer.vue': 'agent-created object badge (Excalidraw element props)',
   // Must read against BOTH track states, so it can follow neither.
   'shared/ui/SToggle.vue': 'the knob and the robot body over both track colours',
 }

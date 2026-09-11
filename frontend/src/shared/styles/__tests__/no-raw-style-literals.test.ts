@@ -104,6 +104,11 @@ exempt(
   'app/views/Landing.vue:line-height:1.55',
 )
 
+exempt(
+  'on the ladder (1.5) but no --line-height-* token exists yet',
+  'slices/canvas/components/CanvasCommentPopover.vue:line-height:1.5',
+)
+
 // The landing page carries its own marketing type scale, which is deliberate:
 // it is the one surface that is not the product UI. Phase 2 owns whether it
 // converges on the ramp.

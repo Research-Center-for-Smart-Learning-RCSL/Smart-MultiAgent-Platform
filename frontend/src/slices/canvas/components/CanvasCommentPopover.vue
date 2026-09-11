@@ -232,7 +232,7 @@ function handleEditKeydown(e: KeyboardEvent) {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--elevation-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -412,7 +412,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .comment-popover__textarea:focus {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-accent);
   outline-offset: -1px;
 }
 
@@ -423,7 +423,7 @@ function handleEditKeydown(e: KeyboardEvent) {
   padding: var(--space-1) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-primary);
+  background: var(--color-accent);
   color: white;
   cursor: pointer;
   font-weight: var(--weight-medium);
