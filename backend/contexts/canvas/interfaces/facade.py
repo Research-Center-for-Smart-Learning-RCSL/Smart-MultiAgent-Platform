@@ -209,9 +209,7 @@ class CanvasFacade:
     ) -> Sequence[CanvasSnapshot]:
         return await self._service.list_snapshots(canvas_id, limit=limit, offset=offset)
 
-    async def get_snapshot(
-        self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID
-    ) -> CanvasSnapshot | None:
+    async def get_snapshot(self, canvas_id: uuid.UUID, snapshot_id: uuid.UUID) -> CanvasSnapshot | None:
         return await self._service.get_snapshot(canvas_id, snapshot_id)
 
     async def create_snapshot(

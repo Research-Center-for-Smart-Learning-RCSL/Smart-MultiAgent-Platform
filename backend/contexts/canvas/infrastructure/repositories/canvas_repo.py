@@ -261,9 +261,7 @@ class CanvasRepository:
         ).first()
         return _row_to_snapshot(row) if row else None
 
-    async def get_snapshot(
-        self, snapshot_id: uuid.UUID, *, canvas_id: uuid.UUID
-    ) -> CanvasSnapshot | None:
+    async def get_snapshot(self, snapshot_id: uuid.UUID, *, canvas_id: uuid.UUID) -> CanvasSnapshot | None:
         row = (
             await self._db.execute(
                 t.canvas_snapshots.select().where(
@@ -278,9 +276,9 @@ class CanvasRepository:
 
     async def count_snapshots(self, canvas_id: uuid.UUID) -> int:
         result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(t.canvas_snapshots).where(
-                t.canvas_snapshots.c.canvas_id == canvas_id
-            )
+            sa.select(sa.func.count())
+            .select_from(t.canvas_snapshots)
+            .where(t.canvas_snapshots.c.canvas_id == canvas_id)
         )
         return result.scalar_one()
 
@@ -294,9 +292,7 @@ class CanvasRepository:
             )
         ).scalar_one_or_none()
         if oldest is not None:
-            await self._db.execute(
-                t.canvas_snapshots.delete().where(t.canvas_snapshots.c.id == oldest)
-            )
+            await self._db.execute(t.canvas_snapshots.delete().where(t.canvas_snapshots.c.id == oldest))
 
     async def create_snapshot(self, *, values: dict[str, Any]) -> CanvasSnapshot:
         row = (
