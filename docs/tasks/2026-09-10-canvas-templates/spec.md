@@ -256,6 +256,12 @@ None.
 - **D-3**: Self-audit found that duplicate template names produced a raw 500. Fixed: the
   `IntegrityError` is now caught and returned as a 409 Conflict with a descriptive message.
 
+- **D-4**: Code review found a guest authz bypass: guests could list any project's templates
+  by passing `project_id`. The `is_guest` exemption was removed. Also found contradictory SQL
+  when `scope=project` without `project_id`, kind enum duplication vs the domain enum,
+  moderator role check duplication, and a missing `onError` handler on the save-as-template
+  mutation. All five fixed.
+
 ## 13. Follow-ups
 
 - FU-1: Template thumbnails (server-rendered PNG for gallery display).
@@ -266,3 +272,8 @@ None.
   NULLs as distinct. Only reachable through seed data or direct DB writes (the API blocks
   platform template creation), so risk is low. A partial unique index or a sentinel
   project_id would close this if platform template management is ever added.
+- FU-5: CanvasTemplatePicker fetches each template detail sequentially (N+1 requests).
+  Could be parallelized with `Promise.all` or the list endpoint could include `template_data`.
+- FU-6: `apply_template` endpoint returns raw `dict[str, Any]` instead of a Pydantic response
+  model, matching the pre-existing pattern in `batch_operate`. Both should be migrated to a
+  typed response model.
