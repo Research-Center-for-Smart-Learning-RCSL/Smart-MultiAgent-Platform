@@ -173,18 +173,27 @@ function getCommentCount(objectId: string): number {
     </div>
 
     <div class="canvas-panel__body">
-      <SLoadingSpinner v-if="isLoading" />
+      <div
+        v-if="isLoading"
+        class="canvas-panel__centered"
+      >
+        <SLoadingSpinner />
+      </div>
       <div
         v-else-if="error"
-        class="canvas-panel__error"
+        class="canvas-panel__centered"
       >
-        {{ t('canvas.loadError') }}
+        <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
       </div>
-      <SEmptyState
+      <div
         v-else-if="objects.length === 0"
-        :title="t('canvas.empty')"
-        :description="t('canvas.emptyDescription')"
-      />
+        class="canvas-panel__centered"
+      >
+        <SEmptyState
+          :title="t('canvas.empty')"
+          :description="t('canvas.emptyDescription')"
+        />
+      </div>
       <template v-else>
         <div class="canvas-panel__canvas-area">
           <Suspense>
@@ -326,13 +335,16 @@ function getCommentCount(objectId: string): number {
   flex-direction: column;
 }
 
-.canvas-panel__error {
-  color: var(--color-danger);
-  font-size: var(--font-size-sm);
+.canvas-panel__centered {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
+}
+
+.canvas-panel__error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
 }
 
 .canvas-panel__object-list {

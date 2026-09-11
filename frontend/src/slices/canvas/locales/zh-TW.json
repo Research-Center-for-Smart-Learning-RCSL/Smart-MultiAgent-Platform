@@ -36,6 +36,7 @@
     "deleteComment": "刪除留言",
     "deleteCommentConfirm": "確定要刪除此留言嗎？",
     "noComments": "尚無留言",
-    "commentPlaceholder": "撰寫留言..."
+    "commentPlaceholder": "撰寫留言...",
+    "guest": "訪客"
   }
 }

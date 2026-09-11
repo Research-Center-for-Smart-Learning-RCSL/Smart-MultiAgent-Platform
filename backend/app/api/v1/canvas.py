@@ -627,6 +627,9 @@ async def create_comment(
     await _enforce_guest_rate_limit(principal)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
+    objects = await facade.list_objects(canvas.id)
+    if not any(o.id == object_id for o in objects):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Object not found on this canvas")
     comment = await facade.create_comment(
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,

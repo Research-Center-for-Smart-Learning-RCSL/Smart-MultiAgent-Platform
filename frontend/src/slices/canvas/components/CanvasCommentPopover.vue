@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ChatBubbleLeftIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
 import { useSessionStore } from '@shared/stores/session'
+import { accessTokenClaims, isGuestSession } from '@shared/transport'
 import type { CanvasComment } from '../types'
 
 const { t } = useI18n()
@@ -27,14 +28,19 @@ const editingId = ref<string | null>(null)
 const editContent = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
 
-const currentUserId = computed(() => session.me?.id ?? null)
+const currentPrincipalId = computed(() => {
+  if (isGuestSession.value) {
+    return (accessTokenClaims.value?.sub as string) ?? null
+  }
+  return session.me?.id ?? null
+})
 
 function isOwnComment(comment: CanvasComment): boolean {
-  if (currentUserId.value === null) return false
-  return (
-    comment.created_by_user_id === currentUserId.value ||
-    comment.created_by_guest_id === currentUserId.value
-  )
+  if (currentPrincipalId.value === null) return false
+  if (isGuestSession.value) {
+    return comment.created_by_guest_id === currentPrincipalId.value
+  }
+  return comment.created_by_user_id === currentPrincipalId.value
 }
 
 function handleSubmit() {
@@ -140,7 +146,7 @@ function handleEditKeydown(e: KeyboardEvent) {
       >
         <div class="comment-item__header">
           <span class="comment-item__author">
-            {{ comment.created_by_user_id?.slice(0, 8) ?? 'guest' }}
+            {{ comment.created_by_user_id?.slice(0, 8) ?? t('canvas.guest') }}
           </span>
           <span class="comment-item__time">{{ formatTime(comment.created_at) }}</span>
           <div

@@ -19,7 +19,7 @@ _MAX_COMMENT_LENGTH = 2000
 
 
 def _sanitize_content(text: str) -> str:
-    cleaned = "".join(ch for ch in text if ch in {"\n", "\t"} or not ch.isascii() or ch >= " ")
+    cleaned = "".join(ch for ch in text if ch in {"\n", "\t"} or not ch.isascii() or (" " <= ch < "\x7f"))
     return cleaned[:_MAX_COMMENT_LENGTH]
 
 
