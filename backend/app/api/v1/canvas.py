@@ -280,9 +280,8 @@ async def get_canvas(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
-    canvas = await facade.get_by_chatroom(chatroom_id)
-    if canvas is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Canvas not found")
+    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
+    await db.commit()
     return CanvasOut.from_domain(canvas)
 
 
