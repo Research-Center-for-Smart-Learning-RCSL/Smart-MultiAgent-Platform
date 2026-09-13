@@ -44,9 +44,7 @@ async def ws_project(ws: WebSocket, project_id: uuid.UUID) -> None:
         if conn.principal.is_admin:
             return True
         async with sm() as session:
-            return await TenancyFacade(session).is_project_member(
-                conn.principal.user_id, project_id
-            )
+            return await TenancyFacade(session).is_project_member(conn.principal.user_id, project_id)
 
     await connection_loop(
         ws=ws,

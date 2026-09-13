@@ -972,9 +972,7 @@ class ActivitiesFacade:
 
     # -- Teacher dashboard ([R33.01]) ---------------------------------------- #
 
-    async def aggregate_for_rooms(
-        self, *, chatroom_ids: Sequence[uuid.UUID]
-    ) -> list[RoomDashboardAggregate]:
+    async def aggregate_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[RoomDashboardAggregate]:
         return await self._aggregation.aggregate_for_rooms(chatroom_ids=chatroom_ids)
 
     async def timeseries_for_rooms(
@@ -988,7 +986,5 @@ class ActivitiesFacade:
             chatroom_ids=chatroom_ids, since=since, bucket_seconds=bucket_seconds
         )
 
-    async def watchlist_for_rooms(
-        self, *, chatroom_ids: Sequence[uuid.UUID]
-    ) -> list[WatchlistEntry]:
+    async def watchlist_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[WatchlistEntry]:
         return await self._aggregation.watchlist_for_rooms(chatroom_ids=chatroom_ids)

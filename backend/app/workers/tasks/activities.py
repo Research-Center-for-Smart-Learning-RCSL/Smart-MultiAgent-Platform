@@ -180,9 +180,7 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
 
         type_key = activity_type.key if activity_type is not None else ""
         is_valid = result_status == "validated"
-        await dispatch_dashboard_submission_validated(
-            chatroom_id, type_key=type_key, is_valid=is_valid
-        )
+        await dispatch_dashboard_submission_validated(chatroom_id, type_key=type_key, is_valid=is_valid)
     await _emit_activity_signal(signal_payload)
     return result_status
 

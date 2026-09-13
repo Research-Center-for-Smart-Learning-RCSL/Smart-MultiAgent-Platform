@@ -587,7 +587,6 @@ class ActivitySubmissionRepository:
         ).scalar_one()
         return int(total or 0), [_row_to_attempt_summary(r) for r in rows[:limit]], len(rows) > limit
 
-
     # -- Teacher dashboard aggregates ([R33.01]) ----------------------------- #
 
     async def aggregate_for_rooms(
@@ -633,10 +632,7 @@ class ActivitySubmissionRepository:
         if not chatroom_ids:
             return []
         bucket_expr = sa.func.to_timestamp(
-            sa.func.floor(
-                sa.func.extract("epoch", _SUB.c.created_at) / bucket_seconds
-            )
-            * bucket_seconds
+            sa.func.floor(sa.func.extract("epoch", _SUB.c.created_at) / bucket_seconds) * bucket_seconds
         ).label("bucket")
         stmt = (
             sa.select(

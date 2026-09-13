@@ -263,9 +263,7 @@ async def _resolve_project_id(chatroom_id: uuid.UUID) -> uuid.UUID | None:
         return None
 
 
-async def dispatch_dashboard_activation_changed(
-    chatroom_id: uuid.UUID, status: str
-) -> None:
+async def dispatch_dashboard_activation_changed(chatroom_id: uuid.UUID, status: str) -> None:
     """Tell the project channel that an activation changed ([R33.03])."""
     pid = await _resolve_project_id(chatroom_id)
     if pid is None:
