@@ -304,6 +304,15 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   AC-1 through AC-4 unticked (need running stack for visual/browser verification).
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+### Teacher dashboard
+
+- `2026-09-13-teacher-dashboard` (feature, **approved 2026-09-13**) — `depends_on: []`.
+  Cross-room activity monitoring dashboard for facilitators. New `dashboard` frontend slice,
+  Chart.js time-series charts, student watchlist, threshold alerts, new `ws:project:{id}`
+  WebSocket channel. Backend extends `AggregationService` with project-scoped queries.
+  SRS Delta applied at approval: §33 [R33.01]-[R33.04]. No migration, no file overlap with
+  any active dossier.
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.

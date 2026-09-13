@@ -2365,6 +2365,15 @@ An agent may read a room's **unsent** text — the chat composer draft and the i
 - **[R32.05]** `chatrooms.disclose_drafts` (default `true`) controls whether non-creators see an indicator that drafts in this room are readable by an agent. Only the creator may change it, and may do so without holding `RESOURCE_CREATE_EDIT`. Which agent holds the grant, and any draft content, is never disclosed to non-creators regardless of the flag. Guests receive neutral values.
 - **[R32.06]** Every `read_drafts` call is audited with the room, the agent, the granting user, the number of entries returned and the surfaces involved. Draft content and participant identifiers never appear in audit metadata or logs. Grant changes and disclosure changes are audited.
 
+## 33. Teacher Dashboard
+
+Added by the 2026-09-13 dossier `docs/tasks/2026-09-13-teacher-dashboard/`.
+
+- **[R33.01]** The activities context exposes project-scoped aggregation methods (summary, time-series, watchlist) that query across all chatrooms in a project. These complement the room-scoped aggregation of [R30.10].
+- **[R33.02]** A dashboard view presents facilitators with cross-room activity status, time-series output charts, a student watchlist (truncated subject codes, never names or emails — extending [R28.18]), and threshold alerts. The view is lazy-loaded and does not affect the initial bundle budget.
+- **[R33.03]** A project-level WebSocket channel (`ws:project:{project_id}`) delivers real-time activity events to authenticated project members. The channel never carries participant names, submission content, or payload values — only room identifiers, type keys, validity flags, and aggregate counts.
+- **[R33.04]** The project WebSocket endpoint verifies project membership at connection time and re-checks on the auth watchdog interval. A revoked member is disconnected.
+
 ---
 
 *End of document.*
