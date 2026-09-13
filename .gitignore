@@ -15,18 +15,16 @@ Desktop.ini
 # ==== documents ====
 _projects_documents/
 
-# ==== AI tooling (skills and shared settings are versioned project assets) ====
-.claude/*
-!.claude/skills/
-!.claude/settings.json
-!.claude/hooks/
-.agents/*
-!.agents/skills/
+# ==== AI tooling ====
+# .claude/ and .agents/ (root-level) are pure local mirrors generated from
+# agent-config/ by agent-config/sync.ps1 (run via `make agent-sync`, or
+# automatically by the PostToolUse hook on every agent-config/ edit) - never
+# edit files under them directly, edits are overwritten on the next sync.
+# Nested .claude/ dirs elsewhere (e.g. frontend/.claude/) are untouched by
+# this rule and stay normally tracked.
+/.claude/
+/.agents/
 .sixth/
-
-# The global build/ rule below shadows the skills' build/ folders; re-include them.
-!.claude/skills/build/
-!.agents/skills/build/
 
 # ==== Env / secrets ====
 .env

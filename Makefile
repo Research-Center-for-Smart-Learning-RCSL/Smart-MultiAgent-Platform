@@ -112,8 +112,17 @@ lock-backend: ## Regenerate backend/requirements.lock from pyproject.toml (Linux
 
 # ---------- Install ----------
 .PHONY: install install-backend install-frontend
-install: install-backend install-frontend ## Install all deps.
+install: install-backend install-frontend agent-sync ## Install all deps.
 install-backend:
 	cd backend && python -m pip install -e '.[dev]'
 install-frontend:
 	pnpm install
+
+# ---------- Agent tooling ----------
+.PHONY: agent-sync
+agent-sync: ## Regenerate .claude/ and .agents/ mirrors from agent-config/ (idempotent, Windows-only for now).
+	@if command -v powershell.exe >/dev/null 2>&1; then \
+		powershell.exe -NoProfile -NonInteractive -File agent-config/sync.ps1; \
+	else \
+		echo "agent-sync: powershell.exe not found, skipping (.claude/.agents mirrors are Windows-only for now)"; \
+	fi
