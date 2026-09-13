@@ -1138,6 +1138,12 @@ const exportOpen = ref(false)
 // focusing a detached node drops focus to <body>.
 watch([isMobile, isCompactDesktop], () => surfaces.reset())
 
+// Close canvas when leaving desktop: non-desktop has no toggle to dismiss it,
+// and stale localStorage state would leave it invisibly "open".
+watch(isDesktop, (desktop) => {
+  if (!desktop && canvasSplit.isOpen.value) canvasSplit.close()
+})
+
 // At compact breakpoints the canvas hides the right rail, so close the people
 // surface when the canvas opens to avoid an invisible-but-active panel.
 watch(() => canvasSplit.isOpen.value, (open) => {

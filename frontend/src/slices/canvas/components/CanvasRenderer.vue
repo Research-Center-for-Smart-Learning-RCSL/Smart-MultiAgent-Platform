@@ -10,10 +10,6 @@ const props = defineProps<{
   awareness: Awareness
 }>()
 
-const emit = defineEmits<{
-  error: [message: string]
-}>()
-
 const { t } = useI18n()
 
 const containerRef = ref<HTMLDivElement>()
@@ -25,10 +21,11 @@ let reactRoot: any = null
 // async mount (from the doc watcher racing onMounted) aborts silently.
 let mountGen = 0
 
-// Remote-update echo suppression. Tracks element ids that arrived from a
-// remote Yjs update so the next onChange callback can tell remote echoes
-// apart from genuine local edits rather than dropping the entire batch.
-let remoteElementIds: Set<string> | null = null
+// Echo suppression: when a remote Yjs update arrives, we record the ids
+// of elements that the Yjs events actually touched. The next onChange
+// callback skips syncing those ids back (they came from the remote) but
+// still syncs any locally-changed elements that were batched alongside.
+let remoteChangedIds: Set<string> | null = null
 
 function getElementsMap(): Y.Map<any> {
   return toRaw(props.doc).getMap('excalidraw-elements')
@@ -45,10 +42,13 @@ function readElementsFromYjs(): any[] {
 }
 
 async function mountExcalidraw() {
+  mountError.value = null
+
+  // containerRef is always in the DOM (no v-if destroys it), but may be
+  // null before onMounted or if the component is unmounting.
   if (!containerRef.value) return
 
   const thisMount = ++mountGen
-  mountError.value = null
 
   try {
     ;(window as any).EXCALIDRAW_ASSET_PATH = '/excalidraw-assets/'
@@ -72,12 +72,12 @@ async function mountExcalidraw() {
         excalidrawApi = api
       },
       onChange: (elements: readonly any[]) => {
-        if (remoteElementIds !== null) {
-          // Only suppress elements that came from the remote update;
-          // sync any locally-changed elements that were batched alongside.
-          const localOnly = elements.filter((el) => !remoteElementIds!.has(el.id))
-          remoteElementIds = null
-          if (localOnly.length > 0) syncToYjs(elements)
+        if (remoteChangedIds !== null) {
+          const ids = remoteChangedIds
+          remoteChangedIds = null
+          // Check whether any element outside the remote set was modified.
+          const hasLocalEdits = elements.some((el) => !ids.has(el.id))
+          if (hasLocalEdits) syncToYjs(elements)
           return
         }
         syncToYjs(elements)
@@ -97,7 +97,6 @@ async function mountExcalidraw() {
     if (thisMount !== mountGen) return
     console.error('Failed to mount Excalidraw:', err)
     mountError.value = t('canvas.mountError', 'Failed to load canvas')
-    emit('error', mountError.value)
   }
 }
 
@@ -137,8 +136,17 @@ function onYjsChange(events: any[], transaction: any) {
   if (transaction.origin === 'local') return
   if (!excalidrawApi) return
 
+  // Extract only the element ids that the remote transaction touched,
+  // so the echo suppression in onChange does not mask concurrent local edits.
+  const changed = new Set<string>()
+  for (const event of events) {
+    if (event instanceof Y.YMapEvent) {
+      for (const key of event.keysChanged) changed.add(key)
+    }
+  }
+  remoteChangedIds = changed
+
   const elements = readElementsFromYjs()
-  remoteElementIds = new Set(elements.map((el) => el.id as string))
   excalidrawApi.updateScene({ elements })
 }
 
@@ -221,22 +229,23 @@ defineExpose({ getExcalidrawApi })
 
 <template>
   <div
-    v-if="mountError"
-    class="canvas-renderer__error"
-  >
-    <span>{{ mountError }}</span>
-    <button
-      class="canvas-renderer__retry"
-      @click="mountExcalidraw()"
-    >
-      {{ t('canvas.retry', 'Retry') }}
-    </button>
-  </div>
-  <div
-    v-else
     ref="containerRef"
     class="canvas-renderer"
-  />
+    :class="{ 'canvas-renderer--error': mountError }"
+  >
+    <div
+      v-if="mountError"
+      class="canvas-renderer__error-overlay"
+    >
+      <span>{{ mountError }}</span>
+      <button
+        class="canvas-renderer__retry"
+        @click="mountExcalidraw()"
+      >
+        {{ t('canvas.retry', 'Retry') }}
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -251,7 +260,7 @@ defineExpose({ getExcalidrawApi })
   height: 100%;
 }
 
-.canvas-renderer__error {
+.canvas-renderer__error-overlay {
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -2,20 +2,32 @@ import { defineConfig, type Plugin } from 'vitest/config'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 function copyExcalidrawAssets(): Plugin {
   const src = resolve(__dirname, 'node_modules/@excalidraw/excalidraw/dist/prod')
   const dest = resolve(__dirname, 'public/excalidraw-assets')
+
+  function copyRecursive(srcDir: string, destDir: string): void {
+    for (const entry of readdirSync(srcDir)) {
+      const s = resolve(srcDir, entry)
+      const d = resolve(destDir, entry)
+      if (statSync(s).isDirectory()) {
+        mkdirSync(d, { recursive: true })
+        copyRecursive(s, d)
+      } else if (entry.endsWith('.woff2') || entry.endsWith('.js') || entry.endsWith('.json')) {
+        copyFileSync(s, d)
+      }
+    }
+  }
+
   return {
     name: 'copy-excalidraw-assets',
     buildStart() {
       if (!existsSync(dest)) {
         mkdirSync(dest, { recursive: true })
-        for (const f of readdirSync(src)) {
-          if (f.endsWith('.woff2')) copyFileSync(resolve(src, f), resolve(dest, f))
-        }
+        copyRecursive(src, dest)
       }
     },
   }
