@@ -13,7 +13,7 @@ import type {
   BatchOp,
 } from '../types'
 
-const base = (chatroomId: string) => `/api/chatrooms/${chatroomId}/canvas`
+const base = (chatroomId: string) => `/chatrooms/${chatroomId}/canvas`
 
 export async function getCanvas(chatroomId: string): Promise<Canvas> {
   const { data } = await http.get<Canvas>(base(chatroomId))
@@ -192,13 +192,13 @@ export async function getCommentCounts(
 export async function listTemplates(
   params?: { scope?: string; project_id?: string | undefined },
 ): Promise<CanvasTemplate[]> {
-  const { data } = await http.get<CanvasTemplate[]>('/api/canvas-templates', { params })
+  const { data } = await http.get<CanvasTemplate[]>('/canvas-templates', { params })
   return data
 }
 
 export async function getTemplate(templateId: string): Promise<CanvasTemplateDetail> {
   const { data } = await http.get<CanvasTemplateDetail>(
-    `/api/canvas-templates/${templateId}`,
+    `/canvas-templates/${templateId}`,
   )
   return data
 }
@@ -209,12 +209,12 @@ export async function createTemplate(body: {
   project_id: string
   template_data: { objects: Array<Record<string, unknown>> }
 }): Promise<CanvasTemplate> {
-  const { data } = await http.post<CanvasTemplate>('/api/canvas-templates', body)
+  const { data } = await http.post<CanvasTemplate>('/canvas-templates', body)
   return data
 }
 
 export async function deleteTemplate(templateId: string): Promise<void> {
-  await http.delete(`/api/canvas-templates/${templateId}`)
+  await http.delete(`/canvas-templates/${templateId}`)
 }
 
 export async function applyTemplate(

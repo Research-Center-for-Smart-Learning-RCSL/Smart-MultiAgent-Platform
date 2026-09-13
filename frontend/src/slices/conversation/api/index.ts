@@ -272,7 +272,7 @@ export async function setChatroomAgentCanvasAccess(
   agentId: string,
   granted: boolean,
 ): Promise<void> {
-  await http.patch(`/api/chatrooms/${chatroomId}/agents/${agentId}/canvas-access`, {
+  await http.patch(`/chatrooms/${chatroomId}/agents/${agentId}/canvas-access`, {
     granted,
   })
 }
@@ -285,7 +285,7 @@ export async function setChatroomAgentCanvasWriteAccess(
   agentId: string,
   granted: boolean,
 ): Promise<void> {
-  await http.patch(`/api/chatrooms/${chatroomId}/agents/${agentId}/canvas-write-access`, {
+  await http.patch(`/chatrooms/${chatroomId}/agents/${agentId}/canvas-write-access`, {
     granted,
   })
 }
