@@ -11,7 +11,7 @@ import tsParser from '@typescript-eslint/parser'
 import vueParser from 'vue-eslint-parser'
 import vuejsAccessibility from 'eslint-plugin-vuejs-accessibility'
 
-const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'agent-groups', 'activities', 'canvas', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio', 'skills']
+const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'agent-groups', 'activities', 'canvas', 'dashboard', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio', 'skills']
 
 // [R24.06] Cross-slice dependency direction. `agent-groups` is a first-class,
 // project-scoped slice (agent-group CRUD, membership, and the group-owned Concept
@@ -33,6 +33,7 @@ const SLICE_DEPS = {
   // NOT import conversation back — it wraps the read-only workspace/chatroom
   // lookups it needs in its own api/ instead.
   canvas:        [],
+  dashboard:     ['activities', 'tenancy'],
   conversation:  ['canvas', 'workflow', 'activities', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   workflow:      ['agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   admin:         ['prompt-studio', 'skills'],

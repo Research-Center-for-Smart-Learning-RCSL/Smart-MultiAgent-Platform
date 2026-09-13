@@ -1,0 +1,30 @@
+{
+  "dashboard": {
+    "title": "教師儀表板",
+    "summary": "活動摘要",
+    "noRooms": "未找到有活動的聊天室。",
+    "roomStatus": "聊天室狀態",
+    "submissions": "提交數",
+    "validSubmissions": "有效",
+    "lastActivity": "最近活動",
+    "timeseries": "產出趨勢",
+    "timeWindow": { "1h": "1 小時", "6h": "6 小時", "24h": "24 小時" },
+    "bucketSize": { "1m": "1 分鐘", "5m": "5 分鐘", "15m": "15 分鐘", "1h": "1 小時" },
+    "watchlist": "學生關注名單",
+    "watchlistEmpty": "所有參與者均高於中位數，無需關注。",
+    "subjectCode": "對象",
+    "submissionCount": "提交數",
+    "lastSubmission": "最近提交",
+    "needsAttention": "需要關注",
+    "alerts": "警告",
+    "noAlerts": "目前沒有警告。",
+    "alertStalled": "聊天室「{room}」已超過 10 分鐘沒有有效提交。",
+    "statusGreen": "活躍",
+    "statusYellow": "閒置",
+    "statusRed": "停滯",
+    "validCount": "有效提交",
+    "totalCount": "總提交數",
+    "neverActive": "從未",
+    "chartTitle": "有效提交趨勢"
+  }
+}

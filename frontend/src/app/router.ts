@@ -10,6 +10,7 @@ import { adminRoutes } from '@slices/admin'
 import { agentGroupsRoutes } from '@slices/agent-groups'
 import { agentsRoutes } from '@slices/agents'
 import { conversationRoutes } from '@slices/conversation'
+import { dashboardRoutes } from '@slices/dashboard'
 import { identityRoutes, useSessionStore } from '@slices/identity'
 import { keysRoutes } from '@slices/keys'
 import { notificationsRoutes } from '@slices/notifications'
@@ -41,6 +42,7 @@ const routes: RouteRecordRaw[] = [
   ...promptStudioRoutes,
   ...skillsRoutes,
   ...activitiesRoutes,
+  ...dashboardRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

@@ -1,0 +1,30 @@
+{
+  "dashboard": {
+    "title": "Teacher Dashboard",
+    "summary": "Activity Summary",
+    "noRooms": "No chatrooms with activities found.",
+    "roomStatus": "Room Status",
+    "submissions": "Submissions",
+    "validSubmissions": "Valid",
+    "lastActivity": "Last Activity",
+    "timeseries": "Output Trend",
+    "timeWindow": { "1h": "1 Hour", "6h": "6 Hours", "24h": "24 Hours" },
+    "bucketSize": { "1m": "1 min", "5m": "5 min", "15m": "15 min", "1h": "1 hour" },
+    "watchlist": "Student Watchlist",
+    "watchlistEmpty": "All participants are above median. No attention needed.",
+    "subjectCode": "Subject",
+    "submissionCount": "Submissions",
+    "lastSubmission": "Last Submission",
+    "needsAttention": "Needs Attention",
+    "alerts": "Alerts",
+    "noAlerts": "No alerts at this time.",
+    "alertStalled": "Room \"{room}\" has had no valid submission for over 10 minutes.",
+    "statusGreen": "Active",
+    "statusYellow": "Idle",
+    "statusRed": "Stalled",
+    "validCount": "Valid submissions",
+    "totalCount": "Total submissions",
+    "neverActive": "Never",
+    "chartTitle": "Valid Submissions Over Time"
+  }
+}

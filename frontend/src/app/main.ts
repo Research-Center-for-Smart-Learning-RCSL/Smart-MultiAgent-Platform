@@ -15,6 +15,7 @@ import { installAdminSlice } from '@slices/admin'
 import { installAgentGroupsSlice } from '@slices/agent-groups'
 import { installAgentsSlice } from '@slices/agents'
 import { installConversationSlice } from '@slices/conversation'
+import { installDashboardSlice } from '@slices/dashboard'
 import { installIdentitySlice, useSessionStore } from '@slices/identity'
 import { installKeysSlice } from '@slices/keys'
 import { installNotificationsSlice } from '@slices/notifications'
@@ -44,6 +45,7 @@ installAgentsSlice()
 installAgentGroupsSlice()
 installActivitiesSlice()
 installCanvasSlice()
+installDashboardSlice()
 installConversationSlice()
 installWorkflowSlice()
 installAdminSlice()
