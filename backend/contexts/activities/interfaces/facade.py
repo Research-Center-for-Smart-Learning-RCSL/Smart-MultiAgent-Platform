@@ -8,6 +8,7 @@ only the conversation facade + shared_kernel (never the agents context).
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -54,8 +55,11 @@ from contexts.activities.domain.models import (
     MemberGroupRef,
     PolicyImpact,
     RecentActivityRow,
+    RoomDashboardAggregate,
+    TimeseriesBucket,
     ValidationResult,
     ValidatorKind,
+    WatchlistEntry,
 )
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.optin_repo import (
@@ -89,9 +93,12 @@ __all__ = [
     "MemberGroupRef",
     "PlatformExample",
     "RecentActivityRow",
+    "RoomDashboardAggregate",
+    "TimeseriesBucket",
     "ValidationResult",
     "ValidatorInfo",
     "ValidatorKind",
+    "WatchlistEntry",
 ]
 
 
@@ -962,3 +969,26 @@ class ActivitiesFacade:
         return await self._observation_aggregates.attempt_summary(
             chatroom_id=chatroom_id, activity_type=activity_type, limit=limit
         )
+
+    # -- Teacher dashboard ([R33.01]) ---------------------------------------- #
+
+    async def aggregate_for_rooms(
+        self, *, chatroom_ids: Sequence[uuid.UUID]
+    ) -> list[RoomDashboardAggregate]:
+        return await self._aggregation.aggregate_for_rooms(chatroom_ids=chatroom_ids)
+
+    async def timeseries_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        since: dt.datetime,
+        bucket_seconds: int,
+    ) -> list[TimeseriesBucket]:
+        return await self._aggregation.timeseries_for_rooms(
+            chatroom_ids=chatroom_ids, since=since, bucket_seconds=bucket_seconds
+        )
+
+    async def watchlist_for_rooms(
+        self, *, chatroom_ids: Sequence[uuid.UUID]
+    ) -> list[WatchlistEntry]:
+        return await self._aggregation.watchlist_for_rooms(chatroom_ids=chatroom_ids)

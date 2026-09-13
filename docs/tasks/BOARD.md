@@ -306,12 +306,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Teacher dashboard
 
-- `2026-09-13-teacher-dashboard` (feature, **approved 2026-09-13**) — `depends_on: []`.
-  Cross-room activity monitoring dashboard for facilitators. New `dashboard` frontend slice,
-  Chart.js time-series charts, student watchlist, threshold alerts, new `ws:project:{id}`
-  WebSocket channel. Backend extends `AggregationService` with project-scoped queries.
-  SRS Delta applied at approval: §33 [R33.01]-[R33.04]. No migration, no file overlap with
-  any active dossier.
+- (moved to In progress on 2026-09-13) `2026-09-13-teacher-dashboard`.
 
 ### Other ready work
 
@@ -578,6 +573,12 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-13-teacher-dashboard`. Cross-room activity monitoring dashboard for facilitators.
+  New `dashboard` frontend slice, Chart.js time-series charts, student watchlist, threshold
+  alerts, new `ws:project:{id}` WebSocket channel. Backend extends `AggregationService` with
+  project-scoped queries. SRS Delta applied at approval: §33 [R33.01]-[R33.04]. No migration,
+  no file overlap with any active dossier.
 
 - (implemented 2026-09-11) `2026-09-10-canvas-history`. Browse and restore past
   canvas snapshots with labels, auto-save-before-restore, 50-snapshot cap. Migration

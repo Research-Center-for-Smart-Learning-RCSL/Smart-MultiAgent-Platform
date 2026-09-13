@@ -602,6 +602,34 @@ class AttemptSummary:
     truncated: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RoomDashboardAggregate:
+    """Per-room aggregate for the teacher dashboard ([R33.01])."""
+
+    chatroom_id: uuid.UUID
+    total_submissions: int
+    valid_count: int
+    last_submission_at: dt.datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class TimeseriesBucket:
+    """One time bucket of valid submissions for a room ([R33.01])."""
+
+    chatroom_id: uuid.UUID
+    bucket: dt.datetime
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class WatchlistEntry:
+    """A participant below median submission count ([R33.02])."""
+
+    subject_code: str
+    submission_count: int
+    last_submission_at: dt.datetime | None
+
+
 __all__ = [
     "FILLED_FIELDS_SUB_SCORE",
     "MAX_COVERAGE_FIELDS",
@@ -630,10 +658,13 @@ __all__ = [
     "ProposalStatus",
     "ProposalVote",
     "RecentActivityRow",
+    "RoomDashboardAggregate",
     "SessionStatus",
     "SubjectKind",
+    "TimeseriesBucket",
     "ValidationResult",
     "ValidationStatus",
     "ValidatorKind",
     "VoteChoice",
+    "WatchlistEntry",
 ]

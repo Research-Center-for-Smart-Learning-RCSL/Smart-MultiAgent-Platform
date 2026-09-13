@@ -24,6 +24,8 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     AttemptSummaryRow,
     RecentActivityRow,
+    RoomDashboardAggregate,
+    TimeseriesBucket,
     ValidationStatus,
     ValidatorKind,
 )
@@ -584,6 +586,120 @@ class ActivitySubmissionRepository:
             await self._db.execute(sa.select(sa.func.count()).select_from(joined).where(scoped))
         ).scalar_one()
         return int(total or 0), [_row_to_attempt_summary(r) for r in rows[:limit]], len(rows) > limit
+
+
+    # -- Teacher dashboard aggregates ([R33.01]) ----------------------------- #
+
+    async def aggregate_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> list[RoomDashboardAggregate]:
+        if not chatroom_ids:
+            return []
+        stmt = (
+            sa.select(
+                _SUB.c.chatroom_id,
+                sa.func.count().label("total"),
+                sa.func.count().filter(_SUB.c.is_valid.is_(True)).label("valid_count"),
+                sa.func.max(_SUB.c.created_at).label("last_at"),
+            )
+            .where(
+                sa.and_(
+                    _SUB.c.chatroom_id.in_(list(chatroom_ids)),
+                    _SUB.c.deleted_at.is_(None),
+                )
+            )
+            .group_by(_SUB.c.chatroom_id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [
+            RoomDashboardAggregate(
+                chatroom_id=r.chatroom_id,
+                total_submissions=int(r.total or 0),
+                valid_count=int(r.valid_count or 0),
+                last_submission_at=r.last_at,
+            )
+            for r in rows
+        ]
+
+    async def timeseries_for_rooms(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        since: dt.datetime,
+        bucket_seconds: int,
+    ) -> list[TimeseriesBucket]:
+        if not chatroom_ids:
+            return []
+        bucket_expr = sa.func.to_timestamp(
+            sa.func.floor(
+                sa.func.extract("epoch", _SUB.c.created_at) / bucket_seconds
+            )
+            * bucket_seconds
+        ).label("bucket")
+        stmt = (
+            sa.select(
+                _SUB.c.chatroom_id,
+                bucket_expr,
+                sa.func.count().label("cnt"),
+            )
+            .where(
+                sa.and_(
+                    _SUB.c.chatroom_id.in_(list(chatroom_ids)),
+                    _SUB.c.deleted_at.is_(None),
+                    _SUB.c.is_valid.is_(True),
+                    _SUB.c.created_at >= since,
+                )
+            )
+            .group_by(_SUB.c.chatroom_id, sa.text("bucket"))
+            .order_by(sa.text("bucket"))
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [
+            TimeseriesBucket(
+                chatroom_id=r.chatroom_id,
+                bucket=r.bucket,
+                count=int(r.cnt),
+            )
+            for r in rows
+        ]
+
+    async def participant_submission_counts(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> list[tuple[str, int, dt.datetime | None]]:
+        """Per-participant (subject_code, submission_count, last_at) across rooms."""
+        if not chatroom_ids:
+            return []
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        stmt = (
+            sa.select(
+                _SESS.c.subject_user_id,
+                _SESS.c.subject_member_group_id,
+                sa.func.count().label("cnt"),
+                sa.func.max(_SUB.c.created_at).label("last_at"),
+            )
+            .select_from(joined)
+            .where(
+                sa.and_(
+                    _SUB.c.chatroom_id.in_(list(chatroom_ids)),
+                    _SUB.c.deleted_at.is_(None),
+                )
+            )
+            .group_by(_SESS.c.subject_user_id, _SESS.c.subject_member_group_id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        result: list[tuple[str, int, dt.datetime | None]] = []
+        for r in rows:
+            code = (
+                group_subject_code(r.subject_member_group_id)
+                if r.subject_member_group_id is not None
+                else subject_code(r.subject_user_id)
+            )
+            result.append((code, int(r.cnt), r.last_at))
+        return result
 
 
 __all__ = ["ActivitySubmissionRepository"]
