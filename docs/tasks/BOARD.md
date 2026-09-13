@@ -574,11 +574,9 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-13-teacher-dashboard`. Cross-room activity monitoring dashboard for facilitators.
-  New `dashboard` frontend slice, Chart.js time-series charts, student watchlist, threshold
-  alerts, new `ws:project:{id}` WebSocket channel. Backend extends `AggregationService` with
-  project-scoped queries. SRS Delta applied at approval: §33 [R33.01]-[R33.04]. No migration,
-  no file overlap with any active dossier.
+- (implemented 2026-09-13) `2026-09-13-teacher-dashboard`. AC-4/AC-5/AC-11
+  unticked (code complete, need running stack for WS integration verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-11) `2026-09-10-canvas-history`. Browse and restore past
   canvas snapshots with labels, auto-save-before-restore, 50-snapshot cap. Migration

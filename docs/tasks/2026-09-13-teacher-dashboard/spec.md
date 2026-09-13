@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-13
 requirements: [R30.10]
 depends_on: []
@@ -338,45 +338,47 @@ No migration, so rollback is revert-and-redeploy.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `GET /api/v1/projects/{id}/dashboard/summary` returns a list of
+- [x] AC-1: `GET /api/v1/projects/{id}/dashboard/summary` returns a list of
       room aggregates (room_id, room_name, activation_status, total
       submissions, valid count, last_submission_at) for all rooms in the
       project where the caller is room creator. Returns 403 for non-members.
-- [ ] AC-2: `GET /api/v1/projects/{id}/dashboard/timeseries?window=1h&bucket=5m`
+- [x] AC-2: `GET /api/v1/projects/{id}/dashboard/timeseries?window=1h&bucket=5m`
       returns time-bucketed valid submission counts per room. Supports
       windows: 1h, 6h, 24h. Bucket sizes: 1m, 5m, 15m, 1h.
-- [ ] AC-3: `GET /api/v1/projects/{id}/dashboard/watchlist` returns participants
+- [x] AC-3: `GET /api/v1/projects/{id}/dashboard/watchlist` returns participants
       with zero submissions or below-median submission count for the active
       activation, using truncated subject codes (not names/emails).
 - [ ] AC-4: `ws://host/api/ws/project/{id}` authenticates, verifies project
       membership, and delivers `dashboard.submission.validated` and
-      `dashboard.activation.changed` events.
+      `dashboard.activation.changed` events. (Code complete; needs running
+      stack for WS integration verification.)
 - [ ] AC-5: WebSocket connection is refused (4403) for non-project-members.
       Membership is re-checked every 30s; a revoked member is disconnected.
-- [ ] AC-6: `DashboardView.vue` renders at `/orgs/:orgId/projects/:projectId/dashboard`
+      (Code complete; needs running stack.)
+- [x] AC-6: `DashboardView.vue` renders at `/orgs/:orgId/projects/:projectId/dashboard`
       with room status cards, a time-series chart, a student watchlist, and
       an alerts section. All strings via `$t()`.
-- [ ] AC-7: Each room status card shows a traffic-light indicator: green
+- [x] AC-7: Each room status card shows a traffic-light indicator: green
       (submission within last 5 minutes), yellow (5-15 minutes), red (>15
       minutes or no active activation). The thresholds are constants, not
       user-configurable at MVP.
-- [ ] AC-8: The time-series chart (Chart.js) renders valid submission counts
+- [x] AC-8: The time-series chart (Chart.js) renders valid submission counts
       over the selected time window. Chart text colors adapt to light/dark
       theme. Chart is responsive (fills container width, min-height 200px).
-- [ ] AC-9: The student watchlist table shows subject_code, submission count,
+- [x] AC-9: The student watchlist table shows subject_code, submission count,
       last submission time, and a "needs attention" badge for participants
       below median. Empty state shown when all participants are above median.
-- [ ] AC-10: `SAlert variant="warning"` appears when any room has had no valid
+- [x] AC-10: `SAlert variant="warning"` appears when any room has had no valid
       submission for > 10 minutes during an active activation.
 - [ ] AC-11: WebSocket events update the dashboard in real-time without manual
       refresh. A new submission updates the relevant room card's counters and
-      the chart's latest data point.
-- [ ] AC-12: `eslint.config.js` includes `dashboard` in `SLICES` and
+      the chart's latest data point. (Code complete; needs running stack.)
+- [x] AC-12: `eslint.config.js` includes `dashboard` in `SLICES` and
       `SLICE_DEPS` with deps `['activities', 'tenancy']`. The boundary
       enforcement gate passes (`pnpm run check:boundaries-enforced`).
-- [ ] AC-13: `chart.js` and `vue-chartjs` added to `package.json`. Dashboard
+- [x] AC-13: `chart.js` and `vue-chartjs` added to `package.json`. Dashboard
       chunk (lazy-loaded) does not exceed 200KB gzip per-view budget.
-- [ ] AC-14: `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass with no
+- [x] AC-14: `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass with no
       regressions.
 
 ## 12. Test Plan
@@ -432,8 +434,45 @@ member is disconnected.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1**: The spec defines `aggregate_for_project(*, project_id, ...)` on
+  `AggregationService`. The implementation uses `aggregate_for_rooms(*,
+  chatroom_ids)` instead, with the API layer resolving project-to-room IDs via
+  `ConversationFacade`. This respects the DDD boundary (activities context
+  never queries conversation tables directly). Approved at plan review.
+
+- **D-2**: The spec places query composables under `queries/`. The
+  implementation uses `composables/` for TanStack Vue Query composables and
+  `queries/` for the query key factory only, matching the established codebase
+  pattern (keys slice uses `composables/useProjectKeys.ts` + `queries/index.ts`).
+
+- **D-3**: The spec references `Depends(current_project_member)` for endpoint
+  authZ. The codebase uses `assert_project_membership(db=..., principal=...,
+  project_id=...)` called inside the handler, which is the established pattern.
+  Functionally identical.
+
+- **D-4**: `useProjectSocket` uses `wsManager.channel()` from the existing
+  `@shared/transport/ws-manager` rather than raw `WebSocket`, matching the
+  codebase's centralized WS management (ticket-based auth, reconnect with
+  backoff, per-user connection cap).
 
 ## 16. Follow-ups
 
-(none yet)
+- **FU-1**: AC-4/AC-5/AC-11 are unticked (code complete, need running stack
+  with real WebSocket for integration verification). The project-channel
+  endpoint follows the same `connection_loop` + `authorize` pattern as
+  `ws/chatroom.py` and reuses the same auth watchdog interval.
+
+- **FU-2**: The `_resolve_project_id` helper in `broadcast.py` opens a
+  short-lived DB session for each project-channel emit. At MVP scale (1-2
+  teachers, 5-7 rooms) this is negligible. At higher scale, consider caching
+  the chatroom-to-project mapping in Redis or threading project_id through
+  the caller.
+
+- **FU-3**: OQ-1 (dashboard access: all project members vs room creators only)
+  is resolved as "project membership for authZ, `created_by_user_id` filter
+  for data scope." If the policy changes, the filter in
+  `_resolve_facilitator_rooms` is the single edit point.
+
+- **FU-4**: OQ-2 (configurable thresholds) is deferred. The constants
+  `_STALE_MINUTES_GREEN=5`, `_STALE_MINUTES_YELLOW=15`, `_ALERT_MINUTES=10`
+  in `dashboard.py` are the single edit point for per-project configuration.
