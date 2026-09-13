@@ -276,11 +276,17 @@ async def get_canvas(
     chatroom_id: uuid.UUID,
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
+    ctx: RequestContext = Depends(current_context),
 ) -> CanvasOut:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
-    canvas = await facade.get_or_create(chatroom_id=chatroom_id)
+    canvas = await facade.get_or_create(
+        chatroom_id=chatroom_id,
+        actor_user_id=_actor_user_id(principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
     await db.commit()
     return CanvasOut.from_domain(canvas)
 

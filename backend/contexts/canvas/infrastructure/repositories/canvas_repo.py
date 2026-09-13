@@ -102,6 +102,37 @@ class CanvasRepository:
         ).one()
         return _row_to_canvas(row)
 
+    async def upsert_for_chatroom(self, chatroom_id: uuid.UUID) -> Canvas:
+        """Atomically get-or-create a canvas for *chatroom_id*.
+
+        Handles the TOCTOU race (concurrent first-time opens) and
+        reactivation of a soft-deleted row.  Active rows are left
+        untouched; soft-deleted rows are reactivated with clean defaults.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        stmt = (
+            pg_insert(t.canvases)
+            .values(chatroom_id=chatroom_id)
+            .on_conflict_do_update(
+                index_elements=[t.canvases.c.chatroom_id],
+                set_={
+                    "deleted_at": None,
+                    "expose_to_agents": sa.case(
+                        (t.canvases.c.deleted_at.isnot(None), sa.literal(True)),
+                        else_=t.canvases.c.expose_to_agents,
+                    ),
+                    "crdt_state": sa.case(
+                        (t.canvases.c.deleted_at.isnot(None), sa.null()),
+                        else_=t.canvases.c.crdt_state,
+                    ),
+                },
+            )
+            .returning(t.canvases)
+        )
+        row = (await self._db.execute(stmt)).one()
+        return _row_to_canvas(row)
+
     async def update_settings(self, canvas_id: uuid.UUID, *, expose_to_agents: bool) -> Canvas | None:
         row = (
             await self._db.execute(

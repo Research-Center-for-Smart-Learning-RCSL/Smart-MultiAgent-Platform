@@ -60,7 +60,9 @@ class CanvasService:
         canvas = await self._repo.get_by_chatroom(chatroom_id)
         if canvas is not None:
             return canvas
-        canvas = await self._repo.create(chatroom_id=chatroom_id)
+        # Atomic upsert handles both the TOCTOU race (concurrent callers
+        # that pass the SELECT above) and reactivation of a soft-deleted row.
+        canvas = await self._repo.upsert_for_chatroom(chatroom_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
