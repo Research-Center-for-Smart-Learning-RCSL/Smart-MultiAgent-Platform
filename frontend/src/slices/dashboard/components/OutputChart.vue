@@ -70,39 +70,45 @@ const chartData = computed<ChartData<'line'>>(() => {
   }
 })
 
-const { theme } = useTheme()
-const isDark = computed(() => {
-  if (theme.value === 'dark') return true
-  if (theme.value === 'light') return false
-  return typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-})
+function token(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
 
-const chartOptions = computed<ChartOptions<'line'>>(() => ({
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      labels: { color: isDark.value ? '#e2e8f0' : '#334155' },
+const { theme } = useTheme()
+
+const chartOptions = computed<ChartOptions<'line'>>(() => {
+  // Force recomputation when theme changes
+  void theme.value
+  const fg = token('--color-fg')
+  const muted = token('--color-muted')
+  const grid = token('--color-border-subtle')
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: { color: fg },
+      },
+      title: {
+        display: true,
+        text: t('dashboard.chartTitle'),
+        color: fg,
+      },
     },
-    title: {
-      display: true,
-      text: t('dashboard.chartTitle'),
-      color: isDark.value ? '#e2e8f0' : '#334155',
+    scales: {
+      x: {
+        ticks: { color: muted },
+        grid: { color: grid },
+      },
+      y: {
+        beginAtZero: true,
+        ticks: { color: muted, precision: 0 },
+        grid: { color: grid },
+      },
     },
-  },
-  scales: {
-    x: {
-      ticks: { color: isDark.value ? '#94a3b8' : '#64748b' },
-      grid: { color: isDark.value ? '#334155' : '#e2e8f0' },
-    },
-    y: {
-      beginAtZero: true,
-      ticks: { color: isDark.value ? '#94a3b8' : '#64748b', precision: 0 },
-      grid: { color: isDark.value ? '#334155' : '#e2e8f0' },
-    },
-  },
-}))
+  }
+})
 </script>
 
 <template>

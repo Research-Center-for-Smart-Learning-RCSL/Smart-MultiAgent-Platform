@@ -38,7 +38,7 @@ const lastActivityText = computed(() => {
 <template>
   <SCard class="p-4">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-sm font-medium text-[var(--color-text)]">
+      <h3 class="text-sm font-medium text-[var(--color-fg)]">
         {{ room.room_name }}
       </h3>
       <SBadge
@@ -49,22 +49,22 @@ const lastActivityText = computed(() => {
         {{ statusLabel }}
       </SBadge>
     </div>
-    <dl class="grid grid-cols-2 gap-2 text-xs text-[var(--color-text-secondary)]">
+    <dl class="grid grid-cols-2 gap-2 text-xs text-[var(--color-muted)]">
       <div>
         <dt>{{ t('dashboard.totalCount') }}</dt>
-        <dd class="text-base font-semibold text-[var(--color-text)]">
+        <dd class="text-base font-semibold text-[var(--color-fg)]">
           {{ room.total_submissions }}
         </dd>
       </div>
       <div>
         <dt>{{ t('dashboard.validCount') }}</dt>
-        <dd class="text-base font-semibold text-[var(--color-text)]">
+        <dd class="text-base font-semibold text-[var(--color-fg)]">
           {{ room.valid_count }}
         </dd>
       </div>
       <div class="col-span-2">
         <dt>{{ t('dashboard.lastActivity') }}</dt>
-        <dd class="text-sm text-[var(--color-text)]">
+        <dd class="text-sm text-[var(--color-fg)]">
           {{ lastActivityText }}
         </dd>
       </div>

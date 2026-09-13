@@ -52,7 +52,7 @@ const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+  <div class="max-w-7xl mx-auto space-y-6">
     <SPageHeader :title="t('dashboard.title')" />
 
     <SAlert
@@ -78,14 +78,14 @@ const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
 
     <template v-else>
       <section>
-        <h2 class="text-lg font-semibold text-[var(--color-text)] mb-3">
+        <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-3">
           {{ t('dashboard.alerts') }}
         </h2>
         <DashboardAlerts :rooms="rooms" />
       </section>
 
       <section>
-        <h2 class="text-lg font-semibold text-[var(--color-text)] mb-3">
+        <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-3">
           {{ t('dashboard.roomStatus') }}
         </h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -100,7 +100,7 @@ const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
       <section>
         <SCard class="p-4">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-[var(--color-text)]">
+            <h2 class="text-lg font-semibold text-[var(--color-fg)]">
               {{ t('dashboard.timeseries') }}
             </h2>
             <TimeWindowSelector v-model="timeWindow" />
@@ -119,7 +119,7 @@ const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
 
       <section>
         <SCard class="p-4">
-          <h2 class="text-lg font-semibold text-[var(--color-text)] mb-4">
+          <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-4">
             {{ t('dashboard.watchlist') }}
           </h2>
           <SSkeleton

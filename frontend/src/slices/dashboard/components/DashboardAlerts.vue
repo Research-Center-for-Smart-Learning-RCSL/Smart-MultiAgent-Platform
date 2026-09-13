@@ -31,7 +31,7 @@ const stalledRooms = computed(() =>
   </div>
   <p
     v-else
-    class="text-sm text-[var(--color-text-secondary)]"
+    class="text-sm text-[var(--color-muted)]"
   >
     {{ t('dashboard.noAlerts') }}
   </p>
