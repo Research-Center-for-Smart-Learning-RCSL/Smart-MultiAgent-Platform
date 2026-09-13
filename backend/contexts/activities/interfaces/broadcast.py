@@ -257,7 +257,7 @@ async def _resolve_project_id(chatroom_id: uuid.UUID) -> uuid.UUID | None:
         async with async_session() as db:
             from contexts.conversation.interfaces.facade import ConversationFacade
 
-            return await ConversationFacade(db).lock_live_chatroom_scope(chatroom_id)
+            return await ConversationFacade(db).project_id_for_chatroom(chatroom_id)
     except Exception:
         _log.warning("project_id lookup failed for chatroom %s", chatroom_id, exc_info=True)
         return None

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useTheme } from '@shared/composables'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -69,12 +70,12 @@ const chartData = computed<ChartData<'line'>>(() => {
   }
 })
 
+const { theme } = useTheme()
 const isDark = computed(() => {
-  return (
-    document.documentElement.dataset.theme === 'dark' ||
-    (!document.documentElement.dataset.theme &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches)
-  )
+  if (theme.value === 'dark') return true
+  if (theme.value === 'light') return false
+  return typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches
 })
 
 const chartOptions = computed<ChartOptions<'line'>>(() => ({

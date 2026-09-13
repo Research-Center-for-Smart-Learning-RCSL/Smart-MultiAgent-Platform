@@ -1,36 +1,69 @@
-import { watch, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
 import { dashboardKeys } from '../queries'
 
 export function useProjectSocket(projectId: () => string) {
   const queryClient = useQueryClient()
-  const unsubs: Array<() => void> = []
+  const connected = ref(false)
+  let currentPath: string | null = null
+  let unsubEvent: (() => void) | null = null
+  let unsubStatus: (() => void) | null = null
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-  function subscribe(pid: string) {
-    cleanup()
+  function invalidateDebounced() {
+    if (debounceTimer) clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.all })
+    }, 500)
+  }
+
+  function teardown() {
+    unsubEvent?.()
+    unsubStatus?.()
+    unsubEvent = null
+    unsubStatus = null
+    if (currentPath) {
+      wsManager.close(currentPath)
+      currentPath = null
+    }
+    if (debounceTimer) clearTimeout(debounceTimer)
+    connected.value = false
+  }
+
+  function setup(pid: string) {
+    teardown()
     if (!pid) return
 
-    const channel = wsManager.channel(`/project/${pid}`)
+    currentPath = `/project/${pid}`
+    const channel = wsManager.channel(currentPath)
 
-    unsubs.push(
-      channel.subscribe('dashboard.submission.validated', (_event: ChannelEvent) => {
-        queryClient.invalidateQueries({ queryKey: dashboardKeys.all })
-      }),
-    )
+    unsubEvent = channel.subscribe('*', (ev: ChannelEvent) => {
+      if (
+        ev.type === 'dashboard.submission.validated' ||
+        ev.type === 'dashboard.activation.changed'
+      ) {
+        invalidateDebounced()
+      }
+    })
 
-    unsubs.push(
-      channel.subscribe('dashboard.activation.changed', (_event: ChannelEvent) => {
-        queryClient.invalidateQueries({ queryKey: dashboardKeys.all })
-      }),
-    )
+    unsubStatus = channel.onStatus((isConnected: boolean) => {
+      connected.value = isConnected
+    })
+
+    channel.connect()
   }
 
-  function cleanup() {
-    unsubs.forEach((fn) => fn())
-    unsubs.length = 0
-  }
+  watch(projectId, (pid) => setup(pid), { immediate: true })
 
-  watch(projectId, (id) => subscribe(id), { immediate: true })
-  onUnmounted(cleanup)
+  onMounted(() => {
+    const pid = projectId()
+    if (pid && currentPath) {
+      wsManager.channel(currentPath).connect()
+    }
+  })
+
+  onBeforeUnmount(teardown)
+
+  return { connected }
 }

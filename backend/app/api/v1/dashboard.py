@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
-import statistics
 import uuid
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -191,17 +190,13 @@ async def dashboard_watchlist(
     entries = await ActivitiesFacade(db).watchlist_for_rooms(
         chatroom_ids=list(room_map.keys()),
     )
-    median_count = 0
-    if entries:
-        median_count = statistics.median([e.submission_count for e in entries])
-
     return DashboardWatchlistOut(
         entries=[
             WatchlistEntryOut(
                 subject_code=e.subject_code,
                 submission_count=e.submission_count,
                 last_submission_at=e.last_submission_at,
-                needs_attention=e.submission_count == 0 or e.submission_count < median_count,
+                needs_attention=True,
             )
             for e in entries
         ]

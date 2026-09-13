@@ -10,15 +10,9 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-const ALERT_MINUTES = 10
-
 const roomsRef = toRef(props, 'rooms')
 const stalledRooms = computed(() =>
-  roomsRef.value.filter((r) => {
-    if (!r.last_submission_at) return false
-    const elapsed = (Date.now() - new Date(r.last_submission_at).getTime()) / 60000
-    return elapsed > ALERT_MINUTES
-  }),
+  roomsRef.value.filter((r) => r.status === 'red'),
 )
 </script>
 
