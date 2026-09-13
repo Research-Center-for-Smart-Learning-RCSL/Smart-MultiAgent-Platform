@@ -20,6 +20,7 @@ import {
   UsersIcon,
   PuzzlePieceIcon,
   ClipboardDocumentCheckIcon,
+  ChartBarIcon,
 } from '@heroicons/vue/24/outline'
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
@@ -60,6 +61,14 @@ const personalNav = computed<NavItem[]>(() => [
   { icon: BellIcon, label: t('app.sidebar.notifications'), route: '/notifications' },
   { icon: InboxArrowDownIcon, label: t('app.sidebar.invites'), route: '/invites' },
 ])
+
+const dashboardNav = computed<NavItem[]>(() => {
+  const pid = workspace.projectId
+  if (!pid) return []
+  return [
+    { icon: ChartBarIcon, label: t('app.sidebar.dashboard'), route: `/projects/${pid}/dashboard` },
+  ]
+})
 
 const agentNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
@@ -161,6 +170,17 @@ const manageNav = computed<NavItem[]>(() => {
 
         <div class="section-header">
           {{ t('app.sidebar.projectContext') }}
+        </div>
+
+        <!-- Dashboard -->
+        <div class="sidebar__section">
+          <SidebarNavItem
+            v-for="item in dashboardNav"
+            :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
+            :to="item.route"
+          />
         </div>
 
         <!-- Agents + Agent Groups -->

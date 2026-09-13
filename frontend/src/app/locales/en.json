@@ -142,6 +142,7 @@
       "groupKeys": "Keys",
       "groupInfra": "Infrastructure",
       "groupManage": "Manage",
+      "dashboard": "Dashboard",
       "admin": "Admin Console"
     },
     "switcher": {
