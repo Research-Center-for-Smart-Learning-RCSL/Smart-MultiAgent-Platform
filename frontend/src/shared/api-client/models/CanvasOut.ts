@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type CanvasOut = {
-    id: string;
     chatroom_id: string;
-    expose_to_agents: boolean;
     created_at: string;
+    expose_to_agents: boolean;
+    id: string;
 };
 

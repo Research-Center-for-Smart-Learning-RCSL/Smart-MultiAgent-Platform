@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SessionOut = {
-    id: string;
     created_at: string;
-    last_used_at: string;
     expires_at: string;
-    user_agent: (string | null);
+    id: string;
     ip_inet: (string | null);
+    last_used_at: string;
+    user_agent: (string | null);
 };
 

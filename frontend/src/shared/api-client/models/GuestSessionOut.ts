@@ -4,8 +4,8 @@
 /* eslint-disable */
 export type GuestSessionOut = {
     access_token: string;
-    guest_session_id: string;
     display_name: string;
+    guest_session_id: string;
     is_resuming: boolean;
 };
 

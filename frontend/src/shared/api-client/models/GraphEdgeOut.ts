@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type GraphEdgeOut = {
-    source: string;
-    relation: string;
-    target: string;
     confidence: number;
+    relation: string;
+    source: string;
+    target: string;
 };
 

@@ -54,27 +54,6 @@ export class CanvasTemplatesService {
         });
     }
     /**
-     * Get Template
-     * @returns TemplateDetailOut Successful Response
-     * @throws ApiError
-     */
-    public static getTemplateApiCanvasTemplatesTemplateIdGet({
-        templateId,
-    }: {
-        templateId: string,
-    }): CancelablePromise<TemplateDetailOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/canvas-templates/{template_id}',
-            path: {
-                'template_id': templateId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Delete Template
      * @returns void
      * @throws ApiError
@@ -86,6 +65,27 @@ export class CanvasTemplatesService {
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'DELETE',
+            url: '/api/canvas-templates/{template_id}',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Template
+     * @returns TemplateDetailOut Successful Response
+     * @throws ApiError
+     */
+    public static getTemplateApiCanvasTemplatesTemplateIdGet({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<TemplateDetailOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
             url: '/api/canvas-templates/{template_id}',
             path: {
                 'template_id': templateId,

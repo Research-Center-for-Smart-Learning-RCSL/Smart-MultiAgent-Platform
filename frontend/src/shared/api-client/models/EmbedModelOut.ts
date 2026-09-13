@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type EmbedModelOut = {
-    model: string;
     dimension: number;
+    model: string;
 };
 

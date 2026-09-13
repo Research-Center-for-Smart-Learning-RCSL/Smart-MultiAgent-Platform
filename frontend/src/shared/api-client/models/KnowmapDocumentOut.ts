@@ -5,16 +5,16 @@
 import type { DocumentStatus } from './DocumentStatus';
 import type { ScanStatus } from './ScanStatus';
 export type KnowmapDocumentOut = {
+    agent_ids: Array<string>;
+    failure_code: (string | null);
+    filename: string;
     id: string;
     knowmap_config_id: string;
-    filename: string;
     mime: string;
-    size_bytes: number;
-    sha256: string;
-    status: DocumentStatus;
     scan_status: ScanStatus;
-    failure_code: (string | null);
+    sha256: string;
+    size_bytes: number;
+    status: DocumentStatus;
     uploaded_at: string;
-    agent_ids: Array<string>;
 };
 

@@ -4,8 +4,8 @@
 /* eslint-disable */
 import type { TemplateDataIn } from './TemplateDataIn';
 export type app__api__v1__canvas_templates__TemplateCreateIn = {
-    name: string;
     description?: (string | null);
+    name: string;
     project_id: string;
     template_data: TemplateDataIn;
 };

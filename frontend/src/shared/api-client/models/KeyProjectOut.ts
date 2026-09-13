@@ -6,10 +6,10 @@
  * One project a key is carried into, with its binding footprint.
  */
 export type KeyProjectOut = {
-    project_id: string;
-    project_name: string;
+    agent_count: number;
     carried_at: string;
     group_count: number;
-    agent_count: number;
+    project_id: string;
+    project_name: string;
 };
 
