@@ -4,11 +4,11 @@
 /* eslint-disable */
 import type { CanvasObjectKind } from './CanvasObjectKind';
 export type CanvasSearchResult = {
-    kind: CanvasObjectKind;
     object_id: string;
+    kind: CanvasObjectKind;
+    snippet: string;
+    rank: number;
     position_x: number;
     position_y: number;
-    rank: number;
-    snippet: string;
 };
 

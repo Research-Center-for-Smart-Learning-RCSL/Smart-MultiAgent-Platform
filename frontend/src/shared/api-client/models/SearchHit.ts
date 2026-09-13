@@ -4,11 +4,11 @@
 /* eslint-disable */
 import type { SenderType } from './SenderType';
 export type SearchHit = {
-    created_at: string;
     message_id: string;
-    rank: number;
-    sender_id: (string | null);
     sender_type: SenderType;
+    sender_id: (string | null);
+    created_at: string;
     snippet: string;
+    rank: number;
 };
 

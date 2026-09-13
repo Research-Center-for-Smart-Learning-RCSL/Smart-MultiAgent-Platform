@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SaveAsTemplateIn = {
-    description?: (string | null);
     name: string;
+    description?: (string | null);
 };
 

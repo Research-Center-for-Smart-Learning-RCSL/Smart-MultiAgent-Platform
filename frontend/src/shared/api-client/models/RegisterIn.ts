@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RegisterIn = {
-    captcha_token?: (string | null);
     email: string;
     password: string;
+    captcha_token?: (string | null);
 };
 
