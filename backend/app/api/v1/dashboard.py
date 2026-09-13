@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import statistics
 import uuid
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -99,7 +100,7 @@ _BUCKET_SECONDS = {
 def _traffic_light(last_submission_at: dt.datetime | None) -> TrafficLight:
     if last_submission_at is None:
         return TrafficLight.RED
-    elapsed = (dt.datetime.now(dt.timezone.utc) - last_submission_at).total_seconds() / 60
+    elapsed = (dt.datetime.now(dt.UTC) - last_submission_at).total_seconds() / 60
     if elapsed <= _STALE_MINUTES_GREEN:
         return TrafficLight.GREEN
     if elapsed <= _STALE_MINUTES_YELLOW:
@@ -118,11 +119,7 @@ async def _resolve_facilitator_rooms(
     if not room_ids:
         return {}
     rooms = await ConversationFacade(db).get_chatrooms(room_ids)
-    return {
-        rid: room.name
-        for rid, room in rooms.items()
-        if room.created_by_user_id == principal.user_id
-    }
+    return {rid: room.name for rid, room in rooms.items() if room.created_by_user_id == principal.user_id}
 
 
 @router.get("/{project_id}/dashboard/summary")
@@ -169,17 +166,14 @@ async def dashboard_timeseries(
     if not room_map:
         return DashboardTimeseriesOut(buckets=[])
 
-    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=_WINDOW_SECONDS[window])
+    since = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=_WINDOW_SECONDS[window])
     ts = await ActivitiesFacade(db).timeseries_for_rooms(
         chatroom_ids=list(room_map.keys()),
         since=since,
         bucket_seconds=_BUCKET_SECONDS[bucket],
     )
     return DashboardTimeseriesOut(
-        buckets=[
-            TimeseriesBucketOut(room_id=b.chatroom_id, bucket=b.bucket, count=b.count)
-            for b in ts
-        ]
+        buckets=[TimeseriesBucketOut(room_id=b.chatroom_id, bucket=b.bucket, count=b.count) for b in ts]
     )
 
 
@@ -199,10 +193,7 @@ async def dashboard_watchlist(
     )
     median_count = 0
     if entries:
-        counts = [e.submission_count for e in entries]
-        import statistics
-
-        median_count = statistics.median(counts)
+        median_count = statistics.median([e.submission_count for e in entries])
 
     return DashboardWatchlistOut(
         entries=[

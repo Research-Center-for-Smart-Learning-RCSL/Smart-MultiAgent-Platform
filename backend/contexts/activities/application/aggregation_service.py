@@ -22,7 +22,6 @@ from contexts.activities.domain.models import (
     TimeseriesBucket,
     WatchlistEntry,
 )
-from contexts.activities.domain.subject_code import group_subject_code, subject_code
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
