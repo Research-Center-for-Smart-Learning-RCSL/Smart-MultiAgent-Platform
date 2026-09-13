@@ -60,6 +60,9 @@ def _build_registry() -> list[RouterEntry]:
         canvas as canvas_routes,
     )
     from app.api.v1 import (
+        dashboard as dashboard_routes,
+    )
+    from app.api.v1 import (
         canvas_templates as canvas_template_routes,
     )
     from app.api.v1 import (
@@ -207,6 +210,8 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(agent_group_routes.project_router),
         RouterEntry(agent_group_routes.group_router),
         RouterEntry(agent_workspace_routes.router),
+        # Teacher dashboard ([R33.01]-[R33.02])
+        RouterEntry(dashboard_routes.router),
         # Structured activities (project-scoped types + room-scoped sessions/submissions)
         RouterEntry(activity_routes.project_router),
         RouterEntry(activity_routes.chatroom_router),
