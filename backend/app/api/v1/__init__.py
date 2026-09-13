@@ -60,9 +60,6 @@ def _build_registry() -> list[RouterEntry]:
         canvas as canvas_routes,
     )
     from app.api.v1 import (
-        dashboard as dashboard_routes,
-    )
-    from app.api.v1 import (
         canvas_templates as canvas_template_routes,
     )
     from app.api.v1 import (
@@ -70,6 +67,9 @@ def _build_registry() -> list[RouterEntry]:
     )
     from app.api.v1 import (
         csp_report as csp_routes,
+    )
+    from app.api.v1 import (
+        dashboard as dashboard_routes,
     )
     from app.api.v1 import (
         exports as export_routes,
@@ -167,6 +167,9 @@ def _build_registry() -> list[RouterEntry]:
         knowmap as ws_knowmap,
     )
     from app.api.ws import (
+        project as ws_project,
+    )
+    from app.api.ws import (
         prompt_assistant as ws_prompt_assistant,
     )
     from app.api.ws import (
@@ -174,9 +177,6 @@ def _build_registry() -> list[RouterEntry]:
     )
     from app.api.ws import (
         user as ws_user,
-    )
-    from app.api.ws import (
-        project as ws_project,
     )
     from app.api.ws import (
         workflow_runs as ws_workflow_runs,
