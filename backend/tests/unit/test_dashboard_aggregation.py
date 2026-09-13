@@ -24,7 +24,7 @@ class TestWatchlistMedianComputation:
         db = AsyncMock()
         svc = AggregationService(db)
         room = _uid()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         raw = [("u:aaaaaaaa", 3, now), ("u:bbbbbbbb", 3, now), ("u:cccccccc", 3, now)]
         with patch.object(svc._repo, "participant_submission_counts", return_value=raw):
             result = await svc.watchlist_for_rooms(chatroom_ids=[room])
@@ -36,7 +36,7 @@ class TestWatchlistMedianComputation:
         db = AsyncMock()
         svc = AggregationService(db)
         room = _uid()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         raw = [
             ("u:aaaaaaaa", 1, now),
             ("u:bbbbbbbb", 5, now),
@@ -54,7 +54,7 @@ class TestWatchlistMedianComputation:
         db = AsyncMock()
         svc = AggregationService(db)
         room = _uid()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         raw = [
             ("u:aaaaaaaa", 0, None),
             ("u:bbbbbbbb", 5, now),
@@ -77,7 +77,7 @@ class TestWatchlistMedianComputation:
     async def test_single_participant_included(self) -> None:
         db = AsyncMock()
         svc = AggregationService(db)
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         raw = [("u:aaaaaaaa", 2, now)]
         with patch.object(svc._repo, "participant_submission_counts", return_value=raw):
             result = await svc.watchlist_for_rooms(chatroom_ids=[_uid()])
@@ -87,7 +87,7 @@ class TestWatchlistMedianComputation:
     async def test_group_subject_code_preserved(self) -> None:
         db = AsyncMock()
         svc = AggregationService(db)
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         raw = [
             ("g:aaaaaaaa", 1, now),
             ("u:bbbbbbbb", 5, now),
