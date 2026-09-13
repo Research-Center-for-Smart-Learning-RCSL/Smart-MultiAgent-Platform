@@ -1,10 +1,13 @@
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, type Ref } from 'vue'
 
 const STORAGE_PREFIX = 'smap:canvas:'
 const DEFAULT_WIDTH_FRACTION = 0.45
 const MIN_WIDTH_PX = 300
 
-export function useCanvasSplitPane(chatroomId: () => string) {
+export function useCanvasSplitPane(
+  chatroomId: () => string,
+  containerRef?: Readonly<Ref<HTMLElement | null>>,
+) {
   const isOpen = ref(false)
   const isFullscreen = ref(false)
   const widthFraction = ref(DEFAULT_WIDTH_FRACTION)
@@ -67,8 +70,11 @@ export function useCanvasSplitPane(chatroomId: () => string) {
     isDragging.value = true
 
     const onMove = (ev: MouseEvent) => {
-      const containerWidth = document.documentElement.clientWidth
-      const newFraction = 1 - ev.clientX / containerWidth
+      const container = containerRef?.value
+      const rect = container?.getBoundingClientRect()
+      const containerLeft = rect?.left ?? 0
+      const containerWidth = rect?.width ?? document.documentElement.clientWidth
+      const newFraction = 1 - (ev.clientX - containerLeft) / containerWidth
       widthFraction.value = Math.max(MIN_WIDTH_PX / containerWidth, Math.min(0.7, newFraction))
     }
 

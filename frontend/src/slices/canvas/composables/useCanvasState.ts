@@ -23,6 +23,7 @@ export function useCanvasState(chatroomId: Ref<string>) {
   const objects = computed<CanvasObject[]>(() => objectsQuery.data.value ?? [])
   const isLoading = computed(() => canvasQuery.isLoading.value || objectsQuery.isLoading.value)
   const error = computed(() => canvasQuery.error.value || objectsQuery.error.value)
+  const objectsReady = computed(() => objectsQuery.isSuccess.value)
 
   const createObjectMut = useMutation({
     mutationFn: (body: CanvasObjectCreate) => canvasApi.createObject(chatroomId.value, body),
@@ -81,6 +82,7 @@ export function useCanvasState(chatroomId: Ref<string>) {
     uploadImage: uploadImageMut.mutateAsync,
     saveSnapshot: saveSnapshotMut.mutateAsync,
     updateSettings: updateSettingsMut.mutateAsync,
+    objectsReady,
     isSavingSnapshot: saveSnapshotMut.isPending,
     invalidateAll,
   }

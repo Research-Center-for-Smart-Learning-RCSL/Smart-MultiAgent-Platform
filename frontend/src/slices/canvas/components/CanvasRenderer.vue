@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
 import { ref, onMounted, onUnmounted, watch, toRaw } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 
@@ -9,15 +10,25 @@ const props = defineProps<{
   awareness: Awareness
 }>()
 
+const emit = defineEmits<{
+  error: [message: string]
+}>()
+
+const { t } = useI18n()
+
 const containerRef = ref<HTMLDivElement>()
+const mountError = ref<string | null>(null)
 let excalidrawApi: any = null
 let reactRoot: any = null
 
-// Generation counter: incremented on remote updates, checked in onChange.
-// React 18 fires onChange asynchronously; a boolean flag would already be
-// reset by the time the async callback runs. A counter survives the gap.
-let remoteUpdateGen = 0
-let lastSyncedGen = 0
+// Mount generation: incremented before each mount attempt so a superseded
+// async mount (from the doc watcher racing onMounted) aborts silently.
+let mountGen = 0
+
+// Remote-update echo suppression. Tracks element ids that arrived from a
+// remote Yjs update so the next onChange callback can tell remote echoes
+// apart from genuine local edits rather than dropping the entire batch.
+let remoteElementIds: Set<string> | null = null
 
 function getElementsMap(): Y.Map<any> {
   return toRaw(props.doc).getMap('excalidraw-elements')
@@ -36,10 +47,20 @@ function readElementsFromYjs(): any[] {
 async function mountExcalidraw() {
   if (!containerRef.value) return
 
+  const thisMount = ++mountGen
+  mountError.value = null
+
   try {
-    const React = await import('react')
-    const ReactDOM = await import('react-dom/client')
-    const { Excalidraw } = await import('@excalidraw/excalidraw')
+    ;(window as any).EXCALIDRAW_ASSET_PATH = '/excalidraw-assets/'
+
+    const [React, ReactDOM, { Excalidraw }] = await Promise.all([
+      import('react'),
+      import('react-dom/client'),
+      import('@excalidraw/excalidraw'),
+      import('@excalidraw/excalidraw/index.css'),
+    ])
+
+    if (thisMount !== mountGen) return
 
     const initialElements = readElementsFromYjs()
 
@@ -51,8 +72,12 @@ async function mountExcalidraw() {
         excalidrawApi = api
       },
       onChange: (elements: readonly any[]) => {
-        if (remoteUpdateGen !== lastSyncedGen) {
-          lastSyncedGen = remoteUpdateGen
+        if (remoteElementIds !== null) {
+          // Only suppress elements that came from the remote update;
+          // sync any locally-changed elements that were batched alongside.
+          const localOnly = elements.filter((el) => !remoteElementIds!.has(el.id))
+          remoteElementIds = null
+          if (localOnly.length > 0) syncToYjs(elements)
           return
         }
         syncToYjs(elements)
@@ -69,7 +94,10 @@ async function mountExcalidraw() {
 
     getElementsMap().observeDeep(onYjsChange)
   } catch (err) {
+    if (thisMount !== mountGen) return
     console.error('Failed to mount Excalidraw:', err)
+    mountError.value = t('canvas.mountError', 'Failed to load canvas')
+    emit('error', mountError.value)
   }
 }
 
@@ -84,7 +112,6 @@ function syncToYjs(elements: readonly any[]) {
       seen.add(el.id)
       const existing = ymap.get(el.id)
       if (existing instanceof Y.Map) {
-        // Update changed fields only
         for (const [key, value] of Object.entries(el)) {
           const cur = existing.get(key)
           if (cur !== value && JSON.stringify(cur) !== JSON.stringify(value)) {
@@ -95,7 +122,6 @@ function syncToYjs(elements: readonly any[]) {
         ymap.set(el.id, new Y.Map(Object.entries(el)))
       }
     }
-    // Mark deleted elements
     ymap.forEach((_val: any, key: string) => {
       if (!seen.has(key)) {
         const entry = ymap.get(key)
@@ -111,11 +137,15 @@ function onYjsChange(events: any[], transaction: any) {
   if (transaction.origin === 'local') return
   if (!excalidrawApi) return
 
-  remoteUpdateGen++
   const elements = readElementsFromYjs()
+  remoteElementIds = new Set(elements.map((el) => el.id as string))
   excalidrawApi.updateScene({ elements })
 }
 
+// Capture the awareness instance at bind time so teardown removes the
+// listener from the correct instance, not from a replacement that the
+// Yjs provider may have swapped in.
+let boundAwareness: Awareness | null = null
 let awarenessHandler: (() => void) | null = null
 
 function onAwarenessChange() {
@@ -146,17 +176,19 @@ watch(
     if (oldAwareness && awarenessHandler) {
       toRaw(oldAwareness).off('change', awarenessHandler)
     }
+    boundAwareness = awareness ? toRaw(awareness) : null
     if (!awareness) return
     awarenessHandler = onAwarenessChange
-    toRaw(awareness).on('change', awarenessHandler)
+    boundAwareness!.on('change', awarenessHandler)
   },
   { immediate: true },
 )
 
 function teardown() {
-  if (awarenessHandler) {
-    toRaw(props.awareness).off('change', awarenessHandler)
+  if (awarenessHandler && boundAwareness) {
+    boundAwareness.off('change', awarenessHandler)
     awarenessHandler = null
+    boundAwareness = null
   }
   try { getElementsMap().unobserveDeep(onYjsChange) } catch { /* doc may have changed */ }
   excalidrawApi = null
@@ -189,6 +221,19 @@ defineExpose({ getExcalidrawApi })
 
 <template>
   <div
+    v-if="mountError"
+    class="canvas-renderer__error"
+  >
+    <span>{{ mountError }}</span>
+    <button
+      class="canvas-renderer__retry"
+      @click="mountExcalidraw()"
+    >
+      {{ t('canvas.retry', 'Retry') }}
+    </button>
+  </div>
+  <div
+    v-else
     ref="containerRef"
     class="canvas-renderer"
   />
@@ -204,5 +249,30 @@ defineExpose({ getExcalidrawApi })
 .canvas-renderer :deep(.excalidraw) {
   width: 100%;
   height: 100%;
+}
+
+.canvas-renderer__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.canvas-renderer__retry {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.canvas-renderer__retry:hover {
+  background: var(--color-surface-hover);
 }
 </style>

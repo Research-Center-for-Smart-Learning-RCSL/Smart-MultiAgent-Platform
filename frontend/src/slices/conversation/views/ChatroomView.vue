@@ -552,7 +552,7 @@ store.setActive(chatroomId)
 
 // Canvas split-pane state. Lazy-loaded: the Excalidraw chunk is fetched only
 // when the user opens the canvas (AC-8).
-const canvasSplit = useCanvasSplitPane(() => chatroomId)
+const canvasSplit = useCanvasSplitPane(() => chatroomId, chatroomRef)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
 

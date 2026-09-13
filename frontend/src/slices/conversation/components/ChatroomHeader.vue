@@ -80,6 +80,7 @@
         <ArrowDownTrayIcon class="w-5 h-5" />
       </SButton>
       <SButton
+        v-if="isDesktop"
         variant="ghost"
         icon-only
         size="sm"

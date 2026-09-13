@@ -1,10 +1,28 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type Plugin } from 'vitest/config'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+function copyExcalidrawAssets(): Plugin {
+  const src = resolve(__dirname, 'node_modules/@excalidraw/excalidraw/dist/prod')
+  const dest = resolve(__dirname, 'public/excalidraw-assets')
+  return {
+    name: 'copy-excalidraw-assets',
+    buildStart() {
+      if (!existsSync(dest)) {
+        mkdirSync(dest, { recursive: true })
+        for (const f of readdirSync(src)) {
+          if (f.endsWith('.woff2')) copyFileSync(resolve(src, f), resolve(dest, f))
+        }
+      }
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [tailwindcss(), vue()],
+  plugins: [tailwindcss(), vue(), copyExcalidrawAssets()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

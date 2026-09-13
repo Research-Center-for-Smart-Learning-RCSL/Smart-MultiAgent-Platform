@@ -37,6 +37,7 @@ const {
   objects,
   isLoading,
   error,
+  objectsReady,
   uploadImage,
   saveSnapshot,
   updateSettings,
@@ -78,7 +79,7 @@ const showHistory = ref(false)
 const pickerDismissed = ref(false)
 
 const showTemplatePicker = computed(
-  () => !pickerDismissed.value && !isLoading.value && !error.value && objects.value.length === 0,
+  () => !pickerDismissed.value && objectsReady.value && !error.value && objects.value.length === 0,
 )
 
 function onPickerDismissed() {
@@ -150,11 +151,6 @@ async function toggleExposeToAgents() {
       :is-exporting="isExporting"
       :is-moderator="isModerator"
       :chatroom-id="chatroomId"
-      @add-note="() => {}"
-      @add-text="() => {}"
-      @add-shape="() => {}"
-      @add-connector="() => {}"
-      @draw="() => {}"
       @upload-image="handleUploadImage"
       @save="handleSave"
       @toggle-fullscreen="emit('toggleFullscreen')"

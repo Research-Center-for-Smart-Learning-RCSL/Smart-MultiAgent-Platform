@@ -3,17 +3,12 @@ import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMutation } from '@tanstack/vue-query'
 import {
-  RectangleGroupIcon,
-  DocumentTextIcon,
   PhotoIcon,
-  PencilIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
   ArrowDownTrayIcon,
   CameraIcon,
   Cog6ToothIcon,
-  LinkIcon,
-  Square2StackIcon,
   ClockIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
@@ -36,11 +31,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  addNote: []
-  addText: []
-  addShape: []
-  addConnector: []
-  draw: []
   uploadImage: []
   save: [label?: string]
   toggleFullscreen: []
@@ -130,41 +120,6 @@ function handleTemplateKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="canvas-toolbar">
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.addNote')"
-      @click="emit('addNote')"
-    >
-      <Square2StackIcon class="canvas-toolbar__icon" />
-    </button>
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.addText')"
-      @click="emit('addText')"
-    >
-      <DocumentTextIcon class="canvas-toolbar__icon" />
-    </button>
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.addShape')"
-      @click="emit('addShape')"
-    >
-      <RectangleGroupIcon class="canvas-toolbar__icon" />
-    </button>
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.addConnector')"
-      @click="emit('addConnector')"
-    >
-      <LinkIcon class="canvas-toolbar__icon" />
-    </button>
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.draw')"
-      @click="emit('draw')"
-    >
-      <PencilIcon class="canvas-toolbar__icon" />
-    </button>
     <button
       class="canvas-toolbar__btn"
       :title="t('canvas.uploadImage')"
@@ -320,6 +275,8 @@ function handleTemplateKeydown(e: KeyboardEvent) {
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .canvas-toolbar__btn {

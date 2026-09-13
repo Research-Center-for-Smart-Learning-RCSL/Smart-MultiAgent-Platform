@@ -76,6 +76,7 @@ frontend/playwright/.cache/
 frontend/test-results*.txt
 frontend/*test-output*.txt
 frontend/e2e/.e2e-seed.json
+frontend/public/excalidraw-assets/
 vite.config.*.timestamp*
 
 # ==== Local databases / runtime data ====
