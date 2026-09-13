@@ -176,6 +176,13 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
 
     if chatroom_id is not None and result_status in ("validated", "error"):
         await _emit_validated(chatroom_id, sid, result_status)
+        from contexts.activities.interfaces.broadcast import dispatch_dashboard_submission_validated
+
+        type_key = activity_type.key if activity_type is not None else ""
+        is_valid = result_status == "validated"
+        await dispatch_dashboard_submission_validated(
+            chatroom_id, type_key=type_key, is_valid=is_valid
+        )
     await _emit_activity_signal(signal_payload)
     return result_status
 

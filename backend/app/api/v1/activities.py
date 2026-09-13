@@ -1408,6 +1408,14 @@ async def _dispatch_submission(
     # decides to move on from. Unconditional rather than gated on "did anything
     # change": the route cannot know without asking, and asking IS the read.
     await dispatch_room_activation_progress(ActivitiesFacade(db), chatroom_id)
+    if submission.validation_status.value != "pending":
+        from contexts.activities.interfaces.broadcast import dispatch_dashboard_submission_validated
+
+        atype = await ActivitiesFacade(db).get_type(submission.activity_type_id)
+        type_key = atype.key if atype is not None else ""
+        await dispatch_dashboard_submission_validated(
+            chatroom_id, type_key=type_key, is_valid=submission.is_valid
+        )
 
 
 __all__ = [

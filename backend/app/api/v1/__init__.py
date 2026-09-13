@@ -176,6 +176,9 @@ def _build_registry() -> list[RouterEntry]:
         user as ws_user,
     )
     from app.api.ws import (
+        project as ws_project,
+    )
+    from app.api.ws import (
         workflow_runs as ws_workflow_runs,
     )
     from app.config.settings import get_settings
@@ -278,6 +281,7 @@ def _build_registry() -> list[RouterEntry]:
         # Orchestration
         RouterEntry(orchestration_routes.router),
         # WebSockets
+        RouterEntry(ws_project.router),
         RouterEntry(ws_user.router),
         RouterEntry(ws_canvas.router),
         RouterEntry(ws_chatroom.router),

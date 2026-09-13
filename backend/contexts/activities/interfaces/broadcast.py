@@ -25,6 +25,7 @@ from contexts.activities.domain.models import (
     GroupProposalTally,
     ProposalStatus,
 )
+from contexts.activities.infrastructure.channels import project_channel
 from contexts.conversation.interfaces import room_channel
 from contexts.identity.interfaces import user_channel
 from shared_kernel.realtime.pubsub import Publisher
@@ -115,6 +116,7 @@ async def dispatch_activation_started(
         await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
+    await dispatch_dashboard_activation_changed(activation.chatroom_id, "active")
 
 
 async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
@@ -127,6 +129,7 @@ async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.
         )
     except Exception:
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
+    await dispatch_dashboard_activation_changed(chatroom_id, "ended")
 
 
 async def dispatch_activation_progress(facade: ActivitiesFacade, activation: ActivityActivation) -> None:
@@ -246,12 +249,67 @@ async def dispatch_group_proposal_expired(
         _log.error("realtime publish failed for expired proposal %s", proposal_id, exc_info=True)
 
 
+async def _resolve_project_id(chatroom_id: uuid.UUID) -> uuid.UUID | None:
+    """Best-effort project_id lookup for the project channel ([R33.03])."""
+    from shared_kernel.db.session import async_session
+
+    try:
+        async with async_session() as db:
+            from contexts.conversation.interfaces.facade import ConversationFacade
+
+            return await ConversationFacade(db).lock_live_chatroom_scope(chatroom_id)
+    except Exception:
+        _log.warning("project_id lookup failed for chatroom %s", chatroom_id, exc_info=True)
+        return None
+
+
+async def dispatch_dashboard_activation_changed(
+    chatroom_id: uuid.UUID, status: str
+) -> None:
+    """Tell the project channel that an activation changed ([R33.03])."""
+    pid = await _resolve_project_id(chatroom_id)
+    if pid is None:
+        return
+    try:
+        await Publisher(project_channel(pid)).emit(
+            "dashboard.activation.changed",
+            {"room_id": str(chatroom_id), "status": status},
+        )
+    except Exception:
+        _log.warning("dashboard activation emit failed for room %s", chatroom_id, exc_info=True)
+
+
+async def dispatch_dashboard_submission_validated(
+    chatroom_id: uuid.UUID,
+    *,
+    type_key: str,
+    is_valid: bool | None,
+) -> None:
+    """Tell the project channel that a submission was validated ([R33.03])."""
+    pid = await _resolve_project_id(chatroom_id)
+    if pid is None:
+        return
+    try:
+        await Publisher(project_channel(pid)).emit(
+            "dashboard.submission.validated",
+            {
+                "room_id": str(chatroom_id),
+                "type_key": type_key,
+                "is_valid": is_valid,
+            },
+        )
+    except Exception:
+        _log.warning("dashboard submission emit failed for room %s", chatroom_id, exc_info=True)
+
+
 __all__ = [
     "InitiatingAgent",
     "activity_type_public_payload",
     "dispatch_activation_ended",
     "dispatch_activation_progress",
     "dispatch_activation_started",
+    "dispatch_dashboard_activation_changed",
+    "dispatch_dashboard_submission_validated",
     "dispatch_group_proposal",
     "dispatch_group_proposal_expired",
     "dispatch_room_activation_progress",
