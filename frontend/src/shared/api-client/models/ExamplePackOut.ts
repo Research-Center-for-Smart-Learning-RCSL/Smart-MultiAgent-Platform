@@ -4,12 +4,12 @@
 /* eslint-disable */
 import type { ExamplePackAgentOut } from './ExamplePackAgentOut';
 export type ExamplePackOut = {
-    pack_key: string;
-    title: string;
-    source: string;
-    for_course: string;
-    group_name: string;
     agents: Array<ExamplePackAgentOut>;
+    for_course: string;
     fully_installed: boolean;
+    group_name: string;
+    pack_key: string;
+    source: string;
+    title: string;
 };
 

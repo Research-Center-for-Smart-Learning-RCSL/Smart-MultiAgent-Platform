@@ -5,16 +5,16 @@
 import type { AttachmentOut } from './AttachmentOut';
 import type { SenderType } from './SenderType';
 export type MessageOut = {
-    id: string;
-    chatroom_id: string;
-    sender_type: SenderType;
-    sender_id: (string | null);
-    content_md: string;
-    metadata: Record<string, any>;
-    version: number;
-    created_at: (string | null);
-    edited_at: (string | null);
-    deleted_at: (string | null);
     attachments?: Array<AttachmentOut>;
+    chatroom_id: string;
+    content_md: string;
+    created_at: (string | null);
+    deleted_at: (string | null);
+    edited_at: (string | null);
+    id: string;
+    metadata: Record<string, any>;
+    sender_id: (string | null);
+    sender_type: SenderType;
+    version: number;
 };
 

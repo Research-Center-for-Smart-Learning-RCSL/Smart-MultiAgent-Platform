@@ -155,7 +155,7 @@ async function toggleExposeToAgents() {
       </button>
 
       <label
-        class="canvas-panel__sr-only"
+        class="visually-hidden"
         :for="`canvas-image-upload-${chatroomId}`"
       >{{ t('canvas.uploadImage') }}</label>
       <input
@@ -373,15 +373,4 @@ async function toggleExposeToAgents() {
   font-size: var(--font-size-sm);
 }
 
-.canvas-panel__sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 </style>

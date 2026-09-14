@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type KnowmapConfigCreateIn = {
-    name: string;
     builder_key_group_id: string;
-    chunk_strategy?: 'fixed' | 'semantic';
     chunk_params?: Record<string, any>;
+    chunk_strategy?: 'fixed' | 'semantic';
+    name: string;
 };
 
