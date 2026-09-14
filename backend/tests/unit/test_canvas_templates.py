@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pycrdt
 import pytest
 
 from contexts.canvas.application.template_service import (
@@ -15,8 +16,6 @@ from contexts.canvas.application.template_service import (
     TooManyTemplateObjects,
 )
 from contexts.canvas.domain.models import (
-    CanvasObject,
-    CanvasObjectKind,
     CanvasTemplate,
     CanvasTemplateScope,
 )
@@ -56,25 +55,18 @@ def _valid_object(**overrides: object) -> dict:
     return base
 
 
-def _make_canvas_object(
-    *,
-    canvas_id: uuid.UUID | None = None,
-    kind: CanvasObjectKind = CanvasObjectKind.NOTE,
-    content: str | None = "hello",
-) -> CanvasObject:
-    return CanvasObject(
-        id=uuid.uuid4(),
-        canvas_id=canvas_id or uuid.uuid4(),
-        kind=kind,
-        position_x=10.0,
-        position_y=20.0,
-        width=160.0,
-        height=100.0,
-        z_index=1,
-        content=content,
-        created_at=_NOW,
-        updated_at=_NOW,
-    )
+def _valid_element(**overrides: object) -> dict:
+    base: dict = {
+        "id": str(uuid.uuid4()),
+        "type": "rectangle",
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 100,
+        "isDeleted": False,
+    }
+    base.update(overrides)
+    return base
 
 
 def _service() -> CanvasTemplateService:
@@ -161,6 +153,30 @@ class TestValidateTemplateData:
         with pytest.raises(TemplateDataTooLarge):
             svc._validate_template_data(data)
 
+    def test_accepts_valid_elements_format(self) -> None:
+        svc = _service()
+        svc._validate_template_data({"elements": [_valid_element()]})
+
+    def test_accepts_empty_elements(self) -> None:
+        svc = _service()
+        svc._validate_template_data({"elements": []})
+
+    def test_rejects_non_list_elements(self) -> None:
+        svc = _service()
+        with pytest.raises(ValueError, match="elements must be a list"):
+            svc._validate_template_data({"elements": "not a list"})
+
+    def test_rejects_too_many_elements(self) -> None:
+        svc = _service()
+        data = {"elements": [_valid_element() for _ in range(201)]}
+        with pytest.raises(TooManyTemplateObjects):
+            svc._validate_template_data(data)
+
+    def test_rejects_non_dict_element(self) -> None:
+        svc = _service()
+        with pytest.raises(ValueError, match="elements.*must be an object"):
+            svc._validate_template_data({"elements": ["not a dict"]})
+
 
 # ---- apply_template ---------------------------------------------------------
 
@@ -233,28 +249,70 @@ class TestApplyTemplate:
         assert creates[0]["z_index"] == 1
         assert creates[0]["style"] == {"bg": "red"}
 
+    @patch("contexts.canvas.application.template_service.audit")
+    async def test_apply_elements_template_uses_crdt_inject(
+        self, mock_audit: MagicMock
+    ) -> None:
+        mock_audit.emit = AsyncMock()
+        svc = _service()
+        elements = [_valid_element(), _valid_element()]
+        template = _make_template(template_data={"elements": elements})
+
+        svc._template_repo = MagicMock()
+        svc._template_repo.get = AsyncMock(return_value=template)
+        svc._canvas_repo = MagicMock()
+        svc._canvas_repo.get_crdt_state = AsyncMock(return_value=None)
+        svc._canvas_repo.update_crdt_state = AsyncMock()
+
+        mock_relay = MagicMock()
+        mock_relay.inject_elements = AsyncMock(return_value=b"\x00\x01")
+
+        canvas_id = uuid.uuid4()
+        chatroom_id = uuid.uuid4()
+
+        with (
+            patch(
+                "contexts.canvas.application.crdt_relay.get_crdt_relay",
+                return_value=mock_relay,
+            ),
+            patch(
+                "shared_kernel.realtime.pubsub.Publisher.emit",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await svc.apply_template(
+                canvas_id=canvas_id,
+                chatroom_id=chatroom_id,
+                template_id=template.id,
+            )
+
+        assert result == {"created": [], "updated": [], "deleted": 0}
+        mock_relay.inject_elements.assert_awaited_once()
+        call_args = mock_relay.inject_elements.call_args
+        assert call_args[0][0] == canvas_id
+        assert call_args[0][1] == elements
+        assert call_args[1]["replace"] is True
+
 
 # ---- create_from_canvas -----------------------------------------------------
 
 
 class TestCreateFromCanvas:
     @patch("contexts.canvas.application.template_service.audit")
-    async def test_builds_template_from_canvas_objects(self, mock_audit: MagicMock) -> None:
+    async def test_reads_elements_from_crdt_relay(self, mock_audit: MagicMock) -> None:
         mock_audit.emit = AsyncMock()
         svc = _service()
         canvas_id = uuid.uuid4()
         project_id = uuid.uuid4()
         user_id = uuid.uuid4()
 
-        obj1 = _make_canvas_object(canvas_id=canvas_id, content="Note A")
-        obj2 = _make_canvas_object(
-            canvas_id=canvas_id,
-            kind=CanvasObjectKind.TEXT,
-            content="Text B",
-        )
+        crdt_elements = [
+            {"id": "e1", "type": "rectangle", "x": 10, "y": 20, "width": 100, "height": 80},
+            {"id": "e2", "type": "text", "x": 0, "y": 0, "text": "hello"},
+        ]
 
-        svc._canvas_repo = MagicMock()
-        svc._canvas_repo.list_objects = AsyncMock(return_value=[obj1, obj2])
+        mock_relay = MagicMock()
+        mock_relay.extract_elements_for_digest = MagicMock(return_value=crdt_elements)
 
         created_template = _make_template(
             scope=CanvasTemplateScope.PROJECT,
@@ -263,13 +321,17 @@ class TestCreateFromCanvas:
         svc._template_repo = MagicMock()
         svc._template_repo.create = AsyncMock(return_value=created_template)
 
-        result = await svc.create_from_canvas(
-            canvas_id=canvas_id,
-            project_id=project_id,
-            name="From Canvas",
-            description="Saved",
-            actor_user_id=user_id,
-        )
+        with patch(
+            "contexts.canvas.application.crdt_relay.get_crdt_relay",
+            return_value=mock_relay,
+        ):
+            result = await svc.create_from_canvas(
+                canvas_id=canvas_id,
+                project_id=project_id,
+                name="From Canvas",
+                description="Saved",
+                actor_user_id=user_id,
+            )
 
         assert result == created_template
 
@@ -279,10 +341,87 @@ class TestCreateFromCanvas:
         assert values["project_id"] == project_id
         assert values["name"] == "From Canvas"
 
-        objects = values["template_data"]["objects"]
-        assert len(objects) == 2
-        assert objects[0]["kind"] == "note"
-        assert objects[0]["content"] == "Note A"
-        assert objects[0]["position_x"] == 10.0
-        assert objects[1]["kind"] == "text"
-        assert objects[1]["content"] == "Text B"
+        assert "elements" in values["template_data"]
+        assert "objects" not in values["template_data"]
+        elements = values["template_data"]["elements"]
+        assert len(elements) == 2
+        assert elements[0]["id"] == "e1"
+        assert elements[1]["type"] == "text"
+
+    @patch("contexts.canvas.application.template_service.audit")
+    async def test_falls_back_to_crdt_state_from_db(self, mock_audit: MagicMock) -> None:
+        mock_audit.emit = AsyncMock()
+        svc = _service()
+        canvas_id = uuid.uuid4()
+        project_id = uuid.uuid4()
+
+        # Build persisted CRDT state with elements
+        doc: pycrdt.Doc = pycrdt.Doc()
+        elems_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+        elems_map["e1"] = pycrdt.Map({"id": "e1", "type": "rectangle", "x": 5, "isDeleted": False})
+        elems_map["e2"] = pycrdt.Map({"id": "e2", "type": "text", "isDeleted": True})
+        crdt_state = doc.get_update()
+
+        mock_relay = MagicMock()
+        mock_relay.extract_elements_for_digest = MagicMock(return_value=None)
+
+        svc._canvas_repo = MagicMock()
+        svc._canvas_repo.get_crdt_state = AsyncMock(return_value=crdt_state)
+
+        created_template = _make_template(
+            scope=CanvasTemplateScope.PROJECT,
+            project_id=project_id,
+        )
+        svc._template_repo = MagicMock()
+        svc._template_repo.create = AsyncMock(return_value=created_template)
+
+        with patch(
+            "contexts.canvas.application.crdt_relay.get_crdt_relay",
+            return_value=mock_relay,
+        ):
+            await svc.create_from_canvas(
+                canvas_id=canvas_id,
+                project_id=project_id,
+                name="Fallback",
+                description=None,
+            )
+
+        call_kwargs = svc._template_repo.create.await_args.kwargs
+        elements = call_kwargs["values"]["template_data"]["elements"]
+        assert len(elements) == 1
+        assert elements[0]["id"] == "e1"
+
+    @patch("contexts.canvas.application.template_service.audit")
+    async def test_empty_when_no_crdt_state(self, mock_audit: MagicMock) -> None:
+        mock_audit.emit = AsyncMock()
+        svc = _service()
+        canvas_id = uuid.uuid4()
+        project_id = uuid.uuid4()
+
+        mock_relay = MagicMock()
+        mock_relay.extract_elements_for_digest = MagicMock(return_value=None)
+
+        svc._canvas_repo = MagicMock()
+        svc._canvas_repo.get_crdt_state = AsyncMock(return_value=None)
+
+        created_template = _make_template(
+            scope=CanvasTemplateScope.PROJECT,
+            project_id=project_id,
+        )
+        svc._template_repo = MagicMock()
+        svc._template_repo.create = AsyncMock(return_value=created_template)
+
+        with patch(
+            "contexts.canvas.application.crdt_relay.get_crdt_relay",
+            return_value=mock_relay,
+        ):
+            await svc.create_from_canvas(
+                canvas_id=canvas_id,
+                project_id=project_id,
+                name="Empty",
+                description=None,
+            )
+
+        call_kwargs = svc._template_repo.create.await_args.kwargs
+        elements = call_kwargs["values"]["template_data"]["elements"]
+        assert elements == []
