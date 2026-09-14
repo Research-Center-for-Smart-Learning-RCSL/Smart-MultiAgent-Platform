@@ -34,8 +34,8 @@ vi.mock('../composables/useDashboardWatchlist', () => ({
   }),
 }))
 
-vi.mock('../composables/useProjectSocket', () => ({
-  useProjectSocket: () => ({ connected: { value: false } }),
+vi.mock('../composables/useDashboardSocket', () => ({
+  useDashboardSocket: () => ({ connected: { value: false } }),
 }))
 
 vi.mock('../components/OutputChart.vue', () => ({

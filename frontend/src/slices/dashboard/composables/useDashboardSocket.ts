@@ -1,24 +1,31 @@
-import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useQueryClient } from '@tanstack/vue-query'
+import { ref, watch, computed, onMounted, onBeforeUnmount, type Ref } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
-import { useWorkspaceStore } from '@shared/stores/workspace'
+import { WorkspacesService } from '@shared/api-client'
 import { dashboardKeys } from '../queries'
-import { useDashboardSummary } from './useDashboardSummary'
 
-export function useProjectSocket(workspaceId: () => string) {
+export function useDashboardSocket(
+  workspaceId: () => string,
+  roomIds: Ref<Set<string>>,
+) {
   const queryClient = useQueryClient()
-  const workspace = useWorkspaceStore()
   const connected = ref(false)
   let currentPath: string | null = null
   let unsubEvent: (() => void) | null = null
   let unsubStatus: (() => void) | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-  const { data: summary } = useDashboardSummary(workspaceId)
-  const roomIds = computed<Set<string>>(() => {
-    const rooms = summary.value?.rooms ?? []
-    return new Set(rooms.map((r) => String(r.room_id)))
+  const { data: workspace } = useQuery({
+    queryKey: computed(() => ['workspace', 'detail', workspaceId()] as const),
+    queryFn: () =>
+      WorkspacesService.readWorkspaceApiWorkspacesWorkspaceIdGet({
+        workspaceId: workspaceId(),
+      }),
+    enabled: computed(() => !!workspaceId()),
+    staleTime: Infinity,
   })
+
+  const projectId = computed(() => workspace.value?.project_id ?? '')
 
   function invalidateDebounced() {
     if (debounceTimer) clearTimeout(debounceTimer)
@@ -64,8 +71,6 @@ export function useProjectSocket(workspaceId: () => string) {
 
     channel.connect()
   }
-
-  const projectId = computed(() => workspace.projectId ?? '')
 
   watch(projectId, (pid) => setup(pid), { immediate: true })
 

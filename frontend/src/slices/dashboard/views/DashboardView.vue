@@ -11,7 +11,7 @@ import { useDashboardSummary } from '../composables/useDashboardSummary'
 import { useDashboardTimeseries } from '../composables/useDashboardTimeseries'
 import { useDashboardWatchlist } from '../composables/useDashboardWatchlist'
 import type { TimeWindow, BucketSize } from '@shared/api-client'
-import { useProjectSocket } from '../composables/useProjectSocket'
+import { useDashboardSocket } from '../composables/useDashboardSocket'
 import RoomStatusCard from '../components/RoomStatusCard.vue'
 import OutputChart from '../components/OutputChart.vue'
 import StudentWatchlist from '../components/StudentWatchlist.vue'
@@ -44,9 +44,10 @@ const {
   isLoading: wlLoading,
 } = useDashboardWatchlist(wid)
 
-useProjectSocket(wid)
-
 const rooms = computed(() => summary.value?.rooms ?? [])
+const roomIds = computed(() => new Set(rooms.value.map((r) => String(r.room_id))))
+
+useDashboardSocket(wid, roomIds)
 const buckets = computed(() => timeseries.value?.buckets ?? [])
 const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
 </script>
