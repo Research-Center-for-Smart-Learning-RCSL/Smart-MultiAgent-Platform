@@ -1,6 +1,7 @@
 import { watch, onUnmounted, type Ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { wsManager } from '@shared/transport/ws-manager'
+import { http } from '@shared/transport'
 import { canvasKeys } from '../queries'
 
 /**
@@ -46,9 +47,9 @@ export function useCanvasSocket(chatroomId: Ref<string>, getExcalidrawApi?: () =
         const url = data.url as string
         const mimeType = (data.mimeType as string) || 'image/png'
 
-        fetch(url)
-          .then((res) => res.blob())
-          .then((blob) => {
+        http
+          .get<Blob>(url, { responseType: 'blob' })
+          .then(({ data: blob }) => {
             const reader = new FileReader()
             reader.onload = () => {
               api.addFiles([

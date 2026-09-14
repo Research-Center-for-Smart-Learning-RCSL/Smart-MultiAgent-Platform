@@ -154,7 +154,12 @@ async function toggleExposeToAgents() {
         <XMarkIcon class="canvas-panel__close-icon" />
       </button>
 
+      <label
+        class="canvas-panel__sr-only"
+        :for="`canvas-image-upload-${chatroomId}`"
+      >{{ t('canvas.uploadImage') }}</label>
       <input
+        :id="`canvas-image-upload-${chatroomId}`"
         ref="imageInputRef"
         type="file"
         accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
@@ -366,5 +371,17 @@ async function toggleExposeToAgents() {
 .canvas-panel__error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
+}
+
+.canvas-panel__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
