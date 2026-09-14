@@ -5,18 +5,18 @@ import type { TimeWindow, BucketSize } from '@shared/api-client'
 import { dashboardKeys } from '../queries'
 
 export function useDashboardTimeseries(
-  projectId: () => string,
+  workspaceId: () => string,
   window: () => TimeWindow,
   bucket: () => BucketSize,
 ) {
   return useQuery({
-    queryKey: computed(() => dashboardKeys.timeseries(projectId(), window(), bucket())),
+    queryKey: computed(() => dashboardKeys.timeseries(workspaceId(), window(), bucket())),
     queryFn: () =>
-      DashboardService.dashboardTimeseriesApiV1ProjectsProjectIdDashboardTimeseriesGet({
-        projectId: projectId(),
+      DashboardService.dashboardTimeseriesApiV1WorkspacesWorkspaceIdDashboardTimeseriesGet({
+        workspaceId: workspaceId(),
         window: window(),
         bucket: bucket(),
       }),
-    enabled: computed(() => !!projectId()),
+    enabled: computed(() => !!workspaceId()),
   })
 }

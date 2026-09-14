@@ -21,30 +21,30 @@ import TimeWindowSelector from '../components/TimeWindowSelector.vue'
 const { t } = useI18n()
 const route = useRoute()
 
-const projectId = computed(() => String(route.params.projectId ?? ''))
+const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
 const timeWindow = ref<TimeWindow>('1h')
 const bucketSize = ref<BucketSize>('5m')
 
-const pid = () => projectId.value
+const wid = () => workspaceId.value
 const {
   data: summary,
   isLoading: summaryLoading,
   error: summaryError,
-} = useDashboardSummary(pid)
+} = useDashboardSummary(wid)
 const {
   data: timeseries,
   isLoading: tsLoading,
 } = useDashboardTimeseries(
-  pid,
+  wid,
   () => timeWindow.value,
   () => bucketSize.value,
 )
 const {
   data: watchlist,
   isLoading: wlLoading,
-} = useDashboardWatchlist(pid)
+} = useDashboardWatchlist(wid)
 
-useProjectSocket(pid)
+useProjectSocket(wid)
 
 const rooms = computed(() => summary.value?.rooms ?? [])
 const buckets = computed(() => timeseries.value?.buckets ?? [])

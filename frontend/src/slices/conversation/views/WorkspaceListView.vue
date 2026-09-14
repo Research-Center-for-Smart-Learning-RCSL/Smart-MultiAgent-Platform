@@ -10,6 +10,7 @@ import {
   TrashIcon,
   EllipsisVerticalIcon,
   Cog6ToothIcon,
+  ChartBarIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -129,6 +130,7 @@ const deleteMutation = useMutation({
 const { isAuthorized: canOpenWorkflows } = useProjectRole(projectId)
 
 const actionItems = computed(() => [
+  { key: 'dashboard', label: t('conversation.workspace.actions.dashboard'), icon: ChartBarIcon },
   ...(canOpenWorkflows.value
     ? [{ key: 'workflows', label: t('conversation.workspaces.workflows'), icon: ShareIcon }]
     : []),
@@ -137,6 +139,10 @@ const actionItems = computed(() => [
 ])
 
 async function onAction(key: string, ws: Workspace): Promise<void> {
+  if (key === 'dashboard') {
+    router.push({ name: 'dashboard', params: { workspaceId: ws.id } })
+    return
+  }
   if (key === 'workflows') {
     router.push({ name: 'workflow.list', params: { workspaceId: ws.id } })
     return

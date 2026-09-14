@@ -3,13 +3,13 @@ import { useQuery } from '@tanstack/vue-query'
 import { DashboardService } from '@shared/api-client'
 import { dashboardKeys } from '../queries'
 
-export function useDashboardSummary(projectId: () => string) {
+export function useDashboardSummary(workspaceId: () => string) {
   return useQuery({
-    queryKey: computed(() => dashboardKeys.summary(projectId())),
+    queryKey: computed(() => dashboardKeys.summary(workspaceId())),
     queryFn: () =>
-      DashboardService.dashboardSummaryApiV1ProjectsProjectIdDashboardSummaryGet({
-        projectId: projectId(),
+      DashboardService.dashboardSummaryApiV1WorkspacesWorkspaceIdDashboardSummaryGet({
+        workspaceId: workspaceId(),
       }),
-    enabled: computed(() => !!projectId()),
+    enabled: computed(() => !!workspaceId()),
   })
 }

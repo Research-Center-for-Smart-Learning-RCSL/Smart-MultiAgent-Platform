@@ -1,5 +1,10 @@
 {
   "conversation": {
+    "workspace": {
+      "actions": {
+        "dashboard": "Dashboard"
+      }
+    },
     "workspaces": {
       "title": "Workspaces",
       "create": "Create Workspace",
