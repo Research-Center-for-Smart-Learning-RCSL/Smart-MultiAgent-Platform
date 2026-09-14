@@ -1,12 +1,13 @@
 import { watch, onUnmounted, type Ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
+import { wsManager } from '@shared/transport/ws-manager'
 import { canvasKeys } from '../queries'
 
 /**
- * Subscribe to canvas-related events on the chatroom's room WebSocket channel.
- * Object CRUD events are handled by CRDT sync (Phase 2); this composable
- * retains settings, snapshot, and comment events on the room channel.
+ * Subscribe to canvas settings changes on the chatroom's room WebSocket
+ * channel. Object CRUD is handled by CRDT sync via Yjs; this composable
+ * only retains the settings event so the expose_to_agents checkbox stays
+ * in sync across tabs.
  */
 export function useCanvasSocket(chatroomId: Ref<string>) {
   const queryClient = useQueryClient()
@@ -17,41 +18,6 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     if (!roomId) return
 
     const channel = wsManager.channel(`/chatroom/${roomId}`)
-
-    const commentEvents = [
-      'canvas.comment_created',
-      'canvas.comment_updated',
-      'canvas.comment_deleted',
-    ]
-
-    for (const eventType of commentEvents) {
-      unsubs.push(
-        channel.subscribe(eventType, (event: ChannelEvent) => {
-          queryClient.invalidateQueries({
-            queryKey: canvasKeys.commentCounts(chatroomId.value),
-          })
-          const objectId = event.object_id as string | undefined
-          if (objectId) {
-            queryClient.invalidateQueries({
-              queryKey: canvasKeys.comments(chatroomId.value, objectId),
-            })
-          }
-        }),
-      )
-    }
-
-    unsubs.push(
-      channel.subscribe('canvas.snapshot_created', () => {
-        queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
-      }),
-    )
-
-    unsubs.push(
-      channel.subscribe('canvas.snapshot_restored', () => {
-        queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
-        queryClient.invalidateQueries({ queryKey: canvasKeys.objects(chatroomId.value) })
-      }),
-    )
 
     unsubs.push(
       channel.subscribe('canvas.settings_updated', () => {

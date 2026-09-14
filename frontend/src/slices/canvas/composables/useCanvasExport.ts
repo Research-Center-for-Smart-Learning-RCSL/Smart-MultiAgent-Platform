@@ -68,6 +68,9 @@ export function useCanvasExport(
       })
 
       triggerDownload(blob, buildFilename(chatroomName.value, 'png'))
+    } catch (err) {
+      console.error('PNG export failed:', err)
+      toast.error(t('canvas.exportFailed', 'Export failed'))
     } finally {
       isExporting.value = false
     }
@@ -93,6 +96,9 @@ export function useCanvasExport(
       const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
 
       triggerDownload(blob, buildFilename(chatroomName.value, 'svg'))
+    } catch (err) {
+      console.error('SVG export failed:', err)
+      toast.error(t('canvas.exportFailed', 'Export failed'))
     } finally {
       isExporting.value = false
     }

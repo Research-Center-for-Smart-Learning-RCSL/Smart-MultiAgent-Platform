@@ -7,6 +7,7 @@ import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
+import { useToast } from '@shared/composables/useToast'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 
 const CanvasRenderer = defineAsyncComponent(() => import('./CanvasRenderer.vue'))
@@ -16,9 +17,7 @@ const { t } = useI18n()
 const props = defineProps<{
   chatroomId: string
   chatroomName: string
-  projectId: string
   isFullscreen: boolean
-  isModerator: boolean
 }>()
 
 const emit = defineEmits<{
@@ -52,10 +51,16 @@ function getExcalidrawApi() {
 const chatroomNameRef = toRef(props, 'chatroomName')
 const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
 
+const toast = useToast()
 const showSettings = ref(false)
 
 async function handleSave(label?: string) {
-  await saveSnapshot(label ? { label } : undefined)
+  try {
+    await saveSnapshot(label ? { label } : undefined)
+    toast.success(t('canvas.snapshotSaved'))
+  } catch {
+    toast.error(t('canvas.snapshotFailed'))
+  }
 }
 
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
