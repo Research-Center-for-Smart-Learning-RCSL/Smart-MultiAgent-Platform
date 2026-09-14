@@ -629,13 +629,16 @@ async def upload_image(
     }
 
     state = await relay.inject_elements(
-        canvas.id, [image_element], crdt_state=crdt_state,
+        canvas.id,
+        [image_element],
+        crdt_state=crdt_state,
     )
     await repo.update_crdt_state(canvas.id, state)
 
     update_b64 = base64.b64encode(state).decode("ascii")
     await Publisher(canvas_channel(canvas.id)).emit(
-        "yjs-update", {"update": update_b64},
+        "yjs-update",
+        {"update": update_b64},
     )
 
     image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)

@@ -172,7 +172,9 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         repo = CanvasRepository(db)
         crdt_state = await repo.get_crdt_state(ctx.canvas_id)
         state = await relay.inject_elements(
-            ctx.canvas_id, [element], crdt_state=crdt_state,
+            ctx.canvas_id,
+            [element],
+            crdt_state=crdt_state,
         )
         await repo.update_crdt_state(ctx.canvas_id, state)
 
@@ -180,7 +182,8 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
 
         update_b64 = base64.b64encode(state).decode("ascii")
         await Publisher(canvas_channel(ctx.canvas_id)).emit(
-            "yjs-update", {"update": update_b64},
+            "yjs-update",
+            {"update": update_b64},
         )
 
         await audit.emit(
@@ -271,7 +274,10 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         crdt_state = await repo.get_crdt_state(ctx.canvas_id)
         try:
             state = await relay.update_element(
-                ctx.canvas_id, raw_id, crdt_fields, crdt_state=crdt_state,
+                ctx.canvas_id,
+                raw_id,
+                crdt_fields,
+                crdt_state=crdt_state,
             )
         except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)
@@ -279,7 +285,8 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
 
         update_b64 = base64.b64encode(state).decode("ascii")
         await Publisher(canvas_channel(ctx.canvas_id)).emit(
-            "yjs-update", {"update": update_b64},
+            "yjs-update",
+            {"update": update_b64},
         )
 
         await audit.emit(
@@ -339,7 +346,9 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         crdt_state = await repo.get_crdt_state(ctx.canvas_id)
         try:
             state = await relay.delete_element(
-                ctx.canvas_id, raw_id, crdt_state=crdt_state,
+                ctx.canvas_id,
+                raw_id,
+                crdt_state=crdt_state,
             )
         except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)
@@ -347,7 +356,8 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
 
         update_b64 = base64.b64encode(state).decode("ascii")
         await Publisher(canvas_channel(ctx.canvas_id)).emit(
-            "yjs-update", {"update": update_b64},
+            "yjs-update",
+            {"update": update_b64},
         )
 
         await audit.emit(
