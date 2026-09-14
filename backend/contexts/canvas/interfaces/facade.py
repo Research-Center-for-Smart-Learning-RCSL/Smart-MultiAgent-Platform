@@ -360,19 +360,23 @@ class CanvasFacade:
             pending.append((channel, payload))
             if "_crdt_broadcast_hooked" not in self._db.info:
                 self._db.info["_crdt_broadcast_hooked"] = True
+                try:
 
-                @event.listens_for(self._db.sync_session, "after_commit")
-                def _drain_crdt_broadcasts(session: Any) -> None:
-                    broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
-                    if not broadcasts:
-                        return
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        return
-                    for ch, data in broadcasts:
-                        task = loop.create_task(_best_effort_emit(ch, data))
-                        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                    @event.listens_for(self._db.sync_session, "after_commit")
+                    def _drain_crdt_broadcasts(session: Any) -> None:
+                        broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
+                        if not broadcasts:
+                            return
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            return
+                        for ch, data in broadcasts:
+                            task = loop.create_task(_best_effort_emit(ch, data))
+                            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+                except Exception:
+                    _log.debug("could not attach after_commit hook", exc_info=True)
         else:
             await Publisher(channel).emit("yjs-update", payload)
 
