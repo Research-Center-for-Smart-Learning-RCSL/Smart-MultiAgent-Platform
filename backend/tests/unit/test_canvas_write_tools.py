@@ -45,32 +45,22 @@ def _context(*, agent_id: uuid.UUID | None = None) -> CanvasWriteContext:
 
 
 def _crdt_patches():
-    """Context managers for the CRDT relay + repository + publisher mocks."""
-    mock_relay = MagicMock()
-    mock_relay.inject_elements = AsyncMock(return_value=b"\x00\x01")
-    mock_relay.update_element = AsyncMock(return_value=b"\x00\x01")
-    mock_relay.delete_element = AsyncMock(return_value=b"\x00\x01")
+    """Context managers for the facade CRDT methods + publisher mocks."""
+    mock_facade_cls = MagicMock()
+    mock_facade = MagicMock()
+    mock_facade.crdt_inject_elements = AsyncMock(return_value=(b"\x00\x01", b"\x02"))
+    mock_facade.crdt_update_element = AsyncMock(return_value=(b"\x00\x01", b"\x02"))
+    mock_facade.crdt_delete_element = AsyncMock(return_value=(b"\x00\x01", b"\x02"))
+    mock_facade.persist_and_broadcast_crdt = AsyncMock()
+    mock_facade_cls.return_value = mock_facade
 
     return (
         patch(
-            "contexts.canvas.application.crdt_relay.get_crdt_relay",
-            return_value=mock_relay,
-        ),
-        patch(
-            "contexts.canvas.infrastructure.repositories.CanvasRepository.get_crdt_state",
-            new_callable=AsyncMock,
-            return_value=None,
-        ),
-        patch(
-            "contexts.canvas.infrastructure.repositories.CanvasRepository.update_crdt_state",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "shared_kernel.realtime.pubsub.Publisher.emit",
-            new_callable=AsyncMock,
+            "contexts.canvas.interfaces.facade.CanvasFacade",
+            mock_facade_cls,
         ),
         patch("shared_kernel.audit.emit", new_callable=AsyncMock),
-        mock_relay,
+        mock_facade,
     )
 
 
@@ -110,8 +100,8 @@ class TestCanvasCreateTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         create_tool = tools[0]
 
-        p_relay, p_get, p_update, p_pub, p_audit, mock_relay = _crdt_patches()
-        with p_relay, p_get, p_update, p_pub, p_audit:
+        p_facade, p_audit, mock_facade = _crdt_patches()
+        with p_facade, p_audit:
             result = await create_tool.invoke(
                 {
                     "kind": "note",
@@ -123,8 +113,8 @@ class TestCanvasCreateTool:
                 }
             )
         assert not result.is_error
-        mock_relay.inject_elements.assert_awaited_once()
-        call_args = mock_relay.inject_elements.call_args
+        mock_facade.crdt_inject_elements.assert_awaited_once()
+        call_args = mock_facade.crdt_inject_elements.call_args
         elements = call_args[0][1]
         assert len(elements) == 1
         elem = elements[0]
@@ -135,6 +125,10 @@ class TestCanvasCreateTool:
         assert elem["height"] == 50.0
         assert elem["text"] == "Hello from agent"
         assert elem["isDeleted"] is False
+        assert elem["customData"]["createdByAgentId"] == str(ctx.agent_id)
+        mock_facade.persist_and_broadcast_crdt.assert_awaited_once()
+        persist_kwargs = mock_facade.persist_and_broadcast_crdt.call_args[1]
+        assert persist_kwargs["deferred"] is True
 
     @pytest.mark.asyncio
     async def test_create_text_element_has_font_props(self) -> None:
@@ -144,8 +138,8 @@ class TestCanvasCreateTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         create_tool = tools[0]
 
-        p_relay, p_get, p_update, p_pub, p_audit, mock_relay = _crdt_patches()
-        with p_relay, p_get, p_update, p_pub, p_audit:
+        p_facade, p_audit, mock_facade = _crdt_patches()
+        with p_facade, p_audit:
             result = await create_tool.invoke(
                 {
                     "kind": "text",
@@ -157,7 +151,7 @@ class TestCanvasCreateTool:
                 }
             )
         assert not result.is_error
-        elem = mock_relay.inject_elements.call_args[0][1][0]
+        elem = mock_facade.crdt_inject_elements.call_args[0][1][0]
         assert elem["type"] == "text"
         assert elem["fontSize"] == 20
         assert elem["fontFamily"] == 1
@@ -211,8 +205,8 @@ class TestCanvasUpdateTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         update_tool = tools[1]
 
-        p_relay, p_get, p_update, p_pub, p_audit, mock_relay = _crdt_patches()
-        with p_relay, p_get, p_update, p_pub, p_audit:
+        p_facade, p_audit, mock_facade = _crdt_patches()
+        with p_facade, p_audit:
             result = await update_tool.invoke(
                 {
                     "object_id": str(uuid.uuid4()),
@@ -220,8 +214,8 @@ class TestCanvasUpdateTool:
                 }
             )
         assert not result.is_error
-        mock_relay.update_element.assert_awaited_once()
-        call_args = mock_relay.update_element.call_args
+        mock_facade.crdt_update_element.assert_awaited_once()
+        call_args = mock_facade.crdt_update_element.call_args
         crdt_fields = call_args[0][2]
         assert crdt_fields["text"] == "Updated content"
 
@@ -233,8 +227,8 @@ class TestCanvasUpdateTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         update_tool = tools[1]
 
-        p_relay, p_get, p_update, p_pub, p_audit, mock_relay = _crdt_patches()
-        with p_relay, p_get, p_update, p_pub, p_audit:
+        p_facade, p_audit, mock_facade = _crdt_patches()
+        with p_facade, p_audit:
             result = await update_tool.invoke(
                 {
                     "object_id": str(uuid.uuid4()),
@@ -243,7 +237,7 @@ class TestCanvasUpdateTool:
                 }
             )
         assert not result.is_error
-        crdt_fields = mock_relay.update_element.call_args[0][2]
+        crdt_fields = mock_facade.crdt_update_element.call_args[0][2]
         assert crdt_fields == {"x": 50.0, "y": 75.0}
 
     @pytest.mark.asyncio
@@ -278,19 +272,11 @@ class TestCanvasUpdateTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         update_tool = tools[1]
 
-        mock_relay = MagicMock()
-        mock_relay.update_element = AsyncMock(side_effect=CrdtUpdateError("not found"))
-        with (
-            patch(
-                "contexts.canvas.application.crdt_relay.get_crdt_relay",
-                return_value=mock_relay,
-            ),
-            patch(
-                "contexts.canvas.infrastructure.repositories.CanvasRepository.get_crdt_state",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
-        ):
+        mock_facade_cls = MagicMock()
+        mock_facade = MagicMock()
+        mock_facade.crdt_update_element = AsyncMock(side_effect=CrdtUpdateError("not found"))
+        mock_facade_cls.return_value = mock_facade
+        with patch("contexts.canvas.interfaces.facade.CanvasFacade", mock_facade_cls):
             result = await update_tool.invoke(
                 {
                     "object_id": str(uuid.uuid4()),
@@ -310,11 +296,13 @@ class TestCanvasDeleteTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         delete_tool = tools[2]
 
-        p_relay, p_get, p_update, p_pub, p_audit, mock_relay = _crdt_patches()
-        with p_relay, p_get, p_update, p_pub, p_audit:
+        p_facade, p_audit, mock_facade = _crdt_patches()
+        with p_facade, p_audit:
             result = await delete_tool.invoke({"object_id": str(uuid.uuid4())})
         assert not result.is_error
-        mock_relay.delete_element.assert_awaited_once()
+        mock_facade.crdt_delete_element.assert_awaited_once()
+        mock_facade.persist_and_broadcast_crdt.assert_awaited_once()
+        assert mock_facade.persist_and_broadcast_crdt.call_args[1]["deferred"] is True
 
     @pytest.mark.asyncio
     async def test_delete_not_found(self) -> None:
@@ -326,19 +314,11 @@ class TestCanvasDeleteTool:
         tools = build_canvas_write_tools(db, agent=agent, context=ctx)
         delete_tool = tools[2]
 
-        mock_relay = MagicMock()
-        mock_relay.delete_element = AsyncMock(side_effect=CrdtUpdateError("not found"))
-        with (
-            patch(
-                "contexts.canvas.application.crdt_relay.get_crdt_relay",
-                return_value=mock_relay,
-            ),
-            patch(
-                "contexts.canvas.infrastructure.repositories.CanvasRepository.get_crdt_state",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
-        ):
+        mock_facade_cls = MagicMock()
+        mock_facade = MagicMock()
+        mock_facade.crdt_delete_element = AsyncMock(side_effect=CrdtUpdateError("not found"))
+        mock_facade_cls.return_value = mock_facade
+        with patch("contexts.canvas.interfaces.facade.CanvasFacade", mock_facade_cls):
             result = await delete_tool.invoke({"object_id": str(uuid.uuid4())})
         assert result.is_error
         assert "not found" in result.content.lower()
