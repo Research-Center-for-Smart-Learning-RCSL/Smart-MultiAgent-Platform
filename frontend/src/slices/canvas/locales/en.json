@@ -36,6 +36,7 @@
     "restored": "Snapshot restored",
     "uploadImage": "Upload Image",
     "uploadImageFailed": "Failed to upload image",
-    "imageUploading": "Uploading image..."
+    "imageUploading": "Uploading image...",
+    "agentCreated": "Created by agent"
   }
 }

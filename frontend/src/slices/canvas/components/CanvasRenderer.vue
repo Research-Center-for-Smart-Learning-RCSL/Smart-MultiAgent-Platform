@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- React-in-Vue bridge has inherently weak typing */
 import { ref, onMounted, onUnmounted, watch, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { CpuChipIcon } from '@heroicons/vue/20/solid'
 import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 
@@ -14,6 +15,7 @@ const { t } = useI18n()
 
 const containerRef = ref<HTMLDivElement>()
 const mountError = ref<string | null>(null)
+const selectedAgentCreated = ref(false)
 let excalidrawApi: any = null
 let reactRoot: any = null
 
@@ -71,11 +73,15 @@ async function mountExcalidraw() {
       excalidrawAPI: (api: any) => {
         excalidrawApi = api
       },
-      onChange: (elements: readonly any[]) => {
+      onChange: (elements: readonly any[], appState: any) => {
+        const selectedIds = appState?.selectedElementIds ?? {}
+        selectedAgentCreated.value = elements.some(
+          (el) => selectedIds[el.id] && el.customData?.createdByAgentId,
+        )
+
         if (remoteChangedIds !== null) {
           const ids = remoteChangedIds
           remoteChangedIds = null
-          // Check whether any element outside the remote set was modified.
           const hasLocalEdits = elements.some((el) => !ids.has(el.id))
           if (hasLocalEdits) syncToYjs(elements)
           return
@@ -244,11 +250,20 @@ defineExpose({ getExcalidrawApi })
         {{ t('canvas.retry', 'Retry') }}
       </button>
     </div>
+
+    <div
+      v-if="selectedAgentCreated"
+      class="canvas-renderer__agent-badge"
+    >
+      <CpuChipIcon class="canvas-renderer__agent-badge-icon" />
+      <span>{{ t('canvas.agentCreated') }}</span>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .canvas-renderer {
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -282,5 +297,28 @@ defineExpose({ getExcalidrawApi })
 
 .canvas-renderer__retry:hover {
   background: var(--color-surface-hover);
+}
+
+.canvas-renderer__agent-badge {
+  position: absolute;
+  bottom: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+  pointer-events: none;
+  box-shadow: var(--elevation-1, 0 1px 3px rgba(0 0 0 / 0.1));
+}
+
+.canvas-renderer__agent-badge-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 </style>
