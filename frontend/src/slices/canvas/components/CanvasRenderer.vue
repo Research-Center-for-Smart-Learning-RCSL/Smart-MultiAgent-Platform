@@ -231,7 +231,6 @@ defineExpose({ getExcalidrawApi })
   <div
     ref="containerRef"
     class="canvas-renderer"
-    :class="{ 'canvas-renderer--error': mountError }"
   >
     <div
       v-if="mountError"

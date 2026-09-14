@@ -211,6 +211,15 @@ class CanvasFacade:
     ) -> Sequence[tuple[CanvasObject, float, str]]:
         return await self._service.search_objects(canvas_id, query, limit=limit)
 
+    async def search_crdt_elements(
+        self,
+        canvas_id: uuid.UUID,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return await self._service.search_crdt_elements(canvas_id, query, limit=limit)
+
     async def count_images(self, canvas_id: uuid.UUID) -> int:
         return await self._service.count_images(canvas_id)
 

@@ -3,10 +3,15 @@ import { ref, computed, toRef, defineAsyncComponent, type ComponentPublicInstanc
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
+import CanvasHistory from './CanvasHistory.vue'
+import CanvasSearchResults from './CanvasSearchResults.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
+import { useCanvasSearch } from '../composables/useCanvasSearch'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
+import { useToast } from '@shared/composables/useToast'
+import { uploadImage as uploadImageApi } from '../api'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 
 const CanvasRenderer = defineAsyncComponent(() => import('./CanvasRenderer.vue'))
@@ -16,9 +21,7 @@ const { t } = useI18n()
 const props = defineProps<{
   chatroomId: string
   chatroomName: string
-  projectId: string
   isFullscreen: boolean
-  isModerator: boolean
 }>()
 
 const emit = defineEmits<{
@@ -37,7 +40,7 @@ const {
   isSavingSnapshot,
 } = useCanvasState(chatroomIdRef)
 
-useCanvasSocket(chatroomIdRef)
+useCanvasSocket(chatroomIdRef, getExcalidrawApi)
 
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
 const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
@@ -51,11 +54,57 @@ function getExcalidrawApi() {
 
 const chatroomNameRef = toRef(props, 'chatroomName')
 const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
+const { query: searchQuery, results: searchResults, isSearching } = useCanvasSearch(chatroomIdRef)
 
+function handleSelectObject(objectId: string, positionX: number, positionY: number) {
+  const api = getExcalidrawApi()
+  if (!api) return
+  api.updateScene({
+    appState: {
+      selectedElementIds: { [objectId]: true },
+      scrollX: -positionX + 200,
+      scrollY: -positionY + 200,
+    },
+  })
+}
+
+const toast = useToast()
 const showSettings = ref(false)
+const showHistory = ref(false)
+const isUploadingImage = ref(false)
+const imageInputRef = ref<HTMLInputElement>()
+
+function triggerImageUpload() {
+  imageInputRef.value?.click()
+}
+
+async function handleImageSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  isUploadingImage.value = true
+  try {
+    await uploadImageApi(props.chatroomId, file)
+  } catch {
+    toast.error(t('canvas.uploadImageFailed'))
+  } finally {
+    isUploadingImage.value = false
+  }
+}
 
 async function handleSave(label?: string) {
-  await saveSnapshot(label ? { label } : undefined)
+  try {
+    await saveSnapshot(label ? { label } : undefined)
+    toast.success(t('canvas.snapshotSaved'))
+  } catch {
+    toast.error(t('canvas.snapshotFailed'))
+  }
+}
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value
 }
 
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
@@ -83,14 +132,18 @@ async function toggleExposeToAgents() {
       />
 
       <CanvasToolbar
+        v-model:search-query="searchQuery"
         :is-fullscreen="isFullscreen"
         :is-saving="!!isSavingSnapshot"
         :is-exporting="isExporting"
+        :is-uploading="isUploadingImage"
         @save="handleSave"
         @toggle-fullscreen="emit('toggleFullscreen')"
         @open-settings="showSettings = !showSettings"
+        @open-history="toggleHistory"
         @export-png="exportPng"
         @export-svg="exportSvg"
+        @upload-image="triggerImageUpload"
       />
 
       <button
@@ -100,6 +153,19 @@ async function toggleExposeToAgents() {
       >
         <XMarkIcon class="canvas-panel__close-icon" />
       </button>
+
+      <label
+        class="visually-hidden"
+        :for="`canvas-image-upload-${chatroomId}`"
+      >{{ t('canvas.uploadImage') }}</label>
+      <input
+        :id="`canvas-image-upload-${chatroomId}`"
+        ref="imageInputRef"
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+        hidden
+        @change="handleImageSelected"
+      >
     </div>
 
     <div
@@ -135,6 +201,17 @@ async function toggleExposeToAgents() {
       </div>
       <template v-else>
         <div class="canvas-panel__canvas-area">
+          <div
+            v-if="searchQuery.trim()"
+            class="canvas-panel__search-results"
+          >
+            <CanvasSearchResults
+              :results="searchResults"
+              :is-searching="isSearching"
+              @select-object="handleSelectObject"
+            />
+          </div>
+
           <Suspense>
             <CanvasRenderer
               ref="canvasRendererRef"
@@ -146,6 +223,13 @@ async function toggleExposeToAgents() {
             </template>
           </Suspense>
         </div>
+
+        <CanvasHistory
+          v-if="showHistory"
+          class="canvas-panel__history"
+          :chatroom-id="chatroomId"
+          @close="showHistory = false"
+        />
       </template>
     </div>
   </div>
@@ -252,6 +336,31 @@ async function toggleExposeToAgents() {
   flex-direction: column;
 }
 
+.canvas-panel__search-results {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.canvas-panel__history {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 80%);
+  z-index: 10;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+}
+
 .canvas-panel__centered {
   flex: 1;
   display: flex;
@@ -263,4 +372,5 @@ async function toggleExposeToAgents() {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
 }
+
 </style>

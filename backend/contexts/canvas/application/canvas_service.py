@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import uuid
 from collections.abc import Callable, Sequence
@@ -297,6 +298,42 @@ class CanvasService:
     ) -> Sequence[tuple[CanvasObject, float, str]]:
         return await self._repo.search(canvas_id, query, limit=limit)
 
+    async def search_crdt_elements(
+        self,
+        canvas_id: uuid.UUID,
+        query: str,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Substring search over Excalidraw text elements in the CRDT doc."""
+        import pycrdt
+
+        from contexts.canvas.application.crdt_relay import (
+            _extract_elements_from_doc,
+            get_crdt_relay,
+        )
+
+        relay = get_crdt_relay()
+        if relay.has(canvas_id):
+            elements = relay.extract_elements_for_digest(canvas_id) or []
+        else:
+            crdt_state = await self._repo.get_crdt_state(canvas_id)
+            if not crdt_state:
+                return []
+            doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
+            doc.apply_update(crdt_state)
+            elements = _extract_elements_from_doc(doc)
+
+        q_lower = query.lower()
+        results: list[dict[str, Any]] = []
+        for elem in elements:
+            text = elem.get("text", "")
+            if text and q_lower in text.lower():
+                results.append(elem)
+                if len(results) >= limit:
+                    break
+        return results
+
     async def count_images(self, canvas_id: uuid.UUID) -> int:
         return await self._repo.count_images(canvas_id)
 
@@ -399,6 +436,9 @@ class CanvasService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasSnapshot | None:
+        from contexts.canvas.application.crdt_relay import get_crdt_relay
+        from contexts.canvas.infrastructure.channels import canvas_channel
+
         target = await self._repo.get_snapshot(snapshot_id, canvas_id=canvas_id)
         if target is None:
             return None
@@ -412,56 +452,66 @@ class CanvasService:
             request_id=request_id,
         )
 
-        all_objects = await self._repo.list_objects(canvas_id)
-        if all_objects:
-            await self._repo.batch_delete_objects([obj.id for obj in all_objects], canvas_id=canvas_id)
-
         snapshot_data = target.snapshot_data
+        elements: list[dict[str, Any]] = []
+
         if "elements" in snapshot_data:
-            for elem in snapshot_data["elements"]:
-                kind_str = elem.get("type", "shape")
-                kind_map = {
-                    "rectangle": "shape",
-                    "ellipse": "shape",
-                    "diamond": "shape",
-                    "line": "connector",
-                    "arrow": "connector",
-                    "freedraw": "drawing",
-                    "text": "text",
-                    "image": "image",
-                }
-                mapped_kind = kind_map.get(kind_str, "shape")
-                await self._repo.create_object(
-                    values={
-                        "canvas_id": canvas_id,
-                        "kind": mapped_kind,
-                        "content": elem.get("text"),
-                        "position_x": elem.get("x", 0),
-                        "position_y": elem.get("y", 0),
-                        "width": elem.get("width", 100),
-                        "height": elem.get("height", 100),
-                        "z_index": 0,
-                        "style": {},
-                        "created_by_user_id": actor_user_id,
-                    }
-                )
+            elements = snapshot_data["elements"]
         elif "objects" in snapshot_data:
+            from contexts.canvas.application.crdt_relay import _EXCALIDRAW_ELEMENT_KINDS
+
             for obj_data in snapshot_data["objects"]:
-                await self._repo.create_object(
-                    values={
-                        "canvas_id": canvas_id,
-                        "kind": obj_data.get("kind", "shape"),
-                        "content": obj_data.get("content"),
-                        "minio_path": obj_data.get("minio_path"),
-                        "position_x": obj_data.get("position_x", 0),
-                        "position_y": obj_data.get("position_y", 0),
-                        "width": obj_data.get("width", 100),
-                        "height": obj_data.get("height", 100),
-                        "z_index": obj_data.get("z_index", 0),
-                        "style": obj_data.get("style", {}),
-                        "created_by_user_id": actor_user_id,
-                    }
-                )
+                kind = obj_data.get("kind", "shape")
+                elem: dict[str, Any] = {
+                    "id": obj_data.get("id", str(uuid.uuid4())),
+                    "type": _EXCALIDRAW_ELEMENT_KINDS.get(kind, "rectangle"),
+                    "x": obj_data.get("position_x", 0),
+                    "y": obj_data.get("position_y", 0),
+                    "width": obj_data.get("width", 100),
+                    "height": obj_data.get("height", 100),
+                    "angle": 0,
+                    "strokeColor": "#1e1e1e",
+                    "backgroundColor": "transparent",
+                    "fillStyle": "solid",
+                    "strokeWidth": 2,
+                    "roughness": 1,
+                    "opacity": 100,
+                    "isDeleted": False,
+                    "groupIds": [],
+                    "boundElements": None,
+                    "updated": 1,
+                    "locked": False,
+                }
+                if obj_data.get("content"):
+                    elem["text"] = obj_data["content"]
+                    if kind == "text":
+                        elem["fontSize"] = 20
+                        elem["fontFamily"] = 1
+                        elem["textAlign"] = "left"
+                        elem["verticalAlign"] = "top"
+                style = obj_data.get("style") or {}
+                if "backgroundColor" in style:
+                    elem["backgroundColor"] = style["backgroundColor"]
+                if "strokeColor" in style:
+                    elem["strokeColor"] = style["strokeColor"]
+                elements.append(elem)
+
+        relay = get_crdt_relay()
+        crdt_state = await self._repo.get_crdt_state(canvas_id)
+        new_state = await relay.inject_elements(
+            canvas_id,
+            elements,
+            crdt_state=crdt_state,
+            replace=True,
+        )
+        await self._repo.update_crdt_state(canvas_id, new_state)
+        await self._db.flush()
+
+        state_b64 = base64.b64encode(new_state).decode("ascii")
+        await Publisher(canvas_channel(canvas_id)).emit(
+            "yjs-update",
+            {"data": state_b64},
+        )
 
         await audit.emit(
             self._db,

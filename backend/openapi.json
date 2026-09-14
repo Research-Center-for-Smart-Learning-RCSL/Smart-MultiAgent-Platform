@@ -5023,10 +5023,10 @@
       "CanvasSearchResult": {
         "properties": {
           "kind": {
-            "$ref": "#/components/schemas/CanvasObjectKind"
+            "title": "Kind",
+            "type": "string"
           },
           "object_id": {
-            "format": "uuid",
             "title": "Object Id",
             "type": "string"
           },

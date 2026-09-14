@@ -198,6 +198,111 @@ class TestEviction:
         relay.evict(uuid.uuid4())  # no error
 
 
+class TestUpdateElement:
+    async def test_merges_fields(self) -> None:
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        elem_id = "elem-1"
+        element = {
+            "id": elem_id,
+            "type": "rectangle",
+            "x": 10,
+            "y": 20,
+            "width": 100,
+            "height": 80,
+            "isDeleted": False,
+        }
+        await relay.inject_elements(canvas_id, [element])
+
+        state = await relay.update_element(canvas_id, elem_id, {"x": 50, "y": 75})
+
+        assert isinstance(state, bytes)
+        elements = relay.extract_elements_for_digest(canvas_id)
+        assert elements is not None
+        updated = next(e for e in elements if e["id"] == elem_id)
+        assert updated["x"] == 50
+        assert updated["y"] == 75
+        assert updated["width"] == 100
+
+    async def test_not_found_raises(self) -> None:
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        await relay.get_or_load(canvas_id)
+
+        with pytest.raises(CrdtUpdateError, match="not found"):
+            await relay.update_element(canvas_id, "nonexistent", {"x": 0})
+
+    async def test_loads_from_crdt_state_when_not_in_memory(self) -> None:
+        doc: pycrdt.Doc = pycrdt.Doc()
+        elems = doc.get("excalidraw-elements", type=pycrdt.Map)
+        elems["e1"] = pycrdt.Map({"id": "e1", "type": "rect", "x": 0, "isDeleted": False})
+        persisted = doc.get_update()
+
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        state = await relay.update_element(
+            canvas_id,
+            "e1",
+            {"x": 99},
+            crdt_state=persisted,
+        )
+        assert isinstance(state, bytes)
+        elements = relay.extract_elements_for_digest(canvas_id)
+        assert elements is not None
+        assert elements[0]["x"] == 99
+
+
+class TestDeleteElement:
+    async def test_sets_is_deleted(self) -> None:
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        elem_id = "elem-del"
+        element = {
+            "id": elem_id,
+            "type": "rectangle",
+            "x": 0,
+            "y": 0,
+            "width": 50,
+            "height": 50,
+            "isDeleted": False,
+        }
+        await relay.inject_elements(canvas_id, [element])
+
+        state = await relay.delete_element(canvas_id, elem_id)
+        assert isinstance(state, bytes)
+
+        elements = relay.extract_elements_for_digest(canvas_id)
+        assert elements is not None
+        assert all(e["id"] != elem_id for e in elements)
+
+    async def test_not_found_raises(self) -> None:
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        await relay.get_or_load(canvas_id)
+
+        with pytest.raises(CrdtUpdateError, match="not found"):
+            await relay.delete_element(canvas_id, "nonexistent")
+
+
+class TestImageElementExcludesBinary:
+    async def test_image_element_stays_small(self) -> None:
+        relay = CrdtRelay()
+        canvas_id = uuid.uuid4()
+        image_element = {
+            "id": "img-1",
+            "type": "image",
+            "fileId": "img-1",
+            "x": 0,
+            "y": 0,
+            "width": 400,
+            "height": 300,
+            "isDeleted": False,
+            "status": "saved",
+        }
+        state = await relay.inject_elements(canvas_id, [image_element])
+        assert len(state) < 1024
+
+
 class TestExtractElements:
     async def test_extracts_elements(self) -> None:
         relay = CrdtRelay()

@@ -5,12 +5,11 @@ export const canvasKeys = {
   snapshots: (chatroomId: string) => [...canvasKeys.all, 'snapshots', chatroomId] as const,
   snapshotDetail: (chatroomId: string, snapshotId: string) =>
     [...canvasKeys.all, 'snapshot-detail', chatroomId, snapshotId] as const,
+  search: (chatroomId: string, query: string) =>
+    [...canvasKeys.all, 'search', chatroomId, query] as const,
+  templates: (projectId: string) => [...canvasKeys.all, 'templates', projectId] as const,
   comments: (chatroomId: string, objectId: string) =>
     [...canvasKeys.all, 'comments', chatroomId, objectId] as const,
   commentCounts: (chatroomId: string) =>
     [...canvasKeys.all, 'comment-counts', chatroomId] as const,
-  search: (chatroomId: string, query: string) =>
-    [...canvasKeys.all, 'search', chatroomId, query] as const,
-  templates: (projectId?: string) =>
-    [...canvasKeys.all, 'templates', projectId] as const,
 }

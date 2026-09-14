@@ -2,9 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { CanvasObjectKind } from './CanvasObjectKind';
 export type CanvasSearchResult = {
-    kind: CanvasObjectKind;
+    kind: string;
     object_id: string;
     position_x: number;
     position_y: number;

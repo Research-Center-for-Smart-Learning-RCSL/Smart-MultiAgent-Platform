@@ -1,14 +1,16 @@
 import { watch, onUnmounted, type Ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
+import { wsManager } from '@shared/transport/ws-manager'
+import { http } from '@shared/transport'
 import { canvasKeys } from '../queries'
 
 /**
- * Subscribe to canvas-related events on the chatroom's room WebSocket channel.
- * Object CRUD events are handled by CRDT sync (Phase 2); this composable
- * retains settings, snapshot, and comment events on the room channel.
+ * Subscribe to canvas events on the chatroom's room WebSocket channel.
+ * Object CRUD is handled by CRDT sync via Yjs; this composable retains
+ * settings, snapshot, and image events so the UI stays in sync across tabs.
  */
-export function useCanvasSocket(chatroomId: Ref<string>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
+export function useCanvasSocket(chatroomId: Ref<string>, getExcalidrawApi?: () => any) {
   const queryClient = useQueryClient()
   const unsubs: Array<() => void> = []
 
@@ -18,27 +20,11 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
 
     const channel = wsManager.channel(`/chatroom/${roomId}`)
 
-    const commentEvents = [
-      'canvas.comment_created',
-      'canvas.comment_updated',
-      'canvas.comment_deleted',
-    ]
-
-    for (const eventType of commentEvents) {
-      unsubs.push(
-        channel.subscribe(eventType, (event: ChannelEvent) => {
-          queryClient.invalidateQueries({
-            queryKey: canvasKeys.commentCounts(chatroomId.value),
-          })
-          const objectId = event.object_id as string | undefined
-          if (objectId) {
-            queryClient.invalidateQueries({
-              queryKey: canvasKeys.comments(chatroomId.value, objectId),
-            })
-          }
-        }),
-      )
-    }
+    unsubs.push(
+      channel.subscribe('canvas.settings_updated', () => {
+        queryClient.invalidateQueries({ queryKey: canvasKeys.canvas(chatroomId.value) })
+      }),
+    )
 
     unsubs.push(
       channel.subscribe('canvas.snapshot_created', () => {
@@ -49,13 +35,37 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     unsubs.push(
       channel.subscribe('canvas.snapshot_restored', () => {
         queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
-        queryClient.invalidateQueries({ queryKey: canvasKeys.objects(chatroomId.value) })
       }),
     )
 
     unsubs.push(
-      channel.subscribe('canvas.settings_updated', () => {
-        queryClient.invalidateQueries({ queryKey: canvasKeys.canvas(chatroomId.value) })
+      channel.subscribe('canvas.image_added', (data: Record<string, unknown>) => {
+        const api = getExcalidrawApi?.()
+        if (!api) return
+
+        const fileId = data.fileId as string
+        const url = data.url as string
+        const mimeType = (data.mimeType as string) || 'image/png'
+
+        http
+          .get<Blob>(url, { responseType: 'blob' })
+          .then(({ data: blob }) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              api.addFiles([
+                {
+                  id: fileId,
+                  dataURL: reader.result as string,
+                  mimeType,
+                  created: Date.now(),
+                },
+              ])
+            }
+            reader.readAsDataURL(blob)
+          })
+          .catch(() => {
+            // Image fetch failed; Excalidraw shows a placeholder
+          })
       }),
     )
   }

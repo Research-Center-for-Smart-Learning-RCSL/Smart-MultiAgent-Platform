@@ -385,6 +385,10 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   direct entry, UX polish), each intended for a separate session. Amends R5.04, R6.02,
   R6.11, R13.06; adds R13.06a, R13.06b.
 
+### Canvas CRDT bridge (2026-09-14)
+
+- (moved to In progress on 2026-09-14) `2026-09-14-canvas-crdt-bridge-remaining`.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
@@ -573,6 +577,10 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-remaining`. AC-1 through
+  AC-5 unticked (code complete, need running stack for WS/browser verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-13) `2026-09-13-teacher-dashboard`. AC-4/AC-5/AC-11
   unticked (code complete, need running stack for WS integration verification).
