@@ -403,7 +403,13 @@ None.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-1: `useProjectSocket` renamed to `useDashboardSocket` and refactored. The original
+  implementation derived `projectId` from `useWorkspaceStore()` (localStorage), which is
+  null on a deep-link in a fresh session -- the WS channel silently would not connect.
+  Fixed by fetching workspace details from the API (`readWorkspaceApiWorkspacesWorkspaceIdGet`)
+  to resolve `project_id` server-side. Room IDs now passed as a `Ref<Set<string>>`
+  parameter from `DashboardView` instead of internally calling `useDashboardSummary`,
+  removing the intra-slice coupling. Found by `/code-review`.
 
 ## 16. Follow-ups
 
@@ -412,3 +418,8 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-2: Workspace-level WebSocket channel (`ws:workspace:{workspace_id}`) to avoid
   broadcasting dashboard events project-wide when only one workspace is being monitored.
 - FU-3: Configurable stale thresholds per workspace (carried from the original spec's FU-4).
+- FU-4: `_resolve_workspace_rooms` (`dashboard.py:109`) checks `workspace.deleted_at`
+  explicitly before asserting project membership. Other workspace-scoped routers
+  (`workflows.py`, `chatrooms.py`, `workspaces.py`) do not perform this check. The
+  inconsistency is defense-in-depth here but should be unified across all
+  workspace-resolving endpoints.
