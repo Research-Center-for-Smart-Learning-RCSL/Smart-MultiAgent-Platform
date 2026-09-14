@@ -77,7 +77,9 @@ class CanvasService:
         await self._repo.sync_text_from_crdt(canvas_id, elements)
 
     def _enqueue_deferred_broadcast(
-        self, canvas_id: uuid.UUID, delta_b64: str,
+        self,
+        canvas_id: uuid.UUID,
+        delta_b64: str,
     ) -> None:
         """Schedule a CRDT broadcast to fire after the current transaction commits."""
         channel = canvas_channel(canvas_id)

@@ -620,14 +620,18 @@ async def upload_image(
     )
 
     full_state, delta = await facade.crdt_inject_elements(
-        canvas.id, [image_element],
+        canvas.id,
+        [image_element],
     )
 
     image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)
     proxied_url = _minio_url_to_proxy(image_url)
 
     await facade.persist_and_broadcast_crdt(
-        canvas.id, full_state=full_state, delta=delta, deferred=True,
+        canvas.id,
+        full_state=full_state,
+        delta=delta,
+        deferred=True,
     )
 
     await db.commit()

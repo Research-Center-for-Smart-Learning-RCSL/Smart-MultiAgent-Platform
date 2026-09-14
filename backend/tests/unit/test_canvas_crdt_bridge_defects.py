@@ -10,7 +10,6 @@ import base64
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pycrdt
 import pytest
 
 from contexts.canvas.application.crdt_relay import CrdtRelay, build_element_dict

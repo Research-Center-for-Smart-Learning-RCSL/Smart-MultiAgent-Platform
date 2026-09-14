@@ -141,7 +141,8 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
 
         facade = CanvasFacade(db)
         full_state, delta = await facade.crdt_inject_elements(
-            ctx.canvas_id, [element],
+            ctx.canvas_id,
+            [element],
         )
         await facade.persist_and_broadcast_crdt(
             ctx.canvas_id,
@@ -231,7 +232,9 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         facade = CanvasFacade(db)
         try:
             full_state, delta = await facade.crdt_update_element(
-                ctx.canvas_id, raw_id, crdt_fields,
+                ctx.canvas_id,
+                raw_id,
+                crdt_fields,
             )
         except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)
@@ -292,7 +295,8 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
         facade = CanvasFacade(db)
         try:
             full_state, delta = await facade.crdt_delete_element(
-                ctx.canvas_id, raw_id,
+                ctx.canvas_id,
+                raw_id,
             )
         except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)

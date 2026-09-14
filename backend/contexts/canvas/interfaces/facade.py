@@ -294,7 +294,10 @@ class CanvasFacade:
         relay = get_crdt_relay()
         crdt_state = await self._service.get_crdt_state(canvas_id)
         return await relay.inject_elements(
-            canvas_id, elements, crdt_state=crdt_state, replace=replace,
+            canvas_id,
+            elements,
+            crdt_state=crdt_state,
+            replace=replace,
         )
 
     async def crdt_update_element(
@@ -307,7 +310,10 @@ class CanvasFacade:
         relay = get_crdt_relay()
         crdt_state = await self._service.get_crdt_state(canvas_id)
         return await relay.update_element(
-            canvas_id, element_id, fields, crdt_state=crdt_state,
+            canvas_id,
+            element_id,
+            fields,
+            crdt_state=crdt_state,
         )
 
     async def crdt_delete_element(
@@ -319,7 +325,9 @@ class CanvasFacade:
         relay = get_crdt_relay()
         crdt_state = await self._service.get_crdt_state(canvas_id)
         return await relay.delete_element(
-            canvas_id, element_id, crdt_state=crdt_state,
+            canvas_id,
+            element_id,
+            crdt_state=crdt_state,
         )
 
     async def persist_and_broadcast_crdt(
