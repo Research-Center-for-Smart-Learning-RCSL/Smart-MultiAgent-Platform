@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.domain.canvas_digest import build_canvas_digest
 from contexts.canvas.domain.models import Canvas, CanvasObject, CanvasObjectKind, CanvasSnapshot
+from contexts.canvas.infrastructure.channels import canvas_channel
 from contexts.canvas.infrastructure.repositories import CanvasRepository
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
@@ -44,6 +47,57 @@ class CanvasService:
         self._db = db
         self._repo = CanvasRepository(db)
         self._room_channel_fn = room_channel_fn or (lambda cid: f"ws:room:{cid}")
+
+    # ---- crdt state pass-throughs ------------------------------------------
+
+    async def get_crdt_state(self, canvas_id: uuid.UUID) -> bytes | None:
+        return await self._repo.get_crdt_state(canvas_id)
+
+    async def update_crdt_state(self, canvas_id: uuid.UUID, state: bytes) -> None:
+        await self._repo.update_crdt_state(canvas_id, state)
+
+    async def sync_text_from_crdt(self, canvas_id: uuid.UUID) -> None:
+        """Sync CRDT element text into canvas_objects for FTS search."""
+        from contexts.canvas.application.crdt_relay import (
+            _extract_elements_from_doc,
+            get_crdt_relay,
+        )
+
+        relay = get_crdt_relay()
+        elements = relay.extract_elements_for_digest(canvas_id)
+        if elements is None:
+            import pycrdt
+
+            crdt_state = await self._repo.get_crdt_state(canvas_id)
+            if not crdt_state:
+                return
+            doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
+            doc.apply_update(crdt_state)
+            elements = _extract_elements_from_doc(doc)
+        await self._repo.sync_text_from_crdt(canvas_id, elements)
+
+    def _enqueue_deferred_broadcast(
+        self, canvas_id: uuid.UUID, delta_b64: str,
+    ) -> None:
+        """Schedule a CRDT broadcast to fire after the current transaction commits."""
+        channel = canvas_channel(canvas_id)
+        payload: dict[str, Any] = {"data": delta_b64}
+        pending = self._db.info.setdefault("_pending_crdt_broadcasts", [])
+        pending.append((channel, payload))
+        if "_crdt_broadcast_hooked" not in self._db.info:
+            self._db.info["_crdt_broadcast_hooked"] = True
+
+            @event.listens_for(self._db.sync_session, "after_commit")
+            def _drain(session: Any) -> None:
+                broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
+                if not broadcasts:
+                    return
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    return
+                for ch, data in broadcasts:
+                    loop.create_task(_best_effort_emit(ch, data))
 
     # ---- canvas lifecycle --------------------------------------------------
 
@@ -458,60 +512,35 @@ class CanvasService:
         if "elements" in snapshot_data:
             elements = snapshot_data["elements"]
         elif "objects" in snapshot_data:
-            from contexts.canvas.application.crdt_relay import _EXCALIDRAW_ELEMENT_KINDS
+            from contexts.canvas.application.crdt_relay import build_element_dict
 
             for obj_data in snapshot_data["objects"]:
                 kind = obj_data.get("kind", "shape")
-                elem: dict[str, Any] = {
-                    "id": obj_data.get("id", str(uuid.uuid4())),
-                    "type": _EXCALIDRAW_ELEMENT_KINDS.get(kind, "rectangle"),
-                    "x": obj_data.get("position_x", 0),
-                    "y": obj_data.get("position_y", 0),
-                    "width": obj_data.get("width", 100),
-                    "height": obj_data.get("height", 100),
-                    "angle": 0,
-                    "strokeColor": "#1e1e1e",
-                    "backgroundColor": "transparent",
-                    "fillStyle": "solid",
-                    "strokeWidth": 2,
-                    "roughness": 1,
-                    "opacity": 100,
-                    "isDeleted": False,
-                    "groupIds": [],
-                    "boundElements": None,
-                    "updated": 1,
-                    "locked": False,
-                }
-                if obj_data.get("content"):
-                    elem["text"] = obj_data["content"]
-                    if kind == "text":
-                        elem["fontSize"] = 20
-                        elem["fontFamily"] = 1
-                        elem["textAlign"] = "left"
-                        elem["verticalAlign"] = "top"
-                style = obj_data.get("style") or {}
-                if "backgroundColor" in style:
-                    elem["backgroundColor"] = style["backgroundColor"]
-                if "strokeColor" in style:
-                    elem["strokeColor"] = style["strokeColor"]
+                elem = build_element_dict(
+                    kind,
+                    elem_id=obj_data.get("id"),
+                    x=obj_data.get("position_x", 0),
+                    y=obj_data.get("position_y", 0),
+                    width=obj_data.get("width", 100),
+                    height=obj_data.get("height", 100),
+                    content=obj_data.get("content"),
+                    style=obj_data.get("style"),
+                )
                 elements.append(elem)
 
         relay = get_crdt_relay()
         crdt_state = await self._repo.get_crdt_state(canvas_id)
-        new_state = await relay.inject_elements(
+        full_state, delta = await relay.inject_elements(
             canvas_id,
             elements,
             crdt_state=crdt_state,
             replace=True,
         )
-        await self._repo.update_crdt_state(canvas_id, new_state)
+        await self._repo.update_crdt_state(canvas_id, full_state)
         await self._db.flush()
 
-        state_b64 = base64.b64encode(new_state).decode("ascii")
-        await Publisher(canvas_channel(canvas_id)).emit(
-            "yjs-update",
-            {"data": state_b64},
-        )
+        delta_b64 = base64.b64encode(delta).decode("ascii")
+        self._enqueue_deferred_broadcast(canvas_id, delta_b64)
 
         await audit.emit(
             self._db,
@@ -569,6 +598,13 @@ class CanvasService:
             return snap.agent_digest
         objects = await self._repo.list_objects(canvas_id)
         return build_canvas_digest(list(objects))
+
+
+async def _best_effort_emit(channel: str, data: dict[str, Any]) -> None:
+    try:
+        await Publisher(channel).emit("yjs-update", data)
+    except Exception:
+        _log.warning("deferred CRDT broadcast failed ch=%s", channel, exc_info=True)
 
 
 __all__ = ["CanvasService"]

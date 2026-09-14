@@ -179,18 +179,18 @@ class CanvasTemplateService:
             relay = get_crdt_relay()
             crdt_state = await self._canvas_repo.get_crdt_state(canvas_id)
             elements = template.template_data["elements"]
-            state = await relay.inject_elements(
+            full_state, delta = await relay.inject_elements(
                 canvas_id,
                 elements,
                 crdt_state=crdt_state,
                 replace=True,
             )
-            await self._canvas_repo.update_crdt_state(canvas_id, state)
+            await self._canvas_repo.update_crdt_state(canvas_id, full_state)
 
-            update_b64 = base64.b64encode(state).decode("ascii")
+            delta_b64 = base64.b64encode(delta).decode("ascii")
             await Publisher(canvas_channel(canvas_id)).emit(
                 "yjs-update",
-                {"update": update_b64},
+                {"data": delta_b64},
             )
 
             await audit.emit(

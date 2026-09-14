@@ -214,9 +214,10 @@ class TestUpdateElement:
         }
         await relay.inject_elements(canvas_id, [element])
 
-        state = await relay.update_element(canvas_id, elem_id, {"x": 50, "y": 75})
+        full_state, delta = await relay.update_element(canvas_id, elem_id, {"x": 50, "y": 75})
 
-        assert isinstance(state, bytes)
+        assert isinstance(full_state, bytes)
+        assert isinstance(delta, bytes)
         elements = relay.extract_elements_for_digest(canvas_id)
         assert elements is not None
         updated = next(e for e in elements if e["id"] == elem_id)
@@ -240,13 +241,14 @@ class TestUpdateElement:
 
         relay = CrdtRelay()
         canvas_id = uuid.uuid4()
-        state = await relay.update_element(
+        full_state, delta = await relay.update_element(
             canvas_id,
             "e1",
             {"x": 99},
             crdt_state=persisted,
         )
-        assert isinstance(state, bytes)
+        assert isinstance(full_state, bytes)
+        assert isinstance(delta, bytes)
         elements = relay.extract_elements_for_digest(canvas_id)
         assert elements is not None
         assert elements[0]["x"] == 99
@@ -268,8 +270,9 @@ class TestDeleteElement:
         }
         await relay.inject_elements(canvas_id, [element])
 
-        state = await relay.delete_element(canvas_id, elem_id)
-        assert isinstance(state, bytes)
+        full_state, delta = await relay.delete_element(canvas_id, elem_id)
+        assert isinstance(full_state, bytes)
+        assert isinstance(delta, bytes)
 
         elements = relay.extract_elements_for_digest(canvas_id)
         assert elements is not None
@@ -299,8 +302,8 @@ class TestImageElementExcludesBinary:
             "isDeleted": False,
             "status": "saved",
         }
-        state = await relay.inject_elements(canvas_id, [image_element])
-        assert len(state) < 1024
+        full_state, _delta = await relay.inject_elements(canvas_id, [image_element])
+        assert len(full_state) < 1024
 
 
 class TestExtractElements:

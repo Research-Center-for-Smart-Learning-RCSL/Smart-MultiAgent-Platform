@@ -71,6 +71,8 @@ def _mock_publisher() -> MagicMock:
 
 def _mock_service() -> tuple[CanvasService, MagicMock]:
     db = AsyncMock()
+    db.info = {}
+    db.sync_session = MagicMock()
     svc = CanvasService(db, room_channel_fn=lambda cid: f"ws:room:{cid}")
     repo = MagicMock()
     svc._repo = repo  # type: ignore[attr-defined]
@@ -171,7 +173,7 @@ class TestSnapshotRestore:
 
         mock_relay = MagicMock()
         mock_relay.has = MagicMock(return_value=False)
-        mock_relay.inject_elements = AsyncMock(return_value=b"\x00")
+        mock_relay.inject_elements = AsyncMock(return_value=(b"\x00", b"\x01"))
         mock_relay.extract_elements_for_digest = MagicMock(return_value=None)
 
         mock_pub = _mock_publisher()
@@ -202,7 +204,9 @@ class TestSnapshotRestore:
         emit_calls = pub_instance.emit.call_args_list
         event_types = [c[0][0] for c in emit_calls]
         assert "canvas.snapshot_restored" in event_types
-        assert "yjs-update" in event_types
+        pending = svc._db.info.get("_pending_crdt_broadcasts", [])
+        assert len(pending) == 1
+        assert pending[0][1]["data"]  # delta b64 is present
 
     @pytest.mark.anyio
     async def test_restore_returns_none_for_missing_snapshot(self) -> None:

@@ -263,7 +263,7 @@ class TestApplyTemplate:
         svc._canvas_repo.update_crdt_state = AsyncMock()
 
         mock_relay = MagicMock()
-        mock_relay.inject_elements = AsyncMock(return_value=b"\x00\x01")
+        mock_relay.inject_elements = AsyncMock(return_value=(b"\x00\x01", b"\x02"))
 
         canvas_id = uuid.uuid4()
         chatroom_id = uuid.uuid4()
