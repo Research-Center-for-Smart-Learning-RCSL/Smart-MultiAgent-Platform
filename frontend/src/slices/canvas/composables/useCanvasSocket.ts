@@ -4,10 +4,9 @@ import { wsManager } from '@shared/transport/ws-manager'
 import { canvasKeys } from '../queries'
 
 /**
- * Subscribe to canvas settings changes on the chatroom's room WebSocket
- * channel. Object CRUD is handled by CRDT sync via Yjs; this composable
- * only retains the settings event so the expose_to_agents checkbox stays
- * in sync across tabs.
+ * Subscribe to canvas events on the chatroom's room WebSocket channel.
+ * Object CRUD is handled by CRDT sync via Yjs; this composable retains
+ * settings and snapshot events so the UI stays in sync across tabs.
  */
 export function useCanvasSocket(chatroomId: Ref<string>) {
   const queryClient = useQueryClient()
@@ -22,6 +21,18 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     unsubs.push(
       channel.subscribe('canvas.settings_updated', () => {
         queryClient.invalidateQueries({ queryKey: canvasKeys.canvas(chatroomId.value) })
+      }),
+    )
+
+    unsubs.push(
+      channel.subscribe('canvas.snapshot_created', () => {
+        queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
+      }),
+    )
+
+    unsubs.push(
+      channel.subscribe('canvas.snapshot_restored', () => {
+        queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
       }),
     )
   }

@@ -3,8 +3,11 @@ import { ref, computed, toRef, defineAsyncComponent, type ComponentPublicInstanc
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import CanvasToolbar from './CanvasToolbar.vue'
+import CanvasHistory from './CanvasHistory.vue'
+import CanvasSearchResults from './CanvasSearchResults.vue'
 import { useCanvasState } from '../composables/useCanvasState'
 import { useCanvasExport } from '../composables/useCanvasExport'
+import { useCanvasSearch } from '../composables/useCanvasSearch'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import { useToast } from '@shared/composables/useToast'
@@ -50,9 +53,23 @@ function getExcalidrawApi() {
 
 const chatroomNameRef = toRef(props, 'chatroomName')
 const { exportPng, exportSvg, isExporting } = useCanvasExport(getExcalidrawApi, chatroomNameRef)
+const { query: searchQuery, results: searchResults, isSearching } = useCanvasSearch(chatroomIdRef)
+
+function handleSelectObject(objectId: string, positionX: number, positionY: number) {
+  const api = getExcalidrawApi()
+  if (!api) return
+  api.updateScene({
+    appState: {
+      selectedElementIds: { [objectId]: true },
+      scrollX: -positionX + 200,
+      scrollY: -positionY + 200,
+    },
+  })
+}
 
 const toast = useToast()
 const showSettings = ref(false)
+const showHistory = ref(false)
 
 async function handleSave(label?: string) {
   try {
@@ -61,6 +78,10 @@ async function handleSave(label?: string) {
   } catch {
     toast.error(t('canvas.snapshotFailed'))
   }
+}
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value
 }
 
 const exposeToAgents = computed(() => canvas.value?.expose_to_agents ?? true)
@@ -88,12 +109,14 @@ async function toggleExposeToAgents() {
       />
 
       <CanvasToolbar
+        v-model:search-query="searchQuery"
         :is-fullscreen="isFullscreen"
         :is-saving="!!isSavingSnapshot"
         :is-exporting="isExporting"
         @save="handleSave"
         @toggle-fullscreen="emit('toggleFullscreen')"
         @open-settings="showSettings = !showSettings"
+        @open-history="toggleHistory"
         @export-png="exportPng"
         @export-svg="exportSvg"
       />
@@ -140,6 +163,17 @@ async function toggleExposeToAgents() {
       </div>
       <template v-else>
         <div class="canvas-panel__canvas-area">
+          <div
+            v-if="searchQuery.trim()"
+            class="canvas-panel__search-results"
+          >
+            <CanvasSearchResults
+              :results="searchResults"
+              :is-searching="isSearching"
+              @select-object="handleSelectObject"
+            />
+          </div>
+
           <Suspense>
             <CanvasRenderer
               ref="canvasRendererRef"
@@ -151,6 +185,13 @@ async function toggleExposeToAgents() {
             </template>
           </Suspense>
         </div>
+
+        <CanvasHistory
+          v-if="showHistory"
+          class="canvas-panel__history"
+          :chatroom-id="chatroomId"
+          @close="showHistory = false"
+        />
       </template>
     </div>
   </div>
@@ -255,6 +296,31 @@ async function toggleExposeToAgents() {
   position: relative;
   display: flex;
   flex-direction: column;
+}
+
+.canvas-panel__search-results {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.canvas-panel__history {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 80%);
+  z-index: 10;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
 }
 
 .canvas-panel__centered {
