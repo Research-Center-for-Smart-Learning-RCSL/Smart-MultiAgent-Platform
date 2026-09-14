@@ -6,6 +6,7 @@ import os
 import re
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
@@ -33,6 +34,17 @@ router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"]
 _CANVAS_IMAGE_MAX_BYTES = int(os.environ.get("CANVAS_IMAGE_MAX_BYTES", str(10 * 1024 * 1024)))
 _ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"}
 _GUEST_RATE_LIMIT_PER_MINUTE = 60
+
+
+def _minio_url_to_proxy(presigned_url: str) -> str:
+    """Rewrite a MinIO presigned URL into a relative ``/minio-assets/`` path.
+
+    The presigned URL has the form ``http://minio:9000/{bucket}/{key}?sig...``.
+    The browser cannot reach the Docker-internal hostname, so we strip the
+    scheme+host and prepend ``/minio-assets`` -- nginx proxies that to MinIO.
+    """
+    parsed = urlparse(presigned_url)
+    return f"/minio-assets{parsed.path}{'?' + parsed.query if parsed.query else ''}"
 
 
 # ---- Request/Response models -----------------------------------------------
@@ -305,17 +317,17 @@ async def search_canvas(
     canvas = await facade.get_by_chatroom(chatroom_id)
     if canvas is None:
         return []
-    elements = await facade.search_crdt_elements(canvas.id, q, limit=limit)
+    results = await facade.search_objects(canvas.id, q, limit=limit)
     return [
         CanvasSearchResult(
-            object_id=elem.get("id", ""),
-            kind=elem.get("type", "unknown"),
-            snippet=elem.get("text", "")[:200],
-            rank=1.0,
-            position_x=elem.get("x", 0),
-            position_y=elem.get("y", 0),
+            object_id=str(obj.id),
+            kind=obj.kind.value,
+            snippet=snippet,
+            rank=rank,
+            position_x=obj.position_x,
+            position_y=obj.position_y,
         )
-        for elem in elements
+        for obj, rank, snippet in results
     ]
 
 
@@ -594,68 +606,48 @@ async def upload_image(
         request_id=ctx.request_id,
     )
 
-    import base64
-
-    from contexts.canvas.application.crdt_relay import get_crdt_relay
-    from contexts.canvas.infrastructure.channels import canvas_channel
-    from contexts.canvas.infrastructure.repositories import CanvasRepository
+    from contexts.canvas.interfaces.facade import build_element_dict
     from shared_kernel.realtime.pubsub import Publisher
 
-    relay = get_crdt_relay()
-    repo = CanvasRepository(db)
-    crdt_state = await repo.get_crdt_state(canvas.id)
+    image_element = build_element_dict(
+        "image",
+        elem_id=str(object_id),
+        x=0,
+        y=0,
+        width=400,
+        height=300,
+        image=True,
+    )
 
-    image_element: dict[str, Any] = {
-        "id": str(object_id),
-        "type": "image",
-        "fileId": str(object_id),
-        "x": 0,
-        "y": 0,
-        "width": 400,
-        "height": 300,
-        "angle": 0,
-        "strokeColor": "transparent",
-        "backgroundColor": "transparent",
-        "fillStyle": "solid",
-        "strokeWidth": 0,
-        "roughness": 0,
-        "opacity": 100,
-        "isDeleted": False,
-        "groupIds": [],
-        "boundElements": None,
-        "updated": 1,
-        "locked": False,
-        "status": "saved",
-    }
-
-    state = await relay.inject_elements(
+    full_state, delta = await facade.crdt_inject_elements(
         canvas.id,
         [image_element],
-        crdt_state=crdt_state,
-    )
-    await repo.update_crdt_state(canvas.id, state)
-
-    update_b64 = base64.b64encode(state).decode("ascii")
-    await Publisher(canvas_channel(canvas.id)).emit(
-        "yjs-update",
-        {"update": update_b64},
     )
 
     image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)
+    proxied_url = _minio_url_to_proxy(image_url)
+
+    await facade.persist_and_broadcast_crdt(
+        canvas.id,
+        full_state=full_state,
+        delta=delta,
+        deferred=True,
+    )
+
+    await db.commit()
 
     await Publisher(room_channel(chatroom_id)).emit(
         "canvas.image_added",
         {
             "fileId": str(object_id),
-            "url": image_url,
+            "url": proxied_url,
             "mimeType": file.content_type or "application/octet-stream",
             "width": 400,
             "height": 300,
         },
     )
 
-    await db.commit()
-    return CanvasObjectOut.from_domain(obj, image_url=image_url)
+    return CanvasObjectOut.from_domain(obj, image_url=proxied_url)
 
 
 # ---- Snapshots --------------------------------------------------------------

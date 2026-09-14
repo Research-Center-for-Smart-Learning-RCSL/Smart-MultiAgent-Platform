@@ -36,6 +36,7 @@
     "restored": "快照已還原",
     "uploadImage": "上傳圖片",
     "uploadImageFailed": "上傳圖片失敗",
-    "imageUploading": "圖片上傳中..."
+    "imageUploading": "圖片上傳中...",
+    "agentCreated": "由代理建立"
   }
 }

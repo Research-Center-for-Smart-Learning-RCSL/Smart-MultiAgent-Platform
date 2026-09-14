@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.canvas.application.crdt_relay import _EXCALIDRAW_ELEMENT_KINDS
 from contexts.canvas.domain.models import (
     Canvas,
     CanvasObject,
@@ -18,6 +19,8 @@ from contexts.canvas.domain.models import (
 )
 from contexts.canvas.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+
+_EXCALIDRAW_TO_DOMAIN_KIND = {v: k for k, v in _EXCALIDRAW_ELEMENT_KINDS.items()}
 
 
 def _row_to_canvas(row: Any) -> Canvas:
@@ -245,6 +248,75 @@ class CanvasRepository:
             )
         )
         return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def sync_text_from_crdt(
+        self,
+        canvas_id: uuid.UUID,
+        elements: list[dict[str, Any]],
+    ) -> None:
+        """Synchronise text content from CRDT elements into canvas_objects for FTS.
+
+        Upserts rows keyed by element id: updates ``content`` (which triggers
+        the ``content_tsv`` trigger) for elements that carry text, and removes
+        stale rows whose element was deleted in the CRDT doc.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        live_ids: set[uuid.UUID] = set()
+        for elem in elements:
+            raw_id = elem.get("id")
+            if not raw_id:
+                continue
+            try:
+                eid = uuid.UUID(raw_id)
+            except ValueError:
+                continue
+            live_ids.add(eid)
+            text = elem.get("text") or None
+            kind_raw = elem.get("type", "rectangle")
+            kind = _EXCALIDRAW_TO_DOMAIN_KIND.get(kind_raw, "shape")
+
+            stmt = (
+                pg_insert(t.canvas_objects)
+                .values(
+                    id=eid,
+                    canvas_id=canvas_id,
+                    kind=kind,
+                    content=text,
+                    position_x=float(elem.get("x", 0)),
+                    position_y=float(elem.get("y", 0)),
+                    width=float(elem.get("width", 0)),
+                    height=float(elem.get("height", 0)),
+                )
+                .on_conflict_do_update(
+                    index_elements=[t.canvas_objects.c.id],
+                    set_={
+                        "content": text,
+                        "position_x": float(elem.get("x", 0)),
+                        "position_y": float(elem.get("y", 0)),
+                        "width": float(elem.get("width", 0)),
+                        "height": float(elem.get("height", 0)),
+                        "updated_at": now(),
+                    },
+                )
+            )
+            await self._db.execute(stmt)
+
+        if live_ids:
+            await self._db.execute(
+                t.canvas_objects.delete().where(
+                    sa.and_(
+                        t.canvas_objects.c.canvas_id == canvas_id,
+                        t.canvas_objects.c.id.notin_(live_ids),
+                    )
+                )
+            )
+        else:
+            await self._db.execute(
+                t.canvas_objects.delete().where(
+                    t.canvas_objects.c.canvas_id == canvas_id,
+                )
+            )
 
     # ---- search -------------------------------------------------------------
 

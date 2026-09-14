@@ -263,7 +263,7 @@ class TestApplyTemplate:
         svc._canvas_repo.update_crdt_state = AsyncMock()
 
         mock_relay = MagicMock()
-        mock_relay.inject_elements = AsyncMock(return_value=b"\x00\x01")
+        mock_relay.inject_elements = AsyncMock(return_value=(b"\x00\x01", b"\x02"))
 
         canvas_id = uuid.uuid4()
         chatroom_id = uuid.uuid4()
@@ -274,8 +274,11 @@ class TestApplyTemplate:
                 return_value=mock_relay,
             ),
             patch(
-                "shared_kernel.realtime.pubsub.Publisher.emit",
+                "contexts.canvas.application.canvas_service.CanvasService.sync_text_from_crdt",
                 new_callable=AsyncMock,
+            ),
+            patch(
+                "contexts.canvas.infrastructure.deferred_broadcast.enqueue_crdt_broadcast",
             ),
         ):
             result = await svc.apply_template(

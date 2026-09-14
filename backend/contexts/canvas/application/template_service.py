@@ -172,26 +172,26 @@ class CanvasTemplateService:
         if "elements" in template.template_data:
             import base64
 
+            from contexts.canvas.application.canvas_service import CanvasService
             from contexts.canvas.application.crdt_relay import get_crdt_relay
             from contexts.canvas.infrastructure.channels import canvas_channel
-            from shared_kernel.realtime.pubsub import Publisher
+            from contexts.canvas.infrastructure.deferred_broadcast import enqueue_crdt_broadcast
 
             relay = get_crdt_relay()
             crdt_state = await self._canvas_repo.get_crdt_state(canvas_id)
             elements = template.template_data["elements"]
-            state = await relay.inject_elements(
+            full_state, delta = await relay.inject_elements(
                 canvas_id,
                 elements,
                 crdt_state=crdt_state,
                 replace=True,
             )
-            await self._canvas_repo.update_crdt_state(canvas_id, state)
+            await self._canvas_repo.update_crdt_state(canvas_id, full_state)
+            svc = CanvasService(self._db)
+            await svc.sync_text_from_crdt(canvas_id)
 
-            update_b64 = base64.b64encode(state).decode("ascii")
-            await Publisher(canvas_channel(canvas_id)).emit(
-                "yjs-update",
-                {"update": update_b64},
-            )
+            delta_b64 = base64.b64encode(delta).decode("ascii")
+            enqueue_crdt_broadcast(self._db, canvas_channel(canvas_id), delta_b64)
 
             await audit.emit(
                 self._db,

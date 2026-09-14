@@ -36,6 +36,65 @@ _EXCALIDRAW_ELEMENT_KINDS = {
 }
 
 
+def build_element_dict(
+    kind: str,
+    *,
+    elem_id: str | None = None,
+    x: float = 0,
+    y: float = 0,
+    width: float = 100,
+    height: float = 100,
+    content: str | None = None,
+    style: dict[str, Any] | None = None,
+    custom_data: dict[str, Any] | None = None,
+    image: bool = False,
+) -> dict[str, Any]:
+    """Build an Excalidraw element dict with kind-specific defaults.
+
+    Image elements get transparent stroke and roughness 0; all others get
+    the standard Excalidraw defaults.
+    """
+    eid = elem_id or str(uuid.uuid4())
+    elem: dict[str, Any] = {
+        "id": eid,
+        "type": _EXCALIDRAW_ELEMENT_KINDS.get(kind, "rectangle") if not image else "image",
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "angle": 0,
+        "strokeColor": "transparent" if image else "#1e1e1e",
+        "backgroundColor": "transparent",
+        "fillStyle": "solid",
+        "strokeWidth": 0 if image else 2,
+        "roughness": 0 if image else 1,
+        "opacity": 100,
+        "isDeleted": False,
+        "groupIds": [],
+        "boundElements": None,
+        "updated": 1,
+        "locked": False,
+    }
+    if image:
+        elem["fileId"] = eid
+        elem["status"] = "saved"
+    if content:
+        elem["text"] = content
+        if kind == "text":
+            elem["fontSize"] = 20
+            elem["fontFamily"] = 1
+            elem["textAlign"] = "left"
+            elem["verticalAlign"] = "top"
+    if style:
+        if "backgroundColor" in style:
+            elem["backgroundColor"] = style["backgroundColor"]
+        if "strokeColor" in style:
+            elem["strokeColor"] = style["strokeColor"]
+    if custom_data:
+        elem["customData"] = custom_data
+    return elem
+
+
 class CrdtUpdateError(Exception):
     """Raised when an update is rejected (malformed or oversized)."""
 
@@ -92,39 +151,16 @@ class CrdtRelay:
         elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
         for obj in objects:
             elem_id = str(obj.id)
-            element: dict[str, Any] = {
-                "id": elem_id,
-                "type": _EXCALIDRAW_ELEMENT_KINDS.get(obj.kind.value, "rectangle"),
-                "x": obj.position_x,
-                "y": obj.position_y,
-                "width": obj.width,
-                "height": obj.height,
-                "angle": 0,
-                "strokeColor": "#1e1e1e",
-                "backgroundColor": "transparent",
-                "fillStyle": "solid",
-                "strokeWidth": 2,
-                "roughness": 1,
-                "opacity": 100,
-                "isDeleted": False,
-                "groupIds": [],
-                "boundElements": None,
-                "updated": 1,
-                "locked": False,
-            }
-            if obj.content:
-                element["text"] = obj.content
-                if obj.kind.value == "text":
-                    element["type"] = "text"
-                    element["fontSize"] = 20
-                    element["fontFamily"] = 1
-                    element["textAlign"] = "left"
-                    element["verticalAlign"] = "top"
-            if obj.style:
-                if "backgroundColor" in obj.style:
-                    element["backgroundColor"] = obj.style["backgroundColor"]
-                if "strokeColor" in obj.style:
-                    element["strokeColor"] = obj.style["strokeColor"]
+            element = build_element_dict(
+                obj.kind.value,
+                elem_id=elem_id,
+                x=obj.position_x,
+                y=obj.position_y,
+                width=obj.width,
+                height=obj.height,
+                content=obj.content,
+                style=obj.style,
+            )
             elements_map[elem_id] = pycrdt.Map(element)
 
     async def apply_update(
@@ -210,18 +246,20 @@ class CrdtRelay:
         *,
         crdt_state: bytes | None = None,
         replace: bool = False,
-    ) -> bytes:
+    ) -> tuple[bytes, bytes]:
         """Write Excalidraw elements into the CRDT doc from the server side.
 
         Loads the doc if not in memory.  If *replace* is True, marks every
         existing element as deleted first (used by snapshot restore).
 
-        Returns the full doc state for DB persistence and broadcasting.
+        Returns ``(full_state, delta)`` -- full state for persistence,
+        incremental delta for broadcasting.
         """
         doc = await self.get_or_load(canvas_id, crdt_state=crdt_state)
         entry = self._docs[canvas_id]
 
         async with entry.lock:
+            pre_sv = doc.get_state()
             elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
 
             if replace:
@@ -234,13 +272,14 @@ class CrdtRelay:
                 elem_id = elem.get("id") or str(uuid.uuid4())
                 elements_map[elem_id] = pycrdt.Map(elem)
 
-            state = doc.get_update()
-            if len(state) > _MAX_DOC_SIZE_BYTES:
+            full_state = doc.get_update()
+            if len(full_state) > _MAX_DOC_SIZE_BYTES:
                 raise CrdtUpdateError(f"document would exceed {_MAX_DOC_SIZE_BYTES} byte cap")
 
+            delta = doc.get_update(pre_sv)
             entry.dirty = True
 
-        return state
+        return full_state, delta
 
     async def update_element(
         self,
@@ -249,15 +288,16 @@ class CrdtRelay:
         fields: dict[str, Any],
         *,
         crdt_state: bytes | None = None,
-    ) -> bytes:
+    ) -> tuple[bytes, bytes]:
         """Merge *fields* into an existing Excalidraw element in the CRDT doc.
 
-        Returns the full doc state for DB persistence and broadcasting.
+        Returns ``(full_state, delta)``.
         """
         doc = await self.get_or_load(canvas_id, crdt_state=crdt_state)
         entry = self._docs[canvas_id]
 
         async with entry.lock:
+            pre_sv = doc.get_state()
             elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
             existing = elements_map.get(element_id)
             if not isinstance(existing, pycrdt.Map):
@@ -266,13 +306,14 @@ class CrdtRelay:
             for key, value in fields.items():
                 existing[key] = value
 
-            state = doc.get_update()
-            if len(state) > _MAX_DOC_SIZE_BYTES:
+            full_state = doc.get_update()
+            if len(full_state) > _MAX_DOC_SIZE_BYTES:
                 raise CrdtUpdateError(f"document would exceed {_MAX_DOC_SIZE_BYTES} byte cap")
 
+            delta = doc.get_update(pre_sv)
             entry.dirty = True
 
-        return state
+        return full_state, delta
 
     async def delete_element(
         self,
@@ -280,15 +321,16 @@ class CrdtRelay:
         element_id: str,
         *,
         crdt_state: bytes | None = None,
-    ) -> bytes:
+    ) -> tuple[bytes, bytes]:
         """Soft-delete an element by setting ``isDeleted: true``.
 
-        Returns the full doc state for DB persistence and broadcasting.
+        Returns ``(full_state, delta)``.
         """
         doc = await self.get_or_load(canvas_id, crdt_state=crdt_state)
         entry = self._docs[canvas_id]
 
         async with entry.lock:
+            pre_sv = doc.get_state()
             elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
             existing = elements_map.get(element_id)
             if not isinstance(existing, pycrdt.Map):
@@ -296,10 +338,11 @@ class CrdtRelay:
 
             existing["isDeleted"] = True
 
-            state = doc.get_update()
+            full_state = doc.get_update()
+            delta = doc.get_update(pre_sv)
             entry.dirty = True
 
-        return state
+        return full_state, delta
 
     def extract_elements_for_digest(
         self,
@@ -341,4 +384,9 @@ def get_crdt_relay() -> CrdtRelay:
     return _relay
 
 
-__all__ = ["CrdtRelay", "CrdtUpdateError", "get_crdt_relay"]
+__all__ = [
+    "CrdtRelay",
+    "CrdtUpdateError",
+    "build_element_dict",
+    "get_crdt_relay",
+]
