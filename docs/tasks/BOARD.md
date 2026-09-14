@@ -387,11 +387,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Canvas CRDT bridge (2026-09-14)
 
-- `2026-09-14-canvas-crdt-bridge-remaining` (feature, **approved**) - `depends_on: []`.
-  Bridges three canvas features from REST to CRDT: image upload (WS event + presigned
-  URL to Excalidraw addFiles), agent write tools (CRDT-only, no REST dual-write),
-  save-as-template (read from CRDT state). Uses the `inject_elements` primitive proven
-  by snapshot restore. Amends R13.57, R13.60, R13.61; adds R13.71.
+- (moved to In progress on 2026-09-14) `2026-09-14-canvas-crdt-bridge-remaining`.
 
 ## Blocked
 
@@ -581,6 +577,10 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-14-canvas-crdt-bridge-remaining` (feature, **in-progress**). Bridges image
+  upload, agent write tools, and save-as-template from REST to CRDT. No migration.
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-13) `2026-09-13-teacher-dashboard`. AC-4/AC-5/AC-11
   unticked (code complete, need running stack for WS integration verification).
