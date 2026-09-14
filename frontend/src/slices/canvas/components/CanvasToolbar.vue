@@ -272,11 +272,9 @@ function handleTemplateKeydown(e: KeyboardEvent) {
   display: flex;
   align-items: center;
   gap: var(--space-0-5);
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
-  flex-shrink: 0;
 }
 
 .canvas-toolbar__btn {

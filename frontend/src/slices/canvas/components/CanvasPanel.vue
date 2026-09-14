@@ -43,7 +43,6 @@ const {
 
 useCanvasSocket(chatroomIdRef)
 
-// CRDT sync via Yjs -- canvasId is derived from the REST canvas query
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
 const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
 
@@ -107,6 +106,7 @@ async function toggleExposeToAgents() {
     class="canvas-panel"
     :class="{ 'canvas-panel--fullscreen': isFullscreen }"
   >
+    <!-- Compact header: title + status + toolbar controls + close, all in one row -->
     <div class="canvas-panel__header">
       <span class="canvas-panel__title">{{ t('canvas.title') }}</span>
       <span
@@ -117,6 +117,23 @@ async function toggleExposeToAgents() {
         v-else
         class="canvas-panel__status canvas-panel__status--disconnected"
       />
+
+      <CanvasToolbar
+        v-model:search-query="searchQuery"
+        :is-fullscreen="isFullscreen"
+        :is-saving="!!isSavingSnapshot"
+        :is-exporting="isExporting"
+        :is-moderator="isModerator"
+        :chatroom-id="chatroomId"
+        @upload-image="handleUploadImage"
+        @save="handleSave"
+        @toggle-fullscreen="emit('toggleFullscreen')"
+        @open-settings="showSettings = !showSettings"
+        @export-png="exportPng"
+        @export-svg="exportSvg"
+        @open-history="toggleHistory"
+      />
+
       <button
         class="canvas-panel__close"
         :title="t('canvas.close')"
@@ -124,33 +141,6 @@ async function toggleExposeToAgents() {
       >
         <XMarkIcon class="canvas-panel__close-icon" />
       </button>
-    </div>
-
-    <CanvasToolbar
-      v-model:search-query="searchQuery"
-      :is-fullscreen="isFullscreen"
-      :is-saving="!!isSavingSnapshot"
-      :is-exporting="isExporting"
-      :is-moderator="isModerator"
-      :chatroom-id="chatroomId"
-      @upload-image="handleUploadImage"
-      @save="handleSave"
-      @toggle-fullscreen="emit('toggleFullscreen')"
-      @open-settings="showSettings = !showSettings"
-      @export-png="exportPng"
-      @export-svg="exportSvg"
-      @open-history="toggleHistory"
-    />
-
-    <div
-      v-if="searchQuery.trim()"
-      class="canvas-panel__search-results"
-    >
-      <CanvasSearchResults
-        :results="searchResults"
-        :is-searching="isSearching"
-        @select-object="handleSelectObject"
-      />
     </div>
 
     <div
@@ -172,39 +162,52 @@ async function toggleExposeToAgents() {
     </div>
 
     <div class="canvas-panel__content">
-      <div class="canvas-panel__body">
-        <div
-          v-if="isLoading"
-          class="canvas-panel__centered"
-        >
-          <SLoadingSpinner />
-        </div>
-        <div
-          v-else-if="error"
-          class="canvas-panel__centered"
-        >
-          <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
-        </div>
-        <template v-else>
-          <div class="canvas-panel__canvas-area">
-            <Suspense>
-              <CanvasRenderer
-                ref="canvasRendererRef"
-                :doc="doc"
-                :awareness="awareness"
-              />
-              <template #fallback>
-                <SLoadingSpinner />
-              </template>
-            </Suspense>
-          </div>
-        </template>
+      <div
+        v-if="isLoading"
+        class="canvas-panel__centered"
+      >
+        <SLoadingSpinner />
       </div>
-      <CanvasHistory
-        v-if="showHistory"
-        :chatroom-id="chatroomId"
-        @close="showHistory = false"
-      />
+      <div
+        v-else-if="error"
+        class="canvas-panel__centered"
+      >
+        <span class="canvas-panel__error">{{ t('canvas.loadError') }}</span>
+      </div>
+      <template v-else>
+        <div class="canvas-panel__canvas-area">
+          <!-- Search results float over the canvas -->
+          <div
+            v-if="searchQuery.trim()"
+            class="canvas-panel__search-results"
+          >
+            <CanvasSearchResults
+              :results="searchResults"
+              :is-searching="isSearching"
+              @select-object="handleSelectObject"
+            />
+          </div>
+
+          <Suspense>
+            <CanvasRenderer
+              ref="canvasRendererRef"
+              :doc="doc"
+              :awareness="awareness"
+            />
+            <template #fallback>
+              <SLoadingSpinner />
+            </template>
+          </Suspense>
+        </div>
+
+        <!-- History overlays from the right instead of displacing the canvas -->
+        <CanvasHistory
+          v-if="showHistory"
+          class="canvas-panel__history"
+          :chatroom-id="chatroomId"
+          @close="showHistory = false"
+        />
+      </template>
     </div>
 
     <input
@@ -239,13 +242,15 @@ async function toggleExposeToAgents() {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .canvas-panel__title {
   font-weight: var(--weight-semibold);
   font-size: var(--font-size-sm);
+  flex-shrink: 0;
 }
 
 .canvas-panel__status {
@@ -264,7 +269,6 @@ async function toggleExposeToAgents() {
 }
 
 .canvas-panel__close {
-  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -275,6 +279,7 @@ async function toggleExposeToAgents() {
   color: var(--color-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
 
 .canvas-panel__close:hover {
@@ -291,6 +296,7 @@ async function toggleExposeToAgents() {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
+  flex-shrink: 0;
 }
 
 .canvas-panel__setting {
@@ -303,14 +309,7 @@ async function toggleExposeToAgents() {
 .canvas-panel__content {
   flex: 1;
   min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-
-.canvas-panel__body {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
 }
@@ -323,6 +322,31 @@ async function toggleExposeToAgents() {
   flex-direction: column;
 }
 
+.canvas-panel__search-results {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.canvas-panel__history {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 80%);
+  z-index: 10;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+}
+
 .canvas-panel__centered {
   flex: 1;
   display: flex;
@@ -333,11 +357,5 @@ async function toggleExposeToAgents() {
 .canvas-panel__error {
   color: var(--color-danger);
   font-size: var(--font-size-sm);
-}
-
-.canvas-panel__search-results {
-  position: relative;
-  z-index: 10;
-  padding: 0 var(--space-2);
 }
 </style>

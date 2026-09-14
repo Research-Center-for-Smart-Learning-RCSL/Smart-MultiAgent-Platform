@@ -68,6 +68,8 @@ export function useCanvasSplitPane(
   function startDrag(e: MouseEvent) {
     e.preventDefault()
     isDragging.value = true
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
 
     const onMove = (ev: MouseEvent) => {
       const container = containerRef?.value
@@ -80,6 +82,8 @@ export function useCanvasSplitPane(
 
     const onUp = () => {
       isDragging.value = false
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
       saveState()
