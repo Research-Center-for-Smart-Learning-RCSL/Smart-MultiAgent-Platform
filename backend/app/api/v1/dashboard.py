@@ -1,8 +1,7 @@
-"""`/api/v1/projects/{id}/dashboard/*` -- Teacher dashboard ([R33.01]-[R33.02]).
+"""`/api/v1/workspaces/{id}/dashboard/*` -- Teacher dashboard ([R33.01]-[R33.02]).
 
-Cross-room activity aggregation for facilitators. Three read-only endpoints;
-authZ is project membership plus created_by_user_id filtering (only rooms
-the caller created).
+Cross-room activity aggregation within a workspace. Three read-only endpoints;
+authZ is project membership derived from the workspace's parent project.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ import datetime as dt
 import enum
 import uuid
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +21,7 @@ from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
-router = APIRouter(prefix="/api/v1/projects", tags=["dashboard"])
+router = APIRouter(prefix="/api/v1/workspaces", tags=["dashboard"])
 
 _STALE_MINUTES_GREEN = 5
 _STALE_MINUTES_YELLOW = 15
@@ -107,28 +106,32 @@ def _traffic_light(last_submission_at: dt.datetime | None) -> TrafficLight:
     return TrafficLight.RED
 
 
-async def _resolve_facilitator_rooms(
+async def _resolve_workspace_rooms(
     *,
     db: AsyncSession,
     principal: Principal,
-    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
 ) -> dict[uuid.UUID, str]:
-    """Chatroom IDs and names for rooms the caller created in this project."""
-    room_ids = await ConversationFacade(db).list_chatroom_ids_for_project(project_id)
+    """All chatroom IDs and names in this workspace."""
+    facade = ConversationFacade(db)
+    workspace = await facade.get_workspace(workspace_id)
+    if workspace is None or workspace.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    await assert_project_membership(db=db, principal=principal, project_id=workspace.project_id)
+    room_ids = await facade.list_chatroom_ids_for_workspace(workspace_id)
     if not room_ids:
         return {}
-    rooms = await ConversationFacade(db).get_chatrooms(room_ids)
-    return {rid: room.name for rid, room in rooms.items() if room.created_by_user_id == principal.user_id}
+    rooms = await facade.get_chatrooms(room_ids)
+    return {rid: room.name for rid, room in rooms.items()}
 
 
-@router.get("/{project_id}/dashboard/summary")
+@router.get("/{workspace_id}/dashboard/summary")
 async def dashboard_summary(
-    project_id: uuid.UUID = Path(...),
+    workspace_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardSummaryOut:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    room_map = await _resolve_facilitator_rooms(db=db, principal=principal, project_id=project_id)
+    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
     if not room_map:
         return DashboardSummaryOut(rooms=[])
 
@@ -152,16 +155,15 @@ async def dashboard_summary(
     return DashboardSummaryOut(rooms=rooms)
 
 
-@router.get("/{project_id}/dashboard/timeseries")
+@router.get("/{workspace_id}/dashboard/timeseries")
 async def dashboard_timeseries(
-    project_id: uuid.UUID = Path(...),
+    workspace_id: uuid.UUID = Path(...),
     window: TimeWindow = Query(TimeWindow.H1),
     bucket: BucketSize = Query(BucketSize.M5),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardTimeseriesOut:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    room_map = await _resolve_facilitator_rooms(db=db, principal=principal, project_id=project_id)
+    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
     if not room_map:
         return DashboardTimeseriesOut(buckets=[])
 
@@ -176,14 +178,13 @@ async def dashboard_timeseries(
     )
 
 
-@router.get("/{project_id}/dashboard/watchlist")
+@router.get("/{workspace_id}/dashboard/watchlist")
 async def dashboard_watchlist(
-    project_id: uuid.UUID = Path(...),
+    workspace_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardWatchlistOut:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    room_map = await _resolve_facilitator_rooms(db=db, principal=principal, project_id=project_id)
+    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
     if not room_map:
         return DashboardWatchlistOut(entries=[])
 

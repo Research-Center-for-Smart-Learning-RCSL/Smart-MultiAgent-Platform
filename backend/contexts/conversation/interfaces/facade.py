@@ -243,6 +243,13 @@ class ConversationFacade:
         """Live chatroom ids across the project's workspaces (workflow linter)."""
         return await self._rooms.list_ids_for_project(project_id)
 
+    async def list_chatroom_ids_for_workspace(
+        self,
+        workspace_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Live chatroom ids in a single workspace (dashboard)."""
+        return await self._rooms.list_ids_for_workspace(workspace_id)
+
     async def chatroom_member_group_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
         """The Member Groups bound to a room ([R13.29]).
 

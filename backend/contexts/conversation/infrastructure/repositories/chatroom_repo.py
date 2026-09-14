@@ -183,6 +183,20 @@ class ChatroomRepository:
         ).all()
         return [r.id for r in rows]
 
+    async def list_ids_for_workspace(self, workspace_id: uuid.UUID) -> list[uuid.UUID]:
+        """All live chatroom ids in *workspace_id* (no join needed)."""
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatrooms.c.id).where(
+                    sa.and_(
+                        t.chatrooms.c.workspace_id == workspace_id,
+                        t.chatrooms.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return [r.id for r in rows]
+
     async def lock_live_project_id(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
         """Return a live room's project while blocking concurrent soft deletes.
 
