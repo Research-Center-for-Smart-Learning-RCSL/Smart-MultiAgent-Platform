@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.domain.canvas_digest import build_canvas_digest
@@ -75,36 +73,6 @@ class CanvasService:
             doc.apply_update(crdt_state)
             elements = _extract_elements_from_doc(doc)
         await self._repo.sync_text_from_crdt(canvas_id, elements)
-
-    def _enqueue_deferred_broadcast(
-        self,
-        canvas_id: uuid.UUID,
-        delta_b64: str,
-    ) -> None:
-        """Schedule a CRDT broadcast to fire after the current transaction commits."""
-        channel = canvas_channel(canvas_id)
-        payload: dict[str, Any] = {"data": delta_b64}
-        pending = self._db.info.setdefault("_pending_crdt_broadcasts", [])
-        pending.append((channel, payload))
-        if "_crdt_broadcast_hooked" not in self._db.info:
-            self._db.info["_crdt_broadcast_hooked"] = True
-            try:
-
-                @event.listens_for(self._db.sync_session, "after_commit")
-                def _drain(session: Any) -> None:
-                    broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
-                    if not broadcasts:
-                        return
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        return
-                    for ch, data in broadcasts:
-                        task = loop.create_task(_best_effort_emit(ch, data))
-                        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-
-            except Exception:
-                _log.debug("could not attach after_commit hook", exc_info=True)
 
     # ---- canvas lifecycle --------------------------------------------------
 
@@ -543,10 +511,13 @@ class CanvasService:
             replace=True,
         )
         await self._repo.update_crdt_state(canvas_id, full_state)
+        await self.sync_text_from_crdt(canvas_id)
         await self._db.flush()
 
+        from contexts.canvas.infrastructure.deferred_broadcast import enqueue_crdt_broadcast
+
         delta_b64 = base64.b64encode(delta).decode("ascii")
-        self._enqueue_deferred_broadcast(canvas_id, delta_b64)
+        enqueue_crdt_broadcast(self._db, canvas_channel(canvas_id), delta_b64)
 
         await audit.emit(
             self._db,
@@ -604,13 +575,6 @@ class CanvasService:
             return snap.agent_digest
         objects = await self._repo.list_objects(canvas_id)
         return build_canvas_digest(list(objects))
-
-
-async def _best_effort_emit(channel: str, data: dict[str, Any]) -> None:
-    try:
-        await Publisher(channel).emit("yjs-update", data)
-    except Exception:
-        _log.warning("deferred CRDT broadcast failed ch=%s", channel, exc_info=True)
 
 
 __all__ = ["CanvasService"]

@@ -170,6 +170,7 @@ class TestSnapshotRestore:
         repo.create_snapshot = AsyncMock(return_value=auto_save)
         repo.get_crdt_state = AsyncMock(return_value=None)
         repo.update_crdt_state = AsyncMock()
+        repo.sync_text_from_crdt = AsyncMock()
 
         mock_relay = MagicMock()
         mock_relay.has = MagicMock(return_value=False)

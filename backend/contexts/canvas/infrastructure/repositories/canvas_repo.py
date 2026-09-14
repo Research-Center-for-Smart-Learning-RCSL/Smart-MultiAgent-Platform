@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.canvas.application.crdt_relay import _EXCALIDRAW_ELEMENT_KINDS
 from contexts.canvas.domain.models import (
     Canvas,
     CanvasObject,
@@ -18,6 +19,8 @@ from contexts.canvas.domain.models import (
 )
 from contexts.canvas.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+
+_EXCALIDRAW_TO_DOMAIN_KIND = {v: k for k, v in _EXCALIDRAW_ELEMENT_KINDS.items()}
 
 
 def _row_to_canvas(row: Any) -> Canvas:
@@ -271,14 +274,7 @@ class CanvasRepository:
             live_ids.add(eid)
             text = elem.get("text") or None
             kind_raw = elem.get("type", "rectangle")
-            kind_map = {
-                "rectangle": "shape",
-                "text": "text",
-                "image": "image",
-                "freedraw": "drawing",
-                "arrow": "connector",
-            }
-            kind = kind_map.get(kind_raw, "shape")
+            kind = _EXCALIDRAW_TO_DOMAIN_KIND.get(kind_raw, "shape")
 
             stmt = (
                 pg_insert(t.canvas_objects)
@@ -313,6 +309,12 @@ class CanvasRepository:
                         t.canvas_objects.c.canvas_id == canvas_id,
                         t.canvas_objects.c.id.notin_(live_ids),
                     )
+                )
+            )
+        else:
+            await self._db.execute(
+                t.canvas_objects.delete().where(
+                    t.canvas_objects.c.canvas_id == canvas_id,
                 )
             )
 

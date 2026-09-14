@@ -5,14 +5,12 @@ Thin pass-throughs to the application service (caller owns commit).
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.application.canvas_service import CanvasService
@@ -29,6 +27,7 @@ from contexts.canvas.domain.models import (
     CanvasTemplateScope,
 )
 from contexts.canvas.infrastructure.channels import canvas_channel
+from contexts.canvas.infrastructure.deferred_broadcast import enqueue_crdt_broadcast
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
@@ -353,32 +352,11 @@ class CanvasFacade:
 
         channel = canvas_channel(canvas_id)
         delta_b64 = base64.b64encode(delta).decode("ascii")
-        payload: dict[str, Any] = {"data": delta_b64}
 
         if deferred:
-            pending = self._db.info.setdefault("_pending_crdt_broadcasts", [])
-            pending.append((channel, payload))
-            if "_crdt_broadcast_hooked" not in self._db.info:
-                self._db.info["_crdt_broadcast_hooked"] = True
-                try:
-
-                    @event.listens_for(self._db.sync_session, "after_commit")
-                    def _drain_crdt_broadcasts(session: Any) -> None:
-                        broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
-                        if not broadcasts:
-                            return
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            return
-                        for ch, data in broadcasts:
-                            task = loop.create_task(_best_effort_emit(ch, data))
-                            task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-
-                except Exception:
-                    _log.debug("could not attach after_commit hook", exc_info=True)
+            enqueue_crdt_broadcast(self._db, channel, delta_b64)
         else:
-            await Publisher(channel).emit("yjs-update", payload)
+            await Publisher(channel).emit("yjs-update", {"data": delta_b64})
 
     # ---- comments ------------------------------------------------------------
 
@@ -562,13 +540,6 @@ class CanvasFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
-
-
-async def _best_effort_emit(channel: str, data: dict[str, Any]) -> None:
-    try:
-        await Publisher(channel).emit("yjs-update", data)
-    except Exception:
-        _log.warning("deferred CRDT broadcast failed ch=%s", channel, exc_info=True)
 
 
 __all__ = ["CanvasFacade", "CrdtUpdateError", "build_element_dict"]
