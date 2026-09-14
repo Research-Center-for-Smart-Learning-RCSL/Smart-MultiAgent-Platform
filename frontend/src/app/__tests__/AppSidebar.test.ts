@@ -78,6 +78,13 @@ describe('AppSidebar — Manage group', () => {
   })
 })
 
+describe('AppSidebar — dashboard nav removed (AC-8)', () => {
+  it('does not show a dashboard link in the sidebar', async () => {
+    const wrapper = await mountSidebar()
+    expect(wrapper.find('a[href="/projects/p1/dashboard"]').exists()).toBe(false)
+  })
+})
+
 describe('AppSidebar — switcher placement', () => {
   it('renders the switcher in the sidebar on desktop (AC-4)', async () => {
     window.innerWidth = 1280

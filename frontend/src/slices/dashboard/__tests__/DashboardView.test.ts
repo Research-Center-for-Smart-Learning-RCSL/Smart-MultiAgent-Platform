@@ -55,13 +55,13 @@ describe('DashboardView', () => {
     const wrapper = await renderView(DashboardView, {
       routes: [
         {
-          path: '/projects/:projectId/dashboard',
+          path: '/workspaces/:workspaceId/dashboard',
           name: 'dashboard',
           component: DashboardView,
           meta: { requiresAuth: true, requiresVerifiedEmail: true },
         },
       ],
-      initialRoute: '/projects/p1/dashboard',
+      initialRoute: '/workspaces/w1/dashboard',
     })
     await flushPromises()
     expect(wrapper.text()).toContain('dashboard.noRooms')
@@ -86,13 +86,13 @@ describe('DashboardView', () => {
     const wrapper = await renderView(DashboardView, {
       routes: [
         {
-          path: '/projects/:projectId/dashboard',
+          path: '/workspaces/:workspaceId/dashboard',
           name: 'dashboard',
           component: DashboardView,
           meta: { requiresAuth: true, requiresVerifiedEmail: true },
         },
       ],
-      initialRoute: '/projects/p1/dashboard',
+      initialRoute: '/workspaces/w1/dashboard',
     })
     await flushPromises()
     expect(wrapper.text()).toContain('Room A')
