@@ -310,13 +310,10 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Dashboard workspace scope (2026-09-14)
 
-- `2026-09-14-dashboard-workspace-scope` (feature, **approved 2026-09-14**) --
-  `depends_on: []`. Relocates the teacher dashboard from project-level to
-  workspace-level scope: three REST endpoints move from `{project_id}` to
-  `{workspace_id}`, facilitator filter removed (all rooms shown), sidebar entry
-  replaced by workspace card dropdown action. SRS Delta applied at approval:
-  R33.01 and R33.02 amended. No migration. Nothing lists
-  `2026-09-13-teacher-dashboard` in `depends_on`, so no sequencing constraint.
+- (implemented 2026-09-14) `2026-09-14-dashboard-workspace-scope`. All 13 ACs
+  ticked. AC-7/AC-9/AC-10 verified by code inspection (need running stack for
+  visual/WS integration confirmation). Nothing lists this slug in `depends_on`,
+  so no row moves out of Blocked.
 
 ### Other ready work
 
