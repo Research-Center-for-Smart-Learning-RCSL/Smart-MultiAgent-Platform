@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-14
 requirements: [R13.45, R13.47, R13.56, R13.57, R13.58, R13.60, R13.61]
 depends_on: []
@@ -267,21 +267,21 @@ WS handler.
 ## 11. Acceptance Criteria
 
 - [ ] AC-1: Upload an image via the toolbar button; the image appears on the Excalidraw
-  canvas within 2 seconds for all connected editors.
+  canvas within 2 seconds for all connected editors. (Code complete; needs running stack)
 - [ ] AC-2: An AI agent with `may_write_canvas` creates a text element via the canvas
-  create tool; the text appears on the Excalidraw canvas in real time.
+  create tool; the text appears on the Excalidraw canvas in real time. (Unit: inject_elements called with correct element; needs running stack)
 - [ ] AC-3: An AI agent updates an existing element's position via the canvas update tool;
-  the element moves on the Excalidraw canvas.
+  the element moves on the Excalidraw canvas. (Unit: update_element called with mapped fields)
 - [ ] AC-4: An AI agent deletes an element via the canvas delete tool; the element
-  disappears from the Excalidraw canvas.
+  disappears from the Excalidraw canvas. (Unit: delete_element called)
 - [ ] AC-5: Save-as-template on a canvas with Excalidraw drawings produces a template
-  that, when applied to a new canvas, reproduces those drawings.
-- [ ] AC-6: Image upload respects the existing 10 MB file size limit and 50 image cap
-  per canvas ([R13.45]).
-- [ ] AC-7: Agent canvas writes respect `may_write_canvas` permission; an agent without
-  the grant receives a tool error.
-- [ ] AC-8: The CRDT doc does not exceed the 10 MB cap ([R13.51]) after image element
-  injection (image binary data stays in MinIO, not in the doc).
+  that, when applied to a new canvas, reproduces those drawings. (Unit: template_data has elements key; needs running stack)
+- [x] AC-6: Image upload respects the existing 10 MB file size limit and 50 image cap
+  per canvas ([R13.45]). (Existing guards unchanged: canvas.py:539,557-562)
+- [x] AC-7: Agent canvas writes respect `may_write_canvas` permission; an agent without
+  the grant receives a tool error. (Existing resolve_canvas_write gate unchanged; unit tests pass)
+- [x] AC-8: The CRDT doc does not exceed the 10 MB cap ([R13.51]) after image element
+  injection (image binary data stays in MinIO, not in the doc). (Unit: test_image_element_stays_small passes, doc < 1KB)
 
 ## 12. Test Plan
 
@@ -331,6 +331,8 @@ None. All blocking questions resolved in section 3.
 ## 15. Deviation Log
 
 Appended by /build. Empty means the implementation matches this spec exactly.
+
+No deviations. The implementation matches the spec exactly.
 
 ## 16. Follow-ups
 
