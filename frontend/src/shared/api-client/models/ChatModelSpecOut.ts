@@ -9,16 +9,16 @@
  * provider's.
  */
 export type ChatModelSpecOut = {
+    model_id: string;
+    context_limit: number;
     accepts_effort: boolean;
+    effort_values: Array<string>;
     accepts_sampling: boolean;
     accepts_seed: boolean;
     accepts_vision: boolean;
-    context_limit: number;
-    effort_conflicts_with_tools: boolean;
-    effort_values: Array<string>;
-    model_id: string;
-    source_url: string;
     uses_completion_token_field: boolean;
+    effort_conflicts_with_tools: boolean;
+    source_url: string;
     verified_on: string;
 };
 

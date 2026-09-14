@@ -30,7 +30,7 @@ export class NotificationsService {
                 'limit': limit,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -50,7 +50,7 @@ export class NotificationsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

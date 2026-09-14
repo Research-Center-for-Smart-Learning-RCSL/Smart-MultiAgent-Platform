@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ProjectCreateIn = {
-    name: string;
-    owner_id: string;
     owner_type: 'user' | 'org';
+    owner_id: string;
+    name: string;
 };
 

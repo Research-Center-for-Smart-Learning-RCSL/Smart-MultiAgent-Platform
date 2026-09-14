@@ -16,19 +16,19 @@ export class DashboardService {
      * @returns DashboardSummaryOut Successful Response
      * @throws ApiError
      */
-    public static dashboardSummaryApiV1ProjectsProjectIdDashboardSummaryGet({
-        projectId,
+    public static dashboardSummaryApiV1WorkspacesWorkspaceIdDashboardSummaryGet({
+        workspaceId,
     }: {
-        projectId: string,
+        workspaceId: string,
     }): CancelablePromise<DashboardSummaryOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/v1/projects/{project_id}/dashboard/summary',
+            url: '/api/v1/workspaces/{workspace_id}/dashboard/summary',
             path: {
-                'project_id': projectId,
+                'workspace_id': workspaceId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -37,27 +37,27 @@ export class DashboardService {
      * @returns DashboardTimeseriesOut Successful Response
      * @throws ApiError
      */
-    public static dashboardTimeseriesApiV1ProjectsProjectIdDashboardTimeseriesGet({
-        projectId,
+    public static dashboardTimeseriesApiV1WorkspacesWorkspaceIdDashboardTimeseriesGet({
+        workspaceId,
         window = '1h',
         bucket = '5m',
     }: {
-        projectId: string,
+        workspaceId: string,
         window?: TimeWindow,
         bucket?: BucketSize,
     }): CancelablePromise<DashboardTimeseriesOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/v1/projects/{project_id}/dashboard/timeseries',
+            url: '/api/v1/workspaces/{workspace_id}/dashboard/timeseries',
             path: {
-                'project_id': projectId,
+                'workspace_id': workspaceId,
             },
             query: {
                 'window': window,
                 'bucket': bucket,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -66,19 +66,19 @@ export class DashboardService {
      * @returns DashboardWatchlistOut Successful Response
      * @throws ApiError
      */
-    public static dashboardWatchlistApiV1ProjectsProjectIdDashboardWatchlistGet({
-        projectId,
+    public static dashboardWatchlistApiV1WorkspacesWorkspaceIdDashboardWatchlistGet({
+        workspaceId,
     }: {
-        projectId: string,
+        workspaceId: string,
     }): CancelablePromise<DashboardWatchlistOut> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/v1/projects/{project_id}/dashboard/watchlist',
+            url: '/api/v1/workspaces/{workspace_id}/dashboard/watchlist',
             path: {
-                'project_id': projectId,
+                'workspace_id': workspaceId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

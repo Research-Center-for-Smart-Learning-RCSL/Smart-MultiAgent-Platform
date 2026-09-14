@@ -32,7 +32,7 @@ export class GraphragAdminService {
                 'force': force,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

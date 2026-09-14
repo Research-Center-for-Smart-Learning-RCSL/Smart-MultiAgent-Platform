@@ -13,64 +13,6 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class GuestsService {
     /**
-     * Update Guest Display Name
-     * @returns void
-     * @throws ApiError
-     */
-    public static updateGuestDisplayNameApiGuestSessionGuestSessionIdDisplayNamePut({
-        guestSessionId,
-        requestBody,
-    }: {
-        guestSessionId: string,
-        requestBody: GuestDisplayNameIn,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'PUT',
-            url: '/api/guest/session/{guest_session_id}/display-name',
-            path: {
-                'guest_session_id': guestSessionId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Guest Ws Ticket
-     * Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer.
-     * @returns GuestWsTicketOut Successful Response
-     * @throws ApiError
-     */
-    public static guestWsTicketApiGuestWsTicketPost(): CancelablePromise<GuestWsTicketOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/guest/ws-ticket',
-        });
-    }
-    /**
-     * Refresh Guest Session
-     * @returns GuestRefreshOut Successful Response
-     * @throws ApiError
-     */
-    public static refreshGuestSessionApiGuestChatroomIdRefreshPost({
-        chatroomId,
-    }: {
-        chatroomId: string,
-    }): CancelablePromise<GuestRefreshOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/guest/{chatroom_id}/refresh',
-            path: {
-                'chatroom_id': chatroomId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Enroll Guest
      * @returns void
      * @throws ApiError
@@ -94,7 +36,7 @@ export class GuestsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -122,8 +64,66 @@ export class GuestsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Refresh Guest Session
+     * @returns GuestRefreshOut Successful Response
+     * @throws ApiError
+     */
+    public static refreshGuestSessionApiGuestChatroomIdRefreshPost({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<GuestRefreshOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/guest/{chatroom_id}/refresh',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Update Guest Display Name
+     * @returns void
+     * @throws ApiError
+     */
+    public static updateGuestDisplayNameApiGuestSessionGuestSessionIdDisplayNamePut({
+        guestSessionId,
+        requestBody,
+    }: {
+        guestSessionId: string,
+        requestBody: GuestDisplayNameIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/guest/session/{guest_session_id}/display-name',
+            path: {
+                'guest_session_id': guestSessionId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Guest Ws Ticket
+     * Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer.
+     * @returns GuestWsTicketOut Successful Response
+     * @throws ApiError
+     */
+    public static guestWsTicketApiGuestWsTicketPost(): CancelablePromise<GuestWsTicketOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/guest/ws-ticket',
         });
     }
 }

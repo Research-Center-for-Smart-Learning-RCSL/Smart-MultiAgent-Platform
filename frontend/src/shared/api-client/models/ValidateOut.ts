@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ValidateOut = {
-    errors: Array<Record<string, any>>;
     valid: boolean;
+    errors: Array<Record<string, any>>;
     warnings: Array<Record<string, any>>;
 };
 

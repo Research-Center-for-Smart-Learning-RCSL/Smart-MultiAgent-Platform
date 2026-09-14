@@ -11,8 +11,8 @@ import type { EmailDomainPolicyMode } from './EmailDomainPolicyMode';
  * normalised — the normaliser is the decision, this is the cost control.
  */
 export type EmailDomainPolicyIn = {
+    mode: EmailDomainPolicyMode;
     allow?: Array<string>;
     deny?: Array<string>;
-    mode: EmailDomainPolicyMode;
 };
 

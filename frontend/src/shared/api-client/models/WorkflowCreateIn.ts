@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkflowCreateIn = {
-    definition: Record<string, any>;
     name: string;
+    definition: Record<string, any>;
 };
 

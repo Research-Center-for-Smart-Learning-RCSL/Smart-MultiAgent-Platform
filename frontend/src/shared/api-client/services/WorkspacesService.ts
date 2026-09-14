@@ -42,7 +42,7 @@ export class WorkspacesService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -67,28 +67,7 @@ export class WorkspacesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Delete Workspace
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteWorkspaceApiWorkspacesWorkspaceIdDelete({
-        workspaceId,
-    }: {
-        workspaceId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/workspaces/{workspace_id}',
-            path: {
-                'workspace_id': workspaceId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -109,7 +88,28 @@ export class WorkspacesService {
                 'workspace_id': workspaceId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Workspace
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteWorkspaceApiWorkspacesWorkspaceIdDelete({
+        workspaceId,
+    }: {
+        workspaceId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/workspaces/{workspace_id}',
+            path: {
+                'workspace_id': workspaceId,
+            },
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -139,7 +139,7 @@ export class WorkspacesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

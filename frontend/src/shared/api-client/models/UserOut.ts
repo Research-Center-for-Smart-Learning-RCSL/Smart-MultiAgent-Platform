@@ -4,11 +4,11 @@
 /* eslint-disable */
 import type { UserStatus } from './UserStatus';
 export type UserOut = {
-    display_name?: (string | null);
+    id: string;
     email: string;
     email_verified: boolean;
-    id: string;
-    is_admin: boolean;
     status: UserStatus;
+    is_admin: boolean;
+    display_name?: (string | null);
 };
 

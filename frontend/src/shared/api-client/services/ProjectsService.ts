@@ -46,7 +46,7 @@ export class ProjectsService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -66,28 +66,7 @@ export class ProjectsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Delete Project
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteProjectApiProjectsProjectIdDelete({
-        projectId,
-    }: {
-        projectId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}',
-            path: {
-                'project_id': projectId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -108,7 +87,7 @@ export class ProjectsService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -138,7 +117,136 @@ export class ProjectsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Project
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteProjectApiProjectsProjectIdDelete({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Restore Project
+     * @returns void
+     * @throws ApiError
+     */
+    public static restoreProjectApiProjectsProjectIdRestorePost({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/restore',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Members
+     * @returns ProjectMemberOut Successful Response
+     * @throws ApiError
+     */
+    public static listMembersApiProjectsProjectIdMembersGet({
+        projectId,
+        limit = 100,
+        offset,
+    }: {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<ProjectMemberOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/members',
+            path: {
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Remove Project Member
+     * @returns void
+     * @throws ApiError
+     */
+    public static removeProjectMemberApiProjectsProjectIdMembersUserIdDelete({
+        projectId,
+        userId,
+    }: {
+        projectId: string,
+        userId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}/members/{user_id}',
+            path: {
+                'project_id': projectId,
+                'user_id': userId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Patch Project Member
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static patchProjectMemberApiProjectsProjectIdMembersUserIdPatch({
+        projectId,
+        userId,
+        requestBody,
+    }: {
+        projectId: string,
+        userId: string,
+        requestBody: ProjectMemberPatchIn,
+    }): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/projects/{project_id}/members/{user_id}',
+            path: {
+                'project_id': projectId,
+                'user_id': userId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -179,7 +287,7 @@ export class ProjectsService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -204,115 +312,7 @@ export class ProjectsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List Members
-     * @returns ProjectMemberOut Successful Response
-     * @throws ApiError
-     */
-    public static listMembersApiProjectsProjectIdMembersGet({
-        projectId,
-        limit = 100,
-        offset,
-    }: {
-        projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<ProjectMemberOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/members',
-            path: {
-                'project_id': projectId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Remove Project Member
-     * @returns void
-     * @throws ApiError
-     */
-    public static removeProjectMemberApiProjectsProjectIdMembersUserIdDelete({
-        projectId,
-        userId,
-    }: {
-        projectId: string,
-        userId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}/members/{user_id}',
-            path: {
-                'project_id': projectId,
-                'user_id': userId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Patch Project Member
-     * @returns string Successful Response
-     * @throws ApiError
-     */
-    public static patchProjectMemberApiProjectsProjectIdMembersUserIdPatch({
-        projectId,
-        userId,
-        requestBody,
-    }: {
-        projectId: string,
-        userId: string,
-        requestBody: ProjectMemberPatchIn,
-    }): CancelablePromise<Record<string, string>> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/projects/{project_id}/members/{user_id}',
-            path: {
-                'project_id': projectId,
-                'user_id': userId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Restore Project
-     * @returns void
-     * @throws ApiError
-     */
-    public static restoreProjectApiProjectsProjectIdRestorePost({
-        projectId,
-    }: {
-        projectId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/restore',
-            path: {
-                'project_id': projectId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

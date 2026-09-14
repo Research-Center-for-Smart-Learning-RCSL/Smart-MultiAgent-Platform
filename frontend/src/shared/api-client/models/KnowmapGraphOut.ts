@@ -5,10 +5,10 @@
 import type { KnowmapGraphEdgeOut } from './KnowmapGraphEdgeOut';
 import type { KnowmapGraphNodeOut } from './KnowmapGraphNodeOut';
 export type KnowmapGraphOut = {
-    build_state_blocked: boolean;
     config_id: string;
-    edges: Array<KnowmapGraphEdgeOut>;
     nodes: Array<KnowmapGraphNodeOut>;
+    edges: Array<KnowmapGraphEdgeOut>;
     truncated: boolean;
+    build_state_blocked: boolean;
 };
 

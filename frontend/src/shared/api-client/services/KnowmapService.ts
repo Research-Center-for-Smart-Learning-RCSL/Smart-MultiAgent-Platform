@@ -16,28 +16,62 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class KnowmapService {
     /**
-     * Delete Knowmap Config
-     * Soft-delete a Knowledge Map config and cascade its children (R11.20).
-     *
-     * DOM-4: the DB soft-delete + child-document removal + audit are committed
-     * first (point of no return); only then are the irreversible external stores
-     * (Neo4j subgraph, knowmap Qdrant points, MinIO blobs) purged best-effort.
-     * @returns void
+     * List Knowmap Configs
+     * @returns KnowmapConfigOut Successful Response
      * @throws ApiError
      */
-    public static deleteKnowmapConfigApiKnowmapConfigsConfigIdDelete({
-        configId,
+    public static listKnowmapConfigsApiProjectsProjectIdKnowmapConfigsGet({
+        projectId,
+        limit = 100,
+        offset,
     }: {
-        configId: string,
-    }): CancelablePromise<void> {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<KnowmapConfigOut>> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/knowmap-configs/{config_id}',
+            method: 'GET',
+            url: '/api/projects/{project_id}/knowmap-configs',
             path: {
-                'config_id': configId,
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Create Knowmap Config
+     * @returns KnowmapConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static createKnowmapConfigApiProjectsProjectIdKnowmapConfigsPost({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: KnowmapConfigCreateIn,
+    }): CancelablePromise<KnowmapConfigOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/knowmap-configs',
+            path: {
+                'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -58,7 +92,7 @@ export class KnowmapService {
                 'config_id': configId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -83,67 +117,58 @@ export class KnowmapService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
     /**
-     * List Knowmap Documents
-     * @returns KnowmapDocumentOut Successful Response
+     * Delete Knowmap Config
+     * Soft-delete a Knowledge Map config and cascade its children (R11.20).
+     *
+     * DOM-4: the DB soft-delete + child-document removal + audit are committed
+     * first (point of no return); only then are the irreversible external stores
+     * (Neo4j subgraph, knowmap Qdrant points, MinIO blobs) purged best-effort.
+     * @returns void
      * @throws ApiError
      */
-    public static listKnowmapDocumentsApiKnowmapConfigsConfigIdDocumentsGet({
+    public static deleteKnowmapConfigApiKnowmapConfigsConfigIdDelete({
         configId,
-        limit = 100,
-        offset,
     }: {
         configId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<KnowmapDocumentOut>> {
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/knowmap-configs/{config_id}/documents',
+            method: 'DELETE',
+            url: '/api/knowmap-configs/{config_id}',
             path: {
                 'config_id': configId,
             },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
     /**
-     * Upload Knowmap Document
-     * @returns KnowmapDocumentOut Successful Response
+     * Rebuild Knowmap Config
+     * Explicit designer rebuild (Q-3/AC-6). Advances the corpus revision and
+     * enqueues a ``knowmap_build`` for it, so an operator-requested rebuild always
+     * produces a fresh build generation rather than colliding with a retained
+     * prior-build result (F-12 W2).
+     * @returns KnowmapRebuildAck Successful Response
      * @throws ApiError
      */
-    public static uploadKnowmapDocumentApiKnowmapConfigsConfigIdDocumentsPost({
+    public static rebuildKnowmapConfigApiKnowmapConfigsConfigIdRebuildPost({
         configId,
-        formData,
     }: {
         configId: string,
-        formData: Body_upload_knowmap_document_api_knowmap_configs__config_id__documents_post,
-    }): CancelablePromise<KnowmapDocumentOut> {
+    }): CancelablePromise<KnowmapRebuildAck> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/knowmap-configs/{config_id}/documents',
+            url: '/api/knowmap-configs/{config_id}/rebuild',
             path: {
                 'config_id': configId,
             },
-            formData: formData,
-            mediaType: 'multipart/form-data',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -178,32 +203,67 @@ export class KnowmapService {
                 'limit': limit,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
     /**
-     * Rebuild Knowmap Config
-     * Explicit designer rebuild (Q-3/AC-6). Advances the corpus revision and
-     * enqueues a ``knowmap_build`` for it, so an operator-requested rebuild always
-     * produces a fresh build generation rather than colliding with a retained
-     * prior-build result (F-12 W2).
-     * @returns KnowmapRebuildAck Successful Response
+     * List Knowmap Documents
+     * @returns KnowmapDocumentOut Successful Response
      * @throws ApiError
      */
-    public static rebuildKnowmapConfigApiKnowmapConfigsConfigIdRebuildPost({
+    public static listKnowmapDocumentsApiKnowmapConfigsConfigIdDocumentsGet({
         configId,
+        limit = 100,
+        offset,
     }: {
         configId: string,
-    }): CancelablePromise<KnowmapRebuildAck> {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<KnowmapDocumentOut>> {
         return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/knowmap-configs/{config_id}/rebuild',
+            method: 'GET',
+            url: '/api/knowmap-configs/{config_id}/documents',
             path: {
                 'config_id': configId,
             },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Upload Knowmap Document
+     * @returns KnowmapDocumentOut Successful Response
+     * @throws ApiError
+     */
+    public static uploadKnowmapDocumentApiKnowmapConfigsConfigIdDocumentsPost({
+        configId,
+        formData,
+    }: {
+        configId: string,
+        formData: Body_upload_knowmap_document_api_knowmap_configs__config_id__documents_post,
+    }): CancelablePromise<KnowmapDocumentOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/knowmap-configs/{config_id}/documents',
+            path: {
+                'config_id': configId,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -230,7 +290,7 @@ export class KnowmapService {
                 'document_id': documentId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -258,67 +318,7 @@ export class KnowmapService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List Knowmap Configs
-     * @returns KnowmapConfigOut Successful Response
-     * @throws ApiError
-     */
-    public static listKnowmapConfigsApiProjectsProjectIdKnowmapConfigsGet({
-        projectId,
-        limit = 100,
-        offset,
-    }: {
-        projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<KnowmapConfigOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/knowmap-configs',
-            path: {
-                'project_id': projectId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Create Knowmap Config
-     * @returns KnowmapConfigOut Successful Response
-     * @throws ApiError
-     */
-    public static createKnowmapConfigApiProjectsProjectIdKnowmapConfigsPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: KnowmapConfigCreateIn,
-    }): CancelablePromise<KnowmapConfigOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/knowmap-configs',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

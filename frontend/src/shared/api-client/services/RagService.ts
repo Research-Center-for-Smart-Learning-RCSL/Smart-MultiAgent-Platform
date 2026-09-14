@@ -43,7 +43,7 @@ export class RagService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -68,7 +68,53 @@ export class RagService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Read Rag Config
+     * @returns RagConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static readRagConfigApiRagConfigsConfigIdGet({
+        configId,
+    }: {
+        configId: string,
+    }): CancelablePromise<RagConfigOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/rag-configs/{config_id}',
+            path: {
+                'config_id': configId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Patch Rag Config
+     * @returns RagConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static patchRagConfigApiRagConfigsConfigIdPatch({
+        configId,
+        requestBody,
+    }: {
+        configId: string,
+        requestBody: RagConfigPatchIn,
+    }): CancelablePromise<RagConfigOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/rag-configs/{config_id}',
+            path: {
+                'config_id': configId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -97,53 +143,7 @@ export class RagService {
                 'config_id': configId,
             },
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Read Rag Config
-     * @returns RagConfigOut Successful Response
-     * @throws ApiError
-     */
-    public static readRagConfigApiRagConfigsConfigIdGet({
-        configId,
-    }: {
-        configId: string,
-    }): CancelablePromise<RagConfigOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/rag-configs/{config_id}',
-            path: {
-                'config_id': configId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Patch Rag Config
-     * @returns RagConfigOut Successful Response
-     * @throws ApiError
-     */
-    public static patchRagConfigApiRagConfigsConfigIdPatch({
-        configId,
-        requestBody,
-    }: {
-        configId: string,
-        requestBody: RagConfigPatchIn,
-    }): CancelablePromise<RagConfigOut> {
-        return __request(OpenAPI, {
-            method: 'PATCH',
-            url: '/api/rag-configs/{config_id}',
-            path: {
-                'config_id': configId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -178,7 +178,7 @@ export class RagService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -203,7 +203,7 @@ export class RagService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -242,7 +242,7 @@ export class RagService {
                 'document_id': documentId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -275,7 +275,7 @@ export class RagService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }

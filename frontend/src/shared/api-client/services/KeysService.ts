@@ -44,7 +44,7 @@ export class KeysService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -72,29 +72,7 @@ export class KeysService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Delete Key
-     * Soft-delete a key. Cascades to Key-Group membership via ON DELETE.
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteKeyApiKeysKeyIdDelete({
-        keyId,
-    }: {
-        keyId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/keys/{key_id}',
-            path: {
-                'key_id': keyId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -120,7 +98,29 @@ export class KeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Key
+     * Soft-delete a key. Cascades to Key-Group membership via ON DELETE.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteKeyApiKeysKeyIdDelete({
+        keyId,
+    }: {
+        keyId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/keys/{key_id}',
+            path: {
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Validation Error`,
             },
         });
     }
@@ -147,7 +147,7 @@ export class KeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -169,7 +169,7 @@ export class KeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -204,7 +204,7 @@ export class KeysService {
                 'offset': offset,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -229,7 +229,7 @@ export class KeysService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -253,7 +253,7 @@ export class KeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
@@ -282,7 +282,7 @@ export class KeysService {
                 'window': window,
             },
             errors: {
-                422: `Request Validation Problem`,
+                422: `Validation Error`,
             },
         });
     }
