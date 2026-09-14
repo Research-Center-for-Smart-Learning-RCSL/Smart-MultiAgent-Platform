@@ -26,32 +26,7 @@ export class McpService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Replace Allowlist
-     * @returns AllowlistEntryOut Successful Response
-     * @throws ApiError
-     */
-    public static replaceAllowlistApiProjectsProjectIdMcpEgressAllowlistPut({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: AllowlistReplaceIn,
-    }): CancelablePromise<Array<AllowlistEntryOut>> {
-        return __request(OpenAPI, {
-            method: 'PUT',
-            url: '/api/projects/{project_id}/mcp/egress-allowlist',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -76,7 +51,32 @@ export class McpService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Replace Allowlist
+     * @returns AllowlistEntryOut Successful Response
+     * @throws ApiError
+     */
+    public static replaceAllowlistApiProjectsProjectIdMcpEgressAllowlistPut({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: AllowlistReplaceIn,
+    }): CancelablePromise<Array<AllowlistEntryOut>> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/projects/{project_id}/mcp/egress-allowlist',
+            path: {
+                'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -100,7 +100,7 @@ export class McpService {
                 'hostname': hostname,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

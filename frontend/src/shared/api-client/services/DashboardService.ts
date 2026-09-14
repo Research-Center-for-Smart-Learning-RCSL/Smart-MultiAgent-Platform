@@ -28,7 +28,7 @@ export class DashboardService {
                 'workspace_id': workspaceId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -57,7 +57,7 @@ export class DashboardService {
                 'bucket': bucket,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -78,7 +78,7 @@ export class DashboardService {
                 'workspace_id': workspaceId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

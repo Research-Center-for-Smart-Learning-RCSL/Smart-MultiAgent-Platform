@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type CanvasObjectPatch = {
+    content?: (string | null);
+    height?: (number | null);
     position_x?: (number | null);
     position_y?: (number | null);
-    width?: (number | null);
-    height?: (number | null);
-    z_index?: (number | null);
-    content?: (string | null);
     style?: (Record<string, any> | null);
+    width?: (number | null);
+    z_index?: (number | null);
 };
 

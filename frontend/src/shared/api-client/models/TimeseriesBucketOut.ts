@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type TimeseriesBucketOut = {
-    room_id: string;
     bucket: string;
     count: number;
+    room_id: string;
 };
 

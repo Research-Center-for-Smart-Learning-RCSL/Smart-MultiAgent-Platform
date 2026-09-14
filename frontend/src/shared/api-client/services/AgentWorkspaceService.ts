@@ -9,6 +9,27 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AgentWorkspaceService {
     /**
+     * List Workspace Files
+     * @returns WorkspaceFileOut Successful Response
+     * @throws ApiError
+     */
+    public static listWorkspaceFilesApiAgentsAgentIdWorkspaceFilesGet({
+        agentId,
+    }: {
+        agentId: string,
+    }): CancelablePromise<Array<WorkspaceFileOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/workspace-files',
+            path: {
+                'agent_id': agentId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Upload Workspace File
      * @returns WorkspaceFileOut Successful Response
      * @throws ApiError
@@ -29,28 +50,7 @@ export class AgentWorkspaceService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * List Workspace Files
-     * @returns WorkspaceFileOut Successful Response
-     * @throws ApiError
-     */
-    public static listWorkspaceFilesApiAgentsAgentIdWorkspaceFilesGet({
-        agentId,
-    }: {
-        agentId: string,
-    }): CancelablePromise<Array<WorkspaceFileOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/agents/{agent_id}/workspace-files',
-            path: {
-                'agent_id': agentId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -74,7 +74,7 @@ export class AgentWorkspaceService {
                 'file_id': fileId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

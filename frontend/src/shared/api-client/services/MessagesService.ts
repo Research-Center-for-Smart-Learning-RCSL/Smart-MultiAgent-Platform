@@ -37,7 +37,7 @@ export class MessagesService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -62,7 +62,28 @@ export class MessagesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Message
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteMessageApiMessagesMessageIdDelete({
+        messageId,
+    }: {
+        messageId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/messages/{message_id}',
+            path: {
+                'message_id': messageId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -83,7 +104,7 @@ export class MessagesService {
                 'message_id': messageId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -113,28 +134,7 @@ export class MessagesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Delete Message
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteMessageApiMessagesMessageIdDelete({
-        messageId,
-    }: {
-        messageId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/messages/{message_id}',
-            path: {
-                'message_id': messageId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

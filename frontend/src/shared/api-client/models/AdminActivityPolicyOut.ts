@@ -9,14 +9,14 @@
  * know it is creating rather than replacing, and must not send ``If-Match``.
  */
 export type AdminActivityPolicyOut = {
-    expose_payload_to_agent_default: boolean;
-    expose_payload_to_agent_locked: boolean;
     echo_includes_content_default: boolean;
     echo_includes_content_locked: boolean;
+    expose_payload_to_agent_default: boolean;
+    expose_payload_to_agent_locked: boolean;
     retention_days_default: (number | null);
     retention_days_max: (number | null);
-    version: number;
     updated_at: (string | null);
     updated_by_user_id: (string | null);
+    version: number;
 };
 

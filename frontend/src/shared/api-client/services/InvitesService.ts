@@ -37,28 +37,7 @@ export class InvitesService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Accept
-     * @returns app__api__v1__invites__InviteOut Successful Response
-     * @throws ApiError
-     */
-    public static acceptApiInvitesInviteIdAcceptPost({
-        inviteId,
-    }: {
-        inviteId: string,
-    }): CancelablePromise<app__api__v1__invites__InviteOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/invites/{invite_id}/accept',
-            path: {
-                'invite_id': inviteId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -83,7 +62,28 @@ export class InvitesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Accept
+     * @returns app__api__v1__invites__InviteOut Successful Response
+     * @throws ApiError
+     */
+    public static acceptApiInvitesInviteIdAcceptPost({
+        inviteId,
+    }: {
+        inviteId: string,
+    }): CancelablePromise<app__api__v1__invites__InviteOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/invites/{invite_id}/accept',
+            path: {
+                'invite_id': inviteId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -104,7 +104,7 @@ export class InvitesService {
                 'invite_id': inviteId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

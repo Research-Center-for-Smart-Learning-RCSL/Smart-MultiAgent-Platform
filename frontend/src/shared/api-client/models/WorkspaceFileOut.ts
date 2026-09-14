@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceFileOut = {
-    id: string;
     agent_id: string;
+    created_at: string;
+    id: string;
+    mime: string;
     path: string;
     size_bytes: number;
-    mime: string;
-    created_at: string;
 };
 

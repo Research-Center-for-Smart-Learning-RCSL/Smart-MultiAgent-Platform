@@ -15,87 +15,23 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class WorkflowsService {
     /**
-     * List Workflows
-     * @returns WorkflowOut Successful Response
+     * Delete Workflow
+     * @returns void
      * @throws ApiError
      */
-    public static listWorkflowsApiWorkspacesWidWorkflowsGet({
-        wid,
-        limit = 100,
-        offset,
+    public static deleteWorkflowApiWorkflowsWorkflowIdDelete({
+        workflowId,
     }: {
-        wid: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<WorkflowOut>> {
+        workflowId: string,
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/workspaces/{wid}/workflows',
+            method: 'DELETE',
+            url: '/api/workflows/{workflow_id}',
             path: {
-                'wid': wid,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
+                'workflow_id': workflowId,
             },
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Create Workflow
-     * @returns WorkflowOut Successful Response
-     * @throws ApiError
-     */
-    public static createWorkflowApiWorkspacesWidWorkflowsPost({
-        wid,
-        requestBody,
-    }: {
-        wid: string,
-        requestBody: WorkflowCreateIn,
-    }): CancelablePromise<WorkflowOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/workspaces/{wid}/workflows',
-            path: {
-                'wid': wid,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Validate Workflow
-     * @returns ValidateOut Successful Response
-     * @throws ApiError
-     */
-    public static validateWorkflowApiWorkspacesWidWorkflowsValidatePost({
-        wid,
-        requestBody,
-    }: {
-        wid: string,
-        requestBody: ValidateIn,
-    }): CancelablePromise<ValidateOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/workspaces/{wid}/workflows/validate',
-            path: {
-                'wid': wid,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -125,37 +61,16 @@ export class WorkflowsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
     /**
-     * Delete Workflow
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteWorkflowApiWorkflowsWorkflowIdDelete({
-        workflowId,
-    }: {
-        workflowId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/workflows/{workflow_id}',
-            path: {
-                'workflow_id': workflowId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Trigger Run
+     * Dry Run
      * @returns string Successful Response
      * @throws ApiError
      */
-    public static triggerRunApiWorkflowsWorkflowIdRunsPost({
+    public static dryRunApiWorkflowsWorkflowIdDryRunPost({
         workflowId,
         requestBody,
     }: {
@@ -164,14 +79,14 @@ export class WorkflowsService {
     }): CancelablePromise<Record<string, string>> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/workflows/{workflow_id}/runs',
+            url: '/api/workflows/{workflow_id}/dry-run',
             path: {
                 'workflow_id': workflowId,
             },
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -203,16 +118,16 @@ export class WorkflowsService {
                 'include_archive': includeArchive,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
     /**
-     * Dry Run
+     * Trigger Run
      * @returns string Successful Response
      * @throws ApiError
      */
-    public static dryRunApiWorkflowsWorkflowIdDryRunPost({
+    public static triggerRunApiWorkflowsWorkflowIdRunsPost({
         workflowId,
         requestBody,
     }: {
@@ -221,14 +136,99 @@ export class WorkflowsService {
     }): CancelablePromise<Record<string, string>> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/workflows/{workflow_id}/dry-run',
+            url: '/api/workflows/{workflow_id}/runs',
             path: {
                 'workflow_id': workflowId,
             },
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Workflows
+     * @returns WorkflowOut Successful Response
+     * @throws ApiError
+     */
+    public static listWorkflowsApiWorkspacesWidWorkflowsGet({
+        wid,
+        limit = 100,
+        offset,
+    }: {
+        wid: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<WorkflowOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{wid}/workflows',
+            path: {
+                'wid': wid,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Workflow
+     * @returns WorkflowOut Successful Response
+     * @throws ApiError
+     */
+    public static createWorkflowApiWorkspacesWidWorkflowsPost({
+        wid,
+        requestBody,
+    }: {
+        wid: string,
+        requestBody: WorkflowCreateIn,
+    }): CancelablePromise<WorkflowOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{wid}/workflows',
+            path: {
+                'wid': wid,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Validate Workflow
+     * @returns ValidateOut Successful Response
+     * @throws ApiError
+     */
+    public static validateWorkflowApiWorkspacesWidWorkflowsValidatePost({
+        wid,
+        requestBody,
+    }: {
+        wid: string,
+        requestBody: ValidateIn,
+    }): CancelablePromise<ValidateOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{wid}/workflows/validate',
+            path: {
+                'wid': wid,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }

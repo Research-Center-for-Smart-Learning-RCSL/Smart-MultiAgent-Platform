@@ -39,7 +39,7 @@ export class SearchKeysService {
                 'offset': offset,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -64,55 +64,7 @@ export class SearchKeysService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Retest Search Key
-     * @returns SearchKeyOut Successful Response
-     * @throws ApiError
-     */
-    public static retestSearchKeyApiProjectsProjectIdSearchKeysKeyIdRetestPost({
-        projectId,
-        keyId,
-    }: {
-        projectId: string,
-        keyId: string,
-    }): CancelablePromise<SearchKeyOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/search-keys/{key_id}/retest',
-            path: {
-                'project_id': projectId,
-                'key_id': keyId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Activate Search Key
-     * @returns void
-     * @throws ApiError
-     */
-    public static activateSearchKeyApiProjectsProjectIdSearchKeysKeyIdActivatePost({
-        projectId,
-        keyId,
-    }: {
-        projectId: string,
-        keyId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/search-keys/{key_id}/activate',
-            path: {
-                'project_id': projectId,
-                'key_id': keyId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -136,7 +88,55 @@ export class SearchKeysService {
                 'key_id': keyId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Activate Search Key
+     * @returns void
+     * @throws ApiError
+     */
+    public static activateSearchKeyApiProjectsProjectIdSearchKeysKeyIdActivatePost({
+        projectId,
+        keyId,
+    }: {
+        projectId: string,
+        keyId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/search-keys/{key_id}/activate',
+            path: {
+                'project_id': projectId,
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Retest Search Key
+     * @returns SearchKeyOut Successful Response
+     * @throws ApiError
+     */
+    public static retestSearchKeyApiProjectsProjectIdSearchKeysKeyIdRetestPost({
+        projectId,
+        keyId,
+    }: {
+        projectId: string,
+        keyId: string,
+    }): CancelablePromise<SearchKeyOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/search-keys/{key_id}/retest',
+            path: {
+                'project_id': projectId,
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }

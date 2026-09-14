@@ -33,7 +33,31 @@ export class ObservationsService {
                 'limit': limit,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Observation
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteObservationApiChatroomsChatroomIdObservationsObservationIdDelete({
+        chatroomId,
+        observationId,
+    }: {
+        chatroomId: string,
+        observationId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/chatrooms/{chatroom_id}/observations/{observation_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'observation_id': observationId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -61,31 +85,7 @@ export class ObservationsService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Delete Observation
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteObservationApiChatroomsChatroomIdObservationsObservationIdDelete({
-        chatroomId,
-        observationId,
-    }: {
-        chatroomId: string,
-        observationId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/chatrooms/{chatroom_id}/observations/{observation_id}',
-            path: {
-                'chatroom_id': chatroomId,
-                'observation_id': observationId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

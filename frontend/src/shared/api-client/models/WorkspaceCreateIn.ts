@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceCreateIn = {
-    name: string;
     default_chatroom_name?: string;
+    name: string;
 };
 

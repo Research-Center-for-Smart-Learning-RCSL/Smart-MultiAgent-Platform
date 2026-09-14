@@ -29,7 +29,7 @@ export class CanvasTemplatesService {
                 'project_id': projectId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -49,28 +49,7 @@ export class CanvasTemplatesService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Get Template
-     * @returns TemplateDetailOut Successful Response
-     * @throws ApiError
-     */
-    public static getTemplateApiCanvasTemplatesTemplateIdGet({
-        templateId,
-    }: {
-        templateId: string,
-    }): CancelablePromise<TemplateDetailOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/canvas-templates/{template_id}',
-            path: {
-                'template_id': templateId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -91,7 +70,28 @@ export class CanvasTemplatesService {
                 'template_id': templateId,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Template
+     * @returns TemplateDetailOut Successful Response
+     * @throws ApiError
+     */
+    public static getTemplateApiCanvasTemplatesTemplateIdGet({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<TemplateDetailOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/canvas-templates/{template_id}',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }

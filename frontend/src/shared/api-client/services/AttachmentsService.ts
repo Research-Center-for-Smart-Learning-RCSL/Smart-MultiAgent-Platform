@@ -10,6 +10,27 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AttachmentsService {
     /**
+     * Read Attachment
+     * @returns AttachmentDownloadOut Successful Response
+     * @throws ApiError
+     */
+    public static readAttachmentApiAttachmentsAttachmentIdGet({
+        attachmentId,
+    }: {
+        attachmentId: string,
+    }): CancelablePromise<AttachmentDownloadOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/attachments/{attachment_id}',
+            path: {
+                'attachment_id': attachmentId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Create Single Shot
      * @returns AttachmentOut Successful Response
      * @throws ApiError
@@ -30,28 +51,7 @@ export class AttachmentsService {
             formData: formData,
             mediaType: 'multipart/form-data',
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Read Attachment
-     * @returns AttachmentDownloadOut Successful Response
-     * @throws ApiError
-     */
-    public static readAttachmentApiAttachmentsAttachmentIdGet({
-        attachmentId,
-    }: {
-        attachmentId: string,
-    }): CancelablePromise<AttachmentDownloadOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/attachments/{attachment_id}',
-            path: {
-                'attachment_id': attachmentId,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }

@@ -6,8 +6,8 @@
  * A selectable owner for the Concept Maps overview create picker (Phase 4α).
  */
 export type ConceptMapOwnerOptionOut = {
-    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
     owner_id: string;
+    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
     owner_name: string;
 };
 

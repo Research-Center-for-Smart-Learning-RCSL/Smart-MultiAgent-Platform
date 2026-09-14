@@ -7,13 +7,13 @@
  * no If-Match) and update (PUT, If-Match required).
  */
 export type AssistantConfigPresetPutIn = {
-    name?: string;
+    daily_request_limit_per_user?: number;
     description?: string;
-    persona_prompt?: string;
-    system_prompt?: string;
+    enabled?: boolean;
     key_id?: (string | null);
     model_id?: (string | null);
-    daily_request_limit_per_user?: number;
-    enabled?: boolean;
+    name?: string;
+    persona_prompt?: string;
+    system_prompt?: string;
 };
 

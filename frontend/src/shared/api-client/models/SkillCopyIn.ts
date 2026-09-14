@@ -4,8 +4,8 @@
 /* eslint-disable */
 import type { SkillScope } from './SkillScope';
 export type SkillCopyIn = {
-    target_scope: SkillScope;
-    target_owner_id?: (string | null);
     name: string;
+    target_owner_id?: (string | null);
+    target_scope: SkillScope;
 };
 

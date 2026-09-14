@@ -40,7 +40,33 @@ export class TusService {
                 'Upload-Metadata': uploadMetadata,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Tus Terminate
+     * @returns void
+     * @throws ApiError
+     */
+    public static tusTerminateApiTusUploadIdDelete({
+        uploadId,
+        tusResumable,
+    }: {
+        uploadId: string,
+        tusResumable: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/tus/{upload_id}',
+            path: {
+                'upload_id': uploadId,
+            },
+            headers: {
+                'Tus-Resumable': tusResumable,
+            },
+            errors: {
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -66,7 +92,7 @@ export class TusService {
                 'Tus-Resumable': tusResumable,
             },
             errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
@@ -98,33 +124,7 @@ export class TusService {
                 'Content-Type': contentType,
             },
             errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Tus Terminate
-     * @returns void
-     * @throws ApiError
-     */
-    public static tusTerminateApiTusUploadIdDelete({
-        uploadId,
-        tusResumable,
-    }: {
-        uploadId: string,
-        tusResumable: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/tus/{upload_id}',
-            path: {
-                'upload_id': uploadId,
-            },
-            headers: {
-                'Tus-Resumable': tusResumable,
-            },
-            errors: {
-                422: `Validation Error`,
+                422: `Request Validation Problem`,
             },
         });
     }
