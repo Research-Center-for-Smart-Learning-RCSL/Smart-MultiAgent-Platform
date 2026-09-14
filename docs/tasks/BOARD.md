@@ -399,6 +399,17 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 - (moved to In progress on 2026-09-14) `2026-09-14-canvas-crdt-bridge-remaining`.
 
+### Canvas CRDT bridge defects (2026-09-14)
+
+- `2026-09-14-canvas-crdt-bridge-defects` (bugfix, **approved 2026-09-14**) --
+  `depends_on: []`. Nine defects from the canvas CRDT bridge (PR 202): 5 broken
+  broadcast sites (wrong payload key), MinIO presigned URL unreachable from browser,
+  broadcast before commit, missing agent attribution (R13.58), degraded search
+  (R13.63), SoC violations, 6x duplicated persist-and-broadcast pattern, 4x
+  duplicated element template, full-state broadcast. Fixes consolidate into a
+  facade method, add nginx MinIO proxy, use after_commit hook, restore FTS search,
+  and switch to incremental CRDT deltas. No SRS Delta. No migration.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
