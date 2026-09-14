@@ -119,32 +119,68 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
     }
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        from contexts.canvas.domain.models import CanvasObjectKind
-        from contexts.canvas.interfaces.facade import CanvasFacade
-        from contexts.conversation.infrastructure.channels import room_channel
+        from contexts.canvas.application.crdt_relay import (
+            _EXCALIDRAW_ELEMENT_KINDS,
+            get_crdt_relay,
+        )
+        from contexts.canvas.infrastructure.channels import canvas_channel
+        from contexts.canvas.infrastructure.repositories import CanvasRepository
         from shared_kernel import audit
+        from shared_kernel.realtime.pubsub import Publisher
 
         kind_str = str(args.get("kind", ""))
         if kind_str not in _CANVAS_OBJECT_KINDS:
             return ToolResult(content=f"Invalid kind: {kind_str}", is_error=True)
-        kind = CanvasObjectKind(kind_str)
 
-        facade = CanvasFacade(db, room_channel_fn=room_channel)
-        obj = await facade.create_object(
-            canvas_id=ctx.canvas_id,
-            chatroom_id=ctx.chatroom_id,
-            kind=kind,
-            position_x=float(args.get("position_x", 0)),
-            position_y=float(args.get("position_y", 0)),
-            width=float(args.get("width", 100)),
-            height=float(args.get("height", 100)),
-            content=args.get("content"),
-            style=args.get("style"),
-            created_by_user_id=ctx.actor_user_id,
-            created_by_agent_id=ctx.agent_id,
-            actor_user_id=ctx.actor_user_id,
-            actor_ip=ctx.actor_ip,
-            request_id=ctx.request_id,
+        elem_id = str(uuid.uuid4())
+        element: dict[str, Any] = {
+            "id": elem_id,
+            "type": _EXCALIDRAW_ELEMENT_KINDS.get(kind_str, "rectangle"),
+            "x": float(args.get("position_x", 0)),
+            "y": float(args.get("position_y", 0)),
+            "width": float(args.get("width", 100)),
+            "height": float(args.get("height", 100)),
+            "angle": 0,
+            "strokeColor": "#1e1e1e",
+            "backgroundColor": "transparent",
+            "fillStyle": "solid",
+            "strokeWidth": 2,
+            "roughness": 1,
+            "opacity": 100,
+            "isDeleted": False,
+            "groupIds": [],
+            "boundElements": None,
+            "updated": 1,
+            "locked": False,
+        }
+        content = args.get("content")
+        if content:
+            element["text"] = content
+            if kind_str == "text":
+                element["fontSize"] = 20
+                element["fontFamily"] = 1
+                element["textAlign"] = "left"
+                element["verticalAlign"] = "top"
+        style = args.get("style")
+        if style:
+            if "backgroundColor" in style:
+                element["backgroundColor"] = style["backgroundColor"]
+            if "strokeColor" in style:
+                element["strokeColor"] = style["strokeColor"]
+
+        relay = get_crdt_relay()
+        repo = CanvasRepository(db)
+        crdt_state = await repo.get_crdt_state(ctx.canvas_id)
+        state = await relay.inject_elements(
+            ctx.canvas_id, [element], crdt_state=crdt_state,
+        )
+        await repo.update_crdt_state(ctx.canvas_id, state)
+
+        import base64
+
+        update_b64 = base64.b64encode(state).decode("ascii")
+        await Publisher(canvas_channel(ctx.canvas_id)).emit(
+            "yjs-update", {"update": update_b64},
         )
 
         await audit.emit(
@@ -154,18 +190,18 @@ def _build_create_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 actor_user_id=ctx.actor_user_id,
                 actor_ip=ctx.actor_ip,
                 resource_type="canvas_object",
-                resource_id=obj.id,
+                resource_id=uuid.UUID(elem_id),
                 metadata={
                     "agent_id": str(ctx.agent_id),
                     "canvas_id": str(ctx.canvas_id),
-                    "kind": kind.value,
+                    "kind": kind_str,
                 },
                 request_id=ctx.request_id,
             ),
             isolated=True,
         )
         return ToolResult(
-            content=clip_tool_output(f"Created canvas object {obj.id} (kind={kind.value})."),
+            content=clip_tool_output(f"Created canvas object {elem_id} (kind={kind_str})."),
         )
 
     return Tool(
@@ -193,35 +229,58 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
     }
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        from contexts.canvas.interfaces.facade import CanvasFacade
-        from contexts.conversation.infrastructure.channels import room_channel
+        import base64
+
+        from contexts.canvas.application.crdt_relay import CrdtUpdateError, get_crdt_relay
+        from contexts.canvas.infrastructure.channels import canvas_channel
+        from contexts.canvas.infrastructure.repositories import CanvasRepository
         from shared_kernel import audit
+        from shared_kernel.realtime.pubsub import Publisher
 
         raw_id = str(args.get("object_id", ""))
         try:
-            object_id = uuid.UUID(raw_id)
+            uuid.UUID(raw_id)
         except ValueError:
             return ToolResult(content=f"Invalid object_id: {raw_id}", is_error=True)
 
-        patch: dict[str, Any] = {}
-        for key in ("position_x", "position_y", "width", "height", "content", "style"):
+        field_map: dict[str, str] = {
+            "position_x": "x",
+            "position_y": "y",
+            "width": "width",
+            "height": "height",
+            "content": "text",
+        }
+        crdt_fields: dict[str, Any] = {}
+        original_keys: list[str] = []
+        for key in ("position_x", "position_y", "width", "height", "content"):
             if key in args:
-                patch[key] = args[key]
-        if not patch:
+                crdt_fields[field_map[key]] = args[key]
+                original_keys.append(key)
+        style = args.get("style")
+        if style:
+            original_keys.append("style")
+            if "backgroundColor" in style:
+                crdt_fields["backgroundColor"] = style["backgroundColor"]
+            if "strokeColor" in style:
+                crdt_fields["strokeColor"] = style["strokeColor"]
+        if not crdt_fields:
             return ToolResult(content="No fields to update.", is_error=True)
 
-        facade = CanvasFacade(db, room_channel_fn=room_channel)
-        obj = await facade.update_object(
-            object_id=object_id,
-            chatroom_id=ctx.chatroom_id,
-            canvas_id=ctx.canvas_id,
-            values=patch,
-            actor_user_id=ctx.actor_user_id,
-            actor_ip=ctx.actor_ip,
-            request_id=ctx.request_id,
-        )
-        if obj is None:
+        relay = get_crdt_relay()
+        repo = CanvasRepository(db)
+        crdt_state = await repo.get_crdt_state(ctx.canvas_id)
+        try:
+            state = await relay.update_element(
+                ctx.canvas_id, raw_id, crdt_fields, crdt_state=crdt_state,
+            )
+        except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)
+        await repo.update_crdt_state(ctx.canvas_id, state)
+
+        update_b64 = base64.b64encode(state).decode("ascii")
+        await Publisher(canvas_channel(ctx.canvas_id)).emit(
+            "yjs-update", {"update": update_b64},
+        )
 
         await audit.emit(
             db,
@@ -230,17 +289,17 @@ def _build_update_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 actor_user_id=ctx.actor_user_id,
                 actor_ip=ctx.actor_ip,
                 resource_type="canvas_object",
-                resource_id=object_id,
+                resource_id=uuid.UUID(raw_id),
                 metadata={
                     "agent_id": str(ctx.agent_id),
                     "canvas_id": str(ctx.canvas_id),
-                    "fields": list(patch.keys()),
+                    "fields": original_keys,
                 },
                 request_id=ctx.request_id,
             ),
             isolated=True,
         )
-        return ToolResult(content=clip_tool_output(f"Updated canvas object {object_id}."))
+        return ToolResult(content=clip_tool_output(f"Updated canvas object {raw_id}."))
 
     return Tool(
         name=TOOL_CANVAS_UPDATE,
@@ -261,27 +320,35 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
     }
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        from contexts.canvas.interfaces.facade import CanvasFacade
-        from contexts.conversation.infrastructure.channels import room_channel
+        import base64
+
+        from contexts.canvas.application.crdt_relay import CrdtUpdateError, get_crdt_relay
+        from contexts.canvas.infrastructure.channels import canvas_channel
+        from contexts.canvas.infrastructure.repositories import CanvasRepository
         from shared_kernel import audit
+        from shared_kernel.realtime.pubsub import Publisher
 
         raw_id = str(args.get("object_id", ""))
         try:
-            object_id = uuid.UUID(raw_id)
+            uuid.UUID(raw_id)
         except ValueError:
             return ToolResult(content=f"Invalid object_id: {raw_id}", is_error=True)
 
-        facade = CanvasFacade(db, room_channel_fn=room_channel)
-        deleted = await facade.delete_object(
-            object_id=object_id,
-            chatroom_id=ctx.chatroom_id,
-            canvas_id=ctx.canvas_id,
-            actor_user_id=ctx.actor_user_id,
-            actor_ip=ctx.actor_ip,
-            request_id=ctx.request_id,
-        )
-        if not deleted:
+        relay = get_crdt_relay()
+        repo = CanvasRepository(db)
+        crdt_state = await repo.get_crdt_state(ctx.canvas_id)
+        try:
+            state = await relay.delete_element(
+                ctx.canvas_id, raw_id, crdt_state=crdt_state,
+            )
+        except CrdtUpdateError:
             return ToolResult(content="Object not found.", is_error=True)
+        await repo.update_crdt_state(ctx.canvas_id, state)
+
+        update_b64 = base64.b64encode(state).decode("ascii")
+        await Publisher(canvas_channel(ctx.canvas_id)).emit(
+            "yjs-update", {"update": update_b64},
+        )
 
         await audit.emit(
             db,
@@ -290,7 +357,7 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
                 actor_user_id=ctx.actor_user_id,
                 actor_ip=ctx.actor_ip,
                 resource_type="canvas_object",
-                resource_id=object_id,
+                resource_id=uuid.UUID(raw_id),
                 metadata={
                     "agent_id": str(ctx.agent_id),
                     "canvas_id": str(ctx.canvas_id),
@@ -299,7 +366,7 @@ def _build_delete_tool(db: AsyncSession, *, agent: Agent, ctx: CanvasWriteContex
             ),
             isolated=True,
         )
-        return ToolResult(content=clip_tool_output(f"Deleted canvas object {object_id}."))
+        return ToolResult(content=clip_tool_output(f"Deleted canvas object {raw_id}."))
 
     return Tool(
         name=TOOL_CANVAS_DELETE,

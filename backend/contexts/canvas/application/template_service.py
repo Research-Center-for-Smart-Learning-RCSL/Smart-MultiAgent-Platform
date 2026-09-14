@@ -65,6 +65,20 @@ class CanvasTemplateService:
         raw = json.dumps(template_data, separators=(",", ":"))
         if len(raw.encode("utf-8")) > _MAX_TEMPLATE_DATA_BYTES:
             raise TemplateDataTooLarge(f"Template data exceeds {_MAX_TEMPLATE_DATA_BYTES // 1024} KB limit")
+
+        if "elements" in template_data:
+            elements = template_data["elements"]
+            if not isinstance(elements, list):
+                raise ValueError("template_data.elements must be a list")
+            if len(elements) > _MAX_TEMPLATE_OBJECTS:
+                raise TooManyTemplateObjects(
+                    f"Template has {len(elements)} elements (max {_MAX_TEMPLATE_OBJECTS})"
+                )
+            for i, elem in enumerate(elements):
+                if not isinstance(elem, dict):
+                    raise ValueError(f"template_data.elements[{i}] must be an object")
+            return
+
         objects = template_data.get("objects", [])
         if not isinstance(objects, list):
             raise ValueError("template_data.objects must be a list")
@@ -155,6 +169,40 @@ class CanvasTemplateService:
         if template is None:
             raise ValueError("Template not found")
 
+        if "elements" in template.template_data:
+            import base64
+
+            from contexts.canvas.application.crdt_relay import get_crdt_relay
+            from contexts.canvas.infrastructure.channels import canvas_channel
+            from shared_kernel.realtime.pubsub import Publisher
+
+            relay = get_crdt_relay()
+            crdt_state = await self._canvas_repo.get_crdt_state(canvas_id)
+            elements = template.template_data["elements"]
+            state = await relay.inject_elements(
+                canvas_id, elements, crdt_state=crdt_state, replace=True,
+            )
+            await self._canvas_repo.update_crdt_state(canvas_id, state)
+
+            update_b64 = base64.b64encode(state).decode("ascii")
+            await Publisher(canvas_channel(canvas_id)).emit(
+                "yjs-update", {"update": update_b64},
+            )
+
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="canvas.template_applied",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="canvas",
+                    resource_id=canvas_id,
+                    metadata={"template_id": str(template_id), "template_name": template.name},
+                    request_id=request_id,
+                ),
+            )
+            return {"created": [], "updated": [], "deleted": 0}
+
         object_count = await self._canvas_repo.count_objects(canvas_id)
         if object_count > 0:
             raise CanvasNotEmpty("Canvas is not empty; clear it before applying a template")
@@ -212,23 +260,25 @@ class CanvasTemplateService:
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> CanvasTemplate:
-        objects = await self._canvas_repo.list_objects(canvas_id)
-        template_data: dict[str, Any] = {
-            "objects": [
-                {
-                    "id": str(obj.id),
-                    "kind": obj.kind.value,
-                    "content": obj.content,
-                    "position_x": obj.position_x,
-                    "position_y": obj.position_y,
-                    "width": obj.width,
-                    "height": obj.height,
-                    "z_index": obj.z_index,
-                    "style": obj.style,
-                }
-                for obj in objects
-            ]
-        }
+        from contexts.canvas.application.crdt_relay import (
+            _extract_elements_from_doc,
+            get_crdt_relay,
+        )
+
+        relay = get_crdt_relay()
+        elements = relay.extract_elements_for_digest(canvas_id)
+        if elements is None:
+            crdt_state = await self._canvas_repo.get_crdt_state(canvas_id)
+            if crdt_state:
+                import pycrdt
+
+                doc: pycrdt.Doc = pycrdt.Doc()  # type: ignore[type-arg]
+                doc.apply_update(crdt_state)
+                elements = _extract_elements_from_doc(doc)
+            else:
+                elements = []
+
+        template_data: dict[str, Any] = {"elements": elements}
         return await self.create_template(
             scope=CanvasTemplateScope.PROJECT,
             project_id=project_id,

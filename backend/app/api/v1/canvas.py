@@ -593,9 +593,65 @@ async def upload_image(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    await db.commit()
+
+    import base64
+
+    from contexts.canvas.application.crdt_relay import get_crdt_relay
+    from contexts.canvas.infrastructure.channels import canvas_channel
+    from contexts.canvas.infrastructure.repositories import CanvasRepository
+    from shared_kernel.realtime.pubsub import Publisher
+
+    relay = get_crdt_relay()
+    repo = CanvasRepository(db)
+    crdt_state = await repo.get_crdt_state(canvas.id)
+
+    image_element: dict[str, Any] = {
+        "id": str(object_id),
+        "type": "image",
+        "fileId": str(object_id),
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 300,
+        "angle": 0,
+        "strokeColor": "transparent",
+        "backgroundColor": "transparent",
+        "fillStyle": "solid",
+        "strokeWidth": 0,
+        "roughness": 0,
+        "opacity": 100,
+        "isDeleted": False,
+        "groupIds": [],
+        "boundElements": None,
+        "updated": 1,
+        "locked": False,
+        "status": "saved",
+    }
+
+    state = await relay.inject_elements(
+        canvas.id, [image_element], crdt_state=crdt_state,
+    )
+    await repo.update_crdt_state(canvas.id, state)
+
+    update_b64 = base64.b64encode(state).decode("ascii")
+    await Publisher(canvas_channel(canvas.id)).emit(
+        "yjs-update", {"update": update_b64},
+    )
 
     image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)
+
+    await Publisher(room_channel(chatroom_id)).emit(
+        "canvas.image_added",
+        {
+            "fileId": str(object_id),
+            "url": image_url,
+            "mimeType": file.content_type or "application/octet-stream",
+            "width": 400,
+            "height": 300,
+        },
+    )
+
+    await db.commit()
     return CanvasObjectOut.from_domain(obj, image_url=image_url)
 
 
