@@ -401,7 +401,9 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Canvas CRDT bridge defects (2026-09-14)
 
-- (moved to In progress on 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`.
+- (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
+  unticked (code complete, need running stack for WS/browser verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 ## Blocked
 
@@ -592,9 +594,9 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-09-14-canvas-crdt-bridge-defects`. Nine defects from the canvas CRDT
-  bridge (PR 202). Nothing lists this slug in `depends_on`, so no row moves
-  out of Blocked.
+- (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
+  unticked (code complete, need running stack for WS/browser verification).
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-remaining`. AC-1 through
   AC-5 unticked (code complete, need running stack for WS/browser verification).
