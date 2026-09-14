@@ -174,7 +174,7 @@ class TestValidateTemplateData:
 
     def test_rejects_non_dict_element(self) -> None:
         svc = _service()
-        with pytest.raises(ValueError, match="elements.*must be an object"):
+        with pytest.raises(ValueError, match=r"elements.*must be an object"):
             svc._validate_template_data({"elements": ["not a dict"]})
 
 
@@ -250,9 +250,7 @@ class TestApplyTemplate:
         assert creates[0]["style"] == {"bg": "red"}
 
     @patch("contexts.canvas.application.template_service.audit")
-    async def test_apply_elements_template_uses_crdt_inject(
-        self, mock_audit: MagicMock
-    ) -> None:
+    async def test_apply_elements_template_uses_crdt_inject(self, mock_audit: MagicMock) -> None:
         mock_audit.emit = AsyncMock()
         svc = _service()
         elements = [_valid_element(), _valid_element()]

@@ -219,7 +219,7 @@ class TestUpdateElement:
         assert isinstance(state, bytes)
         elements = relay.extract_elements_for_digest(canvas_id)
         assert elements is not None
-        updated = [e for e in elements if e["id"] == elem_id][0]
+        updated = next(e for e in elements if e["id"] == elem_id)
         assert updated["x"] == 50
         assert updated["y"] == 75
         assert updated["width"] == 100
@@ -241,7 +241,10 @@ class TestUpdateElement:
         relay = CrdtRelay()
         canvas_id = uuid.uuid4()
         state = await relay.update_element(
-            canvas_id, "e1", {"x": 99}, crdt_state=persisted,
+            canvas_id,
+            "e1",
+            {"x": 99},
+            crdt_state=persisted,
         )
         assert isinstance(state, bytes)
         elements = relay.extract_elements_for_digest(canvas_id)
