@@ -70,9 +70,7 @@ class TestResolveWorkspaceRooms:
             )
             assert_pm.return_value = None
 
-            result = await _resolve_workspace_rooms(
-                db=db, principal=principal, workspace_id=ws_id
-            )
+            result = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=ws_id)
 
         assert len(result) == 2
         assert result[r1] == "Room 1"
@@ -88,9 +86,7 @@ class TestResolveWorkspaceRooms:
             facade.get_workspace = AsyncMock(return_value=None)
 
             with pytest.raises(HTTPException) as exc_info:
-                await _resolve_workspace_rooms(
-                    db=db, principal=_principal(), workspace_id=_uid()
-                )
+                await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=_uid())
             assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -107,9 +103,7 @@ class TestResolveWorkspaceRooms:
             facade.get_workspace = AsyncMock(return_value=ws)
 
             with pytest.raises(HTTPException) as exc_info:
-                await _resolve_workspace_rooms(
-                    db=db, principal=_principal(), workspace_id=ws.id
-                )
+                await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
             assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -129,9 +123,7 @@ class TestResolveWorkspaceRooms:
             facade.get_workspace = AsyncMock(return_value=ws)
 
             with pytest.raises(HTTPException) as exc_info:
-                await _resolve_workspace_rooms(
-                    db=db, principal=_principal(), workspace_id=ws.id
-                )
+                await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
             assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -148,8 +140,6 @@ class TestResolveWorkspaceRooms:
             facade.get_workspace = AsyncMock(return_value=ws)
             facade.list_chatroom_ids_for_workspace = AsyncMock(return_value=[])
 
-            result = await _resolve_workspace_rooms(
-                db=db, principal=_principal(), workspace_id=ws.id
-            )
+            result = await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
 
         assert result == {}
