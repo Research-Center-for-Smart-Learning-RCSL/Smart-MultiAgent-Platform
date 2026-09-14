@@ -1,6 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref } from 'vue'
 
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string) => key,
+  }),
+  createI18n: () => ({
+    global: { t: (key: string) => key },
+    install: vi.fn(),
+  }),
+}))
+
+vi.mock('@shared/composables/useToast', () => ({
+  useToast: () => ({
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  }),
+}))
+
 const mockExportToBlob = vi.fn()
 const mockExportToSvg = vi.fn()
 
