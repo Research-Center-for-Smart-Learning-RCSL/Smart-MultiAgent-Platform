@@ -9,6 +9,7 @@ import {
   Cog6ToothIcon,
   ClockIcon,
   MagnifyingGlassIcon,
+  PhotoIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import SDropdown from '@shared/ui/SDropdown.vue'
@@ -21,6 +22,7 @@ const props = defineProps<{
   isFullscreen: boolean
   isSaving: boolean
   isExporting: boolean
+  isUploading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +32,7 @@ const emit = defineEmits<{
   openHistory: []
   exportPng: [scale: 1 | 2]
   exportSvg: []
+  uploadImage: []
 }>()
 
 const searchExpanded = ref(false)
@@ -114,6 +117,16 @@ function onExportSelect(key: string) {
         </button>
       </div>
     </div>
+
+    <button
+      class="canvas-toolbar__btn"
+      :title="t('canvas.uploadImage')"
+      :aria-label="t('canvas.uploadImage')"
+      :disabled="props.isUploading"
+      @click="emit('uploadImage')"
+    >
+      <PhotoIcon class="canvas-toolbar__icon" />
+    </button>
 
     <SDropdown
       :items="exportItems"

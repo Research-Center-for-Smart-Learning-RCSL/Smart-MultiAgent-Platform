@@ -33,6 +33,9 @@
     "preview": "預覽",
     "restore": "還原",
     "restoreConfirm": "確定要還原此快照嗎？目前的狀態會先自動儲存。",
-    "restored": "快照已還原"
+    "restored": "快照已還原",
+    "uploadImage": "上傳圖片",
+    "uploadImageFailed": "上傳圖片失敗",
+    "imageUploading": "圖片上傳中..."
   }
 }

@@ -6,9 +6,10 @@ import { canvasKeys } from '../queries'
 /**
  * Subscribe to canvas events on the chatroom's room WebSocket channel.
  * Object CRUD is handled by CRDT sync via Yjs; this composable retains
- * settings and snapshot events so the UI stays in sync across tabs.
+ * settings, snapshot, and image events so the UI stays in sync across tabs.
  */
-export function useCanvasSocket(chatroomId: Ref<string>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
+export function useCanvasSocket(chatroomId: Ref<string>, getExcalidrawApi?: () => any) {
   const queryClient = useQueryClient()
   const unsubs: Array<() => void> = []
 
@@ -33,6 +34,37 @@ export function useCanvasSocket(chatroomId: Ref<string>) {
     unsubs.push(
       channel.subscribe('canvas.snapshot_restored', () => {
         queryClient.invalidateQueries({ queryKey: canvasKeys.snapshots(chatroomId.value) })
+      }),
+    )
+
+    unsubs.push(
+      channel.subscribe('canvas.image_added', (data: Record<string, unknown>) => {
+        const api = getExcalidrawApi?.()
+        if (!api) return
+
+        const fileId = data.fileId as string
+        const url = data.url as string
+        const mimeType = (data.mimeType as string) || 'image/png'
+
+        fetch(url)
+          .then((res) => res.blob())
+          .then((blob) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              api.addFiles([
+                {
+                  id: fileId,
+                  dataURL: reader.result as string,
+                  mimeType,
+                  created: Date.now(),
+                },
+              ])
+            }
+            reader.readAsDataURL(blob)
+          })
+          .catch(() => {
+            // Image fetch failed; Excalidraw shows a placeholder
+          })
       }),
     )
   }

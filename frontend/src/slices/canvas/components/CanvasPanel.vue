@@ -11,6 +11,7 @@ import { useCanvasSearch } from '../composables/useCanvasSearch'
 import { useCanvasSocket } from '../composables/useCanvasSocket'
 import { useYjsProvider } from '../composables/useYjsProvider'
 import { useToast } from '@shared/composables/useToast'
+import { uploadImage as uploadImageApi } from '../api'
 import SLoadingSpinner from '@shared/ui/SLoadingSpinner.vue'
 
 const CanvasRenderer = defineAsyncComponent(() => import('./CanvasRenderer.vue'))
@@ -39,7 +40,7 @@ const {
   isSavingSnapshot,
 } = useCanvasState(chatroomIdRef)
 
-useCanvasSocket(chatroomIdRef)
+useCanvasSocket(chatroomIdRef, getExcalidrawApi)
 
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
 const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
@@ -70,6 +71,28 @@ function handleSelectObject(objectId: string, positionX: number, positionY: numb
 const toast = useToast()
 const showSettings = ref(false)
 const showHistory = ref(false)
+const isUploadingImage = ref(false)
+const imageInputRef = ref<HTMLInputElement>()
+
+function triggerImageUpload() {
+  imageInputRef.value?.click()
+}
+
+async function handleImageSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  isUploadingImage.value = true
+  try {
+    await uploadImageApi(props.chatroomId, file)
+  } catch {
+    toast.error(t('canvas.uploadImageFailed'))
+  } finally {
+    isUploadingImage.value = false
+  }
+}
 
 async function handleSave(label?: string) {
   try {
@@ -113,12 +136,14 @@ async function toggleExposeToAgents() {
         :is-fullscreen="isFullscreen"
         :is-saving="!!isSavingSnapshot"
         :is-exporting="isExporting"
+        :is-uploading="isUploadingImage"
         @save="handleSave"
         @toggle-fullscreen="emit('toggleFullscreen')"
         @open-settings="showSettings = !showSettings"
         @open-history="toggleHistory"
         @export-png="exportPng"
         @export-svg="exportSvg"
+        @upload-image="triggerImageUpload"
       />
 
       <button
@@ -128,6 +153,14 @@ async function toggleExposeToAgents() {
       >
         <XMarkIcon class="canvas-panel__close-icon" />
       </button>
+
+      <input
+        ref="imageInputRef"
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+        hidden
+        @change="handleImageSelected"
+      >
     </div>
 
     <div

@@ -33,6 +33,9 @@
     "preview": "Preview",
     "restore": "Restore",
     "restoreConfirm": "Restore this snapshot? Current state will be auto-saved first.",
-    "restored": "Snapshot restored"
+    "restored": "Snapshot restored",
+    "uploadImage": "Upload Image",
+    "uploadImageFailed": "Failed to upload image",
+    "imageUploading": "Uploading image..."
   }
 }
