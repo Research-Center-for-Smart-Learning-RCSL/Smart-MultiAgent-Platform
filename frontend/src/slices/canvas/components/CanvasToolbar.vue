@@ -1,63 +1,30 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useMutation } from '@tanstack/vue-query'
 import {
-  PhotoIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
   ArrowDownTrayIcon,
   CameraIcon,
   Cog6ToothIcon,
-  ClockIcon,
-  MagnifyingGlassIcon,
-  XMarkIcon,
-  DocumentDuplicateIcon,
 } from '@heroicons/vue/24/outline'
 import SDropdown from '@shared/ui/SDropdown.vue'
-import { useToast } from '@shared/composables/useToast'
-import * as canvasApi from '../api'
 
 const { t } = useI18n()
-
-const searchQuery = defineModel<string>('searchQuery', { default: '' })
 
 const props = defineProps<{
   isFullscreen: boolean
   isSaving: boolean
   isExporting: boolean
-  isModerator: boolean
-  chatroomId: string
 }>()
 
 const emit = defineEmits<{
-  uploadImage: []
   save: [label?: string]
   toggleFullscreen: []
   openSettings: []
-  openHistory: []
   exportPng: [scale: 1 | 2]
   exportSvg: []
 }>()
-
-const searchExpanded = ref(false)
-const searchInputRef = ref<HTMLInputElement>()
-
-function toggleSearch() {
-  searchExpanded.value = !searchExpanded.value
-  if (searchExpanded.value) {
-    nextTick(() => searchInputRef.value?.focus())
-  } else {
-    searchQuery.value = ''
-  }
-}
-
-function handleSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    searchExpanded.value = false
-    searchQuery.value = ''
-  }
-}
 
 const snapshotLabel = ref('')
 
@@ -84,86 +51,10 @@ function onExportSelect(key: string) {
   else if (key === 'png-2x') emit('exportPng', 2)
   else if (key === 'svg') emit('exportSvg')
 }
-
-const toast = useToast()
-const showSaveAsTemplate = ref(false)
-const templateName = ref('')
-const templateDescription = ref('')
-
-const saveAsTemplateMut = useMutation({
-  mutationFn: () =>
-    canvasApi.saveAsTemplate(props.chatroomId, {
-      name: templateName.value.trim(),
-      description: templateDescription.value.trim() || undefined,
-    }),
-  onSuccess: () => {
-    toast.success(t('canvas.templateSaved'))
-    showSaveAsTemplate.value = false
-    templateName.value = ''
-    templateDescription.value = ''
-  },
-  onError: () => {
-    toast.error(t('canvas.templateSaveFailed'))
-  },
-})
-
-function handleSaveAsTemplate() {
-  if (!templateName.value.trim()) return
-  saveAsTemplateMut.mutate()
-}
-
-function handleTemplateKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') handleSaveAsTemplate()
-  if (e.key === 'Escape') showSaveAsTemplate.value = false
-}
 </script>
 
 <template>
   <div class="canvas-toolbar">
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.uploadImage')"
-      @click="emit('uploadImage')"
-    >
-      <PhotoIcon class="canvas-toolbar__icon" />
-    </button>
-
-    <div class="canvas-toolbar__separator" />
-
-    <div class="canvas-toolbar__search-group">
-      <button
-        class="canvas-toolbar__btn"
-        :class="{ 'canvas-toolbar__btn--active': searchExpanded }"
-        :title="t('canvas.search')"
-        @click="toggleSearch"
-      >
-        <MagnifyingGlassIcon class="canvas-toolbar__icon" />
-      </button>
-      <div
-        v-if="searchExpanded"
-        class="canvas-toolbar__search-input-wrap"
-      >
-        <input
-          ref="searchInputRef"
-          v-model="searchQuery"
-          class="canvas-toolbar__search-input"
-          :placeholder="t('canvas.searchPlaceholder')"
-          maxlength="500"
-          @keydown="handleSearchKeydown"
-        >
-        <button
-          v-if="searchQuery"
-          class="canvas-toolbar__search-clear"
-          :title="t('canvas.searchClear')"
-          @click="searchQuery = ''"
-        >
-          <XMarkIcon class="canvas-toolbar__icon-sm" />
-        </button>
-      </div>
-    </div>
-
-    <div class="canvas-toolbar__separator" />
-
     <SDropdown
       :items="exportItems"
       placement="bottom-start"
@@ -173,39 +64,38 @@ function handleTemplateKeydown(e: KeyboardEvent) {
         <button
           class="canvas-toolbar__btn"
           :title="t('canvas.export')"
+          :aria-label="t('canvas.export')"
           :disabled="props.isExporting"
         >
           <ArrowDownTrayIcon class="canvas-toolbar__icon" />
         </button>
       </template>
     </SDropdown>
+
     <div class="canvas-toolbar__save-group">
       <input
         v-model="snapshotLabel"
         class="canvas-toolbar__label-input"
         :placeholder="t('canvas.snapshotLabelPlaceholder')"
+        :aria-label="t('canvas.snapshotLabelPlaceholder')"
         maxlength="200"
         @keydown="handleSaveKeydown"
       >
       <button
         class="canvas-toolbar__btn"
         :title="t('canvas.save')"
+        :aria-label="t('canvas.save')"
         :disabled="isSaving"
         @click="handleSaveClick"
       >
         <CameraIcon class="canvas-toolbar__icon" />
       </button>
     </div>
-    <button
-      class="canvas-toolbar__btn"
-      :title="t('canvas.history')"
-      @click="emit('openHistory')"
-    >
-      <ClockIcon class="canvas-toolbar__icon" />
-    </button>
+
     <button
       class="canvas-toolbar__btn"
       :title="isFullscreen ? t('canvas.exitFullscreen') : t('canvas.fullscreen')"
+      :aria-label="isFullscreen ? t('canvas.exitFullscreen') : t('canvas.fullscreen')"
       @click="emit('toggleFullscreen')"
     >
       <ArrowsPointingInIcon
@@ -217,49 +107,11 @@ function handleTemplateKeydown(e: KeyboardEvent) {
         class="canvas-toolbar__icon"
       />
     </button>
-    <div
-      v-if="props.isModerator"
-      class="canvas-toolbar__save-template-group"
-    >
-      <button
-        class="canvas-toolbar__btn"
-        :class="{ 'canvas-toolbar__btn--active': showSaveAsTemplate }"
-        :title="t('canvas.saveAsTemplate')"
-        @click="showSaveAsTemplate = !showSaveAsTemplate"
-      >
-        <DocumentDuplicateIcon class="canvas-toolbar__icon" />
-      </button>
-      <div
-        v-if="showSaveAsTemplate"
-        class="canvas-toolbar__template-form"
-      >
-        <input
-          v-model="templateName"
-          class="canvas-toolbar__template-input"
-          :placeholder="t('canvas.templateName')"
-          maxlength="200"
-          @keydown="handleTemplateKeydown"
-        >
-        <input
-          v-model="templateDescription"
-          class="canvas-toolbar__template-input"
-          :placeholder="t('canvas.templateDescription')"
-          maxlength="1000"
-          @keydown="handleTemplateKeydown"
-        >
-        <button
-          class="canvas-toolbar__template-submit"
-          :disabled="!templateName.trim() || saveAsTemplateMut.isPending.value"
-          @click="handleSaveAsTemplate"
-        >
-          {{ t('canvas.saveAsTemplate') }}
-        </button>
-      </div>
-    </div>
 
     <button
       class="canvas-toolbar__btn"
       :title="t('canvas.settings')"
+      :aria-label="t('canvas.settings')"
       @click="emit('openSettings')"
     >
       <Cog6ToothIcon class="canvas-toolbar__icon" />
@@ -274,15 +126,15 @@ function handleTemplateKeydown(e: KeyboardEvent) {
   gap: var(--space-0-5);
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
 }
 
 .canvas-toolbar__btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   border: none;
   background: transparent;
@@ -302,8 +154,8 @@ function handleTemplateKeydown(e: KeyboardEvent) {
 }
 
 .canvas-toolbar__icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .canvas-toolbar__save-group {
@@ -314,8 +166,8 @@ function handleTemplateKeydown(e: KeyboardEvent) {
 
 .canvas-toolbar__label-input {
   flex: 1;
-  min-width: 80px;
-  max-width: 160px;
+  min-width: 60px;
+  max-width: 120px;
   padding: var(--space-0-5) var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -327,124 +179,5 @@ function handleTemplateKeydown(e: KeyboardEvent) {
 .canvas-toolbar__label-input:focus-visible {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent);
-}
-
-.canvas-toolbar__separator {
-  width: 1px;
-  height: 20px;
-  background: var(--color-border);
-  margin: 0 var(--space-1);
-}
-
-.canvas-toolbar__btn--active {
-  background: var(--color-surface-hover);
-  color: var(--color-accent);
-}
-
-.canvas-toolbar__search-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-0-5);
-}
-
-.canvas-toolbar__search-input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.canvas-toolbar__search-input {
-  width: 160px;
-  padding: var(--space-0-5) var(--space-1);
-  padding-right: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-canvas);
-  color: var(--color-fg);
-  font-size: var(--font-size-xs);
-}
-
-.canvas-toolbar__search-input:focus-visible {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-accent);
-}
-
-.canvas-toolbar__search-clear {
-  position: absolute;
-  right: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  background: transparent;
-  color: var(--color-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.canvas-toolbar__search-clear:hover {
-  color: var(--color-fg);
-}
-
-.canvas-toolbar__icon-sm {
-  width: 14px;
-  height: 14px;
-}
-
-.canvas-toolbar__save-template-group {
-  position: relative;
-}
-
-.canvas-toolbar__template-form {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  margin-top: var(--space-1);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--elevation-2);
-  min-width: 220px;
-}
-
-.canvas-toolbar__template-input {
-  padding: var(--space-1) var(--space-1-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-canvas);
-  color: var(--color-fg);
-  font-size: var(--font-size-xs);
-}
-
-.canvas-toolbar__template-input:focus-visible {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-accent);
-}
-
-.canvas-toolbar__template-submit {
-  padding: var(--space-1) var(--space-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.canvas-toolbar__template-submit:hover {
-  opacity: 0.9;
-}
-
-.canvas-toolbar__template-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

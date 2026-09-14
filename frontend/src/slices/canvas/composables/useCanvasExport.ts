@@ -1,4 +1,6 @@
 import { ref, type Ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useToast } from '@shared/composables/useToast'
 
 // Excalidraw API shape (React-in-Vue bridge has inherently weak typing)
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -36,11 +38,16 @@ export function useCanvasExport(
   getExcalidrawApi: () => ExcalidrawAPI | null,
   chatroomName: Ref<string>,
 ) {
+  const { t } = useI18n()
+  const toast = useToast()
   const isExporting = ref(false)
 
   async function exportPng(scale: 1 | 2) {
     const api = getExcalidrawApi()
-    if (!api) return
+    if (!api) {
+      toast.info(t('canvas.canvasNotReady', 'Canvas is still loading'))
+      return
+    }
 
     isExporting.value = true
     try {
@@ -68,7 +75,10 @@ export function useCanvasExport(
 
   async function exportSvg() {
     const api = getExcalidrawApi()
-    if (!api) return
+    if (!api) {
+      toast.info(t('canvas.canvasNotReady', 'Canvas is still loading'))
+      return
+    }
 
     isExporting.value = true
     try {
