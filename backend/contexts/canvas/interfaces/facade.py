@@ -5,14 +5,19 @@ Thin pass-throughs to the application service (caller owns commit).
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import logging
 import uuid
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.canvas.application.canvas_service import CanvasService
 from contexts.canvas.application.comment_service import CommentService
+from contexts.canvas.application.crdt_relay import CrdtUpdateError, build_element_dict, get_crdt_relay
 from contexts.canvas.application.template_service import CanvasTemplateService
 from contexts.canvas.domain.models import (
     Canvas,
@@ -23,6 +28,10 @@ from contexts.canvas.domain.models import (
     CanvasTemplate,
     CanvasTemplateScope,
 )
+from contexts.canvas.infrastructure.channels import canvas_channel
+from shared_kernel.realtime.pubsub import Publisher
+
+_log = logging.getLogger(__name__)
 
 
 class CanvasFacade:
@@ -272,6 +281,92 @@ class CanvasFacade:
             request_id=request_id,
         )
 
+    # ---- CRDT operations (F-1, F-6) ------------------------------------------
+
+    async def crdt_inject_elements(
+        self,
+        canvas_id: uuid.UUID,
+        elements: list[dict[str, Any]],
+        *,
+        replace: bool = False,
+    ) -> tuple[bytes, bytes]:
+        """Inject elements into the CRDT doc.  Returns ``(full_state, delta)``."""
+        relay = get_crdt_relay()
+        crdt_state = await self._service.get_crdt_state(canvas_id)
+        return await relay.inject_elements(
+            canvas_id, elements, crdt_state=crdt_state, replace=replace,
+        )
+
+    async def crdt_update_element(
+        self,
+        canvas_id: uuid.UUID,
+        element_id: str,
+        fields: dict[str, Any],
+    ) -> tuple[bytes, bytes]:
+        """Update one element in the CRDT doc.  Returns ``(full_state, delta)``."""
+        relay = get_crdt_relay()
+        crdt_state = await self._service.get_crdt_state(canvas_id)
+        return await relay.update_element(
+            canvas_id, element_id, fields, crdt_state=crdt_state,
+        )
+
+    async def crdt_delete_element(
+        self,
+        canvas_id: uuid.UUID,
+        element_id: str,
+    ) -> tuple[bytes, bytes]:
+        """Soft-delete one element in the CRDT doc.  Returns ``(full_state, delta)``."""
+        relay = get_crdt_relay()
+        crdt_state = await self._service.get_crdt_state(canvas_id)
+        return await relay.delete_element(
+            canvas_id, element_id, crdt_state=crdt_state,
+        )
+
+    async def persist_and_broadcast_crdt(
+        self,
+        canvas_id: uuid.UUID,
+        *,
+        full_state: bytes,
+        delta: bytes,
+        deferred: bool = False,
+    ) -> None:
+        """Persist CRDT state and broadcast the incremental delta.
+
+        Also synchronises text content from CRDT elements into the
+        ``canvas_objects`` table for FTS search (dual-write).
+
+        When *deferred* is True, the broadcast is enqueued on SQLAlchemy's
+        ``after_commit`` hook so it fires only after the transaction commits.
+        Use ``deferred=True`` for tool invocations where the commit is
+        controlled by the caller (e.g. turn engine).
+        """
+        await self._service.update_crdt_state(canvas_id, full_state)
+        await self._service.sync_text_from_crdt(canvas_id)
+
+        channel = canvas_channel(canvas_id)
+        delta_b64 = base64.b64encode(delta).decode("ascii")
+        payload: dict[str, Any] = {"data": delta_b64}
+
+        if deferred:
+            pending = self._db.info.setdefault("_pending_crdt_broadcasts", [])
+            pending.append((channel, payload))
+            if "_crdt_broadcast_hooked" not in self._db.info:
+                self._db.info["_crdt_broadcast_hooked"] = True
+
+                @event.listens_for(self._db.sync_session, "after_commit")
+                def _drain_crdt_broadcasts(session: Any) -> None:
+                    broadcasts = list(session.info.pop("_pending_crdt_broadcasts", []))
+                    if not broadcasts:
+                        return
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        return
+                    for ch, data in broadcasts:
+                        loop.create_task(_best_effort_emit(ch, data))
+        else:
+            await Publisher(channel).emit("yjs-update", payload)
+
     # ---- comments ------------------------------------------------------------
 
     async def list_comments(
@@ -456,4 +551,11 @@ class CanvasFacade:
         )
 
 
-__all__ = ["CanvasFacade"]
+async def _best_effort_emit(channel: str, data: dict[str, Any]) -> None:
+    try:
+        await Publisher(channel).emit("yjs-update", data)
+    except Exception:
+        _log.warning("deferred CRDT broadcast failed ch=%s", channel, exc_info=True)
+
+
+__all__ = ["CanvasFacade", "CrdtUpdateError", "build_element_dict"]
