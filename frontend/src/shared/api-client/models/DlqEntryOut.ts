@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type DlqEntryOut = {
-    attempt_count: number;
-    envelope: string;
-    last_error: string;
-    moved_at: string;
     stream_entry_id: string;
     stream_id: string;
+    envelope: string;
+    attempt_count: number;
+    last_error: string;
+    moved_at: string;
 };
 

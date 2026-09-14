@@ -5,7 +5,7 @@
 import type { ActivityAggregateOut } from './ActivityAggregateOut';
 import type { ActivitySubmissionOut } from './ActivitySubmissionOut';
 export type ActivitySubmissionsPageOut = {
-    aggregate: ActivityAggregateOut;
     items: Array<ActivitySubmissionOut>;
+    aggregate: ActivityAggregateOut;
 };
 

@@ -12,9 +12,9 @@
  * rename that appears to work but does not is worse than a rejection.
  */
 export type SkillPatchIn = {
-    allowed_tools?: (Array<string> | null);
-    body?: (string | null);
     description?: (string | null);
+    body?: (string | null);
     requires?: (Array<string> | null);
+    allowed_tools?: (Array<string> | null);
 };
 

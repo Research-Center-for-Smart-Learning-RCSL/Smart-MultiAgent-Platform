@@ -4,10 +4,10 @@
 /* eslint-disable */
 import type { ExportJobStatus } from './ExportJobStatus';
 export type ExportStatusOut = {
-    chatroom_id: string;
-    error: (string | null);
     job_id: string;
+    chatroom_id: string;
     status: ExportJobStatus;
     url: (string | null);
+    error: (string | null);
 };
 

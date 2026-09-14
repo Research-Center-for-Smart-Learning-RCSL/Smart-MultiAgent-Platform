@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type IdentityOut = {
-    created_at: string;
-    email: (string | null);
     provider: string;
+    email: (string | null);
+    created_at: string;
 };
 

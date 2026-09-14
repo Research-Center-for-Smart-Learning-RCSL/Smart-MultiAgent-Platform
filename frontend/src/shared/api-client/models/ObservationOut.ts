@@ -3,17 +3,17 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ObservationOut = {
-    agent_id: string;
-    blocks: Array<Record<string, any>>;
-    chatroom_id: string;
-    content_md: string;
-    created_at: (string | null);
     id: string;
+    chatroom_id: string;
+    agent_id: string;
+    content_md: string;
     metadata: Record<string, any>;
-    release_target: (Record<string, any> | null);
-    released_at: (string | null);
-    released_by_user_id: (string | null);
+    blocks: Array<Record<string, any>>;
     trigger: string;
     trigger_message_id: (string | null);
+    released_at: (string | null);
+    release_target: (Record<string, any> | null);
+    released_by_user_id: (string | null);
+    created_at: (string | null);
 };
 

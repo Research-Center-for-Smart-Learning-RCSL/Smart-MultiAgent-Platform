@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type app__api__v1__workspaces__ConceptMapStatusOut = {
-    concept_map_enabled: boolean;
     workspace_id: string;
+    concept_map_enabled: boolean;
 };
 

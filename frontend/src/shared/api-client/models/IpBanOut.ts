@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type IpBanOut = {
-    banned_at: string;
-    cidr: string;
-    created_by_user_id: (string | null);
     id: string;
+    cidr: string;
     reason: string;
+    banned_at: string;
+    created_by_user_id: (string | null);
 };
 
