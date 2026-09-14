@@ -385,6 +385,14 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   direct entry, UX polish), each intended for a separate session. Amends R5.04, R6.02,
   R6.11, R13.06; adds R13.06a, R13.06b.
 
+### Canvas CRDT bridge (2026-09-14)
+
+- `2026-09-14-canvas-crdt-bridge-remaining` (feature, **approved**) - `depends_on: []`.
+  Bridges three canvas features from REST to CRDT: image upload (WS event + presigned
+  URL to Excalidraw addFiles), agent write tools (CRDT-only, no REST dual-write),
+  save-as-template (read from CRDT state). Uses the `inject_elements` primitive proven
+  by snapshot restore. Amends R13.57, R13.60, R13.61; adds R13.71.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file

@@ -797,15 +797,15 @@ Five composable flags per chat room:
 
 - **[R13.56]** A room creator may grant an agent bound to the chatroom the ability to create, update, and delete canvas objects, via a `may_write_canvas` grant on the chatroom binding. The grant is independent of `may_read_canvas` and records the granting user. Revoking the grant does not delete objects the agent previously created.
 
-- **[R13.57]** An agent with `may_write_canvas` exercises the grant through three built-in runtime tools: `canvas_create_object`, `canvas_update_object`, and `canvas_delete_object`. Each tool accepts a structured JSON input matching the canvas object schema. The tools are available only during agent turns in rooms where the grant is set; they are absent from the tool list otherwise. Each tool invocation emits an audit event identifying the agent and the canvas operation.
+- **[R13.57]** An agent with `may_write_canvas` exercises the grant through three built-in runtime tools: `canvas_create_object`, `canvas_update_object`, and `canvas_delete_object`. Each tool accepts a structured JSON input matching the canvas object schema. Tools operate on the CRDT document via `CrdtRelay.inject_elements()` / `update_element()` / `delete_element()` and broadcast changes to connected editors in real time. REST `canvas_objects` are not written. The tools are available only during agent turns in rooms where the grant is set; they are absent from the tool list otherwise. Each tool invocation emits an audit event identifying the agent and the canvas operation.
 
 - **[R13.58]** A canvas object created by an agent carries `created_by_agent_id` (the agent's identity) alongside the existing `created_by_user_id` (the user whose turn triggered the write). The frontend visually distinguishes agent-created objects from user-created ones.
 
 - **[R13.59]** A canvas template is a named, immutable JSON layout definition. Each template has a scope (platform or project), a name, a description, and a `template_data` JSONB column holding objects in the same schema as `canvas_snapshots.snapshot_data`. Platform templates are readable by all authenticated users; project templates are readable by project members.
 
-- **[R13.60]** Applying a template to a canvas creates real canvas objects via `batch_operate`. Template objects become regular editable objects; no link to the source template is maintained. A template may only be applied to an empty canvas (no existing objects) unless the user explicitly confirms overwrite.
+- **[R13.60]** Applying a canvas template injects its elements into the CRDT document via `inject_elements(replace=true)`, replacing existing content. Legacy templates (REST object format) are converted to Excalidraw element format on apply. No link to the source template is maintained.
 
-- **[R13.61]** A project admin may create a project-scoped template from an existing canvas ("save as template"). The template captures the canvas's current object state as a snapshot. Deleting the source canvas does not affect the template.
+- **[R13.61]** A project admin may create a project-scoped template from an existing canvas ("save as template"). The template reads Excalidraw elements from the CRDT document (in-memory relay or persisted `crdt_state`) and stores them in Excalidraw native format. Deleting the source canvas does not affect the template.
 
 - **[R13.62]** Canvas objects with non-null text content are indexed for full-text search via a PostgreSQL tsvector column (`content_tsv`) maintained by a trigger. The index uses the `english` text search configuration. Only `note` and `text` object kinds produce index entries; other kinds have a null tsvector.
 
@@ -824,6 +824,8 @@ Five composable flags per chat room:
 - **[R13.69]** Comment mutations (create, edit, delete) publish events on the chatroom's room WebSocket channel (`canvas.comment_created`, `canvas.comment_updated`, `canvas.comment_deleted`). Connected clients update the comment list in real time.
 
 - **[R13.70]** Comment text is sanitized server-side before storage: control characters stripped, content capped at 2000 characters, validated at the Pydantic model boundary. No HTML or markdown rendering; comments display as plain text.
+
+- **[R13.71]** Image upload injects an Excalidraw image element into the CRDT document and broadcasts a `canvas.image_added` event with a presigned MinIO URL. The frontend registers the image binary via `excalidrawApi.addFiles()`. Image binary data is never stored in the CRDT document.
 
 ### 13.12 Derived content and deletion
 
