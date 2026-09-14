@@ -141,7 +141,7 @@ class TestSnapshotPruning:
 
 class TestSnapshotRestore:
     @pytest.mark.anyio
-    async def test_restore_creates_autosave_and_replaces_objects(self) -> None:
+    async def test_restore_creates_autosave_and_injects_crdt(self) -> None:
         svc, repo = _mock_service()
         target_snap = _make_snapshot(
             snapshot_data={
@@ -159,23 +159,30 @@ class TestSnapshotRestore:
                 ]
             }
         )
-        existing_obj = _make_object()
         auto_save = _make_snapshot(label="Auto-save before restore")
 
         repo.get_snapshot = AsyncMock(return_value=target_snap)
         repo.count_snapshots = AsyncMock(return_value=5)
         repo.delete_oldest_snapshot = AsyncMock()
-        repo.list_objects = AsyncMock(side_effect=[[], [existing_obj]])
+        repo.list_objects = AsyncMock(return_value=[])
         repo.create_snapshot = AsyncMock(return_value=auto_save)
-        repo.batch_delete_objects = AsyncMock(return_value=1)
-        repo.create_object = AsyncMock(return_value=existing_obj)
+        repo.get_crdt_state = AsyncMock(return_value=None)
+        repo.update_crdt_state = AsyncMock()
+
+        mock_relay = MagicMock()
+        mock_relay.has = MagicMock(return_value=False)
+        mock_relay.inject_elements = AsyncMock(return_value=b"\x00")
+        mock_relay.extract_elements_for_digest = MagicMock(return_value=None)
 
         mock_pub = _mock_publisher()
 
         with (
             patch("contexts.canvas.application.canvas_service.audit", _mock_audit()),
             patch("contexts.canvas.application.canvas_service.Publisher", mock_pub),
-            _relay_patch(),
+            patch(
+                "contexts.canvas.application.crdt_relay.get_crdt_relay",
+                return_value=mock_relay,
+            ),
         ):
             result = await svc.restore_snapshot(
                 canvas_id=_CANVAS_ID,
@@ -186,13 +193,16 @@ class TestSnapshotRestore:
 
         assert result is not None
         assert result.label == "Auto-save before restore"
-        repo.batch_delete_objects.assert_awaited_once()
-        repo.create_object.assert_awaited()
+        mock_relay.inject_elements.assert_awaited_once()
+        inject_call = mock_relay.inject_elements.call_args
+        assert inject_call[1]["replace"] is True
+        repo.update_crdt_state.assert_awaited_once()
 
         pub_instance = mock_pub.return_value
         emit_calls = pub_instance.emit.call_args_list
         event_types = [c[0][0] for c in emit_calls]
         assert "canvas.snapshot_restored" in event_types
+        assert "yjs-update" in event_types
 
     @pytest.mark.anyio
     async def test_restore_returns_none_for_missing_snapshot(self) -> None:

@@ -203,6 +203,45 @@ class CrdtRelay:
         """Remove from in-memory cache (on last disconnect)."""
         self._docs.pop(canvas_id, None)
 
+    async def inject_elements(
+        self,
+        canvas_id: uuid.UUID,
+        elements: list[dict[str, Any]],
+        *,
+        crdt_state: bytes | None = None,
+        replace: bool = False,
+    ) -> bytes:
+        """Write Excalidraw elements into the CRDT doc from the server side.
+
+        Loads the doc if not in memory.  If *replace* is True, marks every
+        existing element as deleted first (used by snapshot restore).
+
+        Returns the full doc state for DB persistence and broadcasting.
+        """
+        doc = await self.get_or_load(canvas_id, crdt_state=crdt_state)
+        entry = self._docs[canvas_id]
+
+        async with entry.lock:
+            elements_map = doc.get("excalidraw-elements", type=pycrdt.Map)
+
+            if replace:
+                for key in list(elements_map):
+                    item = elements_map[key]
+                    if isinstance(item, pycrdt.Map):
+                        item["isDeleted"] = True
+
+            for elem in elements:
+                elem_id = elem.get("id") or str(uuid.uuid4())
+                elements_map[elem_id] = pycrdt.Map(elem)
+
+            state = doc.get_update()
+            if len(state) > _MAX_DOC_SIZE_BYTES:
+                raise CrdtUpdateError(f"document would exceed {_MAX_DOC_SIZE_BYTES} byte cap")
+
+            entry.dirty = True
+
+        return state
+
     def extract_elements_for_digest(
         self,
         canvas_id: uuid.UUID,

@@ -179,8 +179,8 @@ class SnapshotDetailOut(SnapshotOut):
 
 
 class CanvasSearchResult(BaseModel):
-    object_id: uuid.UUID
-    kind: CanvasObjectKind
+    object_id: str
+    kind: str
     snippet: str
     rank: float
     position_x: float
@@ -305,17 +305,17 @@ async def search_canvas(
     canvas = await facade.get_by_chatroom(chatroom_id)
     if canvas is None:
         return []
-    results = await facade.search_objects(canvas.id, q, limit=limit)
+    elements = await facade.search_crdt_elements(canvas.id, q, limit=limit)
     return [
         CanvasSearchResult(
-            object_id=obj.id,
-            kind=obj.kind,
-            snippet=snippet,
-            rank=rank,
-            position_x=obj.position_x,
-            position_y=obj.position_y,
+            object_id=elem.get("id", ""),
+            kind=elem.get("type", "unknown"),
+            snippet=elem.get("text", "")[:200],
+            rank=1.0,
+            position_x=elem.get("x", 0),
+            position_y=elem.get("y", 0),
         )
-        for obj, rank, snippet in results
+        for elem in elements
     ]
 
 
