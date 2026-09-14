@@ -97,7 +97,8 @@ class CanvasService:
                 except RuntimeError:
                     return
                 for ch, data in broadcasts:
-                    loop.create_task(_best_effort_emit(ch, data))
+                    task = loop.create_task(_best_effort_emit(ch, data))
+                    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     # ---- canvas lifecycle --------------------------------------------------
 
@@ -491,7 +492,6 @@ class CanvasService:
         request_id: uuid.UUID | None = None,
     ) -> CanvasSnapshot | None:
         from contexts.canvas.application.crdt_relay import get_crdt_relay
-        from contexts.canvas.infrastructure.channels import canvas_channel
 
         target = await self._repo.get_snapshot(snapshot_id, canvas_id=canvas_id)
         if target is None:

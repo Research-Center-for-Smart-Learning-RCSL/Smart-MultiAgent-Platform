@@ -363,7 +363,8 @@ class CanvasFacade:
                     except RuntimeError:
                         return
                     for ch, data in broadcasts:
-                        loop.create_task(_best_effort_emit(ch, data))
+                        task = loop.create_task(_best_effort_emit(ch, data))
+                        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         else:
             await Publisher(channel).emit("yjs-update", payload)
 
