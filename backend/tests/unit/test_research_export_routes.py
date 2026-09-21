@@ -175,9 +175,8 @@ class TestGetResearchExport:
             "contexts.conversation.application.research_export_service.get",
             new_callable=AsyncMock,
             return_value=None,
-        ):
-            with pytest.raises(ExportJobNotFound):
-                await get_research_export(job_id=_JOB, principal=principal)
+        ), pytest.raises(ExportJobNotFound):
+            await get_research_export(job_id=_JOB, principal=principal)
 
 
 class TestResolveWindow:

@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from contexts.conversation.application.research_export_service import (
+    _JOB_TTL_SECONDS,
     ResearchExportJobState,
     ResearchExportJobStatus,
-    _JOB_TTL_SECONDS,
     create,
     get,
-    mark_failed,
     mark_ready,
     mark_running,
 )
@@ -64,7 +63,7 @@ class TestMarkTransitions:
             workspace_id=_WORKSPACE,
             owner_user_id=_USER,
             status=ResearchExportJobStatus.QUEUED,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         stored = json.dumps({
             "job_id": str(state.job_id),
@@ -97,7 +96,7 @@ class TestMarkTransitions:
             "workspace_id": str(_WORKSPACE),
             "owner_user_id": str(_USER),
             "status": ResearchExportJobStatus.RUNNING,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "object_key": None,
             "bucket": None,
             "created_after": None,

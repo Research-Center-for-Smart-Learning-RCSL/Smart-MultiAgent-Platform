@@ -10,11 +10,9 @@ import io
 import json
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from contexts.activities.domain.subject_code import group_subject_code, subject_code
 from contexts.conversation.application.research_export_builder import ResearchExportBuilder
@@ -27,7 +25,7 @@ _GROUP_1 = uuid.uuid4()
 _AGENT_1 = uuid.uuid4()
 _WORKSPACE = uuid.uuid4()
 _JOB = uuid.uuid4()
-_NOW = datetime(2026, 9, 21, 10, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2026, 9, 21, 10, 0, 0, tzinfo=UTC)
 
 
 def _sub_row(
@@ -250,10 +248,9 @@ class TestDateRangeFiltering:
         builder = ResearchExportBuilder.__new__(ResearchExportBuilder)
         builder._db = AsyncMock()
 
-        from datetime import timezone
 
-        after = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        before = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        after = datetime(2026, 1, 1, tzinfo=UTC)
+        before = datetime(2026, 6, 1, tzinfo=UTC)
 
         import sqlalchemy as sa
 
