@@ -7,7 +7,7 @@
   "agents": [
     {
       "key": "da-creativity-designer",
-      "name": "DA 設計代理",
+      "name": "DA 創造力設計代理",
       "room_role": null,
       "may_control_activities": false,
       "preferred_model_hint": "claude",

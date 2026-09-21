@@ -35,6 +35,8 @@ _NOW = dt.datetime(2026, 8, 13, tzinfo=dt.UTC)
 _ROOM_PACK = "creative-thinking-room"
 _DESIGN_PACK = "creative-thinking-design"
 _ALL_PACKS = {
+    "chinese-character-creativity-design",
+    "chinese-character-creativity-room",
     "creative-thinking-room",
     "creative-thinking-design",
     "creative-thinking-prompt-assistant",

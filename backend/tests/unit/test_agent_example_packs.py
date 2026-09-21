@@ -70,6 +70,9 @@ COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in COURSE_AGENTS]
 CT_COURSE_AGENTS = [(p, a) for p, a in COURSE_AGENTS if p.for_course == "creative-thinking"]
 CT_COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in CT_COURSE_AGENTS]
 
+CC_COURSE_AGENTS = [(p, a) for p, a in COURSE_AGENTS if p.for_course == "chinese-character-creativity"]
+CC_COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in CC_COURSE_AGENTS]
+
 
 class TestShippedPackContent:
     def test_all_packs_ship(self) -> None:
@@ -487,9 +490,10 @@ class TestPromptConstraints:
             if match is None:
                 continue
             checked += 1
-            course_keys = tuple(
-                t.key for t in load_course(pack.for_course).activity_types
-            ) if pack.for_course in available_courses() else COURSE_TYPE_KEYS
+            assert pack.for_course in available_courses(), (
+                f"{agent.key} carries a counted default but its course {pack.for_course!r} is not shipped"
+            )
+            course_keys = tuple(t.key for t in load_course(pack.for_course).activity_types)
             named = sum(f"`{key}`" in agent.system_prompt for key in course_keys)
             assert match.group(1) == _CJK_NUMERALS[named], (
                 f"{agent.key} names {named} types but its default clause says 這{match.group(1)}個"
@@ -587,6 +591,53 @@ class TestPromptConstraints:
 
         assert "沒有辦法" in da.system_prompt
         assert "複製" in da.system_prompt
+
+
+class TestChineseCharacterCreativityPromptConstraints:
+    """Prompt constraints for the chinese-character-creativity course's agents.
+
+    Mirrors the creative-thinking checks for the constraints that apply across
+    courses (group attribution, draft safety) rather than duplicating the
+    course-specific checks (unit-4 quoting, mandala visibility).
+    """
+
+    @pytest.mark.parametrize(("pack", "agent"), CC_COURSE_AGENTS, ids=CC_COURSE_AGENT_IDS)
+    def test_every_agent_binds_the_group_task(self, pack: Any, agent: Any) -> None:
+        """crat-word-puzzle is the only group activity in this course."""
+        assert "crat-word-puzzle" in agent.binds_activity_types
+
+    @pytest.mark.parametrize(("pack", "agent"), CC_COURSE_AGENTS, ids=CC_COURSE_AGENT_IDS)
+    def test_group_answer_attribution(self, pack: Any, agent: Any) -> None:
+        """A group CRAT answer belongs to the group, not a member."""
+        prompt = agent.system_prompt
+        if agent.room_role is None:
+            return
+        assert "這一組" in prompt or "那一組" in prompt, (
+            f"{agent.key} never says to speak of the group rather than a member"
+        )
+        assert "g:" in prompt, f"{agent.key} does not name the group code space"
+
+    @pytest.mark.parametrize(
+        "agent_key",
+        ["ta-creativity-teacher", "sa-creativity-peer", "aa-creativity-analyst"],
+    )
+    def test_draft_is_unquotable(self, agent_key: str) -> None:
+        """Draft prohibition must be flat across all three activity types."""
+        agent = next(a for _, a in SHIPPED_AGENTS if a.key == agent_key)
+        assert "還沒送出" in agent.system_prompt, f"{agent_key} has no draft prohibition"
+
+    def test_analyst_disclaims_unscored_dimensions(self) -> None:
+        """Flexibility, originality and convergence have no automated scorer."""
+        aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-creativity-analyst")
+        assert "不可以給分" in aa.system_prompt or "不得" in aa.system_prompt
+        assert "變通性" in aa.system_prompt
+        assert "獨創性" in aa.system_prompt
+
+    def test_analyst_draft_counting_prohibition(self) -> None:
+        """AA must not count unsent drafts as submissions."""
+        aa = next(a for _, a in SHIPPED_AGENTS if a.key == "aa-creativity-analyst")
+        assert "草稿不是提交" in aa.system_prompt
+        assert "計數" in aa.system_prompt
 
 
 class TestTheAnalystAsksOnlyWhatItsInputSupports:
