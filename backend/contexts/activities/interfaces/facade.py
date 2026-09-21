@@ -55,6 +55,7 @@ from contexts.activities.domain.models import (
     MemberGroupRef,
     PolicyImpact,
     RecentActivityRow,
+    ResearchExportSubmission,
     RoomDashboardAggregate,
     TimeseriesBucket,
     ValidationResult,
@@ -984,6 +985,20 @@ class ActivitiesFacade:
     ) -> list[TimeseriesBucket]:
         return await self._aggregation.timeseries_for_rooms(
             chatroom_ids=chatroom_ids, since=since, bucket_seconds=bucket_seconds
+        )
+
+    async def list_submissions_for_research_export(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        created_after: dt.datetime | None = None,
+        created_before: dt.datetime | None = None,
+    ) -> list[ResearchExportSubmission]:
+        """Submissions for the research data export ([R33.10])."""
+        return await self._aggregation.list_for_research_export(
+            chatroom_ids=chatroom_ids,
+            created_after=created_after,
+            created_before=created_before,
         )
 
     async def watchlist_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[WatchlistEntry]:

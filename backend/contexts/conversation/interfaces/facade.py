@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from loguru import logger
@@ -22,6 +22,7 @@ from contexts.conversation.application.guest_session_service import (
 )
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
+    AgentObservation,
     AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
@@ -547,6 +548,36 @@ class ConversationFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+        )
+
+    async def list_observations_for_rooms(
+        self,
+        *,
+        chatroom_ids: list[uuid.UUID],
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> Sequence[AgentObservation]:
+        """All observations for a set of rooms ([R33.10])."""
+        from contexts.conversation.infrastructure.repositories import ObservationRepository
+
+        return await ObservationRepository(self._db).list_for_rooms(
+            chatroom_ids=chatroom_ids,
+            created_after=created_after,
+            created_before=created_before,
+        )
+
+    async def list_messages_for_rooms(
+        self,
+        *,
+        chatroom_ids: list[uuid.UUID],
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> Sequence[Message]:
+        """All messages for a set of rooms ([R33.10])."""
+        return await self._messages.list_for_rooms(
+            chatroom_ids,
+            created_after=created_after,
+            created_before=created_before,
         )
 
     async def list_messages(

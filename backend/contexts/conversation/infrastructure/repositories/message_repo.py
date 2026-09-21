@@ -361,6 +361,32 @@ class MessageRepository:
         return [_row_to_message(r) for r in rows]
 
 
+    async def list_for_rooms(
+        self,
+        chatroom_ids: list[uuid.UUID],
+        *,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> Sequence[Message]:
+        """Messages for multiple rooms ([R33.10]), ordered by room then time."""
+        conditions: list[sa.ColumnElement[bool]] = [
+            t.messages.c.chatroom_id.in_(chatroom_ids),
+            t.messages.c.deleted_at.is_(None),
+        ]
+        if created_after is not None:
+            conditions.append(t.messages.c.created_at >= created_after)
+        if created_before is not None:
+            conditions.append(t.messages.c.created_at < created_before)
+        rows = (
+            await self._db.execute(
+                t.messages.select()
+                .where(sa.and_(*conditions))
+                .order_by(t.messages.c.chatroom_id, t.messages.c.created_at.asc())
+            )
+        ).all()
+        return [_row_to_message(r) for r in rows]
+
+
 class MessageEditRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db

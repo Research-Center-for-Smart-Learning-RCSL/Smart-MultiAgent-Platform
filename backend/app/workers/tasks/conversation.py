@@ -351,9 +351,16 @@ async def research_data_export(
     owner_user_id: str,
 ) -> str:
     """Build a de-identified research data ZIP and upload to MinIO (R33.10)."""
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+    from contexts.agents.interfaces.facade import AgentsFacade
     from contexts.conversation.application import research_export_service
-    from contexts.conversation.application.research_export_builder import ResearchExportBuilder
-    from contexts.conversation.infrastructure.repositories import ChatroomRepository
+    from contexts.conversation.application.research_export_builder import (
+        MessageRow,
+        ObservationRow,
+        ResearchExportBuilder,
+        SubmissionRow,
+    )
+    from contexts.conversation.interfaces.facade import ConversationFacade
     from contexts.notification.domain.models import NotificationKind
     from contexts.notification.interfaces.facade import NotificationFacade
 
@@ -375,17 +382,90 @@ async def research_data_export(
     try:
         sm = get_sessionmaker()
         async with sm() as session, session.begin():
-            room_ids = await ChatroomRepository(session).list_ids_for_workspace(wid)
+            conv_facade = ConversationFacade(session)
+            room_ids = await conv_facade.list_chatroom_ids_for_workspace(wid)
             if not room_ids:
                 await research_export_service.mark_failed(job_id=jid, error="no rooms in workspace")
                 return "failed:no_rooms"
 
-            builder = ResearchExportBuilder(session)
+            raw_subs = await ActivitiesFacade(session).list_submissions_for_research_export(
+                chatroom_ids=room_ids,
+                created_after=state.created_after,
+                created_before=state.created_before,
+            )
+            submissions = [
+                SubmissionRow(
+                    chatroom_id=s.chatroom_id,
+                    subject_user_id=s.subject_user_id,
+                    subject_member_group_id=s.subject_member_group_id,
+                    activity_type_key=s.activity_type_key,
+                    attempt_no=s.attempt_no,
+                    is_valid=s.is_valid,
+                    error_class=s.error_class,
+                    latency_ms=s.latency_ms,
+                    created_at=s.created_at,
+                    payload=s.payload,
+                    sub_scores=s.sub_scores,
+                )
+                for s in raw_subs
+            ]
+
+            raw_obs = await conv_facade.list_observations_for_rooms(
+                chatroom_ids=room_ids,
+                created_after=state.created_after,
+                created_before=state.created_before,
+            )
+            observations = [
+                ObservationRow(
+                    chatroom_id=o.chatroom_id,
+                    agent_id=o.agent_id,
+                    content_md=o.content_md,
+                    trigger=o.trigger,
+                    blocks=o.blocks,
+                    created_at=o.created_at,
+                    released_at=o.released_at,
+                )
+                for o in raw_obs
+            ]
+
+            raw_msgs = await conv_facade.list_messages_for_rooms(
+                chatroom_ids=room_ids,
+                created_after=state.created_after,
+                created_before=state.created_before,
+            )
+            messages = [
+                MessageRow(
+                    chatroom_id=m.chatroom_id,
+                    sender_type=m.sender_type.value if hasattr(m.sender_type, "value") else m.sender_type,
+                    sender_id=m.sender_id,
+                    content_md=m.content_md,
+                    created_at=m.created_at,
+                )
+                for m in raw_msgs
+            ]
+
+            agent_ids: set[uuid.UUID] = set()
+            for o in observations:
+                agent_ids.add(o.agent_id)
+            for m in messages:
+                if m.sender_type == "agent" and m.sender_id:
+                    agent_ids.add(m.sender_id)
+
+            agent_key_map = (
+                await AgentsFacade(session).agent_names(list(agent_ids)) if agent_ids else {}
+            )
+
+            builder = ResearchExportBuilder()
             bucket, key = await builder.build_and_upload(
                 job_id=jid,
                 workspace_id=wid,
                 room_ids=room_ids,
                 owner_user_id=oid,
+                submissions=submissions,
+                observations=observations,
+                messages=messages,
+                agent_key_map=agent_key_map,
+                db=session,
                 created_after=state.created_after,
                 created_before=state.created_before,
             )

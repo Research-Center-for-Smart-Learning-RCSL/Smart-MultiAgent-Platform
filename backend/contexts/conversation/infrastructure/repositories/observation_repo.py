@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -218,6 +219,31 @@ class ObservationRepository:
             )
             .values(release_target=release_target)
         )
+
+    async def list_for_rooms(
+        self,
+        *,
+        chatroom_ids: list[uuid.UUID],
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> Sequence[AgentObservation]:
+        """All observations for a set of rooms ([R33.10])."""
+        clauses: list[sa.ColumnElement[bool]] = [
+            t.agent_observations.c.chatroom_id.in_(chatroom_ids),
+            t.agent_observations.c.deleted_at.is_(None),
+        ]
+        if created_after:
+            clauses.append(t.agent_observations.c.created_at >= created_after)
+        if created_before:
+            clauses.append(t.agent_observations.c.created_at < created_before)
+        rows = (
+            await self._db.execute(
+                t.agent_observations.select()
+                .where(sa.and_(*clauses))
+                .order_by(t.agent_observations.c.created_at)
+            )
+        ).all()
+        return [_row_to_observation(r) for r in rows]
 
     async def soft_delete(
         self,

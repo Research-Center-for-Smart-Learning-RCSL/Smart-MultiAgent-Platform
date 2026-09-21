@@ -698,4 +698,68 @@ class ActivitySubmissionRepository:
         return result
 
 
+    async def list_for_research_export(
+        self,
+        *,
+        chatroom_ids: list[uuid.UUID],
+        created_after: dt.datetime | None = None,
+        created_before: dt.datetime | None = None,
+    ) -> list[Any]:
+        """Submissions for the research data export ([R33.10]).
+
+        Returns the joined projection (submission + session + type) needed for
+        the de-identified CSV. Ordered chronologically so the CSV is stable.
+        """
+        from contexts.activities.domain.models import ResearchExportSubmission
+
+        clauses: list[sa.ColumnElement[bool]] = [
+            _SUB.c.chatroom_id.in_(chatroom_ids),
+            _SUB.c.deleted_at.is_(None),
+        ]
+        if created_after:
+            clauses.append(_SUB.c.created_at >= created_after)
+        if created_before:
+            clauses.append(_SUB.c.created_at < created_before)
+
+        j = _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id).join(
+            _SESS, _SUB.c.session_id == _SESS.c.id
+        )
+
+        stmt = (
+            sa.select(
+                _SUB.c.chatroom_id,
+                _SUB.c.payload,
+                _SUB.c.sub_scores,
+                _SUB.c.attempt_no,
+                _SUB.c.is_valid,
+                _SUB.c.error_class,
+                _SUB.c.latency_ms,
+                _SUB.c.created_at,
+                _TYPE.c.key.label("activity_type_key"),
+                _SESS.c.subject_user_id,
+                _SESS.c.subject_member_group_id,
+            )
+            .select_from(j)
+            .where(sa.and_(*clauses))
+            .order_by(_SUB.c.created_at)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [
+            ResearchExportSubmission(
+                chatroom_id=r.chatroom_id,
+                subject_user_id=r.subject_user_id,
+                subject_member_group_id=r.subject_member_group_id,
+                activity_type_key=r.activity_type_key,
+                attempt_no=r.attempt_no,
+                is_valid=r.is_valid,
+                error_class=r.error_class,
+                latency_ms=r.latency_ms,
+                created_at=r.created_at,
+                payload=dict(r.payload or {}),
+                sub_scores=dict(r.sub_scores or {}),
+            )
+            for r in rows
+        ]
+
+
 __all__ = ["ActivitySubmissionRepository"]

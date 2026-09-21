@@ -18,6 +18,7 @@ from contexts.activities.domain.models import (
     ActivityAggregate,
     ActivitySubmission,
     RecentActivityRow,
+    ResearchExportSubmission,
     RoomDashboardAggregate,
     TimeseriesBucket,
     WatchlistEntry,
@@ -83,6 +84,19 @@ class AggregationService:
     ) -> list[TimeseriesBucket]:
         return await self._repo.timeseries_for_rooms(
             chatroom_ids=chatroom_ids, since=since, bucket_seconds=bucket_seconds
+        )
+
+    async def list_for_research_export(
+        self,
+        *,
+        chatroom_ids: Sequence[uuid.UUID],
+        created_after: dt.datetime | None = None,
+        created_before: dt.datetime | None = None,
+    ) -> list[ResearchExportSubmission]:
+        return await self._repo.list_for_research_export(
+            chatroom_ids=list(chatroom_ids),
+            created_after=created_after,
+            created_before=created_before,
         )
 
     async def watchlist_for_rooms(

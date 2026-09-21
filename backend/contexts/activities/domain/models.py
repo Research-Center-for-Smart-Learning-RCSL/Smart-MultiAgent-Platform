@@ -630,6 +630,23 @@ class WatchlistEntry:
     last_submission_at: dt.datetime | None
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchExportSubmission:
+    """Projection for the research data export ([R33.10])."""
+
+    chatroom_id: uuid.UUID
+    subject_user_id: uuid.UUID | None
+    subject_member_group_id: uuid.UUID | None
+    activity_type_key: str
+    attempt_no: int
+    is_valid: bool | None
+    error_class: str | None
+    latency_ms: int | None
+    created_at: dt.datetime | None
+    payload: dict[str, Any] = field(default_factory=dict)
+    sub_scores: dict[str, Any] = field(default_factory=dict)
+
+
 __all__ = [
     "FILLED_FIELDS_SUB_SCORE",
     "MAX_COVERAGE_FIELDS",
@@ -658,6 +675,7 @@ __all__ = [
     "ProposalStatus",
     "ProposalVote",
     "RecentActivityRow",
+    "ResearchExportSubmission",
     "RoomDashboardAggregate",
     "SessionStatus",
     "SubjectKind",
