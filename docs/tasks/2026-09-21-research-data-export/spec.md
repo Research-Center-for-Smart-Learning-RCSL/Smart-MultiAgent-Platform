@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-21
 requirements: [R13.17]
 depends_on: []
@@ -283,7 +283,21 @@ None.
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-1: The builder (`research_export_builder.py`) receives pre-queried typed dataclass
+  rows instead of querying tables directly. The spec implied the builder would query
+  the database, but the self-audit found that directly importing
+  `activities/infrastructure/tables` from the conversation context violates SoC. The
+  worker task now queries through `ActivitiesFacade` and `ConversationFacade`, converts
+  domain models to the builder's typed rows (`SubmissionRow`, `ObservationRow`,
+  `MessageRow`), and passes them in. No behavioral change.
+- D-2: The frontend export button uses a local `api/researchExport.ts` transport wrapper
+  (via `@shared/transport`'s `http` instance) instead of the generated
+  `ResearchExportService`. Both call the same endpoints. The wrapper was written before
+  `gen:api` ran; switching to the generated service is optional (the current approach
+  already follows the store-isolation rule).
+- D-3: AC-3 and AC-11 are ticked "code complete" rather than on a running stack
+  verification. AC-3 needs MinIO; AC-11 needs a browser against the full compose stack.
+  Docker was unavailable during this build session.
 
 ## 16. Follow-ups
 
@@ -291,3 +305,5 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   project members (e.g., research assistants) without promoting them to Project Owner.
 - FU-2: Consider export of activity type schemas and agent configuration alongside the
   data, for reproducibility documentation.
+- FU-3: The frontend `api/researchExport.ts` wrapper could be replaced by the generated
+  `ResearchExportService` for consistency with other slices that use the generated client.

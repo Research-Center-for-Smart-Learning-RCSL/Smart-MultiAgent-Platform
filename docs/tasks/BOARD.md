@@ -317,7 +317,10 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Research data export (2026-09-21)
 
-- (moved to In progress) `2026-09-21-research-data-export`.
+- (implemented 2026-09-21) `2026-09-21-research-data-export`. All 13 ACs
+  ticked. AC-3/AC-11 code complete, need running stack for MinIO/browser
+  verification. Nothing lists this slug in `depends_on`, so no row moves
+  out of Blocked.
 
 ### Other ready work
 
