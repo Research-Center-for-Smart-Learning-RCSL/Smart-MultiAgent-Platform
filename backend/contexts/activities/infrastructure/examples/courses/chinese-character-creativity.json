@@ -1,0 +1,181 @@
+{
+  "course_key": "chinese-character-creativity",
+  "title": "Chinese character creativity training",
+  "source": "NSTC undergraduate research project: AI-empowered cooperative learning platform for creativity via Chinese character properties",
+  "activity_types": [
+    {
+      "key": "crat-word-puzzle",
+      "name": "字詞拼圖（中文遠距聯想測驗）",
+      "validator_kind": "in_process",
+      "validator_config": {
+        "validator_id": "filled_count_coverage",
+        "min_filled": 2
+      },
+      "retention_days": null,
+      "expose_payload_to_agent": true,
+      "echo_includes_content": false,
+      "group_config": {
+        "consent": {
+          "numerator": 2,
+          "denominator": 3
+        }
+      },
+      "payload_schema": {
+        "type": "object",
+        "properties": {
+          "target_character": {
+            "type": "string",
+            "title": "目標字",
+            "description": "能與三個線索字分別組成合法詞彙的那個字。",
+            "x-order": 1
+          },
+          "word_1": {
+            "type": "string",
+            "title": "詞彙一",
+            "description": "目標字與第一個線索字組成的詞彙。",
+            "x-order": 2
+          },
+          "word_2": {
+            "type": "string",
+            "title": "詞彙二",
+            "description": "目標字與第二個線索字組成的詞彙。",
+            "x-order": 3
+          },
+          "word_3": {
+            "type": "string",
+            "title": "詞彙三",
+            "description": "目標字與第三個線索字組成的詞彙。",
+            "x-order": 4
+          },
+          "reasoning": {
+            "type": "string",
+            "title": "推理歷程",
+            "description": "小組是怎麼找到這個字的？經歷了哪些聯想和討論？",
+            "x-order": 5
+          }
+        },
+        "required": [
+          "target_character"
+        ]
+      }
+    },
+    {
+      "key": "character-building",
+      "name": "拆字蓋樓（部件擴散思考任務）",
+      "validator_kind": "in_process",
+      "validator_config": {
+        "validator_id": "filled_count_coverage",
+        "min_filled": 2
+      },
+      "retention_days": null,
+      "expose_payload_to_agent": true,
+      "echo_includes_content": false,
+      "payload_schema": {
+        "type": "object",
+        "properties": {
+          "char_01": {
+            "type": "string",
+            "title": "第 1 字",
+            "x-order": 1
+          },
+          "char_02": {
+            "type": "string",
+            "title": "第 2 字",
+            "x-order": 2
+          },
+          "char_03": {
+            "type": "string",
+            "title": "第 3 字",
+            "x-order": 3
+          },
+          "char_04": {
+            "type": "string",
+            "title": "第 4 字",
+            "x-order": 4
+          },
+          "char_05": {
+            "type": "string",
+            "title": "第 5 字",
+            "x-order": 5
+          },
+          "char_06": {
+            "type": "string",
+            "title": "第 6 字",
+            "x-order": 6
+          },
+          "char_07": {
+            "type": "string",
+            "title": "第 7 字",
+            "x-order": 7
+          },
+          "char_08": {
+            "type": "string",
+            "title": "第 8 字",
+            "x-order": 8
+          },
+          "char_09": {
+            "type": "string",
+            "title": "第 9 字",
+            "x-order": 9
+          },
+          "char_10": {
+            "type": "string",
+            "title": "第 10 字",
+            "x-order": 10
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "key": "object-reinterpretation",
+      "name": "萬物新解（改編自創意用途測驗）",
+      "validator_kind": "in_process",
+      "validator_config": {
+        "validator_id": "filled_count_coverage",
+        "min_filled": 1
+      },
+      "retention_days": null,
+      "expose_payload_to_agent": true,
+      "echo_includes_content": false,
+      "payload_schema": {
+        "type": "object",
+        "properties": {
+          "use_1": {
+            "type": "string",
+            "title": "新用途或新定義 (1)",
+            "description": "針對指定物品，提出一個非傳統的用途或重新定義。",
+            "x-order": 1
+          },
+          "use_2": {
+            "type": "string",
+            "title": "新用途或新定義 (2)",
+            "x-order": 2
+          },
+          "use_3": {
+            "type": "string",
+            "title": "新用途或新定義 (3)",
+            "x-order": 3
+          },
+          "use_4": {
+            "type": "string",
+            "title": "新用途或新定義 (4)",
+            "x-order": 4
+          },
+          "use_5": {
+            "type": "string",
+            "title": "新用途或新定義 (5)",
+            "x-order": 5
+          },
+          "best_pick": {
+            "type": "string",
+            "title": "最佳答案",
+            "description": "從上面的構想中選出你覺得最有創意又最合理的一個，說明為什麼。",
+            "x-order": 6
+          }
+        },
+        "required": []
+      }
+    }
+  ]
+}

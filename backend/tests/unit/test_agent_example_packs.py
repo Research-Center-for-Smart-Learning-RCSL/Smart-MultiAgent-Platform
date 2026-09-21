@@ -64,10 +64,18 @@ AGENT_IDS = [f"{pack.pack_key}/{agent.key}" for pack, agent in SHIPPED_AGENTS]
 COURSE_AGENTS = [(p, a) for p, a in SHIPPED_AGENTS if p.for_course in available_courses()]
 COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in COURSE_AGENTS]
 
+# Agents from the creative-thinking course specifically — the prompt-constraint
+# tests below check for content that belongs to that course's activity types and
+# unit structure, not to every shipped course.
+CT_COURSE_AGENTS = [(p, a) for p, a in COURSE_AGENTS if p.for_course == "creative-thinking"]
+CT_COURSE_AGENT_IDS = [f"{p.pack_key}/{a.key}" for p, a in CT_COURSE_AGENTS]
+
 
 class TestShippedPackContent:
     def test_all_packs_ship(self) -> None:
         assert available_packs() == (
+            "chinese-character-creativity-design",
+            "chinese-character-creativity-room",
             "creative-thinking-design",
             "creative-thinking-prompt-assistant",
             "creative-thinking-prompt-defense",
@@ -159,7 +167,7 @@ class TestShippedDelegatedActivityControl:
         see — a decision for a teacher to make deliberately, not to inherit."""
         granted = {a.key for _, a in SHIPPED_AGENTS if a.may_control_activities}
 
-        assert granted == {"ta-guidance-teacher"}
+        assert granted == {"ta-guidance-teacher", "ta-creativity-teacher"}
 
     def test_the_teacher_agent_refuses_to_be_told_to_start_a_round(self) -> None:
         """The load-bearing line. R-2 records that no test can establish an agent
@@ -253,7 +261,7 @@ class TestPromptConstraints:
     records the dry-run that has to cover the rest.
     """
 
-    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), CT_COURSE_AGENTS, ids=CT_COURSE_AGENT_IDS)
     def test_unit_four_answers_may_not_be_quoted_or_paraphrased(self, pack: Any, agent: Any) -> None:
         """quote-unit-two AC-2/AC-8. The quoting rule is split by activity type: unit 2 answers are
         quotable in response, unit 4 answers are not.
@@ -354,7 +362,7 @@ class TestPromptConstraints:
             f"{agent.key} does not say the computed digest is not the participant's words"
         )
 
-    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), CT_COURSE_AGENTS, ids=CT_COURSE_AGENT_IDS)
     def test_the_two_unit_two_types_no_longer_share_one_quoting_clause(self, pack: Any, agent: Any) -> None:
         """D-7. `mandala-9grid` moved to `filled_count_coverage`, whose `detail`
         displaces the payload dump, so its answer text is not in any agent's
@@ -382,7 +390,7 @@ class TestPromptConstraints:
         # And the one that is still quotable still says so.
         assert "`time-traveler-next-steps`：可以" in prompt
 
-    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), CT_COURSE_AGENTS, ids=CT_COURSE_AGENT_IDS)
     def test_every_agent_binds_the_group_task(self, pack: Any, agent: Any) -> None:
         """group-activity-submissions AC-16, widened by sweep AC-16 (F-5). A
         binding an agent does not hold is a unit it cannot be asked about — and
@@ -441,7 +449,7 @@ class TestPromptConstraints:
         assert "草稿不是提交" in aa.system_prompt
         assert "不可以拿來計數" in aa.system_prompt
 
-    @pytest.mark.parametrize(("pack", "agent"), COURSE_AGENTS, ids=COURSE_AGENT_IDS)
+    @pytest.mark.parametrize(("pack", "agent"), CT_COURSE_AGENTS, ids=CT_COURSE_AGENT_IDS)
     def test_a_group_answer_is_not_attributed_to_one_student(self, pack: Any, agent: Any) -> None:
         """group-activity-submissions AC-16, and it is the one thing about this
         unit an agent can get wrong in a way that hurts somebody: a 2/3 answer may
@@ -474,16 +482,19 @@ class TestPromptConstraints:
         """
         counted = re.compile(r"這(.)個代號以外")
         checked = 0
-        for _pack, agent in SHIPPED_AGENTS:
+        for pack, agent in SHIPPED_AGENTS:
             match = counted.search(agent.system_prompt)
             if match is None:
                 continue
             checked += 1
-            named = sum(f"`{key}`" in agent.system_prompt for key in COURSE_TYPE_KEYS)
+            course_keys = tuple(
+                t.key for t in load_course(pack.for_course).activity_types
+            ) if pack.for_course in available_courses() else COURSE_TYPE_KEYS
+            named = sum(f"`{key}`" in agent.system_prompt for key in course_keys)
             assert match.group(1) == _CJK_NUMERALS[named], (
                 f"{agent.key} names {named} types but its default clause says 這{match.group(1)}個"
             )
-        assert checked == 3, "expected the three room agents to carry a counted default clause"
+        assert checked == 6, "expected six room agents (3 per course) to carry a counted default clause"
 
     def test_the_analyst_is_told_how_to_arrange_its_own_observation(self) -> None:
         """AC-12's prompt half ([R28.16]). The tool is offered on every observer
