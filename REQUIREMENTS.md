@@ -2375,6 +2375,7 @@ Added by the 2026-09-13 dossier `docs/tasks/2026-09-13-teacher-dashboard/`. Amen
 - **[R33.02]** A dashboard view presents project members with cross-room activity status within a workspace, time-series output charts, a student watchlist (truncated subject codes, never names or emails -- extending [R28.18]), and threshold alerts. The view is lazy-loaded and does not affect the initial bundle budget. The entry point is the workspace card in the workspace list, not a global sidebar link.
 - **[R33.03]** A project-level WebSocket channel (`ws:project:{project_id}`) delivers real-time activity events to authenticated project members. The channel never carries participant names, submission content, or payload values — only room identifiers, type keys, validity flags, and aggregate counts.
 - **[R33.04]** The project WebSocket endpoint verifies project membership at connection time and re-checks on the auth watchdog interval. A revoked member is disconnected.
+- **[R33.10]** Project Owners and Org Admins can export de-identified research data for a workspace. The export bundles activity submissions (payload, sub_scores, timestamps), observer observations (structured blocks), and chat transcripts into a single ZIP file. All participant identifiers are replaced by truncated subject codes (`activities/domain/subject_code.py`); no display name, login email, or full UUID appears in the output. The export is generated asynchronously via a background worker and delivered through a time-limited presigned URL.
 
 ---
 

@@ -315,6 +315,12 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   visual/WS integration confirmation). Nothing lists this slug in `depends_on`,
   so no row moves out of Blocked.
 
+### Research data export (2026-09-21)
+
+- `2026-09-21-research-data-export` (feature, **approved 2026-09-21**) - `depends_on: []`.
+  Workspace-scoped de-identified export of submissions + observations + transcripts as
+  a ZIP file. Follows the existing chat export Arq + MinIO pattern. Adds [R33.10].
+
 ### Other ready work
 
 - (moved to In progress on 2026-08-20) `2026-08-20-member-groups-and-room-visibility-isolation`.
