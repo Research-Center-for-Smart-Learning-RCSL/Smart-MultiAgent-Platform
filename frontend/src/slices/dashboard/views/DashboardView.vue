@@ -12,7 +12,10 @@ import { useDashboardTimeseries } from '../composables/useDashboardTimeseries'
 import { useDashboardWatchlist } from '../composables/useDashboardWatchlist'
 import type { TimeWindow, BucketSize } from '@shared/api-client'
 import { useDashboardSocket } from '../composables/useDashboardSocket'
+import { useProjectRole } from '@slices/tenancy'
+import { useWorkspaceStore } from '@shared/stores/workspace'
 import RoomStatusCard from '../components/RoomStatusCard.vue'
+import ResearchExportButton from '../components/ResearchExportButton.vue'
 import OutputChart from '../components/OutputChart.vue'
 import StudentWatchlist from '../components/StudentWatchlist.vue'
 import DashboardAlerts from '../components/DashboardAlerts.vue'
@@ -50,11 +53,23 @@ const roomIds = computed(() => new Set(rooms.value.map((r) => String(r.room_id))
 useDashboardSocket(wid, roomIds)
 const buckets = computed(() => timeseries.value?.buckets ?? [])
 const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
+
+const workspace = useWorkspaceStore()
+const { isAuthorized: canExport, decided: roleDecided } = useProjectRole(
+  () => workspace.projectId ?? undefined,
+)
 </script>
 
 <template>
   <div class="max-w-7xl mx-auto space-y-6">
-    <SPageHeader :title="t('dashboard.title')" />
+    <SPageHeader :title="t('dashboard.title')">
+      <template
+        v-if="roleDecided && canExport"
+        #actions
+      >
+        <ResearchExportButton :workspace-id="workspaceId" />
+      </template>
+    </SPageHeader>
 
     <SAlert
       v-if="summaryError"

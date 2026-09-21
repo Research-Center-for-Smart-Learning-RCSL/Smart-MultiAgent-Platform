@@ -24,6 +24,7 @@ describe('kindConfig', () => {
       'invite.received',
       'admin.ban_reason',
       'approval.human_requested',
+      'export.ready',
     ]
     for (const k of kinds) {
       expect(kindConfig(k).labelKey).not.toBe('notifications.kindGeneric')

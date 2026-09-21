@@ -25,6 +25,24 @@
     "validCount": "Valid submissions",
     "totalCount": "Total submissions",
     "neverActive": "Never",
-    "chartTitle": "Valid Submissions Over Time"
+    "chartTitle": "Valid Submissions Over Time",
+    "researchExport": {
+      "button": "Export Research Data",
+      "dialogTitle": "Export Research Data",
+      "dialogDescription": "Export de-identified submissions, observations and transcripts for all rooms in this workspace as a ZIP file.",
+      "dateAfter": "From date",
+      "dateBefore": "To date",
+      "cancel": "Cancel",
+      "export": "Export",
+      "ready": "Research data export is ready.",
+      "error": "Research data export failed.",
+      "timeout": "Export is taking longer than expected. You will be notified when it is ready.",
+      "status": {
+        "queued": "Preparing export...",
+        "running": "Generating export...",
+        "ready": "Export ready!",
+        "failed": "Export failed."
+      }
+    }
   }
 }

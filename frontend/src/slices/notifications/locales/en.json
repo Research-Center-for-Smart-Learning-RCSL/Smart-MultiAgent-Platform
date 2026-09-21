@@ -21,6 +21,7 @@
     "kindInvite": "Invitation",
     "kindBan": "Account",
     "kindApproval": "Approval",
+    "kindExportReady": "Export",
     "kindGeneric": "Notification"
   }
 }

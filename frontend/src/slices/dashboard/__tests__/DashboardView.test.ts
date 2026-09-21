@@ -46,6 +46,33 @@ vi.mock('../components/OutputChart.vue', () => ({
   },
 }))
 
+vi.mock('../components/ResearchExportButton.vue', () => ({
+  default: {
+    name: 'ResearchExportButton',
+    template: '<button data-testid="research-export-stub" />',
+    props: ['workspaceId'],
+  },
+}))
+
+vi.mock('@slices/tenancy', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@slices/tenancy')>()
+  return {
+    ...actual,
+    useProjectRole: () => ({
+      isAuthorized: ref(false),
+      decided: ref(true),
+      isAdmin: ref(false),
+      isOwner: ref(false),
+    }),
+  }
+})
+
+vi.mock('@shared/stores/workspace', () => ({
+  useWorkspaceStore: () => ({
+    projectId: null,
+  }),
+}))
+
 describe('DashboardView', () => {
   it('renders empty state when no rooms', async () => {
     summaryMock.mockReturnValue({ rooms: [] })

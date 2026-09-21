@@ -21,6 +21,7 @@
     "kindInvite": "邀請",
     "kindBan": "帳號",
     "kindApproval": "審批",
+    "kindExportReady": "匯出",
     "kindGeneric": "通知"
   }
 }

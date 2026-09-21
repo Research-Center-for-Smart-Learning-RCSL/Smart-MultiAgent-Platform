@@ -6,6 +6,7 @@
 import type { Component } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import {
+  ArrowDownTrayIcon,
   BellIcon,
   ClipboardDocumentCheckIcon,
   EnvelopeIcon,
@@ -75,6 +76,12 @@ const KIND_CONFIG: Record<string, KindConfig> = {
     tintBg: 'var(--color-info-tint)',
     iconColor: 'var(--color-accent)',
     labelKey: 'notifications.kindApproval',
+  },
+  'export.ready': {
+    icon: ArrowDownTrayIcon,
+    tintBg: 'var(--color-success-tint)',
+    iconColor: 'var(--color-success)',
+    labelKey: 'notifications.kindExportReady',
   },
 }
 

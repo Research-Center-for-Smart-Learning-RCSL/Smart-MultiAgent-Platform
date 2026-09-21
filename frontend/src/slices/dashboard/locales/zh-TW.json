@@ -25,6 +25,24 @@
     "validCount": "有效提交",
     "totalCount": "總提交數",
     "neverActive": "從未",
-    "chartTitle": "有效提交趨勢"
+    "chartTitle": "有效提交趨勢",
+    "researchExport": {
+      "button": "匯出研究資料",
+      "dialogTitle": "匯出研究資料",
+      "dialogDescription": "將此工作區所有聊天室的去識別化提交、觀察和對話記錄匯出為 ZIP 檔案。",
+      "dateAfter": "起始日期",
+      "dateBefore": "結束日期",
+      "cancel": "取消",
+      "export": "匯出",
+      "ready": "研究資料匯出已準備就緒。",
+      "error": "研究資料匯出失敗。",
+      "timeout": "匯出時間超過預期，準備好後會通知您。",
+      "status": {
+        "queued": "正在準備匯出...",
+        "running": "正在產生匯出檔案...",
+        "ready": "匯出完成！",
+        "failed": "匯出失敗。"
+      }
+    }
   }
 }
