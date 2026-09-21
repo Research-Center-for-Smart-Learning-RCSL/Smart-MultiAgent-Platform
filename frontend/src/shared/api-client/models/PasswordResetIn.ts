@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type PasswordResetIn = {
-    new_password: string;
     token: string;
+    new_password: string;
 };
 

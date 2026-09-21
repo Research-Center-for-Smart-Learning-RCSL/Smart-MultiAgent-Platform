@@ -14,26 +14,61 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AgentGroupsService {
     /**
-     * Delete Group
-     * Delete an agent group (WS6 R11.20) — strict Project-Owner only.
-     *
-     * Purges the group-owned Concept Map's Neo4j subgraph + Qdrant points as part
-     * of the delete so no external-store data is orphaned (AC-10). Member rows are
-     * left in place; the group tombstone makes them inert on every read path.
-     * @returns void
+     * List Groups
+     * List a project's agent groups (Phase 4α). Read ⇒ project membership.
+     * @returns AgentGroupOut Successful Response
      * @throws ApiError
      */
-    public static deleteGroupApiAgentGroupsGroupIdDelete({
-        groupId,
+    public static listGroupsApiProjectsProjectIdAgentGroupsGet({
+        projectId,
+        limit = 100,
+        offset,
     }: {
-        groupId: string,
-    }): CancelablePromise<void> {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<AgentGroupOut>> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/agent-groups/{group_id}',
+            method: 'GET',
+            url: '/api/projects/{project_id}/agent-groups',
             path: {
-                'group_id': groupId,
+                'project_id': projectId,
             },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Group
+     * @returns AgentGroupOut Successful Response
+     * @throws ApiError
+     */
+    public static createGroupApiProjectsProjectIdAgentGroupsPost({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: AgentGroupCreateIn,
+    }): CancelablePromise<AgentGroupOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/agent-groups',
+            path: {
+                'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -82,6 +117,32 @@ export class AgentGroupsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Group
+     * Delete an agent group (WS6 R11.20) — strict Project-Owner only.
+     *
+     * Purges the group-owned Concept Map's Neo4j subgraph + Qdrant points as part
+     * of the delete so no external-store data is orphaned (AC-10). Member rows are
+     * left in place; the group tombstone makes them inert on every read path.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteGroupApiAgentGroupsGroupIdDelete({
+        groupId,
+    }: {
+        groupId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agent-groups/{group_id}',
+            path: {
+                'group_id': groupId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -178,67 +239,6 @@ export class AgentGroupsService {
                 'group_id': groupId,
                 'agent_id': agentId,
             },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * List Groups
-     * List a project's agent groups (Phase 4α). Read ⇒ project membership.
-     * @returns AgentGroupOut Successful Response
-     * @throws ApiError
-     */
-    public static listGroupsApiProjectsProjectIdAgentGroupsGet({
-        projectId,
-        limit = 100,
-        offset,
-    }: {
-        projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<AgentGroupOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/agent-groups',
-            path: {
-                'project_id': projectId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Create Group
-     * @returns AgentGroupOut Successful Response
-     * @throws ApiError
-     */
-    public static createGroupApiProjectsProjectIdAgentGroupsPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: AgentGroupCreateIn,
-    }): CancelablePromise<AgentGroupOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/agent-groups',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

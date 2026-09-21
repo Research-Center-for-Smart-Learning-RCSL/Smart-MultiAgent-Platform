@@ -3,20 +3,20 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RagConfigOut = {
-    chunk_params: Record<string, any>;
-    chunk_strategy: string;
-    created_at: string;
-    deleted_at: (string | null);
-    embed_key_id: (string | null);
-    embed_model: string;
-    embed_provider: string;
     id: string;
-    name: string;
     project_id: string;
+    name: string;
+    chunk_strategy: string;
+    chunk_params: Record<string, any>;
+    embed_key_id: (string | null);
+    embed_provider: string;
+    embed_model: string;
     rerank_enabled: boolean;
     rerank_key_id: (string | null);
-    rerank_model: (string | null);
     rerank_provider: (string | null);
+    rerank_model: (string | null);
     top_k: number;
+    created_at: string;
+    deleted_at: (string | null);
 };
 

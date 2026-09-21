@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type CanvasSearchResult = {
-    kind: string;
     object_id: string;
+    kind: string;
+    snippet: string;
+    rank: number;
     position_x: number;
     position_y: number;
-    rank: number;
-    snippet: string;
 };
 

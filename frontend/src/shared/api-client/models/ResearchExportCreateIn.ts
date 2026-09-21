@@ -2,10 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type InstalledPackAgentOut = {
-    key: string;
-    name: string;
-    agent_id: string;
-    model_hint: string;
+export type ResearchExportCreateIn = {
+    created_after?: (string | null);
+    created_before?: (string | null);
 };
 

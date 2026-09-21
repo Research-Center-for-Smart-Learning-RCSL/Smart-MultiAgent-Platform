@@ -2,8 +2,11 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type KnowmapRebuildAck = {
+export type ResearchExportStatusOut = {
+    job_id: string;
+    workspace_id: string;
     status: string;
-    config_id: string;
+    url: (string | null);
+    error: (string | null);
 };
 

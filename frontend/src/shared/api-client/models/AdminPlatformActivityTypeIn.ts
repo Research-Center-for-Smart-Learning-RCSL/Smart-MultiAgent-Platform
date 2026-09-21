@@ -10,9 +10,9 @@
  * install surface and becomes a course-authoring CMS.
  */
 export type AdminPlatformActivityTypeIn = {
-    echo_includes_content: boolean;
-    expose_payload_to_agent: boolean;
     name: string;
     retention_days?: (number | null);
+    expose_payload_to_agent: boolean;
+    echo_includes_content: boolean;
 };
 
