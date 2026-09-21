@@ -134,6 +134,9 @@ def _build_registry() -> list[RouterEntry]:
         rag as rag_routes,
     )
     from app.api.v1 import (
+        research_export as research_export_routes,
+    )
+    from app.api.v1 import (
         search as search_routes,
     )
     from app.api.v1 import (
@@ -259,6 +262,9 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(search_routes.router),
         RouterEntry(export_routes.chatroom_router),
         RouterEntry(export_routes.export_router),
+        # Research data export ([R33.10])
+        RouterEntry(research_export_routes.workspace_router),
+        RouterEntry(research_export_routes.export_router),
         # Workflow
         RouterEntry(workflow_routes.workspace_router),
         RouterEntry(workflow_routes.workflow_router),

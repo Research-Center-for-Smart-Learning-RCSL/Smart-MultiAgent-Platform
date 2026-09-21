@@ -344,6 +344,78 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
         return "completed" if ran else "failed"
 
 
+async def research_data_export(
+    ctx: dict[str, Any],
+    job_id: str,
+    workspace_id: str,
+    owner_user_id: str,
+) -> str:
+    """Build a de-identified research data ZIP and upload to MinIO (R33.10)."""
+    from contexts.conversation.application import research_export_service
+    from contexts.conversation.application.research_export_builder import ResearchExportBuilder
+    from contexts.conversation.infrastructure.repositories import ChatroomRepository
+    from contexts.notification.domain.models import NotificationKind
+    from contexts.notification.interfaces.facade import NotificationFacade
+
+    jid = uuid.UUID(job_id)
+    wid = uuid.UUID(workspace_id)
+    oid = uuid.UUID(owner_user_id)
+
+    state = await research_export_service.get(jid)
+    if state is None:
+        raise PermissionError(f"research export job {jid} has no state record")
+    if state.workspace_id != wid or state.owner_user_id != oid:
+        await research_export_service.mark_failed(
+            job_id=jid,
+            error="job parameters do not match stored state",
+        )
+        raise PermissionError(f"research export job {jid} args mismatch stored state")
+
+    await research_export_service.mark_running(jid)
+    try:
+        sm = get_sessionmaker()
+        async with sm() as session, session.begin():
+            room_ids = await ChatroomRepository(session).list_ids_for_workspace(wid)
+            if not room_ids:
+                await research_export_service.mark_failed(job_id=jid, error="no rooms in workspace")
+                return "failed:no_rooms"
+
+            builder = ResearchExportBuilder(session)
+            bucket, key = await builder.build_and_upload(
+                job_id=jid,
+                workspace_id=wid,
+                room_ids=room_ids,
+                owner_user_id=oid,
+                created_after=state.created_after,
+                created_before=state.created_before,
+            )
+
+        await research_export_service.mark_ready(job_id=jid, bucket=bucket, object_key=key)
+
+        async with sm() as session, session.begin():
+            await NotificationFacade(session).send(
+                user_id=oid,
+                kind=NotificationKind.EXPORT_READY,
+                title="Research data export ready",
+                metadata={"job_id": str(jid), "workspace_id": str(wid)},
+                dedup_key=f"research_export:{jid}",
+            )
+    except Exception as exc:
+        logger.bind(event="research_data_export_failed", job_id=str(jid)).exception(
+            "research data export failed",
+            exc_info=exc,
+        )
+        await research_export_service.mark_failed(job_id=jid, error=str(exc))
+        raise
+    return "ok"
+
+
 _ = BytesIO  # reserved for future streaming path
 
-__all__ = ["chat_export", "compact_chatroom", "extract_attachment_text", "file_scan_requested"]
+__all__ = [
+    "chat_export",
+    "compact_chatroom",
+    "extract_attachment_text",
+    "file_scan_requested",
+    "research_data_export",
+]

@@ -48,6 +48,7 @@ from app.workers.tasks.conversation import (
     compact_chatroom,
     extract_attachment_text,
     file_scan_requested,
+    research_data_export,
 )
 from app.workers.tasks.graphrag import (
     GRAPHRAG_BUILD_TIMEOUT_S,
@@ -297,6 +298,7 @@ class WorkerSettings:
         file_scan_requested,
         extract_attachment_text,
         chat_export,
+        research_data_export,
         # A turn is not retry-safe: it commits its reply with post-commit work
         # still to run, and the turn lock's `finally` releases during the
         # cancellation unwind, so arq's worker-wide `retry_jobs` default would

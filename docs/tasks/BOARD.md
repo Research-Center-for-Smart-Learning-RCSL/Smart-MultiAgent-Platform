@@ -317,9 +317,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Research data export (2026-09-21)
 
-- `2026-09-21-research-data-export` (feature, **approved 2026-09-21**) - `depends_on: []`.
-  Workspace-scoped de-identified export of submissions + observations + transcripts as
-  a ZIP file. Follows the existing chat export Arq + MinIO pattern. Adds [R33.10].
+- (moved to In progress) `2026-09-21-research-data-export`.
 
 ### Other ready work
 
