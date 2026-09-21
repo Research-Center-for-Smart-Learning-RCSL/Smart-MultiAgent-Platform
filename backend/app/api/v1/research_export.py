@@ -100,6 +100,7 @@ async def create_research_export(
         owner_user_id=principal.user_id,
         created_after=created_after,
         created_before=created_before,
+        actor_ip=ctx.actor_ip,
     )
 
     from shared_kernel.queue import enqueue
@@ -110,8 +111,6 @@ async def create_research_export(
         str(workspace_id),
         str(principal.user_id),
     )
-
-    _ = ctx
     return ResearchExportCreateOut(job_id=state.job_id, status=state.status)
 
 

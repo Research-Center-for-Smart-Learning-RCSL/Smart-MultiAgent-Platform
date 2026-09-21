@@ -468,6 +468,7 @@ async def research_data_export(
                 db=session,
                 created_after=state.created_after,
                 created_before=state.created_before,
+                actor_ip=state.actor_ip,
             )
 
         await research_export_service.mark_ready(job_id=jid, bucket=bucket, object_key=key)

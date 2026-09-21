@@ -6,7 +6,10 @@ import ResearchExportButton from '../components/ResearchExportButton.vue'
 
 vi.mock('@shared/composables', () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
   }),
 }))
 

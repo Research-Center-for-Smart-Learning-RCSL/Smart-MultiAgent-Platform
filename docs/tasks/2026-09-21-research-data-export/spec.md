@@ -298,6 +298,16 @@ None.
 - D-3: AC-3 and AC-11 are ticked "code complete" rather than on a running stack
   verification. AC-3 needs MinIO; AC-11 needs a browser against the full compose stack.
   Docker was unavailable during this build session.
+- D-4: Code review found the route imported directly from `application/` instead of
+  going through the facade. This matches the existing chat export route
+  (`exports.py:18-24`), which uses the same pattern because the Redis job state has
+  no DB session dependency. Recorded as FU-4 rather than fixed here, since fixing it
+  would require changing both the existing and new export routes.
+- D-5: Code review found the polling loop leaked on component unmount. Fixed: added
+  `onBeforeUnmount` + `abortPoll` flag to cancel the loop.
+- D-6: Code review found actor IP was captured in `RequestContext` but not passed to
+  the audit event. Fixed: `actor_ip` is now stored in the Redis job state and forwarded
+  to the audit event via the builder.
 
 ## 16. Follow-ups
 
@@ -307,3 +317,13 @@ None.
   data, for reproducibility documentation.
 - FU-3: The frontend `api/researchExport.ts` wrapper could be replaced by the generated
   `ResearchExportService` for consistency with other slices that use the generated client.
+- FU-4: The route imports `research_export_service` directly from the application layer.
+  Same pattern as the existing chat export route. Both should be wrapped in their
+  context's facade for SoC consistency, which also requires a facade design that works
+  without a DB session (the Redis job state is sessionless).
+- FU-5: The manual `_replace` helper in `research_export_service.py` reimplements
+  `dataclasses.replace`; same pattern as the existing `export_service.py:167`. Both
+  could use the stdlib function.
+- FU-6: The export button uses direct `http` calls instead of TanStack Vue Query's
+  `useMutation`/`useQuery`. The polling-until-done pattern does not map cleanly to
+  `refetchInterval`, but wrapping the POST in `useMutation` would improve consistency.

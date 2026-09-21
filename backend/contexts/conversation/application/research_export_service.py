@@ -41,6 +41,7 @@ class ResearchExportJobState:
     bucket: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    actor_ip: str | None = None
     error: str | None = None
 
 
@@ -50,6 +51,7 @@ async def create(
     owner_user_id: uuid.UUID,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
+    actor_ip: str | None = None,
 ) -> ResearchExportJobState:
     job_id = uuid.uuid4()
     state = ResearchExportJobState(
@@ -60,6 +62,7 @@ async def create(
         created_at=now(),
         created_after=created_after,
         created_before=created_before,
+        actor_ip=actor_ip,
     )
     await _store(state)
     return state
@@ -108,6 +111,7 @@ async def get(job_id: uuid.UUID) -> ResearchExportJobState | None:
         bucket=data.get("bucket"),
         created_after=datetime.fromisoformat(after) if after else None,
         created_before=datetime.fromisoformat(before) if before else None,
+        actor_ip=data.get("actor_ip"),
         error=data.get("error"),
     )
 
@@ -123,6 +127,7 @@ async def _store(state: ResearchExportJobState) -> None:
         "bucket": state.bucket,
         "created_after": state.created_after.isoformat() if state.created_after else None,
         "created_before": state.created_before.isoformat() if state.created_before else None,
+        "actor_ip": state.actor_ip,
         "error": state.error,
     }
     await get_redis().set(
@@ -143,6 +148,7 @@ def _replace(state: ResearchExportJobState, **kwargs: object) -> ResearchExportJ
         bucket=kwargs.get("bucket", state.bucket),  # type: ignore[arg-type]
         created_after=state.created_after,
         created_before=state.created_before,
+        actor_ip=state.actor_ip,
         error=kwargs.get("error", state.error),  # type: ignore[arg-type]
     )
 

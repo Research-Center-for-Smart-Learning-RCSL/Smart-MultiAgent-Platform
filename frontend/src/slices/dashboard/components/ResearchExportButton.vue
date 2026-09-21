@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import SCard from '@shared/ui/SCard.vue'
@@ -23,6 +23,8 @@ const dateAfter = ref<string>('')
 const dateBefore = ref<string>('')
 
 const canExport = computed(() => !isExporting.value)
+let abortPoll = false
+onBeforeUnmount(() => { abortPoll = true })
 
 async function startExport() {
   isExporting.value = true
@@ -46,7 +48,9 @@ async function startExport() {
 async function pollForCompletion(jobId: string) {
   const maxAttempts = 60
   for (let i = 0; i < maxAttempts; i++) {
+    if (abortPoll) return
     await new Promise((resolve) => setTimeout(resolve, 3000))
+    if (abortPoll) return
     try {
       const status = await getResearchExportStatus(jobId)
       exportStatus.value = status.status

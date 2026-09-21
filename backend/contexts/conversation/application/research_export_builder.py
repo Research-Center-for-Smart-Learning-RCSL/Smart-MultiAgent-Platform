@@ -78,6 +78,7 @@ class ResearchExportBuilder:
         db: Any,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        actor_ip: str | None = None,
     ) -> tuple[str, str]:
         submissions_csv = self._build_submissions_csv(submissions)
         observations_json = self._build_observations_json(observations, agent_key_map)
@@ -119,6 +120,7 @@ class ResearchExportBuilder:
             audit.AuditEvent(
                 action="research_data.exported",
                 actor_user_id=owner_user_id,
+                actor_ip=actor_ip,
                 resource_type="workspace",
                 resource_id=workspace_id,
                 metadata={
