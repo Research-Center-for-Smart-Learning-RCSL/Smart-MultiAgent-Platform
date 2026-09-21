@@ -55,7 +55,7 @@ vi.mock('../components/ResearchExportButton.vue', () => ({
 }))
 
 vi.mock('@slices/tenancy', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@slices/tenancy')>()
+  const actual = await importOriginal()
   return {
     ...actual,
     useProjectRole: () => ({

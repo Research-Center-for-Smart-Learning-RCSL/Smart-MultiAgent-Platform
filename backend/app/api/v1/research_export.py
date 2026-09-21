@@ -47,11 +47,7 @@ class ResearchExportCreateIn(BaseModel):
 
 
 def _resolve_window(body: ResearchExportCreateIn) -> tuple[datetime | None, datetime | None]:
-    after = (
-        datetime.combine(body.created_after, time.min, tzinfo=UTC)
-        if body.created_after
-        else None
-    )
+    after = datetime.combine(body.created_after, time.min, tzinfo=UTC) if body.created_after else None
     before = (
         datetime.combine(body.created_before + timedelta(days=1), time.min, tzinfo=UTC)
         if body.created_before

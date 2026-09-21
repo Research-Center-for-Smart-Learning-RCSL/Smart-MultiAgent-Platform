@@ -229,26 +229,28 @@ No new env vars. Uses existing MinIO `exports` bucket and Arq worker.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `POST /api/workspaces/{id}/export/research-data` returns HTTP 202 with
+- [x] AC-1: `POST /api/workspaces/{id}/export/research-data` returns HTTP 202 with
   `{job_id, status: "queued"}` for a Project Owner.
-- [ ] AC-2: `POST` returns HTTP 403 for a regular project member.
-- [ ] AC-3: The Arq worker produces a ZIP file uploaded to MinIO `exports` bucket.
-- [ ] AC-4: The ZIP contains `submissions.csv` with one row per submission, no display
+- [x] AC-2: `POST` returns HTTP 403 for a regular project member.
+- [x] AC-3: The Arq worker produces a ZIP file uploaded to MinIO `exports` bucket.
+  (code complete; integration test needs MinIO)
+- [x] AC-4: The ZIP contains `submissions.csv` with one row per submission, no display
   names or emails, subject codes instead of user IDs.
-- [ ] AC-5: The ZIP contains `observations.json` with all AA observations for the
+- [x] AC-5: The ZIP contains `observations.json` with all AA observations for the
   workspace, blocks preserved as structured JSON.
-- [ ] AC-6: The ZIP contains `transcripts.json` with per-room message arrays,
+- [x] AC-6: The ZIP contains `transcripts.json` with per-room message arrays,
   sender identified by subject code (users) or agent key (agents).
-- [ ] AC-7: The ZIP contains `manifest.json` with export metadata.
-- [ ] AC-8: `GET /api/exports/research/{job_id}` returns `{status: "ready", url: "..."}` with
+- [x] AC-7: The ZIP contains `manifest.json` with export metadata.
+- [x] AC-8: `GET /api/exports/research/{job_id}` returns `{status: "ready", url: "..."}` with
   a presigned MinIO URL after the worker completes.
-- [ ] AC-9: The presigned URL expires after 72 hours.
-- [ ] AC-10: An audit event `research_data.exported` is recorded.
-- [ ] AC-11: The dashboard view shows an export button (Project Owner+ only) that
+- [x] AC-9: The presigned URL expires after 72 hours.
+- [x] AC-10: An audit event `research_data.exported` is recorded.
+- [x] AC-11: The dashboard view shows an export button (Project Owner+ only) that
   triggers the export and shows progress.
-- [ ] AC-12: Date range filtering works: submissions, observations, and messages
+  (code complete; visual verification needs running stack)
+- [x] AC-12: Date range filtering works: submissions, observations, and messages
   outside the range are excluded.
-- [ ] AC-13: On completion, an in-app notification (`export.ready`) is sent to the
+- [x] AC-13: On completion, an in-app notification (`export.ready`) is sent to the
   requesting user via `NotificationFacade.send()`, so they do not need to poll.
 
 ## 12. Test Plan

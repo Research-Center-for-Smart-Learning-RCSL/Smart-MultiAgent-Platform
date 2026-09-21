@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const { toast } = useToast()
+const toasts = useToast()
 
 const isOpen = ref(false)
 const isExporting = ref(false)
@@ -38,7 +38,7 @@ async function startExport() {
     await pollForCompletion(result.job_id)
   } catch {
     exportStatus.value = 'failed'
-    toast(t('dashboard.researchExport.error'), 'error')
+    toasts.error(t('dashboard.researchExport.error'))
     isExporting.value = false
   }
 }
@@ -53,13 +53,13 @@ async function pollForCompletion(jobId: string) {
 
       if (status.status === 'ready' && status.url) {
         window.open(status.url, '_blank')
-        toast(t('dashboard.researchExport.ready'), 'success')
+        toasts.success(t('dashboard.researchExport.ready'))
         isExporting.value = false
         isOpen.value = false
         return
       }
       if (status.status === 'failed') {
-        toast(t('dashboard.researchExport.error'), 'error')
+        toasts.error(t('dashboard.researchExport.error'))
         isExporting.value = false
         return
       }
@@ -67,7 +67,7 @@ async function pollForCompletion(jobId: string) {
       // Polling errors are transient; keep trying
     }
   }
-  toast(t('dashboard.researchExport.timeout'), 'error')
+  toasts.error(t('dashboard.researchExport.timeout'))
   isExporting.value = false
 }
 
@@ -101,8 +101,12 @@ function closeDialog() {
         class="fixed inset-0 z-50 flex items-center justify-center"
       >
         <div
+          role="button"
+          tabindex="-1"
+          :aria-label="t('dashboard.researchExport.cancel')"
           class="fixed inset-0 bg-black/40"
           @click="closeDialog"
+          @keydown.escape="closeDialog"
         />
         <SCard class="relative z-10 w-full max-w-md p-6 mx-4">
           <h3 class="text-lg font-semibold text-[var(--color-fg)] mb-4">
@@ -115,11 +119,13 @@ function closeDialog() {
           <div class="space-y-3 mb-6">
             <div>
               <label
+                for="research-export-date-after"
                 class="block text-sm font-medium text-[var(--color-fg)] mb-1"
               >
                 {{ t('dashboard.researchExport.dateAfter') }}
               </label>
               <input
+                id="research-export-date-after"
                 v-model="dateAfter"
                 type="date"
                 class="w-full rounded-md border border-[var(--color-border)]
@@ -130,11 +136,13 @@ function closeDialog() {
             </div>
             <div>
               <label
+                for="research-export-date-before"
                 class="block text-sm font-medium text-[var(--color-fg)] mb-1"
               >
                 {{ t('dashboard.researchExport.dateBefore') }}
               </label>
               <input
+                id="research-export-date-before"
                 v-model="dateBefore"
                 type="date"
                 class="w-full rounded-md border border-[var(--color-border)]

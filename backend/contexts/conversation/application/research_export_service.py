@@ -81,9 +81,7 @@ async def mark_ready(
     state = await get(job_id)
     if state is None:
         return
-    await _store(
-        _replace(state, status=ResearchExportJobStatus.READY, bucket=bucket, object_key=object_key)
-    )
+    await _store(_replace(state, status=ResearchExportJobStatus.READY, bucket=bucket, object_key=object_key))
 
 
 async def mark_failed(*, job_id: uuid.UUID, error: str) -> None:

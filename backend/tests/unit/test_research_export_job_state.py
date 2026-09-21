@@ -65,18 +65,20 @@ class TestMarkTransitions:
             status=ResearchExportJobStatus.QUEUED,
             created_at=datetime.now(UTC),
         )
-        stored = json.dumps({
-            "job_id": str(state.job_id),
-            "workspace_id": str(state.workspace_id),
-            "owner_user_id": str(state.owner_user_id),
-            "status": state.status,
-            "created_at": state.created_at.isoformat(),
-            "object_key": None,
-            "bucket": None,
-            "created_after": None,
-            "created_before": None,
-            "error": None,
-        })
+        stored = json.dumps(
+            {
+                "job_id": str(state.job_id),
+                "workspace_id": str(state.workspace_id),
+                "owner_user_id": str(state.owner_user_id),
+                "status": state.status,
+                "created_at": state.created_at.isoformat(),
+                "object_key": None,
+                "bucket": None,
+                "created_after": None,
+                "created_before": None,
+                "error": None,
+            }
+        )
         mock_redis.get.return_value = stored
 
         with patch(

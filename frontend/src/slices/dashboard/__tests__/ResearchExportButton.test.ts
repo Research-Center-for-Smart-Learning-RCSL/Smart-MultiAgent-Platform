@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ref, nextTick } from 'vue'
+import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import ResearchExportButton from '../components/ResearchExportButton.vue'
