@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   PlusIcon,
   ChatBubbleLeftRightIcon,
@@ -18,24 +18,19 @@ import {
   SBadge,
   SButton,
   SDropdown,
-  SModal,
-  SFormField,
-  SInput,
-  SToggle,
   SEmptyState,
   SAlert,
 } from '@shared/ui'
 import { useConfirmDialog, useToast, useListStagger } from '@shared/composables'
-import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { useProjectRole } from '@slices/tenancy'
 import {
-  createChatroom,
   deleteChatroom,
   getWorkspace,
   listChatrooms,
 } from '../api'
 import { convKeys } from '../queries'
-import { chatroomCreateSchema, type ChatroomCreateInput } from '../types/schemas'
+import { useChatroomCreate } from '../composables/useChatroomCreate'
+import ChatroomCreateModal from '../components/ChatroomCreateModal.vue'
 import { formatDate } from '../utils/format'
 import type { Chatroom } from '../types'
 import type { Column } from '@shared/ui/STable.vue'
@@ -180,47 +175,15 @@ async function onAction(key: string, room: Chatroom): Promise<void> {
 
 // ---- create ---------------------------------------------------------------
 
-const showCreate = ref(false)
-const createName = ref('')
-const createError = ref<string | null>(null)
-const createFlags = reactive({
-  allow_org_members: false,
-  allow_project_members: true,
-  allow_project_owners_only: false,
-  allow_guest_links: false,
-})
-
-function openCreate(): void {
-  createName.value = ''
-  createError.value = null
-  createFlags.allow_org_members = false
-  createFlags.allow_project_members = true
-  createFlags.allow_project_owners_only = false
-  createFlags.allow_guest_links = false
-  showCreate.value = true
-}
-
-const createMutation = useMutation({
-  mutationFn: (payload: ChatroomCreateInput) => createChatroom(workspaceId, payload),
-  onSuccess: (room) => {
-    showCreate.value = false
-    // F-4, same prefix and same reason as the delete path above.
-    qc.invalidateQueries({ queryKey: convKeys.chatroomsAll() })
-    toast.success(t('conversation.chatrooms.created'))
-    openRoom(room)
-  },
-  onError: () => toast.error(t('conversation.chatrooms.createFailed')),
-})
-
-function submitCreate(): void {
-  const parsed = chatroomCreateSchema.safeParse({ name: createName.value, ...createFlags })
-  if (!parsed.success) {
-    createError.value = t('conversation.chatrooms.nameInvalid')
-    return
-  }
-  createError.value = null
-  createMutation.mutate(parsed.data)
-}
+const {
+  showCreate,
+  createName,
+  createError,
+  createFlags,
+  openCreate,
+  submitCreate,
+  isCreating,
+} = useChatroomCreate(() => workspaceId)
 </script>
 
 <template>
@@ -355,81 +318,17 @@ function submitCreate(): void {
       </template>
     </STable>
 
-    <SModal
+    <ChatroomCreateModal
       :open="showCreate"
-      :title="t('conversation.chatrooms.createTitle')"
-      size="md"
+      :name="createName"
+      :error="createError"
+      :flags="createFlags"
+      :is-pending="isCreating.value"
       @close="showCreate = false"
-    >
-      <form @submit.prevent="submitCreate">
-        <SFormField
-          :label="t('conversation.chatrooms.colName')"
-          name="chatroomName"
-          v-bind="createError ? { error: createError } : {}"
-          required
-        >
-          <SInput
-            v-model="createName"
-            :error="!!createError"
-            :disabled="createMutation.isPending.value"
-            :maxlength="INPUT_LIMITS.NAME"
-          />
-        </SFormField>
-
-        <fieldset class="access-fieldset">
-          <legend class="access-fieldset__legend">
-            {{ t('conversation.chatrooms.colAccess') }}
-          </legend>
-
-          <div
-            class="access-row"
-            :class="{ 'access-row--dimmed': createFlags.allow_project_owners_only }"
-          >
-            <span>{{ t('conversation.settings.allowOrgMembers') }}</span>
-            <SToggle
-              v-model="createFlags.allow_org_members"
-              :disabled="createFlags.allow_project_owners_only"
-            />
-          </div>
-          <div
-            class="access-row"
-            :class="{ 'access-row--dimmed': createFlags.allow_project_owners_only }"
-          >
-            <span>{{ t('conversation.settings.allowProjectMembers') }}</span>
-            <SToggle
-              v-model="createFlags.allow_project_members"
-              :disabled="createFlags.allow_project_owners_only"
-            />
-          </div>
-          <div class="access-row">
-            <span>{{ t('conversation.settings.allowProjectOwnersOnly') }}</span>
-            <SToggle v-model="createFlags.allow_project_owners_only" />
-          </div>
-          <div class="access-row">
-            <span>{{ t('conversation.settings.allowGuestLinks') }}</span>
-            <SToggle v-model="createFlags.allow_guest_links" />
-          </div>
-        </fieldset>
-      </form>
-
-      <template #footer>
-        <SButton
-          variant="secondary"
-          :disabled="createMutation.isPending.value"
-          @click="showCreate = false"
-        >
-          {{ t('conversation.chatrooms.cancel') }}
-        </SButton>
-        <SButton
-          variant="primary"
-          :loading="createMutation.isPending.value"
-          :disabled="createMutation.isPending.value || !createName.trim()"
-          @click="submitCreate"
-        >
-          {{ t('conversation.chatrooms.create') }}
-        </SButton>
-      </template>
-    </SModal>
+      @submit="submitCreate"
+      @update:name="createName = $event"
+      @update:flags="(key: string, val: boolean) => (createFlags as Record<string, boolean>)[key] = val"
+    />
   </div>
 </template>
 
@@ -445,29 +344,4 @@ function submitCreate(): void {
   flex-shrink: 0;
 }
 
-.access-fieldset {
-  border: none;
-  margin: var(--space-2) 0 0;
-  padding: 0;
-}
-
-.access-fieldset__legend {
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-fg);
-  margin-bottom: var(--space-2);
-}
-
-.access-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-fg);
-}
-
-.access-row--dimmed {
-  opacity: 0.5;
-}
 </style>

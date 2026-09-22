@@ -8,6 +8,8 @@ export { useConversationStore } from './stores/conversation'
 export { useGuestSessionStore } from './stores/guestSession'
 export { useChatroomSocket } from './composables/useChatroomSocket'
 export { useRecentChatrooms } from './composables/useRecentChatrooms'
+export { useChatroomCreate } from './composables/useChatroomCreate'
+export { default as ChatroomCreateModal } from './components/ChatroomCreateModal.vue'
 export { getWorkspace, listChatrooms, listWorkspaces } from './api'
 export type {
   Attachment,

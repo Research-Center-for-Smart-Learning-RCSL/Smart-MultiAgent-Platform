@@ -324,14 +324,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Sidebar redesign (2026-09-22)
 
-- `2026-09-22-sidebar-redesign-frequency-layered` (feature, **approved 2026-09-22**) - `depends_on: []`.
-  Restructures the sidebar from category-based (6 groups, chatrooms at bottom) to
-  frequency-layered (1 group, chat-first, 3 tiers). Adds New Chat CTA, moves chatrooms
-  to top, renames Knowledge items, merges Project Keys + Key Groups sidebar entry,
-  moves My Keys to UserMenu, removes Notifications from sidebar. Frontend-only.
-  No file overlap with any active dossier (checked: `AppSidebar.vue`,
-  `SidebarChatroomList.vue`, `UserMenu.vue`, locale files are not touched by any
-  non-implemented task).
+- (moved to In progress on 2026-09-22) `2026-09-22-sidebar-redesign-frequency-layered`.
 
 ### Other ready work
 
@@ -608,6 +601,10 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-09-22-sidebar-redesign-frequency-layered`. Sidebar restructure from category-based
+  to frequency-layered. Frontend-only. Nothing lists this slug in `depends_on`, so no row
+  moves out of Blocked.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).
