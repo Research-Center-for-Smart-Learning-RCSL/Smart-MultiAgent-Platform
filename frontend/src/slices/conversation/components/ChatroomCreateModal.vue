@@ -51,7 +51,7 @@ const { t } = useI18n()
           :error="!!error"
           :disabled="isPending"
           :maxlength="INPUT_LIMITS.NAME"
-          @update:model-value="emit('update:name', $event)"
+          @update:model-value="emit('update:name', String($event))"
         />
       </SFormField>
 

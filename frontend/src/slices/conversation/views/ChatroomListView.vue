@@ -323,7 +323,7 @@ const {
       :name="createName"
       :error="createError"
       :flags="createFlags"
-      :is-pending="isCreating.value"
+      :is-pending="isCreating"
       @close="showCreate = false"
       @submit="submitCreate"
       @update:name="createName = $event"

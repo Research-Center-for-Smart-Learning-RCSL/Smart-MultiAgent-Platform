@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
-import { ref, computed } from 'vue'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 import { i18n } from '@shared/i18n'
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import type * as TenancySlice from '@slices/tenancy'
+import type * as ConversationSlice from '@slices/conversation'
 import { appRoutes } from '../../../tests/utils/routes'
 import AppSidebar from '../components/AppSidebar.vue'
 
@@ -27,8 +27,9 @@ vi.mock('@slices/tenancy', async (importOriginal) => {
 })
 
 vi.mock('@slices/conversation', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@slices/conversation')>()
-  const { ref, computed } = await import('vue')
+  const mod = await importOriginal<typeof ConversationSlice>()
+  const vue = await import('vue')
+  const { ref, computed } = vue
   return {
     ...mod,
     useChatroomCreate: () => ({
