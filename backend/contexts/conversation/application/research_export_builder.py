@@ -92,9 +92,7 @@ class ResearchExportBuilder:
             observation_count=len(observations),
         )
 
-        zip_bytes = self._package_zip(
-            submissions_csv, observations_json, transcripts_json, manifest_json
-        )
+        zip_bytes = self._package_zip(submissions_csv, observations_json, transcripts_json, manifest_json)
 
         client = get_minio_client()
         key = export_key(job_id=job_id, filename="research-data.zip")
@@ -111,8 +109,7 @@ class ResearchExportBuilder:
             )
         except TimeoutError as exc:
             raise TimeoutError(
-                f"research export MinIO put timed out after "
-                f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {job_id})"
+                f"research export MinIO put timed out after {_EXPORT_PUT_TIMEOUT_SECONDS}s (job {job_id})"
             ) from exc
 
         await audit.emit(
@@ -128,12 +125,8 @@ class ResearchExportBuilder:
                     "room_count": len(room_ids),
                     "submission_count": len(submissions),
                     "observation_count": len(observations),
-                    "created_after": (
-                        created_after.isoformat() if created_after else None
-                    ),
-                    "created_before": (
-                        created_before.isoformat() if created_before else None
-                    ),
+                    "created_after": (created_after.isoformat() if created_after else None),
+                    "created_before": (created_before.isoformat() if created_before else None),
                 },
             ),
         )
@@ -145,18 +138,20 @@ class ResearchExportBuilder:
     def _build_submissions_csv(self, rows: list[SubmissionRow]) -> str:
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow([
-            "subject_code",
-            "activity_type_key",
-            "room_id",
-            "attempt_no",
-            "is_valid",
-            "error_class",
-            "latency_ms",
-            "created_at",
-            "payload_json",
-            "sub_scores_json",
-        ])
+        writer.writerow(
+            [
+                "subject_code",
+                "activity_type_key",
+                "room_id",
+                "attempt_no",
+                "is_valid",
+                "error_class",
+                "latency_ms",
+                "created_at",
+                "payload_json",
+                "sub_scores_json",
+            ]
+        )
         for row in rows:
             if row.subject_member_group_id:
                 code = group_subject_code(row.subject_member_group_id)
@@ -165,18 +160,20 @@ class ResearchExportBuilder:
             else:
                 code = "unknown"
 
-            writer.writerow([
-                code,
-                row.activity_type_key,
-                str(row.chatroom_id),
-                row.attempt_no,
-                row.is_valid,
-                row.error_class,
-                row.latency_ms,
-                row.created_at.isoformat() if row.created_at else None,
-                json.dumps(row.payload, default=str) if row.payload else "{}",
-                json.dumps(row.sub_scores, default=str) if row.sub_scores else "{}",
-            ])
+            writer.writerow(
+                [
+                    code,
+                    row.activity_type_key,
+                    str(row.chatroom_id),
+                    row.attempt_no,
+                    row.is_valid,
+                    row.error_class,
+                    row.latency_ms,
+                    row.created_at.isoformat() if row.created_at else None,
+                    json.dumps(row.payload, default=str) if row.payload else "{}",
+                    json.dumps(row.sub_scores, default=str) if row.sub_scores else "{}",
+                ]
+            )
         return buf.getvalue()
 
     def _build_observations_json(
@@ -186,21 +183,17 @@ class ResearchExportBuilder:
     ) -> str:
         observations = []
         for row in rows:
-            observations.append({
-                "room_id": str(row.chatroom_id),
-                "agent_key": agent_key_map.get(
-                    row.agent_id, str(row.agent_id)[:8]
-                ),
-                "blocks": list(row.blocks or []),
-                "content_md": row.content_md,
-                "trigger": row.trigger,
-                "created_at": (
-                    row.created_at.isoformat() if row.created_at else None
-                ),
-                "released_at": (
-                    row.released_at.isoformat() if row.released_at else None
-                ),
-            })
+            observations.append(
+                {
+                    "room_id": str(row.chatroom_id),
+                    "agent_key": agent_key_map.get(row.agent_id, str(row.agent_id)[:8]),
+                    "blocks": list(row.blocks or []),
+                    "content_md": row.content_md,
+                    "trigger": row.trigger,
+                    "created_at": (row.created_at.isoformat() if row.created_at else None),
+                    "released_at": (row.released_at.isoformat() if row.released_at else None),
+                }
+            )
         return json.dumps(observations, ensure_ascii=False, indent=2, default=str)
 
     def _build_transcripts_json(
@@ -219,22 +212,20 @@ class ResearchExportBuilder:
                 sender_type_str = sender_type_str.value
 
             if sender_type_str == "agent" and row.sender_id:
-                identifier = agent_key_map.get(
-                    row.sender_id, str(row.sender_id)[:8]
-                )
+                identifier = agent_key_map.get(row.sender_id, str(row.sender_id)[:8])
             elif sender_type_str in ("human", "user") and row.sender_id:
                 identifier = subject_code(row.sender_id)
             else:
                 identifier = sender_type_str or "system"
 
-            rooms[room_key].append({
-                "subject_code": identifier,
-                "sender_type": sender_type_str,
-                "content_md": row.content_md,
-                "created_at": (
-                    row.created_at.isoformat() if row.created_at else None
-                ),
-            })
+            rooms[room_key].append(
+                {
+                    "subject_code": identifier,
+                    "sender_type": sender_type_str,
+                    "content_md": row.content_md,
+                    "created_at": (row.created_at.isoformat() if row.created_at else None),
+                }
+            )
         return json.dumps(rooms, ensure_ascii=False, indent=2, default=str)
 
     def _build_manifest(
@@ -252,12 +243,8 @@ class ResearchExportBuilder:
             "workspace_id": str(workspace_id),
             "room_count": room_count,
             "date_range": {
-                "created_after": (
-                    created_after.isoformat() if created_after else None
-                ),
-                "created_before": (
-                    created_before.isoformat() if created_before else None
-                ),
+                "created_after": (created_after.isoformat() if created_after else None),
+                "created_before": (created_before.isoformat() if created_before else None),
             },
             "submission_count": submission_count,
             "observation_count": observation_count,

@@ -451,9 +451,7 @@ async def research_data_export(
                 if m.sender_type == "agent" and m.sender_id:
                     agent_ids.add(m.sender_id)
 
-            agent_key_map = (
-                await AgentsFacade(session).agent_names(list(agent_ids)) if agent_ids else {}
-            )
+            agent_key_map = await AgentsFacade(session).agent_names(list(agent_ids)) if agent_ids else {}
 
             builder = ResearchExportBuilder()
             bucket, key = await builder.build_and_upload(
