@@ -324,7 +324,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Sidebar redesign (2026-09-22)
 
-- `2026-09-22-sidebar-redesign-frequency-layered` (feature, **draft**) - `depends_on: []`.
+- `2026-09-22-sidebar-redesign-frequency-layered` (feature, **approved 2026-09-22**) - `depends_on: []`.
   Restructures the sidebar from category-based (6 groups, chatrooms at bottom) to
   frequency-layered (1 group, chat-first, 3 tiers). Adds New Chat CTA, moves chatrooms
   to top, renames Knowledge items, merges Project Keys + Key Groups sidebar entry,
