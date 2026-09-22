@@ -71,6 +71,27 @@ export class ProjectsService {
         });
     }
     /**
+     * Delete Project
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteProjectApiProjectsProjectIdDelete({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{project_id}',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Read Project
      * @returns ProjectOut Successful Response
      * @throws ApiError
@@ -122,20 +143,40 @@ export class ProjectsService {
         });
     }
     /**
-     * Delete Project
-     * @returns void
+     * List Invitable Members
+     * Parent-Org members this project may still invite (R6.10, Q-6).
+     *
+     * Empty for a project with no parent Org, and empty for a caller who is not a
+     * member of that Org — both are a 200 with `[]`, never a 404: an absent pool is
+     * a state, not a missing resource, and the second case must not be
+     * distinguishable from the first.
+     * @returns InvitableMemberOut Successful Response
      * @throws ApiError
      */
-    public static deleteProjectApiProjectsProjectIdDelete({
+    public static listInvitableMembersApiProjectsProjectIdInvitableMembersGet({
         projectId,
+        limit = 100,
+        offset,
     }: {
         projectId: string,
-    }): CancelablePromise<void> {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<InvitableMemberOut>> {
         return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{project_id}',
+            method: 'GET',
+            url: '/api/projects/{project_id}/invitable-members',
             path: {
                 'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Request Validation Problem`,
@@ -143,21 +184,25 @@ export class ProjectsService {
         });
     }
     /**
-     * Restore Project
-     * @returns void
+     * Create Project Invite
+     * @returns ProjectInviteOut Successful Response
      * @throws ApiError
      */
-    public static restoreProjectApiProjectsProjectIdRestorePost({
+    public static createProjectInviteApiProjectsProjectIdInvitesPost({
         projectId,
+        requestBody,
     }: {
         projectId: string,
-    }): CancelablePromise<void> {
+        requestBody: app__api__v1__projects__InviteCreateIn,
+    }): CancelablePromise<ProjectInviteOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/projects/{project_id}/restore',
+            url: '/api/projects/{project_id}/invites',
             path: {
                 'project_id': projectId,
             },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -251,66 +296,21 @@ export class ProjectsService {
         });
     }
     /**
-     * List Invitable Members
-     * Parent-Org members this project may still invite (R6.10, Q-6).
-     *
-     * Empty for a project with no parent Org, and empty for a caller who is not a
-     * member of that Org — both are a 200 with `[]`, never a 404: an absent pool is
-     * a state, not a missing resource, and the second case must not be
-     * distinguishable from the first.
-     * @returns InvitableMemberOut Successful Response
+     * Restore Project
+     * @returns void
      * @throws ApiError
      */
-    public static listInvitableMembersApiProjectsProjectIdInvitableMembersGet({
+    public static restoreProjectApiProjectsProjectIdRestorePost({
         projectId,
-        limit = 100,
-        offset,
     }: {
         projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<InvitableMemberOut>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/invitable-members',
-            path: {
-                'project_id': projectId,
-            },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Create Project Invite
-     * @returns ProjectInviteOut Successful Response
-     * @throws ApiError
-     */
-    public static createProjectInviteApiProjectsProjectIdInvitesPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: app__api__v1__projects__InviteCreateIn,
-    }): CancelablePromise<ProjectInviteOut> {
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/projects/{project_id}/invites',
+            url: '/api/projects/{project_id}/restore',
             path: {
                 'project_id': projectId,
             },
-            body: requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

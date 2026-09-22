@@ -360,10 +360,9 @@ class MessageRepository:
         rows = (await self._db.execute(q)).all()
         return [_row_to_message(r) for r in rows]
 
-
     async def list_for_rooms(
         self,
-        chatroom_ids: list[uuid.UUID],
+        chatroom_ids: Sequence[uuid.UUID],
         *,
         created_after: datetime | None = None,
         created_before: datetime | None = None,

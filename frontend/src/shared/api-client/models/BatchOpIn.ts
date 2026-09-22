@@ -6,7 +6,7 @@ import type { BatchUpdateItem } from './BatchUpdateItem';
 import type { CanvasObjectIn } from './CanvasObjectIn';
 export type BatchOpIn = {
     creates?: (Array<CanvasObjectIn> | null);
-    updates?: (Array<BatchUpdateItem> | null);
     deletes?: (Array<string> | null);
+    updates?: (Array<BatchUpdateItem> | null);
 };
 

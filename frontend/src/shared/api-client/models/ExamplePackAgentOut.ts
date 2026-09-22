@@ -6,12 +6,12 @@
  * One agent a pack would install, and whether this project already has it.
  */
 export type ExamplePackAgentOut = {
-    key: string;
-    name: string;
-    room_role: ('normal' | 'observer' | null);
-    preferred_model_hint: string;
     binds_activity_types: Array<string>;
-    may_control_activities: boolean;
     installed: boolean;
+    key: string;
+    may_control_activities: boolean;
+    name: string;
+    preferred_model_hint: string;
+    room_role: ('normal' | 'observer' | null);
 };
 

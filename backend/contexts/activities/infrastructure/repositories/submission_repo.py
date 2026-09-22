@@ -697,7 +697,6 @@ class ActivitySubmissionRepository:
             result.append((code, int(r.cnt), r.last_at))
         return result
 
-
     async def list_for_research_export(
         self,
         *,
