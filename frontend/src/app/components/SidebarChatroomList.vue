@@ -1,31 +1,17 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useRecentChatrooms } from '@slices/conversation'
+import SidebarNavItem from './SidebarNavItem.vue'
 
 const { t } = useI18n()
-const route = useRoute()
-const router = useRouter()
 const workspace = useWorkspaceStore()
 
 const { query: chatroomsQuery, rooms: chatrooms } = useRecentChatrooms(
   () => workspace.projectId,
-  { limit: 10 },
+  { limit: 5 },
 )
-
-function isActive(chatroomId: string): boolean {
-  return route.path === `/chatrooms/${chatroomId}`
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + '...' : text
-}
-
-function navigateTo(chatroomId: string): void {
-  router.push(`/chatrooms/${chatroomId}`)
-}
 </script>
 
 <template>
@@ -51,19 +37,19 @@ function navigateTo(chatroomId: string): void {
     </div>
 
     <template v-else-if="chatrooms.length">
-      <a
+      <SidebarNavItem
         v-for="chatroom in chatrooms"
         :key="chatroom.id"
-        class="nav-item"
-        :class="{ 'nav-item--active': isActive(chatroom.id) }"
-        href="#"
-        @click.prevent="navigateTo(chatroom.id)"
+        :icon="ChatBubbleLeftIcon"
+        :label="chatroom.name"
+        :to="`/chatrooms/${chatroom.id}`"
+      />
+      <RouterLink
+        :to="{ name: 'conversation.workspaces', params: { projectId: workspace.projectId! } }"
+        class="show-more"
       >
-        <ChatBubbleLeftIcon
-          class="nav-icon"
-        />
-        <span class="nav-label">{{ truncate(chatroom.name, 20) }}</span>
-      </a>
+        {{ t('app.sidebar.showMore') }}
+      </RouterLink>
     </template>
 
     <div
@@ -85,49 +71,24 @@ function navigateTo(chatroomId: string): void {
   letter-spacing: 0.05em;
 }
 
-.nav-item {
-  display: flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 var(--space-4);
-  gap: var(--space-3);
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-normal);
-  color: var(--color-sidebar-text);
-  text-decoration: none;
-  transition: background-color var(--transition-fast);
-  cursor: pointer;
-}
-
-.nav-item:hover {
-  background-color: var(--color-sidebar-hover);
-}
-
-.nav-item--active {
-  background-color: var(--color-sidebar-active-bg);
-  color: var(--color-sidebar-active-text);
-  border-left: 3px solid var(--color-sidebar-active-text);
-  padding-left: 13px;
-}
-
-.nav-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  color: inherit;
-}
-
-.nav-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .empty-state {
   font-size: var(--font-size-xs);
   color: var(--color-muted);
   text-align: center;
   padding: var(--space-2) var(--space-4);
+}
+
+.show-more {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: none;
+  padding: var(--space-1) var(--space-4);
+  transition: color var(--transition-fast);
+}
+
+.show-more:hover {
+  color: var(--color-accent-hover);
 }
 
 .skeleton-container {
