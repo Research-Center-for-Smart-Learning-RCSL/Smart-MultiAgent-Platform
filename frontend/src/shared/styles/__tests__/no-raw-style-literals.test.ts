@@ -169,7 +169,6 @@ exempt(
   'a one-off size with no token on the spacing ladder',
   'app/ErrorBoundary.vue:margin:4rem auto',
   'app/components/LandingIntro.vue:gap:28px',
-  'app/components/SidebarChatroomList.vue:padding-left:13px',
   'slices/conversation/components/ObservationReleaseDialog.vue:margin-left:26px',
 )
 
