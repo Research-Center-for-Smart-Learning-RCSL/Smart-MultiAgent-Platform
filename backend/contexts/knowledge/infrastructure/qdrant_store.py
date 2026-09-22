@@ -164,13 +164,14 @@ class QdrantStore:
                 )
             )
         qfilter = Filter(must=must) if must else None
-        results = await self._client.search(
+        response = await self._client.query_points(
             collection_name=collection_name(project_id),
-            query_vector=query_vector,
+            query=query_vector,
             limit=top_k,
             query_filter=qfilter,
             with_payload=True,
         )
+        results = response.points
         out: list[QdrantHit] = []
         for r in results:
             pid = r.id

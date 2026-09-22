@@ -193,32 +193,3 @@ them. Do not reach for a hand-written zod 4 adapter: the twelve call sites all
 go through `toTypedSchema`, and owning that shim means owning zod-internals
 compatibility forever.
 
-## qdrant-client — held at 1.12.* (latest 1.19.x)
-
-**Logged:** 2026-08-14 · **Blocks:** #140
-
-Not a bug and not a toolchain conflict — an API we still call was removed.
-`AsyncQdrantClient.search` is gone in the 1.1x line, replaced by `query_points`,
-so widening the pin fails `mypy` with 8 errors across 2 files:
-
-```
-contexts/knowledge/infrastructure/qdrant_store.py:167: error:
-  "AsyncQdrantClient" has no attribute "search"  [attr-defined]
-contexts/knowledge/infrastructure/graphrag_vector_store.py:256: error:
-  "AsyncQdrantClient" has no attribute "search"  [attr-defined]
-```
-
-Both call sites pass `query_vector` / `query_filter` and read a bare result list;
-`query_points` takes `query` and returns a response object whose hits live under
-`.points`. The mechanical part is small, but this is the retrieval path for RAG
-and GraphRAG, so it needs its own change with tests rather than riding along on a
-version bump.
-
-**Reproduction:** widen to `qdrant-client>=1.12,<1.20` in `backend/pyproject.toml`,
-`pip install -e '.[dev]'`, `mypy .`.
-
-**Release when:** both call sites move to `query_points`. The ignore rule and this
-entry come out in the same commit as the migration.
-
-Note on the ignore: it suppresses update PRs, not Dependabot alerts — a CVE in
-qdrant-client still surfaces, it just will not arrive as an automatic bump.

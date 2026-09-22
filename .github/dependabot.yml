@@ -20,13 +20,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    ignore:
-      # 1.1x removed AsyncQdrantClient.search, which two retrieval call sites
-      # still use. Held until they move to query_points.
-      - dependency-name: "qdrant-client"
-        update-types:
-          - "version-update:semver-minor"
-          - "version-update:semver-major"
     commit-message:
       prefix: "deps(backend)"
 
