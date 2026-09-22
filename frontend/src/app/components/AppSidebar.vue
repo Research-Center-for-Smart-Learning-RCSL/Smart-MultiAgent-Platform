@@ -4,15 +4,13 @@ import { useI18n } from 'vue-i18n'
 import {
   BuildingOffice2Icon,
   FolderIcon,
-  KeyIcon,
-  BellIcon,
   InboxArrowDownIcon,
   CpuChipIcon,
   UserGroupIcon,
   DocumentTextIcon,
   CircleStackIcon,
   FolderOpenIcon,
-  RectangleGroupIcon,
+  KeyIcon,
   MagnifyingGlassIcon,
   Square3Stack3DIcon,
   ShieldCheckIcon,
@@ -20,11 +18,19 @@ import {
   UsersIcon,
   PuzzlePieceIcon,
   ClipboardDocumentCheckIcon,
+  PlusIcon,
 } from '@heroicons/vue/24/outline'
+import { SButton } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useBreakpoint } from '@shared/composables/useBreakpoint'
 import { useProjectRole } from '@slices/tenancy'
+import {
+  useChatroomCreate,
+  ChatroomCreateModal,
+  listWorkspaces,
+} from '@slices/conversation'
+import { useQuery } from '@tanstack/vue-query'
 import SidebarChatroomList from './SidebarChatroomList.vue'
 import SidebarGroup from './SidebarGroup.vue'
 import SidebarNavItem from './SidebarNavItem.vue'
@@ -35,10 +41,6 @@ const session = useSessionStore()
 const workspace = useWorkspaceStore()
 const { isDesktop } = useBreakpoint()
 
-// Owner/admin gate for the Manage group. Reactive projectId so the gate
-// re-resolves when the active project changes. `decided` keeps an owner's group
-// from flashing in mid role-resolution (R11.10); until decided it stays hidden,
-// exactly like the non-owner case.
 const { decided, isAuthorized } = useProjectRole(() => workspace.projectId ?? undefined)
 
 interface NavItem {
@@ -48,16 +50,35 @@ interface NavItem {
   exact?: boolean
 }
 
-const workspaceNav = computed<NavItem[]>(() => [
-  { icon: BuildingOffice2Icon, label: t('app.sidebar.orgs'), route: '/orgs' },
-  // Exact: `/projects` is an ancestor of every `/projects/:id/*` section, so a
-  // prefix match would keep it lit alongside the active project-context item.
-  { icon: FolderIcon, label: t('app.sidebar.projects'), route: '/projects', exact: true },
-])
+// Resolve the first workspace for the current project so the New Chat button
+// has a target. Most projects have a single workspace; multi-workspace projects
+// get the first one (the user navigates to the full list to pick another).
+const workspacesQuery = useQuery({
+  queryKey: computed(() => ['workspaces', workspace.projectId ?? '']),
+  queryFn: () => listWorkspaces(workspace.projectId!),
+  enabled: computed(() => !!workspace.projectId),
+  staleTime: 60_000,
+})
 
-const personalNav = computed<NavItem[]>(() => [
-  { icon: KeyIcon, label: t('app.sidebar.keys'), route: '/keys' },
-  { icon: BellIcon, label: t('app.sidebar.notifications'), route: '/notifications' },
+const defaultWorkspaceId = computed<string | null>(
+  () => workspacesQuery.data.value?.[0]?.id ?? null,
+)
+
+const {
+  showCreate,
+  createName,
+  createError,
+  createFlags,
+  openCreate,
+  submitCreate,
+  isCreating,
+} = useChatroomCreate(defaultWorkspaceId)
+
+// ---- Nav item arrays -------------------------------------------------------
+
+const globalNav = computed<NavItem[]>(() => [
+  { icon: BuildingOffice2Icon, label: t('app.sidebar.orgs'), route: '/orgs' },
+  { icon: FolderIcon, label: t('app.sidebar.projects'), route: '/projects', exact: true },
   { icon: InboxArrowDownIcon, label: t('app.sidebar.invites'), route: '/invites' },
 ])
 
@@ -70,7 +91,7 @@ const agentNav = computed<NavItem[]>(() => {
   ]
 })
 
-const knowledgeNav = computed<NavItem[]>(() => {
+const knowledgeSettingsNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
@@ -80,38 +101,25 @@ const knowledgeNav = computed<NavItem[]>(() => {
   ]
 })
 
-const projectKeysNav = computed<NavItem[]>(() => {
+const keysSettingsNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
     { icon: KeyIcon, label: t('app.sidebar.projectKeys'), route: `/projects/${pid}/keys` },
-    { icon: RectangleGroupIcon, label: t('app.sidebar.keyGroups'), route: `/projects/${pid}/key-groups` },
     { icon: MagnifyingGlassIcon, label: t('app.sidebar.searchKeys'), route: `/projects/${pid}/search-keys` },
   ]
 })
 
-const infraNav = computed<NavItem[]>(() => {
-  const pid = workspace.projectId
-  if (!pid) return []
-  return [
-    { icon: Square3Stack3DIcon, label: t('app.sidebar.workspaces'), route: `/projects/${pid}/workspaces` },
-    { icon: ShieldCheckIcon, label: t('app.sidebar.mcpAllowlist'), route: `/projects/${pid}/mcp/egress-allowlist` },
-  ]
-})
-
-// Owner-only project management surfaces (gated in the template). Path-string
-// routes match the rest of the sidebar and sidestep the members route's `id`
-// vs. `projectId` param-name difference.
-const manageNav = computed<NavItem[]>(() => {
+const manageSettingsNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
     { icon: UsersIcon, label: t('app.sidebar.members'), route: `/projects/${pid}/members` },
     { icon: PuzzlePieceIcon, label: t('app.sidebar.skills'), route: `/projects/${pid}/skills` },
     { icon: ClipboardDocumentCheckIcon, label: t('app.sidebar.activityTypes'), route: `/projects/${pid}/activity-types` },
+    { icon: ShieldCheckIcon, label: t('app.sidebar.mcpAllowlist'), route: `/projects/${pid}/mcp/egress-allowlist` },
   ]
 })
-
 </script>
 
 <template>
@@ -119,9 +127,11 @@ const manageNav = computed<NavItem[]>(() => {
     v-if="session.isAuthenticated"
     class="sidebar"
   >
-    <nav class="sidebar__nav">
-      <!-- Org/project switcher — desktop only; on mobile it stays in the top
-           bar since the sidebar is a hidden drawer. -->
+    <nav
+      class="sidebar__nav"
+      :aria-label="t('app.sidebar.navLabel')"
+    >
+      <!-- Org/project switcher -- desktop only -->
       <div
         v-if="isDesktop"
         class="sidebar__switcher"
@@ -129,41 +139,39 @@ const manageNav = computed<NavItem[]>(() => {
         <OrgProjectSwitcher compact />
       </div>
 
-      <!-- Global — Workspace -->
-      <div class="sidebar__section">
-        <SidebarNavItem
-          v-for="item in workspaceNav"
-          :key="item.route"
-          :icon="item.icon"
-          :label="item.label"
-          :to="item.route"
-          :exact="!!item.exact"
-        />
-      </div>
-
-      <!-- Global — Personal -->
-      <SidebarGroup
-        :label="t('app.sidebar.groupPersonal')"
-        storage-key="personal"
-      >
-        <SidebarNavItem
-          v-for="item in personalNav"
-          :key="item.route"
-          :icon="item.icon"
-          :label="item.label"
-          :to="item.route"
-        />
-      </SidebarGroup>
-
-      <!-- Project Context -->
+      <!-- Project context -->
       <template v-if="workspace.hasProject">
-        <div class="sidebar__divider" />
-
-        <div class="section-header">
-          {{ t('app.sidebar.projectContext') }}
+        <!-- New Chat CTA -->
+        <div class="sidebar__section sidebar__section--cta">
+          <SButton
+            variant="primary"
+            size="sm"
+            class="new-chat-btn"
+            :disabled="!defaultWorkspaceId"
+            @click="openCreate"
+          >
+            <template #icon-left>
+              <PlusIcon class="w-4 h-4" />
+            </template>
+            {{ t('app.sidebar.newChat') }}
+          </SButton>
         </div>
 
-        <!-- Agents + Agent Groups -->
+        <!-- Recent Chatrooms -->
+        <SidebarChatroomList />
+
+        <!-- Workspaces -->
+        <div class="sidebar__section">
+          <SidebarNavItem
+            :icon="Square3Stack3DIcon"
+            :label="t('app.sidebar.workspaces')"
+            :to="`/projects/${workspace.projectId}/workspaces`"
+          />
+        </div>
+
+        <div class="sidebar__divider" />
+
+        <!-- Agents -->
         <div class="sidebar__section">
           <SidebarNavItem
             v-for="item in agentNav"
@@ -174,68 +182,66 @@ const manageNav = computed<NavItem[]>(() => {
           />
         </div>
 
-        <!-- Knowledge -->
-        <SidebarGroup
-          :label="t('app.sidebar.groupKnowledge')"
-          storage-key="knowledge"
-        >
-          <SidebarNavItem
-            v-for="item in knowledgeNav"
-            :key="item.route"
-            :icon="item.icon"
-            :label="item.label"
-            :to="item.route"
-          />
-        </SidebarGroup>
-
-        <!-- Keys -->
-        <SidebarGroup
-          :label="t('app.sidebar.groupKeys')"
-          storage-key="project-keys"
-        >
-          <SidebarNavItem
-            v-for="item in projectKeysNav"
-            :key="item.route"
-            :icon="item.icon"
-            :label="item.label"
-            :to="item.route"
-          />
-        </SidebarGroup>
-
-        <!-- Infrastructure (default collapsed) -->
-        <SidebarGroup
-          :label="t('app.sidebar.groupInfra')"
-          storage-key="infra"
-          :default-collapsed="true"
-        >
-          <SidebarNavItem
-            v-for="item in infraNav"
-            :key="item.route"
-            :icon="item.icon"
-            :label="item.label"
-            :to="item.route"
-          />
-        </SidebarGroup>
-
-        <!-- Manage (owner/admin only) -->
-        <SidebarGroup
-          v-if="decided && isAuthorized"
-          :label="t('app.sidebar.groupManage')"
-          storage-key="project-manage"
-        >
-          <SidebarNavItem
-            v-for="item in manageNav"
-            :key="item.route"
-            :icon="item.icon"
-            :label="item.label"
-            :to="item.route"
-          />
-        </SidebarGroup>
-
-        <!-- Recent Chatrooms -->
         <div class="sidebar__divider" />
-        <SidebarChatroomList />
+
+        <!-- Project Settings (single collapsible group) -->
+        <SidebarGroup
+          :label="t('app.sidebar.groupProjectSettings')"
+          storage-key="project-settings"
+        >
+          <!-- Knowledge sub-section -->
+          <div class="section-header">
+            {{ t('app.sidebar.sectionKnowledge') }}
+          </div>
+          <SidebarNavItem
+            v-for="item in knowledgeSettingsNav"
+            :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
+            :to="item.route"
+          />
+
+          <!-- Keys sub-section -->
+          <div class="section-header">
+            {{ t('app.sidebar.sectionKeys') }}
+          </div>
+          <SidebarNavItem
+            v-for="item in keysSettingsNav"
+            :key="item.route"
+            :icon="item.icon"
+            :label="item.label"
+            :to="item.route"
+          />
+
+          <!-- Manage sub-section (admin-gated) -->
+          <template v-if="decided && isAuthorized">
+            <div class="section-header">
+              {{ t('app.sidebar.sectionManage') }}
+            </div>
+            <SidebarNavItem
+              v-for="item in manageSettingsNav"
+              :key="item.route"
+              :icon="item.icon"
+              :label="item.label"
+              :to="item.route"
+            />
+          </template>
+        </SidebarGroup>
       </template>
+
+      <div class="sidebar__divider" />
+
+      <!-- Global -->
+      <div class="sidebar__section">
+        <SidebarNavItem
+          v-for="item in globalNav"
+          :key="item.route"
+          :icon="item.icon"
+          :label="item.label"
+          :to="item.route"
+          :exact="!!item.exact"
+        />
+      </div>
 
       <!-- Admin -->
       <template v-if="session.me?.is_admin">
@@ -249,13 +255,23 @@ const manageNav = computed<NavItem[]>(() => {
         </div>
       </template>
     </nav>
+
+    <!-- Chatroom creation modal -->
+    <ChatroomCreateModal
+      :open="showCreate"
+      :name="createName"
+      :error="createError"
+      :flags="createFlags"
+      :is-pending="isCreating.value"
+      @close="showCreate = false"
+      @submit="submitCreate"
+      @update:name="createName = $event"
+      @update:flags="(key: string, val: boolean) => (createFlags as Record<string, boolean>)[key] = val"
+    />
   </aside>
 </template>
 
 <style scoped>
-/* This component renders into two containers: the shell's desktop aside, whose
-   grid track is exactly --sidebar-width, and the mobile SDrawer, whose body is
-   narrower than 260px at every viewport. */
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
@@ -266,14 +282,6 @@ const manageNav = computed<NavItem[]>(() => {
   flex-shrink: 0;
 }
 
-/* Only in the drawer band, and the media query is load-bearing rather than
-   tidiness. AppShell renders the aside above 1024 and the drawer below, so
-   this cannot apply to the docked sidebar - and it must not. Collapsing the
-   desktop sidebar tweens the grid track 260px -> 0 over 300ms while the aside
-   stays visible, and an unscoped max-width lets the nav REFLOW through that
-   tween: labels squash and wrap on every chatroom navigation instead of the
-   aside's overflow-x: hidden clipping a fixed 260px as it slides shut.
-   Inside the drawer the nav renders at min(280px, 85vw) - 48px. */
 @media (max-width: 1023px) {
   .sidebar {
     max-width: 100%;
@@ -293,6 +301,14 @@ const manageNav = computed<NavItem[]>(() => {
 .sidebar__section {
   display: flex;
   flex-direction: column;
+}
+
+.sidebar__section--cta {
+  padding: var(--space-2) var(--space-3);
+}
+
+.new-chat-btn {
+  width: 100%;
 }
 
 .sidebar__divider {

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Cog6ToothIcon,
   ComputerDesktopIcon,
+  KeyIcon,
   ShieldExclamationIcon,
   ArrowRightOnRectangleIcon,
   UserCircleIcon,
@@ -75,6 +76,11 @@ const menuItems = computed(() => {
       label: t('app.userMenu.sessions'),
       icon: ComputerDesktopIcon,
     },
+    {
+      key: 'myKeys',
+      label: t('app.userMenu.myKeys'),
+      icon: KeyIcon,
+    },
   )
 
   // The personal prompt assistant page requires a verified email (R29.03), so
@@ -126,6 +132,9 @@ async function onSelect(key: string) {
       break
     case 'sessions':
       router.push({ name: 'identity.sessions' })
+      break
+    case 'myKeys':
+      router.push({ name: 'keys.list' })
       break
     case 'promptStudio':
       router.push({ name: 'prompt-studio.personal' })
