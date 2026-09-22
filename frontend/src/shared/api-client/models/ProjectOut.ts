@@ -4,14 +4,14 @@
 /* eslint-disable */
 import type { ProjectOwnerType } from './ProjectOwnerType';
 export type ProjectOut = {
-    id: string;
-    name: string;
-    owner_type: ProjectOwnerType;
-    owner_id: string;
-    created_by_user_id: string;
-    version: number;
     created_at: string;
+    created_by_user_id: string;
     deleted_at: (string | null);
+    id: string;
     is_moderator?: boolean;
+    name: string;
+    owner_id: string;
+    owner_type: ProjectOwnerType;
+    version: number;
 };
 

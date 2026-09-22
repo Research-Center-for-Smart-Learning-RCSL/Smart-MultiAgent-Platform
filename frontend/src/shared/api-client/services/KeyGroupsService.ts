@@ -15,60 +15,21 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class KeyGroupsService {
     /**
-     * List Groups
-     * @returns GroupOut Successful Response
+     * Delete Group
+     * @returns void
      * @throws ApiError
      */
-    public static listGroupsApiProjectsProjectIdKeyGroupsGet({
-        projectId,
-        limit = 100,
-        offset,
+    public static deleteGroupApiKeyGroupsGroupIdDelete({
+        groupId,
     }: {
-        projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<GroupOut>> {
+        groupId: string,
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/key-groups',
+            method: 'DELETE',
+            url: '/api/key-groups/{group_id}',
             path: {
-                'project_id': projectId,
+                'group_id': groupId,
             },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Create Group
-     * @returns GroupOut Successful Response
-     * @throws ApiError
-     */
-    public static createGroupApiProjectsProjectIdKeyGroupsPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: GroupIn,
-    }): CancelablePromise<GroupOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/key-groups',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -121,27 +82,6 @@ export class KeyGroupsService {
         });
     }
     /**
-     * Delete Group
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteGroupApiKeyGroupsGroupIdDelete({
-        groupId,
-    }: {
-        groupId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/key-groups/{group_id}',
-            path: {
-                'group_id': groupId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Add Member
      * @returns MemberOut Successful Response
      * @throws ApiError
@@ -161,6 +101,30 @@ export class KeyGroupsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Remove Member
+     * @returns void
+     * @throws ApiError
+     */
+    public static removeMemberApiKeyGroupsGroupIdKeysKeyIdDelete({
+        groupId,
+        keyId,
+    }: {
+        groupId: string,
+        keyId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/key-groups/{group_id}/keys/{key_id}',
+            path: {
+                'group_id': groupId,
+                'key_id': keyId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -195,30 +159,6 @@ export class KeyGroupsService {
         });
     }
     /**
-     * Remove Member
-     * @returns void
-     * @throws ApiError
-     */
-    public static removeMemberApiKeyGroupsGroupIdKeysKeyIdDelete({
-        groupId,
-        keyId,
-    }: {
-        groupId: string,
-        keyId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/key-groups/{group_id}/keys/{key_id}',
-            path: {
-                'group_id': groupId,
-                'key_id': keyId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Reorder Members
      * @returns void
      * @throws ApiError
@@ -235,6 +175,66 @@ export class KeyGroupsService {
             url: '/api/key-groups/{group_id}/reorder',
             path: {
                 'group_id': groupId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Groups
+     * @returns GroupOut Successful Response
+     * @throws ApiError
+     */
+    public static listGroupsApiProjectsProjectIdKeyGroupsGet({
+        projectId,
+        limit = 100,
+        offset,
+    }: {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<GroupOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/key-groups',
+            path: {
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Group
+     * @returns GroupOut Successful Response
+     * @throws ApiError
+     */
+    public static createGroupApiProjectsProjectIdKeyGroupsPost({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: GroupIn,
+    }): CancelablePromise<GroupOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/key-groups',
+            path: {
+                'project_id': projectId,
             },
             body: requestBody,
             mediaType: 'application/json',

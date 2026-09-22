@@ -5,20 +5,20 @@
 import type { FileOut } from './FileOut';
 import type { KeyMetaOut } from './KeyMetaOut';
 export type AssistantConfigOut = {
-    id: string;
-    scope: string;
-    name: string;
+    daily_request_limit_per_user: number;
     description: string;
     enabled: boolean;
-    persona_prompt: string;
-    system_prompt: string;
-    key_id: (string | null);
+    files: Array<FileOut>;
+    hide_platform_templates: boolean;
+    id: string;
     key: (KeyMetaOut | null);
+    key_id: (string | null);
     key_revoked: boolean;
     model_id: (string | null);
-    daily_request_limit_per_user: number;
-    hide_platform_templates: boolean;
+    name: string;
+    persona_prompt: string;
+    scope: string;
+    system_prompt: string;
     version: number;
-    files: Array<FileOut>;
 };
 

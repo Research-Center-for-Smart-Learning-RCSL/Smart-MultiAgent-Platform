@@ -10,6 +10,27 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ResearchExportService {
     /**
+     * Get Research Export
+     * @returns ResearchExportStatusOut Successful Response
+     * @throws ApiError
+     */
+    public static getResearchExportApiExportsResearchJobIdGet({
+        jobId,
+    }: {
+        jobId: string,
+    }): CancelablePromise<ResearchExportStatusOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/exports/research/{job_id}',
+            path: {
+                'job_id': jobId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Create Research Export
      * @returns ResearchExportCreateOut Successful Response
      * @throws ApiError
@@ -29,27 +50,6 @@ export class ResearchExportService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Get Research Export
-     * @returns ResearchExportStatusOut Successful Response
-     * @throws ApiError
-     */
-    public static getResearchExportApiExportsResearchJobIdGet({
-        jobId,
-    }: {
-        jobId: string,
-    }): CancelablePromise<ResearchExportStatusOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/exports/research/{job_id}',
-            path: {
-                'job_id': jobId,
-            },
             errors: {
                 422: `Request Validation Problem`,
             },

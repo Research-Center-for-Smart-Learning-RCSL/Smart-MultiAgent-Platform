@@ -5,14 +5,14 @@
 import type { ApiKeyProvider } from './ApiKeyProvider';
 import type { ProbeStatus } from './ProbeStatus';
 export type KeyOut = {
-    id: string;
-    provider: ApiKeyProvider;
-    name: string;
-    masked_preview: string;
-    test_status: ProbeStatus;
-    test_error: (string | null);
-    last_test_at: (string | null);
-    created_at: string;
     config?: Record<string, any>;
+    created_at: string;
+    id: string;
+    last_test_at: (string | null);
+    masked_preview: string;
+    name: string;
+    provider: ApiKeyProvider;
+    test_error: (string | null);
+    test_status: ProbeStatus;
 };
 

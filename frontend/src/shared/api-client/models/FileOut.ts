@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type FileOut = {
-    id: string;
+    created_at: string;
+    extracted_chars: number;
     filename: string;
-    size_bytes: number;
+    id: string;
     mime: string;
     scan_status: string;
-    extracted_chars: number;
-    created_at: string;
+    size_bytes: number;
 };
 
