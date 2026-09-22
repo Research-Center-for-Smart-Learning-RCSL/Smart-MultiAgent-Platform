@@ -223,7 +223,7 @@ class ObservationRepository:
     async def list_for_rooms(
         self,
         *,
-        chatroom_ids: list[uuid.UUID],
+        chatroom_ids: Sequence[uuid.UUID],
         created_after: datetime | None = None,
         created_before: datetime | None = None,
     ) -> Sequence[AgentObservation]:
