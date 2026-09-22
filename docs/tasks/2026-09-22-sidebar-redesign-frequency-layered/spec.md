@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-09-22
 requirements: [R11.10]
 depends_on: []
@@ -338,35 +338,35 @@ purely a frontend deploy.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A "New Chat" button (`SButton`, primary variant) is visible in the sidebar
+- [x] AC-1: A "New Chat" button (`SButton`, primary variant) is visible in the sidebar
   immediately below the Org/Project Switcher when a project is selected. Clicking it
   opens a chatroom creation modal. Creating a chatroom navigates to the new room.
-- [ ] AC-2: Recent Chatrooms list appears immediately below the New Chat button,
+- [x] AC-2: Recent Chatrooms list appears immediately below the New Chat button,
   showing at most 5 items. A "Show more" link below the list navigates to the chatroom
   list view.
-- [ ] AC-3: Workspaces nav item appears below the chatroom list, above the first divider.
-- [ ] AC-4: AI Agents and Agent Groups appear as flat items between the two dividers,
+- [x] AC-3: Workspaces nav item appears below the chatroom list, above the first divider.
+- [x] AC-4: AI Agents and Agent Groups appear as flat items between the two dividers,
   in the same relative order.
-- [ ] AC-5: A single collapsible "Project Settings" group replaces the former Knowledge,
+- [x] AC-5: A single collapsible "Project Settings" group replaces the former Knowledge,
   Keys, Infrastructure, and Manage groups. It contains three sub-sections with
   non-collapsible visual labels: "Knowledge" (Documents, Chat Graph, Doc Graph), "Keys"
   (Keys, Search Keys), and "Manage" (Members, Skills, Activity Types, MCP Allowlist).
   The Manage sub-section is visible only to project owners and platform admins.
-- [ ] AC-6: Below the "Project Settings" group, a global section shows Organizations,
+- [x] AC-6: Below the "Project Settings" group, a global section shows Organizations,
   Projects, and Invites as flat items.
-- [ ] AC-7: My Keys is accessible from the UserMenu dropdown (between Sessions and
+- [x] AC-7: My Keys is accessible from the UserMenu dropdown (between Sessions and
   Prompt Assistant). It is not in the sidebar. Notifications is not in the sidebar (the
   top-bar NotificationBell remains).
-- [ ] AC-8: `SidebarChatroomList` uses `RouterLink` (not `<a href="#">`) and shares the
+- [x] AC-8: `SidebarChatroomList` uses `RouterLink` (not `<a href="#">`) and shares the
   same active-indicator style (`::before` pseudo-element) as `SidebarNavItem`. No
   duplicated `.nav-item` / `.section-header` CSS between the two components.
-- [ ] AC-9: The sidebar `<nav>` element has `aria-label="Main navigation"` (en) /
+- [x] AC-9: The sidebar `<nav>` element has `aria-label="Main navigation"` (en) /
   appropriate i18n equivalent.
-- [ ] AC-10: All i18n keys are updated per the table in section 6. No hardcoded strings.
+- [x] AC-10: All i18n keys are updated per the table in section 6. No hardcoded strings.
   The dead `app.sidebar.graphrag` key is removed.
-- [ ] AC-11: The sidebar collapse/expand behavior on desktop and mobile is unchanged
+- [x] AC-11: The sidebar collapse/expand behavior on desktop and mobile is unchanged
   (auto-collapse on chatroom routes, manual toggle, `SDrawer` on mobile).
-- [ ] AC-12: Existing tests in `AppSidebar.test.ts` are updated to reflect the new
+- [x] AC-12: Existing tests in `AppSidebar.test.ts` are updated to reflect the new
   structure and pass. The Manage group admin-gate test is preserved.
 
 ## 12. Test Plan
@@ -398,7 +398,22 @@ admin gate are preserved).
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-1: The spec lists `groupManage` as "Rename" but the new template uses `sectionManage`
+  for the sub-section label inside Project Settings. `groupManage` is kept in locale files
+  (value unchanged) but is no longer referenced by any component. No behavior change.
+- D-2: Added `app.sidebar.navLabel` i18n key (not in the spec's table) to provide the
+  `aria-label` value for AC-9 through `$t()` rather than a hardcoded string.
+- D-3: The New Chat button requires a `workspaceId` for chatroom creation. AppSidebar now
+  queries the project's workspace list via `convKeys.workspaces` and uses the first
+  workspace as the default target. The button is disabled until the workspace query
+  resolves. This was not specified but is mechanically required.
+- D-4: The `ChatroomCreateModal` component uses a controlled-props pattern (emitting
+  `update:name` and `update:flags` events) rather than `v-model` to avoid the composable
+  needing to expose reactive internals through the component boundary. The behavior is
+  identical.
+- D-5: The spec's i18n table lists `projectContext` as kept but the new template removes
+  the "PROJECT" section header that used it. The key is left in locale files (harmless
+  dead key); removing it is FU-5.
 
 ## 16. Follow-ups
 
@@ -416,3 +431,8 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-4: **Chatroom list "Show more" behavior.** Consider whether "Show more" should
   expand the list inline (load more items) or navigate to the full-page chatroom list.
   Current spec navigates; inline expansion may be better UX.
+- FU-5: **Remove dead i18n keys.** `app.sidebar.projectContext` and `app.sidebar.groupManage`
+  are no longer referenced by any component but were left in locale files to avoid
+  scope creep. Safe to remove.
+- FU-6: **Multi-workspace New Chat.** The sidebar New Chat button uses the first workspace.
+  Projects with multiple workspaces should show a workspace picker in the creation modal.

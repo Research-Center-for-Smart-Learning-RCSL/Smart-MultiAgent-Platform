@@ -324,7 +324,9 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### Sidebar redesign (2026-09-22)
 
-- (moved to In progress on 2026-09-22) `2026-09-22-sidebar-redesign-frequency-layered`.
+- (implemented 2026-09-22) `2026-09-22-sidebar-redesign-frequency-layered`. All 12 ACs
+  ticked. Frontend-only, no migration. Nothing lists this slug in `depends_on`, so no
+  row moves out of Blocked.
 
 ### Other ready work
 
@@ -601,10 +603,6 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
-
-- `2026-09-22-sidebar-redesign-frequency-layered`. Sidebar restructure from category-based
-  to frequency-layered. Frontend-only. Nothing lists this slug in `depends_on`, so no row
-  moves out of Blocked.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).
