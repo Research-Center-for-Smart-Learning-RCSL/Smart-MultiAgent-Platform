@@ -228,9 +228,9 @@ const manageSettingsNav = computed<NavItem[]>(() => {
             />
           </template>
         </SidebarGroup>
-      </template>
 
-      <div class="sidebar__divider" />
+        <div class="sidebar__divider" />
+      </template>
 
       <!-- Global -->
       <div class="sidebar__section">

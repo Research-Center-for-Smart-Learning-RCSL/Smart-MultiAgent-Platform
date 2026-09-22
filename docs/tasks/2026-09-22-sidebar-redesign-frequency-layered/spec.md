@@ -436,3 +436,10 @@ admin gate are preserved).
   scope creep. Safe to remove.
 - FU-6: **Multi-workspace New Chat.** The sidebar New Chat button uses the first workspace.
   Projects with multiple workspaces should show a workspace picker in the creation modal.
+- FU-7: **Deduplicate listWorkspaces call.** AppSidebar's `workspacesQuery` and
+  `useRecentChatrooms` both call `listWorkspaces(projectId)` independently on project
+  selection, producing two identical HTTP requests cached under different keys. Could share
+  the workspace data or derive the default workspace from the recent-chatrooms query.
+- FU-8: **"Show more" destination.** The link navigates to the workspace list because no
+  project-wide chatroom list view exists. A dedicated "all chatrooms" view (or inline
+  expansion) would better match the "Show more" label's expectation.
