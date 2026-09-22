@@ -28,6 +28,7 @@ import { useProjectRole } from '@slices/tenancy'
 import {
   useChatroomCreate,
   ChatroomCreateModal,
+  convKeys,
   listWorkspaces,
 } from '@slices/conversation'
 import { useQuery } from '@tanstack/vue-query'
@@ -54,7 +55,7 @@ interface NavItem {
 // has a target. Most projects have a single workspace; multi-workspace projects
 // get the first one (the user navigates to the full list to pick another).
 const workspacesQuery = useQuery({
-  queryKey: computed(() => ['workspaces', workspace.projectId ?? '']),
+  queryKey: computed(() => convKeys.workspaces(workspace.projectId ?? '')),
   queryFn: () => listWorkspaces(workspace.projectId!),
   enabled: computed(() => !!workspace.projectId),
   staleTime: 60_000,
