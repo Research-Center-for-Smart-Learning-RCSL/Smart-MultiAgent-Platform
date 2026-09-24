@@ -4,6 +4,7 @@ import { ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useRecentChatrooms } from '@slices/conversation'
 import SidebarNavItem from './SidebarNavItem.vue'
+import SidebarSectionHeader from './SidebarSectionHeader.vue'
 
 const { t } = useI18n()
 const workspace = useWorkspaceStore()
@@ -16,9 +17,7 @@ const { query: chatroomsQuery, rooms: chatrooms } = useRecentChatrooms(
 
 <template>
   <div class="chatroom-list">
-    <div class="section-header">
-      {{ t('app.sidebar.recentChatrooms') }}
-    </div>
+    <SidebarSectionHeader :label="t('app.sidebar.recentChatrooms')" />
 
     <div
       v-if="chatroomsQuery.isLoading.value"
@@ -62,15 +61,6 @@ const { query: chatroomsQuery, rooms: chatrooms } = useRecentChatrooms(
 </template>
 
 <style scoped>
-.section-header {
-  text-transform: uppercase;
-  font-size: 11px;
-  font-weight: var(--weight-semibold);
-  color: var(--color-sidebar-section-text);
-  padding: var(--space-4) var(--space-4) var(--space-2);
-  letter-spacing: 0.05em;
-}
-
 .empty-state {
   font-size: var(--font-size-xs);
   color: var(--color-muted);

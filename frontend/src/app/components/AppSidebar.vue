@@ -36,6 +36,7 @@ import { useQuery } from '@tanstack/vue-query'
 import SidebarChatroomList from './SidebarChatroomList.vue'
 import SidebarGroup from './SidebarGroup.vue'
 import SidebarNavItem from './SidebarNavItem.vue'
+import SidebarSectionHeader from './SidebarSectionHeader.vue'
 import OrgProjectSwitcher from './OrgProjectSwitcher.vue'
 
 const { t } = useI18n()
@@ -117,6 +118,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
+    { icon: Square3Stack3DIcon, label: t('app.sidebar.workspaces'), route: `/projects/${pid}/workspaces` },
     { icon: UsersIcon, label: t('app.sidebar.members'), route: `/projects/${pid}/members` },
     { icon: PuzzlePieceIcon, label: t('app.sidebar.skills'), route: `/projects/${pid}/skills` },
     { icon: ClipboardDocumentCheckIcon, label: t('app.sidebar.activityTypes'), route: `/projects/${pid}/activity-types` },
@@ -142,8 +144,22 @@ const manageSettingsNav = computed<NavItem[]>(() => {
         <OrgProjectSwitcher compact />
       </div>
 
+      <!-- Global -->
+      <div class="sidebar__section">
+        <SidebarNavItem
+          v-for="item in globalNav"
+          :key="item.route"
+          :icon="item.icon"
+          :label="item.label"
+          :to="item.route"
+          :exact="!!item.exact"
+        />
+      </div>
+
       <!-- Project context -->
       <template v-if="workspace.hasProject">
+        <div class="sidebar__divider" />
+
         <!-- New Chat CTA -->
         <div class="sidebar__section sidebar__section--cta">
           <SButton
@@ -162,15 +178,6 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
         <!-- Recent Chatrooms -->
         <SidebarChatroomList />
-
-        <!-- Workspaces -->
-        <div class="sidebar__section">
-          <SidebarNavItem
-            :icon="Square3Stack3DIcon"
-            :label="t('app.sidebar.workspaces')"
-            :to="`/projects/${workspace.projectId}/workspaces`"
-          />
-        </div>
 
         <div class="sidebar__divider" />
 
@@ -191,11 +198,10 @@ const manageSettingsNav = computed<NavItem[]>(() => {
         <SidebarGroup
           :label="t('app.sidebar.groupProjectSettings')"
           storage-key="project-settings"
+          :default-collapsed="true"
         >
           <!-- Knowledge sub-section -->
-          <div class="section-header">
-            {{ t('app.sidebar.sectionKnowledge') }}
-          </div>
+          <SidebarSectionHeader :label="t('app.sidebar.sectionKnowledge')" />
           <SidebarNavItem
             v-for="item in knowledgeSettingsNav"
             :key="item.route"
@@ -205,9 +211,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
           />
 
           <!-- Keys sub-section -->
-          <div class="section-header">
-            {{ t('app.sidebar.sectionKeys') }}
-          </div>
+          <SidebarSectionHeader :label="t('app.sidebar.sectionKeys')" />
           <SidebarNavItem
             v-for="item in keysSettingsNav"
             :key="item.route"
@@ -218,9 +222,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
           <!-- Manage sub-section (admin-gated) -->
           <template v-if="decided && isAuthorized">
-            <div class="section-header">
-              {{ t('app.sidebar.sectionManage') }}
-            </div>
+            <SidebarSectionHeader :label="t('app.sidebar.sectionManage')" />
             <SidebarNavItem
               v-for="item in manageSettingsNav"
               :key="item.route"
@@ -230,21 +232,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
             />
           </template>
         </SidebarGroup>
-
-        <div class="sidebar__divider" />
       </template>
-
-      <!-- Global -->
-      <div class="sidebar__section">
-        <SidebarNavItem
-          v-for="item in globalNav"
-          :key="item.route"
-          :icon="item.icon"
-          :label="item.label"
-          :to="item.route"
-          :exact="!!item.exact"
-        />
-      </div>
 
       <!-- Admin -->
       <template v-if="session.me?.is_admin">
@@ -320,12 +308,4 @@ const manageSettingsNav = computed<NavItem[]>(() => {
   margin: var(--space-2) var(--space-4);
 }
 
-.section-header {
-  text-transform: uppercase;
-  font-size: 11px;
-  font-weight: var(--weight-semibold);
-  color: var(--color-sidebar-section-text);
-  padding: var(--space-4) var(--space-4) var(--space-2);
-  letter-spacing: 0.05em;
-}
 </style>
