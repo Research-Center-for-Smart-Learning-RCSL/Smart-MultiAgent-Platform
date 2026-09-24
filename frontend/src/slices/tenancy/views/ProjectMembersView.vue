@@ -336,8 +336,8 @@ async function onInvite(): Promise<void> {
           class="group-badges"
         >
           <SBadge
-            v-for="name in row.group_names"
-            :key="name"
+            v-for="(name, idx) in row.group_names"
+            :key="row.group_ids?.[idx] ?? idx"
             variant="info"
           >
             {{ name }}
@@ -400,21 +400,6 @@ async function onInvite(): Promise<void> {
 .member-search {
   margin-bottom: var(--space-3);
   max-width: 320px;
-}
-
-.member-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.member-name {
-  font-weight: var(--weight-medium);
-}
-
-.member-email-sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-muted);
 }
 
 .group-badges {

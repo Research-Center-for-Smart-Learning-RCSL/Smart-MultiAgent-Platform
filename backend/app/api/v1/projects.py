@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Sequence
 from typing import Literal, cast
 
-import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import PaginationParams
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.application.invite_service import InviteService
+from contexts.tenancy.application.member_group_service import MemberGroupService
 from contexts.tenancy.application.project_service import (
     Project,
     ProjectMemberRole,
@@ -377,47 +377,13 @@ async def list_members(
     all_members = await service.list_members(project_id)
     members = all_members[pagination.offset : pagination.offset + pagination.limit]
     user_ids = [m.user_id for m in members]
+    user_info: dict[uuid.UUID, tuple[str, str | None]] = {}
+    groups_by_user: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
     if user_ids:
-        from contexts.identity.infrastructure import tables as user_t
-        from contexts.tenancy.infrastructure import tables as _t
+        from contexts.identity.interfaces.facade import IdentityFacade
 
-        user_rows = (
-            await db.execute(
-                sa.select(
-                    user_t.users.c.id, user_t.users.c.email, user_t.users.c.display_name
-                ).where(user_t.users.c.id.in_(user_ids))
-            )
-        ).all()
-        user_info: dict[uuid.UUID, tuple[str, str | None]] = {
-            r.id: (r.email, r.display_name) for r in user_rows
-        }
-
-        grp_rows = (
-            await db.execute(
-                sa.select(
-                    _t.member_group_members.c.user_id,
-                    _t.member_groups.c.id.label("group_id"),
-                    _t.member_groups.c.name.label("group_name"),
-                )
-                .select_from(
-                    _t.member_group_members.join(
-                        _t.member_groups,
-                        _t.member_group_members.c.member_group_id == _t.member_groups.c.id,
-                    )
-                )
-                .where(
-                    _t.member_groups.c.project_id == project_id,
-                    _t.member_groups.c.deleted_at.is_(None),
-                    _t.member_group_members.c.user_id.in_(user_ids),
-                )
-            )
-        ).all()
-        groups_by_user: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
-        for gr in grp_rows:
-            groups_by_user.setdefault(gr.user_id, []).append((gr.group_id, gr.group_name))
-    else:
-        user_info = {}
-        groups_by_user = {}
+        user_info = await IdentityFacade(db).get_member_info(user_ids)
+        groups_by_user = await MemberGroupService(db).group_memberships_for_project(project_id, user_ids)
     return [
         ProjectMemberOut(
             user_id=m.user_id,

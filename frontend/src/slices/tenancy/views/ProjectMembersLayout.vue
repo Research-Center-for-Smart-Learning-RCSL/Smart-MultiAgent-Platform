@@ -46,7 +46,7 @@ const activeTab = computed(() =>
 )
 
 function onTab(key: string) {
-  const tab = tabs.value.find(t => t.key === key)
+  const tab = tabs.value.find(item => item.key === key)
   if (tab) router.push(tab.route)
 }
 </script>

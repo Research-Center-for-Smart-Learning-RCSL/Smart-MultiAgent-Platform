@@ -18,6 +18,8 @@ export interface MemberGroup {
 
 export interface MemberGroupMember {
   user_id: string
+  email?: string
+  display_name?: string | null
   joined_at: string
 }
 

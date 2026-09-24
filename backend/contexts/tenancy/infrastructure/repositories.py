@@ -921,6 +921,39 @@ class MemberGroupRepository:
         )
         return bool(result.rowcount)
 
+    async def group_memberships_for_project(
+        self,
+        project_id: uuid.UUID,
+        user_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, list[tuple[uuid.UUID, str]]]:
+        """Batch-resolve user_id -> [(group_id, group_name)] for a project."""
+        if not user_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    t.member_group_members.c.user_id,
+                    t.member_groups.c.id.label("group_id"),
+                    t.member_groups.c.name.label("group_name"),
+                )
+                .select_from(
+                    t.member_group_members.join(
+                        t.member_groups,
+                        t.member_group_members.c.member_group_id == t.member_groups.c.id,
+                    )
+                )
+                .where(
+                    t.member_groups.c.project_id == project_id,
+                    t.member_groups.c.deleted_at.is_(None),
+                    t.member_group_members.c.user_id.in_(list(user_ids)),
+                )
+            )
+        ).all()
+        result: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+        for r in rows:
+            result.setdefault(r.user_id, []).append((r.group_id, r.group_name))
+        return result
+
     async def list_members(self, group_id: uuid.UUID) -> Sequence[MemberGroupMember]:
         rows = (
             await self._db.execute(

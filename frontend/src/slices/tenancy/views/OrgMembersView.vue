@@ -281,21 +281,6 @@ const breadcrumbs = computed(() => [
 <style scoped>
 @import '../styles/member-form.css';
 
-.member-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.member-name {
-  font-weight: var(--weight-medium);
-}
-
-.member-email-sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-muted);
-}
-
 .invite-link-card {
   margin-bottom: var(--space-4);
 }

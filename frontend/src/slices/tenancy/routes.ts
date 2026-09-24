@@ -58,6 +58,10 @@ export const tenancyRoutes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/projects/:id/member-groups',
+    redirect: (to) => ({ name: 'tenancy.projectMemberGroups', params: { id: to.params.id } }),
+  },
+  {
     path: '/invites',
     name: 'tenancy.inbox',
     component: () => import('./views/InboxInvitesView.vue'),

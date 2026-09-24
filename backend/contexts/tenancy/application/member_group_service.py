@@ -67,6 +67,14 @@ class MemberGroupService:
     async def list_members(self, group_id: uuid.UUID) -> Sequence[MemberGroupMember]:
         return await self._groups.list_members(group_id)
 
+    async def group_memberships_for_project(
+        self,
+        project_id: uuid.UUID,
+        user_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, list[tuple[uuid.UUID, str]]]:
+        """Batch-resolve group memberships for a set of project members."""
+        return await self._groups.group_memberships_for_project(project_id, user_ids)
+
     async def is_visible_to(self, *, group: MemberGroup, user_id: uuid.UUID) -> bool:
         """Whether a non-manager may see this group at all (R13.31)."""
         own = await self._groups.list_for_user_in_project(project_id=group.project_id, user_id=user_id)

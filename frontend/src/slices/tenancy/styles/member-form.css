@@ -26,6 +26,21 @@
   margin-left: var(--space-1);
 }
 
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.member-name {
+  font-weight: var(--weight-medium);
+}
+
+.member-email-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+}
+
 @media (max-width: 767px) {
   .invite-form {
     flex-direction: column;

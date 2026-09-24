@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Literal, cast
 
-import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -292,21 +291,11 @@ async def list_members(
     all_members = await service.list_members(org_id)
     members = all_members[pagination.offset : pagination.offset + pagination.limit]
     user_ids = [m.user_id for m in members]
+    user_info: dict[uuid.UUID, tuple[str, str | None]] = {}
     if user_ids:
-        from contexts.identity.infrastructure import tables as user_t
+        from contexts.identity.interfaces.facade import IdentityFacade
 
-        user_rows = (
-            await db.execute(
-                sa.select(
-                    user_t.users.c.id, user_t.users.c.email, user_t.users.c.display_name
-                ).where(user_t.users.c.id.in_(user_ids))
-            )
-        ).all()
-        user_info: dict[uuid.UUID, tuple[str, str | None]] = {
-            r.id: (r.email, r.display_name) for r in user_rows
-        }
-    else:
-        user_info = {}
+        user_info = await IdentityFacade(db).get_member_info(user_ids)
     return [
         OrgMemberOut(
             user_id=m.user_id,
