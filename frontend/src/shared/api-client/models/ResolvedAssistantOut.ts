@@ -4,7 +4,7 @@
 /* eslint-disable */
 export type ResolvedAssistantOut = {
     available: boolean;
-    source_scope: (string | null);
     model_id: (string | null);
+    source_scope: (string | null);
 };
 

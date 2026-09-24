@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ResearchExportStatusOut = {
+    error: (string | null);
     job_id: string;
-    workspace_id: string;
     status: string;
     url: (string | null);
-    error: (string | null);
+    workspace_id: string;
 };
 

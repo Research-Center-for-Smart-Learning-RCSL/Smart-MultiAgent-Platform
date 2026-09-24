@@ -4,12 +4,12 @@
 /* eslint-disable */
 import type { ProjectMemberRole } from './ProjectMemberRole';
 export type ProjectMemberOut = {
-    user_id: string;
-    email: string;
     display_name?: (string | null);
-    role: ProjectMemberRole;
-    joined_at: string;
+    email: string;
     group_ids?: Array<string>;
     group_names?: Array<string>;
+    joined_at: string;
+    role: ProjectMemberRole;
+    user_id: string;
 };
 

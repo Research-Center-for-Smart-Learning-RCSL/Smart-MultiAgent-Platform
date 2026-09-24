@@ -13,7 +13,7 @@
  */
 export type ValidationFieldError = {
     location: 'body' | 'query' | 'path' | 'header' | 'cookie';
-    path: string;
     message: string;
+    path: string;
 };
 

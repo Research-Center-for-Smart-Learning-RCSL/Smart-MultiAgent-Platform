@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type CommentOut = {
+    content: string;
+    created_at: string;
+    created_by_guest_id: (string | null);
+    created_by_user_id: (string | null);
     id: string;
     object_id: string;
-    content: string;
-    created_by_user_id: (string | null);
-    created_by_guest_id: (string | null);
-    created_at: string;
     updated_at: string;
 };
 

@@ -12,61 +12,21 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class MemberGroupsService {
     /**
-     * List Member Groups
-     * R13.31 — a manager sees the project's groups, anyone else sees their own.
-     * @returns MemberGroupOut Successful Response
+     * Delete Member Group
+     * @returns void
      * @throws ApiError
      */
-    public static listMemberGroupsApiProjectsProjectIdMemberGroupsGet({
-        projectId,
-        limit = 100,
-        offset,
+    public static deleteMemberGroupApiMemberGroupsGroupIdDelete({
+        groupId,
     }: {
-        projectId: string,
-        /**
-         * Max items to return
-         */
-        limit?: number,
-        /**
-         * Number of items to skip
-         */
-        offset?: number,
-    }): CancelablePromise<Array<MemberGroupOut>> {
+        groupId: string,
+    }): CancelablePromise<void> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/member-groups',
+            method: 'DELETE',
+            url: '/api/member-groups/{group_id}',
             path: {
-                'project_id': projectId,
+                'group_id': groupId,
             },
-            query: {
-                'limit': limit,
-                'offset': offset,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Create Member Group
-     * @returns MemberGroupOut Successful Response
-     * @throws ApiError
-     */
-    public static createMemberGroupApiProjectsProjectIdMemberGroupsPost({
-        projectId,
-        requestBody,
-    }: {
-        projectId: string,
-        requestBody: MemberGroupCreateIn,
-    }): CancelablePromise<MemberGroupOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/member-groups',
-            path: {
-                'project_id': projectId,
-            },
-            body: requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -118,27 +78,6 @@ export class MemberGroupsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
-     * Delete Member Group
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteMemberGroupApiMemberGroupsGroupIdDelete({
-        groupId,
-    }: {
-        groupId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/member-groups/{group_id}',
-            path: {
-                'group_id': groupId,
-            },
             errors: {
                 422: `Request Validation Problem`,
             },
@@ -211,6 +150,67 @@ export class MemberGroupsService {
                 'group_id': groupId,
                 'user_id': userId,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Member Groups
+     * R13.31 — a manager sees the project's groups, anyone else sees their own.
+     * @returns MemberGroupOut Successful Response
+     * @throws ApiError
+     */
+    public static listMemberGroupsApiProjectsProjectIdMemberGroupsGet({
+        projectId,
+        limit = 100,
+        offset,
+    }: {
+        projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<MemberGroupOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/member-groups',
+            path: {
+                'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Create Member Group
+     * @returns MemberGroupOut Successful Response
+     * @throws ApiError
+     */
+    public static createMemberGroupApiProjectsProjectIdMemberGroupsPost({
+        projectId,
+        requestBody,
+    }: {
+        projectId: string,
+        requestBody: MemberGroupCreateIn,
+    }): CancelablePromise<MemberGroupOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/member-groups',
+            path: {
+                'project_id': projectId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

@@ -6,8 +6,8 @@ import type { LimitsOut } from './LimitsOut';
 import type { RotationOut } from './RotationOut';
 export type MemberOut = {
     key_id: string;
+    limits: LimitsOut;
     priority: number;
     rotation: RotationOut;
-    limits: LimitsOut;
 };
 
