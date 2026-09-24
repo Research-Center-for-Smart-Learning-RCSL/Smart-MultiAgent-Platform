@@ -114,6 +114,7 @@ describe('AppSidebar — Project Settings group (AC-5)', () => {
     expect(wrapper.find('a[href="/projects/p1/graphrag-configs"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/knowmap-configs"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/keys"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/projects/p1/key-groups"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/search-keys"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/members"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/skills"]').exists()).toBe(true)
@@ -121,13 +122,14 @@ describe('AppSidebar — Project Settings group (AC-5)', () => {
     expect(wrapper.find('a[href="/projects/p1/mcp/egress-allowlist"]').exists()).toBe(true)
   })
 
-  it('hides Manage sub-section from a non-owner (AC-5)', async () => {
+  it('hides Manage sub-section from a non-owner but keeps Workspaces visible (AC-5)', async () => {
     role.isAuthorized = false
     const wrapper = await mountSidebar()
     expect(wrapper.find('a[href="/projects/p1/members"]').exists()).toBe(false)
     expect(wrapper.find('a[href="/projects/p1/skills"]').exists()).toBe(false)
     expect(wrapper.find('a[href="/projects/p1/activity-types"]').exists()).toBe(false)
     expect(wrapper.find('a[href="/projects/p1/mcp/egress-allowlist"]').exists()).toBe(false)
+    expect(wrapper.find('a[href="/projects/p1/workspaces"]').exists()).toBe(true)
   })
 
   it('hides Manage until role is decided (AC-5 / R11.10)', async () => {

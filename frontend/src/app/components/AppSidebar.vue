@@ -118,7 +118,6 @@ const manageSettingsNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
-    { icon: Square3Stack3DIcon, label: t('app.sidebar.workspaces'), route: `/projects/${pid}/workspaces` },
     { icon: UsersIcon, label: t('app.sidebar.members'), route: `/projects/${pid}/members` },
     { icon: PuzzlePieceIcon, label: t('app.sidebar.skills'), route: `/projects/${pid}/skills` },
     { icon: ClipboardDocumentCheckIcon, label: t('app.sidebar.activityTypes'), route: `/projects/${pid}/activity-types` },
@@ -181,7 +180,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
         <div class="sidebar__divider" />
 
-        <!-- Agents -->
+        <!-- Agents & Workspaces -->
         <div class="sidebar__section">
           <SidebarNavItem
             v-for="item in agentNav"
@@ -189,6 +188,11 @@ const manageSettingsNav = computed<NavItem[]>(() => {
             :icon="item.icon"
             :label="item.label"
             :to="item.route"
+          />
+          <SidebarNavItem
+            :icon="Square3Stack3DIcon"
+            :label="t('app.sidebar.workspaces')"
+            :to="`/projects/${workspace.projectId}/workspaces`"
           />
         </div>
 
