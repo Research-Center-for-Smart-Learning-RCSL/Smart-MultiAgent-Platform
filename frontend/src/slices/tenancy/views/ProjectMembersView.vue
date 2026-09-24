@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
-  SPageHeader, SCard, STable, SAvatar, SBadge, SButton,
+  SCard, STable, SAvatar, SBadge, SButton,
   SFormField, SInput, SSelect, SDropdown, SAlert, SEmptyState,
   STooltip,
 } from '@shared/ui'
@@ -22,17 +22,11 @@ import InviteAcceptLinkCard from '../components/InviteAcceptLinkCard.vue'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
 const session = useSessionStore()
 const qc = useQueryClient()
 
 const projectId = computed(() => route.params.id as string)
-
-const { data: project } = useQuery({
-  queryKey: computed(() => tenancyKeys.project(projectId.value)),
-  queryFn: () => projectsApi.get(projectId.value),
-})
 
 const { data: members, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
@@ -104,7 +98,7 @@ const roleOptions = [
 const columns = computed(() => [
   { key: 'avatar', label: '', width: '48px' },
   { key: 'email', label: 'Email', sortable: true },
-  { key: 'role', label: t('tenancy.role.member'), sortable: true, width: '140px' },
+  { key: 'role', label: t('tenancy.member.columnRole'), sortable: true, width: '140px' },
   { key: 'joined_at', label: t('tenancy.settings.created'), sortable: true, width: '120px' },
   { key: 'actions', label: '', width: '48px' },
 ])
@@ -134,7 +128,14 @@ function isInherited(member: ProjectMember): boolean {
 // runtime shape is unchanged — plain ProjectMember objects from the API).
 type ProjectMemberRow = ProjectMember & Record<string, unknown>
 
-const tableData = computed<ProjectMemberRow[]>(() => (members.value ?? []) as unknown as ProjectMemberRow[])
+const searchQuery = ref('')
+
+const tableData = computed<ProjectMemberRow[]>(() => {
+  const rows = (members.value ?? []) as unknown as ProjectMemberRow[]
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return rows
+  return rows.filter(m => m.email.toLowerCase().includes(q))
+})
 
 async function onInvite(): Promise<void> {
   const email = usePicker.value ? pickedEmail.value : inviteEmail.value.trim()
@@ -166,34 +167,11 @@ async function onInvite(): Promise<void> {
   }
 }
 
-const breadcrumbs = computed(() => [
-  { label: t('tenancy.breadcrumb.home'), to: { name: 'tenancy.orgList' } },
-  { label: t('tenancy.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  { label: project.value?.name ?? '...', to: { name: 'tenancy.projectDetail', params: { id: projectId.value } } },
-  { label: t('tenancy.breadcrumb.members') },
-])
+
 </script>
 
 <template>
   <div>
-    <SPageHeader
-      :title="t('tenancy.breadcrumb.members')"
-      :breadcrumbs="breadcrumbs"
-    >
-      <template #actions>
-        <SButton
-          variant="secondary"
-          size="sm"
-          @click="() => router.push({
-            name: 'tenancy.projectMemberGroups',
-            params: { id: projectId },
-          })"
-        >
-          {{ t('tenancy.breadcrumb.memberGroups') }}
-        </SButton>
-      </template>
-    </SPageHeader>
-
     <!-- Invite form -->
     <SCard
       v-if="canManageMembers && invitePoolSettled"
@@ -239,7 +217,7 @@ const breadcrumbs = computed(() => [
         </SFormField>
 
         <SFormField
-          :label="t('tenancy.role.member')"
+          :label="t('tenancy.member.inviteRoleLabel')"
           name="inviteRole"
           class="invite-role"
         >
@@ -289,6 +267,13 @@ const breadcrumbs = computed(() => [
       :accept-url="inviteLink.acceptUrl"
       class="invite-link-card"
       @dismiss="inviteLink = null"
+    />
+
+    <!-- Search -->
+    <SInput
+      v-model="searchQuery"
+      :placeholder="t('tenancy.member.searchPlaceholder')"
+      class="member-search"
     />
 
     <!-- Error state -->
@@ -384,6 +369,11 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 @import '../styles/member-form.css';
+
+.member-search {
+  margin-bottom: var(--space-3);
+  max-width: 320px;
+}
 
 .role-badges {
   display: inline-flex;

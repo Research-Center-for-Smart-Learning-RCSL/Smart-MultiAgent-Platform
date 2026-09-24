@@ -5,13 +5,15 @@ import { renderView } from '../../../../tests/utils'
 import ProjectMembersView from '../views/ProjectMembersView.vue'
 
 const routes = [
-  { path: '/projects/:id/members', name: 'tenancy.projectMembers', component: ProjectMembersView },
-  { path: '/projects/:id', name: 'tenancy.projectDetail', component: { template: '<div />' } },
   {
-    path: '/projects/:id/member-groups',
-    name: 'tenancy.projectMemberGroups',
-    component: { template: '<div />' },
+    path: '/projects/:id/members',
+    component: { template: '<router-view />' },
+    children: [
+      { path: '', name: 'tenancy.projectMembers', component: ProjectMembersView },
+      { path: 'groups', name: 'tenancy.projectMemberGroups', component: { template: '<div />' } },
+    ],
   },
+  { path: '/projects/:id', name: 'tenancy.projectDetail', component: { template: '<div />' } },
   { path: '/projects', name: 'tenancy.projectList', component: { template: '<div />' } },
   { path: '/orgs', name: 'tenancy.orgList', component: { template: '<div />' } },
 ]
@@ -53,9 +55,9 @@ describe('ProjectMembersView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('renders the page header', async () => {
+  it('renders the search input', async () => {
     const wrapper = await render()
-    expect(wrapper.find('h1').exists()).toBe(true)
+    expect(wrapper.find('.member-search').exists()).toBe(true)
   })
 
   it('hides the invite form from a caller the server does not treat as a moderator', async () => {

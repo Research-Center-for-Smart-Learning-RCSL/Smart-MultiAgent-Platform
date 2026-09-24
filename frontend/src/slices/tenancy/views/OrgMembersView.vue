@@ -61,7 +61,7 @@ const roleOptions = [
 const columns = computed(() => [
   { key: 'avatar', label: '', width: '48px' },
   { key: 'email', label: 'Email', sortable: true },
-  { key: 'role', label: t('tenancy.role.member'), sortable: true, width: '140px' },
+  { key: 'role', label: t('tenancy.member.columnRole'), sortable: true, width: '140px' },
   { key: 'joined_at', label: t('tenancy.settings.created'), sortable: true, width: '120px' },
   { key: 'actions', label: '', width: '48px' },
 ])
@@ -157,7 +157,7 @@ const breadcrumbs = computed(() => [
         </SFormField>
 
         <SFormField
-          :label="t('tenancy.role.member')"
+          :label="t('tenancy.member.inviteRoleLabel')"
           name="inviteRole"
           class="invite-role"
         >

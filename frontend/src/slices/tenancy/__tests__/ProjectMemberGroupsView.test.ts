@@ -4,16 +4,19 @@ import ProjectMemberGroupsView from '../views/ProjectMemberGroupsView.vue'
 
 const routes = [
   {
-    path: '/projects/:id/member-groups',
-    name: 'tenancy.projectMemberGroups',
-    component: ProjectMemberGroupsView,
+    path: '/projects/:id/members',
+    component: { template: '<router-view />' },
+    children: [
+      { path: '', name: 'tenancy.projectMembers', component: { template: '<div />' } },
+      { path: 'groups', name: 'tenancy.projectMemberGroups', component: ProjectMemberGroupsView },
+    ],
   },
   { path: '/projects/:id', name: 'tenancy.projectDetail', component: { template: '<div />' } },
   { path: '/projects', name: 'tenancy.projectList', component: { template: '<div />' } },
   { path: '/orgs', name: 'tenancy.orgList', component: { template: '<div />' } },
 ]
 
-const initialRoute = '/projects/proj_1/member-groups'
+const initialRoute = '/projects/proj_1/members/groups'
 
 describe('ProjectMemberGroupsView', () => {
   it('renders without errors', async () => {
@@ -21,9 +24,9 @@ describe('ProjectMemberGroupsView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('renders the page header', async () => {
+  it('renders the subtitle', async () => {
     const wrapper = await renderView(ProjectMemberGroupsView, { routes, initialRoute })
-    expect(wrapper.find('h1').exists()).toBe(true)
+    expect(wrapper.find('.groups-subtitle').exists()).toBe(true)
   })
 
   it('offers no management controls to a caller who is not authorized', async () => {

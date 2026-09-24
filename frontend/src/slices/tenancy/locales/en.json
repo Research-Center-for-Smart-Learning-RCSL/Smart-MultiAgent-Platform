@@ -54,6 +54,11 @@
     },
     "member": {
       "actions": "Member actions",
+      "columnRole": "Role",
+      "inviteRoleLabel": "Invite as",
+      "searchPlaceholder": "Search members...",
+      "tabMembers": "Members",
+      "tabGroups": "Groups",
       "sendInvite": "Send invite",
       "invited": "Invitation sent to {email}",
       "alreadyInvited": "This email has already been invited",

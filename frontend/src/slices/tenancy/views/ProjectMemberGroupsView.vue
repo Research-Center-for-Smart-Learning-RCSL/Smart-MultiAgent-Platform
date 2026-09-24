@@ -12,7 +12,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
-  SPageHeader, SCard, STable, SBadge, SButton,
+  SCard, STable, SAvatar, SBadge, SButton,
   SFormField, SInput, SSelect, SAlert, SEmptyState, SLoadingSpinner,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
@@ -30,11 +30,6 @@ const qc = useQueryClient()
 
 const projectId = computed(() => route.params.id as string)
 const { isAuthorized } = useProjectRole(projectId)
-
-const { data: project } = useQuery({
-  queryKey: computed(() => tenancyKeys.project(projectId.value)),
-  queryFn: () => projectsApi.get(projectId.value),
-})
 
 const { data: groups, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.memberGroups(projectId.value)),
@@ -159,24 +154,14 @@ async function onRemoveMember(userId: string): Promise<void> {
   }
 }
 
-const breadcrumbs = computed(() => [
-  { label: t('tenancy.breadcrumb.home'), to: { name: 'tenancy.orgList' } },
-  { label: t('tenancy.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  {
-    label: project.value?.name ?? '...',
-    to: { name: 'tenancy.projectDetail', params: { id: projectId.value } },
-  },
-  { label: t('tenancy.breadcrumb.memberGroups') },
-])
+
 </script>
 
 <template>
   <div>
-    <SPageHeader
-      :title="t('tenancy.breadcrumb.memberGroups')"
-      :subtitle="t('tenancy.memberGroup.subtitle')"
-      :breadcrumbs="breadcrumbs"
-    />
+    <p class="groups-subtitle">
+      {{ t('tenancy.memberGroup.subtitle') }}
+    </p>
 
     <SCard
       v-if="isAuthorized"
@@ -312,15 +297,22 @@ const breadcrumbs = computed(() => [
       </form>
 
       <SLoadingSpinner v-if="membersLoading" />
-      <ul
+      <div
         v-else-if="members && members.length"
         class="member-list"
       >
-        <li
+        <div
           v-for="m in members"
           :key="m.user_id"
+          class="member-row"
         >
-          <span>{{ emailByUserId.get(m.user_id) ?? m.user_id }}</span>
+          <SAvatar
+            :name="emailByUserId.get(m.user_id) ?? m.user_id"
+            size="sm"
+          />
+          <span class="member-email">
+            {{ emailByUserId.get(m.user_id) ?? m.user_id }}
+          </span>
           <SButton
             v-if="isAuthorized"
             variant="ghost"
@@ -329,8 +321,8 @@ const breadcrumbs = computed(() => [
           >
             {{ t('tenancy.memberGroup.remove') }}
           </SButton>
-        </li>
-      </ul>
+        </div>
+      </div>
       <SEmptyState
         v-else
         :icon="UserGroupIcon"
@@ -342,6 +334,12 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 @import '../styles/member-form.css';
+
+.groups-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  margin-bottom: var(--space-4);
+}
 
 .group-name {
   background: none;
@@ -374,10 +372,19 @@ const breadcrumbs = computed(() => [
   gap: var(--space-1);
 }
 
-.member-list li {
+.member-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+
+.member-email {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
 }
 </style>

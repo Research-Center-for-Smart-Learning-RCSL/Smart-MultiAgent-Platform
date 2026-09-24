@@ -54,6 +54,11 @@
     },
     "member": {
       "actions": "成員操作",
+      "columnRole": "角色",
+      "inviteRoleLabel": "邀請為",
+      "searchPlaceholder": "搜尋成員...",
+      "tabMembers": "成員",
+      "tabGroups": "分組",
       "sendInvite": "送出邀請",
       "invited": "已向 {email} 送出邀請",
       "alreadyInvited": "此信箱已被邀請過",
