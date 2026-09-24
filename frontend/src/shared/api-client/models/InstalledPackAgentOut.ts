@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type InstalledPackAgentOut = {
-    agent_id: string;
     key: string;
-    model_hint: string;
     name: string;
+    agent_id: string;
+    model_hint: string;
 };
 

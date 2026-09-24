@@ -77,28 +77,6 @@ export class KeysService {
         });
     }
     /**
-     * Delete Key
-     * Soft-delete a key. Cascades to Key-Group membership via ON DELETE.
-     * @returns void
-     * @throws ApiError
-     */
-    public static deleteKeyApiKeysKeyIdDelete({
-        keyId,
-    }: {
-        keyId: string,
-    }): CancelablePromise<void> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/keys/{key_id}',
-            path: {
-                'key_id': keyId,
-            },
-            errors: {
-                422: `Request Validation Problem`,
-            },
-        });
-    }
-    /**
      * Get My Key
      * Fetch a single key the caller owns (for the detail view).
      *
@@ -115,6 +93,28 @@ export class KeysService {
     }): CancelablePromise<KeyOut> {
         return __request(OpenAPI, {
             method: 'GET',
+            url: '/api/keys/{key_id}',
+            path: {
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Delete Key
+     * Soft-delete a key. Cascades to Key-Group membership via ON DELETE.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteKeyApiKeysKeyIdDelete({
+        keyId,
+    }: {
+        keyId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
             url: '/api/keys/{key_id}',
             path: {
                 'key_id': keyId,

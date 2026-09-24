@@ -15,11 +15,11 @@ import type { ValidationFieldError } from './ValidationFieldError';
  * `type`: only the request-validation problem uses `problems/validation`.
  */
 export type ValidationProblem = {
-    detail: string;
-    field_errors?: (Array<ValidationFieldError> | null);
-    instance: string;
-    status: 422;
-    title: string;
     type: string;
+    title: string;
+    status: number;
+    detail: string;
+    instance: string;
+    field_errors?: (Array<ValidationFieldError> | null);
 };
 

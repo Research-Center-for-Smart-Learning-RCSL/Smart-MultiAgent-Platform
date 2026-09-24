@@ -215,13 +215,23 @@ const breadcrumbs = computed(() => [
     >
       <template #cell-avatar="{ row }">
         <SAvatar
-          :name="row.email"
+          :name="row.display_name || row.email"
           size="sm"
         />
       </template>
 
       <template #cell-email="{ row }">
-        {{ row.email }}
+        <div class="member-identity">
+          <span
+            v-if="row.display_name"
+            class="member-name"
+          >
+            {{ row.display_name }}
+          </span>
+          <span :class="row.display_name ? 'member-email-sub' : ''">
+            {{ row.email }}
+          </span>
+        </div>
         <span
           v-if="isMe(row)"
           class="you-label"
@@ -270,6 +280,21 @@ const breadcrumbs = computed(() => [
 
 <style scoped>
 @import '../styles/member-form.css';
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.member-name {
+  font-weight: var(--weight-medium);
+}
+
+.member-email-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+}
 
 .invite-link-card {
   margin-bottom: var(--space-4);

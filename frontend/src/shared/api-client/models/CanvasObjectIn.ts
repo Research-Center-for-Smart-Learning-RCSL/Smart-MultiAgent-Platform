@@ -4,13 +4,13 @@
 /* eslint-disable */
 import type { CanvasObjectKind } from './CanvasObjectKind';
 export type CanvasObjectIn = {
-    content?: (string | null);
-    height: number;
     kind: CanvasObjectKind;
     position_x: number;
     position_y: number;
-    style?: (Record<string, any> | null);
     width: number;
+    height: number;
     z_index?: number;
+    content?: (string | null);
+    style?: (Record<string, any> | null);
 };
 

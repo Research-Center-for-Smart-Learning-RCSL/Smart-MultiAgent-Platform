@@ -3,16 +3,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ActivitySubmissionOut = {
-    activity_type_id: string;
-    attempt_no: number;
-    chatroom_id: string;
-    created_at: (string | null);
-    error_class: (string | null);
     id: string;
-    is_valid: (boolean | null);
-    latency_ms: (number | null);
     session_id: string;
-    sub_scores: Record<string, any>;
+    activity_type_id: string;
+    chatroom_id: string;
+    attempt_no: number;
     validation_status: string;
+    is_valid: (boolean | null);
+    error_class: (string | null);
+    sub_scores: Record<string, any>;
+    latency_ms: (number | null);
+    created_at: (string | null);
 };
 

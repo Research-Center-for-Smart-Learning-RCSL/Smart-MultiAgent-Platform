@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type AgentToolCreateIn = {
-    auth?: (Record<string, any> | null);
-    config?: Record<string, any>;
-    display_name?: (string | null);
     tool_type: 'hosted_mcp' | 'local_function';
+    display_name?: (string | null);
+    config?: Record<string, any>;
+    auth?: (Record<string, any> | null);
 };
 

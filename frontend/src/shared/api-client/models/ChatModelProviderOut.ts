@@ -4,8 +4,8 @@
 /* eslint-disable */
 import type { ChatModelSpecOut } from './ChatModelSpecOut';
 export type ChatModelProviderOut = {
-    default: string;
-    models: Array<ChatModelSpecOut>;
     provider: string;
+    models: Array<ChatModelSpecOut>;
+    default: string;
 };
 

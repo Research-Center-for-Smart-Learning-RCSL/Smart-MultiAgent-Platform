@@ -30,15 +30,19 @@ export interface Project {
 export interface ProjectMember {
   user_id: string
   email: string
+  display_name?: string | null
   role: 'owner' | 'member'
   is_inherited?: boolean
   joined_at: string
+  group_ids?: string[]
+  group_names?: string[]
 }
 
 /** A parent-Org member this project may still invite (R6.10). */
 export interface InvitableMember {
   user_id: string
   email: string
+  display_name?: string | null
 }
 
 export interface ProjectInvite {

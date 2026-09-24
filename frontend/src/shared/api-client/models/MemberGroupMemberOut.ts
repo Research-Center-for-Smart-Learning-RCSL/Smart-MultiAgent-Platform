@@ -3,7 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type MemberGroupMemberOut = {
-    joined_at: string;
     user_id: string;
+    email?: string;
+    display_name?: (string | null);
+    joined_at: string;
 };
 

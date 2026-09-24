@@ -79,7 +79,10 @@ function toggleInviteMode(): void {
 }
 
 const pickerOptions = computed(() =>
-  (invitablePool.value ?? []).map(m => ({ value: m.user_id, label: m.email })),
+  (invitablePool.value ?? []).map(m => ({
+    value: m.user_id,
+    label: m.display_name ? `${m.display_name} (${m.email})` : m.email,
+  })),
 )
 
 const pickedEmail = computed(
@@ -134,7 +137,9 @@ const tableData = computed<ProjectMemberRow[]>(() => {
   const rows = (members.value ?? []) as unknown as ProjectMemberRow[]
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return rows
-  return rows.filter(m => m.email.toLowerCase().includes(q))
+  return rows.filter(m =>
+    m.email.toLowerCase().includes(q) || (m.display_name?.toLowerCase().includes(q) ?? false),
+  )
 })
 
 async function onInvite(): Promise<void> {
@@ -303,18 +308,40 @@ async function onInvite(): Promise<void> {
     >
       <template #cell-avatar="{ row }">
         <SAvatar
-          :name="row.email"
+          :name="row.display_name || row.email"
           size="sm"
         />
       </template>
 
       <template #cell-email="{ row }">
-        {{ row.email }}
+        <div class="member-identity">
+          <span
+            v-if="row.display_name"
+            class="member-name"
+          >
+            {{ row.display_name }}
+          </span>
+          <span :class="row.display_name ? 'member-email-sub' : ''">
+            {{ row.email }}
+          </span>
+        </div>
         <span
           v-if="isMe(row)"
           class="you-label"
         >
           {{ t('tenancy.member.you') }}
+        </span>
+        <span
+          v-if="row.group_names?.length"
+          class="group-badges"
+        >
+          <SBadge
+            v-for="name in row.group_names"
+            :key="name"
+            variant="info"
+          >
+            {{ name }}
+          </SBadge>
         </span>
       </template>
 
@@ -373,6 +400,28 @@ async function onInvite(): Promise<void> {
 .member-search {
   margin-bottom: var(--space-3);
   max-width: 320px;
+}
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.member-name {
+  font-weight: var(--weight-medium);
+}
+
+.member-email-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+}
+
+.group-badges {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
 }
 
 .role-badges {

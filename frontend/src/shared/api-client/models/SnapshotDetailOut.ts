@@ -3,12 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SnapshotDetailOut = {
-    agent_digest: (string | null);
-    canvas_id: string;
-    created_at: string;
-    created_by_user_id: (string | null);
     id: string;
+    canvas_id: string;
+    agent_digest: (string | null);
+    created_by_user_id: (string | null);
     label: (string | null);
+    created_at: string;
     snapshot_data: Record<string, any>;
 };
 

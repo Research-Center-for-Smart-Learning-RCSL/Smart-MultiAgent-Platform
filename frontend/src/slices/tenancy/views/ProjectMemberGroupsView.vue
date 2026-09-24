@@ -71,18 +71,35 @@ const tableData = computed<MemberGroupRow[]>(
   () => (groups.value ?? []) as unknown as MemberGroupRow[],
 )
 
-const emailByUserId = computed(() => {
-  const map = new Map<string, string>()
-  for (const m of projectMembers.value ?? []) map.set(m.user_id, m.email)
+const userInfoById = computed(() => {
+  const map = new Map<string, { email: string; display_name?: string | null }>()
+  for (const m of projectMembers.value ?? []) {
+    map.set(m.user_id, { email: m.email, display_name: m.display_name ?? null })
+  }
   return map
 })
+
+function memberLabel(userId: string): string {
+  const info = userInfoById.value.get(userId)
+  if (!info) return userId
+  return info.display_name ? `${info.display_name} (${info.email})` : info.email
+}
+
+function memberDisplayName(userId: string): string {
+  const info = userInfoById.value.get(userId)
+  if (!info) return userId
+  return info.display_name || info.email
+}
 
 /** Project members not already in the selected group - the picker's options. */
 const addableOptions = computed(() => {
   const present = new Set((members.value ?? []).map(m => m.user_id))
   return (projectMembers.value ?? [])
     .filter(m => !present.has(m.user_id))
-    .map(m => ({ value: m.user_id, label: m.email }))
+    .map(m => ({
+      value: m.user_id,
+      label: m.display_name ? `${m.display_name} (${m.email})` : m.email,
+    }))
 })
 
 function invalidateGroups(): void {
@@ -307,11 +324,11 @@ async function onRemoveMember(userId: string): Promise<void> {
           class="member-row"
         >
           <SAvatar
-            :name="emailByUserId.get(m.user_id) ?? m.user_id"
+            :name="memberDisplayName(m.user_id)"
             size="sm"
           />
           <span class="member-email">
-            {{ emailByUserId.get(m.user_id) ?? m.user_id }}
+            {{ memberLabel(m.user_id) }}
           </span>
           <SButton
             v-if="isAuthorized"

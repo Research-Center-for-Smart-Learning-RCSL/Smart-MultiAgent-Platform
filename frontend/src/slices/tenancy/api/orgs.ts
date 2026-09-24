@@ -23,6 +23,7 @@ export interface Org {
 export interface OrgMember {
   user_id: string
   email: string
+  display_name?: string | null
   role: 'owner' | 'member'
   is_original_creator: boolean
   joined_at: string

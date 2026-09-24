@@ -9,13 +9,13 @@ import type { ValidatorKind } from './ValidatorKind';
  * so the service diffs this against the stored row to decide the version bump.
  */
 export type ActivityTypeUpdateIn = {
-    echo_includes_content?: boolean;
-    expose_payload_to_agent?: boolean;
-    group_config?: (Record<string, any> | null);
     name: string;
     payload_schema: Record<string, any>;
-    retention_days?: (number | null);
-    validator_config?: Record<string, any>;
     validator_kind: ValidatorKind;
+    validator_config?: Record<string, any>;
+    retention_days?: (number | null);
+    expose_payload_to_agent?: boolean;
+    echo_includes_content?: boolean;
+    group_config?: (Record<string, any> | null);
 };
 
