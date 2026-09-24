@@ -12,6 +12,7 @@ import {
   FolderOpenIcon,
   KeyIcon,
   MagnifyingGlassIcon,
+  RectangleGroupIcon,
   Square3Stack3DIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
@@ -107,6 +108,7 @@ const keysSettingsNav = computed<NavItem[]>(() => {
   if (!pid) return []
   return [
     { icon: KeyIcon, label: t('app.sidebar.projectKeys'), route: `/projects/${pid}/keys` },
+    { icon: RectangleGroupIcon, label: t('app.sidebar.keyGroups'), route: `/projects/${pid}/key-groups` },
     { icon: MagnifyingGlassIcon, label: t('app.sidebar.searchKeys'), route: `/projects/${pid}/search-keys` },
   ]
 })

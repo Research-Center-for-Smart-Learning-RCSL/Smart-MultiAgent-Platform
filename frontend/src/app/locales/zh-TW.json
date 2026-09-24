@@ -123,6 +123,7 @@
       "conceptMaps": "對話圖譜",
       "knowledgeMaps": "文件圖譜",
       "projectKeys": "金鑰",
+      "keyGroups": "金鑰群組",
       "searchKeys": "搜尋金鑰",
       "workspaces": "執行環境",
       "mcpAllowlist": "MCP 允許清單",

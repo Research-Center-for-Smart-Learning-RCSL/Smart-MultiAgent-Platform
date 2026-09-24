@@ -123,6 +123,7 @@
       "conceptMaps": "Chat Graph",
       "knowledgeMaps": "Doc Graph",
       "projectKeys": "Keys",
+      "keyGroups": "Key Groups",
       "searchKeys": "Search Keys",
       "workspaces": "Workspaces",
       "mcpAllowlist": "MCP Allowlist",
