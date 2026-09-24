@@ -381,13 +381,15 @@ async def test_invitable_pool_maps_rows_to_user_id_and_email() -> None:
     db = AsyncMock()
     db.execute = AsyncMock(
         return_value=MagicMock(
-            all=MagicMock(return_value=[SimpleNamespace(user_id=uid, email="a@example.com")])
+            all=MagicMock(
+                return_value=[SimpleNamespace(user_id=uid, email="a@example.com", display_name=None)]
+            )
         )
     )
     svc = InviteService(db, email_sender=AsyncMock(), public_origin=_ORIGIN)
 
     assert await svc.invitable_org_members(_PROJECT, caller_user_id=_INVITER) == [
-        InvitableMember(user_id=uid, email="a@example.com")
+        InvitableMember(user_id=uid, email="a@example.com", display_name=None)
     ]
 
 

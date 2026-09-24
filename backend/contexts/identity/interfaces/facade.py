@@ -64,9 +64,7 @@ class IdentityFacade:
             display_name=user.display_name,
         )
 
-    async def get_member_info(
-        self, user_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, tuple[str, str | None]]:
+    async def get_member_info(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str | None]]:
         """Batch-resolve (email, display_name) for member listing pages."""
         return await self._users.get_member_info(user_ids)
 

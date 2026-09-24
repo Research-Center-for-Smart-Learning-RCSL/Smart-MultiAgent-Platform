@@ -29,7 +29,6 @@
 .member-identity {
   display: flex;
   flex-direction: column;
-  gap: 1px;
 }
 
 .member-name {

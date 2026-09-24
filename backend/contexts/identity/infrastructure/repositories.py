@@ -152,18 +152,14 @@ class UserRepository:
         ).all()
         return {r.id: (r.display_name or r.email) for r in rows}
 
-    async def get_member_info(
-        self, user_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, tuple[str, str | None]]:
+    async def get_member_info(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str | None]]:
         """Batch-resolve user_id -> (email, display_name) for member listings."""
         ids = list(set(user_ids))
         if not ids:
             return {}
         rows = (
             await self._db.execute(
-                sa.select(t.users.c.id, t.users.c.email, t.users.c.display_name).where(
-                    t.users.c.id.in_(ids)
-                )
+                sa.select(t.users.c.id, t.users.c.email, t.users.c.display_name).where(t.users.c.id.in_(ids))
             )
         ).all()
         return {r.id: (r.email, r.display_name) for r in rows}
