@@ -263,12 +263,10 @@ class GraphRagVectorStore:
         results = response.points
         out: list[GraphRagEntityHit] = []
         for r in results:
-            pid = r.id
-            if not isinstance(pid, uuid.UUID):  # type: ignore[unreachable]
-                try:
-                    pid = uuid.UUID(str(pid))  # type: ignore[assignment]
-                except ValueError:
-                    continue
+            try:
+                point_id = uuid.UUID(str(r.id))
+            except (ValueError, AttributeError):
+                continue
             payload: dict[str, Any] = dict(r.payload or {})
             b_raw = payload.get("build_id")
             try:
@@ -277,7 +275,7 @@ class GraphRagVectorStore:
                 b_uuid = None
             out.append(
                 GraphRagEntityHit(
-                    point_id=pid,  # type: ignore[arg-type]
+                    point_id=point_id,
                     score=float(r.score or 0.0),
                     entity=str(payload.get("entity") or ""),
                     description=str(payload.get("description") or ""),

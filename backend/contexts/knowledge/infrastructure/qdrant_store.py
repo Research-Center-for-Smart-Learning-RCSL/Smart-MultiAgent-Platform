@@ -174,15 +174,13 @@ class QdrantStore:
         results = response.points
         out: list[QdrantHit] = []
         for r in results:
-            pid = r.id
-            if not isinstance(pid, uuid.UUID):  # type: ignore[unreachable]
-                try:
-                    pid = uuid.UUID(str(pid))  # type: ignore[assignment]
-                except ValueError:
-                    continue
+            try:
+                point_id = uuid.UUID(str(r.id))
+            except (ValueError, AttributeError):
+                continue
             out.append(
                 QdrantHit(
-                    point_id=pid,  # type: ignore[arg-type]
+                    point_id=point_id,
                     score=float(r.score or 0.0),
                     payload=dict(r.payload or {}),
                 )
