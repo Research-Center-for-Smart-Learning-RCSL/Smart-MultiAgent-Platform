@@ -68,8 +68,11 @@ class ProjectOut(BaseModel):
 class ProjectMemberOut(BaseModel):
     user_id: uuid.UUID
     email: str
+    display_name: str | None = None
     role: ProjectMemberRole
     joined_at: str
+    group_ids: list[uuid.UUID] = []
+    group_names: list[str] = []
 
 
 class ProjectMemberPatchIn(BaseModel):
@@ -94,6 +97,7 @@ class ProjectInviteOut(BaseModel):
 class InvitableMemberOut(BaseModel):
     user_id: uuid.UUID
     email: str
+    display_name: str | None = None
 
 
 def _to_out(p, *, is_moderator: bool = False) -> ProjectOut:
@@ -375,21 +379,54 @@ async def list_members(
     user_ids = [m.user_id for m in members]
     if user_ids:
         from contexts.identity.infrastructure import tables as user_t
+        from contexts.tenancy.infrastructure import tables as _t
 
-        email_rows = (
+        user_rows = (
             await db.execute(
-                sa.select(user_t.users.c.id, user_t.users.c.email).where(user_t.users.c.id.in_(user_ids))
+                sa.select(
+                    user_t.users.c.id, user_t.users.c.email, user_t.users.c.display_name
+                ).where(user_t.users.c.id.in_(user_ids))
             )
         ).all()
-        emails: dict[uuid.UUID, str] = {r.id: r.email for r in email_rows}
+        user_info: dict[uuid.UUID, tuple[str, str | None]] = {
+            r.id: (r.email, r.display_name) for r in user_rows
+        }
+
+        grp_rows = (
+            await db.execute(
+                sa.select(
+                    _t.member_group_members.c.user_id,
+                    _t.member_groups.c.id.label("group_id"),
+                    _t.member_groups.c.name.label("group_name"),
+                )
+                .select_from(
+                    _t.member_group_members.join(
+                        _t.member_groups,
+                        _t.member_group_members.c.member_group_id == _t.member_groups.c.id,
+                    )
+                )
+                .where(
+                    _t.member_groups.c.project_id == project_id,
+                    _t.member_groups.c.deleted_at.is_(None),
+                    _t.member_group_members.c.user_id.in_(user_ids),
+                )
+            )
+        ).all()
+        groups_by_user: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = {}
+        for gr in grp_rows:
+            groups_by_user.setdefault(gr.user_id, []).append((gr.group_id, gr.group_name))
     else:
-        emails = {}
+        user_info = {}
+        groups_by_user = {}
     return [
         ProjectMemberOut(
             user_id=m.user_id,
-            email=emails.get(m.user_id, ""),
+            email=user_info.get(m.user_id, ("", None))[0],
+            display_name=user_info.get(m.user_id, ("", None))[1],
             role=m.role,
             joined_at=m.joined_at.isoformat(),
+            group_ids=[g[0] for g in groups_by_user.get(m.user_id, [])],
+            group_names=[g[1] for g in groups_by_user.get(m.user_id, [])],
         )
         for m in members
     ]
@@ -477,7 +514,7 @@ async def list_invitable_members(
         limit=pagination.limit,
         offset=pagination.offset,
     )
-    return [InvitableMemberOut(user_id=m.user_id, email=m.email) for m in pool]
+    return [InvitableMemberOut(user_id=m.user_id, email=m.email, display_name=m.display_name) for m in pool]
 
 
 @router.post("/{project_id}/invites", status_code=status.HTTP_201_CREATED)

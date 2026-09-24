@@ -66,6 +66,7 @@ class OrgOut(BaseModel):
 class OrgMemberOut(BaseModel):
     user_id: uuid.UUID
     email: str
+    display_name: str | None = None
     role: OrgMemberRole
     is_original_creator: bool
     joined_at: str
@@ -294,18 +295,23 @@ async def list_members(
     if user_ids:
         from contexts.identity.infrastructure import tables as user_t
 
-        email_rows = (
+        user_rows = (
             await db.execute(
-                sa.select(user_t.users.c.id, user_t.users.c.email).where(user_t.users.c.id.in_(user_ids))
+                sa.select(
+                    user_t.users.c.id, user_t.users.c.email, user_t.users.c.display_name
+                ).where(user_t.users.c.id.in_(user_ids))
             )
         ).all()
-        emails: dict[uuid.UUID, str] = {r.id: r.email for r in email_rows}
+        user_info: dict[uuid.UUID, tuple[str, str | None]] = {
+            r.id: (r.email, r.display_name) for r in user_rows
+        }
     else:
-        emails = {}
+        user_info = {}
     return [
         OrgMemberOut(
             user_id=m.user_id,
-            email=emails.get(m.user_id, ""),
+            email=user_info.get(m.user_id, ("", None))[0],
+            display_name=user_info.get(m.user_id, ("", None))[1],
             role=m.role,
             is_original_creator=m.is_original_creator,
             joined_at=m.joined_at.isoformat(),

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +60,8 @@ class MemberGroupMemberIn(BaseModel):
 
 class MemberGroupMemberOut(BaseModel):
     user_id: uuid.UUID
+    email: str = ""
+    display_name: str | None = None
     joined_at: str
 
 
@@ -221,7 +224,31 @@ async def list_member_group_members(
     that the group exists at all (R13.31)."""
     await _resolve_readable(db, principal, group_id)
     members = await MemberGroupService(db).list_members(group_id)
-    return [MemberGroupMemberOut(user_id=m.user_id, joined_at=m.joined_at.isoformat()) for m in members]
+    user_ids = [m.user_id for m in members]
+    if user_ids:
+        from contexts.identity.infrastructure import tables as user_t
+
+        user_rows = (
+            await db.execute(
+                sa.select(
+                    user_t.users.c.id, user_t.users.c.email, user_t.users.c.display_name
+                ).where(user_t.users.c.id.in_(user_ids))
+            )
+        ).all()
+        user_info: dict[uuid.UUID, tuple[str, str | None]] = {
+            r.id: (r.email, r.display_name) for r in user_rows
+        }
+    else:
+        user_info = {}
+    return [
+        MemberGroupMemberOut(
+            user_id=m.user_id,
+            email=user_info.get(m.user_id, ("", None))[0],
+            display_name=user_info.get(m.user_id, ("", None))[1],
+            joined_at=m.joined_at.isoformat(),
+        )
+        for m in members
+    ]
 
 
 @group_router.post(

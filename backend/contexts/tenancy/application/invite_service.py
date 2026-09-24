@@ -64,6 +64,7 @@ class InviteCreated:
 class InvitableMember:
     user_id: uuid.UUID
     email: str
+    display_name: str | None = None
 
 
 def _default_public_origin() -> str:
@@ -308,7 +309,13 @@ class InviteService:
         why this reaches ``users`` — the same deliberate raw-table reach as
         ``_notify_invitee``, not a new one.
         """
-        users = sa.table("users", sa.column("id"), sa.column("email"), sa.column("deleted_at"))
+        users = sa.table(
+            "users",
+            sa.column("id"),
+            sa.column("email"),
+            sa.column("display_name"),
+            sa.column("deleted_at"),
+        )
         pm = _t.project_members
         om = _t.org_members
         caller_om = _t.org_members.alias("caller_om")
@@ -337,7 +344,7 @@ class InviteService:
                 )
             )
         stmt = (
-            sa.select(om.c.user_id, users.c.email)
+            sa.select(om.c.user_id, users.c.email, users.c.display_name)
             .select_from(
                 om.join(_t.projects, _t.projects.c.owner_org_id == om.c.org_id).join(
                     users, users.c.id == om.c.user_id
@@ -352,7 +359,7 @@ class InviteService:
             .offset(offset)
         )
         rows = (await self._db.execute(stmt)).all()
-        return [InvitableMember(user_id=r.user_id, email=r.email) for r in rows]
+        return [InvitableMember(user_id=r.user_id, email=r.email, display_name=r.display_name) for r in rows]
 
     async def list_inbound(
         self,
