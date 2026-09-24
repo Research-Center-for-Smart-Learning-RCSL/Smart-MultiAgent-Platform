@@ -22,8 +22,6 @@ env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "24.20.0"
   PNPM_VERSION: "9.12.3"
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
   # ──────────────────────────────────────────────
@@ -141,6 +139,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start data services
         run: |
           docker compose \
@@ -224,6 +225,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Start data services
         run: |
           docker compose \
@@ -311,6 +315,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Compute sandbox build stamp
         id: stamp
         run: |
@@ -979,6 +986,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: ./.github/actions/setup-frontend
         with:
           pnpm-version: ${{ env.PNPM_VERSION }}
@@ -1095,6 +1105,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: ./.github/actions/setup-frontend
         with:
           pnpm-version: ${{ env.PNPM_VERSION }}
@@ -1305,6 +1318,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Generate Vault internal TLS certs
         run: bash deploy/vault/gen-internal-tls.sh deploy/vault/certs
