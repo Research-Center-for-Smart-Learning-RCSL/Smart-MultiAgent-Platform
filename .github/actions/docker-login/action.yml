@@ -1,0 +1,15 @@
+name: Docker Hub login
+description: >-
+  Authenticate to Docker Hub to avoid anonymous pull rate limits.
+  Requires DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets.
+  Silently skips when credentials are absent (fork PRs).
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to Docker Hub
+      if: env.DOCKERHUB_USERNAME != ''
+      uses: docker/login-action@v3
+      with:
+        username: ${{ env.DOCKERHUB_USERNAME }}
+        password: ${{ env.DOCKERHUB_TOKEN }}
