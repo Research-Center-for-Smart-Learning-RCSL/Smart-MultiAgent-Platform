@@ -341,7 +341,7 @@ services:
     networks: [data_net]
     logging: *log-rotation
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
