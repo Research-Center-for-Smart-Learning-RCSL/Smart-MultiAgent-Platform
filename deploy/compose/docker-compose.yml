@@ -132,6 +132,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       vault: { condition: service_healthy }
+      minio: { condition: service_healthy }
     # Docker socket for DockerRunscSandbox is mounted in the dev overlay
     # (docker-compose.override.yml). In prod the socket-proxy provides access
     # via DOCKER_HOST env var — see docker-compose.prod.yml.
