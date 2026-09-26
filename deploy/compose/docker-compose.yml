@@ -327,7 +327,10 @@ services:
       start_period: 90s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build:
+      context: ../minio
+      dockerfile: Dockerfile
+    image: smap-minio:local
     container_name: smap_minio
     command: server /data --console-address ":9001"
     environment:
@@ -338,7 +341,7 @@ services:
     networks: [data_net]
     logging: *log-rotation
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
