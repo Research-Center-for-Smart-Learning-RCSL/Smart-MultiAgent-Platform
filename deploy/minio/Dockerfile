@@ -32,9 +32,6 @@ RUN apk add --no-cache ca-certificates curl
 COPY --from=build /usr/bin/minio /usr/bin/minio
 COPY --from=build /usr/bin/mc    /usr/bin/mc
 
-RUN adduser -D -u 1000 minio && mkdir -p /data && chown minio:minio /data
-USER minio
-
 EXPOSE 9000 9001
 VOLUME ["/data"]
 ENTRYPOINT ["minio"]
