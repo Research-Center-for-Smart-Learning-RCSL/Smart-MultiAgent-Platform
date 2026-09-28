@@ -182,6 +182,54 @@ def test_source_and_verification_date_are_recorded_per_row() -> None:
         assert spec.verified_on, spec.model_id
 
 
+def test_gpt_6_family_accepts_extended_effort_values() -> None:
+    for model_id in ("gpt-6-astra", "gpt-6-sol", "gpt-6-luna"):
+        spec = resolve_spec("openai", model_id)
+        assert spec.accepts_effort is True
+        assert "xhigh" in spec.effort_values
+        assert "max" in spec.effort_values
+        assert spec.context_limit == 1_050_000
+
+
+def test_gpt_5_6_family_accepts_extended_effort_values() -> None:
+    for model_id in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        spec = resolve_spec("openai", model_id)
+        assert spec.accepts_effort is True
+        assert "xhigh" in spec.effort_values
+        assert "max" in spec.effort_values
+        assert spec.context_limit == 1_050_000
+
+
+def test_claude_fable_5_1_and_opus_5_5_accept_effort_no_sampling() -> None:
+    for model_id in ("claude-fable-5-1", "claude-opus-5-5"):
+        spec = resolve_spec("claude", model_id)
+        assert spec.accepts_effort is True
+        assert spec.accepts_sampling is False
+        assert spec.accepts_vision is True
+
+
+def test_claude_sonnet_5_accepts_effort_and_sampling() -> None:
+    spec = resolve_spec("claude", "claude-sonnet-5")
+    assert spec.accepts_effort is True
+    assert spec.accepts_sampling is True
+    assert spec.accepts_vision is True
+
+
+def test_gemini_3_8_flash_accepts_effort_and_sampling_and_seed() -> None:
+    spec = resolve_spec("gemini", "gemini-3.8-flash")
+    assert spec.accepts_effort is True
+    assert spec.accepts_sampling is True
+    assert spec.accepts_seed is True
+    assert spec.context_limit == 1_048_576
+
+
+def test_conservative_floor_has_empty_verified_on() -> None:
+    """Custom capabilities override in the turn engine keys on
+    ``verified_on`` being empty to detect a floor-resolved spec."""
+    spec = resolve_spec("openai", "my-custom-model-xyz")
+    assert spec.verified_on == ""
+
+
 def test_agent_effort_widened_to_the_cross_provider_union() -> None:
     # Q-3: the union of every value any provider accepts.
     assert {e.value for e in AgentEffort} == {
