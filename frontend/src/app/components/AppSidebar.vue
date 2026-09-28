@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   BuildingOffice2Icon,
+  ChartBarIcon,
   FolderIcon,
   InboxArrowDownIcon,
   CpuChipIcon,
@@ -180,8 +181,14 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
         <div class="sidebar__divider" />
 
-        <!-- Agents & Workspaces -->
+        <!-- Dashboard, Agents & Workspaces -->
         <div class="sidebar__section">
+          <SidebarNavItem
+            v-if="defaultWorkspaceId"
+            :icon="ChartBarIcon"
+            :label="t('app.sidebar.dashboard')"
+            :to="`/workspaces/${defaultWorkspaceId}/dashboard`"
+          />
           <SidebarNavItem
             v-for="item in agentNav"
             :key="item.route"
