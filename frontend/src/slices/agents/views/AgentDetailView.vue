@@ -295,7 +295,14 @@ const selectedModelLabel = computed(
 // `resetForm`, wiping a value FU-3 says must survive onto a disabled control.
 function clearFieldsUnsupportedByCurrentModel(): void {
   if (!catalogSettled.value) return
-  if (effortDisabled.value) effort.value = null
+  if (effortDisabled.value) {
+    effort.value = null
+  } else if (effort.value) {
+    const available = selectedModelSpec.value?.effort_values
+      ?? customCapabilities.value?.effort_values
+      ?? []
+    if (!available.includes(effort.value)) effort.value = null
+  }
   if (samplingDisabled.value) {
     temperature.value = null
     topP.value = null
@@ -347,7 +354,7 @@ const isUncataloguedModel = computed(
   () => catalogSettled.value && !selectedModelSpec.value && (isCustomModel.value || isOpenAICompat.value),
 )
 
-const DEFAULT_CUSTOM_EFFORT_VALUES = ['low', 'medium', 'high'] as const
+const DEFAULT_CUSTOM_EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 const ccEffort = computed(() => customCapabilities.value?.accepts_effort ?? false)
 const ccSampling = computed(() => customCapabilities.value?.accepts_sampling ?? false)

@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, require_if_match
@@ -77,6 +77,8 @@ _VALID_EFFORT_VALUES = frozenset(e.value for e in AgentEffort)
 class CustomCapabilitiesIn(BaseModel):
     """User-declared capabilities for a model not in the catalog."""
 
+    model_config = {"extra": "forbid"}
+
     accepts_effort: bool = False
     effort_values: list[str] = Field(default_factory=list, max_length=7)
     accepts_sampling: bool = False
@@ -90,6 +92,14 @@ class CustomCapabilitiesIn(BaseModel):
         if unknown:
             raise ValueError(f"unknown effort values: {sorted(unknown)}")
         return v
+
+    @model_validator(mode="after")
+    def _effort_values_required_when_accepted(self) -> CustomCapabilitiesIn:
+        if self.accepts_effort and not self.effort_values:
+            raise ValueError("effort_values must not be empty when accepts_effort is true")
+        if not self.accepts_effort and self.effort_values:
+            self.effort_values = []
+        return self
 
 # Lower floor for the two `_default_below_one`-resolved autostop fields
 # (`contexts.orchestration.domain.models`); their own upper bound is the shared
