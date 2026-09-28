@@ -190,6 +190,20 @@ describe('AppSidebar — workspace switcher (AC-10)', () => {
     expect(options[0].text()).toBe('Development')
     expect(options[1].text()).toBe('Production')
   })
+
+  it('switching workspace updates the store', async () => {
+    wsMock.list = [
+      { id: 'ws1', name: 'Development', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' },
+      { id: 'ws2', name: 'Production', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-02T00:00:00Z' },
+    ]
+    const wrapper = await mountSidebar()
+    await flushPromises()
+    const ws = useWorkspaceStore()
+    expect(ws.workspaceId).toBe('ws1')
+    const select = wrapper.find('.workspace-select')
+    await select.setValue('ws2')
+    expect(ws.workspaceId).toBe('ws2')
+  })
 })
 
 describe('AppSidebar — switcher placement', () => {

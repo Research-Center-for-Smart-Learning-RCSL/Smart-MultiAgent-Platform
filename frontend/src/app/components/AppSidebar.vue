@@ -74,6 +74,15 @@ watch(
   { immediate: true },
 )
 
+// Validated workspace ID: only trust the persisted ID when the query confirms
+// it still exists. Prevents stale/deleted workspace IDs from reaching the UI
+// before the query resolves or when the query errors.
+const currentWorkspaceId = computed<string | null>(() => {
+  const list = workspacesQuery.data.value
+  if (!list?.length || !workspace.workspaceId) return null
+  return list.some(ws => ws.id === workspace.workspaceId) ? workspace.workspaceId : null
+})
+
 function onWorkspaceSwitch(event: Event): void {
   const id = (event.target as HTMLSelectElement).value
   const ws = workspaces.value.find(w => w.id === id)
@@ -88,7 +97,7 @@ const {
   openCreate,
   submitCreate,
   isCreating,
-} = useChatroomCreate(() => workspace.workspaceId)
+} = useChatroomCreate(() => currentWorkspaceId.value)
 
 // ---- Nav item arrays -------------------------------------------------------
 
@@ -199,7 +208,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
             variant="primary"
             size="sm"
             class="new-chat-btn"
-            :disabled="!workspace.workspaceId"
+            :disabled="!currentWorkspaceId"
             @click="openCreate"
           >
             <template #icon-left>
@@ -217,10 +226,10 @@ const manageSettingsNav = computed<NavItem[]>(() => {
         <!-- Dashboard, Agents & Workspaces -->
         <div class="sidebar__section">
           <SidebarNavItem
-            v-if="workspace.workspaceId"
+            v-if="currentWorkspaceId"
             :icon="ChartBarIcon"
             :label="t('app.sidebar.dashboard')"
-            :to="`/workspaces/${workspace.workspaceId}/dashboard`"
+            :to="`/workspaces/${currentWorkspaceId}/dashboard`"
           />
           <SidebarNavItem
             v-for="item in agentNav"
