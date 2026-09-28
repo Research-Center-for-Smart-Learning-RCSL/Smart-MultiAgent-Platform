@@ -57,6 +57,16 @@ export const agentCreateSchema = z.object({
     emptyToNull,
     z.number().int().min(-(2 ** 31)).max(2 ** 31 - 1).nullable().default(null),
   ),
+  custom_capabilities: z
+    .object({
+      accepts_effort: z.boolean().default(false),
+      effort_values: z.array(z.string()).default([]),
+      accepts_sampling: z.boolean().default(false),
+      accepts_seed: z.boolean().default(false),
+      accepts_vision: z.boolean().default(false),
+    })
+    .nullable()
+    .default(null),
   a2a_enabled: z.boolean().default(false),
   // Free-form JSON dicts assembled from the orchestration tab's decomposed
   // fields; kept in the schema so create/patch/duplicate share one payload type.

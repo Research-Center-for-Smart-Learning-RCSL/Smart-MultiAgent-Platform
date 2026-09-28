@@ -218,6 +218,7 @@ const duplicateMutation = useMutation({
       temperature: agent.temperature,
       top_p: agent.top_p,
       seed: agent.seed,
+      custom_capabilities: (agent.custom_capabilities ?? null) as AgentCreateInput['custom_capabilities'],
       a2a_enabled: agent.a2a_enabled,
       wakeup_config: agent.wakeup_config,
       workflow_capabilities: agent.workflow_capabilities,

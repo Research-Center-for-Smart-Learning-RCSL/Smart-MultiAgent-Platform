@@ -217,6 +217,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       temperature: null,
       top_p: null,
       seed: null,
+      custom_capabilities: null,
       a2a_enabled: false,
     },
   })
@@ -235,6 +236,7 @@ const [seed] = defineField('seed')
 const [ragConfigId] = defineField('rag_config_id')
 const [knowmapConfigId] = defineField('knowmap_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
+const [customCapabilities] = defineField('custom_capabilities')
 
 // Model-id combobox: per-provider preset list + "provider default" (stores null)
 // + "custom" (free-text). `customModel` captures the intent to type a custom id
@@ -292,25 +294,13 @@ const selectedModelLabel = computed(
 // `onModelHintChange` isn't one -- it would also fire during the edit-load
 // `resetForm`, wiping a value FU-3 says must survive onto a disabled control.
 function clearFieldsUnsupportedByCurrentModel(): void {
-  // Same gate as effortDisabled/samplingDisabled: while the catalog hasn't
-  // answered yet, `selectedModelSpec` is undefined for every model, not just
-  // unsupported ones -- clearing here would wipe a value the eventual real
-  // spec might accept (NFR "Error handling UX").
   if (!catalogSettled.value) return
-  const spec = selectedModelSpec.value
-  if (!spec || !spec.accepts_effort || spec.effort_conflicts_with_tools) {
-    effort.value = null
-  }
-  if (!spec || !spec.accepts_sampling) {
+  if (effortDisabled.value) effort.value = null
+  if (samplingDisabled.value) {
     temperature.value = null
     topP.value = null
   }
-  // Separate from the pair above: a model can accept seed and refuse
-  // temperature/top-p, or the reverse. Still user-action-only, so an existing
-  // agent's stored seed survives edit-load onto a disabled control (Q-7).
-  if (!spec || !spec.accepts_seed) {
-    seed.value = null
-  }
+  if (seedDisabled.value) seed.value = null
 }
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
@@ -350,40 +340,59 @@ const modelIdOptions = computed(() => [
 // cannot edit an agent (NFR "Error handling UX").
 const catalogSettled = computed(() => !!modelCatalogQuery.data.value || modelCatalogQuery.isError.value)
 
-// Effort control is disabled once the catalog has settled and the selected
-// model's spec is unknown (custom model, or a fetch error), flatly refuses
-// effort, or accepts effort only without tools -- which every agent turn
-// sends (R9.03a, `effort_conflicts_with_tools`), so the setting would be
-// silently inert rather than merely unsupported.
+// True when the model in effect is not in the catalog (custom model or
+// openai_compat) AND the catalog has settled. Controls whether the
+// custom-capabilities toggle section is shown.
+const isUncataloguedModel = computed(
+  () => catalogSettled.value && !selectedModelSpec.value && (isCustomModel.value || isOpenAICompat.value),
+)
+
+const DEFAULT_CUSTOM_EFFORT_VALUES = ['low', 'medium', 'high'] as const
+
+const ccEffort = computed(() => customCapabilities.value?.accepts_effort ?? false)
+const ccSampling = computed(() => customCapabilities.value?.accepts_sampling ?? false)
+const ccSeed = computed(() => customCapabilities.value?.accepts_seed ?? false)
+const ccVision = computed(() => customCapabilities.value?.accepts_vision ?? false)
+
+function setCustomCap(key: string, value: boolean): void {
+  const prev = customCapabilities.value ?? {
+    accepts_effort: false,
+    effort_values: [],
+    accepts_sampling: false,
+    accepts_seed: false,
+    accepts_vision: false,
+  }
+  const next = { ...prev, [key]: value }
+  if (key === 'accepts_effort') {
+    next.effort_values = value ? [...DEFAULT_CUSTOM_EFFORT_VALUES] : []
+  }
+  customCapabilities.value = next
+}
+
 const effortDisabled = computed(() => {
   if (!catalogSettled.value) return false
   const spec = selectedModelSpec.value
-  return !spec || !spec.accepts_effort || spec.effort_conflicts_with_tools
+  if (spec) return !spec.accepts_effort || spec.effort_conflicts_with_tools
+  return !ccEffort.value
 })
-// Two distinct reasons produce the same disabled control, and they are not
-// the same fact: gpt-5.4+ (the exact family behind this task's incident)
-// accepts effort standalone, just not alongside tools, which every agent
-// turn sends -- "does not accept a configured reasoning effort" would be
-// false for it. A model that flatly refuses effort (no spec, or
-// accepts_effort=false) gets the other message.
 const effortHelp = computed(() => {
   if (!effortDisabled.value) return t('agents.form.effortHelp')
+  if (isUncataloguedModel.value) return t('agents.form.effortDisabledCustomHint')
   const spec = selectedModelSpec.value
   if (spec?.accepts_effort && spec.effort_conflicts_with_tools) {
     return t('agents.form.effortConflictsWithToolsReason', { model: selectedModelLabel.value })
   }
   return t('agents.form.effortDisabledReason', { model: selectedModelLabel.value })
 })
-// Empty = provider default (stored as null via schema preprocess). The
-// non-empty options come from the selected model's own accepted values
-// (R9.03a) rather than a fixed list, so the form never offers a value the
-// model will silently drop.
 const effortOptions = computed(() => {
   const base = [{ value: '', label: t('agents.form.effortDefault') }]
   if (effortDisabled.value) return base
+  const values = selectedModelSpec.value?.effort_values
+    ?? customCapabilities.value?.effort_values
+    ?? []
   return [
     ...base,
-    ...(selectedModelSpec.value?.effort_values ?? []).map((v) => ({
+    ...values.map((v: string) => ({
       value: v,
       label: t(`agents.form.effortLevels.${v}`),
     })),
@@ -393,7 +402,8 @@ const effortOptions = computed(() => {
 const samplingDisabled = computed(() => {
   if (!catalogSettled.value) return false
   const spec = selectedModelSpec.value
-  return !spec || !spec.accepts_sampling
+  if (spec) return !spec.accepts_sampling
+  return !ccSampling.value
 })
 const samplingHelp = computed(() =>
   samplingDisabled.value
@@ -408,7 +418,8 @@ const samplingHelp = computed(() =>
 const seedDisabled = computed(() => {
   if (!catalogSettled.value) return false
   const spec = selectedModelSpec.value
-  return !spec || !spec.accepts_seed
+  if (spec) return !spec.accepts_seed
+  return !ccSeed.value
 })
 const seedHelp = computed(() =>
   seedDisabled.value
@@ -522,6 +533,7 @@ watch(
         temperature: agent.temperature,
         top_p: agent.top_p,
         seed: agent.seed,
+        custom_capabilities: agent.custom_capabilities ?? null,
         rag_config_id: agent.rag_config_id,
         knowmap_config_id: agent.knowmap_config_id,
         a2a_enabled: agent.a2a_enabled,
@@ -968,6 +980,56 @@ const breadcrumbs = computed(() => [
                 :disabled="effortDisabled"
               />
             </SFormField>
+
+            <div
+              v-if="isUncataloguedModel"
+              class="mt-4 rounded-lg border border-[var(--color-border)] p-4"
+            >
+              <h4 class="text-sm font-semibold mb-1">
+                {{ t('agents.form.customCapabilities') }}
+              </h4>
+              <p class="text-xs text-[var(--color-muted)] mb-3">
+                {{ t('agents.form.customCapabilitiesHelp') }}
+              </p>
+              <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <SFormField
+                  :label="t('agents.form.customAcceptsEffort')"
+                  name="cc_effort"
+                >
+                  <SToggle
+                    :model-value="ccEffort"
+                    @update:model-value="setCustomCap('accepts_effort', $event)"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.form.customAcceptsSampling')"
+                  name="cc_sampling"
+                >
+                  <SToggle
+                    :model-value="ccSampling"
+                    @update:model-value="setCustomCap('accepts_sampling', $event)"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.form.customAcceptsSeed')"
+                  name="cc_seed"
+                >
+                  <SToggle
+                    :model-value="ccSeed"
+                    @update:model-value="setCustomCap('accepts_seed', $event)"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.form.customAcceptsVision')"
+                  name="cc_vision"
+                >
+                  <SToggle
+                    :model-value="ccVision"
+                    @update:model-value="setCustomCap('accepts_vision', $event)"
+                  />
+                </SFormField>
+              </div>
+            </div>
 
             <SFormField
               :label="t('agents.form.keyGroup')"

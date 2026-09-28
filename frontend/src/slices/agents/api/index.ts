@@ -46,6 +46,7 @@ export interface Agent {
   temperature: number | null
   top_p: number | null
   seed: number | null
+  custom_capabilities: Record<string, unknown> | null
   a2a_enabled: boolean
   wakeup_config: Record<string, unknown>
   workflow_capabilities: Record<string, unknown>

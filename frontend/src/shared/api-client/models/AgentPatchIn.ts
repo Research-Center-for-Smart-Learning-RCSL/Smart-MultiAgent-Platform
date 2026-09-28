@@ -3,10 +3,12 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentEffort } from './AgentEffort';
+import type { CustomCapabilities } from './CustomCapabilities';
 export type AgentPatchIn = {
     a2a_enabled?: (boolean | null);
     context_mode?: ('general' | 'compact' | null);
     context_token_cap?: (number | null);
+    custom_capabilities?: (CustomCapabilities | null);
     effort?: (AgentEffort | null);
     key_group_id?: (string | null);
     knowmap_config_id?: (string | null);
