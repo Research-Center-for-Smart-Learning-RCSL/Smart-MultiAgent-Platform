@@ -225,7 +225,16 @@ def _chat_request(
         "messages": messages,
         "max_tokens": _DEFAULT_MAX_TOKENS,
     }
-    payload.update(capability_fields(resolve_spec(provider.value, model)))
+    spec = resolve_spec(provider.value, model)
+    caps = capability_fields(spec)
+    if not spec.verified_on and agent.custom_capabilities:
+        cc = agent.custom_capabilities
+        caps["accepts_effort"] = cc.get("accepts_effort", False)
+        caps["effort_values"] = tuple(cc.get("effort_values", ()))
+        caps["accepts_sampling"] = cc.get("accepts_sampling", False)
+        caps["accepts_seed"] = cc.get("accepts_seed", False)
+        caps["accepts_vision"] = cc.get("accepts_vision", False)
+    payload.update(caps)
     if tools:
         payload["tools"] = tools
     if agent.effort:

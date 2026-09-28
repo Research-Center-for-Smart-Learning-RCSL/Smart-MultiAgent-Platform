@@ -71,6 +71,26 @@ _MAX_PACK_KEY = 100
 _SEED_MIN = -(2**31)
 _SEED_MAX = 2**31 - 1
 
+_VALID_EFFORT_VALUES = frozenset(e.value for e in AgentEffort)
+
+
+class CustomCapabilitiesIn(BaseModel):
+    """User-declared capabilities for a model not in the catalog."""
+
+    accepts_effort: bool = False
+    effort_values: list[str] = Field(default_factory=list, max_length=7)
+    accepts_sampling: bool = False
+    accepts_seed: bool = False
+    accepts_vision: bool = False
+
+    @field_validator("effort_values")
+    @classmethod
+    def _validate_effort_values(cls, v: list[str]) -> list[str]:
+        unknown = set(v) - _VALID_EFFORT_VALUES
+        if unknown:
+            raise ValueError(f"unknown effort values: {sorted(unknown)}")
+        return v
+
 # Lower floor for the two `_default_below_one`-resolved autostop fields
 # (`contexts.orchestration.domain.models`); their own upper bound is the shared
 # hard cap. Restated here rather than imported since the domain module has no
@@ -260,6 +280,7 @@ class AgentCreateIn(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
+    custom_capabilities: CustomCapabilitiesIn | None = None
     a2a_enabled: bool = False
     wakeup_config: BoundedConfig = Field(default_factory=dict)
     workflow_capabilities: BoundedConfig = Field(default_factory=dict)
@@ -308,6 +329,7 @@ class AgentPatchIn(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
+    custom_capabilities: CustomCapabilitiesIn | None = None
     a2a_enabled: bool | None = None
     wakeup_config: BoundedConfig | None = None
     workflow_capabilities: BoundedConfig | None = None
@@ -342,6 +364,7 @@ class AgentOut(BaseModel):
     temperature: float | None
     top_p: float | None
     seed: int | None
+    custom_capabilities: dict[str, Any] | None
     a2a_enabled: bool
     wakeup_config: dict[str, Any]
     workflow_capabilities: dict[str, Any]
@@ -368,6 +391,7 @@ def _to_agent_out(a) -> AgentOut:
         temperature=a.temperature,
         top_p=a.top_p,
         seed=a.seed,
+        custom_capabilities=a.custom_capabilities,
         a2a_enabled=a.a2a_enabled,
         wakeup_config=a.wakeup_config,
         workflow_capabilities=a.workflow_capabilities,
@@ -466,6 +490,7 @@ async def create_agent(
         temperature=body.temperature,
         top_p=body.top_p,
         seed=body.seed,
+        custom_capabilities=body.custom_capabilities.model_dump() if body.custom_capabilities else None,
         a2a_enabled=body.a2a_enabled,
         wakeup_config=body.wakeup_config,
         workflow_capabilities=body.workflow_capabilities,
@@ -735,6 +760,7 @@ async def patch_agent(
         temperature=fields.get("temperature"),
         top_p=fields.get("top_p"),
         seed=fields.get("seed"),
+        custom_capabilities=fields.get("custom_capabilities"),
         a2a_enabled=fields.get("a2a_enabled"),
         wakeup_config=fields.get("wakeup_config"),
         workflow_capabilities=fields.get("workflow_capabilities"),
@@ -750,6 +776,9 @@ async def patch_agent(
         clear_temperature=("temperature" in fields and fields["temperature"] is None),
         clear_top_p=("top_p" in fields and fields["top_p"] is None),
         clear_seed=("seed" in fields and fields["seed"] is None),
+        clear_custom_capabilities=(
+            "custom_capabilities" in fields and fields["custom_capabilities"] is None
+        ),
     )
     updated = await service.patch(
         agent_id=agent_id,

@@ -166,6 +166,7 @@ class Agent:
     temperature: float | None
     top_p: float | None
     seed: int | None
+    custom_capabilities: dict[str, Any] | None
     a2a_enabled: bool
     wakeup_config: dict[str, Any]
     wakeup_authored_snapshot: dict[str, Any] | None
@@ -288,6 +289,7 @@ class AgentDraft:
     temperature: float | None = None
     top_p: float | None = None
     seed: int | None = None
+    custom_capabilities: dict[str, Any] | None = None
     a2a_enabled: bool | None = None
     wakeup_config: dict[str, Any] | None = None
     wakeup_last_refreshed_at: datetime | None = None
@@ -304,6 +306,7 @@ class AgentDraft:
     clear_temperature: bool = False
     clear_top_p: bool = False
     clear_seed: bool = False
+    clear_custom_capabilities: bool = False
     # `wakeup_config` writes are additive by default so a partial payload cannot
     # delete designer keys (R15.08). The G.5 periodic refresh is the one writer
     # that must *replace*: it restores the authored snapshot, and merging would

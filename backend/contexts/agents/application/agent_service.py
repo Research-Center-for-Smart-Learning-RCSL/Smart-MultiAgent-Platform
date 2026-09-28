@@ -675,6 +675,7 @@ class AgentService:
             temperature=draft.temperature,
             top_p=draft.top_p,
             seed=draft.seed,
+            custom_capabilities=draft.custom_capabilities,
             a2a_enabled=bool(draft.a2a_enabled) if draft.a2a_enabled is not None else False,
             wakeup_config=wakeup,
             # Mirror the config exactly: an explicit empty {} ("inert by choice")
@@ -855,6 +856,10 @@ class AgentService:
             values["seed"] = None
         elif draft.seed is not None:
             values["seed"] = draft.seed
+        if draft.clear_custom_capabilities:
+            values["custom_capabilities"] = None
+        elif draft.custom_capabilities is not None:
+            values["custom_capabilities"] = draft.custom_capabilities
         if draft.a2a_enabled is not None:
             values["a2a_enabled"] = draft.a2a_enabled
         if draft.wakeup_config is not None:
