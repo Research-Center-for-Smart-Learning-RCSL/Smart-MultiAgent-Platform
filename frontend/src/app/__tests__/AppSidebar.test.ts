@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
@@ -13,6 +13,9 @@ import { appRoutes } from '../../../tests/utils/routes'
 import AppSidebar from '../components/AppSidebar.vue'
 
 const role = vi.hoisted(() => ({ decided: true, isAuthorized: true }))
+const wsMock = vi.hoisted(() => ({
+  list: [{ id: 'ws1', name: 'Default', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' }] as Array<{ id: string; name: string; project_id: string; concept_map_enabled: boolean; created_at: string }>,
+}))
 vi.mock('@slices/tenancy', async (importOriginal) => {
   const { computed } = await import('vue')
   return {
@@ -42,7 +45,7 @@ vi.mock('@slices/conversation', async (importOriginal) => {
       isCreating: computed(() => false),
     }),
     ChatroomCreateModal: { name: 'ChatroomCreateModal', template: '<div />' },
-    listWorkspaces: vi.fn().mockResolvedValue([{ id: 'ws1', name: 'Default' }]),
+    listWorkspaces: vi.fn().mockImplementation(() => Promise.resolve(wsMock.list)),
   }
 })
 
@@ -74,6 +77,7 @@ async function mountSidebar() {
 beforeEach(() => {
   role.decided = true
   role.isAuthorized = true
+  wsMock.list = [{ id: 'ws1', name: 'Default', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' }]
   window.innerWidth = 1280
 })
 
@@ -161,6 +165,30 @@ describe('AppSidebar — aria-label (AC-9)', () => {
     const wrapper = await mountSidebar()
     const nav = wrapper.find('nav')
     expect(nav.attributes('aria-label')).toBeTruthy()
+  })
+})
+
+describe('AppSidebar — workspace switcher (AC-10)', () => {
+  it('hides the workspace switcher when only one workspace exists', async () => {
+    wsMock.list = [{ id: 'ws1', name: 'Default', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' }]
+    const wrapper = await mountSidebar()
+    await flushPromises()
+    expect(wrapper.find('.workspace-select').exists()).toBe(false)
+  })
+
+  it('shows the workspace switcher when multiple workspaces exist', async () => {
+    wsMock.list = [
+      { id: 'ws1', name: 'Development', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' },
+      { id: 'ws2', name: 'Production', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-02T00:00:00Z' },
+    ]
+    const wrapper = await mountSidebar()
+    await flushPromises()
+    const select = wrapper.find('.workspace-select')
+    expect(select.exists()).toBe(true)
+    const options = select.findAll('option')
+    expect(options).toHaveLength(2)
+    expect(options[0].text()).toBe('Development')
+    expect(options[1].text()).toBe('Production')
   })
 })
 

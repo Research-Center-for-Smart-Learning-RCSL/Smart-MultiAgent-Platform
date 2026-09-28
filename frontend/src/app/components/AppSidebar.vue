@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   BuildingOffice2Icon,
@@ -54,9 +54,6 @@ interface NavItem {
   exact?: boolean
 }
 
-// Resolve the first workspace for the current project so the New Chat button
-// has a target. Most projects have a single workspace; multi-workspace projects
-// get the first one (the user navigates to the full list to pick another).
 const workspacesQuery = useQuery({
   queryKey: computed(() => convKeys.workspaces(workspace.projectId ?? '')),
   queryFn: () => listWorkspaces(workspace.projectId!),
@@ -64,9 +61,24 @@ const workspacesQuery = useQuery({
   staleTime: 60_000,
 })
 
-const defaultWorkspaceId = computed<string | null>(
-  () => workspacesQuery.data.value?.[0]?.id ?? null,
+const workspaces = computed(() => workspacesQuery.data.value ?? [])
+
+watch(
+  workspaces,
+  (list) => {
+    const first = list[0]
+    if (!first) return
+    if (workspace.workspaceId && list.some(ws => ws.id === workspace.workspaceId)) return
+    workspace.selectWorkspace(first.id, first.name)
+  },
+  { immediate: true },
 )
+
+function onWorkspaceSwitch(event: Event): void {
+  const id = (event.target as HTMLSelectElement).value
+  const ws = workspaces.value.find(w => w.id === id)
+  if (ws) workspace.selectWorkspace(ws.id, ws.name)
+}
 
 const {
   showCreate,
@@ -76,7 +88,7 @@ const {
   openCreate,
   submitCreate,
   isCreating,
-} = useChatroomCreate(defaultWorkspaceId)
+} = useChatroomCreate(() => workspace.workspaceId)
 
 // ---- Nav item arrays -------------------------------------------------------
 
@@ -160,13 +172,34 @@ const manageSettingsNav = computed<NavItem[]>(() => {
       <template v-if="workspace.hasProject">
         <div class="sidebar__divider" />
 
+        <!-- Workspace switcher (multi-workspace projects only) -->
+        <div
+          v-if="workspaces.length > 1"
+          class="sidebar__section sidebar__section--switcher"
+        >
+          <select
+            :value="workspace.workspaceId ?? ''"
+            :aria-label="t('app.sidebar.workspaceSwitcher')"
+            class="workspace-select"
+            @change="onWorkspaceSwitch($event)"
+          >
+            <option
+              v-for="ws in workspaces"
+              :key="ws.id"
+              :value="ws.id"
+            >
+              {{ ws.name }}
+            </option>
+          </select>
+        </div>
+
         <!-- New Chat CTA -->
         <div class="sidebar__section sidebar__section--cta">
           <SButton
             variant="primary"
             size="sm"
             class="new-chat-btn"
-            :disabled="!defaultWorkspaceId"
+            :disabled="!workspace.workspaceId"
             @click="openCreate"
           >
             <template #icon-left>
@@ -184,10 +217,10 @@ const manageSettingsNav = computed<NavItem[]>(() => {
         <!-- Dashboard, Agents & Workspaces -->
         <div class="sidebar__section">
           <SidebarNavItem
-            v-if="defaultWorkspaceId"
+            v-if="workspace.workspaceId"
             :icon="ChartBarIcon"
             :label="t('app.sidebar.dashboard')"
-            :to="`/workspaces/${defaultWorkspaceId}/dashboard`"
+            :to="`/workspaces/${workspace.workspaceId}/dashboard`"
           />
           <SidebarNavItem
             v-for="item in agentNav"
@@ -307,6 +340,32 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
 .sidebar__section--cta {
   padding: var(--space-2) var(--space-3);
+}
+
+.sidebar__section--switcher {
+  padding: var(--space-1) var(--space-3);
+}
+
+.workspace-select {
+  width: 100%;
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-sidebar-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.workspace-select:hover {
+  border-color: var(--color-accent);
+}
+
+.workspace-select:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .new-chat-btn {
