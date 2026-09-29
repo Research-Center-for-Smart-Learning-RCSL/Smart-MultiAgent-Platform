@@ -55,7 +55,8 @@
           }
         },
         "required": [
-          "target_character"
+          "target_character",
+          "reasoning"
         ]
       }
     },
@@ -170,8 +171,14 @@
           "best_pick": {
             "type": "string",
             "title": "最佳答案",
-            "description": "從上面的構想中選出你覺得最有創意又最合理的一個，說明為什麼。",
+            "description": "從上面的構想中選出你覺得最有創意又最合理的一個。",
             "x-order": 6
+          },
+          "best_pick_reasoning": {
+            "type": "string",
+            "title": "選擇理由",
+            "description": "為什麼你覺得這個是最好的？它打破了什麼？為什麼別人想不到？",
+            "x-order": 7
           }
         },
         "required": []
