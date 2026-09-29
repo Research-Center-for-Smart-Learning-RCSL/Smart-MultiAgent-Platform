@@ -21,10 +21,8 @@ down_revision = "0095_agent_custom_capabilities"
 
 
 def upgrade() -> None:
-    op.drop_constraint(
-        "fk_audit_logs_actor_user_id_users",
-        "audit_logs",
-        type_="foreignkey",
+    op.execute(
+        "ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS fk_audit_logs_actor_user_id_users"
     )
 
 
