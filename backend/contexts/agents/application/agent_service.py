@@ -935,7 +935,7 @@ class AgentService:
             self._db,
             audit.AuditEvent(
                 action="agent.edited",
-                actor_user_id=actor_user_id,
+                actor_user_id=None if actor_user_id == _SYSTEM_ACTOR_ID else actor_user_id,
                 actor_ip=actor_ip,
                 resource_type="agent",
                 resource_id=updated.id,
