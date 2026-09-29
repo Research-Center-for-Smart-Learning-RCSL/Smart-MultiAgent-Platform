@@ -1102,13 +1102,17 @@ const typingNames = computed(() => {
   if (!set) return []
   return Array.from(set)
     .filter((uid) => uid !== myId.value)
-    .map((uid) => uid.slice(0, 8))
+    .map((uid) => userNames.value[uid] ?? uid.slice(0, 8))
 })
 
 const onlineUsers = computed(() => {
   const set = store.presence[chatroomId]
   if (!set) return []
-  return Array.from(set).map((id) => ({ id, isYou: id === myId.value }))
+  return Array.from(set).map((id) => ({
+    id,
+    isYou: id === myId.value,
+    displayName: userNames.value[id] ?? null,
+  }))
 })
 
 // Agent failure surfaced by the socket layer: backend agent.finished{error}

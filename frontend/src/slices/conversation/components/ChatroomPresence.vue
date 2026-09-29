@@ -18,7 +18,7 @@
         </span>
 
         <template v-if="u.isYou && viewerIsGuest && !editingName">
-          <span class="presence-user__name">{{ viewerName || u.id.slice(0, 8) }}</span>
+          <span class="presence-user__name">{{ viewerName || u.displayName || u.id.slice(0, 8) }}</span>
           <SButton
             variant="ghost"
             icon-only
@@ -61,7 +61,7 @@
         </template>
 
         <template v-else>
-          <span class="presence-user__name">{{ u.id.slice(0, 8) }}</span>
+          <span class="presence-user__name">{{ u.displayName || u.id.slice(0, 8) }}</span>
         </template>
 
         <span
@@ -97,7 +97,7 @@ import ChatroomAgentStatusItem, {
 
 const props = withDefaults(
   defineProps<{
-    onlineUsers: Array<{ id: string; isYou: boolean }>
+    onlineUsers: Array<{ id: string; isYou: boolean; displayName?: string | null }>
     agents: AgentStatusEntry[]
     viewerIsGuest?: boolean
     viewerName?: string
