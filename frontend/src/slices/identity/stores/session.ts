@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   setAccessToken,
   setRefreshToken,
+  isGuestSession,
   wsManager,
 } from '@shared/transport'
 import { queryClient } from '@shared/query-client'
@@ -61,6 +62,12 @@ export const useSessionStore = defineStore('identity/session', () => {
     // Called at app boot: attempt a silent refresh using the httpOnly
     // smap_refresh cookie set by the server. If there is no valid cookie the
     // server returns 401 and we start unauthenticated.
+    //
+    // Skip when an anonymous guest session is active: the guest JWT lives in
+    // accessTokenRef (set by GuestLandingView), not in the httpOnly cookie.
+    // Calling authApi.refresh() would 401 and the catch-block clear() would
+    // wipe the guest token, leaving the guest unable to send messages.
+    if (isGuestSession.value) return
     try {
       const pair = await authApi.refresh()
       applyTokens(pair)
