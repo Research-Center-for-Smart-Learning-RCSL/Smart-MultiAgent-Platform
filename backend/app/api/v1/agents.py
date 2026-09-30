@@ -101,6 +101,7 @@ class CustomCapabilitiesIn(BaseModel):
             self.effort_values = []
         return self
 
+
 # Lower floor for the two `_default_below_one`-resolved autostop fields
 # (`contexts.orchestration.domain.models`); their own upper bound is the shared
 # hard cap. Restated here rather than imported since the domain module has no
@@ -786,9 +787,7 @@ async def patch_agent(
         clear_temperature=("temperature" in fields and fields["temperature"] is None),
         clear_top_p=("top_p" in fields and fields["top_p"] is None),
         clear_seed=("seed" in fields and fields["seed"] is None),
-        clear_custom_capabilities=(
-            "custom_capabilities" in fields and fields["custom_capabilities"] is None
-        ),
+        clear_custom_capabilities=("custom_capabilities" in fields and fields["custom_capabilities"] is None),
     )
     updated = await service.patch(
         agent_id=agent_id,

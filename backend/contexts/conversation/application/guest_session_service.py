@@ -119,7 +119,11 @@ class GuestSessionService:
                         actor_ip=remote_ip,
                         resource_type="chatroom",
                         resource_id=chatroom_id,
-                        metadata={"guest": True, "chatroom_id": str(chatroom_id), "guest_session_id": str(existing.id)},
+                        metadata={
+                            "guest": True,
+                            "chatroom_id": str(chatroom_id),
+                            "guest_session_id": str(existing.id),
+                        },
                         request_id=request_id,
                     ),
                 )
@@ -160,7 +164,11 @@ class GuestSessionService:
                 actor_ip=remote_ip,
                 resource_type="chatroom",
                 resource_id=chatroom_id,
-                metadata={"guest": True, "chatroom_id": str(chatroom_id), "guest_session_id": str(session.id)},
+                metadata={
+                    "guest": True,
+                    "chatroom_id": str(chatroom_id),
+                    "guest_session_id": str(session.id),
+                },
                 request_id=request_id,
             ),
         )
@@ -206,7 +214,11 @@ class GuestSessionService:
                 actor_user_id=None,
                 resource_type="chatroom",
                 resource_id=chatroom_id,
-                metadata={"guest": True, "chatroom_id": str(chatroom_id), "guest_session_id": str(session.id)},
+                metadata={
+                    "guest": True,
+                    "chatroom_id": str(chatroom_id),
+                    "guest_session_id": str(session.id),
+                },
             ),
         )
 

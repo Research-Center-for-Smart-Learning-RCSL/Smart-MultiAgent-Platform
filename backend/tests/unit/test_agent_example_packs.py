@@ -26,7 +26,7 @@ import copy
 import json
 import pathlib
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -522,7 +522,9 @@ class TestPromptConstraints:
             assert match.group(1) == _CJK_NUMERALS[named], (
                 f"{agent.key} names {named} types but its default clause says 這{match.group(1)}個"
             )
-        assert checked == 12, "expected twelve room agents (3 creative-thinking + 3 crat + 3 character-building + 3 object-reinterpretation) to carry a counted default clause"
+        assert checked == 12, (
+            "expected twelve room agents (3 creative-thinking + 3 crat + 3 character-building + 3 object-reinterpretation) to carry a counted default clause"
+        )
 
     def test_the_analyst_is_told_how_to_arrange_its_own_observation(self) -> None:
         """AC-12's prompt half ([R28.16]). The tool is offered on every observer
@@ -625,12 +627,10 @@ class TestChineseCharacterCreativityPromptConstraints:
     activity). Draft safety applies to all room agents.
     """
 
-    _CRAT_ROOM_AGENTS = [
-        (p, a)
-        for p, a in CC_COURSE_AGENTS
-        if p.pack_key == "crat-word-puzzle-room"
+    _CRAT_ROOM_AGENTS: ClassVar[list[Any]] = [
+        (p, a) for p, a in CC_COURSE_AGENTS if p.pack_key == "crat-word-puzzle-room"
     ]
-    _CRAT_ROOM_IDS = [f"{p.pack_key}/{a.key}" for p, a in _CRAT_ROOM_AGENTS]
+    _CRAT_ROOM_IDS: ClassVar[list[str]] = [f"{p.pack_key}/{a.key}" for p, a in _CRAT_ROOM_AGENTS]
 
     @pytest.mark.parametrize(("pack", "agent"), CC_COURSE_AGENTS, ids=CC_COURSE_AGENT_IDS)
     def test_every_agent_binds_at_least_one_activity(self, pack: Any, agent: Any) -> None:

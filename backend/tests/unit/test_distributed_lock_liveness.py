@@ -197,7 +197,13 @@ def _agent() -> Any:
     from types import SimpleNamespace
 
     return SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
 
 

@@ -102,7 +102,13 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     engine._router = _FakeRouter()  # type: ignore[attr-defined]
     registry = _FakeRegistry()
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     messages: list = [{"role": "user", "content": "set my cadence"}]
 
@@ -190,7 +196,13 @@ async def test_provider_items_are_carried_back_onto_the_assistant_turn(monkeypat
     router = _ItemsRouter()
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     messages: list[dict] = [{"role": "user", "content": "hi"}]
 
@@ -290,7 +302,13 @@ async def test_a_rejected_request_retries_once_without_the_replayed_items(monkey
     router = _RejectingRouter()
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
 
@@ -360,7 +378,13 @@ async def test_the_replay_stays_off_for_the_rest_of_the_turn(monkeypatch) -> Non
     router = _RejectOnceRouter()
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
 
     outcome = await engine._stream_with_tools(
@@ -427,7 +451,13 @@ async def test_a_truncated_round_does_not_replay_its_half_written_items(monkeypa
     router = _TruncatingRouter()
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     messages: list[dict[str, Any]] = [{"role": "user", "content": "hi"}]
 
@@ -474,7 +504,13 @@ async def test_a_rejection_with_nothing_to_drop_still_propagates(monkeypatch) ->
     router = _RejectingRouter()
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
 
     with pytest.raises(KeyGroupExhausted):
@@ -536,7 +572,13 @@ async def test_a_round_without_provider_items_does_not_invent_the_key(monkeypatc
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = _FakeRouter()  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     messages: list[dict] = [{"role": "user", "content": "hi"}]
 
@@ -574,7 +616,13 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = _PlainRouter()  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
 
     outcome = await engine._stream_with_tools(
@@ -617,7 +665,13 @@ async def test_final_no_tools_call_carries_the_same_provider_and_model() -> None
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = _ToolRoundRouter()  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
 
     outcome = await engine._stream_with_tools(
@@ -872,7 +926,13 @@ def _engine_with(router) -> tuple:
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = router  # type: ignore[attr-defined]
     agent = SimpleNamespace(
-        id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None, temperature=None, top_p=None, seed=None, custom_capabilities=None
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
     )
     return engine, agent
 

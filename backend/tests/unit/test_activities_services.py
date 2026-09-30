@@ -2218,7 +2218,7 @@ class TestGuestSubmission:
             patch.object(ss.audit, "emit", new=AsyncMock()) as audit_emit,
         ):
             conv.return_value.insert_system_message = AsyncMock()
-            submission, _ = await svc.submit(
+            _submission, _ = await svc.submit(
                 project_id=activity_type.project_id,
                 activity_type_id=activity_type.id,
                 chatroom_id=session.chatroom_id,
