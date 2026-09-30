@@ -87,8 +87,10 @@ async def test_without_the_savepoint_the_same_failure_poisons_the_session(
 
     async with sessionmaker() as session:
         await audit.emit(session, _ok(action))
+        # A raw INSERT with NULL action violates the NOT NULL constraint,
+        # producing a server-side IntegrityError that poisons the transaction.
         with pytest.raises(DBAPIError):
-            await audit.emit(session, _doomed(f"{action}.doomed"))
+            await session.execute(sa.text("INSERT INTO audit_logs (action) VALUES (NULL)"))
         # Catching that exception is all a `try/except` around the tool call can
         # do, and it is not enough: the reply write below it raises too.
         with pytest.raises(DBAPIError) as caught:
