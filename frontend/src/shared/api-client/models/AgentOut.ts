@@ -5,13 +5,12 @@
 import type { AgentEffort } from './AgentEffort';
 import type { AgentModelHint } from './AgentModelHint';
 import type { ContextMode } from './ContextMode';
-import type { CustomCapabilities } from './CustomCapabilities';
 export type AgentOut = {
     a2a_enabled: boolean;
     context_mode: ContextMode;
     context_token_cap: (number | null);
-    custom_capabilities: (CustomCapabilities | null);
     created_at: string;
+    custom_capabilities: (Record<string, any> | null);
     deleted_at: (string | null);
     effort: (AgentEffort | null);
     id: string;

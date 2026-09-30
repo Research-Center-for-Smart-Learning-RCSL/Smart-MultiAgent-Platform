@@ -1,4 +1,4 @@
-{
+﻿{
   "components": {
     "schemas": {
       "AcceptByTokenIn": {
@@ -2023,7 +2023,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
-                "maximum": 1000000.0,
+                "maximum": 1050000.0,
                 "type": "integer"
               },
               {
@@ -2031,6 +2031,16 @@
               }
             ],
             "title": "Context Token Cap"
+          },
+          "custom_capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomCapabilitiesIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "effort": {
             "anyOf": [
@@ -2436,6 +2446,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "custom_capabilities": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Capabilities"
+          },
           "deleted_at": {
             "anyOf": [
               {
@@ -2594,6 +2616,7 @@
           "temperature",
           "top_p",
           "seed",
+          "custom_capabilities",
           "a2a_enabled",
           "wakeup_config",
           "workflow_capabilities",
@@ -2637,7 +2660,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
-                "maximum": 1000000.0,
+                "maximum": 1050000.0,
                 "type": "integer"
               },
               {
@@ -2645,6 +2668,16 @@
               }
             ],
             "title": "Context Token Cap"
+          },
+          "custom_capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomCapabilitiesIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "effort": {
             "anyOf": [
@@ -5709,6 +5742,42 @@
         ],
         "title": "ContextMode",
         "type": "string"
+      },
+      "CustomCapabilitiesIn": {
+        "additionalProperties": false,
+        "description": "User-declared capabilities for a model not in the catalog.",
+        "properties": {
+          "accepts_effort": {
+            "default": false,
+            "title": "Accepts Effort",
+            "type": "boolean"
+          },
+          "accepts_sampling": {
+            "default": false,
+            "title": "Accepts Sampling",
+            "type": "boolean"
+          },
+          "accepts_seed": {
+            "default": false,
+            "title": "Accepts Seed",
+            "type": "boolean"
+          },
+          "accepts_vision": {
+            "default": false,
+            "title": "Accepts Vision",
+            "type": "boolean"
+          },
+          "effort_values": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 7,
+            "title": "Effort Values",
+            "type": "array"
+          }
+        },
+        "title": "CustomCapabilitiesIn",
+        "type": "object"
       },
       "DashboardSummaryOut": {
         "properties": {

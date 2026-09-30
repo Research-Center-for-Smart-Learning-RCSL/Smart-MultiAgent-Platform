@@ -155,7 +155,7 @@ export type { ConceptMapEnabledIn } from './models/ConceptMapEnabledIn';
 export type { ConceptMapOwnerOptionOut } from './models/ConceptMapOwnerOptionOut';
 export type { ConfigEnvelopeOut } from './models/ConfigEnvelopeOut';
 export type { ContextMode } from './models/ContextMode';
-export type { CustomCapabilities } from './models/CustomCapabilities';
+export type { CustomCapabilitiesIn } from './models/CustomCapabilitiesIn';
 export type { DashboardSummaryOut } from './models/DashboardSummaryOut';
 export type { DashboardTimeseriesOut } from './models/DashboardTimeseriesOut';
 export type { DashboardWatchlistOut } from './models/DashboardWatchlistOut';

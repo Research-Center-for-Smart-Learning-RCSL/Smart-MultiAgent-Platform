@@ -362,9 +362,8 @@ const manageSettingsNav = computed<NavItem[]>(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background-color: var(--color-sidebar-bg);
-  color: var(--color-text);
+  color: var(--color-sidebar-text);
   cursor: pointer;
-  outline: none;
   transition: border-color var(--transition-fast);
 }
 
@@ -372,7 +371,12 @@ const manageSettingsNav = computed<NavItem[]>(() => {
   border-color: var(--color-accent);
 }
 
+.workspace-select:focus:not(:focus-visible) {
+  outline: none;
+}
+
 .workspace-select:focus-visible {
+  outline: none;
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);
 }

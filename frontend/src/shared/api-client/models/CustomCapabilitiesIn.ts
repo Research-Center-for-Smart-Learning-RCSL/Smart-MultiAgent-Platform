@@ -5,10 +5,11 @@
 /**
  * User-declared capabilities for a model not in the catalog.
  */
-export type CustomCapabilities = {
-    accepts_effort: boolean;
-    effort_values: Array<string>;
-    accepts_sampling: boolean;
-    accepts_seed: boolean;
-    accepts_vision: boolean;
+export type CustomCapabilitiesIn = {
+    accepts_effort?: boolean;
+    accepts_sampling?: boolean;
+    accepts_seed?: boolean;
+    accepts_vision?: boolean;
+    effort_values?: Array<string>;
 };
+

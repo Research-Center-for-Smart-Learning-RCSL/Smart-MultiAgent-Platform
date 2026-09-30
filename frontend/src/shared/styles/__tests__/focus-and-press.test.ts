@@ -75,6 +75,8 @@ describe('focus indicator', () => {
     '.code-editor:focus:not(:focus-visible)',
     '.composer__textarea:focus:not(:focus-visible)',
     '.s-dropdown__item:focus:not(:focus-visible)',
+    '.workspace-select:focus:not(:focus-visible)',
+    '.workspace-select:focus-visible',
   ])
 
   it('suppresses the outline only where something else draws the ring', () => {
