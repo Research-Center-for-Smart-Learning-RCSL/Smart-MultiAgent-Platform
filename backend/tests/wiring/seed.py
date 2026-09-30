@@ -65,6 +65,7 @@ async def seed_agent(db, *, email_prefix: str = "seed", **agent_overrides: objec
         "temperature": None,
         "top_p": None,
         "seed": None,
+        "custom_capabilities": None,
         "a2a_enabled": False,
         "wakeup_config": {},
         "workflow_capabilities": {},

@@ -269,6 +269,7 @@ async def _seed_fixtures(
         top_p=None,
         seed=None,
         effort=None,
+        custom_capabilities=None,
         a2a_enabled=False,
         wakeup_config={},
         workflow_capabilities={},

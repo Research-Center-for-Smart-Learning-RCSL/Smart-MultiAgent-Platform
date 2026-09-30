@@ -76,6 +76,7 @@ def _agent_row(name: str) -> Agent:
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
         a2a_enabled=False,
         wakeup_config={},
         wakeup_authored_snapshot=None,

@@ -95,6 +95,7 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
         a2a_enabled=False,
         wakeup_config={},
         workflow_capabilities={},

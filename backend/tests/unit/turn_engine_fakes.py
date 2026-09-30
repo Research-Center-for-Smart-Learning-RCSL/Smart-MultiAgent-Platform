@@ -93,6 +93,7 @@ def make_agent() -> SimpleNamespace:
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
     )
 
 

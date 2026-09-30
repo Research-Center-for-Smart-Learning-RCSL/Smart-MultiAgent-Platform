@@ -97,6 +97,7 @@ def _make_agent(
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
         a2a_enabled=False,
         wakeup_config=wakeup_config if wakeup_config is not None else {},
         wakeup_authored_snapshot=wakeup_authored_snapshot,

@@ -31,6 +31,7 @@ def _agent(project_id: uuid.UUID, *, enabled: bool, wakeup: dict | None = None) 
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
         a2a_enabled=enabled,
         wakeup_config=wakeup or {},
         wakeup_authored_snapshot=None,

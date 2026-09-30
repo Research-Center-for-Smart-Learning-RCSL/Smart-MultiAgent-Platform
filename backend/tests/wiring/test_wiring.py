@@ -223,6 +223,7 @@ async def _seed_agent_and_room(
         temperature=None,
         top_p=None,
         seed=None,
+        custom_capabilities=None,
         a2a_enabled=a2a_enabled,
         wakeup_config=wakeup_config or {},
         # Capable by default: this fixture predates workflow-capability enforcement
@@ -367,6 +368,7 @@ async def test_a2a_call_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
             temperature=None,
             top_p=None,
             seed=None,
+            custom_capabilities=None,
             a2a_enabled=True,
             # The callee must opt into being A2A-callable: with no shared
             # invocation context between two distinct agents, R9.17 requires
@@ -629,6 +631,7 @@ async def _add_agent(env: SimpleNamespace, *, a2a_enabled: bool = True, call_onl
             temperature=None,
             top_p=None,
             seed=None,
+            custom_capabilities=None,
             a2a_enabled=a2a_enabled,
             wakeup_config=wakeup,
             # Capable by default (see _seed_agent_and_room): this agent plays both
