@@ -112,8 +112,8 @@ test.describe('Scroll position on navigation', () => {
     expect(await scrollAway(page), 'the content area must be scrollable here')
       .toBeGreaterThan(0)
 
-    await page.locator('.app-shell__sidebar a[href="/keys"]').first().click()
-    await expect(page).toHaveURL(/\/keys$/, { timeout: 20_000 })
+    await page.locator('.app-shell__sidebar a[href="/invites"]').first().click()
+    await expect(page).toHaveURL(/\/invites$/, { timeout: 20_000 })
     await page.waitForTimeout(200)
 
     expect(await page.locator(CONTENT).evaluate((el) => el.scrollTop)).toBe(0)
