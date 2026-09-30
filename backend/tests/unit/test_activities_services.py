@@ -2137,3 +2137,103 @@ class TestSubmitSubjectAuthz:
                 actor_user_id=caller_b,
                 actor_ip=None,
             )
+
+
+class TestGuestSubmission:
+    """Guest sessions use ephemeral UUIDs not present in the users table.
+
+    Before migration 0096 dropped the FK on audit_logs.actor_user_id, a guest
+    submission crashed with an IntegrityError.  The unit tier mocks the DB so it
+    cannot catch FK violations directly, but it pins that the submission path
+    accepts a guest-shaped principal (arbitrary UUID for all identity fields)
+    and that audit.emit receives that UUID as actor_user_id.
+    """
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    async def test_guest_individual_submission_succeeds(self) -> None:
+        registry.register_in_process_validator(
+            "vid", lambda payload, at, *, db: ValidationResult(is_valid=True)
+        )
+        activity_type = _make_type(project_id=uuid.uuid4())
+        guest_id = uuid.uuid4()  # not in users table
+
+        # Build wiring with guest_id as subject from the start (frozen dataclass).
+        chatroom_id = uuid.uuid4()
+        activation = ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=chatroom_id,
+            activity_type_id=activity_type.id,
+            started_by_user_id=guest_id,
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+        )
+        session = ActivitySession(
+            id=uuid.uuid4(),
+            activity_type_id=activity_type.id,
+            chatroom_id=chatroom_id,
+            subject_user_id=guest_id,
+            status=SessionStatus.OPEN,
+            created_at=_NOW,
+            activation_id=activation.id,
+        )
+        activation_repo = MagicMock()
+        svc = SubmissionService(MagicMock(), activation_repo=activation_repo)
+        svc._type_repo = MagicMock()
+        svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._session_repo = MagicMock()
+        svc._session_repo.get_for_activation = AsyncMock(return_value=session)
+        svc._session_repo.set_completed = AsyncMock(return_value=True)
+        svc._session_repo.lock_for_update = AsyncMock(return_value=session)
+        activation_repo.get_active_for_update = AsyncMock(return_value=activation)
+        sub_id = uuid.uuid4()
+        sub_repo = MagicMock()
+        sub_repo.next_attempt_no = AsyncMock(return_value=1)
+        sub_repo.insert = AsyncMock(return_value=sub_id)
+        sub_repo.count_recent_same_error = AsyncMock(return_value=0)
+        sub_repo.get = AsyncMock(
+            return_value=ActivitySubmission(
+                id=sub_id,
+                session_id=session.id,
+                activity_type_id=activity_type.id,
+                chatroom_id=chatroom_id,
+                producer_user_id=guest_id,
+                payload={},
+                attempt_no=1,
+                validation_status=ValidationStatus.VALIDATED,
+                is_valid=True,
+                error_class=None,
+                sub_scores={},
+                latency_ms=1,
+                retain_until=None,
+                created_at=_NOW,
+                validated_at=_NOW,
+            )
+        )
+        svc._sub_repo = sub_repo
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()) as audit_emit,
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            submission, _ = await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=guest_id,
+                subject_user_id=guest_id,
+                caller_user_id=guest_id,
+                payload={"answer": "guest answer"},
+                actor_user_id=guest_id,
+                actor_ip=None,
+            )
+
+        sub_repo.insert.assert_awaited_once()
+        insert_kwargs = sub_repo.insert.await_args.kwargs
+        assert insert_kwargs["producer_user_id"] == guest_id
+
+        audit_emit.assert_awaited()
+        audit_event = audit_emit.await_args.args[1]
+        assert audit_event.actor_user_id == guest_id
