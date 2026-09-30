@@ -7,18 +7,16 @@ session raises ``InFailedSqlTransaction``. The turn then streams a complete answ
 the room and dies persisting it. Only a real session against a real Postgres can show
 that, which is why this lives here and not beside the unit tests.
 
-``audit_logs.actor_user_id`` carries an FK to ``users.id`` (migration 0004_audit), so a
-non-existent actor is a deterministic server-side failure -- no patched ``execute``, no
-statement timeout, no simulation of the thing under test.
+``audit_logs.actor_ip`` is typed ``inet``, so an invalid IP string is a deterministic
+server-side failure -- no patched ``execute``, no statement timeout, no simulation of
+the thing under test. (Before migration 0096 dropped the FK on ``actor_user_id``, a
+non-existent actor UUID served the same role.)
 
-The rows that are meant to *survive* carry no actor at all. They cannot: the FK is
-``ON DELETE SET NULL``, which is an UPDATE, and ``audit_logs`` refuses UPDATE outside
-the retention role (R17.04) -- so a row pointing at a fixture's user makes that
-fixture's teardown fail. For the same reason nothing here is cleaned up, and each run
-tags its rows with a unique action string instead of counting them.
+Nothing here is cleaned up; each run tags its rows with a unique action string instead
+of counting them.
 
 Requires a Postgres reachable via ``settings.database.dsn`` with migrations applied --
-the ``backend-integration`` CI job's environment.
+the ``backend-db`` CI job's environment.
 """
 
 from __future__ import annotations
@@ -43,8 +41,8 @@ def _ok(action: str) -> audit.AuditEvent:
 
 
 def _doomed(action: str) -> audit.AuditEvent:
-    """An event whose INSERT the server rejects: the actor does not exist."""
-    return audit.AuditEvent(action=action, actor_user_id=uuid.uuid4(), resource_type="agent")
+    """An event whose INSERT the server rejects: invalid inet literal."""
+    return audit.AuditEvent(action=action, actor_ip="not-a-valid-ip", resource_type="agent")
 
 
 @pytest.mark.asyncio
