@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import app.api.v1.guests as guests_route
+from contexts.conversation.application.guest_service import GuestService
 from contexts.conversation.application.guest_session_service import GuestSessionService
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
@@ -102,6 +103,25 @@ async def test_a_wrong_link_on_a_links_off_room_is_still_an_invalid_link(
         rooms.get = AsyncMock(return_value=_room(cr, links=False, token="real-token"))
         with pytest.raises(GuestTokenInvalid):
             await service.create_or_resume(chatroom_id=cr, guest_token="wrong-token", display_name="Alice")
+
+
+async def test_registered_enrol_with_links_off_names_the_reason() -> None:
+    """The signed-in "Enter as <account>" path holds the link too (code review finding 5)."""
+    cr = uuid.uuid4()
+    service = GuestService(AsyncMock())
+    with patch.object(service, "_rooms") as rooms, patch.object(service, "_guests") as guests:
+        rooms.get = AsyncMock(return_value=_room(cr, links=False))
+        guests.add = AsyncMock()
+        with pytest.raises(GuestAccessDisabled):
+            await service.enroll(
+                chatroom_id=cr, token="correct-token", user_id=uuid.uuid4(), actor_ip=None, request_id=None
+            )
+        rooms.get = AsyncMock(return_value=_room(cr, links=False, token="real-token"))
+        with pytest.raises(GuestTokenInvalid):
+            await service.enroll(
+                chatroom_id=cr, token="wrong-token", user_id=uuid.uuid4(), actor_ip=None, request_id=None
+            )
+        guests.add.assert_not_awaited()
 
 
 # -- links off on refresh: the cookie is matched first --
