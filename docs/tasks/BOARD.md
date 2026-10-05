@@ -448,9 +448,11 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   rule lives in the route module) and FU-1..FU-5 (notably an unbounded template list query) are in
   the dossier. Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
-- `2026-10-05-chat-export-guest-narrowing` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
-  Audit F-11: the narrowed (member) chat export keeps every non-`user` sender, so guest messages,
-  edits and attachments leak into it; the predicate becomes "own plus agent and system".
+- (implemented 2026-10-06) `2026-10-05-chat-export-guest-narrowing`. AC-1..AC-3 verified on PR
+  #231 (CI green at `605b9865`, db tier included; fail-first observed in CI at `45eb3777`). The
+  narrowed export predicate names the kept sender types (agent, system) instead of excluding `user`.
+  D-1..D-3 and FU-1 are in the dossier. Nothing lists this slug in `depends_on`, so no row moves out
+  of Blocked.
 
 ## Blocked
 

@@ -140,7 +140,7 @@ class TestRepositoryPredicate:
 
     async def test_own_user_id_narrows_the_where_clause(self) -> None:
         where = await self._where_clause(own_user_id=_CALLER)
-        assert "sender_type != 'user'" in where
+        assert "sender_type IN ('agent', 'system')" in where
         assert str(_CALLER) in where
 
     async def test_default_call_has_no_sender_predicate(self) -> None:
@@ -211,7 +211,8 @@ class _Harness:
         own = kwargs.get("own_user_id")
         if own is None:
             return list(self._all)
-        return [m for m in self._all if m.sender_type is not SenderType.USER or m.sender_id == own]
+        kept = {SenderType.AGENT, SenderType.SYSTEM}
+        return [m for m in self._all if m.sender_type in kept or m.sender_id == own]
 
     @property
     def own_user_id(self) -> object:

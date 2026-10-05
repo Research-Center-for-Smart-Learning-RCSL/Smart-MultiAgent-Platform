@@ -333,9 +333,11 @@ class MessageRepository:
         either side leaves that edge open.
 
         *own_user_id* narrows the dump to that user's own messages plus every
-        non-user (agent, system) message, which is permission-matrix row 19's
-        `∘` scope. It belongs in the WHERE clause rather than in a post-filter
-        so another participant's rows -- their markdown, edit history and
+        agent and system message, which is permission-matrix row 19's `∘` scope.
+        The kept sender types are named rather than "everything but `user`", so a
+        new human sender type (as `guest` was) stays excluded by default. It
+        belongs in the WHERE clause rather than in a post-filter so another
+        participant's rows -- their markdown, edit history and
         attachment object paths -- are never read into process memory. ``None``
         (the default) leaves the dump room-wide, which is the `✓` scope.
         """
@@ -346,7 +348,7 @@ class MessageRepository:
         if own_user_id is not None:
             conditions.append(
                 sa.or_(
-                    t.messages.c.sender_type != SenderType.USER.value,
+                    t.messages.c.sender_type.in_([SenderType.AGENT.value, SenderType.SYSTEM.value]),
                     t.messages.c.sender_id == own_user_id,
                 )
             )

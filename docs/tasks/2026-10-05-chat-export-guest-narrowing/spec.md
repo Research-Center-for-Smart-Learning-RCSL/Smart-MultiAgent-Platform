@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-05
 requirements: [R13.06]
 depends_on: []
@@ -108,11 +108,11 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: a narrowed export contains only the caller's own messages and agent and system messages;
+- [x] AC-1: a narrowed export contains only the caller's own messages and agent and system messages;
   guest messages, their edit histories and their attachments are absent (verified against a real
   database).
-- [ ] AC-2: a full (`✓`) export still contains guest messages.
-- [ ] AC-3: backend lint, typecheck and tests, including the db tier, pass in CI.
+- [x] AC-2: a full (`✓`) export still contains guest messages.
+- [x] AC-3: backend lint, typecheck and tests, including the db tier, pass in CI.
 
 ## 11. SRS Delta
 
@@ -122,6 +122,16 @@ None. Row 19 already specifies the intended scope.
 
 Appended by /build.
 
+- **D-1.** §8 planned a db-tier repository test plus a service-level test of a narrowed
+  `ChatExportService` run. At the requester's direction the db tier carries one minimal repository
+  test (`backend/tests/integration/test_chat_export_narrowing_db.py`) on `all_for_chatroom`, the
+  function the export service calls (`chat_export_service.py:113-119`). AC-1's edit-history and
+  attachment halves follow from it: the service loads edits and attachments only for the messages
+  that query returns (`chat_export_service.py:121-123`).
+- **D-2.** Fail-first was observed in CI rather than locally (no local PostgreSQL): at `45eb3777` the
+  db test failed because the narrowed set held the guest message; it passes at `605b9865`.
+- **D-3.** The gate-5 and gate-6 audits were done inline rather than with the audit agents, given a
+  three-file, one-predicate diff; no findings.
 ## 13. Follow-ups
 
 - **FU-1.** `research_export_builder.py:214-219` labels every guest row with the literal `guest`, so

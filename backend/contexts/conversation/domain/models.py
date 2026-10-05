@@ -21,8 +21,10 @@ class ExportSenderScope(str, enum.Enum):
 
     ALL                — every sender, for owners and admins (the `✓` cells).
     OWN_PLUS_NON_USER  — the caller's own messages plus all agent and system
-                         messages, for members (the `∘` cells). Other users'
-                         messages, edit histories and attachments are excluded.
+                         messages, for members (the `∘` cells). Other users' and
+                         guests' messages, edit histories and attachments are
+                         excluded. (The value predates the guest sender type and
+                         is persisted in job records, so it keeps its name.)
 
     Ordering matters: ALL is strictly wider than OWN_PLUS_NON_USER, and the
     export worker refuses to widen past the scope recorded at request time.
