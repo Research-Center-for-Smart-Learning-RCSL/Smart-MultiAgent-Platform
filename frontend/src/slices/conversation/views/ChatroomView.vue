@@ -502,7 +502,8 @@ const projectId = (route.params.projectId as string) || ''
 // set from an earlier sign-in while a guest token is active, and the server
 // knows this viewer only by the token it is sending.
 const viewerId = computed(() => guestSessionId.value ?? session.me?.id ?? null)
-// The name typed in a rename, shown until the roster re-read carries it.
+// The stored name a rename returned, shown until the roster re-read carries it
+// (then cleared, so a later rename from another tab shows through the roster).
 const guestNameOverride = ref<string | null>(null)
 const { width: viewportWidth, isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
@@ -585,14 +586,14 @@ const boundAgentsQuery = useQuery({
 // *unbound*, which is a different and wrong statement in that state.
 const rosterKnown = computed(() => boundAgentsQuery.isSuccess.value)
 
-// Resolve workspace → project → agents to get agent display names. Each
-// query gates on the previous via `enabled`, so missing room data does not
-// trigger errors; the names map simply stays empty and falls back to the
-// truncated id.
+// Resolve workspace → project → agents to get the names of agents no longer
+// bound to the room. Each query gates on the previous via `enabled`. A guest
+// skips the chain: both reads are members-only and would only return 403, and
+// the room agent list already names every bound agent.
 const workspaceQuery = useQuery({
   queryKey: computed(() => ['conversation', 'workspace', roomQuery.data.value?.workspace_id]),
   queryFn: () => getWorkspace(roomQuery.data.value!.workspace_id),
-  enabled: computed(() => !!roomQuery.data.value?.workspace_id),
+  enabled: computed(() => !!roomQuery.data.value?.workspace_id && !viewerIsGuest.value),
   retry: false,
 })
 
@@ -637,14 +638,20 @@ const userNames = computed<Record<string, string>>(() => {
   return map
 })
 
-// The guest's own name: what it just typed, then what the roster holds, then
-// the name its token was issued with.
+// The guest's own name: a rename the roster has not caught up with, then what
+// the roster holds, then the name its token was issued with.
+const ownRosterName = computed(() => {
+  const id = viewerId.value
+  return id ? (userNames.value[id] ?? null) : null
+})
 const guestViewerName = computed(() => {
   if (guestNameOverride.value !== null) return guestNameOverride.value
-  const id = viewerId.value
-  if (id && userNames.value[id]) return userNames.value[id]
+  if (ownRosterName.value) return ownRosterName.value
   const claims = accessTokenClaims.value
   return typeof claims?.display_name === 'string' ? claims.display_name : ''
+})
+watch(ownRosterName, (name) => {
+  if (name !== null && name === guestNameOverride.value) guestNameOverride.value = null
 })
 
 function agentStatus(id: string): AgentStatus {
@@ -1278,7 +1285,7 @@ async function onUpdateGuestDisplayName(requested: string): Promise<void> {
   try {
     // The stored name is the normalised one; show that, not what was typed.
     const { display_name: name } = await updateGuestDisplayName(sessionId, requested)
-    guestNameOverride.value = name
+    guestNameOverride.value = name === ownRosterName.value ? null : name
     void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(chatroomId) })
     // Update localStorage so the welcome-back UI shows the new name
     try {

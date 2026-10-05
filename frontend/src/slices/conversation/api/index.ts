@@ -20,7 +20,7 @@ import {
   WorkspacesService,
 } from '@shared/api-client'
 import { asBinaryFormField, http } from '@shared/transport'
-import type { AgentNameOut, MessageOut, ObservationOut } from '@shared/api-client'
+import type { AgentNameOut, GuestDisplayNameOut, MessageOut, ObservationOut } from '@shared/api-client'
 import type { Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
@@ -557,8 +557,8 @@ export async function createGuestSession(
 export async function updateGuestDisplayName(
   guestSessionId: string,
   displayName: string,
-): Promise<{ display_name: string }> {
-  const res = await http.put<{ display_name: string }>(
+): Promise<GuestDisplayNameOut> {
+  const res = await http.put<GuestDisplayNameOut>(
     `/guest/session/${encodeURIComponent(guestSessionId)}/display-name`,
     { display_name: displayName },
   )
