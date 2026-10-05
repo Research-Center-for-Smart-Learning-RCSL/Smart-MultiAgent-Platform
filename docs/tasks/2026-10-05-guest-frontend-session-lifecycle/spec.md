@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-05
 requirements: [R5.04, R6.11, R6.12, R13.06, R13.06a, R13.06b, R13.07, R24.43]
 depends_on: [2026-10-05-guest-room-read-and-identity]

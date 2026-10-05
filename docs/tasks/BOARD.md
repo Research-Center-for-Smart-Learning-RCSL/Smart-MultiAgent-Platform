@@ -430,7 +430,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   (guest impersonating the owner's display name) should be decided before the classroom pilot.
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
-- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **draft**) -
+- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **approved 2026-10-05**, ready; build deferred by the requester) -
   `depends_on: [2026-10-05-guest-room-read-and-identity]`, implemented. Fixes audit F-7, F-8, F-9,
   F-10, F-18, F-19, F-20, F-22: a guest session survives reload (account-first boot, then the room's
   guest refresh), ends visibly with the right reason (new problem types
