@@ -360,7 +360,47 @@ Regenerate `docs/traceability.csv` with `python scripts/traceability.py` after a
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (domain shape).** §7.2 said `ActivitySession.subject_kind` becomes a stored field. The
+  domain keeps it a derived property and gains a stored `subject_is_guest` flag (repo-mapped from
+  the column), and `ActivitySubmission` gains `producer_is_guest`. Reason: the existing
+  construction sites (tests included) build group sessions by setting only `subject_member_group_id` and read the
+  kind back; a stored field defaulting to `USER` would have silently mislabelled every one.
+- **D-2 (person-only kind; agreed with the requester after `/code-review`).** §7.1 stored
+  `'member_group'` in `subject_kind` with a pairing CHECK. Shipped: `subject_kind IN
+  ('user','guest')`, no pairing CHECK, no backfill; a group session is still identified by
+  `subject_member_group_id`, and `subject_kind` is meaningless on such a row. Reason: the pairing
+  CHECK rejected the group insert pre-0098 code performs, which breaks the forward-compatibility rule
+  (`backend/CLAUDE.md`: old code runs on the new schema). Pinned by
+  `test_a_group_session_written_the_pre_0098_way_still_reads_as_a_group` and by the unmodified
+  `test_group_activity_constraints_db.py`.
+- **D-3 (subject kind from the id; agreed after `/code-review`).** §7.2 derived the kind from the
+  caller (`principal.is_guest`). Shipped: a new session's kind is resolved from the id itself
+  (`contexts/activities/application/subject_identity.py` → `ConversationFacade.is_guest_session`),
+  so an admin acting for a guest records a guest. The session routes and services no longer take a
+  guest flag; only the producer does (`producer_is_guest`), because the producer is always the
+  caller. One extra query on the first open of a session only.
+- **D-4 (attachment uploader erasure; `/code-review`).** §7.3 replaced only the two activity
+  cascades. Dropping `message_attachments.uploaded_by_user_id`'s FK also dropped its `ON DELETE SET
+  NULL`, so `hard_delete_user` now also calls `ConversationFacade.clear_attachment_uploader`, which
+  reproduces it. Pinned by `test_clearing_the_uploader_nulls_only_that_users_uploads` and
+  `test_hard_delete_activity_purge.py`.
+- **D-5 (signal fallback; `/code-review`).** When the worker builds a signal and the session row is
+  gone, the kind falls back to the submission's own `producer_is_guest` rather than always `user`.
+- **D-6 (docs).** §9 said the guest kind would be documented in `docs/workflow.schema.md`. Neither
+  that file nor `workflow.schema.json` documents the activity signal's fields at all, so there was
+  no existing list to extend; the values are documented on `ActivitySessionOut` and
+  `_assemble_activity_signal`.
+- **D-7 (OpenAPI).** The only contract diff is the `upload_key` description, because the route
+  docstring is its OpenAPI description. `subject_kind` was already a plain string.
+- **D-8 (out-of-scope gate fix).** CI's `dependency-audit` failed on advisories published after the
+  base commit (PYSEC-2026-4153..4160 for pypdf, PYSEC-2026-4175..4177 for urllib3). pypdf was bumped
+  to 6.19.0 (floor raised in `pyproject.toml`) and urllib3 to 2.8.0 on this branch, because the gate
+  blocks every merge, not because this task touches them.
+- **D-9 (test edits).** Existing tests changed where the contract changed, never weakened: the
+  route tests' `SimpleNamespace` principals gained `is_guest=False`; one exact-kwargs
+  `create_open` assertion gained the new keyword; `TestGuestSubmission` stopped using the guest id
+  as `started_by_user_id` and now asserts the producer kind. The now-unused `uploadNotReady` locale
+  keys were removed from both locales.
 
 ## 13. Follow-ups
 
@@ -373,4 +413,22 @@ Appended by /build.
   Needs an intent decision ([R13.21] says "Users").
 - **FU-3.** The remaining `current_principal`-only routes should be swept for guest reachability as
   part of the `check-security` work in audit FU-1, now that `require_registered_principal` exists.
-- **FU-4.** `backend/CLAUDE.md` states migrations run 0000-0079; head is 0097.
+- **FU-4.** `backend/CLAUDE.md` states migrations run 0000-0079; head is 0098.
+- **FU-5 (check-security, MEDIUM).** Anonymous guests can now upload: each guest session has its
+  own upload rate bucket (10/min) and the single-shot path (32 MB) has no per-project or per-room
+  quota (TUS does, `tus_store.py:230-231`). With the 50-guest cap, one public link admits gigabytes
+  per minute of MinIO writes plus AV/extraction load. Add a per-room guest upload quota or route
+  guest uploads through the quota'd TUS path only.
+- **FU-6 (hardening).** Guest-uploaded files now reach the code_exec sandbox and model blocks like
+  member files. Same trust class (gVisor, AV scan), but the uploader is anonymous; consider a
+  lower-trust treatment.
+- **FU-7.** Readers still ignore the stored kind: `RecentActivityRow.subject_kind`
+  (`domain/models.py:480`), the observer aggregates, the dashboard watchlist and the research export
+  all code a guest as `u:xxxxxxxx` with kind `USER`. Owned by the planned
+  `guest-room-read-and-identity` and `research-export-data-shape` dossiers.
+- **FU-8 (quality, Info).** `producer_is_guest` is a boolean threaded through route, facade and
+  service; a `ProducerKind`/`SubjectKind` parameter would extend without signature churn if a third
+  human kind ever appears.
+- **FU-9 (hardening).** `ConversationFacade.is_guest_session` checks existence only, not that the
+  guest session belongs to the room being written. Only an admin can name another subject, and the
+  result never leaves the server, so there is no attack path today.
