@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1 import activities as activities_route
 from contexts.activities.infrastructure import tables as at
+from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.infrastructure import tables as ct
 from contexts.conversation.infrastructure.repositories.attachment_repo import MessageAttachmentRepository
@@ -377,17 +378,14 @@ class TestSchema:
                 )
             await session.rollback()
 
-    async def test_a_group_session_defaults_to_the_group_kind(
+    async def test_the_group_writer_stamps_the_group_kind(
         self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
     ) -> None:
-        """A writer that predates the column (``create_open_for_group``) names no
-        kind; the row must still read as a group, not trip the CHECK."""
+        """The column defaults to 'user', which the pairing CHECK refuses for a
+        group row -- so the group writer must name its kind, and this is the
+        test that notices if it stops."""
         group_id = uuid.uuid4()
         async with sessionmaker() as session:
-            from contexts.activities.infrastructure.repositories.session_repo import (
-                ActivitySessionRepository,
-            )
-
             session_id = await ActivitySessionRepository(session).create_open_for_group(
                 activity_type_id=guest_room.activity_type_id,
                 chatroom_id=guest_room.chatroom_id,
