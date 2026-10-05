@@ -1339,11 +1339,14 @@ token, so the room can still explain it once the token is gone.
   refresh before the router installs. Success restores the session. An answered failure keeps the
   guest context and records the end, so the guard lets the guest into the room, where the banner
   explains it; an expired answer also removes the hint. A failure with no response keeps the context
-  without an end: the room shows its reconnecting state, and the socket's ticket request and the
-  browser's `online` event retry the restore.
-- **Background refresh.** Only a refresh that receives a response ends the session (404: expired;
-  403 `guest-access-disabled`: disabled). A refresh with no response keeps the token and the context.
-  Any guest request answered `guest-access-disabled`, the socket ticket included, records `disabled`.
+  without an end (a pending restore): the room shows its reconnecting state, and the socket's ticket
+  request, the browser's `online` event and tab focus retry it. Each retry asks the account first,
+  because an offline boot cannot tell an account holder from a guest; if the account answers, the
+  page reloads into it.
+- **Background refresh.** Only an answer that says the session is gone ends it (401 or 404:
+  expired; 403 `guest-access-disabled`: disabled). No response, a 5xx or a 429 keeps the token and
+  the context. A socket ticket answered `guest-access-disabled` records `disabled`. A 4401 socket
+  close is a re-handshake signal: it triggers a refresh, and that answer decides.
 - **Banners.** Expired: within the page lifetime the banner offers Rejoin (the in-memory link);
   after a reload it says to reopen the link the room owner shared and offers Sign in. Disabled:
   "Guest access has been disabled by the room owner." With either, the room closes its socket

@@ -420,6 +420,31 @@ Appended by /build.
   tab" reloads the guest tab after the owner's change, exercising the refresh path deterministically;
   a live socket learns of the change only at its next ticket or refresh, whose timing the e2e cannot
   control.
+- **D-10.** (Agreed with the requester 2026-10-06, after `/code-review`.) §7.1 recorded an end for
+  any answered guest refresh failure and §7.4 kept a 4401 close as a direct `markExpired`. Both ended
+  live sessions wrongly: 4401 is the server's "re-handshake" close (`ws_auth.py:26`), and a 502
+  during a deploy, a 429 or the two-tab cookie race also counted as an end (and at boot deleted the
+  hint holding the browser id). Now only an answered 401 or 404 (expired) or 403 (disabled when the
+  type is `guest-access-disabled`, expired otherwise) ends the session; any other answer is treated
+  like no network. A 4401 close triggers a guest refresh whose answer decides. §8 item 5's 4401 test
+  now mocks that refresh.
+- **D-11.** (Agreed with the requester 2026-10-06.) Q-1's "the account always wins" did not hold for
+  an account holder who once entered a room as a guest and reloads it offline: boot cannot tell why
+  the account refresh failed, restores the guest context, and the guest session came back with the
+  network. A guest context with neither a token nor an end is now a *pending* restore. In that state
+  `hydrate` tries the account (keeping the pending restore on any failure), and `app/boot.ts`
+  registers `preferAccountOverPendingGuest` with the transport, so every retry (the socket ticket
+  path, the `online` event, tab focus) asks the account first and reloads the page into it when it
+  answers. §7.2's "hydrate skips while a guest context is set" now holds for a live or ended guest
+  session only.
+- **D-12.** (Agreed with the requester 2026-10-06.) Q-4's route list gains the registered enrolment
+  path: `GuestService.enroll` raises `GuestAccessDisabled` after the token check, so "Enter as
+  <account>" shows the disabled state instead of an invalid link.
+- **D-13.** From the same review: the response interceptor records `disabled` only for the guest
+  socket ticket (a landing-page create for another room answered `guest-access-disabled` no longer
+  ends the held room's session); a guest refresh whose context was replaced while it was in flight
+  (a sign-in) leaves the token alone; the room's `online` listener is attached only while the view
+  is active, so a KeepAlive-cached room is not reopened behind another route.
 
 ## 13. Follow-ups
 
@@ -444,3 +469,13 @@ Appended by /build.
 - **FU-8.** Local Windows full-suite runs time out two pre-existing tests at 5 s under load
   (`AppShell.test.ts` "starts collapsed on an immersive route", `ChatroomView.test.ts` "reopening the
   export modal cancels the in-flight poller"); both pass in isolation. CI is authoritative.
+- **FU-9.** From `/code-review`, owned by `guest-session-backend-hardening` (F-16's 4404): when the
+  room is deleted under a connected guest, the ticket pre-check answers 404 `chatroom-not-found`,
+  which the client does not treat as an end, so the socket retries on its backoff with no banner.
+- **FU-10.** From `/code-review` (altitude): an ended guest's socket is stopped by view-level hooks
+  in `ChatroomView` because `Channel` treats the terminal error from `fetchWsTicket` as retryable.
+  Stopping retries in `Channel.openSocket` on a terminal error would let every consumer drop the
+  hooks.
+- **FU-11.** From `/code-review` (simplification): `useGuestSessionStore.sessionState` and
+  `markDisabled` are pass-throughs to the transport's `guestSessionEnd`, and `GUEST_STORAGE_PREFIX`
+  is used only by `utils/guestHint.ts`; the store could keep only the link token and `rejoinUrl`.
