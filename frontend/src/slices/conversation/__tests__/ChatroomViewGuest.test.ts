@@ -145,4 +145,42 @@ describe('ChatroomView header for other viewers', () => {
     expect(wrapper.find('[data-testid="open-export"]').exists()).toBe(true)
     expect(wrapper.find(`[aria-label="${backKey}"]`).exists()).toBe(true)
   })
+
+  it('hides settings, export and Back from a registered guest, without offering a rename', async () => {
+    useSessionStore().me = {
+      id: 'u_9',
+      email: 'g@smap.test',
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    }
+    server.use(
+      http.get('/api/chatrooms/cr_1', () =>
+        HttpResponse.json({
+          id: 'cr_1',
+          name: 'Test Room',
+          project_id: 'proj_1',
+          workspace_id: 'ws_1',
+          allow_org_members: false,
+          allow_project_members: true,
+          allow_project_owners_only: false,
+          allow_guest_links: false,
+          agents: [],
+          viewer_is_guest: true,
+        }),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    useConversationStore().setPresence('cr_1', ['u_9'])
+    await settle()
+
+    expect(wrapper.find(`[aria-label="${settingsKey}"]`).exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-export"]').exists()).toBe(false)
+    expect(wrapper.find(`[aria-label="${backKey}"]`).exists()).toBe(false)
+    // The rename endpoint serves anonymous guest sessions only; a registered
+    // guest's room label is set by the room's owner.
+    for (const presence of wrapper.findAllComponents(ChatroomPresence)) {
+      expect(presence.props('viewerIsGuest')).toBe(false)
+    }
+  })
 })

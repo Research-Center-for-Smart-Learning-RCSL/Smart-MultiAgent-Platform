@@ -1128,10 +1128,12 @@ const onlineUsers = computed(() => {
 
 // One binding for every participant-list render site (two layouts, tabbed or
 // not), so the rename control cannot again reach only some of them.
+// `viewerIsGuest` there means "may rename itself", which only an anonymous
+// guest session can: a registered guest's room label is set by the owner.
 const presenceProps = computed(() => ({
   onlineUsers: onlineUsers.value,
   agents: agentList.value,
-  viewerIsGuest: viewerIsGuest.value,
+  viewerIsGuest: isGuestSession.value,
   viewerName: guestViewerName.value,
 }))
 
