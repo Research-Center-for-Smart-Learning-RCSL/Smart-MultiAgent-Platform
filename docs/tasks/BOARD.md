@@ -417,7 +417,8 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### From the 2026-10-05 guest and dashboard audits
 
-- `2026-10-05-guest-identity-foreign-keys` (bugfix, **draft**) - `depends_on: []`. Fixes audit
+- `2026-10-05-guest-identity-foreign-keys` (bugfix, **approved 2026-10-05**, SRS Delta applied) -
+  `depends_on: []`. Fixes audit
   F-1, F-2, F-23 and F-25 of `docs/audits/2026-10-05-guest-anonymous-session/findings.md`: guest
   activity writes and attachment uploads fail on foreign keys to `users`, and three registered-only
   endpoints accept guest principals. Drops three FKs, adds stored `subject_kind`/`producer_kind`
