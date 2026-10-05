@@ -55,6 +55,8 @@ from shared_kernel.auth.permissions import Principal
 # worst possible failure. See the dossier's Decision 2 and FU-3.
 _MAX_LISTING_CANDIDATES = 2000
 
+_HUMAN_SENDERS = frozenset({SenderType.USER, SenderType.GUEST})
+
 
 def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | None) -> None:
     if not truncated:
@@ -664,15 +666,17 @@ class ConversationFacade:
     # -- Code-Interpreter staging (read-only) ----------------------------------
 
     async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:
-        """Active attachments on the room's most recent user message.
+        """Active attachments on the room's most recent human message.
 
         This is the fallback resolver for turns with no specific triggering
         message (``silence_minutes`` wake-ups, coalesced re-enqueues) — see
         ``attachments_for_message`` for the primary, race-free resolver keyed
-        on an explicit message id.
+        on an explicit message id. A guest counts as human: the transcript gives
+        guest messages the ``user`` role and the engine splices these files onto
+        the newest ``user``-role row, which may be a guest's.
         """
         recent = await self._messages.list(chatroom_id=chatroom_id, before=None, limit=20)
-        user_msg = next((m for m in recent if m.sender_type is SenderType.USER), None)
+        user_msg = next((m for m in recent if m.sender_type in _HUMAN_SENDERS), None)
         if user_msg is None:
             return []
         attachments = await self._attachments.list_for_message(user_msg.id)
