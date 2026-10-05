@@ -798,6 +798,12 @@ jobs:
       # CVE-2026-73086) are transitive via @excalidraw/mermaid-to-excalidraw
       # which pins nanoid@^4.0.0; no fix until upstream bumps to 5.x.
       # Only exploitable with custom alphabet sizes, not in our usage path.
+      # braces CVE-2026-93687 (stack exhaustion on deeply nested patterns) has no
+      # patched release; it arrives as @excalidraw/excalidraw > sass > chokidar >
+      # braces, the file watcher of a build tool excalidraw lists as a runtime
+      # dependency. Neither excalidraw's dist nor frontend/src imports sass,
+      # chokidar or braces (verified 2026-10-05), so no browser input reaches it.
+      # Remove once a patched braces ships.
       - name: "pnpm audit (frontend prod deps, high+)"
         working-directory: frontend
         run: |
@@ -805,7 +811,7 @@ jobs:
             python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          IGNORED = {'CVE-2024-55565','CVE-2026-67213','CVE-2026-67214','CVE-2026-73086'}
+          IGNORED = {'CVE-2024-55565','CVE-2026-67213','CVE-2026-67214','CVE-2026-73086','CVE-2026-93687'}
           found = 0
           for adv in data.get('advisories', {}).values():
               cves = set(adv.get('cves', []))
