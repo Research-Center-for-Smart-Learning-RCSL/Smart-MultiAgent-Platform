@@ -220,9 +220,10 @@ class ActivitySessionOut(BaseModel):
     activity_type_id: uuid.UUID
     chatroom_id: uuid.UUID
     # Exactly one of the two subject fields is set, and `subject_kind` says
-    # which ([R30.39]). A client must branch on the kind rather than on which id
-    # is null: the pair is the subject, and reading `subject_user_id` alone on a
-    # group session yields null with no explanation.
+    # which ([R30.39]): 'user', 'guest' (an anonymous guest's session id in
+    # `subject_user_id`) or 'member_group'. A client must branch on the kind
+    # rather than on which id is null: the pair is the subject, and reading
+    # `subject_user_id` alone on a group session yields null with no explanation.
     subject_user_id: uuid.UUID | None
     subject_member_group_id: uuid.UUID | None = None
     subject_kind: str = "user"
