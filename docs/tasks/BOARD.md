@@ -430,18 +430,6 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   (guest impersonating the owner's display name) should be decided before the classroom pilot.
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
-- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **approved 2026-10-05**, ready; build deferred by the requester) -
-  `depends_on: [2026-10-05-guest-room-read-and-identity]`, implemented. Fixes audit F-7, F-8, F-9,
-  F-10, F-18, F-19, F-20, F-22: a guest session survives reload (account-first boot, then the room's
-  guest refresh), ends visibly with the right reason (new problem types
-  `conversation/guest-access-disabled` and `conversation/guest-display-name-invalid`), is tied to its
-  token so a later sign-in cannot be hijacked, and a signed-in user entering as a guest confirms and
-  clears the tab's account state. Adds the guest lifecycle e2e spec. Amended after review
-  (2026-10-05): a boot restore keeps the guest context on failure and lands on the room's banner or
-  reconnecting state instead of `/login`.
-  Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
-  (Blocked) when implemented.
-
 - (implemented 2026-10-05) `2026-10-05-canvas-template-tenant-scope`. AC-1..AC-5 verified on PR #230
   (CI green at `c71c13ca`, db tier included). One [R13.59] readability rule for list, get, delete and
   apply, plus a required room-project binding in the apply service. Deviations D-1..D-3 (notably the
@@ -667,6 +655,16 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **in progress since 2026-10-06**, branch
+  `fix/guest-frontend-session-lifecycle`) - `depends_on: [2026-10-05-guest-room-read-and-identity]`,
+  implemented. Fixes audit F-7, F-8, F-9, F-10, F-18, F-19, F-20, F-22: a guest session survives
+  reload (account-first boot, then the room's guest refresh), ends visibly with the right reason (new
+  problem types `conversation/guest-access-disabled` and `conversation/guest-display-name-invalid`),
+  is tied to its token so a later sign-in cannot be hijacked, and a signed-in user entering as a guest
+  confirms and clears the tab's account state. Adds the guest lifecycle e2e spec.
+  Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
+  (Blocked) when implemented.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).
