@@ -233,7 +233,13 @@ Preconditions: a room with guest links on, its guest link, and one browser.
 - `guest_session_service.py`: `create_or_resume` raises `GuestAccessDisabled` for links off (`:103-104`,
   after the token check, so only a link holder learns it) and `GuestDisplayNameInvalid` for an empty
   normalised name (`:106-108`); `update_display_name` raises `GuestDisplayNameInvalid` (`:76-78`);
-  `refresh` raises `GuestAccessDisabled` for links off (`:209-210`).
+  `refresh` raises `GuestAccessDisabled` for links off, but only after the cookie has been matched to a
+  session of this room: today the links check (`:209-210`) runs before the hash lookup (`:212-215`)
+  and the route requires only a non-empty cookie (`guests.py:147-148`), so keeping that order would
+  let any request with an arbitrary cookie value learn whether a room has guest links off, against
+  Q-4's rationale. The rotation write happens only after both checks pass. (Amended 2026-10-05 after
+  approval, from the `guest-session-backend-hardening` analysis; implementation-order correction, no
+  change to Q-4's decision.)
 - `guests.py` `guest_ws_ticket`: before minting, load the principal's room through the facade and
   raise `ChatroomNotFound` or `GuestAccessDisabled` as appropriate.
 - The OpenAPI document gains the two problem types; `pnpm run gen:api` is rerun.
@@ -280,7 +286,9 @@ invalid-name field error, and the reopen-the-link message.
   memory ([R24.43], Q-2).
 - `guest-access-disabled` is returned only to callers that already proved possession of a valid link
   (after the HMAC check), a refresh cookie, or a guest token, so it reveals nothing to an outsider
-  ([R13.32]).
+  ([R13.32]). On refresh this holds only because the cookie is matched before the links check
+  (§7.5); a test pins that an unknown cookie on a links-off room answers the same 404 as on a
+  links-on room.
 - Clearing the guest context whenever a user token is applied removes the F-9 path by which a guest
   cookie could replace a user session.
 - Q-3's local clear leaves the account's refresh cookie valid by design; `hydrate` skipping under a
@@ -306,7 +314,9 @@ Written first, failing against current code:
    (no `rejoinUrl`) the expired banner shows the reopen-the-link message.
 6. Backend unit: `create_or_resume` and `update_display_name` raise `GuestDisplayNameInvalid` for a
    zero-width name; links off raises `GuestAccessDisabled` from create, refresh and the ticket route;
-   a wrong link token still raises `GuestTokenInvalid` before the links check.
+   a wrong link token still raises `GuestTokenInvalid` before the links check; an unknown or
+   foreign refresh cookie on a links-off room raises `GuestTokenInvalid` (404), not
+   `GuestAccessDisabled`, and rotates nothing.
 7. e2e `frontend/e2e/26-guest-session-lifecycle.spec.ts` against the compose stack: enter as a guest,
    reload, still in the room with the name; open a second tab on `/c/:id`, in the room; turn guest
    links off as the owner and see the disabled banner in the guest tab; a signed-in member choosing
