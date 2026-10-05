@@ -202,12 +202,15 @@
          would renumber the composer and every breakpoint override of it. AC-11
          wants the chip directly above the composer, which is where this row
          already is. -->
+    <!-- The link token lives in memory only (R24.43): after a reload there is no
+         Rejoin target, so the banner points back to the shared link instead
+         and offers sign-in to a visitor who holds an account. -->
     <SAlert
-      v-if="guestSessionStore.sessionState === 'expired'"
+      v-if="guestEnd === 'expired'"
       variant="warning"
       class="chatroom__guest-banner"
     >
-      {{ t('conversation.guest.sessionExpired') }}
+      {{ guestSessionStore.rejoinUrl ? t('conversation.guest.sessionExpired') : t('conversation.guest.sessionExpiredReopen') }}
       <template #actions>
         <SButton
           v-if="guestSessionStore.rejoinUrl"
@@ -217,11 +220,19 @@
         >
           {{ t('conversation.guest.rejoin') }}
         </SButton>
+        <SButton
+          v-else
+          variant="ghost"
+          size="sm"
+          @click="$router.push({ name: 'identity.login' })"
+        >
+          {{ t('conversation.guest.signIn') }}
+        </SButton>
       </template>
     </SAlert>
 
     <SAlert
-      v-if="guestSessionStore.sessionState === 'disabled'"
+      v-if="guestEnd === 'disabled'"
       variant="danger"
       class="chatroom__guest-banner"
     >
@@ -236,6 +247,7 @@
     <ChatroomComposer
       v-model="draft"
       class="chatroom__composer"
+      :disabled="guestEnd !== null"
       :pending-uploads="pendingUploads"
       :agents="mentionables"
       @submit="send"
@@ -419,7 +431,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -449,7 +461,14 @@ const LazyCanvasPanel = defineAsyncComponent(() =>
   import('@slices/canvas').then((m) => m.CanvasPanel),
 )
 
-import { accessTokenClaims, guestSessionId, isGuestSession } from '@shared/transport'
+import {
+  accessTokenClaims,
+  canonicalRoomId,
+  getAccessToken,
+  getGuestChatroomId,
+  guestSessionId,
+  isGuestSession,
+} from '@shared/transport'
 import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
@@ -561,11 +580,18 @@ const roomQuery = useQuery({
   queryFn: () => getChatroom(chatroomId),
   retry: false,
 })
+// This tab entered this room as an anonymous guest. Unlike `isGuestSession` it
+// survives the token: an ended session, or one a boot restore could not yet
+// refresh for want of a network, holds the context and no token.
+const holdsGuestContext = computed(() => getGuestChatroomId() === canonicalRoomId(chatroomId))
 // A guest gets no settings, export or Back. `isGuestSession` covers an
 // anonymous guest even while the room read is pending or failed;
 // `viewer_is_guest` covers a registered guest, who holds an ordinary user token.
 const viewerIsGuest = computed(
-  () => isGuestSession.value || roomQuery.data.value?.viewer_is_guest === true,
+  () =>
+    isGuestSession.value ||
+    holdsGuestContext.value ||
+    roomQuery.data.value?.viewer_is_guest === true,
 )
 const roomName = computed(() => roomQuery.data.value?.name ?? `#${chatroomId.slice(0, 8)}`)
 // [R32.05]. The server has already folded the room's `disclose_drafts` into this,
@@ -1034,16 +1060,47 @@ const guestSessionStore = useGuestSessionStore()
 const CLOSE_AUTH_FAILED = 4401
 const CLOSE_GUEST_DISABLED = 4403
 
+// Keyed on the context, not the token: the token is already null when a failed
+// refresh precedes the close, and the close is then the only signal (F-8).
 const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
-  if (!isGuestSession.value) return
+  if (!holdsGuestContext.value) return
   if (code === CLOSE_AUTH_FAILED) guestSessionStore.markExpired()
   else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
 })
 
-watch(connectionState, (state) => {
-  if (state === 'live' && isGuestSession.value && guestSessionStore.sessionState !== 'active') {
-    guestSessionStore.sessionState = 'active'
-  }
+/** How this tab's guest session in this room ended, or null while it lives. */
+const guestEnd = computed(() =>
+  holdsGuestContext.value && guestSessionStore.sessionState !== 'active'
+    ? guestSessionStore.sessionState
+    : null,
+)
+
+// An ended session gets no reconnect loop: nothing it could reconnect with is
+// left. Registered after useChatroomSocket's own mount/activate hooks, which
+// connect, so this runs after them.
+function stopSocketIfEnded(): void {
+  if (guestEnd.value !== null) wsChannel.disconnect()
+}
+watch(guestEnd, stopSocketIfEnded)
+onMounted(stopSocketIfEnded)
+onActivated(stopSocketIfEnded)
+
+// A boot restore that found no network left a context and no token. The
+// socket's ticket request retries the restore on its backoff; the browser
+// coming back online is the moment worth not waiting for.
+function onBrowserOnline(): void {
+  if (holdsGuestContext.value && guestEnd.value === null && !getAccessToken()) wsChannel.connect()
+}
+window.addEventListener('online', onBrowserOnline)
+
+// The room's reads ran without a token while it was missing; read again once
+// the session is back.
+watch(guestSessionId, (now, before) => {
+  if (!now || before || !holdsGuestContext.value) return
+  void qc.invalidateQueries({ queryKey: convKeys.chatroom(chatroomId) })
+  void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+  void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(chatroomId) })
+  void qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
 })
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
@@ -1108,6 +1165,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isUnmounted = true
   document.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('online', onBrowserOnline)
   unsubscribeCloseCode()
   if (typingTimer !== null) {
     clearTimeout(typingTimer)
