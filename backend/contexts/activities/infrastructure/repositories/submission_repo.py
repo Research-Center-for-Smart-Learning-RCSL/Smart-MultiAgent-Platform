@@ -37,6 +37,10 @@ _SUB = t.activity_submissions
 _SESS = t.activity_sessions
 _TYPE = t.activity_types
 
+# activity_submissions.producer_kind values (0098).
+_USER = "user"
+_GUEST = "guest"
+
 _SUB_COLS = (
     _SUB.c.id,
     _SUB.c.session_id,
@@ -55,6 +59,7 @@ _SUB_COLS = (
     _SUB.c.agent_digest,
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
+    _SUB.c.producer_kind,
 )
 
 
@@ -141,6 +146,7 @@ def _row_to_submission(row: object) -> ActivitySubmission:
         agent_digest=row.agent_digest,  # type: ignore[attr-defined]
         validated_at=row.validated_at,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
+        producer_is_guest=row.producer_kind == _GUEST,  # type: ignore[attr-defined]
     )
 
 
@@ -179,6 +185,7 @@ class ActivitySubmissionRepository:
         retain_until: dt.datetime | None,
         validated_at: dt.datetime | None,
         agent_digest: str | None,
+        producer_is_guest: bool = False,
     ) -> uuid.UUID:
         row = await self._db.execute(
             _SUB.insert()
@@ -187,6 +194,7 @@ class ActivitySubmissionRepository:
                 activity_type_id=activity_type_id,
                 chatroom_id=chatroom_id,
                 producer_user_id=producer_user_id,
+                producer_kind=_GUEST if producer_is_guest else _USER,
                 payload=payload,
                 attempt_no=attempt_no,
                 validation_status=validation_status.value,
@@ -201,6 +209,18 @@ class ActivitySubmissionRepository:
             .returning(_SUB.c.id)
         )
         return uuid.UUID(str(row.scalar_one()))
+
+    async def delete_produced_by_user(self, user_id: uuid.UUID) -> int:
+        """Delete every submission this registered user produced.
+
+        User erasure's other half of the dropped ``ON DELETE CASCADE`` (0098):
+        it also reaches group submissions the user proposed ([R30.41]), exactly
+        as the cascade on ``producer_user_id`` did.
+        """
+        result = await self._db.execute(
+            _SUB.delete().where(sa.and_(_SUB.c.producer_user_id == user_id, _SUB.c.producer_kind == _USER))
+        )
+        return rowcount(result)
 
     async def count_recent_same_error(
         self, *, session_id: uuid.UUID, error_class: str, since: dt.datetime

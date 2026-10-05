@@ -617,6 +617,7 @@ class ActivitiesFacade:
         chatroom_id: uuid.UUID,
         subject_user_id: uuid.UUID,
         caller_user_id: uuid.UUID | None,
+        caller_is_guest: bool = False,
     ) -> ActivitySession:
         return await self._sessions.open_session(
             project_id=project_id,
@@ -624,6 +625,7 @@ class ActivitiesFacade:
             chatroom_id=chatroom_id,
             subject_user_id=subject_user_id,
             caller_user_id=caller_user_id,
+            caller_is_guest=caller_is_guest,
         )
 
     async def close_session(
@@ -660,6 +662,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> ActivitySessionCompletionResult:
         """Set or clear a participant's "I am finished" declaration ([R30.22]).
         The result carries the round, so the route can address its post-commit
@@ -675,7 +678,14 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            caller_is_guest=caller_is_guest,
         )
+
+    async def purge_user_activity_rows(self, user_id: uuid.UUID) -> tuple[int, int]:
+        """Erase a hard-deleted user's sessions and produced submissions,
+        ``(sessions, produced)`` -- what the ``users`` cascades did before 0098.
+        Caller owns commit and runs this before deleting the ``users`` row."""
+        return await self._sessions.purge_user_rows(user_id)
 
     async def get_session_for_round(
         self,
@@ -839,6 +849,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
         """Returns the persisted submission and the pre-built reactive-rules signal
         payload (R30.12); the route enqueues the payload best-effort post-commit."""
@@ -854,6 +865,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            caller_is_guest=caller_is_guest,
         )
 
     async def get_submission(self, submission_id: uuid.UUID) -> ActivitySubmission | None:

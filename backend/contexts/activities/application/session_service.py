@@ -36,6 +36,9 @@ from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
+from contexts.activities.infrastructure.repositories.submission_repo import (
+    ActivitySubmissionRepository,
+)
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from shared_kernel import audit
 
@@ -71,11 +74,14 @@ class ActivitySessionService:
         chatroom_id: uuid.UUID,
         subject_user_id: uuid.UUID,
         caller_user_id: uuid.UUID | None,
+        caller_is_guest: bool = False,
     ) -> ActivitySession:
         """Return this subject's session for the room's live round, opening one if
         none exists. At most one can exist per the (activation, subject) unique, so
         a concurrent open resolves to the same row. ``caller_user_id`` is ``None``
-        for the admin arm; otherwise it must equal ``subject_user_id``."""
+        for the admin arm; otherwise it must equal ``subject_user_id``.
+        ``caller_is_guest`` marks an anonymous guest acting as its own subject,
+        which is recorded as the session's kind ([R30.39])."""
         # Tenant isolation (mirrors SubmissionService.submit): the type must be
         # reachable from the room's project -- its own, or a platform type the
         # project opted into ([R30.33]). Anything else -> NotFound, so a room
@@ -98,7 +104,9 @@ class ActivitySessionService:
             raise ActivityNotActive(str(activity_type_id))
         _ensure_subject_is_caller(subject_user_id, caller_user_id)
 
-        return await self._resolve_for_activation(activation=activation, subject_user_id=subject_user_id)
+        return await self._resolve_for_activation(
+            activation=activation, subject_user_id=subject_user_id, subject_is_guest=caller_is_guest
+        )
 
     async def set_completion(
         self,
@@ -112,6 +120,7 @@ class ActivitySessionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> ActivitySessionCompletionResult:
         """Set or clear this subject's "I am finished" declaration ([R30.22]).
 
@@ -127,7 +136,9 @@ class ActivitySessionService:
         )
         _ensure_subject_is_caller(subject_user_id, caller_user_id)
 
-        session = await self._resolve_for_activation(activation=activation, subject_user_id=subject_user_id)
+        session = await self._resolve_for_activation(
+            activation=activation, subject_user_id=subject_user_id, subject_is_guest=caller_is_guest
+        )
         transitioned = await self._repo.set_completed(session.id, completed=completed)
         if transitioned:
             await audit.emit(
@@ -230,6 +241,18 @@ class ActivitySessionService:
     async def get_session(self, session_id: uuid.UUID) -> ActivitySession | None:
         return await self._repo.get(session_id)
 
+    async def purge_user_rows(self, user_id: uuid.UUID) -> tuple[int, int]:
+        """Erase a hard-deleted user's activity rows: ``(sessions, produced)``.
+
+        Reproduces the ``ON DELETE CASCADE`` that 0098 dropped from both columns:
+        the user's own sessions (their submissions follow by ``session_id``), then
+        whatever else they produced, which is group submissions they proposed.
+        Caller owns commit, and must run this before the ``users`` row goes.
+        """
+        sessions = await self._repo.delete_for_user(user_id)
+        produced = await ActivitySubmissionRepository(self._db).delete_produced_by_user(user_id)
+        return sessions, produced
+
     async def count_for_activation(
         self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID
     ) -> tuple[int, int]:
@@ -292,7 +315,7 @@ class ActivitySessionService:
         return activation
 
     async def _resolve_for_activation(
-        self, *, activation: ActivityActivation, subject_user_id: uuid.UUID
+        self, *, activation: ActivityActivation, subject_user_id: uuid.UUID, subject_is_guest: bool = False
     ) -> ActivitySession:
         """This subject's session for the round, opening one if none exists."""
         existing = await self._repo.get_for_activation(
@@ -305,6 +328,7 @@ class ActivitySessionService:
             chatroom_id=activation.chatroom_id,
             subject_user_id=subject_user_id,
             activation_id=activation.id,
+            subject_is_guest=subject_is_guest,
         )
         if session_id is not None:
             opened = await self._repo.get(session_id)

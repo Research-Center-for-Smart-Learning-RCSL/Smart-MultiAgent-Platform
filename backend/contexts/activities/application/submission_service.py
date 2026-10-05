@@ -37,6 +37,7 @@ from contexts.activities.domain.models import (
     ActivitySession,
     ActivitySubmission,
     ActivityType,
+    SubjectKind,
     ValidationResult,
     ValidationStatus,
     ValidatorKind,
@@ -81,7 +82,10 @@ class SubmissionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        caller_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
+        # ``caller_is_guest``: an anonymous guest is both producer and subject
+        # ([R30.26]), and its id is a guest session's -- recorded in the kinds.
         # Tenant isolation: the type must be reachable from the room's project —
         # its own, or a platform type the project opted into ([R30.33]). Missing,
         # cross-project, or not-opted-in all → NotFound (never leak another
@@ -112,6 +116,7 @@ class SubmissionService:
             activation=activation,
             subject_user_id=subject_user_id,
             session_id=session_id,
+            subject_is_guest=caller_is_guest,
         )
         return await self._record(
             activity_type=activity_type,
@@ -122,6 +127,7 @@ class SubmissionService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            producer_is_guest=caller_is_guest,
         )
 
     async def submit_for_group(
@@ -197,6 +203,7 @@ class SubmissionService:
         actor_ip: str | None,
         request_id: uuid.UUID | None,
         subject_label: str | None = None,
+        producer_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
         """Lock, number, validate, insert, echo and audit one submission.
 
@@ -293,6 +300,7 @@ class SubmissionService:
             retain_until=retain_until,
             validated_at=validated_at,
             agent_digest=agent_digest,
+            producer_is_guest=producer_is_guest,
         )
 
         # Adversarial-review fix: a chat message visible to human participants
@@ -355,6 +363,7 @@ class SubmissionService:
             activity_type_scope=activity_type.scope.value,
             subject_user_id=session.subject_user_id,
             subject_member_group_id=session.subject_member_group_id,
+            subject_kind=session.subject_kind,
             same_error_count=await self._same_error_count(submission, _ROLLING_WINDOW_SECONDS),
             window_seconds=_ROLLING_WINDOW_SECONDS,
         )
@@ -446,6 +455,7 @@ class SubmissionService:
             activity_type_scope=activity_type.scope.value if activity_type is not None else "",
             subject_user_id=session.subject_user_id if session is not None else None,
             subject_member_group_id=session.subject_member_group_id if session is not None else None,
+            subject_kind=session.subject_kind if session is not None else None,
             same_error_count=await self._same_error_count(submission, window_seconds),
             window_seconds=window_seconds,
         )
@@ -467,6 +477,7 @@ class SubmissionService:
         activation: ActivityActivation,
         subject_user_id: uuid.UUID,
         session_id: uuid.UUID | None,
+        subject_is_guest: bool = False,
     ) -> ActivitySession:
         """This subject's session for the round being submitted to (0077).
 
@@ -498,6 +509,7 @@ class SubmissionService:
             chatroom_id=activation.chatroom_id,
             subject_user_id=subject_user_id,
             activation_id=activation.id,
+            subject_is_guest=subject_is_guest,
         )
         if new_id is not None:
             opened = await self._session_repo.get(new_id)
@@ -555,6 +567,7 @@ def _assemble_activity_signal(
     same_error_count: int,
     window_seconds: int,
     subject_member_group_id: uuid.UUID | None = None,
+    subject_kind: SubjectKind | None = None,
 ) -> dict[str, object]:
     """Build the reactive-rules ``activity`` signal payload (R30.12).
 
@@ -576,8 +589,11 @@ def _assemble_activity_signal(
     ``subject_user_id`` as the polymorphic half ([R30.39]). Without the kind, a
     rule reading ``subject_user_id`` on a group submission would see ``None`` and
     have no way to tell "a group answered" from "the session row is gone" -- and
-    the first is now an ordinary event.
+    the first is now an ordinary event. Since 0098 the kind is the session's
+    stored one and can be ``guest``; without a session it is derived as before.
     """
+    if subject_kind is None:
+        subject_kind = SubjectKind.MEMBER_GROUP if subject_member_group_id is not None else SubjectKind.USER
     return {
         "submission_id": str(submission.id),
         "chatroom_id": str(submission.chatroom_id),
@@ -589,7 +605,7 @@ def _assemble_activity_signal(
         "subject_member_group_id": (
             str(subject_member_group_id) if subject_member_group_id is not None else None
         ),
-        "subject_kind": "member_group" if subject_member_group_id is not None else "user",
+        "subject_kind": subject_kind.value,
         "attempt_no": submission.attempt_no,
         "validation_status": submission.validation_status.value,
         "is_valid": submission.is_valid,

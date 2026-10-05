@@ -1012,6 +1012,7 @@ async def set_activity_session_completion(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        caller_is_guest=principal.is_guest,
     )
     await db.commit()
     if result.transitioned:
@@ -1081,6 +1082,7 @@ async def open_activity_session(
         chatroom_id=chatroom_id,
         subject_user_id=body.subject_user_id or principal.user_id,
         caller_user_id=None if principal.is_admin else principal.user_id,
+        caller_is_guest=principal.is_guest,
     )
     await db.commit()
     return _session_out(session)
@@ -1139,6 +1141,7 @@ async def submit_activity(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        caller_is_guest=principal.is_guest,
     )
     # Durable-commit before dispatch (mirrors send_message): the client refetch
     # and the validation worker must see the committed rows.

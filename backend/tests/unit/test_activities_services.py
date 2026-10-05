@@ -1142,6 +1142,7 @@ class TestSubmitSessionResolution:
             chatroom_id=session.chatroom_id,
             subject_user_id=session.subject_user_id,
             activation_id=activation.id,
+            subject_is_guest=False,
         )
 
     async def test_answering_again_retracts_a_completion_declaration(self) -> None:
@@ -2142,11 +2143,11 @@ class TestSubmitSubjectAuthz:
 class TestGuestSubmission:
     """Guest sessions use ephemeral UUIDs not present in the users table.
 
-    Before migration 0096 dropped the FK on audit_logs.actor_user_id, a guest
-    submission crashed with an IntegrityError.  The unit tier mocks the DB so it
-    cannot catch FK violations directly, but it pins that the submission path
-    accepts a guest-shaped principal (arbitrary UUID for all identity fields)
-    and that audit.emit receives that UUID as actor_user_id.
+    The unit tier mocks the DB, so it cannot see a foreign-key violation; the
+    real proof is ``tests/integration/test_guest_identity_writes_db.py``, which
+    caught the activity-table FKs this class once implied were fine. What this
+    pins is the wiring: a guest caller's id reaches the insert and the audit
+    actor, and ``caller_is_guest`` reaches the stored producer kind (0098).
     """
 
     def teardown_method(self) -> None:
@@ -2165,7 +2166,8 @@ class TestGuestSubmission:
             id=uuid.uuid4(),
             chatroom_id=chatroom_id,
             activity_type_id=activity_type.id,
-            started_by_user_id=guest_id,
+            # A round is always started by a registered user; only the subject is a guest.
+            started_by_user_id=uuid.uuid4(),
             status=ActivationStatus.ACTIVE,
             created_at=_NOW,
         )
@@ -2174,6 +2176,7 @@ class TestGuestSubmission:
             activity_type_id=activity_type.id,
             chatroom_id=chatroom_id,
             subject_user_id=guest_id,
+            subject_is_guest=True,
             status=SessionStatus.OPEN,
             created_at=_NOW,
             activation_id=activation.id,
@@ -2228,11 +2231,13 @@ class TestGuestSubmission:
                 payload={"answer": "guest answer"},
                 actor_user_id=guest_id,
                 actor_ip=None,
+                caller_is_guest=True,
             )
 
         sub_repo.insert.assert_awaited_once()
         insert_kwargs = sub_repo.insert.await_args.kwargs
         assert insert_kwargs["producer_user_id"] == guest_id
+        assert insert_kwargs["producer_is_guest"] is True
 
         audit_emit.assert_awaited()
         audit_event = audit_emit.await_args.args[1]

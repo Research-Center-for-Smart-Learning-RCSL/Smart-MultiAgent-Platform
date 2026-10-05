@@ -505,6 +505,11 @@ class AdminService:
         await self._db.execute(
             _message_edits.delete().where(_message_edits.c.edited_by_user_id == target_user_id)
         )
+        # The activity columns lost their `users` cascade so they can hold guest
+        # ids (0098); the erasure they performed is done explicitly instead.
+        from contexts.activities.interfaces.facade import ActivitiesFacade
+
+        await ActivitiesFacade(self._db).purge_user_activity_rows(target_user_id)
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
             self._db,
