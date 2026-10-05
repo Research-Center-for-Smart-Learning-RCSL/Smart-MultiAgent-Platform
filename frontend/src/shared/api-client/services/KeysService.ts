@@ -53,11 +53,10 @@ export class KeysService {
      * Upload a new provider key (§7.2 flow).
      *
      * AuthZ: KEY_UPLOAD is granted to any role carrying a user scope (§5.2 #2).
-     * There is no path-param scope here; we still run the decision through the
-     * matrix so admin-bypass + email-verification policy apply uniformly. The
-     * matrix row accepts any non-guest role, so we only need the principal to
-     * have *some* role — i.e. be a logged-in user. The `current_principal`
-     * dependency already enforces that.
+     * There is no path-param scope here and no matrix decision runs; the only
+     * requirement is a registered account, which `require_registered_principal`
+     * enforces -- an anonymous guest token would otherwise reach the provider
+     * probe and Vault encryption before its id failed the owner foreign key.
      * @returns KeyOut Successful Response
      * @throws ApiError
      */

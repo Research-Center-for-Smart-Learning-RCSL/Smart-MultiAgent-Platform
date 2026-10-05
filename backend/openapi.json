@@ -24235,7 +24235,7 @@
         ]
       },
       "post": {
-        "description": "Upload a new provider key (\u00a77.2 flow).\n\nAuthZ: KEY_UPLOAD is granted to any role carrying a user scope (\u00a75.2 #2).\nThere is no path-param scope here; we still run the decision through the\nmatrix so admin-bypass + email-verification policy apply uniformly. The\nmatrix row accepts any non-guest role, so we only need the principal to\nhave *some* role \u2014 i.e. be a logged-in user. The `current_principal`\ndependency already enforces that.",
+        "description": "Upload a new provider key (\u00a77.2 flow).\n\nAuthZ: KEY_UPLOAD is granted to any role carrying a user scope (\u00a75.2 #2).\nThere is no path-param scope here and no matrix decision runs; the only\nrequirement is a registered account, which `require_registered_principal`\nenforces -- an anonymous guest token would otherwise reach the provider\nprobe and Vault encryption before its id failed the owner foreign key.",
         "operationId": "upload_key_api_keys_post",
         "requestBody": {
           "content": {
