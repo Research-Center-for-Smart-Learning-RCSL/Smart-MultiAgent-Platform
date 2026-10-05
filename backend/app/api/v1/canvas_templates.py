@@ -10,12 +10,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import assert_project_membership
 from contexts.canvas.application.template_service import (
     CanvasNotEmpty,
     TemplateDataTooLarge,
     TooManyTemplateObjects,
 )
-from contexts.canvas.domain.models import CanvasObjectKind, CanvasTemplateScope
+from contexts.canvas.domain.models import CanvasObjectKind, CanvasTemplate, CanvasTemplateScope
 from contexts.canvas.interfaces.facade import CanvasFacade
 from contexts.conversation.application.access import (
     ensure_can_send,
@@ -124,6 +125,26 @@ async def _ensure_project_moderator(
         )
 
 
+_TEMPLATE_NOT_FOUND = "Template not found"
+
+
+async def _can_read_template(principal: Principal, template: CanvasTemplate, db: AsyncSession) -> bool:
+    """[R13.59]: platform templates for every principal, project templates for the
+    project's members. The one readability rule get, delete and apply share, so a
+    template refused on one route cannot be reached through another (audit F-12)."""
+    if principal.is_admin or template.scope is CanvasTemplateScope.PLATFORM:
+        return True
+    if template.project_id is None:
+        return False
+    resolver = TenancyRoleResolver(db)
+    return bool(await resolver.roles_for(principal, Scope(project_id=template.project_id)))
+
+
+def _template_not_found() -> HTTPException:
+    # Byte-identical for an unknown id and for a template the caller may not read.
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_TEMPLATE_NOT_FOUND)
+
+
 # ---- Template CRUD ----------------------------------------------------------
 
 
@@ -143,14 +164,15 @@ async def list_templates(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid scope: {scope}",
             ) from exc
-    if project_id is not None and not principal.is_admin:
-        resolver = TenancyRoleResolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-        if not roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not a project member",
-            )
+    if scope_enum is CanvasTemplateScope.PROJECT and project_id is None:
+        # Project templates are listed one project at a time, behind that project's
+        # membership; there is no cross-project listing (audit F-12).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="project_id is required for scope=project",
+        )
+    if project_id is not None:
+        await assert_project_membership(db=db, principal=principal, project_id=project_id)
 
     facade = CanvasFacade(db)
     templates = await facade.list_templates(scope=scope_enum, project_id=project_id)
@@ -165,15 +187,8 @@ async def get_template(
 ) -> TemplateDetailOut:
     facade = CanvasFacade(db)
     template = await facade.get_template(template_id)
-    if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
-    if template.scope == CanvasTemplateScope.PROJECT and template.project_id and not principal.is_admin:
-        resolver = TenancyRoleResolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=template.project_id))
-        if not roles:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
+    if template is None or not await _can_read_template(principal, template, db):
+        raise _template_not_found()
     return TemplateDetailOut.from_domain(template)
 
 
@@ -221,8 +236,8 @@ async def delete_template(
 ) -> None:
     facade = CanvasFacade(db)
     template = await facade.get_template(template_id)
-    if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if template is None or not await _can_read_template(principal, template, db):
+        raise _template_not_found()
 
     if template.scope == CanvasTemplateScope.PLATFORM:
         raise HTTPException(
@@ -258,6 +273,18 @@ async def apply_template(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
+    # Applying copies the template onto a canvas the caller reads, so it needs read
+    # access to the template itself, not only write access to the room. A project
+    # template must belong to the room's project, where `access.roles` already holds the
+    # caller's roles; a guest holds none and gets platform templates only.
+    template = await facade.get_template(body.template_id)
+    readable = template is not None and (
+        principal.is_admin
+        or template.scope is CanvasTemplateScope.PLATFORM
+        or (template.project_id == access.project_id and bool(access.roles))
+    )
+    if not readable:
+        raise _template_not_found()
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     try:
         result = await facade.apply_template(
@@ -268,6 +295,7 @@ async def apply_template(
             actor_ip=ctx.actor_ip,
             actor_guest_id=principal.user_id if principal.is_guest else None,
             request_id=ctx.request_id,
+            room_project_id=access.project_id,
         )
     except CanvasNotEmpty as exc:
         raise HTTPException(
