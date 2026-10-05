@@ -415,6 +415,17 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   unticked (code complete, need running stack for WS/browser verification).
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+### From the 2026-10-05 guest and dashboard audits
+
+- `2026-10-05-guest-identity-foreign-keys` (bugfix, **draft**) - `depends_on: []`. Fixes audit
+  F-1, F-2, F-23 and F-25 of `docs/audits/2026-10-05-guest-anonymous-session/findings.md`: guest
+  activity writes and attachment uploads fail on foreign keys to `users`, and three registered-only
+  endpoints accept guest principals. Drops three FKs, adds stored `subject_kind`/`producer_kind`
+  discriminators, preserves hard-delete erasure explicitly, and adds `require_registered_principal`.
+  Carries an SRS delta to [R30.39]. **Build this first among the 2026-10-05 dossiers**: the planned
+  `guest-room-read-and-identity` and `research-export-data-shape` dossiers consume `subject_kind`
+  and should list this slug in `depends_on`. Its db-tier tests only run in CI's `backend-db` job.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
