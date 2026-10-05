@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.application.access import visible_room_ids
 from contexts.conversation.application.guest_session_service import (
     GuestRefreshResult,
+    GuestRenameResult,
     GuestSessionResult,
 )
 from contexts.conversation.domain.models import (
@@ -353,7 +354,7 @@ class ConversationFacade:
         *,
         guest_session_id: uuid.UUID,
         display_name: str,
-    ) -> str:
+    ) -> GuestRenameResult:
         from contexts.conversation.application.guest_session_service import GuestSessionService
 
         return await GuestSessionService(self._db).update_display_name(

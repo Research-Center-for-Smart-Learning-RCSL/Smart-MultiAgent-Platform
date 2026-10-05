@@ -40,6 +40,16 @@ class GuestSessionResult:
     guest_session_id: uuid.UUID
     display_name: str
     is_resuming: bool
+    # A new session, or a resume that changed the stored name: other viewers'
+    # rosters are now stale. False for a plain resume, which changes nothing they
+    # can see -- the route emits only on True, since it is public.
+    roster_changed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class GuestRenameResult:
+    display_name: str
+    changed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,8 +70,9 @@ class GuestSessionService:
         *,
         guest_session_id: uuid.UUID,
         display_name: str,
-    ) -> str:
-        """Validate and persist a new display name. Returns the normalised name."""
+    ) -> GuestRenameResult:
+        """Validate and persist a new display name; returns the stored (normalised)
+        name and whether it differs from the one it replaced."""
         normalised = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
         if normalised is None:
             raise GuestTokenInvalid(str(guest_session_id))
@@ -69,8 +80,10 @@ class GuestSessionService:
         session = await self._sessions.find_by_id(guest_session_id)
         if session is None:
             raise GuestTokenInvalid(str(guest_session_id))
-        await self._sessions.update_display_name(guest_session_id, display_name)
-        return display_name
+        changed = session.display_name != display_name
+        if changed:
+            await self._sessions.update_display_name(guest_session_id, display_name)
+        return GuestRenameResult(display_name=display_name, changed=changed)
 
     async def create_or_resume(
         self,
@@ -98,7 +111,8 @@ class GuestSessionService:
         if browser_id:
             existing = await self._sessions.find_by_browser_id(chatroom_id=chatroom_id, browser_id=browser_id)
             if existing:
-                if existing.display_name != display_name:
+                renamed = existing.display_name != display_name
+                if renamed:
                     await self._sessions.update_display_name(existing.id, display_name)
                 await self._sessions.update_last_seen(existing.id)
 
@@ -134,6 +148,7 @@ class GuestSessionService:
                     guest_session_id=existing.id,
                     display_name=display_name,
                     is_resuming=True,
+                    roster_changed=renamed,
                 )
 
         settings = get_settings()
@@ -179,6 +194,7 @@ class GuestSessionService:
             guest_session_id=session.id,
             display_name=display_name,
             is_resuming=False,
+            roster_changed=True,
         )
 
     async def refresh(

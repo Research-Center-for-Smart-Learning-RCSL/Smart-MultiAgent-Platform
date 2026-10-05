@@ -235,3 +235,53 @@ async def test_refresh_returns_new_tokens(service: GuestSessionService) -> None:
     assert result.access_token == "new-jwt"
     assert result.refresh_token == "new-refresh"
     assert result.guest_session_id == existing.id
+
+
+# -- guest-room-read-and-identity AC-4: roster changes are reported --
+
+
+@pytest.mark.asyncio
+async def test_a_new_session_and_a_renaming_resume_change_the_roster(service: GuestSessionService) -> None:
+    cr_id = uuid.uuid4()
+    room = _fake_room(chatroom_id=cr_id)
+    existing = _fake_session(chatroom_id=cr_id, browser_id="br-1", display_name="Alice")
+
+    with (
+        patch.object(service, "_rooms") as rooms,
+        patch.object(service, "_sessions") as sessions,
+        patch("contexts.conversation.application.guest_session_service.sign_guest_token") as sign,
+        patch("contexts.conversation.application.guest_session_service.audit") as mock_audit,
+    ):
+        rooms.get = AsyncMock(return_value=room)
+        sessions.find_by_browser_id = AsyncMock(return_value=existing)
+        sessions.update_last_seen = AsyncMock()
+        sessions.update_refresh_hash = AsyncMock()
+        sessions.update_display_name = AsyncMock()
+        mock_audit.emit = AsyncMock()
+        sign.return_value = ("jwt-token", MagicMock())
+
+        same = await service.create_or_resume(
+            chatroom_id=cr_id, guest_token="correct-token", display_name="Alice", browser_id="br-1"
+        )
+        renamed = await service.create_or_resume(
+            chatroom_id=cr_id, guest_token="correct-token", display_name="Alicia", browser_id="br-1"
+        )
+
+    assert same.roster_changed is False
+    assert renamed.roster_changed is True
+
+
+@pytest.mark.asyncio
+async def test_rename_reports_whether_the_stored_name_changed(service: GuestSessionService) -> None:
+    session = _fake_session(display_name="Alice")
+
+    with patch.object(service, "_sessions") as sessions:
+        sessions.find_by_id = AsyncMock(return_value=session)
+        sessions.update_display_name = AsyncMock()
+
+        unchanged = await service.update_display_name(guest_session_id=session.id, display_name="  Alice ")
+        changed = await service.update_display_name(guest_session_id=session.id, display_name="Bob")
+
+    assert (unchanged.display_name, unchanged.changed) == ("Alice", False)
+    assert (changed.display_name, changed.changed) == ("Bob", True)
+    sessions.update_display_name.assert_awaited_once_with(session.id, "Bob")
