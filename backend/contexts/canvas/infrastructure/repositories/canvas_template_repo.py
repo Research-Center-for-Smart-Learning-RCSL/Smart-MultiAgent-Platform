@@ -48,7 +48,9 @@ class CanvasTemplateRepository:
                     t.canvas_templates.c.project_id == project_id,
                 )
             )
-        elif scope is None:
+        else:
+            # No project named, no project templates: a scope filter alone must never widen to
+            # every project's templates across tenants (audit F-12).
             conditions.append(t.canvas_templates.c.scope == CanvasTemplateScope.PLATFORM.value)
 
         rows = (

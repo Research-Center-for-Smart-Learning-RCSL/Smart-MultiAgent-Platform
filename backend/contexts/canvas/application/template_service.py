@@ -164,9 +164,16 @@ class CanvasTemplateService:
         actor_ip: str | None = None,
         actor_guest_id: uuid.UUID | None = None,
         request_id: uuid.UUID | None = None,
+        room_project_id: uuid.UUID,
     ) -> dict[str, Any]:
         template = await self._template_repo.get(template_id)
-        if template is None:
+        # A project template is applied only into a room of its own project, and a refusal is
+        # indistinguishable from an unknown id; applying copies its content onto a canvas the
+        # caller can read, so it must not cross a tenant boundary ([R13.59]). Required, not
+        # defaulted, so no caller can skip it.
+        if template is None or (
+            template.scope is CanvasTemplateScope.PROJECT and template.project_id != room_project_id
+        ):
             raise ValueError("Template not found")
 
         if "elements" in template.template_data:

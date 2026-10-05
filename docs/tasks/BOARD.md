@@ -442,11 +442,11 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
   (Blocked) when implemented.
 
-- `2026-10-05-canvas-template-tenant-scope` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
-  Audit F-12, a cross-tenant read: `GET /api/canvas-templates?scope=project` without `project_id`
-  returns every project's templates to any principal (guests included), and apply copies any
-  template into any writable room. One [R13.59] readability rule for list, get, apply and delete;
-  unreadable answers the unknown-id 404. Recommended first of the remaining guest-audit dossiers.
+- (implemented 2026-10-05) `2026-10-05-canvas-template-tenant-scope`. AC-1..AC-5 verified on PR #230
+  (CI green at `c71c13ca`, db tier included). One [R13.59] readability rule for list, get, delete and
+  apply, plus a required room-project binding in the apply service. Deviations D-1..D-3 (notably the
+  rule lives in the route module) and FU-1..FU-5 (notably an unbounded template list query) are in
+  the dossier. Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - `2026-10-05-chat-export-guest-narrowing` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
   Audit F-11: the narrowed (member) chat export keeps every non-`user` sender, so guest messages,
