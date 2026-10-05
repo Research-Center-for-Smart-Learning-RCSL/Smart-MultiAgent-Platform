@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R13.44, R13.59, R13.60, R13.61]
 depends_on: []
@@ -135,14 +135,14 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: no request shape returns a project template to a caller without a role in that project
+- [x] AC-1: no request shape returns a project template to a caller without a role in that project
   (platform admins excepted); `scope=project` without `project_id` is a 422.
-- [ ] AC-2: applying a template into a room succeeds only for platform templates, or for a template of
+- [x] AC-2: applying a template into a room succeeds only for platform templates, or for a template of
   the room's own project applied by a caller with a role in it; otherwise the response is identical
   to an unknown template id.
-- [ ] AC-3: deleting a template the caller cannot read answers 404.
-- [ ] AC-4: guests can list, read and apply platform templates into their own room, and nothing else.
-- [ ] AC-5: backend lint, typecheck and tests, including the db tier, pass in CI.
+- [x] AC-3: deleting a template the caller cannot read answers 404.
+- [x] AC-4: guests can list, read and apply platform templates into their own room, and nothing else.
+- [x] AC-5: backend lint, typecheck and tests, including the db tier, pass in CI.
 
 ## 11. SRS Delta
 
@@ -152,6 +152,20 @@ None. [R13.59] already states the rule.
 
 Appended by /build.
 
+- **D-1.** The readability rule (`_can_read_template`) lives in the route module, not the canvas
+  application layer as §7 proposed (agreed with the requester before implementation): every existing
+  template check was already in the route, and the rule needs the principal and the tenancy role
+  resolver, which would have given the canvas context a new dependency on tenancy. Get, delete and
+  apply all call it; the service separately binds a project template to the room's project.
+- **D-2.** Beyond §7, from the gate-5 and gate-6 audits: the service's `room_project_id` is a required
+  argument rather than an optional one, so no future caller can skip the project binding; the
+  delete route's post-commit not-found (a concurrent delete) now answers the same body as an unknown
+  id. One consequence worth knowing: a platform admin can read and delete any project template, but
+  cannot apply one into a room of a different project, which matches AC-2.
+- **D-3.** Fail-first was observed locally for the route and service tests (4 route and 2 service
+  failures at `65afb20b`, for the documented reasons). The db-tier test was not observed failing,
+  because there is no local PostgreSQL and CI ran it only after the fix; its assertion is the same
+  repository behavior the route tests pin, and it passes in CI at `c71c13ca`.
 ## 13. Follow-ups
 
 - **FU-1.** Legacy `objects`-shape templates, including all seeded platform templates, refuse a
@@ -159,3 +173,14 @@ Appended by /build.
   (`template_service.py:210-240`).
 - **FU-2.** Run `check-security` over the whole canvas surface (audit FU-2), including the unmounted
   picker's API helpers.
+- **FU-3.** (Security audit, MEDIUM, pre-existing.) `list_templates` has no limit and selects full rows
+  including `template_data` (up to 500 KB each), and no per-project template cap exists, so a
+  project moderator can make every listing of that project load all its templates into memory.
+  Paginate or cap, and leave `template_data` out of the list query.
+- **FU-4.** (Quality audit, pre-existing.) `canvas_templates.py` imports below facade level
+  (`canvas.application.template_service` for exceptions, `conversation.application.access`,
+  `conversation.infrastructure.channels`); and the apply route maps any `ValueError` to 404 with the
+  exception text, so a relay error would read as "not found". Introduce a domain `TemplateNotFound`
+  and re-export through the facades.
+- **FU-5.** Test gap: the apply route tests stub `resolve_room_access`; no test exercises the real
+  access path for a registered chatroom guest or an org member applying a project template.
