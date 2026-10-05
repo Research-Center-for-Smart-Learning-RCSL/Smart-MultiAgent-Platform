@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import { SButton, SDraftDisclosureChip, SEmptyState, SLoadingSpinner, SSelect } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
+import { isGuestSession } from '@shared/transport'
 import {
   endActivation,
   getActiveActivation,
@@ -44,6 +45,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const { isPolicyRefusal, refusedFieldLabel } = usePolicyRefusal()
 const session = useSessionStore()
+// An anonymous guest has no `session.me` but is a full participant ([R30.26]).
+const canDeclareDone = computed(() => !!session.me?.id || isGuestSession.value)
 const store = useActivitiesStore()
 const types = ref<ActivityType[]>([])
 const selectedTypeId = ref<string | null>(null)
@@ -482,7 +485,7 @@ onBeforeUnmount(() => {
         <SButton
           variant="secondary"
           :loading="actionPending"
-          :disabled="!session.me?.id"
+          :disabled="!canDeclareDone"
           @click="toggleCompleted"
         >
           {{ completed ? t('activities.panel.markDoneUndo') : t('activities.panel.markDone') }}
