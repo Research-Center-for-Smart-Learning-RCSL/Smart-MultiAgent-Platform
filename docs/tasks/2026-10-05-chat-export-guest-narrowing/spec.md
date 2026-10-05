@@ -19,7 +19,7 @@ narrowed export keeps instead of the one it drops.
 
 ## 2. Observed vs Expected
 
-- **Observed.** `MessageRepository.list_for_export` narrows with
+- **Observed.** `MessageRepository.all_for_chatroom` (`message_repo.py:317-361`, called by the export service at `chat_export_service.py:113-119`) narrows with
   `sender_type != 'user' OR sender_id = own_user_id`
   (`backend/contexts/conversation/infrastructure/repositories/message_repo.py:346-352`); its docstring
   equates "non-user" with "agent, system" (`:335-337`). `SenderType.GUEST` was added on 2026-09-04
@@ -72,7 +72,7 @@ text instead of the outcome.
 
 ## 7. Fix Design
 
-- `message_repo.py` `list_for_export`: replace the narrowing with
+- `message_repo.py` `all_for_chatroom`: replace the narrowing with
   `sender_type IN ('agent', 'system') OR sender_id = own_user_id`, built from `SenderType` members, and
   correct the docstring. The caller is never a guest (row 19's guest cell is `✗`,
   `backend/contexts/conversation/application/access.py:466-472`), and session ids and user ids are
@@ -94,7 +94,7 @@ Written first, failing against current code:
 
 1. db tier (`pytest -m db`), new test in `backend/tests/integration/`: a room with a user message by
    the caller, one by another member, one guest message with an attachment, one agent and one system
-   message; `list_for_export(own_user_id=caller)` returns exactly the caller's, the agent's and the
+   message; `all_for_chatroom(own_user_id=caller)` returns exactly the caller's, the agent's and the
    system message; with `own_user_id=None` it returns all five.
 2. Unit: `test_export_authz.py:143` updated to the positive predicate.
 3. Service level: a narrowed `ChatExportService` run over the same seed serialises no guest content

@@ -122,7 +122,13 @@ guest's in-flight request that has already passed the check completes.
     refuses a banned `browser_id` with `GuestRemoved` after the link-token check, and treats a revoked
     but unbanned session found by `browser_id` as absent, creating a fresh session; `refresh` refuses a
     revoked session after the cookie match (session-lifecycle ordering); `unban(ban_id)` deletes the row.
-  - Socket `authorize` outcome (hardening §7.3) gains `removed`, closed with 4408 after accept.
+  - The [R13.06a] active-guest count (`count_active`) excludes revoked sessions, so repeatedly removing
+    a guest who rejoins cannot fill the room's cap with dead rows for 24 hours.
+  - The hardening dossier's shared mapping from access exceptions to the socket `authorize` outcome
+    gains `removed` (from `GuestRemoved`), closed with 4408 after accept, on **both** the chat socket
+    and the canvas socket (`backend/app/api/ws/canvas.py:109,277`), at the handshake and in each
+    watchdog. Without it the canvas socket would treat `GuestRemoved` as an unexpected error and keep a
+    removed guest's CRDT session open.
   - Routes (all gated by row 18 through `outcome_for(Capability.GUEST_LINK_MANAGE, role)` on the room's
     resolved roles, admins included): `POST /api/chatrooms/{id}/guests/{guest_session_id}/remove`
     (body `{ban: bool}`), `GET /api/chatrooms/{id}/guest-bans`, `DELETE /api/chatrooms/{id}/guest-bans/{ban_id}`,
@@ -137,12 +143,16 @@ guest's in-flight request that has already passed the check completes.
 - **Frontend** (`slices/conversation`)
   - Transport `guestSessionEnd` (session-lifecycle §7.1) gains `'removed'`, set by the
     `conversation/guest-removed` problem type, a 4408 close, or a `chatroom.guest_removed` event naming
-    this tab's session.
+    this tab's session. The boot restore (`resumeGuestSession`, session-lifecycle §7.1 as amended)
+    records `'removed'` for that problem type like its other end reasons, so a removed or banned guest
+    who reloads lands on the room's removed banner rather than `/login`.
   - `ChatroomView.vue`: removed banner (no Rejoin), composer disabled, socket closed deliberately.
   - Moderator actions ("Remove guest", "Ban guest", each through `useConfirmDialog`) on guest message
     bubbles (`ChatroomMessageBubble.vue` hover actions, `:191-221`) and on guest rows of
-    `ChatroomPresence.vue` (roster `kind` from the sender-marking dossier), shown when
-    `ChatroomOut.is_moderator` is true.
+    `ChatroomPresence.vue`, shown when `ChatroomOut.is_moderator` is true. On presence rows they appear
+    only for roster `kind: "guest_session"` (sender-marking dossier), never for `room_guest`, which is a
+    registered guest this dossier does not remove (Q-6); on message bubbles only for
+    `sender_type === 'guest'`.
   - `ChatroomSettingsView.vue`: "Rotate link" next to the guest link (with a confirm explaining that
     the old link stops working and joined guests stay); a "Banned guests" list with unban.
   - `GuestLandingView.vue`: `conversation/guest-removed` shows a "You cannot join this room" state with
@@ -198,8 +208,9 @@ guest's in-flight request that has already passed the check completes.
   refused with `conversation/guest-removed`, open sockets close within one watchdog interval (4408), and
   the guest's client shows the removed banner immediately on the room event.
 - [ ] AC-2: a removed but unbanned guest can rejoin through the link as a new session.
-- [ ] AC-3: a banned guest cannot rejoin from the same browser (reload, new tab, or the link again) until
-  unbanned; the landing page shows the cannot-join state.
+- [ ] AC-3: a banned guest cannot rejoin from the same browser until unbanned: a reload or new tab lands
+  on the room's removed banner, and opening the link again shows the landing page's cannot-join state.
+- [ ] AC-3a: removed sessions do not count toward the per-room guest cap.
 - [ ] AC-4: bans survive the 30-day guest-session purge and appear in room settings; unban restores
   joining.
 - [ ] AC-5: rotating the guest link makes the old link refuse new entries while joined guests keep
@@ -222,7 +233,11 @@ guest's in-flight request that has already passed the check completes.
 - Frontend component: moderator actions shown only to moderators and only on guests; removed banner on
   the problem type, the close code and the event; settings ban list and unban; rotate confirm.
 - e2e (`frontend/e2e/26-guest-session-lifecycle.spec.ts` extended): owner removes a connected guest, the
-  guest sees the banner; owner bans, the guest's reload lands on the cannot-join state.
+  guest sees the banner; owner bans, the guest's reload lands on the removed banner and reopening the
+  link lands on the cannot-join state.
+- Unit: the canvas socket closes 4408 for a removed guest at the handshake and from its watchdog; a
+  removed guest's revoked row is not counted by `count_active`; presence actions are absent on
+  `room_guest` rows.
 
 ## 13. SRS Delta
 
@@ -255,6 +270,10 @@ Add after [R13.07]:
 ## 14. Open Questions
 
 None.
+
+Amended 2026-10-05 after review (before any build): cap counting excludes revoked sessions, the
+removed outcome covers the canvas socket, reload of a removed guest lands on the room banner, and
+presence actions target `guest_session` rows only.
 
 ## 15. Deviation Log
 

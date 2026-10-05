@@ -98,7 +98,7 @@ in `axios.ts`, `guests.py` and `ChatroomView.vue` since it was written, with no 
 | Q-5 | How is an invisible-only name reported? | New problem type `conversation/guest-display-name-invalid` (422) from `create_or_resume` and `update_display_name` when `normalise_label` yields nothing; the landing form mirrors the rule client-side and shows a field error on either signal. | Backend stays authoritative (the same rule labels agent prompts, [R13.34]); the client mirror avoids a round trip in the common case. |
 | Q-6 | Which failures end a guest session on the client? | Only a refresh that receives a response (expired, rotated, missing cookie: 404; disabled: 403). A refresh that gets no response keeps the token and the context and is retried by the existing schedulers. | A laptop waking before Wi-Fi returns must not lose a valid 7-day cookie (F-8). The user refresh path keeps today's behavior (FU-1). |
 | Q-7 | Where does the guest context get cleared? | Whenever a user token is applied (`applyTokens`, so `login` and Google completion) and in `session.clear()`; also replaced by the landing page on a new guest entry. Not cleared when a guest session ends, so the room can still show why. | Ties the context to the token it belongs to (F-9). Identity already imports `@shared/transport`, so no boundary moves. |
-| Q-8 | Does this depend on another dossier? | `depends_on: [2026-10-05-guest-room-read-and-identity]` (implemented). `2026-10-05-guest-session-backend-hardening` is not yet written; it overlaps `guest_session_service.py` (F-15, F-16, F-21) and `ws/chatroom.py:77` (F-16), so it should list this dossier in its `depends_on`. | The prerequisite added `guestSessionId`, `viewerId` and the guest header gating this design builds on, and edited the same `ChatroomView.vue` regions. Ordering the hardening dossier after this one keeps the shared error-type change in one place. |
+| Q-8 | Does this depend on another dossier? | `depends_on: [2026-10-05-guest-room-read-and-identity]` (implemented). `2026-10-05-guest-session-backend-hardening`, which overlaps `guest_session_service.py` (F-15, F-16, F-21) and `ws/chatroom.py:77` (F-16), lists this dossier in its `depends_on` (written and approved 2026-10-05). | The prerequisite added `guestSessionId`, `viewerId` and the guest header gating this design builds on, and edited the same `ChatroomView.vue` regions. Ordering the hardening dossier after this one keeps the shared error-type change in one place. |
 
 ## 4. Reproduction
 
@@ -178,9 +178,17 @@ Preconditions: a room with guest links on, its guest link, and one browser.
   `guestSessionEnd` to `'disabled'` for problem type `conversation/guest-access-disabled`, otherwise
   `'expired'`; it keeps the guest context. A failure without a response (`!error.response`) keeps the
   token and returns false. The user branch is unchanged.
-- New `resumeGuestSession(chatroomId): Promise<'resumed' | 'none' | 'offline'>` for boot: sets the
-  context, runs the guest refresh, and on anything but success clears the context again. It does not
-  set `guestSessionEnd` (a stale hint at boot is not a session ending).
+- New `resumeGuestSession(chatroomId): Promise<'resumed' | 'ended' | 'offline'>` for boot: sets the
+  context and runs the guest refresh. Success restores the token. A failure **with** a response keeps
+  the context and records the end reason exactly as `attemptRefresh` does (`'disabled'` for
+  `conversation/guest-access-disabled`, otherwise `'expired'`), so the room renders the matching
+  banner instead of the guard sending the guest to `/login`; on `'expired'` the room's guest hint is
+  removed, so the banner is shown once and a later reload falls through to the normal sign-in path. A
+  failure **without** a response keeps the context with no end reason (`'offline'`, per Q-6): the room
+  shows its reconnecting state and retries `resumeGuestSession` on the browser's `online` event and
+  with the transport's backoff until it resumes or gets a response. (Amended 2026-10-05 after review:
+  the approved text cleared the context on every failure, which sent an offline guest to `/login`
+  against Q-6 and AC-1.)
 - A response interceptor maps problem type `conversation/guest-access-disabled` on any guest-context
   request (the ticket route included) to `guestSessionEnd = 'disabled'`.
 
@@ -190,6 +198,10 @@ Preconditions: a room with guest links on, its guest link, and one browser.
   `restoreGuestSession(location.pathname)` exported from `@slices/conversation`. It matches
   `/chatrooms/:id` or `/c/:id`, canonicalises the id, checks the guest hint, and calls
   `resumeGuestSession`. The router installs only after it settles, so the guard sees the guest token.
+- `router.ts` guard context: `hasGuestSession` is true while a guest token is held **or** a guest
+  context is set for the target room, so a guest whose boot restore ended or is offline still reaches
+  the room, where the banner or the reconnecting state explains what happened. The expired banner
+  shown after a reload also offers a sign-in link for visitors who hold an account.
 - `session.hydrate`: skip while a guest context is set (not only while a guest token is held), so a
   focus re-hydrate cannot wipe an ended guest session's room or swap in a user session mid-guest-session
   (which Q-3 makes possible, because the account cookie survives).
@@ -300,12 +312,15 @@ Written first, failing against current code:
 
 1. `shared/transport/__tests__/axios.spec.ts`: guest refresh URL uses the canonical id; a network
    failure keeps the token and context; a 404 sets `guestSessionEnd = 'expired'` and keeps the
-   context; a 403 `guest-access-disabled` sets `'disabled'`; `resumeGuestSession` clears the context
-   on failure.
+   context; a 403 `guest-access-disabled` sets `'disabled'`; `resumeGuestSession` keeps the context on
+   every failure, records `'expired'` or `'disabled'` for a response, and records nothing for a
+   network failure.
 2. Identity session store (new test file): `applyTokens` and `clear` clear the guest context;
    `hydrate` is skipped under a guest context with a null token.
 3. `app/__tests__`: boot restore (`restoreGuestSession`) resumes for `/chatrooms/:id` and `/c/:id`
-   with a hint, does nothing without one, and runs only when the user refresh failed.
+   with a hint, does nothing without one, and runs only when the user refresh failed; a boot refresh
+   answered 404 lands on the room's expired banner (not `/login`) and removes the hint; a boot refresh
+   with no network lands on the room's reconnecting state and resumes when the network returns.
 4. `GuestLandingView.test.ts`: confirm then `session.clear()` before entering as a guest; invalid-name
    422 and a zero-width name return to the form with a field error; 403 disabled shows the disabled
    state; Retry after a failed resume and after a failed own-account choice replays that action.
@@ -338,8 +353,9 @@ Written first, failing against current code:
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: a guest who reloads the room, or opens it in a new tab via `/chatrooms/:id` or `/c/:id`,
-  stays in the room as the same guest session while the refresh cookie is valid; a signed-in user's
-  reload is unaffected.
+  stays in the room as the same guest session while the refresh cookie is valid, including when the
+  network is briefly down at reload (it resumes when the network returns); a signed-in user's reload is
+  unaffected.
 - [ ] AC-2: a guest refresh that fails without a response keeps the session, and the socket recovers
   when the network returns; one that fails with a response shows the expired banner (or the disabled
   banner, AC-6) and stops the reconnect loop; tab focus never clears an ended guest session's room.
@@ -356,8 +372,8 @@ Written first, failing against current code:
 - [ ] AC-7: Retry after a failed resume, a failed own-account choice, or a failed enroll repeats that
   action.
 - [ ] AC-8: a link whose room id has upper-case letters refreshes and resumes like a lower-case one.
-- [ ] AC-9: after a reload, a fully expired session's banner tells the guest to reopen the shared link;
-  within a page lifetime it offers Rejoin.
+- [ ] AC-9: after a reload, a fully expired session lands on the room's expired banner (never `/login`),
+  which tells the guest to reopen the shared link; within a page lifetime it offers Rejoin.
 - [ ] AC-10: backend and frontend lint, typecheck, tests, OpenAPI drift, build and the new e2e spec
   pass in CI.
 
@@ -376,7 +392,7 @@ Appended by /build.
   cookie is valid. Same fix shape as Q-6; separate dossier.
 - **FU-2.** Pre-accept socket rejects lose their close codes (`ws/chatroom.py:62-64,77-79`); fold
   into `guest-session-backend-hardening` with F-16 (Q-4).
-- **FU-3.** The guest hint in localStorage is never removed and outlives the cookie; a stale hint
-  costs one failed guest refresh at boot. Consider deleting it when a boot restore returns `none`.
+- **FU-3.** (Folded into §7.1 by the 2026-10-05 review amendment: a boot restore answered 404 now
+  removes the hint.) Hints for rooms the browser never reloads into still outlive their cookies.
 - **FU-4.** Guest dossier FU-14 (a rate-limit 429 is shown as cap-reached) is still open and touches
   the same `classifyError`; not in this dossier's findings.

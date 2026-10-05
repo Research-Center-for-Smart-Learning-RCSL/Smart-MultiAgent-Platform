@@ -51,7 +51,8 @@ Citations are against `main` at `c5114a13`; the audit's `guest_session_service.p
   workspace raises uncaught. Mid-socket, the watchdog's `authorize` (`chatroom.py:263-277`) has the
   same gap and the watchdog swallows the error and retries (`backend/shared_kernel/realtime/connection.py:388-394`),
   so a socket stays open indefinitely after its workspace is deleted, for members as well as guests.
-  Pre-accept closes also reach the browser as 1006, losing the code (`connection.py:220-224`).
+  The canvas socket has the identical gap at its handshake and watchdog
+  (`backend/app/api/ws/canvas.py:109,277`). Pre-accept closes also reach the browser as 1006, losing the code (`connection.py:220-224`).
   **Expected**: [R6.12] (a deleted room's links stop working); guest dossier §6 Phase 2 invalid-link
   state.
 - **F-17.** `_room_readable` (`backend/contexts/conversation/application/access.py:346-350`) catches
@@ -148,6 +149,11 @@ Citations are against `main` at `c5114a13`; the audit's `guest_session_service.p
   (forbidden). The watchdog's `authorize` result becomes a small outcome (allowed, forbidden, gone)
   so the context-free `connection_loop` (`connection.py:207-208`) closes with 4403 or 4404 instead of
   retrying forever on an exception.
+- `backend/app/api/ws/canvas.py`: the same change on the canvas socket, which has the identical narrow
+  catch at its handshake (`:109`) and in its watchdog `authorize` (`:277`); both route through one
+  shared mapping from access exceptions to the outcome, so the two sockets cannot drift again. The
+  canvas client stops reconnecting on 4403 or 4404 and leaves the explanation to the room's state.
+  (Added 2026-10-05 after review: the approved text scoped the fix to the chat socket only.)
 - Frontend (`ChatroomView.vue` close handler as reworked by the session-lifecycle dossier): 4404 shows
   a new "this room no longer exists" state for every viewer and stops reconnecting; new i18n key in
   both locales.
@@ -201,8 +207,8 @@ Written first, failing against current code:
      metadata @> '{"guest": true}'` returns all six rows; an admin acting on a guest's attachment is
      the actor with no guest tag.
 2. Unit: guest create, refresh and ticket for a room whose workspace or project is deleted raise
-   `ChatroomNotFound`; the chatroom socket handler closes 4404 (deleted workspace or project) and 4403
-   (forbidden) after accept; the watchdog closes 4404 when `authorize` reports gone; `_room_readable`
+   `ChatroomNotFound`; the chatroom and canvas socket handlers each close 4404 (deleted workspace or
+   project) and 4403 (forbidden) after accept; each watchdog closes 4404 when `authorize` reports gone; `_room_readable`
    is False for a guest of another room, and the orchestration list omits that row.
 3. Frontend: a 4404 close shows the room-gone state and stops reconnecting.
 
@@ -222,7 +228,8 @@ Written first, failing against current code:
 - [ ] AC-2: concurrent joins never exceed the per-room cap, and concurrent first joins with one
   `browser_id` create one session (db tier).
 - [ ] AC-3: a guest link, refresh or ticket for a room whose workspace or project is deleted answers
-  the invalid-link 404; a connected client (guest or member) is closed with 4404 and sees "this room no
+  the invalid-link 404; a connected client (guest or member) is closed with 4404 on both the chat and
+  the canvas socket and sees "this room no
   longer exists".
 - [ ] AC-4: socket refusals for a known subprotocol reach the browser with 4403 or 4404, not 1006.
 - [ ] AC-5: a guest's orchestration reads for another room answer 404 (single record) or omit the row
