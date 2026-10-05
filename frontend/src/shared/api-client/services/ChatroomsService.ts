@@ -506,10 +506,11 @@ export class ChatroomsService {
      *
      * Only ``user_id`` + ``display_name`` is returned — never email — so a room
      * member (including a guest) cannot harvest other participants' login
-     * identifiers. The id set is the union of distinct human message authors and
-     * enrolled guests; a guest's per-room display name takes precedence over their
-     * account display name. Names left unset resolve to ``null`` and the client
-     * falls back to a short id.
+     * identifiers. The id set is the union of distinct human message authors,
+     * enrolled registered guests, and the room's anonymous guest sessions; a
+     * registered guest's per-room display name takes precedence over their account
+     * display name. Names left unset resolve to ``null`` and the client falls back
+     * to a short id. Gated like the messages it labels ([R13.32]).
      * @returns ChatroomMemberOut Successful Response
      * @throws ApiError
      */

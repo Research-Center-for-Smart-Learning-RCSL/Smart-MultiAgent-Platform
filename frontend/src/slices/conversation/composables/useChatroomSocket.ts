@@ -432,6 +432,13 @@ export function useChatroomSocket(
         void qc.invalidateQueries({ queryKey: convKeys.projectAgentsAll() })
         break
       }
+      // A guest joined or renamed. Ids-only for the same reason as above; the
+      // roster re-read is what labels guest messages, presence and typing.
+      case 'chatroom.members_changed': {
+        if (ev.chatroom_id !== roomId) break
+        void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(roomId) })
+        break
+      }
       case 'presence.joined':
         store.joinPresence(roomId, ev.user_id as string)
         break
@@ -668,6 +675,7 @@ export function useChatroomSocket(
       if (isReconnect) {
         void qc.invalidateQueries({ queryKey: convKeys.chatroom(roomId) })
         void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(roomId) })
+        void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(roomId) })
       }
       // Discover a gate raised entirely while disconnected (F-13), and
       // recover any approval.resolved lost while the socket was down.

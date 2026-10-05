@@ -191,6 +191,9 @@ export interface BoundAgentRef {
   may_read_drafts?: boolean
   may_read_canvas?: boolean
   may_write_canvas?: boolean
+  // For every room participant, guests included: a guest cannot read the
+  // project's agent-name list, and needs the name to label and @-mention.
+  name?: string
 }
 
 export async function listChatroomAgents(
@@ -206,6 +209,7 @@ export async function listChatroomAgents(
   // would render an ungranted binding as "you are not told".
   return refs.map((r) => ({
     agent_id: r.agent_id,
+    ...(r.name ? { name: r.name } : {}),
     ...(r.role ? { role: r.role } : {}),
     ...(r.may_control_activities != null
       ? { may_control_activities: r.may_control_activities }
@@ -549,14 +553,16 @@ export async function createGuestSession(
   return res.data
 }
 
+/** Returns the name as stored (normalised), which is what other viewers see. */
 export async function updateGuestDisplayName(
   guestSessionId: string,
   displayName: string,
-): Promise<void> {
-  await http.put(
+): Promise<{ display_name: string }> {
+  const res = await http.put<{ display_name: string }>(
     `/guest/session/${encodeURIComponent(guestSessionId)}/display-name`,
     { display_name: displayName },
   )
+  return res.data
 }
 
 // ---- /compact slash command (G.10) ---------------------------------------
