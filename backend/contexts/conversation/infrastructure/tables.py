@@ -295,12 +295,11 @@ message_attachments = sa.Table(
     sa.Column(
         "chatroom_id", pg.UUID(as_uuid=True), sa.ForeignKey("chatrooms.id", ondelete="CASCADE"), nullable=True
     ),
-    sa.Column(
-        "uploaded_by_user_id",
-        pg.UUID(as_uuid=True),
-        sa.ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    ),
+    # A users.id or, for an anonymous guest, a guest_sessions.id -- no
+    # ForeignKey since 0098. NULL means an agent artifact, which is why a guest
+    # upload is never stored as NULL; the bound message's sender_type tells a
+    # guest uploader from a user.
+    sa.Column("uploaded_by_user_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("extracted_text", sa.Text, nullable=True),
     # PG ENUM created in migration 0040 — must match the DB type, not sa.Text
     # (see the sender_type/status comments above for the asyncpg constraint).

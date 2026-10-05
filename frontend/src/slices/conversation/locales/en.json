@@ -153,7 +153,6 @@
       "reconnecting": "Reconnecting…",
       "uploadReady": "Ready",
       "uploadErrored": "Upload failed",
-      "uploadNotReady": "Attachments aren't ready yet — please try again in a moment.",
       "removeUpload": "Remove",
       "dropFiles": "Drop files here",
       "searchResultsCount": "{count} results for \"{query}\"",

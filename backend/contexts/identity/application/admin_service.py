@@ -505,6 +505,13 @@ class AdminService:
         await self._db.execute(
             _message_edits.delete().where(_message_edits.c.edited_by_user_id == target_user_id)
         )
+        # These columns lost their `users` foreign keys so they can hold guest
+        # ids (0098); the CASCADE / SET NULL they performed is done explicitly.
+        from contexts.activities.interfaces.facade import ActivitiesFacade
+        from contexts.conversation.interfaces.facade import ConversationFacade
+
+        await ActivitiesFacade(self._db).purge_user_activity_rows(target_user_id)
+        await ConversationFacade(self._db).clear_attachment_uploader(target_user_id)
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
             self._db,

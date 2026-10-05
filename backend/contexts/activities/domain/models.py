@@ -48,12 +48,14 @@ class ValidationStatus(str, enum.Enum):
 class SubjectKind(str, enum.Enum):
     """What kind of thing an :class:`ActivitySession` belongs to ([R30.39]).
 
-    Not a column: it is derived from which of the two subject fields is set, and
-    the database CHECK (0081) guarantees exactly one of them is. Deriving rather
-    than storing means the two can never disagree.
+    ``MEMBER_GROUP`` is derived from which subject column is set, as it always
+    was. ``USER`` versus ``GUEST`` is stored (``activity_sessions.subject_kind``,
+    0098), because both live in ``subject_user_id``, which no longer references
+    ``users``, and no column choice tells them apart.
     """
 
     USER = "user"
+    GUEST = "guest"
     MEMBER_GROUP = "member_group"
 
 
@@ -241,11 +243,16 @@ class ActivitySession:
     # positional so the existing construction sites keep describing the personal
     # case they always described.
     subject_member_group_id: uuid.UUID | None = None
+    # ``subject_user_id`` is an anonymous guest's session id rather than a user's
+    # (0098); read from the stored ``subject_kind``.
+    subject_is_guest: bool = False
 
     @property
     def subject_kind(self) -> SubjectKind:
-        """Whether this session belongs to a person or to a group."""
-        return SubjectKind.MEMBER_GROUP if self.subject_member_group_id is not None else SubjectKind.USER
+        """Whether this session belongs to a user, a guest, or a group."""
+        if self.subject_member_group_id is not None:
+            return SubjectKind.MEMBER_GROUP
+        return SubjectKind.GUEST if self.subject_is_guest else SubjectKind.USER
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +318,8 @@ class ActivitySubmission:
     agent_digest: str | None = None
     validated_at: dt.datetime | None = None
     deleted_at: dt.datetime | None = None
+    # ``producer_user_id`` is an anonymous guest's session id (0098).
+    producer_is_guest: bool = False
 
 
 @dataclass(frozen=True, slots=True)

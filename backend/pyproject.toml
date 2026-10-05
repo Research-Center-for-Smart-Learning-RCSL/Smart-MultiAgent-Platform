@@ -30,7 +30,7 @@ dependencies = [
 
   "hvac>=2.3,<2.5",
   "redis>=5.2,<8.2",
-  "pyjwt[crypto]>=2.13,<2.15",  # verify Google's RS256 OIDC id_token against JWKS (R6.14); algorithms pinned to RS256 at the call site. SEC-DEP: <2.13 has 6 known CVEs (crit-header bypass, HMAC/JWK confusion, JWKClient SSRF/DoS, algorithm allow-list bypass)
+  "pyjwt[crypto]>=2.15,<2.16",  # verify Google's RS256 OIDC id_token against JWKS (R6.14); algorithms pinned to RS256 at the call site. SEC-DEP: <2.13 has 6 known CVEs (crit-header bypass, HMAC/JWK confusion, JWKClient SSRF/DoS, algorithm allow-list bypass); <2.15 has PYSEC-2026-4141 (unsigned-payload RecursionError escapes DecodeError)
 
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
   "orjson==3.12.*",
@@ -38,7 +38,7 @@ dependencies = [
   "psycopg[binary]>=3.2,<3.4",
   "minio==7.2.*",
   "weasyprint==70.*",  # chat export → PDF (HTML render); needs pango/cairo + fonts-noto-cjk in the image. SEC-DEP: 69 bypasses url_fetcher for xmp_metadata/stylesheets (PYSEC-2026-3940)
-  "pypdf>=6.16.1,<7",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed". SEC-DEP: <6.16.1 lets an uploaded PDF hang or exhaust the ingestion worker — infinite loop via TreeObject.insert_child (CVE-2026-84309), and unbounded runtime/memory through nested outlines (CVE-2026-84310) and re-used XForm objects during text extraction (CVE-2026-84311). The last two are on the extraction path this dependency exists for, and the upload is attacker-supplied
+  "pypdf>=6.19.0,<7",  # PDF text extraction for RAG / Knowledge Map ingestion (shared_kernel/text_extraction/parsers.py). Accepted upload type; without it PDF ingest 500s with "pypdf not installed". SEC-DEP: <6.16.1 lets an uploaded PDF hang or exhaust the ingestion worker — infinite loop via TreeObject.insert_child (CVE-2026-84309), and unbounded runtime/memory through nested outlines (CVE-2026-84310) and re-used XForm objects during text extraction (CVE-2026-84311). The last two are on the extraction path this dependency exists for, and the upload is attacker-supplied. <6.19.0 carries PYSEC-2026-4153..4160 (crafted-PDF runtime and memory exhaustion on the same path)
   "python-docx==1.*",  # DOCX text extraction on the same ingestion path; accepted upload type (imported as `docx`)
   "neo4j>=5.24,<6.4",
   "qdrant-client>=1.12,<1.20",

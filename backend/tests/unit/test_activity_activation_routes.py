@@ -136,7 +136,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=caller, is_admin=False),
+            principal=SimpleNamespace(user_id=caller, is_admin=False, is_guest=False),
             db=db,
         )
 
@@ -160,7 +160,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=caller, is_admin=False),
+            principal=SimpleNamespace(user_id=caller, is_admin=False, is_guest=False),
             db=MagicMock(commit=AsyncMock()),
         )
 
@@ -177,7 +177,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=True),
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=True, is_guest=False),
             db=MagicMock(commit=AsyncMock()),
         )
 
@@ -197,7 +197,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False),
+            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False, is_guest=False),
             db=MagicMock(commit=AsyncMock()),
         )
 

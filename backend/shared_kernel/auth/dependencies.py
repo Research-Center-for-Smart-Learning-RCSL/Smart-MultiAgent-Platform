@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import NoReturn
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,20 @@ async def current_principal(ctx: RequestContext = Depends(current_context)) -> P
     if ctx.principal is None:
         _raise_unauth()
     return ctx.principal  # type: ignore[return-value]
+
+
+async def require_registered_principal(principal: Principal = Depends(current_principal)) -> Principal:
+    """The caller, provided it is a registered user and not an anonymous guest.
+
+    A guest token reaches every ``current_principal`` route, and its ``user_id``
+    is a guest session's, not a ``users`` row. Routes that act on the caller as an
+    account (own keys, linked identities, legacy room enrollment) depend on this
+    instead. 403 rather than 401: the client refreshes on an authenticated 401,
+    which for a guest would mint another guest token and replay the request.
+    """
+    if principal.is_guest:
+        _raise_problem("auth/registered-account-required", "A registered account is required", 403)
+    return principal
 
 
 async def optional_principal(
@@ -157,31 +172,21 @@ def require_membership(
     return dep
 
 
-def _raise_unauth() -> None:
-    problem = Problem(
-        type=problem_type("auth/required"),
-        title="Authentication required",
-        status=401,
-    )
+def _raise_problem(slug: str, title: str, status_code: int, detail: str | None = None) -> NoReturn:
+    problem = Problem(type=problem_type(slug), title=title, status=status_code, detail=detail)
     raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
+        status_code=status_code,
         detail=problem.dump(),
         headers={"Content-Type": "application/problem+json"},
     )
+
+
+def _raise_unauth() -> None:
+    _raise_problem("auth/required", "Authentication required", status.HTTP_401_UNAUTHORIZED)
 
 
 def _raise_forbidden(reason: str) -> None:
-    problem = Problem(
-        type=problem_type("forbidden"),
-        title="Forbidden",
-        status=403,
-        detail=reason,
-    )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=problem.dump(),
-        headers={"Content-Type": "application/problem+json"},
-    )
+    _raise_problem("forbidden", "Forbidden", status.HTTP_403_FORBIDDEN, detail=reason)
 
 
 __all__ = [
@@ -191,5 +196,6 @@ __all__ = [
     "optional_principal",
     "require",
     "require_membership",
+    "require_registered_principal",
     "scope_from_path",
 ]

@@ -19,7 +19,9 @@ const TUS_VERSION = '1.0.0'
 export interface TusUploadOptions {
   file: File
   purpose: 'chat_attachment' | 'rag_source' | 'knowmap_source'
-  projectId: string
+  // Omitted for chat_attachment: the server derives the project from the room,
+  // and an anonymous guest has no project it could name.
+  projectId?: string
   chatroomId?: string
   ragConfigId?: string
   // Per-agent allowlist for a rag_source upload — set atomically by the

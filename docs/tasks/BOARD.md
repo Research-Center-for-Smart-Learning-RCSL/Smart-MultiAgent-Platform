@@ -415,6 +415,22 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   unticked (code complete, need running stack for WS/browser verification).
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+### From the 2026-10-05 guest and dashboard audits
+
+- (implemented 2026-10-05) `2026-10-05-guest-identity-foreign-keys`. AC-1..AC-9 verified on PR
+  #225 (CI green at `2473b9cd`, db tier included; pre-fix failure observed on throwaway PR #226).
+  AC-10 unticked: no running stack. Deviations D-1..D-9 (notably person-only `subject_kind` for
+  forward compatibility, and subject kind resolved from the id) and FU-1..FU-9 are in the dossier.
+  It unblocked `2026-10-05-guest-room-read-and-identity`, now below.
+
+- `2026-10-05-guest-room-read-and-identity` (bugfix, **approved 2026-10-05**, SRS Delta applied) -
+  `depends_on: [2026-10-05-guest-identity-foreign-keys]`, implemented. **Per the requester, build it
+  from `main` after PR #225 merges**, not on that branch. Fixes audit F-3, F-4, F-5, F-6, F-13 plus
+  the guest agent-list gap: room record, roster and agent list move to `resolve_room_access` +
+  `ensure_can_read`; guest-session names reach the roster, other viewers and agent prompts; a new
+  `chatroom.members_changed` event; one client `viewerId`. Carries SRS deltas to [R13.19] and
+  [R13.33].
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file

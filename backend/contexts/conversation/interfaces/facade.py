@@ -38,6 +38,7 @@ from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomGuestRepository,
     ChatroomRepository,
+    GuestSessionRepository,
     MessageAttachmentRepository,
     MessageRepository,
     WorkspaceRepository,
@@ -54,6 +55,8 @@ from shared_kernel.auth.permissions import Principal
 # stops reads as "that is all there is", which for a confidentiality filter is the
 # worst possible failure. See the dossier's Decision 2 and FU-3.
 _MAX_LISTING_CANDIDATES = 2000
+
+_HUMAN_SENDERS = frozenset({SenderType.USER, SenderType.GUEST})
 
 
 def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | None) -> None:
@@ -283,6 +286,24 @@ class ConversationFacade:
 
     async def list_guests(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
         return await self._guests.list(chatroom_id)
+
+    async def is_guest_session(self, session_id: uuid.UUID) -> bool:
+        """Whether an id names an anonymous guest session rather than a user.
+
+        Lets a writer record what kind of identity it was handed when the id
+        alone cannot say (both are UUIDs, and since 0098 the columns that hold
+        them reference neither table).
+        """
+        return await GuestSessionRepository(self._db).find_by_id(session_id) is not None
+
+    async def clear_attachment_uploader(self, user_id: uuid.UUID) -> int:
+        """Null a hard-deleted user's id on the attachments they uploaded.
+
+        What ``ON DELETE SET NULL`` on ``uploaded_by_user_id`` did before 0098
+        dropped the foreign key so guest ids fit the column. Caller owns commit
+        and runs this before deleting the ``users`` row.
+        """
+        return await self._attachments.clear_uploader(user_id)
 
     async def create_or_resume_guest_session(
         self,
@@ -664,15 +685,17 @@ class ConversationFacade:
     # -- Code-Interpreter staging (read-only) ----------------------------------
 
     async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:
-        """Active attachments on the room's most recent user message.
+        """Active attachments on the room's most recent human message.
 
         This is the fallback resolver for turns with no specific triggering
         message (``silence_minutes`` wake-ups, coalesced re-enqueues) — see
         ``attachments_for_message`` for the primary, race-free resolver keyed
-        on an explicit message id.
+        on an explicit message id. A guest counts as human: the transcript gives
+        guest messages the ``user`` role and the engine splices these files onto
+        the newest ``user``-role row, which may be a guest's.
         """
         recent = await self._messages.list(chatroom_id=chatroom_id, before=None, limit=20)
-        user_msg = next((m for m in recent if m.sender_type is SenderType.USER), None)
+        user_msg = next((m for m in recent if m.sender_type in _HUMAN_SENDERS), None)
         if user_msg is None:
             return []
         attachments = await self._attachments.list_for_message(user_msg.id)

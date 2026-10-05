@@ -21,7 +21,13 @@ and on CI.
 Transitive dependencies are deliberately out of scope: they are not declared in
 pyproject.toml, so there is nothing to compare them against here.
 
+Specifiers are evaluated with `packaging`, the same implementation pip uses.
+An earlier version decided only `==` forms and passed every range silently;
+once Dependabot had rewritten most pins as ranges, that covered 24 of 38
+runtime dependencies, including a pyjwt CVE floor.
+
 Usage (from the repo root):  python scripts/check_lock_consistency.py
+Requires `packaging` (installed by the repo-gates CI job).
 """
 
 from __future__ import annotations
@@ -31,13 +37,13 @@ import re
 import sys
 import tomllib
 
+from packaging.requirements import InvalidRequirement, Requirement
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 PYPROJECT = REPO / "backend" / "pyproject.toml"
 LOCK = REPO / "backend" / "requirements.lock"
 
-# "name==1.2.*", "name>=1.2,<2", "name[extra]==1.2.3" — capture name and specifier.
-REQ = re.compile(r"^\s*(?P<name>[A-Za-z0-9._-]+)\s*(?:\[[^\]]*\])?\s*(?P<spec>.*)$")
-# utf-8-sig above strips a leading BOM; both files are read that way so a
+# utf-8-sig strips a leading BOM; both files are read that way so a
 # BOM-prefixed first entry cannot silently read as "declared but not locked".
 # Lock lines are exact pins: "name==1.2.3" or "name==1.2.3 ; marker".
 LOCK_PIN = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)==(?P<version>[^\s;]+)")
@@ -59,24 +65,6 @@ def parse_lock() -> dict[str, str]:
     return pins
 
 
-def satisfies(version: str, spec: str) -> bool:
-    """True if *version* meets *spec*, for the pin styles this repo actually uses.
-
-    Only `==` forms are decided here — `==1.2.*` and `==1.2.3`. Range specs
-    (`>=1.2,<2`) are reported as unchecked rather than guessed at, because
-    getting them subtly wrong would make this gate lie. The repo pins exactly
-    by convention, so ranges are the rare case.
-    """
-    spec = spec.strip()
-    if not spec.startswith("=="):
-        return True
-    want = spec[2:].strip()
-    if want.endswith(".*"):
-        prefix = want[:-2]
-        return version == prefix or version.startswith(prefix + ".")
-    return version == want
-
-
 def main() -> int:
     data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8-sig"))
     project = data.get("project", {})
@@ -88,24 +76,26 @@ def main() -> int:
     pins = parse_lock()
     missing: list[str] = []
     mismatched: list[tuple[str, str, str]] = []
+    unparsable: list[str] = []
 
     for raw in declared:
-        # Environment markers ("pkg==1.0 ; sys_platform == 'win32'") are not
-        # evaluated here; compare the requirement half only.
-        req = raw.split(";", 1)[0].strip()
-        m = REQ.match(req)
-        if not m:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            unparsable.append(raw)
             continue
-        name = normalize(m["name"])
-        spec = m["spec"]
+        # Environment markers are not evaluated; the lock is resolved for the
+        # single runtime platform, so the specifier is compared regardless.
+        name = normalize(req.name)
+        spec = str(req.specifier)
 
         locked = pins.get(name)
         if locked is None:
             missing.append(f"{name} (declared {spec or 'unpinned'})")
-        elif not satisfies(locked, spec):
+        elif not req.specifier.contains(locked, prereleases=True):
             mismatched.append((name, spec, locked))
 
-    if not missing and not mismatched:
+    if not missing and not mismatched and not unparsable:
         print(f"Lock consistency OK: {len(declared)} runtime dependencies satisfied.")
         return 0
 
@@ -117,6 +107,8 @@ def main() -> int:
         print(f"  missing from lock:  {entry}")
     for name, spec, locked in mismatched:
         print(f"  version mismatch:   {name} declared {spec}, locked at {locked}")
+    for raw in unparsable:
+        print(f"  unparsable:         {raw}")
     return 1
 
 

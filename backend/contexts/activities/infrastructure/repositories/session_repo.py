@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.models import ActivitySession, SessionStatus
+from contexts.activities.domain.models import ActivitySession, SessionStatus, SubjectKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.rowcount import rowcount
@@ -35,6 +35,7 @@ _SESSION_COLS = (
     t.activity_sessions.c.closed_at,
     t.activity_sessions.c.completed_at,
     t.activity_sessions.c.subject_member_group_id,
+    t.activity_sessions.c.subject_kind,
 )
 
 
@@ -50,6 +51,7 @@ def _row_to_session(row: object) -> ActivitySession:
         activation_id=row.activation_id,  # type: ignore[attr-defined]
         completed_at=row.completed_at,  # type: ignore[attr-defined]
         subject_member_group_id=row.subject_member_group_id,  # type: ignore[attr-defined]
+        subject_is_guest=row.subject_kind == SubjectKind.GUEST.value,  # type: ignore[attr-defined]
     )
 
 
@@ -147,6 +149,7 @@ class ActivitySessionRepository:
         chatroom_id: uuid.UUID,
         subject_user_id: uuid.UUID,
         activation_id: uuid.UUID,
+        subject_is_guest: bool = False,
     ) -> uuid.UUID | None:
         """Open a session for one round, or ``None`` if a concurrent open won.
 
@@ -154,12 +157,14 @@ class ActivitySessionRepository:
         the losing side of a two-concurrent-first-submissions race a no-op; the
         caller then re-selects the winner via :meth:`get_for_activation`.
         """
+        kind = SubjectKind.GUEST if subject_is_guest else SubjectKind.USER
         result = await self._db.execute(
             pg_insert(t.activity_sessions)
             .values(
                 activity_type_id=activity_type_id,
                 chatroom_id=chatroom_id,
                 subject_user_id=subject_user_id,
+                subject_kind=kind.value,
                 activation_id=activation_id,
                 status=SessionStatus.OPEN.value,
             )
@@ -168,6 +173,24 @@ class ActivitySessionRepository:
         )
         row = result.first()
         return row.id if row is not None else None
+
+    async def delete_for_user(self, user_id: uuid.UUID) -> int:
+        """Delete every session whose subject is this registered user.
+
+        User erasure's half of what the dropped ``ON DELETE CASCADE`` used to do
+        (0098); the sessions' submissions follow by the ``session_id`` cascade.
+        Keyed on the kind as well as the id, so a guest whose session id happened
+        to equal a user id could never be swept with it.
+        """
+        result = await self._db.execute(
+            t.activity_sessions.delete().where(
+                sa.and_(
+                    t.activity_sessions.c.subject_user_id == user_id,
+                    t.activity_sessions.c.subject_kind == SubjectKind.USER.value,
+                )
+            )
+        )
+        return rowcount(result)
 
     async def set_completed(self, session_id: uuid.UUID, *, completed: bool) -> bool:
         """Set or clear the subject's "I am finished" declaration.

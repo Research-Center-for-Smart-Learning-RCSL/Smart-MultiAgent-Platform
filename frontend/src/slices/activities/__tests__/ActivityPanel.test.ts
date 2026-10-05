@@ -46,8 +46,12 @@ vi.mock('../api', () => ({
 const wsHandlers = vi.hoisted(
   () => ({}) as Record<string, Array<(ev: Record<string, unknown>) => void>>,
 )
+// An anonymous guest has no `session.me`; the transport's guest flag is what
+// identifies them.
+const guestSession = vi.hoisted(() => ({ value: false }))
 vi.mock('@shared/transport', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  isGuestSession: guestSession,
   wsManager: {
     channel: () => ({
       subscribe: (name: string, handler: (ev: Record<string, unknown>) => void) => {
@@ -96,6 +100,7 @@ function activeActivation(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   sessionMe.value = null
+  guestSession.value = false
   getOwnRoundSessionMock.mockResolvedValue(null)
   getActivationProgressMock.mockResolvedValue({ completed: 0, in_progress: 0 })
   listGroupProposalsMock.mockResolvedValue({ items: [], eligible_groups: [] })
@@ -572,6 +577,39 @@ describe('ActivityPanel — completion declaration (AC-1, AC-5)', () => {
     expect(wrapper.text()).not.toContain('activities.panel.join')
     expect(wrapper.text()).not.toContain('activities.panel.finish')
     expect(doneButton(wrapper)?.text()).toContain('activities.panel.markDone')
+  })
+
+  it('lets an anonymous guest declare itself finished', async () => {
+    // [R30.26]: a guest is a full participant. It has no `session.me`, so a
+    // toggle gated on that id was permanently disabled for every guest student.
+    guestSession.value = true
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+    setActivationCompletionMock.mockResolvedValue({ completed_at: '2026-08-17T00:00:00Z' })
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    const button = wrapper.findAll('button').find((b) => b.text().includes('activities.panel.markDone'))
+    expect(button?.attributes('disabled')).toBeUndefined()
+    await button?.trigger('click')
+    await flushPromises()
+    expect(setActivationCompletionMock).toHaveBeenLastCalledWith('c1', 'act_1', true)
+  })
+
+  it('keeps the toggle disabled for a viewer who is neither a user nor a guest', async () => {
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    const button = wrapper.findAll('button').find((b) => b.text().includes('activities.panel.markDone'))
+    expect(button?.attributes('disabled')).toBeDefined()
   })
 
   it('seeds the toggle from the round read so a reload is not misread', async () => {

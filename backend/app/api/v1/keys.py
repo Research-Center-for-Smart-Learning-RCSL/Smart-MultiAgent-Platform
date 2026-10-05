@@ -24,7 +24,7 @@ from contexts.keys.domain.providers import ApiKeyProvider
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
-from shared_kernel.auth.dependencies import current_context, current_principal
+from shared_kernel.auth.dependencies import current_context, current_principal, require_registered_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
@@ -189,18 +189,17 @@ async def list_key_projects(
 @router.post("", response_model=KeyOut, status_code=status.HTTP_201_CREATED)
 async def upload_key(
     payload: KeyUploadIn,
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(require_registered_principal),
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> KeyOut:
     """Upload a new provider key (§7.2 flow).
 
     AuthZ: KEY_UPLOAD is granted to any role carrying a user scope (§5.2 #2).
-    There is no path-param scope here; we still run the decision through the
-    matrix so admin-bypass + email-verification policy apply uniformly. The
-    matrix row accepts any non-guest role, so we only need the principal to
-    have *some* role — i.e. be a logged-in user. The `current_principal`
-    dependency already enforces that.
+    There is no path-param scope here and no matrix decision runs; the only
+    requirement is a registered account, which `require_registered_principal`
+    enforces -- an anonymous guest token would otherwise reach the provider
+    probe and Vault encryption before its id failed the owner foreign key.
     """
     svc = KeyService(db)
     result = await svc.upload(

@@ -156,6 +156,19 @@ class MessageAttachmentRepository:
         )
         return result.rowcount or 0
 
+    async def clear_uploader(self, user_id: uuid.UUID) -> int:
+        """Null ``uploaded_by_user_id`` wherever it names this user.
+
+        The explicit form of the ``ON DELETE SET NULL`` that 0098 dropped; see
+        ``ConversationFacade.clear_attachment_uploader``.
+        """
+        result = await self._db.execute(
+            t.message_attachments.update()
+            .where(t.message_attachments.c.uploaded_by_user_id == user_id)
+            .values(uploaded_by_user_id=None)
+        )
+        return result.rowcount or 0
+
     async def create_agent_artifact(
         self,
         *,

@@ -32,6 +32,7 @@ from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
+    require_registered_principal,
 )
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -700,7 +701,7 @@ async def google_callback(
 @router.post("/google/link/start")
 async def google_link_start(
     response: Response,
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(require_registered_principal),
     db: AsyncSession = Depends(db_session),
 ) -> GoogleLinkStartOut:
     """Authenticated (XHR) link start: returns the Google authorize URL and sets

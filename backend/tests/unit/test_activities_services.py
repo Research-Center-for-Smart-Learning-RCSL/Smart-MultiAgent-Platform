@@ -1135,14 +1135,35 @@ class TestSubmitSessionResolution:
         svc._session_repo.get = AsyncMock(return_value=fresh)
         svc._session_repo.lock_for_update = AsyncMock(return_value=fresh)
 
-        await self._submit(svc, session, activity_type)
+        with patch.object(ss, "is_guest_subject", new=AsyncMock(return_value=False)):
+            await self._submit(svc, session, activity_type)
 
         svc._session_repo.create_open.assert_awaited_once_with(
             activity_type_id=activity_type.id,
             chatroom_id=session.chatroom_id,
             subject_user_id=session.subject_user_id,
             activation_id=activation.id,
+            subject_is_guest=False,
         )
+
+    async def test_a_new_session_takes_its_kind_from_the_subject_id(self) -> None:
+        """The kind comes from what the id names, not from who is calling: an
+        admin submitting for a guest is not a guest, and a caller-derived kind
+        recorded that guest as a user (0098, /code-review)."""
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+        svc._session_repo.get_for_activation = AsyncMock(return_value=None)
+        svc._session_repo.create_open = AsyncMock(return_value=session.id)
+        svc._session_repo.get = AsyncMock(return_value=session)
+        svc._session_repo.lock_for_update = AsyncMock(return_value=session)
+        lookup = AsyncMock(return_value=True)
+
+        with patch.object(ss, "is_guest_subject", new=lookup):
+            await self._submit(svc, session, activity_type)
+
+        lookup.assert_awaited_once_with(svc._db, session.subject_user_id)
+        assert svc._session_repo.create_open.await_args.kwargs["subject_is_guest"] is True
 
     async def test_answering_again_retracts_a_completion_declaration(self) -> None:
         """AC-5: declared done and still working is not a state worth keeping, so
@@ -2142,11 +2163,11 @@ class TestSubmitSubjectAuthz:
 class TestGuestSubmission:
     """Guest sessions use ephemeral UUIDs not present in the users table.
 
-    Before migration 0096 dropped the FK on audit_logs.actor_user_id, a guest
-    submission crashed with an IntegrityError.  The unit tier mocks the DB so it
-    cannot catch FK violations directly, but it pins that the submission path
-    accepts a guest-shaped principal (arbitrary UUID for all identity fields)
-    and that audit.emit receives that UUID as actor_user_id.
+    The unit tier mocks the DB, so it cannot see a foreign-key violation; the
+    real proof is ``tests/integration/test_guest_identity_writes_db.py``, which
+    caught the activity-table FKs this class once implied were fine. What this
+    pins is the wiring: a guest caller's id reaches the insert and the audit
+    actor, and ``caller_is_guest`` reaches the stored producer kind (0098).
     """
 
     def teardown_method(self) -> None:
@@ -2165,7 +2186,8 @@ class TestGuestSubmission:
             id=uuid.uuid4(),
             chatroom_id=chatroom_id,
             activity_type_id=activity_type.id,
-            started_by_user_id=guest_id,
+            # A round is always started by a registered user; only the subject is a guest.
+            started_by_user_id=uuid.uuid4(),
             status=ActivationStatus.ACTIVE,
             created_at=_NOW,
         )
@@ -2174,6 +2196,7 @@ class TestGuestSubmission:
             activity_type_id=activity_type.id,
             chatroom_id=chatroom_id,
             subject_user_id=guest_id,
+            subject_is_guest=True,
             status=SessionStatus.OPEN,
             created_at=_NOW,
             activation_id=activation.id,
@@ -2228,11 +2251,13 @@ class TestGuestSubmission:
                 payload={"answer": "guest answer"},
                 actor_user_id=guest_id,
                 actor_ip=None,
+                producer_is_guest=True,
             )
 
         sub_repo.insert.assert_awaited_once()
         insert_kwargs = sub_repo.insert.await_args.kwargs
         assert insert_kwargs["producer_user_id"] == guest_id
+        assert insert_kwargs["producer_is_guest"] is True
 
         audit_emit.assert_awaited()
         audit_event = audit_emit.await_args.args[1]

@@ -677,6 +677,12 @@ class ActivitiesFacade:
             request_id=request_id,
         )
 
+    async def purge_user_activity_rows(self, user_id: uuid.UUID) -> tuple[int, int]:
+        """Erase a hard-deleted user's sessions and produced submissions,
+        ``(sessions, produced)`` -- what the ``users`` cascades did before 0098.
+        Caller owns commit and runs this before deleting the ``users`` row."""
+        return await self._sessions.purge_user_rows(user_id)
+
     async def get_session_for_round(
         self,
         *,
@@ -839,6 +845,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        producer_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
         """Returns the persisted submission and the pre-built reactive-rules signal
         payload (R30.12); the route enqueues the payload best-effort post-commit."""
@@ -854,6 +861,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            producer_is_guest=producer_is_guest,
         )
 
     async def get_submission(self, submission_id: uuid.UUID) -> ActivitySubmission | None:
