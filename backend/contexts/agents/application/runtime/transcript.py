@@ -72,6 +72,9 @@ HISTORY_ATTACHMENT_EXCERPT_CHARS = 4_000
 
 _ROLE_BY_SENDER = {
     SenderType.USER: "user",
+    # An anonymous guest is a human speaker like any user; its label comes from
+    # the guest-session name the turn engine resolves.
+    SenderType.GUEST: "user",
     SenderType.AGENT: "agent",
     SenderType.SYSTEM: "system",
 }

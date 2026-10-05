@@ -35,8 +35,9 @@ DEFAULT_ACTIVITY_WINDOW = 30
 #: ``fn(user_ids) -> {user_id: chat label}``, supplied by the caller.
 #:
 #: Injected rather than imported so this context never reaches into identity or
-#: conversation for the label precedence (room guest label, then display name,
-#: then login email) that the turn engine already owns for chat authors. The
+#: conversation for the label precedence (guest session or room guest label,
+#: then display name; never the login email here, [R30.38]) that the turn engine
+#: already owns for chat authors. The
 #: point of passing it in is that the two label spaces must be the *same* one:
 #: an agent that reads "Alice: ..." in the transcript and ``u:1a2b3c4d`` here has
 #: no way to connect a submission to the person who wrote it.

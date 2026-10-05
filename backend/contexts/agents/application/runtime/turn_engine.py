@@ -3566,11 +3566,12 @@ class TurnEngine:
     ) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, str]]:
         """Resolve ``(agent_id -> name, user_id -> label)`` for labelling.
 
-        Human authors resolve in precedence order: room guest label, then account
-        display name, then the login email (the model context deliberately falls
-        back to email so an agent can always tell speakers apart -- see
-        ``IdentityFacade.get_chat_labels``), then a generic ``Guest``. Agents
-        resolve to their configured name.
+        Human authors resolve in precedence order: anonymous guest-session name or
+        registered guest's room label, then account display name, then the login
+        email (the model context deliberately falls back to email so an agent can
+        always tell speakers apart -- see ``IdentityFacade.get_chat_labels``), then
+        a generic ``Guest`` for an author who no longer resolves (a purged guest
+        session). Agents resolve to their configured name.
         """
         agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
         # Through the same guard as the human labels. An agent name is free text
@@ -3586,17 +3587,24 @@ class TurnEngine:
         return agent_names, user_names
 
     async def _room_guest_names(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str | None]:
-        """``{user_id: guest label}`` for the room, fetched once per turn.
+        """``{sender id: guest label}`` for the room, fetched once per turn.
 
-        Three consumers now share it (transcript labels, the activity legend, the
-        owner note), and each used to pay its own ``list_guests`` round trip. The
-        map is passed down rather than cached on the engine: an arq job builds one
-        engine and runs several agents through it, so an instance cache would hold
-        a stale roster across turns that are minutes apart.
+        Covers both kinds of guest: a registered guest's per-room label (keyed by
+        ``users.id``) and an anonymous guest's session name (keyed by
+        ``guest_sessions.id``, which is the ``sender_id`` of its messages). The two
+        id spaces are independent random UUIDs, so the merge cannot collide.
+        Without the session names every anonymous guest reached the model as the
+        same speaker, ``Guest`` ([R13.33]).
+
+        Three consumers share it (transcript labels, the activity legend, the
+        owner note). The map is passed down rather than cached on the engine: an
+        arq job builds one engine and runs several agents through it, so an
+        instance cache would hold a stale roster across turns minutes apart.
         """
-        return {
-            g.user_id: g.display_name for g in await ConversationFacade(self._db).list_guests(chatroom_id)
-        }
+        conversation = ConversationFacade(self._db)
+        registered = {g.user_id: g.display_name for g in await conversation.list_guests(chatroom_id)}
+        sessions: dict[uuid.UUID, str | None] = dict(await conversation.guest_session_labels(chatroom_id))
+        return {**sessions, **registered}
 
     async def _room_user_labels(
         self,
