@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-05
 requirements: [R5.04, R13.06, R13.19, R13.32, R13.33, R13.34, R28.10, R30.38]
 depends_on: [2026-10-05-guest-identity-foreign-keys]

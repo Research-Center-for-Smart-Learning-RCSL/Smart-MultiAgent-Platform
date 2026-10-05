@@ -429,7 +429,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ## Blocked (2026-10-05 dossiers)
 
-- `2026-10-05-guest-room-read-and-identity` (bugfix, **draft**) - waiting on
+- `2026-10-05-guest-room-read-and-identity` (bugfix, **approved 2026-10-05**, SRS Delta applied) - waiting on
   `2026-10-05-guest-identity-foreign-keys` (logical: reuses its `ConversationFacade` guest-session
   reads; overlap: `ChatroomView.vue` and the conversation facade). Fixes audit F-3, F-4, F-5, F-6,
   F-13 plus the guest agent-list gap: room record, roster and agent list move to
