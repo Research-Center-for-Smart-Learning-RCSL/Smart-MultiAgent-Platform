@@ -469,7 +469,8 @@ import {
   guestSessionId,
   isGuestSession,
 } from '@shared/transport'
-import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
+import { useGuestSessionStore } from '../stores/guestSession'
+import { readGuestHint, writeGuestHint } from '../utils/guestHint'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
@@ -1345,15 +1346,9 @@ async function onUpdateGuestDisplayName(requested: string): Promise<void> {
     const { display_name: name } = await updateGuestDisplayName(sessionId, requested)
     guestNameOverride.value = name === ownRosterName.value ? null : name
     void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(chatroomId) })
-    // Update localStorage so the welcome-back UI shows the new name
-    try {
-      const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
-      if (raw) {
-        const stored = JSON.parse(raw)
-        stored.display_name = name
-        localStorage.setItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`, JSON.stringify(stored))
-      }
-    } catch { /* non-fatal */ }
+    // Update the hint so the welcome-back UI shows the new name
+    const hint = readGuestHint(chatroomId)
+    if (hint) writeGuestHint(chatroomId, { ...hint, display_name: name })
     toast.success(t('conversation.guest.displayNameUpdated'))
   } catch {
     toast.error(t('conversation.guest.displayNameUpdateFailed'))
