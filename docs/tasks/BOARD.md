@@ -430,7 +430,54 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   (guest impersonating the owner's display name) should be decided before the classroom pilot.
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **approved 2026-10-05**, ready; build deferred by the requester) -
+  `depends_on: [2026-10-05-guest-room-read-and-identity]`, implemented. Fixes audit F-7, F-8, F-9,
+  F-10, F-18, F-19, F-20, F-22: a guest session survives reload (account-first boot, then the room's
+  guest refresh), ends visibly with the right reason (new problem types
+  `conversation/guest-access-disabled` and `conversation/guest-display-name-invalid`), is tied to its
+  token so a later sign-in cannot be hijacked, and a signed-in user entering as a guest confirms and
+  clears the tab's account state. Adds the guest lifecycle e2e spec. The unwritten
+  `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
+  `guest_session_service.py` error paths and `ws/chatroom.py:77`).
+  Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
+  (Blocked) when implemented.
+
+- `2026-10-05-canvas-template-tenant-scope` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
+  Audit F-12, a cross-tenant read: `GET /api/canvas-templates?scope=project` without `project_id`
+  returns every project's templates to any principal (guests included), and apply copies any
+  template into any writable room. One [R13.59] readability rule for list, get, apply and delete;
+  unreadable answers the unknown-id 404. Recommended first of the remaining guest-audit dossiers.
+
+- `2026-10-05-chat-export-guest-narrowing` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
+  Audit F-11: the narrowed (member) chat export keeps every non-`user` sender, so guest messages,
+  edits and attachments leak into it; the predicate becomes "own plus agent and system".
+
 ## Blocked
+
+### From the 2026-10-05 guest audit
+
+- `2026-10-05-guest-sender-marking` (feature, **approved 2026-10-05**, SRS Delta applied to [R13.33]
+  and [R30.38]) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]` (not yet implemented;
+  an ordering choice by the requester, the file regions are disjoint). FU-4 of
+  `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label from a
+  guest identity, in the UI (message author, participant list, typing) and the model context
+  (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
+
+- `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
+  `depends_on: [2026-10-05-guest-frontend-session-lifecycle]` (not yet implemented; same
+  `guest_session_service.py` error paths and the client close-code handling). Audit F-14, F-15, F-16,
+  F-17, F-21: one guest audit shape for every guest-caused row, an advisory lock on joins (cap and
+  duplicate `browser_id`), dead workspace/project rooms as invalid links and a 4404 "room no longer
+  exists" close (also fixes a members-affecting socket fail-open), guest orchestration reads as
+  404/omitted, atomic refresh rotation.
+
+- `2026-10-05-guest-kick-and-ban` (feature, **approved 2026-10-05**, SRS Delta applied: [R6.12] and
+  [R13.07] rewritten, [R13.07a] added) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle,
+  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]` (none implemented
+  yet). Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked
+  session checked at the room access choke point; durable ban table keyed by session and a hash of
+  the browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`.
+  Last of the guest-audit dossiers.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
