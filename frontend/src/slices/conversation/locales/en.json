@@ -371,7 +371,12 @@
       "editName": "Edit name",
       "chooseEntry": "You are logged in. How would you like to enter this chatroom?",
       "enterAsGuest": "Enter as Guest",
-      "enterAsUser": "Enter as {name}"
+      "enterAsUser": "Enter as {name}",
+      "enterAsGuestConfirmTitle": "Enter as a guest?",
+      "enterAsGuestConfirmMessage": "You will be signed out of your account in this tab only, and stay a guest here until you reload the page or sign in again. Your other tabs stay signed in.",
+      "displayNameInvalid": "Enter a name with at least one visible character.",
+      "sessionExpiredReopen": "Your guest session has expired. Open the link the room owner shared with you to join again.",
+      "signIn": "Sign in"
     },
     "drafts": {
       "discloseLabel": "Tell people when an agent can read what they are typing",

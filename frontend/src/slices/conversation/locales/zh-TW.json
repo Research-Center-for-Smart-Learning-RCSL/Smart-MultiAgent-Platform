@@ -371,7 +371,12 @@
       "editName": "編輯名稱",
       "chooseEntry": "您已登入。要以何種方式進入此聊天室？",
       "enterAsGuest": "以訪客身分進入",
-      "enterAsUser": "以 {name} 身分進入"
+      "enterAsUser": "以 {name} 身分進入",
+      "enterAsGuestConfirmTitle": "以訪客身分進入？",
+      "enterAsGuestConfirmMessage": "此分頁將登出您的帳號，並維持訪客身分，直到重新整理頁面或再次登入為止。其他分頁仍保持登入。",
+      "displayNameInvalid": "請輸入至少包含一個可見字元的名稱。",
+      "sessionExpiredReopen": "您的訪客工作階段已過期。請開啟聊天室擁有者分享給您的連結重新加入。",
+      "signIn": "登入"
     },
     "drafts": {
       "discloseLabel": "告訴大家有代理讀得到他們正在打的字",
