@@ -10,13 +10,14 @@ import { env } from './fixtures/seed'
 // links off, and a signed-in member who enters as a guest leaves the account
 // shell behind until a reload brings the account back.
 //
-// Copy resolved from src/slices/conversation/locales/en.json (guest.*) and
-// src/app/locales/en.json (sidebar.navLabel).
+// Copy resolved from src/slices/conversation/locales/en.json (guest.*,
+// chatroom.settingsLabel). The sidebar's navigation is not a usable account
+// signal here: a chatroom route collapses the sidebar and makes it inert.
 const DISPLAY_NAME = /Display Name/
 const ENTER_CHATROOM = 'Enter Chatroom'
 const ENTER_AS_GUEST = 'Enter as Guest'
 const DISABLED_BANNER = 'Guest access has been disabled by the room owner.'
-const MAIN_NAV = 'Main navigation'
+const ROOM_SETTINGS = 'Settings'
 
 // The tests share the seeded room and flip its guest links, so they cannot
 // interleave with each other.
@@ -105,8 +106,15 @@ test.describe('Guest session lifecycle', () => {
     request,
   }) => {
     const link = await guestLinkPath(request, roomId)
-    await page.goto(link)
+    const roomSettings = page.locator('.chat-header').getByRole('button', { name: ROOM_SETTINGS, exact: true })
 
+    // Baseline: the member's own room header offers Settings, so its absence
+    // below means the account is gone rather than that the control never shows.
+    await page.goto(`/chatrooms/${roomId}`)
+    await expectInRoom(page, roomId)
+    await expect(roomSettings).toBeVisible({ timeout: 20_000 })
+
+    await page.goto(link)
     await page.getByRole('button', { name: ENTER_AS_GUEST }).click()
     const dialog = page.getByRole('alertdialog')
     await expect(dialog).toBeVisible()
@@ -114,11 +122,12 @@ test.describe('Guest session lifecycle', () => {
 
     await enterWithName(page, 'E2E Teacher As Guest')
     await expectInRoom(page, roomId)
-    await expect(page.getByRole('navigation', { name: MAIN_NAV })).toHaveCount(0)
+    await expect(roomSettings).toHaveCount(0)
 
     // The account's refresh cookie survived the local clear (Q-3), and boot
     // tries the account first (Q-1).
     await page.reload()
-    await expect(page.getByRole('navigation', { name: MAIN_NAV })).toBeVisible({ timeout: 20_000 })
+    await expectInRoom(page, roomId)
+    await expect(roomSettings).toBeVisible({ timeout: 20_000 })
   })
 })
