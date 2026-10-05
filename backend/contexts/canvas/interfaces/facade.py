@@ -509,7 +509,7 @@ class CanvasFacade:
         actor_ip: str | None = None,
         actor_guest_id: uuid.UUID | None = None,
         request_id: uuid.UUID | None = None,
-        room_project_id: uuid.UUID | None = None,
+        room_project_id: uuid.UUID,
     ) -> dict[str, Any]:
         return await self._templates.apply_template(
             canvas_id=canvas_id,

@@ -168,7 +168,7 @@ async def list_templates(
         # Project templates are listed one project at a time, behind that project's
         # membership; there is no cross-project listing (audit F-12).
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="project_id is required for scope=project",
         )
     if project_id is not None:
@@ -256,7 +256,7 @@ async def delete_template(
     )
     await db.commit()
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        raise _template_not_found()
 
 
 # ---- Apply template (chatroom-scoped) --------------------------------------
@@ -274,16 +274,10 @@ async def apply_template(
     ensure_can_send(access, is_admin=principal.is_admin)
     facade = CanvasFacade(db, room_channel_fn=room_channel)
     # Applying copies the template onto a canvas the caller reads, so it needs read
-    # access to the template itself, not only write access to the room. A project
-    # template must belong to the room's project, where `access.roles` already holds the
-    # caller's roles; a guest holds none and gets platform templates only.
+    # access to the template itself, not only write access to the room; the service
+    # additionally binds a project template to the room's own project.
     template = await facade.get_template(body.template_id)
-    readable = template is not None and (
-        principal.is_admin
-        or template.scope is CanvasTemplateScope.PLATFORM
-        or (template.project_id == access.project_id and bool(access.roles))
-    )
-    if not readable:
+    if template is None or not await _can_read_template(principal, template, db):
         raise _template_not_found()
     canvas = await facade.get_or_create(chatroom_id=chatroom_id)
     try:

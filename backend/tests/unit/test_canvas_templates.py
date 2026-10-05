@@ -197,6 +197,7 @@ class TestApplyTemplate:
                 canvas_id=uuid.uuid4(),
                 chatroom_id=uuid.uuid4(),
                 template_id=template.id,
+                room_project_id=uuid.uuid4(),
             )
 
     async def test_raises_value_error_for_missing_template(self) -> None:
@@ -209,6 +210,7 @@ class TestApplyTemplate:
                 canvas_id=uuid.uuid4(),
                 chatroom_id=uuid.uuid4(),
                 template_id=uuid.uuid4(),
+                room_project_id=uuid.uuid4(),
             )
 
     @patch("contexts.canvas.application.template_service.audit")
@@ -236,6 +238,7 @@ class TestApplyTemplate:
             canvas_id=canvas_id,
             chatroom_id=chatroom_id,
             template_id=template.id,
+            room_project_id=uuid.uuid4(),
         )
 
         assert result == batch_result
@@ -285,6 +288,7 @@ class TestApplyTemplate:
                 canvas_id=canvas_id,
                 chatroom_id=chatroom_id,
                 template_id=template.id,
+                room_project_id=uuid.uuid4(),
             )
 
         assert result == {"created": [], "updated": [], "deleted": 0}

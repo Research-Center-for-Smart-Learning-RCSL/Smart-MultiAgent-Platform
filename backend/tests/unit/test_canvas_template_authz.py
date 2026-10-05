@@ -156,6 +156,15 @@ class TestList:
         assert _status(exc) == 403
         assert _Facade.listed == []
 
+    @pytest.mark.parametrize("scope", [None, "platform"])
+    async def test_a_foreign_project_id_is_refused_for_any_scope(self, scope: str | None) -> None:
+        with pytest.raises(Exception) as exc:
+            await route.list_templates(
+                scope=scope, project_id=_FOREIGN_PROJECT, principal=_join(_member()), db=_Db()
+            )
+        assert _status(exc) == 403
+        assert _Facade.listed == []
+
     async def test_a_guest_cannot_list_project_templates(self) -> None:
         with pytest.raises(Exception) as exc:
             await route.list_templates(
@@ -214,10 +223,14 @@ class TestApply:
 
 
 class TestReadAndDelete:
-    async def test_get_of_a_foreign_template_is_404(self) -> None:
-        with pytest.raises(HTTPException) as exc:
-            await route.get_template(_FOREIGN.id, principal=_join(_member()), db=_Db())
-        assert exc.value.status_code == 404
+    async def test_get_of_a_foreign_template_answers_like_an_unknown_id(self) -> None:
+        member = _join(_member())
+        with pytest.raises(HTTPException) as foreign:
+            await route.get_template(_FOREIGN.id, principal=member, db=_Db())
+        with pytest.raises(HTTPException) as unknown:
+            await route.get_template(uuid.uuid4(), principal=member, db=_Db())
+        assert (foreign.value.status_code, foreign.value.detail) == (404, _NOT_FOUND)
+        assert (unknown.value.status_code, unknown.value.detail) == (404, _NOT_FOUND)
 
     async def test_delete_of_a_foreign_template_is_404(self) -> None:
         with pytest.raises(HTTPException) as exc:
@@ -228,5 +241,5 @@ class TestReadAndDelete:
                 db=_Db(),
                 ctx=SimpleNamespace(actor_ip=None, request_id=None),
             )
-        assert exc.value.status_code == 404
+        assert (exc.value.status_code, exc.value.detail) == (404, _NOT_FOUND)
         assert _Facade.deleted == []
