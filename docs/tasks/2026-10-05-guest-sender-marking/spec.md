@@ -1,9 +1,9 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-05
 requirements: [R6.11, R13.06, R13.33, R13.34, R30.38]
-depends_on: []
+depends_on: [2026-10-05-guest-frontend-session-lifecycle]
 ---
 
 # Mark guest senders so a guest cannot present as the room owner or a member
@@ -47,7 +47,7 @@ It implements FU-4 (and closes FU-2) of that dossier, a MEDIUM finding of its se
 | Q-2 | Where does the marker appear in the UI? | Message author, participant list and typing indicator. The roster API gains a `kind` per entry. | Presence and typing frames carry ids only (`backend/app/api/ws/chatroom.py:137,239,286-289,313-316`), so the client needs the kind from the roster; marking only messages would leave the participant list, where students look to see who is present, unmarked. |
 | Q-3 | Are registered guests (signed-in users enrolled through `chatroom_guests`) marked? | Yes, whenever the label shown is their self-chosen room label. | Their room label overrides their account name (`backend/contexts/conversation/interfaces/author_labels.py:12-14`) and is self-chosen at enrolment (`backend/app/api/v1/guests.py:39-64`), so they can take the owner's name exactly like an anonymous guest. Keying on "the label came from a guest identity" rather than on `sender_type` covers both. |
 | Q-4 | What is the model-facing marker? | The fixed English suffix ` (guest)` after the normalised label, e.g. `Alice (guest): ...` and `u:1a2b3c4d = "Alice (guest)"`. | Fixed text is stable across turns (Q-5 of the prerequisite rejected shifting disambiguators). It is appended after `_one_line_label`, so truncation cannot cut it and it contains no delimiter the containers use ([R13.34]). Model-facing scaffolding is English throughout `turn_engine.py`. |
-| Q-5 | Does this depend on `2026-10-05-guest-frontend-session-lifecycle` (approved, not built)? | Proposed: no. Both edit `ChatroomView.vue` and the conversation locale files, but in disjoint regions (sender labels, presence and typing here; socket close handling, banners and boot there). Whoever builds second rebases. | Neither references code the other introduces. To be confirmed at approval. |
+| Q-5 | Does this depend on `2026-10-05-guest-frontend-session-lifecycle` (approved, not built)? | Yes, by the requester's choice at approval: build it after the session-lifecycle dossier. | Both edit `ChatroomView.vue` and the conversation locale files. The regions are disjoint (sender labels, presence and typing here; socket close handling, banners and boot there), so this is an ordering preference rather than a hard technical prerequisite: reload recovery comes first for the pilot. |
 
 ## 4. Current State
 

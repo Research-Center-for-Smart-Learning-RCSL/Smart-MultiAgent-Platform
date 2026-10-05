@@ -439,15 +439,18 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   clears the tab's account state. Adds the guest lifecycle e2e spec. The unwritten
   `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
   `guest_session_service.py` error paths and `ws/chatroom.py:77`).
-
-- `2026-10-05-guest-sender-marking` (feature, **draft**) - `depends_on: []` (overlap with
-  `guest-frontend-session-lifecycle` in `ChatroomView.vue` and the conversation locales judged
-  disjoint, pending confirmation). FU-4 of `2026-10-05-guest-room-read-and-identity`: a
-  platform-applied guest marker on every label from a guest identity, in the UI (message author,
-  participant list, typing) and the model context (` (guest)` suffix in transcript and legend);
-  roster gains `kind`. Carries SRS deltas to [R13.33] and [R30.38]. Scheduled before the pilot.
+  Unblocks `2026-10-05-guest-sender-marking` (Blocked) when implemented.
 
 ## Blocked
+
+### From the 2026-10-05 guest audit
+
+- `2026-10-05-guest-sender-marking` (feature, **approved 2026-10-05**, SRS Delta applied to [R13.33]
+  and [R30.38]) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]` (not yet implemented;
+  an ordering choice by the requester, the file regions are disjoint). FU-4 of
+  `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label from a
+  guest identity, in the UI (message author, participant list, typing) and the model context
+  (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
