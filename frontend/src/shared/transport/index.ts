@@ -16,6 +16,8 @@ export {
   guestSessionEnd,
   markGuestSessionEnded,
   resumeGuestSession,
+  onPendingGuestRestore,
+  isGuestRestorePending,
   isGuestSession,
   guestSessionId,
 } from './axios'

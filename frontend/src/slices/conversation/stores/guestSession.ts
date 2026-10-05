@@ -26,10 +26,6 @@ export const useGuestSessionStore = defineStore('guestSession', () => {
     guestToken.value = token
   }
 
-  function markExpired(): void {
-    markGuestSessionEnded('expired')
-  }
-
   function markDisabled(): void {
     markGuestSessionEnded('disabled')
   }
@@ -39,5 +35,5 @@ export const useGuestSessionStore = defineStore('guestSession', () => {
     chatroomId.value = null
   }
 
-  return { guestToken, chatroomId, sessionState, rejoinUrl, setGuestToken, markExpired, markDisabled, clear }
+  return { guestToken, chatroomId, sessionState, rejoinUrl, setGuestToken, markDisabled, clear }
 })

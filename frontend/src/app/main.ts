@@ -6,7 +6,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { queryClient } from '@shared/query-client'
 
 import App from '@app/App.vue'
-import { restoreSessionAtBoot } from '@app/boot'
+import { rehydrateOnFocus, restoreSessionAtBoot } from '@app/boot'
 import { installErrorHandler } from '@app/errorHandler'
 import { router } from '@app/router'
 import { i18n, registerLocaleLoaders, ensureLocaleLoaded, syncHtmlLang, type Locale } from '@shared/i18n'
@@ -17,7 +17,7 @@ import { installAgentGroupsSlice } from '@slices/agent-groups'
 import { installAgentsSlice } from '@slices/agents'
 import { installConversationSlice } from '@slices/conversation'
 import { installDashboardSlice } from '@slices/dashboard'
-import { installIdentitySlice, useSessionStore } from '@slices/identity'
+import { installIdentitySlice } from '@slices/identity'
 import { installKeysSlice } from '@slices/keys'
 import { installNotificationsSlice } from '@slices/notifications'
 import { installPromptStudioSlice } from '@slices/prompt-studio'
@@ -71,7 +71,6 @@ syncHtmlLang()
 // the real auth state. The same holds for a guest restored from the room's
 // guest cookie: it must land before the guard runs, or a reloading guest is
 // sent to /login.
-const session = useSessionStore()
 // Gate mount on BOTH session restore (the router guard needs real auth state)
 // and the active-language message bundles (avoid a flash of untranslated keys).
 Promise.allSettled([
@@ -84,5 +83,5 @@ Promise.allSettled([
 
 // Re-hydrate when the user returns to the tab so auth state stays fresh.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') session.hydrate()
+  if (document.visibilityState === 'visible') void rehydrateOnFocus()
 })

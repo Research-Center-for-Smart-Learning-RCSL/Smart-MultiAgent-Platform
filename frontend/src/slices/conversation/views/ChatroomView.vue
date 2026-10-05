@@ -431,7 +431,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -468,6 +468,7 @@ import {
   getGuestChatroomId,
   guestSessionId,
   isGuestSession,
+  refreshAccessToken,
 } from '@shared/transport'
 import { useGuestSessionStore } from '../stores/guestSession'
 import { readGuestHint, writeGuestHint } from '../utils/guestHint'
@@ -1061,11 +1062,13 @@ const guestSessionStore = useGuestSessionStore()
 const CLOSE_AUTH_FAILED = 4401
 const CLOSE_GUEST_DISABLED = 4403
 
-// Keyed on the context, not the token: the token is already null when a failed
-// refresh precedes the close, and the close is then the only signal (F-8).
+// Keyed on the context, not the token: the token may already be null. 4401 is
+// the server's "re-handshake" signal (ws_auth.py), not proof the session is
+// gone, so it triggers a refresh whose answer decides: only an answered
+// 401/403/404 records an end, and anything else lets the reconnect proceed.
 const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
   if (!holdsGuestContext.value) return
-  if (code === CLOSE_AUTH_FAILED) guestSessionStore.markExpired()
+  if (code === CLOSE_AUTH_FAILED) void refreshAccessToken()
   else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
 })
 
@@ -1089,10 +1092,20 @@ onActivated(stopSocketIfEnded)
 // A boot restore that found no network left a context and no token. The
 // socket's ticket request retries the restore on its backoff; the browser
 // coming back online is the moment worth not waiting for.
+// Listened to only while the view is active: a KeepAlive-cached room whose
+// channel onDeactivated paused must not be reopened behind another route.
 function onBrowserOnline(): void {
   if (holdsGuestContext.value && guestEnd.value === null && !getAccessToken()) wsChannel.connect()
 }
-window.addEventListener('online', onBrowserOnline)
+function listenForOnline(): void {
+  window.addEventListener('online', onBrowserOnline)
+}
+function stopListeningForOnline(): void {
+  window.removeEventListener('online', onBrowserOnline)
+}
+onMounted(listenForOnline)
+onActivated(listenForOnline)
+onDeactivated(stopListeningForOnline)
 
 // The room's reads ran without a token while it was missing; read again once
 // the session is back.
@@ -1166,7 +1179,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isUnmounted = true
   document.removeEventListener('keydown', onKeyDown)
-  window.removeEventListener('online', onBrowserOnline)
+  stopListeningForOnline()
   unsubscribeCloseCode()
   if (typingTimer !== null) {
     clearTimeout(typingTimer)

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   clearGuestContext,
   getGuestChatroomId,
+  isGuestRestorePending,
   setAccessToken,
   setRefreshToken,
   isGuestSession,
@@ -70,11 +71,14 @@ export const useSessionStore = defineStore('identity/session', () => {
     // smap_refresh cookie set by the server. If there is no valid cookie the
     // server returns 401 and we start unauthenticated.
     //
-    // Skip while this tab holds a guest context, with or without a live guest
-    // token: the catch-block clear() would wipe the guest session (or the
-    // room's record of how it ended), and a successful refresh would swap the
-    // account a signed-in user set aside to enter as a guest back in mid-session.
+    // Skip while this tab holds a live guest session or a room showing how
+    // one ended: the catch-block clear() would wipe it, and a successful
+    // refresh would swap the account a signed-in user set aside to enter as a
+    // guest back in mid-session. A guest restore still pending for want of a
+    // network is different: the account gets its turn first (Q-1), and a
+    // failure keeps the pending restore rather than clearing it.
     if (holdsGuestSession()) return
+    const pendingGuest = isGuestRestorePending()
     try {
       const pair = await authApi.refresh()
       // A guest may have entered while the refresh was in flight (a focus
@@ -83,12 +87,12 @@ export const useSessionStore = defineStore('identity/session', () => {
       applyTokens(pair)
       await refreshMe()
     } catch {
-      if (!holdsGuestSession()) clear()
+      if (!pendingGuest && !holdsGuestSession() && !isGuestRestorePending()) clear()
     }
   }
 
   function holdsGuestSession(): boolean {
-    return isGuestSession.value || getGuestChatroomId() !== null
+    return isGuestSession.value || (getGuestChatroomId() !== null && !isGuestRestorePending())
   }
 
   return {
