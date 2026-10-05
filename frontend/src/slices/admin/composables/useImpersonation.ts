@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { useMutation } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
-import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
+import { accessTokenClaims, clearGuestContext, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
 /** Saved admin token to restore after impersonation ends (B5).
@@ -33,6 +33,9 @@ export function useImpersonation() {
     mutationFn: (userId: string) => adminApi.impersonate(userId),
     onSuccess: (res) => {
       savedAdminToken.value = getAccessToken()
+      // Bypasses session.applyTokens, which is what clears a guest context
+      // left behind in this tab (F-9).
+      clearGuestContext()
       setAccessToken(res.access_token)
     },
     onError: () => toast.error(t('admin.impersonation.startFailed')),
@@ -41,6 +44,7 @@ export function useImpersonation() {
   const endImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.endImpersonate(userId),
     onSuccess: () => {
+      clearGuestContext()
       setAccessToken(savedAdminToken.value)
       savedAdminToken.value = null
     },
