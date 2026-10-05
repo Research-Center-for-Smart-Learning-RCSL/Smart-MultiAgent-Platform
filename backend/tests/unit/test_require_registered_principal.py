@@ -44,7 +44,9 @@ class TestDependency:
         with pytest.raises(HTTPException) as caught:
             await require_registered_principal(_GUEST)
         assert caught.value.status_code == 403
-        assert caught.value.detail["type"].endswith("/auth/registered-account-required")
+        detail = caught.value.detail
+        assert isinstance(detail, dict)
+        assert detail["type"].endswith("/auth/registered-account-required")
 
 
 def _app(*routers: object, principal: Principal) -> FastAPI:

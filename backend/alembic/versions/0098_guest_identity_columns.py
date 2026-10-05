@@ -83,9 +83,13 @@ def downgrade() -> None:
             f"ALTER TABLE {table} ADD CONSTRAINT {name} "
             f"FOREIGN KEY ({column}) REFERENCES users (id) ON DELETE {ondelete}"
         )
-    op.execute("ALTER TABLE activity_submissions DROP CONSTRAINT IF EXISTS ck_activity_submissions_producer_kind")
+    op.execute(
+        "ALTER TABLE activity_submissions DROP CONSTRAINT IF EXISTS ck_activity_submissions_producer_kind"
+    )
     op.execute("ALTER TABLE activity_submissions DROP COLUMN IF EXISTS producer_kind")
-    op.execute("ALTER TABLE activity_sessions DROP CONSTRAINT IF EXISTS ck_activity_sessions_subject_kind_group")
+    op.execute(
+        "ALTER TABLE activity_sessions DROP CONSTRAINT IF EXISTS ck_activity_sessions_subject_kind_group"
+    )
     op.execute("ALTER TABLE activity_sessions DROP CONSTRAINT IF EXISTS ck_activity_sessions_subject_kind")
     op.execute("ALTER TABLE activity_sessions DROP COLUMN IF EXISTS subject_kind")
 

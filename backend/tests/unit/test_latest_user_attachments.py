@@ -18,7 +18,9 @@ from contexts.conversation.domain.models import AttachmentStatus, SenderType
 from contexts.conversation.interfaces.facade import ConversationFacade
 
 
-def _facade(messages: list[SimpleNamespace], attachments: dict[uuid.UUID, list[SimpleNamespace]]) -> ConversationFacade:
+def _facade(
+    messages: list[SimpleNamespace], attachments: dict[uuid.UUID, list[SimpleNamespace]]
+) -> ConversationFacade:
     facade = object.__new__(ConversationFacade)
     facade._messages = SimpleNamespace(list=AsyncMock(return_value=messages))  # type: ignore[attr-defined]
 

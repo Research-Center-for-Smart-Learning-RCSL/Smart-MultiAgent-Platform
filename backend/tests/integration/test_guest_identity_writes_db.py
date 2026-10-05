@@ -395,7 +395,9 @@ class TestSchema:
             await session.commit()
             kind = (
                 await session.execute(
-                    sa.select(at.activity_sessions.c.subject_kind).where(at.activity_sessions.c.id == session_id)
+                    sa.select(at.activity_sessions.c.subject_kind).where(
+                        at.activity_sessions.c.id == session_id
+                    )
                 )
             ).scalar_one()
         assert kind == "member_group"
@@ -428,17 +430,21 @@ class TestUserErasure:
         async with sessionmaker() as read:
             subjects = (
                 await read.execute(
-                    sa.select(at.activity_sessions.c.subject_user_id, at.activity_sessions.c.subject_kind).where(
-                        at.activity_sessions.c.activation_id == guest_room.activation_id
-                    )
+                    sa.select(
+                        at.activity_sessions.c.subject_user_id, at.activity_sessions.c.subject_kind
+                    ).where(at.activity_sessions.c.activation_id == guest_room.activation_id)
                 )
             ).all()
             producers = (
-                await read.execute(
-                    sa.select(at.activity_submissions.c.producer_user_id).where(
-                        at.activity_submissions.c.chatroom_id == guest_room.chatroom_id
+                (
+                    await read.execute(
+                        sa.select(at.activity_submissions.c.producer_user_id).where(
+                            at.activity_submissions.c.chatroom_id == guest_room.chatroom_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert [(s.subject_user_id, s.subject_kind) for s in subjects] == [(guest_room.guest_id, "guest")]
         assert producers == [guest_room.guest_id]
