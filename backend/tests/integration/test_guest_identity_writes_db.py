@@ -490,3 +490,43 @@ class TestUserErasure:
         uploaders: dict[uuid.UUID, uuid.UUID | None] = {row.id: row.uploaded_by_user_id for row in rows}
         assert cleared == 1
         assert uploaders == {owner_upload: None, guest_upload: guest_room.guest_id}
+
+
+class TestGuestSessionLabels:
+    """guest-room-read-and-identity §7.1: the roster and agent labels read guest
+    names through one room-scoped query that projects id and name only."""
+
+    async def test_lists_this_rooms_guest_sessions_and_no_other_rooms(
+        self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
+    ) -> None:
+        other_room, other_guest = uuid.uuid4(), uuid.uuid4()
+        async with sessionmaker() as session:
+            workspace_id = (
+                await session.execute(
+                    sa.select(ct.chatrooms.c.workspace_id).where(ct.chatrooms.c.id == guest_room.chatroom_id)
+                )
+            ).scalar_one()
+            await session.execute(
+                ct.chatrooms.insert().values(
+                    id=other_room,
+                    workspace_id=workspace_id,
+                    name="other",
+                    guest_token=str(uuid.uuid4()),
+                    created_by_user_id=guest_room.owner_user_id,
+                    allow_guest_links=True,
+                )
+            )
+            await session.execute(
+                ct.guest_sessions.insert().values(
+                    id=other_guest,
+                    chatroom_id=other_room,
+                    display_name="Elsewhere",
+                    refresh_token_hash=f"itest-{other_guest}",
+                )
+            )
+            await session.commit()
+
+        async with sessionmaker() as session:
+            labels = await ConversationFacade(session).guest_session_labels(guest_room.chatroom_id)
+
+        assert labels == {guest_room.guest_id: "Guest Student"}

@@ -423,7 +423,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   forward compatibility, and subject kind resolved from the id) and FU-1..FU-9 are in the dossier.
   It unblocked `2026-10-05-guest-room-read-and-identity`, now below.
 
-- `2026-10-05-guest-room-read-and-identity` (bugfix, **approved 2026-10-05**, SRS Delta applied) -
+- `2026-10-05-guest-room-read-and-identity` (bugfix, **in progress 2026-10-05** on `fix/guest-room-read-and-identity`, SRS Delta applied) -
   `depends_on: [2026-10-05-guest-identity-foreign-keys]`, implemented. **Per the requester, build it
   from `main` after PR #225 merges**, not on that branch. Fixes audit F-3, F-4, F-5, F-6, F-13 plus
   the guest agent-list gap: room record, roster and agent list move to `resolve_room_access` +

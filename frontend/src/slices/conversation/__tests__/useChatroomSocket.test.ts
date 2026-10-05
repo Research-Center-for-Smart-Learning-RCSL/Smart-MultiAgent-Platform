@@ -1316,3 +1316,62 @@ describe('useChatroomSocket chatroom.updated (F-1)', () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomAgents(ROOM) })
   })
 })
+
+// docs/tasks/2026-10-05-guest-room-read-and-identity AC-4: a guest joining or
+// renaming changes the roster, and nothing used to tell open clients, so a
+// guest's name never reached anyone else without a reload.
+describe('useChatroomSocket chatroom.members_changed', () => {
+  let wrapper: VueWrapper | null = null
+
+  beforeEach(() => {
+    subscribedHandlers.length = 0
+    statusHandlers.length = 0
+    degradedHandlers.length = 0
+    listMessagesMock.mockClear()
+    listChatroomApprovalsMock.mockReset()
+    listChatroomApprovalsMock.mockResolvedValue([])
+    getActiveActivationMock.mockReset()
+    getActiveActivationMock.mockResolvedValue(null)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('re-reads the roster for this room', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.members_changed', chatroom_id: ROOM })
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomMembers(ROOM) })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroom(ROOM) })
+  })
+
+  it('ignores a frame naming a different room', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'chatroom.members_changed', chatroom_id: 'cr_other' })
+    await flushPromises()
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: convKeys.chatroomMembers(ROOM) })
+  })
+
+  it('re-reads the roster on reconnect, since a missed frame does not replay', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    statusHandlers.forEach((h) => h(true))
+    statusHandlers.forEach((h) => h(false))
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomMembers(ROOM) })
+  })
+})
