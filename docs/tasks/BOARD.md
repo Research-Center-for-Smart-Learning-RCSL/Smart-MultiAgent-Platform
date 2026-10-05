@@ -471,6 +471,14 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   exists" close (also fixes a members-affecting socket fail-open), guest orchestration reads as
   404/omitted, atomic refresh rotation.
 
+- `2026-10-05-guest-kick-and-ban` (feature, **approved 2026-10-05**, SRS Delta applied: [R6.12] and
+  [R13.07] rewritten, [R13.07a] added) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle,
+  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]` (none implemented
+  yet). Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked
+  session checked at the room access choke point; durable ban table keyed by session and a hash of
+  the browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`.
+  Last of the guest-audit dossiers.
+
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
 
