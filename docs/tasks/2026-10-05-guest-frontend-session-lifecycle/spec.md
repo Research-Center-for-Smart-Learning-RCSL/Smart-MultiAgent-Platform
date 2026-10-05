@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R6.11, R6.12, R13.06, R13.06a, R13.06b, R13.07, R24.43]
 depends_on: [2026-10-05-guest-room-read-and-identity]
@@ -374,7 +374,7 @@ Written first, failing against current code:
 - [x] AC-8: a link whose room id has upper-case letters refreshes and resumes like a lower-case one.
 - [x] AC-9: after a reload, a fully expired session lands on the room's expired banner (never `/login`),
   which tells the guest to reopen the shared link; within a page lifetime it offers Rejoin.
-- [ ] AC-10: backend and frontend lint, typecheck, tests, OpenAPI drift, build and the new e2e spec
+- [x] AC-10: backend and frontend lint, typecheck, tests, OpenAPI drift, build and the new e2e spec
   pass in CI.
 
 ## 11. SRS Delta
@@ -445,6 +445,11 @@ Appended by /build.
   ends the held room's session); a guest refresh whose context was replaced while it was in flight
   (a sign-in) leaves the token alone; the room's `online` listener is attached only while the view
   is active, so a KeepAlive-cached room is not reopened behind another route.
+- **D-14.** §8 item 7's "has no account shell" is asserted through the room header's Settings button
+  (shown to the member who owns the seeded room, hidden from an anonymous guest), with a signed-in
+  baseline first so its absence is meaningful. The first CI run used the sidebar's "Main navigation",
+  which a chatroom route collapses and makes inert: the check failed after the reload and its
+  guest-phase counterpart passed whatever the session.
 
 ## 13. Follow-ups
 
