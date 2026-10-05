@@ -439,7 +439,18 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   clears the tab's account state. Adds the guest lifecycle e2e spec. The unwritten
   `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
   `guest_session_service.py` error paths and `ws/chatroom.py:77`).
-  Unblocks `2026-10-05-guest-sender-marking` (Blocked) when implemented.
+  Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
+  (Blocked) when implemented.
+
+- `2026-10-05-canvas-template-tenant-scope` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
+  Audit F-12, a cross-tenant read: `GET /api/canvas-templates?scope=project` without `project_id`
+  returns every project's templates to any principal (guests included), and apply copies any
+  template into any writable room. One [R13.59] readability rule for list, get, apply and delete;
+  unreadable answers the unknown-id 404. Recommended first of the remaining guest-audit dossiers.
+
+- `2026-10-05-chat-export-guest-narrowing` (bugfix, **approved 2026-10-05**) - `depends_on: []`.
+  Audit F-11: the narrowed (member) chat export keeps every non-`user` sender, so guest messages,
+  edits and attachments leak into it; the predicate becomes "own plus agent and system".
 
 ## Blocked
 
@@ -451,6 +462,14 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label from a
   guest identity, in the UI (message author, participant list, typing) and the model context
   (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
+
+- `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
+  `depends_on: [2026-10-05-guest-frontend-session-lifecycle]` (not yet implemented; same
+  `guest_session_service.py` error paths and the client close-code handling). Audit F-14, F-15, F-16,
+  F-17, F-21: one guest audit shape for every guest-caused row, an advisory lock on joins (cap and
+  duplicate `browser_id`), dead workspace/project rooms as invalid links and a 4404 "room no longer
+  exists" close (also fixes a members-affecting socket fail-open), guest orchestration reads as
+  404/omitted, atomic refresh rotation.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
