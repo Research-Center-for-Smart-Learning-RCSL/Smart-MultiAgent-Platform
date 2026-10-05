@@ -138,7 +138,7 @@ def _room_access(monkeypatch: pytest.MonkeyPatch, *, roles: frozenset[Role], is_
 
 def _status(exc: pytest.ExceptionInfo[BaseException]) -> int:
     value = exc.value
-    return getattr(value, "status_code", None) or getattr(value, "status", 0)
+    return int(getattr(value, "status_code", None) or getattr(value, "status", 0))
 
 
 class TestList:
