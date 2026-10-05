@@ -427,6 +427,16 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   `guest-room-read-and-identity` and `research-export-data-shape` dossiers consume `subject_kind`
   and should list this slug in `depends_on`. Its db-tier tests only run in CI's `backend-db` job.
 
+## Blocked (2026-10-05 dossiers)
+
+- `2026-10-05-guest-room-read-and-identity` (bugfix, **draft**) - waiting on
+  `2026-10-05-guest-identity-foreign-keys` (logical: reuses its `ConversationFacade` guest-session
+  reads; overlap: `ChatroomView.vue` and the conversation facade). Fixes audit F-3, F-4, F-5, F-6,
+  F-13 plus the guest agent-list gap: room record, roster and agent list move to
+  `resolve_room_access` + `ensure_can_read`; guest-session names reach the roster, other viewers and
+  agent prompts; a new `chatroom.members_changed` event; one client `viewerId`. Carries SRS deltas
+  to [R13.19] and [R13.33].
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
