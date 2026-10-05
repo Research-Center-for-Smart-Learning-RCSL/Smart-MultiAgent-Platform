@@ -65,4 +65,42 @@ describe('session store and the guest context', () => {
     expect(session.isAuthenticated).toBe(false)
     expect(getGuestChatroomId()).toBe(ROOM)
   })
+
+  it.each([
+    ['fails', 401],
+    ['succeeds', 200],
+  ] as const)(
+    'leaves a guest session entered while a focus hydrate was in flight alone when the refresh %s',
+    async (_, status) => {
+      let answer!: () => void
+      const gate = new Promise<void>((r) => {
+        answer = r
+      })
+      let arrived!: () => void
+      const sent = new Promise<void>((r) => {
+        arrived = r
+      })
+      server.use(
+        http.post('/api/auth/refresh', async () => {
+          arrived()
+          await gate
+          return status === 200
+            ? HttpResponse.json({ access_token: 'user', refresh_token: 'r', expires_in: 60 })
+            : HttpResponse.json({ type: 'https://smap.local/problems/auth/required', title: 'x', status }, { status })
+        }),
+      )
+      const session = useSessionStore()
+
+      const hydrating = session.hydrate()
+      await sent
+      setGuestContext(ROOM)
+      setAccessToken('guest-token')
+      answer()
+      await hydrating
+
+      expect(getAccessToken()).toBe('guest-token')
+      expect(getGuestChatroomId()).toBe(ROOM)
+      expect(session.isAuthenticated).toBe(false)
+    },
+  )
 })
