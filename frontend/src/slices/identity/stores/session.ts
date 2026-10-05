@@ -74,14 +74,21 @@ export const useSessionStore = defineStore('identity/session', () => {
     // token: the catch-block clear() would wipe the guest session (or the
     // room's record of how it ended), and a successful refresh would swap the
     // account a signed-in user set aside to enter as a guest back in mid-session.
-    if (isGuestSession.value || getGuestChatroomId()) return
+    if (holdsGuestSession()) return
     try {
       const pair = await authApi.refresh()
+      // A guest may have entered while the refresh was in flight (a focus
+      // hydrate racing the landing page); the same reasons apply.
+      if (holdsGuestSession()) return
       applyTokens(pair)
       await refreshMe()
     } catch {
-      clear()
+      if (!holdsGuestSession()) clear()
     }
+  }
+
+  function holdsGuestSession(): boolean {
+    return isGuestSession.value || getGuestChatroomId() !== null
   }
 
   return {
