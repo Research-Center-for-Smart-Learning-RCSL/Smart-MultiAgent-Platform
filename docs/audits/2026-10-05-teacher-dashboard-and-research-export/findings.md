@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-10-05
 requirements: [R13.17, R13.32, R30.10, R33.01, R33.02, R33.03, R33.04, R33.10, R8.08, R8.11]
 ---
@@ -485,32 +485,34 @@ Not covered, and therefore not claimed clean:
 
 ## 5. Hand-off
 
+Triaged with the requester on 2026-10-05: every finding is fixed, grouped by root cause. The two intent conflicts were decided as follows. F-9: [R13.32] governs, so the dashboard shows only rooms the caller can open (owners still see every room, since they can open every room); workspace-scope §8 is superseded on this point. F-24: the dashboard is restricted to project members per [R8.09] and [R33.02], changing only the dashboard gate and not the platform-wide any-role membership convention that `allow_org_members` rooms depend on. Dossier paths below are the planned slugs; each becomes a link once `/spec` creates it.
+
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | | |
-| F-2 | | |
-| F-3 | | |
-| F-4 | | |
-| F-5 | | |
-| F-6 | | |
-| F-7 | | |
-| F-8 | | |
-| F-9 | | |
-| F-10 | | |
-| F-11 | | |
-| F-12 | | |
-| F-13 | | |
-| F-14 | | |
-| F-15 | | |
-| F-16 | | |
-| F-17 | | |
-| F-18 | | |
-| F-19 | | |
-| F-20 | | |
-| F-21 | | |
-| F-22 | | |
-| F-23 | | |
-| F-24 | | |
+| F-1 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-2 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-3 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
+| F-4 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
+| F-5 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
+| F-6 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
+| F-7 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-8 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-9 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-10 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-data-shape/` |
+| F-11 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
+| F-12 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
+| F-13 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
+| F-14 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
+| F-15 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-data-shape/` |
+| F-16 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-17 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-18 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-19 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-chart-and-error-states/` |
+| F-20 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-chart-and-error-states/` |
+| F-21 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-22 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-23 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
+| F-24 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
 
 ## 6. Out-of-scope Observations
 

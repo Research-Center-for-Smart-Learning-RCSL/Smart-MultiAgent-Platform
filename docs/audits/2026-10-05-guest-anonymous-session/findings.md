@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-10-05
 requirements: [R5.04, R6.11, R6.12, R13.04, R13.06, R13.06a, R13.06b, R13.07, R13.32, R13.33, R13.59, R15.24, R30.26]
 ---
@@ -489,33 +489,35 @@ Not covered, and therefore not claimed clean:
 
 ## 5. Hand-off
 
+Triaged with the requester on 2026-10-05: every finding is fixed, grouped by root cause so each dossier is independently reviewable. F-24 was decided as a feature (per-guest removal and ban, with an SRS amendment to [R6.12] and [R13.07]) rather than a requirements retreat. Dossier paths below are the planned slugs; each becomes a link once `/spec` creates it.
+
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | | |
-| F-2 | | |
-| F-3 | | |
-| F-4 | | |
-| F-5 | | |
-| F-6 | | |
-| F-7 | | |
-| F-8 | | |
-| F-9 | | |
-| F-10 | | |
-| F-11 | | |
-| F-12 | | |
-| F-13 | | |
-| F-14 | | |
-| F-15 | | |
-| F-16 | | |
-| F-17 | | |
-| F-18 | | |
-| F-19 | | |
-| F-20 | | |
-| F-21 | | |
-| F-22 | | |
-| F-23 | | |
-| F-24 | | |
-| F-25 | | |
+| F-1 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-identity-foreign-keys/` |
+| F-2 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-identity-foreign-keys/` |
+| F-3 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-room-read-and-identity/` |
+| F-4 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-room-read-and-identity/` |
+| F-5 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-room-read-and-identity/` |
+| F-6 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-room-read-and-identity/` |
+| F-7 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-8 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-9 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-10 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-11 | fix (2026-10-05) | `docs/tasks/2026-10-05-chat-export-guest-narrowing/` |
+| F-12 | fix (2026-10-05) | `docs/tasks/2026-10-05-canvas-template-tenant-scope/` |
+| F-13 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-room-read-and-identity/` |
+| F-14 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-session-backend-hardening/` |
+| F-15 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-session-backend-hardening/` |
+| F-16 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-session-backend-hardening/` |
+| F-17 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-session-backend-hardening/` |
+| F-18 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-19 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-20 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-21 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-session-backend-hardening/` |
+| F-22 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-frontend-session-lifecycle/` |
+| F-23 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-identity-foreign-keys/` |
+| F-24 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-kick-and-ban/` |
+| F-25 | fix (2026-10-05) | `docs/tasks/2026-10-05-guest-identity-foreign-keys/` |
 
 ## 6. Out-of-scope Observations
 
