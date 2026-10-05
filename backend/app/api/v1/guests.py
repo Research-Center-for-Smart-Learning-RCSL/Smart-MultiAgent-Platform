@@ -4,7 +4,8 @@ Two paths:
 
 1. **Legacy enrollment** (registered users):
    ``POST /api/guest/{chatroom_id}/{guest_token}/enroll``
-   Requires ``current_principal`` -- the user must already be logged in.
+   Requires ``require_registered_principal`` -- a logged-in account, never an
+   anonymous guest token, whose id would fail ``chatroom_guests.user_id``'s FK.
 
 2. **Anonymous guest session** (R13.06, R13.06a, R13.06b):
    ``POST /api/guest/{chatroom_id}/{guest_token}/session`` -- public.
@@ -24,7 +25,7 @@ from contexts.conversation.application.guest_service import GuestService
 from contexts.conversation.domain.errors import GuestTokenInvalid
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
-from shared_kernel.auth.dependencies import current_context, current_principal
+from shared_kernel.auth.dependencies import current_context, current_principal, require_registered_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
@@ -45,7 +46,7 @@ async def enroll_guest(
     guest_token: str = Path(..., min_length=16, max_length=128),
     body: GuestEnrollIn = GuestEnrollIn(),
     ctx: RequestContext = Depends(current_context),
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(require_registered_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = GuestService(db)

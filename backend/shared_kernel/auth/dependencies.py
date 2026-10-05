@@ -52,6 +52,29 @@ async def current_principal(ctx: RequestContext = Depends(current_context)) -> P
     return ctx.principal  # type: ignore[return-value]
 
 
+async def require_registered_principal(principal: Principal = Depends(current_principal)) -> Principal:
+    """The caller, provided it is a registered user and not an anonymous guest.
+
+    A guest token reaches every ``current_principal`` route, and its ``user_id``
+    is a guest session's, not a ``users`` row. Routes that act on the caller as an
+    account (own keys, linked identities, legacy room enrollment) depend on this
+    instead. 403 rather than 401: the client refreshes on an authenticated 401,
+    which for a guest would mint another guest token and replay the request.
+    """
+    if principal.is_guest:
+        problem = Problem(
+            type=problem_type("auth/registered-account-required"),
+            title="A registered account is required",
+            status=403,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=problem.dump(),
+            headers={"Content-Type": "application/problem+json"},
+        )
+    return principal
+
+
 async def optional_principal(
     ctx: RequestContext = Depends(current_context),
 ) -> Principal | None:
@@ -191,5 +214,6 @@ __all__ = [
     "optional_principal",
     "require",
     "require_membership",
+    "require_registered_principal",
     "scope_from_path",
 ]
