@@ -168,7 +168,7 @@ pygments==2.20.0
     # via rich
 pyjwt==2.15.0
     # via smap-backend (pyproject.toml)
-pypdf==6.16.1
+pypdf==6.19.0
     # via smap-backend (pyproject.toml)
 pyphen==0.17.2
     # via weasyprint
@@ -247,7 +247,7 @@ typing-inspection==0.4.2
     # via
     #   fastapi
     #   pydantic
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   docker
     #   minio
