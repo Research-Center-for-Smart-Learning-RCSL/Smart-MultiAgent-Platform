@@ -430,6 +430,21 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   (guest impersonating the owner's display name) should be decided before the classroom pilot.
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+- `2026-10-05-guest-frontend-session-lifecycle` (bugfix, **draft**) -
+  `depends_on: [2026-10-05-guest-room-read-and-identity]`, implemented. Fixes audit F-7, F-8, F-9,
+  F-10, F-18, F-19, F-20, F-22: a guest session survives reload (account-first boot, then the room's
+  guest refresh), ends visibly with the right reason (new problem types
+  `conversation/guest-access-disabled` and `conversation/guest-display-name-invalid`), is tied to its
+  token so a later sign-in cannot be hijacked, and a signed-in user entering as a guest confirms and
+  clears the tab's account state. Adds the guest lifecycle e2e spec. The unwritten
+  `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
+  `guest_session_service.py` error paths and `ws/chatroom.py:77`).
+
+- **To spec next, before the pilot:** a small dossier for FU-4 of
+  `2026-10-05-guest-room-read-and-identity` (a guest can take the room owner's or a member's exact
+  display name; mark guest senders and/or reject colliding names). Per the requester it is separate
+  from the session-lifecycle dossier and follows it.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
