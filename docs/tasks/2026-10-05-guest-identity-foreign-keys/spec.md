@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R30.01, R30.26, R30.39, R13.06]
 depends_on: []
@@ -323,27 +323,33 @@ runs are not authoritative.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the db-tier guest-submit test fails before the fix and passes after; the session and
+- [x] AC-1: the db-tier guest-submit test fails before the fix and passes after; the session and
   submission carry `subject_kind='guest'` and `producer_kind='guest'`.
-- [ ] AC-2: guest completion toggle and open-session succeed against a real database.
-- [ ] AC-3: a guest uploads an attachment and binds it to its own message against a real database;
+- [x] AC-2: guest completion toggle and open-session succeed against a real database.
+- [x] AC-3: a guest uploads an attachment and binds it to its own message against a real database;
   agent artifact binding is unchanged.
-- [ ] AC-4: the schema test shows no FK from `activity_sessions.subject_user_id`,
+- [x] AC-4: the schema test shows no FK from `activity_sessions.subject_user_id`,
   `activity_submissions.producer_user_id` or `message_attachments.uploaded_by_user_id` to `users`;
   the kind CHECKs hold; existing group sessions read `member_group`.
-- [ ] AC-5: hard-deleting a user removes exactly the activity rows the old cascade removed and no
+- [x] AC-5: hard-deleting a user removes exactly the activity rows the old cascade removed and no
   guest rows.
-- [ ] AC-6: legacy enroll, key upload and Google link start return 403
+- [x] AC-6: legacy enroll, key upload and Google link start return 403
   `auth/registered-account-required` for a guest, with no row written and no provider probe;
   registered-user behavior is unchanged.
-- [ ] AC-7: `latest_user_attachments` returns a guest message's attachments when that message is the
+- [x] AC-7: `latest_user_attachments` returns a guest message's attachments when that message is the
   newest human message.
-- [ ] AC-8: the chat attachment upload proceeds without a `projectId`; the completion toggle is
+- [x] AC-8: the chat attachment upload proceeds without a `projectId`; the completion toggle is
   enabled for a guest session.
-- [ ] AC-9: OpenAPI types regenerated; backend and frontend lint, typecheck, tests and build pass in
-  CI, including `backend-db`.
+- [x] AC-9: OpenAPI types regenerated; backend and frontend lint, typecheck, tests and build pass in
+  CI, including `backend-db`. Verified on PR #225 at `2473b9cd`: 24 checks green; the db tier ran
+  `test_guest_identity_writes_db.py` (242 passed, 4 unrelated skips). The pre-fix failure was
+  observed on a throwaway branch (PR #226): `ForeignKeyViolationError` on
+  `fk_activity_sessions_subject_user_id_users` and `fk_message_attachments_uploaded_by_user_id_users`.
 - [ ] AC-10: on a running stack, a guest entering by link submits an activity, toggles completion
   and attaches a file, each without error. Left unticked if no stack is available, with the reason.
+  **Not run:** no stack was available in this session (Docker Desktop not running locally). The
+  API half is covered by the db-tier route tests; the browser half (toggle and attach from the guest
+  UI) is covered only by unit tests.
 
 ## 11. SRS Delta
 

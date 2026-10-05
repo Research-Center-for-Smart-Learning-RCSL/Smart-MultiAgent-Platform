@@ -417,25 +417,19 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 ### From the 2026-10-05 guest and dashboard audits
 
-- `2026-10-05-guest-identity-foreign-keys` (bugfix, **approved 2026-10-05**, SRS Delta applied) -
-  `depends_on: []`. Fixes audit
-  F-1, F-2, F-23 and F-25 of `docs/audits/2026-10-05-guest-anonymous-session/findings.md`: guest
-  activity writes and attachment uploads fail on foreign keys to `users`, and three registered-only
-  endpoints accept guest principals. Drops three FKs, adds stored `subject_kind`/`producer_kind`
-  discriminators, preserves hard-delete erasure explicitly, and adds `require_registered_principal`.
-  Carries an SRS delta to [R30.39]. **Build this first among the 2026-10-05 dossiers**: the planned
-  `guest-room-read-and-identity` and `research-export-data-shape` dossiers consume `subject_kind`
-  and should list this slug in `depends_on`. Its db-tier tests only run in CI's `backend-db` job.
+- (implemented 2026-10-05) `2026-10-05-guest-identity-foreign-keys`. AC-1..AC-9 verified on PR
+  #225 (CI green at `2473b9cd`, db tier included; pre-fix failure observed on throwaway PR #226).
+  AC-10 unticked: no running stack. Deviations D-1..D-9 (notably person-only `subject_kind` for
+  forward compatibility, and subject kind resolved from the id) and FU-1..FU-9 are in the dossier.
+  It unblocked `2026-10-05-guest-room-read-and-identity`, now below.
 
-## Blocked (2026-10-05 dossiers)
-
-- `2026-10-05-guest-room-read-and-identity` (bugfix, **approved 2026-10-05**, SRS Delta applied) - waiting on
-  `2026-10-05-guest-identity-foreign-keys` (logical: reuses its `ConversationFacade` guest-session
-  reads; overlap: `ChatroomView.vue` and the conversation facade). Fixes audit F-3, F-4, F-5, F-6,
-  F-13 plus the guest agent-list gap: room record, roster and agent list move to
-  `resolve_room_access` + `ensure_can_read`; guest-session names reach the roster, other viewers and
-  agent prompts; a new `chatroom.members_changed` event; one client `viewerId`. Carries SRS deltas
-  to [R13.19] and [R13.33].
+- `2026-10-05-guest-room-read-and-identity` (bugfix, **approved 2026-10-05**, SRS Delta applied) -
+  `depends_on: [2026-10-05-guest-identity-foreign-keys]`, implemented. **Per the requester, build it
+  from `main` after PR #225 merges**, not on that branch. Fixes audit F-3, F-4, F-5, F-6, F-13 plus
+  the guest agent-list gap: room record, roster and agent list move to `resolve_room_access` +
+  `ensure_can_read`; guest-session names reach the roster, other viewers and agent prompts; a new
+  `chatroom.members_changed` event; one client `viewerId`. Carries SRS deltas to [R13.19] and
+  [R13.33].
 
 ## Blocked
 
