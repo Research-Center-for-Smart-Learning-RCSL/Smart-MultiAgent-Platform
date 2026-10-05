@@ -52,11 +52,14 @@ def _session_result(*, roster_changed: bool) -> SimpleNamespace:
 async def test_joining_emits_only_when_the_roster_changed(changed: bool) -> None:
     room = uuid.uuid4()
     db = MagicMock(commit=AsyncMock())
-    facade = SimpleNamespace(create_or_resume_guest_session=AsyncMock(return_value=_session_result(roster_changed=changed)))
+    facade = SimpleNamespace(
+        create_or_resume_guest_session=AsyncMock(return_value=_session_result(roster_changed=changed))
+    )
     publisher, sent = _publisher()
 
-    with patch.object(guests_route, "ConversationFacade", return_value=facade), patch.object(
-        guests_route, "Publisher", publisher
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        patch.object(guests_route, "Publisher", publisher),
     ):
         await guests_route.create_guest_session(
             body=guests_route.GuestSessionIn(display_name="Alice"),
@@ -76,7 +79,9 @@ async def test_joining_emits_only_when_the_roster_changed(changed: bool) -> None
 @pytest.mark.parametrize("changed", [True, False])
 async def test_renaming_returns_the_stored_name_and_emits_only_on_a_change(changed: bool) -> None:
     room, session_id = uuid.uuid4(), uuid.uuid4()
-    principal = Principal(user_id=session_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room)
+    principal = Principal(
+        user_id=session_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room
+    )
     db = MagicMock(commit=AsyncMock())
     facade = SimpleNamespace(
         update_guest_display_name=AsyncMock(
@@ -85,8 +90,9 @@ async def test_renaming_returns_the_stored_name_and_emits_only_on_a_change(chang
     )
     publisher, sent = _publisher()
 
-    with patch.object(guests_route, "ConversationFacade", return_value=facade), patch.object(
-        guests_route, "Publisher", publisher
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        patch.object(guests_route, "Publisher", publisher),
     ):
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="  Alice   Chen "),
@@ -104,14 +110,17 @@ async def test_a_failed_emit_does_not_fail_the_rename() -> None:
     """The write is durable before the emit; a 500 for a change that happened is
     a worse lie than a missed refresh (the posture of `_emit_chatroom_updated`)."""
     room, session_id = uuid.uuid4(), uuid.uuid4()
-    principal = Principal(user_id=session_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room)
+    principal = Principal(
+        user_id=session_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room
+    )
     facade = SimpleNamespace(
         update_guest_display_name=AsyncMock(return_value=SimpleNamespace(display_name="Bob", changed=True))
     )
     broken = SimpleNamespace(emit=AsyncMock(side_effect=RuntimeError("redis down")))
 
-    with patch.object(guests_route, "ConversationFacade", return_value=facade), patch.object(
-        guests_route, "Publisher", return_value=broken
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        patch.object(guests_route, "Publisher", return_value=broken),
     ):
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="Bob"),

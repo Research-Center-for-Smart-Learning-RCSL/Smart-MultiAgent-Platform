@@ -34,7 +34,9 @@ _REFUSED = (HTTPException, ForbiddenInRoom)
 
 
 def _guest(room_id: uuid.UUID) -> Principal:
-    return Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=False, is_guest=True, chatroom_id=room_id)
+    return Principal(
+        user_id=uuid.uuid4(), is_admin=False, email_verified=False, is_guest=True, chatroom_id=room_id
+    )
 
 
 def _member() -> Principal:
@@ -161,7 +163,9 @@ class TestAnonymousGuest:
         with pytest.raises(_REFUSED):
             await chatrooms_mod.read_chatroom(chatroom_id=room.id, principal=_guest(room.id), db=object())
         with pytest.raises(_REFUSED):
-            await chatrooms_mod.list_chatroom_members(chatroom_id=room.id, principal=_guest(room.id), db=object())
+            await chatrooms_mod.list_chatroom_members(
+                chatroom_id=room.id, principal=_guest(room.id), db=object()
+            )
 
     async def test_roster_includes_guest_sessions_by_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
         room = chatroom_row()
@@ -210,25 +214,31 @@ class TestRoomFlagsGovernReads:
             agent_rows=[_agent_row("A")],
         )
         member = _member()
+        calls = {
+            "room": lambda: chatrooms_mod.read_chatroom(chatroom_id=room.id, principal=member, db=object()),
+            "members": lambda: chatrooms_mod.list_chatroom_members(
+                chatroom_id=room.id, principal=member, db=object()
+            ),
+            "agents": lambda: chatrooms_mod.list_chatroom_agents(
+                chatroom_id=room.id, pagination=_PAGE, principal=member, db=object()
+            ),
+        }
 
         with pytest.raises(_REFUSED):
-            if route == "room":
-                await chatrooms_mod.read_chatroom(chatroom_id=room.id, principal=member, db=object())
-            elif route == "members":
-                await chatrooms_mod.list_chatroom_members(chatroom_id=room.id, principal=member, db=object())
-            else:
-                await chatrooms_mod.list_chatroom_agents(
-                    chatroom_id=room.id, pagination=_PAGE, principal=member, db=object()
-                )
+            await calls[route]()
 
-    async def test_an_org_member_of_a_project_only_room_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_an_org_member_of_a_project_only_room_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         room = chatroom_row()
         _wire(monkeypatch, access=_access(room, roles=frozenset({Role.ORG_MEMBER})))
 
         with pytest.raises(_REFUSED):
             await chatrooms_mod.read_chatroom(chatroom_id=room.id, principal=_member(), db=object())
 
-    async def test_a_project_member_of_an_open_room_still_reads_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_a_project_member_of_an_open_room_still_reads_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         room = chatroom_row()
         _wire(monkeypatch, access=_access(room, roles=frozenset({Role.PROJECT_MEMBER})))
 
