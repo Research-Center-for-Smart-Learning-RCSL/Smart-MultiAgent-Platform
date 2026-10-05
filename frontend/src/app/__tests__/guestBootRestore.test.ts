@@ -4,7 +4,7 @@
 // on the room, never on /login (AC-1, AC-9).
 // docs/tasks/2026-10-05-guest-frontend-session-lifecycle
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../tests/mocks/server'
@@ -17,7 +17,7 @@ import {
   setAccessToken,
 } from '@shared/transport'
 import { useSessionStore } from '@slices/identity'
-import { restoreSessionAtBoot } from '../boot'
+import { preferAccountOverPendingGuest, restoreSessionAtBoot } from '../boot'
 import { guardRoute, router } from '../router'
 
 const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
@@ -155,6 +155,63 @@ describe('restoreSessionAtBoot', () => {
     server.use(http.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })))
     expect(await fetchWsTicket()).toBe('t')
     expect(getAccessToken()).toBe('guest-jwt')
+  })
+
+  it('hands an offline-restored room back to the account once the network returns', async () => {
+    let accountUp = false
+    server.use(
+      http.post('/api/auth/refresh', () =>
+        accountUp
+          ? HttpResponse.json({ access_token: 'user', refresh_token: 'r', expires_in: 60 })
+          : HttpResponse.error(),
+      ),
+    )
+    guestRefreshAnswers(() => HttpResponse.error())
+    holdHint()
+    await restoreSessionAtBoot(`/chatrooms/${ROOM}`)
+    expect(getGuestChatroomId()).toBe(ROOM)
+
+    accountUp = true
+    guestRefreshAnswers(() => HttpResponse.json({ access_token: 'guest-jwt' }))
+    const reload = vi.fn()
+    expect(await preferAccountOverPendingGuest(reload)).toBe(true)
+
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(guestRefreshes).toBe(0)
+    expect(useSessionStore().isAuthenticated).toBe(true)
+    expect(getGuestChatroomId()).toBeNull()
+  })
+
+  it('leaves an offline-restored room to the guest when there is no account', async () => {
+    server.use(NO_ACCOUNT)
+    guestRefreshAnswers(() => HttpResponse.error())
+    holdHint()
+    await restoreSessionAtBoot(`/chatrooms/${ROOM}`)
+
+    const reload = vi.fn()
+    expect(await preferAccountOverPendingGuest(reload)).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+    expect(getGuestChatroomId()).toBe(ROOM)
+  })
+
+  it('wires the account-first check into the socket ticket path at boot', async () => {
+    server.use(NO_ACCOUNT)
+    guestRefreshAnswers(() => HttpResponse.error())
+    holdHint()
+    await restoreSessionAtBoot(`/chatrooms/${ROOM}`)
+
+    let accountRefreshes = 0
+    server.use(
+      http.post('/api/auth/refresh', () => {
+        accountRefreshes += 1
+        return HttpResponse.json({ type: 'https://smap.local/problems/auth/required', title: 'x', status: 401 }, { status: 401 })
+      }),
+    )
+    guestRefreshAnswers(() => HttpResponse.json({ access_token: 'guest-jwt' }))
+    server.use(http.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })))
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(accountRefreshes).toBe(1)
   })
 
   it('does not let a guest context for one room open another', async () => {

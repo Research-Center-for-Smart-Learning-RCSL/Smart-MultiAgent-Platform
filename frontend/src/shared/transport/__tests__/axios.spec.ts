@@ -10,6 +10,7 @@ import {
   getAccessToken,
   getGuestChatroomId,
   guestSessionEnd,
+  onPendingGuestRestore,
   setAccessToken,
   setGuestContext,
   onUnauthorizedRedirect,
@@ -475,6 +476,138 @@ describe('guest session refresh', () => {
 
     await expect(fetchWsTicket()).rejects.toBeTruthy()
     expect(tickets).toBe(0)
+  })
+})
+
+// Code review of the same dossier: only an answer that says the session is gone
+// ends it, and a context replaced mid-refresh is left alone.
+describe('guest session refresh, transient answers and context changes', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+
+  it.each([502, 503, 429, 500])('a %s answer keeps the token and records no end', async (status) => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => new HttpResponse('<html>bad gateway</html>', { status })),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(getAccessToken()).toBe('guest-1')
+    expect(guestSessionEnd.value).toBeNull()
+    expect(getGuestChatroomId()).toBe(ROOM)
+  })
+
+  it('a 401 answer ends the session as expired', async () => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () =>
+        HttpResponse.json({ type: 'https://smap.local/problems/auth/required', title: 't', status: 401 }, { status: 401 }),
+      ),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await refreshAccessToken()
+    expect(guestSessionEnd.value).toBe('expired')
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it.each([
+    ['fails', 404],
+    ['succeeds', 200],
+  ] as const)('leaves a user token applied while a guest refresh was in flight alone when it %s', async (_, status) => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    let arrived!: () => void
+    const sent = new Promise<void>((r) => {
+      arrived = r
+    })
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', async () => {
+        arrived()
+        await gate
+        return status === 200
+          ? HttpResponse.json({ access_token: 'guest-2' })
+          : HttpResponse.json({ type: 'https://smap.local/problems/conversation/guest-token-invalid', title: 't', status }, { status })
+      }),
+    )
+    setGuestContext(ROOM)
+    const refreshing = refreshAccessToken()
+    await sent
+    // A sign-in lands: the session store clears the context and applies its token.
+    clearGuestContext()
+    setAccessToken('user-token')
+    release()
+    await refreshing
+
+    expect(getAccessToken()).toBe('user-token')
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('a guest-access-disabled answer for another room does not end this one', async () => {
+    const OTHER = '11111111-2222-4333-8444-555555555555'
+    server.use(
+      mswHttp.post(`/api/guest/${OTHER}/tok_abcdefghijklmnop/session`, () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/conversation/guest-access-disabled', title: 't', status: 403 },
+          { status: 403 },
+        ),
+      ),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(http.post(`/guest/${OTHER}/tok_abcdefghijklmnop/session`, {})).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+})
+
+describe('pending guest restore prefers the account', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+
+  afterEach(() => {
+    onPendingGuestRestore(null)
+  })
+
+  it('asks the account resolver before the guest refresh, and stops when it takes over', async () => {
+    let guestRefreshes = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        guestRefreshes += 1
+        return HttpResponse.json({ access_token: 'guest-2' })
+      }),
+    )
+    const resolver = vi.fn(async () => true)
+    onPendingGuestRestore(resolver)
+    setGuestContext(ROOM)
+
+    await expect(fetchWsTicket()).rejects.toBeTruthy()
+    expect(resolver).toHaveBeenCalledTimes(1)
+    expect(guestRefreshes).toBe(0)
+  })
+
+  it('falls back to the guest refresh when there is no account', async () => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json({ access_token: 'guest-2' })),
+      mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })),
+    )
+    onPendingGuestRestore(async () => false)
+    setGuestContext(ROOM)
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(getAccessToken()).toBe('guest-2')
+  })
+
+  it('is not consulted while a guest token is held', async () => {
+    server.use(mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })))
+    const resolver = vi.fn(async () => true)
+    onPendingGuestRestore(resolver)
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(resolver).not.toHaveBeenCalled()
   })
 })
 

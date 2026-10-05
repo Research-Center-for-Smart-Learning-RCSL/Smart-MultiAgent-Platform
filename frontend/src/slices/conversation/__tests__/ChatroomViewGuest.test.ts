@@ -232,7 +232,17 @@ describe('ChatroomView when the guest session ends', () => {
     return wrapper.findComponent(ChatroomComposer).props('disabled') === true
   }
 
-  it('shows the expired banner on a 4401 close once the token is already gone', async () => {
+  // 4401 is the server's "re-handshake" signal (ws_auth.py), so the refresh it
+  // triggers decides whether the session ended (code review finding 1).
+  it('shows the expired banner when the refresh a 4401 close triggers is answered 404', async () => {
+    server.use(
+      http.post('/api/guest/cr_1/refresh', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/conversation/guest-token-invalid', title: 't', status: 404 },
+          { status: 404 },
+        ),
+      ),
+    )
     enterAsGuest()
     setGuestContext('cr_1')
     const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
@@ -248,6 +258,35 @@ describe('ChatroomView when the guest session ends', () => {
     expect(wrapper.text()).toContain(expiredKey)
     expect(wrapper.text()).toContain(rejoinKey)
     expect(composerDisabled(wrapper)).toBe(true)
+  })
+
+  it('a 4401 close whose refresh succeeds keeps the session and reconnects', async () => {
+    let refreshes = 0
+    server.use(
+      http.post('/api/guest/cr_1/refresh', () => {
+        refreshes += 1
+        return HttpResponse.json({
+          access_token: unsignedToken({ sub: GUEST, token_use: 'guest_access', chatroom_id: 'cr_1' }),
+        })
+      }),
+    )
+    enterAsGuest()
+    setGuestContext('cr_1')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.open()
+    const before = FakeWebSocket.instances.length
+
+    socket.serverClose(4401)
+    await settle()
+    await new Promise((r) => setTimeout(r, 1200))
+    await settle()
+
+    expect(refreshes).toBe(1)
+    expect(wrapper.text()).not.toContain(expiredKey)
+    expect(composerDisabled(wrapper)).toBe(false)
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(before)
   })
 
   it('shows the disabled banner whichever path recorded it, and stops the socket', async () => {

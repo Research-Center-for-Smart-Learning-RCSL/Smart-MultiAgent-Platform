@@ -12,6 +12,7 @@ import {
   clearGuestContext,
   getAccessToken,
   getGuestChatroomId,
+  markGuestSessionEnded,
   setAccessToken,
   setGuestContext,
 } from '@shared/transport'
@@ -48,7 +49,7 @@ describe('session store and the guest context', () => {
     expect(getGuestChatroomId()).toBeNull()
   })
 
-  it('does not hydrate while a guest context is held, even with no guest token', async () => {
+  it('does not hydrate while the room shows how its guest session ended', async () => {
     let refreshes = 0
     server.use(
       http.post('/api/auth/refresh', () => {
@@ -57,11 +58,37 @@ describe('session store and the guest context', () => {
       }),
     )
     setGuestContext(ROOM)
+    markGuestSessionEnded('expired')
     const session = useSessionStore()
 
     await session.hydrate()
 
     expect(refreshes).toBe(0)
+    expect(session.isAuthenticated).toBe(false)
+    expect(getGuestChatroomId()).toBe(ROOM)
+  })
+
+  it('lets the account take over a guest restore still pending for want of a network', async () => {
+    setGuestContext(ROOM)
+    const session = useSessionStore()
+
+    await session.hydrate()
+
+    expect(session.isAuthenticated).toBe(true)
+    expect(getGuestChatroomId()).toBeNull()
+  })
+
+  it('keeps a pending guest restore when there is no account', async () => {
+    server.use(
+      http.post('/api/auth/refresh', () =>
+        HttpResponse.json({ type: 'https://smap.local/problems/auth/required', title: 'x', status: 401 }, { status: 401 }),
+      ),
+    )
+    setGuestContext(ROOM)
+    const session = useSessionStore()
+
+    await session.hydrate()
+
     expect(session.isAuthenticated).toBe(false)
     expect(getGuestChatroomId()).toBe(ROOM)
   })
