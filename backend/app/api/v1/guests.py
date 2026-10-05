@@ -235,10 +235,14 @@ class GuestWsTicketOut(BaseModel):
 async def guest_ws_ticket(
     request: Request,
     principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
 ) -> GuestWsTicketOut:
     """Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer."""
-    if not principal.is_guest:
+    if not principal.is_guest or principal.chatroom_id is None:
         raise GuestTokenInvalid("not a guest principal")
+    # A socket refused before accept reaches the browser as 1006, so this is the
+    # one place a reconnecting guest can learn that links were turned off.
+    await ConversationFacade(db).ensure_guest_room_open(principal.chatroom_id)
 
     from shared_kernel.realtime import mint_ws_ticket
 

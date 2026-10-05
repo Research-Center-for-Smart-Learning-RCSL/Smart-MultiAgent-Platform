@@ -349,6 +349,12 @@ class ConversationFacade:
             refresh_token=refresh_token,
         )
 
+    async def ensure_guest_room_open(self, chatroom_id: uuid.UUID) -> None:
+        """Raise ``ChatroomNotFound`` or ``GuestAccessDisabled`` unless the room admits guests."""
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        await GuestSessionService(self._db).ensure_admits_guests(chatroom_id)
+
     async def update_guest_display_name(
         self,
         *,

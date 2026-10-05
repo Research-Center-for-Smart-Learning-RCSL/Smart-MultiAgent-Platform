@@ -61,6 +61,16 @@ _MAP: ErrorMap = {
         404,
         "Guest token invalid",
     ),
+    errors.GuestAccessDisabled: (
+        "conversation/guest-access-disabled",
+        403,
+        "Guest access has been disabled for this chatroom",
+    ),
+    errors.GuestDisplayNameInvalid: (
+        "conversation/guest-display-name-invalid",
+        422,
+        "Display name is empty once invisible characters are removed",
+    ),
     errors.GuestCapReached: (
         "guest/cap-reached",
         429,

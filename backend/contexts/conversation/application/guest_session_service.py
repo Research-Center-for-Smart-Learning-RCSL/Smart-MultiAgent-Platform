@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
+    GuestAccessDisabled,
     GuestCapReached,
+    GuestDisplayNameInvalid,
     GuestTokenInvalid,
 )
 from contexts.conversation.infrastructure.repositories import (
@@ -65,6 +67,14 @@ class GuestSessionService:
         self._rooms = ChatroomRepository(db)
         self._sessions = GuestSessionRepository(db)
 
+    async def ensure_admits_guests(self, chatroom_id: uuid.UUID) -> None:
+        """Raise unless the room exists and its guest links are on."""
+        room = await self._rooms.get(chatroom_id)
+        if room is None:
+            raise ChatroomNotFound(str(chatroom_id))
+        if not room.allow_guest_links:
+            raise GuestAccessDisabled(str(chatroom_id))
+
     async def update_display_name(
         self,
         *,
@@ -75,7 +85,7 @@ class GuestSessionService:
         name and whether it differs from the one it replaced."""
         normalised = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
         if normalised is None:
-            raise GuestTokenInvalid(str(guest_session_id))
+            raise GuestDisplayNameInvalid(str(guest_session_id))
         display_name = normalised
         session = await self._sessions.find_by_id(guest_session_id)
         if session is None:
@@ -101,11 +111,11 @@ class GuestSessionService:
         if not hmac.compare_digest(room.guest_token, guest_token):
             raise GuestTokenInvalid(str(chatroom_id))
         if not room.allow_guest_links:
-            raise GuestTokenInvalid(str(chatroom_id))
+            raise GuestAccessDisabled(str(chatroom_id))
 
         normalised = normalise_label(display_name, max_len=MAX_GUEST_LABEL)
         if normalised is None:
-            raise GuestTokenInvalid(str(chatroom_id))
+            raise GuestDisplayNameInvalid(str(chatroom_id))
         display_name = normalised
 
         if browser_id:
@@ -206,13 +216,15 @@ class GuestSessionService:
         room = await self._rooms.get(chatroom_id)
         if room is None:
             raise ChatroomNotFound(str(chatroom_id))
-        if not room.allow_guest_links:
-            raise GuestTokenInvalid(str(chatroom_id))
 
+        # Cookie before links: the route admits any non-empty cookie, so naming
+        # "disabled" first would tell an arbitrary caller the room's link state.
         token_hash = token_utils.hash_refresh(refresh_token)
         session = await self._sessions.find_by_refresh_hash(refresh_token_hash=token_hash)
         if session is None or session.chatroom_id != chatroom_id:
             raise GuestTokenInvalid(str(chatroom_id))
+        if not room.allow_guest_links:
+            raise GuestAccessDisabled(str(chatroom_id))
 
         new_refresh = token_utils.new_refresh_token()
         await self._sessions.update_refresh_hash(session.id, token_utils.hash_refresh(new_refresh))
