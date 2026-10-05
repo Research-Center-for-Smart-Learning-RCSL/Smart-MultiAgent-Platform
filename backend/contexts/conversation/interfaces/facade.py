@@ -296,6 +296,15 @@ class ConversationFacade:
         """
         return await GuestSessionRepository(self._db).find_by_id(session_id) is not None
 
+    async def guest_session_labels(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str]:
+        """``{guest_session_id: display_name}`` for the room's anonymous guests.
+
+        The one reader of a guest's chosen name outside the guest service: the
+        member roster and agent prompt labels both resolve guests through it
+        ([R13.33]). Scoped by room in SQL, and names are normalised on write.
+        """
+        return dict(await GuestSessionRepository(self._db).list_labels(chatroom_id))
+
     async def clear_attachment_uploader(self, user_id: uuid.UUID) -> int:
         """Null a hard-deleted user's id on the attachments they uploaded.
 

@@ -73,6 +73,13 @@ def _access(
             created_by_user_id=created_by,
             disclose_observers=True,
             disclose_drafts=disclose_drafts,
+            # Access flags as chatroom_fakes.chatroom_row sets them: the room read gate
+            # evaluates them for every non-moderator caller.
+            allow_project_owners_only=False,
+            allow_project_members=True,
+            allow_member_groups=False,
+            allow_org_members=False,
+            allow_guest_links=True,
         ),
         project_id=uuid.uuid4(),
         roles=roles,
@@ -165,8 +172,16 @@ class TestWhichAgentIsTheCreatorsToKnow:
                     )
                 ]
 
+        class _Agents:
+            def __init__(self, db: Any) -> None:
+                pass
+
+            async def agent_names(self, ids: Any) -> dict[Any, str]:
+                return {}
+
         monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
         monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+        monkeypatch.setattr(chatrooms_mod, "AgentsFacade", _Agents)
         return await chatrooms_mod.list_chatroom_agents(
             chatroom_id=uuid.uuid4(),
             pagination=SimpleNamespace(offset=0, limit=50),

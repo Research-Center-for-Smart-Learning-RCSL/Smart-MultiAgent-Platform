@@ -243,11 +243,11 @@ class TestRoomGuestNames:
             list_guests=AsyncMock(
                 return_value=[SimpleNamespace(user_id=u, display_name=n) for u, n in legacy.items()]
             ),
-            guest_session_names=AsyncMock(return_value=sessions),
+            guest_session_labels=AsyncMock(return_value=sessions),
         )
         with patch(_CONV, return_value=conv) as facade:
             names = await TurnEngine._room_guest_names(stub, self._ROOM)
-        facade.return_value.guest_session_names.assert_awaited_once_with(self._ROOM)
+        facade.return_value.guest_session_labels.assert_awaited_once_with(self._ROOM)
         return names
 
     async def test_anonymous_guests_and_registered_guests_are_both_named(self) -> None:
