@@ -12,9 +12,14 @@ export {
   setGuestContext,
   clearGuestContext,
   getGuestChatroomId,
+  canonicalRoomId,
+  guestSessionEnd,
+  markGuestSessionEnded,
+  resumeGuestSession,
   isGuestSession,
   guestSessionId,
 } from './axios'
+export type { GuestSessionEnd } from './axios'
 
 export { wsManager, Channel } from './ws-manager'
 export type { ChannelEvent } from './ws-manager'
