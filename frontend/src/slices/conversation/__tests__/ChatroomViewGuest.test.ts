@@ -6,12 +6,22 @@
 // not find its own row to rename, saw its own typing indicator, and saw every
 // other guest as an eight-character id.
 
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
-import { guestSessionId, setAccessToken } from '@shared/transport'
+import {
+  clearGuestContext,
+  getAccessToken,
+  guestSessionId,
+  markGuestSessionEnded,
+  setAccessToken,
+  setGuestContext,
+} from '@shared/transport'
+import { markConnectionRestored } from '@shared/composables/useNetworkStatus'
+import ChatroomComposer from '../components/ChatroomComposer.vue'
+import { useGuestSessionStore } from '../stores/guestSession'
 import { useSessionStore } from '@shared/stores/session'
 import ChatroomView from '../views/ChatroomView.vue'
 import ChatroomPresence from '../components/ChatroomPresence.vue'
@@ -166,6 +176,152 @@ describe('ChatroomView for an anonymous guest', () => {
     expect(sent).toEqual({ display_name: 'Bob  ' })
     expect(wrapper.findComponent(ChatroomPresence).props('viewerName')).toBe('Bob')
     expect(rosterReads).toBeGreaterThan(before)
+  })
+})
+
+// docs/tasks/2026-10-05-guest-frontend-session-lifecycle (F-7, F-8, F-20, Q-2)
+describe('ChatroomView when the guest session ends', () => {
+  class FakeWebSocket {
+    static readonly CONNECTING = 0
+    static readonly OPEN = 1
+    static readonly CLOSING = 2
+    static readonly CLOSED = 3
+    static instances: FakeWebSocket[] = []
+    readyState = FakeWebSocket.CONNECTING
+    closedWith: number | null = null
+    onopen: (() => void) | null = null
+    onclose: ((ev: { code: number; reason: string }) => void) | null = null
+    onmessage: ((ev: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    constructor() {
+      FakeWebSocket.instances.push(this)
+    }
+    send(): void {}
+    close(code?: number): void {
+      this.closedWith = code ?? 1000
+      this.readyState = FakeWebSocket.CLOSED
+    }
+    open(): void {
+      this.readyState = FakeWebSocket.OPEN
+      this.onopen?.()
+    }
+    serverClose(code: number): void {
+      this.readyState = FakeWebSocket.CLOSED
+      this.onclose?.({ code, reason: '' })
+    }
+  }
+
+  const expiredKey = 'conversation.guest.sessionExpired'
+  const reopenKey = 'conversation.guest.sessionExpiredReopen'
+  const disabledKey = 'conversation.guest.guestDisabled'
+  const rejoinKey = 'conversation.guest.rejoin'
+
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    server.use(http.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearGuestContext()
+    markConnectionRestored()
+  })
+
+  function composerDisabled(wrapper: Awaited<ReturnType<typeof renderView>>): boolean {
+    return wrapper.findComponent(ChatroomComposer).props('disabled') === true
+  }
+
+  it('shows the expired banner on a 4401 close once the token is already gone', async () => {
+    enterAsGuest()
+    setGuestContext('cr_1')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    useGuestSessionStore().setGuestToken('cr_1', 'tok_abcdefghijklmnop')
+    await settle()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.open()
+
+    setAccessToken(null)
+    socket.serverClose(4401)
+    await settle()
+
+    expect(wrapper.text()).toContain(expiredKey)
+    expect(wrapper.text()).toContain(rejoinKey)
+    expect(composerDisabled(wrapper)).toBe(true)
+  })
+
+  it('shows the disabled banner whichever path recorded it, and stops the socket', async () => {
+    enterAsGuest()
+    setGuestContext('cr_1')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.open()
+    const before = FakeWebSocket.instances.length
+
+    markGuestSessionEnded('disabled')
+    await settle()
+    await new Promise((r) => setTimeout(r, 1200))
+
+    expect(wrapper.text()).toContain(disabledKey)
+    expect(socket.closedWith).toBe(1000)
+    expect(FakeWebSocket.instances).toHaveLength(before)
+    expect(composerDisabled(wrapper)).toBe(true)
+  })
+
+  it('after a reload, tells the guest to reopen the shared link and offers sign-in, not Rejoin', async () => {
+    setGuestContext('cr_1')
+    markGuestSessionEnded('expired')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+
+    expect(wrapper.text()).toContain(reopenKey)
+    expect(wrapper.text()).toContain('conversation.guest.signIn')
+    expect(wrapper.text()).not.toContain(rejoinKey)
+    expect(FakeWebSocket.instances).toHaveLength(0)
+    // Still a guest's room: no member header.
+    expect(wrapper.find(`[aria-label="${settingsKey}"]`).exists()).toBe(false)
+  })
+
+  it('a live socket does not clear a recorded end', async () => {
+    enterAsGuest()
+    setGuestContext('cr_1')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    markGuestSessionEnded('expired')
+    await settle()
+    FakeWebSocket.instances.at(-1)!.open()
+    await settle()
+
+    expect(wrapper.text()).toContain(expiredKey)
+  })
+
+  it('an offline-restored guest resumes when the network returns and re-reads the room', async () => {
+    setGuestContext('cr_1')
+    let refreshOk = false
+    let roomReads = 0
+    server.use(
+      http.post('/api/guest/cr_1/refresh', () =>
+        refreshOk ? HttpResponse.json({ access_token: unsignedToken({ sub: GUEST, token_use: 'guest_access', chatroom_id: 'cr_1' }) }) : HttpResponse.error(),
+      ),
+      http.get('/api/chatrooms/cr_1', () => {
+        roomReads += 1
+        return HttpResponse.json({ id: 'cr_1', name: 'Room', workspace_id: 'ws_1', agents: [] })
+      }),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    expect(wrapper.text()).not.toContain(expiredKey)
+    expect(getAccessToken()).toBeNull()
+    const readsBefore = roomReads
+
+    refreshOk = true
+    window.dispatchEvent(new Event('online'))
+    await settle()
+
+    expect(getAccessToken()).not.toBeNull()
+    expect(roomReads).toBeGreaterThan(readsBefore)
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(0)
   })
 })
 
