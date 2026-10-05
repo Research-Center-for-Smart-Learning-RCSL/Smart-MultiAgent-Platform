@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.application.ports import ActivityActivationRepository
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import _ensure_subject_is_caller
+from contexts.activities.application.subject_identity import is_guest_subject
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.agent_digest import build_agent_digest
@@ -82,10 +83,11 @@ class SubmissionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-        caller_is_guest: bool = False,
+        producer_is_guest: bool = False,
     ) -> tuple[ActivitySubmission, dict[str, Any]]:
-        # ``caller_is_guest``: an anonymous guest is both producer and subject
-        # ([R30.26]), and its id is a guest session's -- recorded in the kinds.
+        # ``producer_is_guest``: the producer is always the caller, so the route
+        # knows it; the subject's kind is resolved from its id when a session is
+        # opened, since an admin may submit for a guest ([R30.26], 0098).
         # Tenant isolation: the type must be reachable from the room's project —
         # its own, or a platform type the project opted into ([R30.33]). Missing,
         # cross-project, or not-opted-in all → NotFound (never leak another
@@ -116,7 +118,6 @@ class SubmissionService:
             activation=activation,
             subject_user_id=subject_user_id,
             session_id=session_id,
-            subject_is_guest=caller_is_guest,
         )
         return await self._record(
             activity_type=activity_type,
@@ -127,7 +128,7 @@ class SubmissionService:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
-            producer_is_guest=caller_is_guest,
+            producer_is_guest=producer_is_guest,
         )
 
     async def submit_for_group(
@@ -455,7 +456,13 @@ class SubmissionService:
             activity_type_scope=activity_type.scope.value if activity_type is not None else "",
             subject_user_id=session.subject_user_id if session is not None else None,
             subject_member_group_id=session.subject_member_group_id if session is not None else None,
-            subject_kind=session.subject_kind if session is not None else None,
+            # Without the session row an individual submission's subject is its
+            # producer, whose kind the row itself still records.
+            subject_kind=(
+                session.subject_kind
+                if session is not None
+                else (SubjectKind.GUEST if submission.producer_is_guest else None)
+            ),
             same_error_count=await self._same_error_count(submission, window_seconds),
             window_seconds=window_seconds,
         )
@@ -477,7 +484,6 @@ class SubmissionService:
         activation: ActivityActivation,
         subject_user_id: uuid.UUID,
         session_id: uuid.UUID | None,
-        subject_is_guest: bool = False,
     ) -> ActivitySession:
         """This subject's session for the round being submitted to (0077).
 
@@ -509,7 +515,7 @@ class SubmissionService:
             chatroom_id=activation.chatroom_id,
             subject_user_id=subject_user_id,
             activation_id=activation.id,
-            subject_is_guest=subject_is_guest,
+            subject_is_guest=await is_guest_subject(self._db, subject_user_id),
         )
         if new_id is not None:
             opened = await self._session_repo.get(new_id)

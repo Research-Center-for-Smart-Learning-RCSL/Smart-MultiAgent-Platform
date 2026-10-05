@@ -77,9 +77,10 @@ activity_sessions = sa.Table(
     # anonymous guest, a guest_sessions.id, so it carries no ForeignKey (0098);
     # `subject_kind` says which.
     sa.Column("subject_user_id", pg.UUID(as_uuid=True), nullable=True),
-    # 'user' | 'guest' | 'member_group' (0098). Text + CHECK, like `scope`;
-    # ck_activity_sessions_subject_kind_group pairs 'member_group' with the
-    # group column, so a group writer must name it.
+    # 'user' | 'guest' (0098): the kind of PERSON in `subject_user_id`. Text +
+    # CHECK, like `scope`. Meaningless on a group row, which is identified by
+    # `subject_member_group_id` and keeps the default -- storing 'member_group'
+    # would need a CHECK pre-0098 code violates (see the migration).
     sa.Column("subject_kind", sa.Text, nullable=False, server_default=sa.text("'user'")),
     # Deliberately NO ForeignKey to `member_groups`: that table belongs to the
     # tenancy context and [R30.09] forbids the cross-context join a constraint

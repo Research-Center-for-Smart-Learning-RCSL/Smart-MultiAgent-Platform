@@ -10,13 +10,18 @@ upload failed with a foreign-key violation (audit
 The foreign keys are dropped, as 0096 did for ``audit_logs.actor_user_id``. The
 two activity columns gain a stored discriminator, the shape
 ``messages.sender_type`` + ``sender_id`` already uses for polymorphic human
-identity, so a guest subject stays distinguishable from a user after its guest
-session is purged. No discriminator for attachments: NULL keeps meaning "agent
-artifact", and a bound attachment's uploader kind is its message's
-``sender_type``.
+identity, so a guest stays distinguishable from a user after its guest session
+is purged. ``subject_kind`` names the kind of PERSON in ``subject_user_id`` and
+nothing else: a group session is still identified by
+``subject_member_group_id`` (0081), and on such a row ``subject_kind`` keeps its
+default and means nothing. Recording 'member_group' here would need a CHECK that
+pre-0098 code violates when it opens a group session, which breaks the
+forward-compatibility rule (old code runs on the new schema). No discriminator
+for attachments: NULL keeps meaning "agent artifact", and a bound attachment's
+uploader kind is its message's ``sender_type``.
 
-User erasure no longer rides the dropped CASCADEs; ``hard_delete_user`` purges a
-user's activity rows explicitly (``ActivitiesFacade.purge_user_activity_rows``).
+User erasure no longer rides the dropped CASCADE / SET NULL;
+``hard_delete_user`` does both explicitly.
 
 Re-runnable: every statement is guarded, so a retried upgrade after a partial
 failure does not trip on its own earlier work.
@@ -37,8 +42,7 @@ revision = "0098_guest_identity_columns"
 down_revision = "0097_bump_context_cap_bound"
 
 # Module-level so the db-tier test can name exactly what this migration installs.
-SUBJECT_KIND_CHECK_SQL = "subject_kind IN ('user', 'guest', 'member_group')"
-SUBJECT_KIND_GROUP_CHECK_SQL = "(subject_kind = 'member_group') = (subject_member_group_id IS NOT NULL)"
+SUBJECT_KIND_CHECK_SQL = "subject_kind IN ('user', 'guest')"
 PRODUCER_KIND_CHECK_SQL = "producer_kind IN ('user', 'guest')"
 
 _USER_FKS = (
@@ -57,15 +61,7 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE activity_sessions ADD COLUMN IF NOT EXISTS subject_kind text NOT NULL DEFAULT 'user'"
     )
-    # A group session's kind must say so before the pairing CHECK exists.
-    op.execute(
-        "UPDATE activity_sessions SET subject_kind = 'member_group' "
-        "WHERE subject_member_group_id IS NOT NULL AND subject_kind <> 'member_group'"
-    )
     _replace_check("activity_sessions", "ck_activity_sessions_subject_kind", SUBJECT_KIND_CHECK_SQL)
-    _replace_check(
-        "activity_sessions", "ck_activity_sessions_subject_kind_group", SUBJECT_KIND_GROUP_CHECK_SQL
-    )
 
     op.execute(
         "ALTER TABLE activity_submissions ADD COLUMN IF NOT EXISTS producer_kind text NOT NULL DEFAULT 'user'"
@@ -87,9 +83,6 @@ def downgrade() -> None:
         "ALTER TABLE activity_submissions DROP CONSTRAINT IF EXISTS ck_activity_submissions_producer_kind"
     )
     op.execute("ALTER TABLE activity_submissions DROP COLUMN IF EXISTS producer_kind")
-    op.execute(
-        "ALTER TABLE activity_sessions DROP CONSTRAINT IF EXISTS ck_activity_sessions_subject_kind_group"
-    )
     op.execute("ALTER TABLE activity_sessions DROP CONSTRAINT IF EXISTS ck_activity_sessions_subject_kind")
     op.execute("ALTER TABLE activity_sessions DROP COLUMN IF EXISTS subject_kind")
 

@@ -38,6 +38,7 @@ from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomGuestRepository,
     ChatroomRepository,
+    GuestSessionRepository,
     MessageAttachmentRepository,
     MessageRepository,
     WorkspaceRepository,
@@ -285,6 +286,24 @@ class ConversationFacade:
 
     async def list_guests(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
         return await self._guests.list(chatroom_id)
+
+    async def is_guest_session(self, session_id: uuid.UUID) -> bool:
+        """Whether an id names an anonymous guest session rather than a user.
+
+        Lets a writer record what kind of identity it was handed when the id
+        alone cannot say (both are UUIDs, and since 0098 the columns that hold
+        them reference neither table).
+        """
+        return await GuestSessionRepository(self._db).find_by_id(session_id) is not None
+
+    async def clear_attachment_uploader(self, user_id: uuid.UUID) -> int:
+        """Null a hard-deleted user's id on the attachments they uploaded.
+
+        What ``ON DELETE SET NULL`` on ``uploaded_by_user_id`` did before 0098
+        dropped the foreign key so guest ids fit the column. Caller owns commit
+        and runs this before deleting the ``users`` row.
+        """
+        return await self._attachments.clear_uploader(user_id)
 
     async def create_or_resume_guest_session(
         self,

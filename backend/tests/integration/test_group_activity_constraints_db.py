@@ -176,7 +176,6 @@ class TestOneSubjectPerSession:
                 at.activity_sessions.insert().values(
                     **_session_values(activation_id=activation_id, type_id=type_id, chatroom_id=chatroom_id),
                     subject_member_group_id=uuid.uuid4(),
-                    subject_kind="member_group",
                 )
             )
             await session.commit()
@@ -205,7 +204,6 @@ class TestOneSubjectPerSession:
                 at.activity_sessions.insert().values(
                     **_session_values(activation_id=activation_id, type_id=type_id, chatroom_id=chatroom_id),
                     subject_member_group_id=group_id,
-                    subject_kind="member_group",
                 )
             )
             await session.commit()
@@ -218,7 +216,6 @@ class TestOneSubjectPerSession:
                             activation_id=activation_id, type_id=type_id, chatroom_id=chatroom_id
                         ),
                         subject_member_group_id=group_id,
-                        subject_kind="member_group",
                     )
                 )
             await second.rollback()

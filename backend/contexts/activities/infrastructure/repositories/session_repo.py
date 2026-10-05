@@ -133,7 +133,6 @@ class ActivitySessionRepository:
                 activity_type_id=activity_type_id,
                 chatroom_id=chatroom_id,
                 subject_member_group_id=member_group_id,
-                subject_kind=SubjectKind.MEMBER_GROUP.value,
                 activation_id=activation_id,
                 status=SessionStatus.OPEN.value,
             )

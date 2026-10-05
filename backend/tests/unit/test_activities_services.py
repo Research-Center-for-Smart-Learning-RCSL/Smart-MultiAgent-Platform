@@ -1135,7 +1135,8 @@ class TestSubmitSessionResolution:
         svc._session_repo.get = AsyncMock(return_value=fresh)
         svc._session_repo.lock_for_update = AsyncMock(return_value=fresh)
 
-        await self._submit(svc, session, activity_type)
+        with patch.object(ss, "is_guest_subject", new=AsyncMock(return_value=False)):
+            await self._submit(svc, session, activity_type)
 
         svc._session_repo.create_open.assert_awaited_once_with(
             activity_type_id=activity_type.id,
@@ -1144,6 +1145,25 @@ class TestSubmitSessionResolution:
             activation_id=activation.id,
             subject_is_guest=False,
         )
+
+    async def test_a_new_session_takes_its_kind_from_the_subject_id(self) -> None:
+        """The kind comes from what the id names, not from who is calling: an
+        admin submitting for a guest is not a guest, and a caller-derived kind
+        recorded that guest as a user (0098, /code-review)."""
+        self._passing_scorer()
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, _sub_repo, session = _wire_submission_service(activity_type)
+        svc._session_repo.get_for_activation = AsyncMock(return_value=None)
+        svc._session_repo.create_open = AsyncMock(return_value=session.id)
+        svc._session_repo.get = AsyncMock(return_value=session)
+        svc._session_repo.lock_for_update = AsyncMock(return_value=session)
+        lookup = AsyncMock(return_value=True)
+
+        with patch.object(ss, "is_guest_subject", new=lookup):
+            await self._submit(svc, session, activity_type)
+
+        lookup.assert_awaited_once_with(svc._db, session.subject_user_id)
+        assert svc._session_repo.create_open.await_args.kwargs["subject_is_guest"] is True
 
     async def test_answering_again_retracts_a_completion_declaration(self) -> None:
         """AC-5: declared done and still working is not a state worth keeping, so
@@ -2231,7 +2251,7 @@ class TestGuestSubmission:
                 payload={"answer": "guest answer"},
                 actor_user_id=guest_id,
                 actor_ip=None,
-                caller_is_guest=True,
+                producer_is_guest=True,
             )
 
         sub_repo.insert.assert_awaited_once()

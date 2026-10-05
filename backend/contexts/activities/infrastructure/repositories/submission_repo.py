@@ -25,6 +25,7 @@ from contexts.activities.domain.models import (
     AttemptSummaryRow,
     RecentActivityRow,
     RoomDashboardAggregate,
+    SubjectKind,
     TimeseriesBucket,
     ValidationStatus,
     ValidatorKind,
@@ -37,9 +38,10 @@ _SUB = t.activity_submissions
 _SESS = t.activity_sessions
 _TYPE = t.activity_types
 
-# activity_submissions.producer_kind values (0098).
-_USER = "user"
-_GUEST = "guest"
+# activity_submissions.producer_kind holds a person kind (0098) -- the same
+# vocabulary as activity_sessions.subject_kind.
+_USER = SubjectKind.USER.value
+_GUEST = SubjectKind.GUEST.value
 
 _SUB_COLS = (
     _SUB.c.id,

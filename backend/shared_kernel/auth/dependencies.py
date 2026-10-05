@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import NoReturn
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,16 +63,7 @@ async def require_registered_principal(principal: Principal = Depends(current_pr
     which for a guest would mint another guest token and replay the request.
     """
     if principal.is_guest:
-        problem = Problem(
-            type=problem_type("auth/registered-account-required"),
-            title="A registered account is required",
-            status=403,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=problem.dump(),
-            headers={"Content-Type": "application/problem+json"},
-        )
+        _raise_problem("auth/registered-account-required", "A registered account is required", 403)
     return principal
 
 
@@ -180,31 +172,21 @@ def require_membership(
     return dep
 
 
-def _raise_unauth() -> None:
-    problem = Problem(
-        type=problem_type("auth/required"),
-        title="Authentication required",
-        status=401,
-    )
+def _raise_problem(slug: str, title: str, status_code: int, detail: str | None = None) -> NoReturn:
+    problem = Problem(type=problem_type(slug), title=title, status=status_code, detail=detail)
     raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
+        status_code=status_code,
         detail=problem.dump(),
         headers={"Content-Type": "application/problem+json"},
     )
+
+
+def _raise_unauth() -> None:
+    _raise_problem("auth/required", "Authentication required", status.HTTP_401_UNAUTHORIZED)
 
 
 def _raise_forbidden(reason: str) -> None:
-    problem = Problem(
-        type=problem_type("forbidden"),
-        title="Forbidden",
-        status=403,
-        detail=reason,
-    )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=problem.dump(),
-        headers={"Content-Type": "application/problem+json"},
-    )
+    _raise_problem("forbidden", "Forbidden", status.HTTP_403_FORBIDDEN, detail=reason)
 
 
 __all__ = [

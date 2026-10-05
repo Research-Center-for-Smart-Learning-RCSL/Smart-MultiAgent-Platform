@@ -48,10 +48,10 @@ class ValidationStatus(str, enum.Enum):
 class SubjectKind(str, enum.Enum):
     """What kind of thing an :class:`ActivitySession` belongs to ([R30.39]).
 
-    Stored as ``activity_sessions.subject_kind`` since 0098, because a guest
-    subject cannot be told from a user by which column is set: both live in
-    ``subject_user_id``, which no longer references ``users``. The database pairs
-    ``MEMBER_GROUP`` with the group column, so the two can still never disagree.
+    ``MEMBER_GROUP`` is derived from which subject column is set, as it always
+    was. ``USER`` versus ``GUEST`` is stored (``activity_sessions.subject_kind``,
+    0098), because both live in ``subject_user_id``, which no longer references
+    ``users``, and no column choice tells them apart.
     """
 
     USER = "user"

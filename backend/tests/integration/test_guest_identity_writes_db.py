@@ -28,11 +28,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1 import activities as activities_route
+from contexts.activities.domain.models import SubjectKind
 from contexts.activities.infrastructure import tables as at
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.infrastructure import tables as ct
 from contexts.conversation.infrastructure.repositories.attachment_repo import MessageAttachmentRepository
+from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -241,6 +243,27 @@ class TestGuestActivityParticipation:
         assert row.subject_kind == "user"
 
 
+class TestSubjectKindComesFromTheId:
+    """/code-review: the kind is what the id names, not who is calling."""
+
+    async def test_an_admin_acting_for_a_guest_records_a_guest_session(
+        self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
+    ) -> None:
+        admin = Principal(user_id=uuid.uuid4(), is_admin=True, email_verified=True)
+        async with await _client(_app(sessionmaker, admin)) as client:
+            response = await client.post(
+                f"/api/chatrooms/{guest_room.chatroom_id}/activity-sessions",
+                json={
+                    "activity_type_id": str(guest_room.activity_type_id),
+                    "subject_user_id": str(guest_room.guest_id),
+                },
+            )
+        assert response.status_code == 200, response.text
+        assert response.json()["subject_kind"] == "guest"
+        session_row = await _guest_session_row(sessionmaker, guest_room)
+        assert session_row.subject_kind == "guest"
+
+
 class TestGuestAttachments:
     """AC-3."""
 
@@ -346,22 +369,6 @@ class TestSchema:
             names = (await read.execute(_USER_FKS, {"table": table, "column": column})).scalars().all()
         assert names == []
 
-    async def test_a_group_kind_needs_a_group_subject(
-        self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
-    ) -> None:
-        async with sessionmaker() as session:
-            with pytest.raises(IntegrityError, match="ck_activity_sessions_subject_kind_group"):
-                await session.execute(
-                    at.activity_sessions.insert().values(
-                        activity_type_id=guest_room.activity_type_id,
-                        chatroom_id=guest_room.chatroom_id,
-                        activation_id=guest_room.activation_id,
-                        subject_user_id=guest_room.guest_id,
-                        subject_kind="member_group",
-                    )
-                )
-            await session.rollback()
-
     async def test_an_unknown_subject_kind_is_refused(
         self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
     ) -> None:
@@ -378,12 +385,12 @@ class TestSchema:
                 )
             await session.rollback()
 
-    async def test_the_group_writer_stamps_the_group_kind(
+    async def test_a_group_session_written_the_pre_0098_way_still_reads_as_a_group(
         self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
     ) -> None:
-        """The column defaults to 'user', which the pairing CHECK refuses for a
-        group row -- so the group writer must name its kind, and this is the
-        test that notices if it stops."""
+        """Forward compatibility: pre-0098 code opens a group session naming no
+        kind. The insert must succeed on the new schema, and the row must still
+        read as a group, because the kind column describes persons only."""
         group_id = uuid.uuid4()
         async with sessionmaker() as session:
             session_id = await ActivitySessionRepository(session).create_open_for_group(
@@ -393,14 +400,10 @@ class TestSchema:
                 activation_id=guest_room.activation_id,
             )
             await session.commit()
-            kind = (
-                await session.execute(
-                    sa.select(at.activity_sessions.c.subject_kind).where(
-                        at.activity_sessions.c.id == session_id
-                    )
-                )
-            ).scalar_one()
-        assert kind == "member_group"
+            assert session_id is not None
+            opened = await ActivitySessionRepository(session).get(session_id)
+        assert opened is not None
+        assert opened.subject_kind is SubjectKind.MEMBER_GROUP
 
 
 class TestUserErasure:
@@ -448,3 +451,42 @@ class TestUserErasure:
             )
         assert [(s.subject_user_id, s.subject_kind) for s in subjects] == [(guest_room.guest_id, "guest")]
         assert producers == [guest_room.guest_id]
+
+    async def test_clearing_the_uploader_nulls_only_that_users_uploads(
+        self, sessionmaker: async_sessionmaker[AsyncSession], guest_room: GuestRoom
+    ) -> None:
+        """The SET NULL the dropped foreign key performed on hard delete."""
+        owner_upload, guest_upload = uuid.uuid4(), uuid.uuid4()
+        async with sessionmaker() as session:
+            repo = MessageAttachmentRepository(session)
+            for attachment_id, uploader in (
+                (owner_upload, guest_room.owner_user_id),
+                (guest_upload, guest_room.guest_id),
+            ):
+                await repo.create(
+                    attachment_id=attachment_id,
+                    chatroom_id=guest_room.chatroom_id,
+                    uploaded_by_user_id=uploader,
+                    filename="f.txt",
+                    mime="text/plain",
+                    size_bytes=1,
+                    minio_path=f"itest/{attachment_id}",
+                    expires_at=None,
+                )
+            await session.commit()
+
+        async with sessionmaker() as session:
+            cleared = await ConversationFacade(session).clear_attachment_uploader(guest_room.owner_user_id)
+            await session.commit()
+
+        async with sessionmaker() as read:
+            rows = (
+                await read.execute(
+                    sa.select(
+                        ct.message_attachments.c.id, ct.message_attachments.c.uploaded_by_user_id
+                    ).where(ct.message_attachments.c.id.in_([owner_upload, guest_upload]))
+                )
+            ).all()
+        uploaders: dict[uuid.UUID, uuid.UUID | None] = {row.id: row.uploaded_by_user_id for row in rows}
+        assert cleared == 1
+        assert uploaders == {owner_upload: None, guest_upload: guest_room.guest_id}
