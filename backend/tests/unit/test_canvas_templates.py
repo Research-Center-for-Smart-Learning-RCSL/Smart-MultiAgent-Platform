@@ -426,3 +426,43 @@ class TestCreateFromCanvas:
         call_kwargs = svc._template_repo.create.await_args.kwargs
         elements = call_kwargs["values"]["template_data"]["elements"]
         assert elements == []
+
+
+class TestApplyTemplateProjectBinding:
+    """Audit F-12: a project template applies only into a room of its own project.
+
+    The check sits next to the template load so the route's readability decision
+    and the template actually applied cannot diverge; the refusal is the same
+    error as an unknown id.
+    """
+
+    async def test_a_foreign_project_template_is_not_found(self) -> None:
+        svc = _service()
+        template = _make_template(scope=CanvasTemplateScope.PROJECT, project_id=uuid.uuid4())
+        svc._template_repo = MagicMock()
+        svc._template_repo.get = AsyncMock(return_value=template)
+
+        with pytest.raises(ValueError, match="Template not found"):
+            await svc.apply_template(
+                canvas_id=uuid.uuid4(),
+                chatroom_id=uuid.uuid4(),
+                template_id=template.id,
+                room_project_id=uuid.uuid4(),
+            )
+
+    async def test_a_platform_template_applies_in_any_project(self) -> None:
+        svc = _service()
+        template = _make_template(template_data={"objects": []})
+        svc._template_repo = MagicMock()
+        svc._template_repo.get = AsyncMock(return_value=template)
+        svc._canvas_repo = MagicMock()
+        svc._canvas_repo.count_objects = AsyncMock(return_value=1)
+
+        # Reaching the non-empty-canvas check proves the project binding let it through.
+        with pytest.raises(CanvasNotEmpty):
+            await svc.apply_template(
+                canvas_id=uuid.uuid4(),
+                chatroom_id=uuid.uuid4(),
+                template_id=template.id,
+                room_project_id=uuid.uuid4(),
+            )
