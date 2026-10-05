@@ -127,6 +127,46 @@ describe('ChatroomView for an anonymous guest', () => {
 
     expect(wrapper.text()).toContain('Carol')
   })
+
+  it('names the room agents from the room agent list, which a guest can read', async () => {
+    enterAsGuest()
+    server.use(
+      http.get('/api/projects/:projectId/agents', () => HttpResponse.json({ status: 403 }, { status: 403 })),
+      http.get('/api/chatrooms/cr_1/agents', () => HttpResponse.json([{ agent_id: 'a_1', name: 'Tutor' }])),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+
+    const agents = wrapper.findComponent(ChatroomPresence).props('agents') as Array<{ name: string }>
+    expect(agents.map((a) => a.name)).toEqual(['Tutor'])
+  })
+
+  it('shows the stored name after a rename and re-reads the roster', async () => {
+    enterAsGuest()
+    let rosterReads = 0
+    let sent: unknown = null
+    server.use(
+      http.get('/api/chatrooms/cr_1/members', () => {
+        rosterReads += 1
+        return HttpResponse.json([])
+      }),
+      http.put('/api/guest/session/:sid/display-name', async ({ request }) => {
+        sent = await request.json()
+        return HttpResponse.json({ display_name: 'Bob' })
+      }),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    useConversationStore().setPresence('cr_1', [GUEST])
+    await settle()
+    const before = rosterReads
+
+    wrapper.findComponent(ChatroomPresence).vm.$emit('update-display-name', 'Bob  ')
+    await settle()
+
+    expect(sent).toEqual({ display_name: 'Bob  ' })
+    expect(wrapper.findComponent(ChatroomPresence).props('viewerName')).toBe('Bob')
+    expect(rosterReads).toBeGreaterThan(before)
+  })
 })
 
 describe('ChatroomView header for other viewers', () => {
