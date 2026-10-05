@@ -440,10 +440,12 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
   `guest_session_service.py` error paths and `ws/chatroom.py:77`).
 
-- **To spec next, before the pilot:** a small dossier for FU-4 of
-  `2026-10-05-guest-room-read-and-identity` (a guest can take the room owner's or a member's exact
-  display name; mark guest senders and/or reject colliding names). Per the requester it is separate
-  from the session-lifecycle dossier and follows it.
+- `2026-10-05-guest-sender-marking` (feature, **draft**) - `depends_on: []` (overlap with
+  `guest-frontend-session-lifecycle` in `ChatroomView.vue` and the conversation locales judged
+  disjoint, pending confirmation). FU-4 of `2026-10-05-guest-room-read-and-identity`: a
+  platform-applied guest marker on every label from a guest identity, in the UI (message author,
+  participant list, typing) and the model context (` (guest)` suffix in transcript and legend);
+  roster gains `kind`. Carries SRS deltas to [R13.33] and [R30.38]. Scheduled before the pilot.
 
 ## Blocked
 
