@@ -741,12 +741,7 @@ async def list_chatroom_agents(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentRef]:
-    # Single fetch for both checks below: resolve_room_access already loads
-    # the chatroom + workspace + project and resolves roles (chatroom_id in
-    # its Scope is inert for role resolution — TenancyRoleResolver.roles_for
-    # only reads org_id/project_id — so access.roles is exactly the project
-    # membership set a separate `_project_id_for_chatroom` +
-    # `roles_for(Scope(project_id=...))` call would have computed).
+    # One fetch serves both the read gate and the creator check below.
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     # The room read gate, not "has a project role": a guest of this room may see
     # who it is talking to, and a member the room's flags refuse may not ([R13.32]).

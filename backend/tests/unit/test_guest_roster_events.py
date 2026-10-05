@@ -19,10 +19,26 @@ import pytest
 from fastapi import Response
 
 import app.api.v1.guests as guests_route
+from contexts.conversation.application.access import RoomAccess
+from contexts.conversation.domain.errors import ForbiddenInRoom, GuestTokenInvalid
 from contexts.conversation.interfaces import room_channel
 from shared_kernel.auth.permissions import Principal
+from tests.unit.chatroom_fakes import chatroom_row
 
 _EVENT = "chatroom.members_changed"
+
+
+@pytest.fixture(autouse=True)
+def _room(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """The rename route re-checks room access; the room admits guests unless a
+    test turns its guest links off."""
+    room = chatroom_row()
+
+    async def _resolve(db: object, *, principal: Principal, chatroom_id: uuid.UUID) -> RoomAccess:
+        return RoomAccess(chatroom=room, project_id=uuid.uuid4(), roles=frozenset(), is_guest=True)
+
+    monkeypatch.setattr(guests_route, "resolve_room_access", _resolve)
+    return room
 
 
 def _publisher() -> tuple[MagicMock, list[tuple[str, str, dict[str, str]]]]:
@@ -130,3 +146,61 @@ async def test_a_failed_emit_does_not_fail_the_rename() -> None:
         )
 
     assert out.display_name == "Bob"
+
+
+def _rename_facade() -> SimpleNamespace:
+    return SimpleNamespace(
+        update_guest_display_name=AsyncMock(return_value=SimpleNamespace(display_name="Bob", changed=True))
+    )
+
+
+async def test_a_guest_the_room_no_longer_admits_cannot_rename(_room: SimpleNamespace) -> None:
+    """The access token outlives guest links being turned off."""
+    _room.allow_guest_links = False
+    room, session_id = uuid.uuid4(), uuid.uuid4()
+    principal = Principal(
+        user_id=session_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room
+    )
+    facade = _rename_facade()
+    publisher, sent = _publisher()
+
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        patch.object(guests_route, "Publisher", publisher),
+        pytest.raises(ForbiddenInRoom),
+    ):
+        await guests_route.update_guest_display_name(
+            body=guests_route.GuestDisplayNameIn(display_name="Bob"),
+            guest_session_id=session_id,
+            principal=principal,
+            db=MagicMock(commit=AsyncMock()),
+        )
+
+    facade.update_guest_display_name.assert_not_awaited()
+    assert sent == []
+
+
+@pytest.mark.parametrize("case", ["other_session", "no_room", "registered_user"])
+async def test_only_the_session_itself_may_rename(case: str) -> None:
+    session_id = uuid.uuid4()
+    principal = Principal(
+        user_id=uuid.uuid4() if case == "other_session" else session_id,
+        is_admin=False,
+        email_verified=case == "registered_user",
+        is_guest=case != "registered_user",
+        chatroom_id=None if case == "no_room" else uuid.uuid4(),
+    )
+    facade = _rename_facade()
+
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        pytest.raises(GuestTokenInvalid),
+    ):
+        await guests_route.update_guest_display_name(
+            body=guests_route.GuestDisplayNameIn(display_name="Bob"),
+            guest_session_id=session_id,
+            principal=principal,
+            db=MagicMock(commit=AsyncMock()),
+        )
+
+    facade.update_guest_display_name.assert_not_awaited()

@@ -255,3 +255,25 @@ class TestRoomFlagsGovernReads:
         out = await chatrooms_mod.read_chatroom(chatroom_id=room.id, principal=admin, db=object())
 
         assert out.is_moderator is True
+
+
+class TestGuestOfAnotherRoom:
+    """A guest token is bound to one room: the real gate refuses any other room
+    before it touches the database, on all three routes."""
+
+    @pytest.mark.parametrize("route", ["room", "members", "agents"])
+    async def test_is_refused(self, route: str) -> None:
+        other_room = uuid.uuid4()
+        guest = _guest(uuid.uuid4())
+        calls = {
+            "room": lambda: chatrooms_mod.read_chatroom(chatroom_id=other_room, principal=guest, db=object()),
+            "members": lambda: chatrooms_mod.list_chatroom_members(
+                chatroom_id=other_room, principal=guest, db=object()
+            ),
+            "agents": lambda: chatrooms_mod.list_chatroom_agents(
+                chatroom_id=other_room, pagination=_PAGE, principal=guest, db=object()
+            ),
+        }
+
+        with pytest.raises(ForbiddenInRoom):
+            await calls[route]()

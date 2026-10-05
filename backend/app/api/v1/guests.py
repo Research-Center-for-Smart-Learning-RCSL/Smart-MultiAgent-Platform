@@ -25,6 +25,7 @@ from app.config.settings import get_settings
 from contexts.conversation.application.guest_service import GuestService
 from contexts.conversation.domain.errors import GuestTokenInvalid
 from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.access import ensure_can_read, resolve_room_access
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal, require_registered_principal
@@ -188,6 +189,10 @@ async def update_guest_display_name(
 ) -> GuestDisplayNameOut:
     if not principal.is_guest or principal.user_id != guest_session_id or principal.chatroom_id is None:
         raise GuestTokenInvalid("principal does not match session")
+    # The token outlives the room's guest links being turned off; a guest the
+    # room no longer admits must not keep changing what its members see.
+    access = await resolve_room_access(db, principal=principal, chatroom_id=principal.chatroom_id)
+    ensure_can_read(access, is_admin=False)
     facade = ConversationFacade(db)
     result = await facade.update_guest_display_name(
         guest_session_id=guest_session_id,
