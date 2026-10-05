@@ -83,6 +83,17 @@ export const isGuestSession: ComputedRef<boolean> = computed(() => {
   return claims?.token_use === 'guest_access'
 })
 
+/**
+ * The anonymous guest's session id (the guest token's `sub`), or null for any
+ * other token. It is the id the server uses for the guest everywhere: presence
+ * and typing frames, and the `sender_id` of the guest's messages.
+ */
+export const guestSessionId: ComputedRef<string | null> = computed(() => {
+  if (!isGuestSession.value) return null
+  const sub = accessTokenClaims.value?.sub
+  return typeof sub === 'string' ? sub : null
+})
+
 // Refresh token is managed exclusively via the httpOnly `smap_refresh` cookie
 // set by the server. These stubs exist so callers need no changes.
 export function setRefreshToken(_token: string | null): void {}

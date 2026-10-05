@@ -45,6 +45,10 @@ export const convKeys = {
   // hand-written literal hides: it looks right at the one call site that has it.
   chatroomAgents: (chatroomId: string) =>
     ['conversation', 'chatroom-agents', chatroomId] as const,
+  // The participant roster (author and presence labels). Invalidated by
+  // `chatroom.members_changed`, when a guest joins or renames, and on reconnect.
+  chatroomMembers: (chatroomId: string) =>
+    ['conversation', 'chatroom-members', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   observations: (chatroomId: string) =>
     ['conversation', 'observations', chatroomId] as const,

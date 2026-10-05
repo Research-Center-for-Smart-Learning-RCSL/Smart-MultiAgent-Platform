@@ -228,3 +228,55 @@ class TestRoomDisplayLabels:
         resolved = await self._resolve({uid: "Guest Alice"}, {uid: "Alice Chen"})
 
         assert resolved[uid] == "Guest Alice"
+
+
+class TestRoomGuestNames:
+    """F-5 (docs/tasks/2026-10-05-guest-room-read-and-identity): an anonymous
+    guest's name lives only in ``guest_sessions``, which no label path read, so
+    every anonymous guest reached the model as the same speaker, ``Guest``."""
+
+    _ROOM = uuid.uuid4()
+
+    async def _names(self, *, legacy: dict[uuid.UUID, str], sessions: dict[uuid.UUID, str]) -> dict:
+        stub = SimpleNamespace(_db=object())
+        conv = SimpleNamespace(
+            list_guests=AsyncMock(
+                return_value=[SimpleNamespace(user_id=u, display_name=n) for u, n in legacy.items()]
+            ),
+            guest_session_labels=AsyncMock(return_value=sessions),
+        )
+        with patch(_CONV, return_value=conv) as facade:
+            names = await TurnEngine._room_guest_names(stub, self._ROOM)
+        facade.return_value.guest_session_labels.assert_awaited_once_with(self._ROOM)
+        return names
+
+    async def test_anonymous_guests_and_registered_guests_are_both_named(self) -> None:
+        registered, alice, bob = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        names = await self._names(legacy={registered: "Reg"}, sessions={alice: "Alice", bob: "Bob"})
+
+        assert names == {registered: "Reg", alice: "Alice", bob: "Bob"}
+
+    async def test_two_guests_reach_the_transcript_as_two_speakers(self) -> None:
+        alice, bob, purged = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        guests = await self._names(legacy={}, sessions={alice: "Alice", bob: "Bob"})
+        stub = SimpleNamespace(_db=object())
+        identity = SimpleNamespace(get_chat_labels=AsyncMock(return_value={}))
+        target = "contexts.agents.application.runtime.turn_engine.IdentityFacade"
+
+        with patch(target, return_value=identity):
+            labels = await TurnEngine._room_user_labels(stub, self._ROOM, [alice, bob, purged], guests=guests)
+
+        assert labels == {alice: "Alice", bob: "Bob", purged: "Guest"}
+
+    async def test_a_live_guest_is_in_the_legend_and_a_purged_one_is_not(self) -> None:
+        alice, purged = uuid.uuid4(), uuid.uuid4()
+        guests = await self._names(legacy={}, sessions={alice: "Alice"})
+        stub = SimpleNamespace(_db=object())
+        identity = SimpleNamespace(get_display_names=AsyncMock(return_value={}))
+        target = "contexts.agents.application.runtime.turn_engine.IdentityFacade"
+
+        with patch(target, return_value=identity):
+            legend = await TurnEngine._room_display_labels(stub, self._ROOM, [alice, purged], guests=guests)
+
+        assert legend == {alice: "Alice"}

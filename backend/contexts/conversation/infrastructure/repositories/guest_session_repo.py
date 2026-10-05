@@ -52,6 +52,21 @@ class GuestSessionRepository:
         ).one()
         return _row_to_guest_session(row)
 
+    async def list_labels(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> list[tuple[uuid.UUID, str]]:
+        """``(id, display_name)`` of the room's guest sessions, most recent first.
+
+        Projects the two columns only: the domain ``GuestSession`` carries the
+        refresh-token hash and browser id, which a roster or a prompt label must
+        never load. Served by ``ix_guest_sessions_chatroom_last_seen``.
+        """
+        rows = await self._db.execute(
+            sa.select(t.guest_sessions.c.id, t.guest_sessions.c.display_name)
+            .where(t.guest_sessions.c.chatroom_id == chatroom_id)
+            .order_by(t.guest_sessions.c.last_seen_at.desc())
+            .limit(limit)
+        )
+        return [(r.id, r.display_name) for r in rows]
+
     async def find_by_id(self, session_id: uuid.UUID) -> GuestSession | None:
         row = (
             await self._db.execute(t.guest_sessions.select().where(t.guest_sessions.c.id == session_id))

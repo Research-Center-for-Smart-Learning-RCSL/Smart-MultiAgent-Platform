@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { GuestDisplayNameIn } from '../models/GuestDisplayNameIn';
+import type { GuestDisplayNameOut } from '../models/GuestDisplayNameOut';
 import type { GuestEnrollIn } from '../models/GuestEnrollIn';
 import type { GuestRefreshOut } from '../models/GuestRefreshOut';
 import type { GuestSessionIn } from '../models/GuestSessionIn';
@@ -14,7 +15,7 @@ import { request as __request } from '../core/request';
 export class GuestsService {
     /**
      * Update Guest Display Name
-     * @returns void
+     * @returns GuestDisplayNameOut Successful Response
      * @throws ApiError
      */
     public static updateGuestDisplayNameApiGuestSessionGuestSessionIdDisplayNamePut({
@@ -23,7 +24,7 @@ export class GuestsService {
     }: {
         guestSessionId: string,
         requestBody: GuestDisplayNameIn,
-    }): CancelablePromise<void> {
+    }): CancelablePromise<GuestDisplayNameOut> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/guest/session/{guest_session_id}/display-name',

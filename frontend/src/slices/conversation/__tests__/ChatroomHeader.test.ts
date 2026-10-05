@@ -68,3 +68,34 @@ describe('ChatroomHeader connection pill', () => {
     expect(wrapper.html()).not.toContain(labelKey('limited'))
   })
 })
+
+// docs/tasks/2026-10-05-guest-room-read-and-identity AC-6 (and the guest
+// dossier's FU-10): a guest has no settings and no members-only page to go back
+// to; both controls led an anonymous guest to a login page it cannot use.
+describe('ChatroomHeader guest gating', () => {
+  const settingsKey = 'conversation.chatroom.settingsLabel'
+  const backKey = 'conversation.chatroom.back'
+
+  it('shows settings and Back by default', async () => {
+    const wrapper = await renderView(ChatroomHeader, { props: baseProps() })
+    expect(wrapper.find(`[aria-label="${settingsKey}"]`).exists()).toBe(true)
+    expect(wrapper.find(`[aria-label="${backKey}"]`).exists()).toBe(true)
+  })
+
+  it('hides settings when the caller cannot use them', async () => {
+    const wrapper = await renderView(ChatroomHeader, { props: baseProps({ canSettings: false }) })
+    expect(wrapper.find(`[aria-label="${settingsKey}"]`).exists()).toBe(false)
+  })
+
+  it('drops settings from the mobile overflow menu', async () => {
+    const wrapper = await renderView(ChatroomHeader, {
+      props: baseProps({ isMobile: true, isDesktop: false, canSettings: false }),
+    })
+    expect(wrapper.html()).not.toContain(settingsKey)
+  })
+
+  it('hides Back when the caller has nowhere to go back to', async () => {
+    const wrapper = await renderView(ChatroomHeader, { props: baseProps({ canNavigateBack: false }) })
+    expect(wrapper.find(`[aria-label="${backKey}"]`).exists()).toBe(false)
+  })
+})

@@ -26,8 +26,9 @@
       :agents-open="agentsDrawerOpen"
       :people-open="peopleDrawerOpen"
       :observers-present="roomQuery.data.value?.observers_present ?? false"
-      :can-export="!(roomQuery.data.value?.viewer_is_guest ?? false)"
-      :can-settings="!(roomQuery.data.value?.viewer_is_guest ?? false)"
+      :can-export="!viewerIsGuest"
+      :can-settings="!viewerIsGuest"
+      :can-navigate-back="!viewerIsGuest"
       @back="goBack"
       @search="surfaces.open('search')"
       @settings="goSettings"
@@ -276,10 +277,7 @@
       >
         <template #tab-people>
           <ChatroomPresence
-            :online-users="onlineUsers"
-            :agents="agentList"
-            :viewer-is-guest="viewerIsGuest"
-            :viewer-name="guestViewerName"
+            v-bind="presenceProps"
             @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
@@ -312,8 +310,8 @@
       </STabs>
       <ChatroomPresence
         v-else
-        :online-users="onlineUsers"
-        :agents="agentList"
+        v-bind="presenceProps"
+        @update-display-name="onUpdateGuestDisplayName"
       />
     </div>
 
@@ -363,10 +361,7 @@
       >
         <template #tab-people>
           <ChatroomPresence
-            :online-users="onlineUsers"
-            :agents="agentList"
-            :viewer-is-guest="viewerIsGuest"
-            :viewer-name="guestViewerName"
+            v-bind="presenceProps"
             @update-display-name="onUpdateGuestDisplayName"
           />
         </template>
@@ -399,8 +394,8 @@
       </STabs>
       <ChatroomPresence
         v-else
-        :online-users="onlineUsers"
-        :agents="agentList"
+        v-bind="presenceProps"
+        @update-display-name="onUpdateGuestDisplayName"
       />
     </SDrawer>
 
@@ -426,7 +421,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, type ComponentPublicInstance, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
 import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog, useFocusTrap, useResizablePanel, BP } from '@shared/composables'
@@ -454,7 +449,7 @@ const LazyCanvasPanel = defineAsyncComponent(() =>
   import('@slices/canvas').then((m) => m.CanvasPanel),
 )
 
-import { accessTokenClaims, isGuestSession } from '@shared/transport'
+import { accessTokenClaims, guestSessionId, isGuestSession } from '@shared/transport'
 import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
@@ -495,20 +490,21 @@ const { confirm } = useConfirmDialog()
 const route = useRoute()
 const router = useRouter()
 const store = useConversationStore()
+const qc = useQueryClient()
 const session = useSessionStore()
 const orchStore = useOrchestrationStore()
 const activitiesStore = useActivitiesStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
-const myId = computed(() => session.me?.id ?? null)
-const viewerIsGuest = computed(() => isGuestSession.value)
+// Who "you" are in this room: the guest session when a guest token is held,
+// otherwise the signed-in user. Guest first, because `session.me` can still be
+// set from an earlier sign-in while a guest token is active, and the server
+// knows this viewer only by the token it is sending.
+const viewerId = computed(() => guestSessionId.value ?? session.me?.id ?? null)
+// The stored name a rename returned, shown until the roster re-read carries it
+// (then cleared, so a later rename from another tab shows through the roster).
 const guestNameOverride = ref<string | null>(null)
-const guestViewerName = computed(() => {
-  if (guestNameOverride.value !== null) return guestNameOverride.value
-  const claims = accessTokenClaims.value
-  return typeof claims?.display_name === 'string' ? claims.display_name : ''
-})
 const { width: viewportWidth, isMobile, isTablet, isDesktop } = useBreakpoint()
 const { keyboardInset } = useVisualViewport(() => isMobile.value)
 
@@ -555,15 +551,22 @@ const canvasSplit = useCanvasSplitPane(() => chatroomId, chatroomRef)
 const listRef = useTemplateRef<HTMLElement>('listRef')
 
 // ---- room + bound agents --------------------------------------------------
-// Both queries degrade gracefully on purpose: a guest who can't read the room
-// metadata (403) still gets a usable view — roomName falls back to the id and
-// the agent list simply stays empty. Do not add error UI here.
+// Both queries are readable by every room participant, guests included (the
+// room read gate). They still degrade quietly rather than raising error UI: a
+// failed read leaves the id as the room name and the agent list empty, and the
+// header gating below does not depend on them for an anonymous guest.
 
 const roomQuery = useQuery({
   queryKey: convKeys.chatroom(chatroomId),
   queryFn: () => getChatroom(chatroomId),
   retry: false,
 })
+// A guest gets no settings, export or Back. `isGuestSession` covers an
+// anonymous guest even while the room read is pending or failed;
+// `viewer_is_guest` covers a registered guest, who holds an ordinary user token.
+const viewerIsGuest = computed(
+  () => isGuestSession.value || roomQuery.data.value?.viewer_is_guest === true,
+)
 const roomName = computed(() => roomQuery.data.value?.name ?? `#${chatroomId.slice(0, 8)}`)
 // [R32.05]. The server has already folded the room's `disclose_drafts` into this,
 // so the client never has to combine two flags and cannot get the combination
@@ -583,14 +586,14 @@ const boundAgentsQuery = useQuery({
 // *unbound*, which is a different and wrong statement in that state.
 const rosterKnown = computed(() => boundAgentsQuery.isSuccess.value)
 
-// Resolve workspace → project → agents to get agent display names. Each
-// query gates on the previous via `enabled`, so missing room data does not
-// trigger errors; the names map simply stays empty and falls back to the
-// truncated id.
+// Resolve workspace → project → agents to get the names of agents no longer
+// bound to the room. Each query gates on the previous via `enabled`. A guest
+// skips the chain: both reads are members-only and would only return 403, and
+// the room agent list already names every bound agent.
 const workspaceQuery = useQuery({
   queryKey: computed(() => ['conversation', 'workspace', roomQuery.data.value?.workspace_id]),
   queryFn: () => getWorkspace(roomQuery.data.value!.workspace_id),
-  enabled: computed(() => !!roomQuery.data.value?.workspace_id),
+  enabled: computed(() => !!roomQuery.data.value?.workspace_id && !viewerIsGuest.value),
   retry: false,
 })
 
@@ -606,21 +609,23 @@ const projectAgentsQuery = useQuery({
   retry: false,
 })
 
+// The project's names cover agents since unbound from this room (their history
+// still needs a label), but a guest cannot read them; the room's own agent list
+// names every bound agent for any participant, so it is layered on top.
 const agentNames = computed<Record<string, string>>(() => {
-  const agents = projectAgentsQuery.data.value
-  if (!agents) return {}
   const map: Record<string, string> = {}
-  for (const a of agents) {
-    map[a.id] = a.name
+  for (const a of projectAgentsQuery.data.value ?? []) map[a.id] = a.name
+  for (const a of boundAgentsQuery.data.value ?? []) {
+    if (a.name) map[a.agent_id] = a.name
   }
   return map
 })
 
-// Human author display names (members + guests). One map resolves both REST
-// history and live WS messages; absent/null names fall back to a truncated id.
-// Degrades gracefully like the agent queries — a 403 just leaves the map empty.
+// Human author display names (members, registered guests and anonymous guest
+// sessions). One map resolves REST history, live WS messages, presence and
+// typing; absent names fall back to a truncated id.
 const membersQuery = useQuery({
-  queryKey: ['conversation', 'chatroom-members', chatroomId],
+  queryKey: convKeys.chatroomMembers(chatroomId),
   queryFn: () => listChatroomMembers(chatroomId),
   retry: false,
 })
@@ -631,6 +636,22 @@ const userNames = computed<Record<string, string>>(() => {
     if (m.display_name) map[m.user_id] = m.display_name
   }
   return map
+})
+
+// The guest's own name: a rename the roster has not caught up with, then what
+// the roster holds, then the name its token was issued with.
+const ownRosterName = computed(() => {
+  const id = viewerId.value
+  return id ? (userNames.value[id] ?? null) : null
+})
+const guestViewerName = computed(() => {
+  if (guestNameOverride.value !== null) return guestNameOverride.value
+  if (ownRosterName.value) return ownRosterName.value
+  const claims = accessTokenClaims.value
+  return typeof claims?.display_name === 'string' ? claims.display_name : ''
+})
+watch(ownRosterName, (name) => {
+  if (name !== null && name === guestNameOverride.value) guestNameOverride.value = null
 })
 
 function agentStatus(id: string): AgentStatus {
@@ -875,7 +896,7 @@ watch(messages, (list) => {
   let needsRefetch = false
   for (const m of list) {
     if (
-      m.sender_type === 'user' &&
+      (m.sender_type === 'user' || m.sender_type === 'guest') &&
       m.sender_id &&
       !(m.sender_id in userNames.value) &&
       !resolvedSenderAttempts.has(m.sender_id)
@@ -1098,7 +1119,7 @@ const typingNames = computed(() => {
   const set = store.typingUsers[chatroomId]
   if (!set) return []
   return Array.from(set)
-    .filter((uid) => uid !== myId.value)
+    .filter((uid) => uid !== viewerId.value)
     .map((uid) => userNames.value[uid] ?? uid.slice(0, 8))
 })
 
@@ -1107,10 +1128,21 @@ const onlineUsers = computed(() => {
   if (!set) return []
   return Array.from(set).map((id) => ({
     id,
-    isYou: id === myId.value,
+    isYou: id === viewerId.value,
     displayName: userNames.value[id] ?? null,
   }))
 })
+
+// One binding for every participant-list render site (two layouts, tabbed or
+// not), so the rename control cannot again reach only some of them.
+// `viewerIsGuest` there means "may rename itself", which only an anonymous
+// guest session can: a registered guest's room label is set by the owner.
+const presenceProps = computed(() => ({
+  onlineUsers: onlineUsers.value,
+  agents: agentList.value,
+  viewerIsGuest: isGuestSession.value,
+  viewerName: guestViewerName.value,
+}))
 
 // Agent failure surfaced by the socket layer: backend agent.finished{error}
 // or the client-side thinking watchdog ('timeout'). Known skip reasons get a
@@ -1247,13 +1279,14 @@ function goSettings(): void {
   void router.push({ name: 'conversation.chatroom.settings', params: { chatroomId } })
 }
 
-async function onUpdateGuestDisplayName(name: string): Promise<void> {
-  const claims = accessTokenClaims.value
-  const sessionId = claims?.sub as string | undefined
+async function onUpdateGuestDisplayName(requested: string): Promise<void> {
+  const sessionId = guestSessionId.value
   if (!sessionId) return
   try {
-    await updateGuestDisplayName(sessionId, name)
-    guestNameOverride.value = name
+    // The stored name is the normalised one; show that, not what was typed.
+    const { display_name: name } = await updateGuestDisplayName(sessionId, requested)
+    guestNameOverride.value = name === ownRosterName.value ? null : name
+    void qc.invalidateQueries({ queryKey: convKeys.chatroomMembers(chatroomId) })
     // Update localStorage so the welcome-back UI shows the new name
     try {
       const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
@@ -1277,10 +1310,7 @@ function senderName(m: Message): string {
     return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
   }
   if (m.sender_type === 'guest' && m.sender_id) {
-    const claims = accessTokenClaims.value
-    if (claims?.sub === m.sender_id && typeof claims?.display_name === 'string') {
-      return guestNameOverride.value ?? claims.display_name
-    }
+    if (m.sender_id === guestSessionId.value) return guestViewerName.value || m.sender_id.slice(0, 8)
     return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
   }
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type

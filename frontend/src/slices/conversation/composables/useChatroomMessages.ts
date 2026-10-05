@@ -8,7 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
-import { accessTokenClaims, isGuestSession } from '@shared/transport'
+import { guestSessionId, isGuestSession } from '@shared/transport'
 import { ApiError } from '@shared/errors'
 import {
   deleteMessage as apiDeleteMessage,
@@ -59,11 +59,7 @@ export function useChatroomMessages(
 
   const myId = computed(() => session.me?.id ?? null)
   const isAdmin = computed(() => session.me?.is_admin ?? false)
-  const myGuestId = computed(() => {
-    if (!isGuestSession.value) return null
-    const sub = accessTokenClaims.value?.sub
-    return typeof sub === 'string' ? sub : null
-  })
+  const myGuestId = guestSessionId
 
   // ---------- permission helpers ------------------------------------------
 

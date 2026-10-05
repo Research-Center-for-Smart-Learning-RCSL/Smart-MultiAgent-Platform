@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ChatBubbleLeftIcon, PencilIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
 import { useSessionStore } from '@shared/stores/session'
-import { accessTokenClaims, isGuestSession } from '@shared/transport'
+import { guestSessionId, isGuestSession } from '@shared/transport'
 import type { CanvasComment } from '../types'
 
 const { t } = useI18n()
@@ -28,12 +28,9 @@ const editingId = ref<string | null>(null)
 const editContent = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
 
-const currentPrincipalId = computed(() => {
-  if (isGuestSession.value) {
-    return (accessTokenClaims.value?.sub as string) ?? null
-  }
-  return session.me?.id ?? null
-})
+const currentPrincipalId = computed(() =>
+  isGuestSession.value ? guestSessionId.value : (session.me?.id ?? null),
+)
 
 function isOwnComment(comment: CanvasComment): boolean {
   if (currentPrincipalId.value === null) return false

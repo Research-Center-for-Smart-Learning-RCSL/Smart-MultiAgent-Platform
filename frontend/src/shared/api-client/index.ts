@@ -193,6 +193,7 @@ export type { GroupIn } from './models/GroupIn';
 export type { GroupOut } from './models/GroupOut';
 export type { GroupPatchIn } from './models/GroupPatchIn';
 export type { GuestDisplayNameIn } from './models/GuestDisplayNameIn';
+export type { GuestDisplayNameOut } from './models/GuestDisplayNameOut';
 export type { GuestEnrollIn } from './models/GuestEnrollIn';
 export type { GuestLinkOut } from './models/GuestLinkOut';
 export type { GuestRefreshOut } from './models/GuestRefreshOut';

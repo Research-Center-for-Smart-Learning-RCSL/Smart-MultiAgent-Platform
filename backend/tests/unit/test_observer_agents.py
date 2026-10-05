@@ -68,6 +68,13 @@ def _access(
         created_by_user_id=created_by,
         disclose_observers=disclose_observers,
         disclose_drafts=disclose_drafts,
+        # Access flags as chatroom_fakes.chatroom_row sets them: the room read gate
+        # evaluates them for every non-moderator caller.
+        allow_project_owners_only=False,
+        allow_project_members=True,
+        allow_member_groups=False,
+        allow_org_members=False,
+        allow_guest_links=True,
     )
     return RoomAccess(chatroom=room, project_id=uuid.uuid4(), roles=roles, is_guest=is_guest)
 
@@ -460,8 +467,16 @@ def _wire_agent_listing(monkeypatch, *, access, rows):
         async def list_agents(self, chatroom_id):
             return rows
 
+    class _Agents:
+        def __init__(self, db) -> None:
+            pass
+
+        async def agent_names(self, ids):
+            return {}
+
     monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
     monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    monkeypatch.setattr(chatrooms_mod, "AgentsFacade", _Agents)
     return chatrooms_mod
 
 

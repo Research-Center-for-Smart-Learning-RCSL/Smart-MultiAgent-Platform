@@ -17,17 +17,21 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.conversation.application.guest_service import GuestService
 from contexts.conversation.domain.errors import GuestTokenInvalid
+from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.access import ensure_can_read, resolve_room_access
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal, require_registered_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.realtime.pubsub import Publisher
 
 router = APIRouter(prefix="/api/guest", tags=["guests"])
 
@@ -105,6 +109,8 @@ async def create_guest_session(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    if result.roster_changed:
+        await _emit_members_changed(db, chatroom_id)
 
     settings = get_settings()
     response.set_cookie(
@@ -168,24 +174,53 @@ class GuestDisplayNameIn(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
 
 
-@router.put(
-    "/session/{guest_session_id}/display-name",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-)
+class GuestDisplayNameOut(BaseModel):
+    # The stored, normalised name, so the client shows what others will see
+    # rather than what was typed.
+    display_name: str
+
+
+@router.put("/session/{guest_session_id}/display-name", response_model=GuestDisplayNameOut)
 async def update_guest_display_name(
     body: GuestDisplayNameIn,
     guest_session_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> None:
-    if not principal.is_guest or principal.user_id != guest_session_id:
+) -> GuestDisplayNameOut:
+    if not principal.is_guest or principal.user_id != guest_session_id or principal.chatroom_id is None:
         raise GuestTokenInvalid("principal does not match session")
+    # The token outlives the room's guest links being turned off; a guest the
+    # room no longer admits must not keep changing what its members see.
+    access = await resolve_room_access(db, principal=principal, chatroom_id=principal.chatroom_id)
+    ensure_can_read(access, is_admin=False)
     facade = ConversationFacade(db)
-    await facade.update_guest_display_name(
+    result = await facade.update_guest_display_name(
         guest_session_id=guest_session_id,
         display_name=body.display_name,
     )
+    if result.changed:
+        await _emit_members_changed(db, principal.chatroom_id)
+    return GuestDisplayNameOut(display_name=result.display_name)
+
+
+async def _emit_members_changed(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
+    """Tell the room's open clients to re-read the participant roster ([R13.19]).
+
+    Ids only, like ``chatroom.updated``: the room channel has no per-recipient
+    filtering, and each client's re-read answers for that client. Commits first so
+    the frame never announces a write a later rollback could undo, and swallows
+    transport failure: the change is durable, and a missed refresh is reconciled
+    by the client's reconnect re-read.
+    """
+    await db.commit()
+    try:
+        await Publisher(room_channel(chatroom_id)).emit(
+            "chatroom.members_changed", {"chatroom_id": str(chatroom_id)}
+        )
+    except Exception:
+        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+            "chatroom.members_changed emit failed"
+        )
 
 
 # -- Guest WS ticket (AC-7) --

@@ -170,6 +170,11 @@ class AgentRef(BaseModel):
     may_read_drafts: bool | None = None
     may_read_canvas: bool | None = None
     may_write_canvas: bool | None = None
+    # Response-side only: the agent's name, for every room reader. A guest cannot
+    # read the project's agent-name list, and needs the name to label agent
+    # messages and to @-mention the agent; the name is already on every message
+    # the agent posts, so it discloses nothing the room did not.
+    name: str | None = None
 
 
 class AgentRolePatchIn(BaseModel):
@@ -460,25 +465,14 @@ async def read_chatroom(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ChatroomOut:
-    project_id = await _project_id_for_chatroom(db, chatroom_id)
-    pure_guest = False
-    moderator = principal.is_admin
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(
-            principal,
-            Scope(project_id=project_id, chatroom_id=chatroom_id),
-        )
-        is_guest = await ConversationFacade(db).is_chatroom_guest(
-            chatroom_id=chatroom_id,
-            user_id=principal.user_id,
-        )
-        if not roles and not is_guest:
-            _raise_forbidden("not a participant of this room")
-        pure_guest = not roles and is_guest
-        moderator = is_moderator_roles(roles)
+    # The room read gate, so an anonymous guest reads its own room and a caller
+    # the room's flags refuse learns nothing about it ([R13.32]).
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    pure_guest = access.is_guest and not access.roles
+    moderator = principal.is_admin or access.is_moderator
+    room = access.chatroom
     service = ChatroomService(db)
-    room = await service.get(chatroom_id)
     with_observers = await service.rooms_with_observers([chatroom_id])
     with_draft_readers = await service.rooms_with_draft_readers([chatroom_id])
     return _to_out(
@@ -747,15 +741,11 @@ async def list_chatroom_agents(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentRef]:
-    # Single fetch for both checks below: resolve_room_access already loads
-    # the chatroom + workspace + project and resolves roles (chatroom_id in
-    # its Scope is inert for role resolution — TenancyRoleResolver.roles_for
-    # only reads org_id/project_id — so access.roles is exactly the project
-    # membership set a separate `_project_id_for_chatroom` +
-    # `roles_for(Scope(project_id=...))` call would have computed).
+    # One fetch serves both the read gate and the creator check below.
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
-    if not principal.is_admin and not access.roles:
-        _raise_forbidden("not a member of the project")
+    # The room read gate, not "has a project role": a guest of this room may see
+    # who it is talking to, and a member the room's flags refuse may not ([R13.32]).
+    ensure_can_read(access, is_admin=principal.is_admin)
     # R28.10: only the creator sees observer bindings (and roles at all) — for
     # everyone else the response is shape-identical to the pre-observer API.
     creator = is_room_creator(access, principal=principal)
@@ -764,9 +754,11 @@ async def list_chatroom_agents(
     if not creator:
         rows = [r for r in rows if r.role is ChatroomAgentRole.NORMAL]
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
+    names = await AgentsFacade(db).agent_names([r.agent_id for r in rows])
     return [
         AgentRef(
             agent_id=r.agent_id,
+            name=names.get(r.agent_id),
             role=r.role.value if creator else None,
             # [R30.37] / [R28.10]: the delegation layout is the creator's to see.
             # `None` for everyone else, which `response_model_exclude_none` drops,
@@ -1207,37 +1199,33 @@ async def list_chatroom_members(
 
     Only ``user_id`` + ``display_name`` is returned — never email — so a room
     member (including a guest) cannot harvest other participants' login
-    identifiers. The id set is the union of distinct human message authors and
-    enrolled guests; a guest's per-room display name takes precedence over their
-    account display name. Names left unset resolve to ``null`` and the client
-    falls back to a short id.
+    identifiers. The id set is the union of distinct human message authors,
+    enrolled registered guests, and the room's anonymous guest sessions; a
+    registered guest's per-room display name takes precedence over their account
+    display name. Names left unset resolve to ``null`` and the client falls back
+    to a short id. Gated like the messages it labels ([R13.32]).
     """
-    project_id = await _project_id_for_chatroom(db, chatroom_id)
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
     conv = ConversationFacade(db)
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(
-            principal,
-            Scope(project_id=project_id, chatroom_id=chatroom_id),
-        )
-        is_guest = await conv.is_chatroom_guest(
-            chatroom_id=chatroom_id,
-            user_id=principal.user_id,
-        )
-        if not roles and not is_guest:
-            _raise_forbidden("not a participant of this room")
     guest_names = {g.user_id: g.display_name for g in await conv.list_guests(chatroom_id)}
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
     all_ids = sender_ids | set(guest_names)
     account_names = await IdentityFacade(db).get_display_names(list(all_ids))
-
-    return [
+    members = [
         ChatroomMemberOut(
             user_id=uid,
             display_name=prefer_guest_label(guest_names.get(uid), account_names.get(uid)),
         )
         for uid in all_ids
     ]
+    # Session ids and user ids are independent random UUIDs, so the two sets
+    # cannot collide; the session's name needs no identity lookup.
+    members.extend(
+        ChatroomMemberOut(user_id=sid, display_name=name)
+        for sid, name in (await conv.guest_session_labels(chatroom_id)).items()
+    )
+    return members
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,7 @@
 <template>
   <header class="chat-header">
     <SButton
+      v-if="canNavigateBack"
       variant="ghost"
       icon-only
       size="sm"
@@ -171,8 +172,18 @@ const props = withDefaults(
     // prop is coerced to false by Vue, so the default must be explicit.
     canExport?: boolean
     canSettings?: boolean
+    // A guest has no room list or workspace to go back to: those routes are
+    // members-only, and the guard sends a guest who reaches them to a login page.
+    canNavigateBack?: boolean
   }>(),
-  { canExport: true, canSettings: true, isCompact: false, agentsOpen: false, peopleOpen: false },
+  {
+    canExport: true,
+    canSettings: true,
+    canNavigateBack: true,
+    isCompact: false,
+    agentsOpen: false,
+    peopleOpen: false,
+  },
 )
 
 const emit = defineEmits<{

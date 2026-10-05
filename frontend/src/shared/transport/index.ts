@@ -13,6 +13,7 @@ export {
   clearGuestContext,
   getGuestChatroomId,
   isGuestSession,
+  guestSessionId,
 } from './axios'
 
 export { wsManager, Channel } from './ws-manager'

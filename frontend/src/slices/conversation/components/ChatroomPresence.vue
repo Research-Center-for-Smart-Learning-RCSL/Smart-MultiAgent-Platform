@@ -11,7 +11,7 @@
       >
         <span class="presence-user__avatar">
           <SAvatar
-            :name="u.id"
+            :name="u.displayName || u.id"
             size="sm"
           />
           <span class="presence-user__dot" />

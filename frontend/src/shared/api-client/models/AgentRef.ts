@@ -9,6 +9,7 @@ export type AgentRef = {
     may_read_canvas?: (boolean | null);
     may_read_drafts?: (boolean | null);
     may_write_canvas?: (boolean | null);
+    name?: (string | null);
     role?: ('normal' | 'observer' | null);
 };
 
