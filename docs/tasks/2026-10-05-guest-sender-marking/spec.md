@@ -22,9 +22,10 @@ It implements FU-4 (and closes FU-2) of that dossier, a MEDIUM finding of its se
 ## 2. Goals and Non-goals
 
 **Goals**
-- Any label that comes from a guest identity (an anonymous guest session's name, or a registered
-  guest's self-chosen room label) is visibly marked as a guest wherever room members read it: message
-  author, participant list, typing indicator.
+- Every guest identity is visibly marked as a guest wherever room members read its label (message
+  author, participant list, typing indicator). A guest identity is an anonymous guest session, or a
+  registered guest (`chatroom_guests` row) who holds no role in the room's project, whatever label it
+  shows (room label or account display name).
 - The same labels carry a fixed guest marker in the model context (transcript speaker prefixes and
   the activity legend), applied after the [R13.34] one-line guard, and the system note's labelling
   sentence states what the marker means.
@@ -45,7 +46,7 @@ It implements FU-4 (and closes FU-2) of that dossier, a MEDIUM finding of its se
 |---|---|---|---|
 | Q-1 | Mark guests, reject collisions, or both? | Mark guests only. | Marking covers every collision class at once: a guest named as the owner, as a member who never spoke, as a member who renames later, as a bound agent, and look-alike spellings, with no migration and no new error path. Rejecting collisions needs reads of the owner, every member and every guest at each join and rename, races under concurrent joins (no unique index), misses silent members and homoglyphs, and contradicts [R13.33]'s accepted collisions more directly. |
 | Q-2 | Where does the marker appear in the UI? | Message author, participant list and typing indicator. The roster API gains a `kind` per entry. | Presence and typing frames carry ids only (`backend/app/api/ws/chatroom.py:137,239,286-289,313-316`), so the client needs the kind from the roster; marking only messages would leave the participant list, where students look to see who is present, unmarked. |
-| Q-3 | Are registered guests (signed-in users enrolled through `chatroom_guests`) marked? | Yes, whenever the label shown is their self-chosen room label. | Their room label overrides their account name (`backend/contexts/conversation/interfaces/author_labels.py:12-14`) and is self-chosen at enrolment (`backend/app/api/v1/guests.py:39-64`), so they can take the owner's name exactly like an anonymous guest. Keying on "the label came from a guest identity" rather than on `sender_type` covers both. |
+| Q-3 | Are registered guests (signed-in users enrolled through `chatroom_guests`) marked? | Yes, when they hold no role in the room's project, whether their label is a room label or their account display name. A user who can already read the room is no longer enrolled as a registered guest when they choose "enter with my account" on the link. (Revised 2026-10-05 after review, requester's choice.) | Their label is self-chosen either way: the room label at enrolment (`backend/app/api/v1/guests.py:39-64`) overrides the account name (`backend/contexts/conversation/interfaces/author_labels.py:12-14`), and the account name is the user's own. The approved rule ("marked when the room label is set") missed a registered guest with no room label, and marked any member or owner who had clicked the link and chosen their account, because `chooseOwnAccount` (`frontend/src/slices/conversation/views/GuestLandingView.vue:170-176`) enrolls every signed-in user (`backend/contexts/conversation/application/guest_service.py:42-74`). Project roles are what make someone a member, so they decide. |
 | Q-4 | What is the model-facing marker? | The fixed English suffix ` (guest)` after the normalised label, e.g. `Alice (guest): ...` and `u:1a2b3c4d = "Alice (guest)"`. | Fixed text is stable across turns (Q-5 of the prerequisite rejected shifting disambiguators). It is appended after `_one_line_label`, so truncation cannot cut it and it contains no delimiter the containers use ([R13.34]). Model-facing scaffolding is English throughout `turn_engine.py`. |
 | Q-5 | Does this depend on `2026-10-05-guest-frontend-session-lifecycle` (approved, not built)? | Yes, by the requester's choice at approval: build it after the session-lifecycle dossier. | Both edit `ChatroomView.vue` and the conversation locale files. The regions are disjoint (sender labels, presence and typing here; socket close handling, banners and boot there), so this is an ordering preference rather than a hard technical prerequisite: reload recovery comes first for the pilot. |
 
@@ -120,32 +121,41 @@ neutralises it, and look-alikes still pass.
 
 ### Decision
 
-Option A (Q-1). The marker is applied where a label is resolved, from the knowledge of which identity
-the label came from, never from the label text, so a guest cannot opt out and a member cannot opt in
-except by being a guest. Given up: two participants can still show the same name; the marker makes the
+Option A (Q-1). The marker is applied where a label is resolved, from the knowledge of who the
+participant is (Q-3: a guest session, or a registered guest without a project role), never from the
+label text, so a guest cannot opt out and a member cannot opt in except by being a guest. Given up: two participants can still show the same name; the marker makes the
 difference visible rather than preventing it.
 
 ## 6. Detailed Changes
 
 - **Backend**
-  - `turn_engine.py`: `_room_guest_names` keeps its merged map; a module constant
-    `GUEST_LABEL_MARKER = " (guest)"` and a helper apply it, after `_one_line_label`, to every label
-    resolved from that map in `_room_user_labels` and `_room_display_labels` (so transcript prefixes,
-    the legend and the owner label all agree). The generic fallback for a purged session stays
+  - Conversation facade: one read, `guest_identity_ids(chatroom_id)`, returns the room's guest
+    identities (Q-3): its anonymous session ids, plus its registered guests' user ids minus those
+    holding a role in the room's project. The role test is one batched tenancy read with
+    `roles_for` semantics (project members, org owners, owner of a user-owned project); a new
+    `TenancyFacade` method if no batch form exists. Both the roster route and the turn engine use it.
+  - `turn_engine.py`: a module constant `GUEST_LABEL_MARKER = " (guest)"` and a helper apply it, after
+    `_one_line_label`, to the label of every id in `guest_identity_ids` in `_room_user_labels` and
+    `_room_display_labels` (so transcript prefixes, the legend and the owner label all agree); labels
+    of other ids are untouched even when they come from the registered-guest map. The generic fallback for a purged session stays
     `Guest`, unmarked. The labelling sentence in the system note gains a clause stating that a label
     ending in `(guest)` belongs to someone who joined through the room's guest link, that the platform
     adds it, and that a name without it is not thereby verified. `_PARTICIPANT_NOTE_MEASURE` is
     recomputed for the longer worst case.
   - `activity_context_provider.py`: no change; it receives marked labels from the injected resolver.
-  - `chatrooms.py` `list_chatroom_members`: each entry carries `kind`: `"guest"` when its label came
-    from a guest identity (an anonymous session, or a registered guest whose room label is set), else
-    `"member"`.
+  - `chatrooms.py` `list_chatroom_members`: each entry carries `kind`: `"guest_session"` for an
+    anonymous session, `"room_guest"` for a registered guest identity (Q-3), else `"member"`. The two
+    guest kinds are distinct because removal (`2026-10-05-guest-kick-and-ban`) applies to sessions
+    only.
+  - `guest_service.py` `enroll`: a principal who already holds a role in the room's project is not
+    written to `chatroom_guests`; the call succeeds and the client enters the room as itself.
   - Migration required: no.
-- **API contract**: `ChatroomMemberOut` gains `kind: Literal["member", "guest"]`. `gen:api` rerun
-  required: yes.
+- **API contract**: `ChatroomMemberOut` gains `kind: Literal["member", "guest_session", "room_guest"]`.
+  `gen:api` rerun required: yes.
 - **Frontend** (`slices/conversation`)
   - `ChatroomView.vue`: the roster map becomes `{name, kind}`; one `isGuestAuthor(id, senderType)`
-    (true for `sender_type === 'guest'` or roster kind `guest`) feeds the bubble, presence and typing.
+    (true for `sender_type === 'guest'` or a roster kind other than `member`) feeds the bubble,
+    presence and typing.
     An anonymous guest's message is marked even before the roster re-read lands, because its sender
     type says so.
   - `ChatroomMessageBubble.vue`: an `SBadge` (neutral, sm) after the sender name when the author is a
@@ -207,10 +217,12 @@ difference visible rather than preventing it.
 
 - [ ] AC-1: an anonymous guest's messages, participant-list row and typing entry are badged as a guest
   for every viewer, including before the roster re-read after the guest joins (messages).
-- [ ] AC-2: a registered guest whose room label is set is badged the same way; a member, and a
-  registered guest with no room label, are never badged.
-- [ ] AC-3: the roster returns `kind` per entry (`guest` for anonymous sessions and for registered
-  guests with a room label, `member` otherwise).
+- [ ] AC-2: a registered guest with no role in the room's project is badged the same way, with or
+  without a room label; a member, owner or admin is never badged, including one who once entered
+  through the guest link with their account.
+- [ ] AC-3: the roster returns `kind` per entry (`guest_session`, `room_guest` per Q-3, or `member`);
+  a signed-in user with a project role who chooses "enter with my account" on the link creates no
+  `chatroom_guests` row.
 - [ ] AC-4: in an agent turn, transcript prefixes and activity-legend entries for guest identities end
   in ` (guest)`, applied after the one-line guard; members' labels do not; a purged session stays
   `Guest`.
@@ -233,13 +245,15 @@ difference visible rather than preventing it.
 
 ## 13. SRS Delta
 
+(Revised 2026-10-05 after review, Q-3; REQUIREMENTS.md updated to match.)
+
 Append to [R13.33], after its human-label precedence sentence:
 
-> A human label that comes from a guest identity (an anonymous guest's session name or a registered
-> guest's room label) carries a fixed guest marker that the platform appends after the label is
-> normalised ([R13.34]): in the model context the suffix ` (guest)`, and on every surface room
-> members read (message author, participant list, typing indicator) a guest badge. The marker is
-> decided by where the label came from, never by its text, so a guest cannot present as the room
+> The label of a guest identity (an anonymous guest session, or a registered guest who holds no role
+> in the room's project, whichever label it shows) carries a fixed guest marker that the platform
+> appends after the label is normalised ([R13.34]): in the model context the suffix ` (guest)`, and on
+> every surface room members read (message author, participant list, typing indicator) a guest badge.
+> The marker is decided by who the participant is, never by the label's text, so a guest cannot present as the room
 > owner or a member by choosing their name, and the labelling sentence of the system context states
 > what the marker means. Names may still coincide; the marker makes a guest identifiable rather than
 > making names unique.

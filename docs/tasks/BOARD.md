@@ -436,9 +436,9 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   guest refresh), ends visibly with the right reason (new problem types
   `conversation/guest-access-disabled` and `conversation/guest-display-name-invalid`), is tied to its
   token so a later sign-in cannot be hijacked, and a signed-in user entering as a guest confirms and
-  clears the tab's account state. Adds the guest lifecycle e2e spec. The unwritten
-  `guest-session-backend-hardening` dossier should list this slug in its `depends_on` (shared
-  `guest_session_service.py` error paths and `ws/chatroom.py:77`).
+  clears the tab's account state. Adds the guest lifecycle e2e spec. Amended after review
+  (2026-10-05): a boot restore keeps the guest context on failure and lands on the room's banner or
+  reconnecting state instead of `/login`.
   Unblocks `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`
   (Blocked) when implemented.
 
