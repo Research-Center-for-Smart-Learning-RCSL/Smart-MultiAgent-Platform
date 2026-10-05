@@ -423,13 +423,12 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   forward compatibility, and subject kind resolved from the id) and FU-1..FU-9 are in the dossier.
   It unblocked `2026-10-05-guest-room-read-and-identity`, now below.
 
-- `2026-10-05-guest-room-read-and-identity` (bugfix, **in progress 2026-10-05** on `fix/guest-room-read-and-identity`, SRS Delta applied) -
-  `depends_on: [2026-10-05-guest-identity-foreign-keys]`, implemented. **Per the requester, build it
-  from `main` after PR #225 merges**, not on that branch. Fixes audit F-3, F-4, F-5, F-6, F-13 plus
-  the guest agent-list gap: room record, roster and agent list move to `resolve_room_access` +
-  `ensure_can_read`; guest-session names reach the roster, other viewers and agent prompts; a new
-  `chatroom.members_changed` event; one client `viewerId`. Carries SRS deltas to [R13.19] and
-  [R13.33].
+- (implemented 2026-10-05) `2026-10-05-guest-room-read-and-identity`. AC-1..AC-9 verified on PR
+  #227 (CI green at `46521f5f`, db tier and e2e included). AC-10 unticked: no running stack.
+  Deviations D-1..D-7 (notably name-only agent refs, rename control for anonymous sessions only, and
+  a room-access re-check on rename from the security audit) and FU-1..FU-8 are in the dossier; FU-4
+  (guest impersonating the owner's display name) should be decided before the classroom pilot.
+  Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 ## Blocked
 

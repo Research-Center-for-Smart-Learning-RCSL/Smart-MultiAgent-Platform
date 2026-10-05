@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R13.06, R13.19, R13.32, R13.33, R13.34, R28.10, R30.38]
 depends_on: [2026-10-05-guest-identity-foreign-keys]
@@ -276,24 +276,25 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: an anonymous guest reads its room record (200, `viewer_is_guest=true`, neutralised fields)
+- [x] AC-1: an anonymous guest reads its room record (200, `viewer_is_guest=true`, neutralised fields)
   and its member roster; both return 403 when guest links are off.
-- [ ] AC-2: a caller refused by the room's access flags gets 403 on the room record, the roster and the
+- [x] AC-2: a caller refused by the room's access flags gets 403 on the room record, the roster and the
   agent list ([R13.32]); a platform admin and a room moderator are unaffected.
-- [ ] AC-3: the roster lists the room's guest sessions with their display names, and other viewers'
+- [x] AC-3: the roster lists the room's guest sessions with their display names, and other viewers'
   message, presence and typing labels show those names.
-- [ ] AC-4: renaming emits `chatroom.members_changed` after commit; other open clients show the new
+- [x] AC-4: renaming emits `chatroom.members_changed` after commit; other open clients show the new
   name without a reload; an unchanged-name resume emits nothing.
-- [ ] AC-5: in an agent turn, two anonymous guests are labelled with their own names in the transcript
+- [x] AC-5: in an agent turn, two anonymous guests are labelled with their own names in the transcript
   and in the activity legend; a purged guest session is labelled `Guest` and absent from the legend.
-- [ ] AC-6: a guest sees no settings gear, no export and no Back; a member still sees all three.
-- [ ] AC-7: a guest sees "(you)" and the rename control in every participant-list layout, renames
+- [x] AC-6: a guest sees no settings gear, no export and no Back; a member still sees all three.
+- [x] AC-7: a guest sees "(you)" and the rename control in every participant-list layout, renames
   successfully, and does not see its own typing indicator.
-- [ ] AC-8: a guest sees the room's agents by name and an @-mention of an agent name sends
+- [x] AC-8: a guest sees the room's agents by name and an @-mention of an agent name sends
   `mention_agent_ids`; creator-only binding fields are not exposed to non-creators.
-- [ ] AC-9: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+- [x] AC-9: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
 - [ ] AC-10: on a running stack with two browsers (guest and member), steps 2-5 of §4 no longer
-  reproduce. Left unticked, with the reason, if no stack is available.
+  reproduce. Left unticked, with the reason, if no stack is available. **Unticked 2026-10-05: no
+  running stack was available; covered by the unit, db-tier and view tests mapped to AC-1..AC-8.**
 
 ## 11. SRS Delta
 
@@ -313,7 +314,32 @@ Amend the last sentence of [R13.33] to:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1.** §7.2 and Q-2 promised the agent list would carry each agent's name and avatar reference.
+  Agents have no avatar field, so `AgentRef` gains `name` only (response-side; ignored on POST).
+- **D-2.** The regression tests were written first and observed failing locally against the pre-fix
+  code (commit `96d20364`); unlike the prerequisite dossier, no throwaway CI run was used for the
+  fail-first step, because none of the new failures needed the db tier to show.
+- **D-3.** §7.4 named the facade read `guest_session_names`; one read, `guest_session_labels`, serves
+  both the roster (§7.1) and the agent labels.
+- **D-4.** §8.5 placed the guest view tests in `ChatroomView.test.ts`; they live in a new
+  `ChatroomViewGuest.test.ts`, since they need their own token and viewport setup. §7.5's single
+  `presenceBindings` object is a `presenceProps` binding plus an `@update-display-name` listener at
+  each of the four sites.
+- **D-5.** Q-7's "viewer is a guest" (anonymous or registered) gates the header and the members-only
+  workspace and project-agent reads. The rename control is offered to anonymous guest sessions only:
+  the rename endpoint serves sessions, and a registered guest's room label is set by the room owner.
+  Without this split the self-audit found a registered guest would see a rename control whose save did
+  nothing.
+- **D-6.** From the gate-5 and gate-6 audits, beyond §7: the display-name PUT re-runs
+  `resolve_room_access` + `ensure_can_read`, so a guest whose access token outlives guest links being
+  turned off can no longer rename or trigger `chatroom.members_changed`; and a guest's view no longer
+  issues the workspace and project-agent reads, which are members-only and could only return 403 now
+  that the room read succeeds. A guest whose rename is later visible in the roster drops its local
+  override, so a rename from a second tab shows through.
+- **D-7.** AC-8's @-mention half is verified indirectly: the guest view test pins that `agentList`
+  carries the agent's name from the room agent list for a guest, and `agentList` is exactly the
+  `mentionAgents` input `ChatroomView.vue` passes to `useChatroomMessages`, whose `resolveMentions`
+  turns it into `mention_agent_ids` under existing tests. No guest-specific send test was added.
 
 ## 13. Follow-ups
 
@@ -325,3 +351,27 @@ Appended by /build.
 - **FU-3.** A guest's session label in the JWT (`display_name` claim) lags a rename until the next
   token refresh; the client now uses the PUT's returned name, so nothing renders stale, but any server
   path reading the claim would.
+- **FU-4.** (Security audit, MEDIUM, plausible.) Guest names now reach people and agents, so a holder
+  of the guest link can join or rename as the room owner's or a member's exact display name. The
+  owner note tells the agent which label owns the room, and classmates see an identical label with no
+  guest marker. Tool authority is not gained (grants are per agent; [R13.33] says labels are not
+  authentication). Remedy options: mark `sender_type === 'guest'` in bubbles and in the model-facing
+  label, or reject or suffix guest names that collide with the owner's or a member's. Pairs with FU-2;
+  decide before the classroom pilot.
+- **FU-5.** (Security audit, hardening.) §7.9 claims `chatroom.members_changed` is bounded by the
+  session-creation rate limit. For renames it is bounded only by the AUTH bucket, 10 per minute per
+  IP, not per session: alternating between two names emits on every request, and each frame makes
+  every open client re-read the roster. Add a per-session debounce on the rename emit.
+- **FU-6.** (Quality audit, Info.) Three hand-rolled best-effort room emits now exist
+  (`_emit_members_changed` in `guests.py`, `_emit_chatroom_updated` in `chatrooms.py`,
+  `emit_agent_finished_error` in `conversation/infrastructure/channels.py`). Extract one
+  `emit_room_event` helper in `conversation/interfaces`, keeping the commit at the call site.
+- **FU-7.** (Quality audit, pre-existing.) `chatrooms.py` imports `conversation.application.access`
+  and `ChatroomService` directly instead of `conversation.interfaces.access` and the facade, and this
+  dossier added two more call sites on the existing path. `createGuestSession` in the conversation
+  API module bypasses the generated `GuestsService`. `ChatroomView.vue` (about 1640 lines) and
+  `chatrooms.py` (about 1210 lines) are due a split.
+- **FU-8.** (Security audit, hardening, pre-existing.) A pure guest's room DTO still carries
+  `workspace_id` and the `allow_*` flags (ids and settings, no names); and for non-guests
+  `resolve_room_access` answers 404 for a missing room and 403 for a refused one, an existence oracle
+  under the letter of [R13.32], impractical against random UUIDs.
