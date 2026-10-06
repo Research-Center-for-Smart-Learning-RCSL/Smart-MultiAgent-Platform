@@ -436,13 +436,24 @@ def _one_line_label(label: str) -> str:
     return " ".join(label.replace('"', "").split())
 
 
-def _marked_label(label: str, *, is_guest: bool) -> str:
-    """``label`` (already one-lined) with the guest marker when it names a guest.
+def _first_label(*candidates: str | None) -> str | None:
+    """The first candidate that still says something once one-lined.
 
-    An empty label stays empty: it renders no "Name:" prefix at all, so there is
-    no name to mark and nothing it could present as.
+    Precedence is decided on the *normalised* text: a name of only quotes or
+    whitespace survives `normalise_label` but `_one_line_label` reduces it to
+    nothing, and an empty label renders no "Name:" prefix at all -- leaving the
+    sender's own content ("Teacher: ...") to read as someone else's turn.
     """
-    return f"{label}{GUEST_LABEL_MARKER}" if is_guest and label else label
+    for candidate in candidates:
+        label = _one_line_label(candidate) if candidate else ""
+        if label:
+            return label
+    return None
+
+
+def _marked_label(label: str, *, is_guest: bool) -> str:
+    """``label`` (non-empty, already one-lined) with the guest marker when it names a guest."""
+    return f"{label}{GUEST_LABEL_MARKER}" if is_guest else label
 
 
 def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
@@ -3650,7 +3661,7 @@ class TurnEngine:
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
         return {
             uid: _marked_label(
-                _one_line_label(guest_names.get(uid) or account_labels.get(uid) or "Guest"),
+                _first_label(guest_names.get(uid), account_labels.get(uid)) or "Guest",
                 is_guest=uid in marked,
             )
             for uid in user_ids
@@ -3687,9 +3698,9 @@ class TurnEngine:
         display = await IdentityFacade(self._db).get_display_names(list(user_ids))
         resolved = {}
         for uid in user_ids:
-            label = guest_names.get(uid) or display.get(uid)
+            label = _first_label(guest_names.get(uid), display.get(uid))
             if label:
-                resolved[uid] = _marked_label(_one_line_label(label), is_guest=uid in marked)
+                resolved[uid] = _marked_label(label, is_guest=uid in marked)
         return resolved
 
     async def _room_owner_label(

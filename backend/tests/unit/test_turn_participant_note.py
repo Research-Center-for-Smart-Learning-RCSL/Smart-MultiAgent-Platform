@@ -381,6 +381,23 @@ class TestGuestMarker:
             assert "\n" not in label
             assert '"' not in label
 
+    async def test_a_name_of_only_delimiters_cannot_shed_the_marker(self) -> None:
+        """Security audit finding: `"` survives `normalise_label` but `_one_line_label`
+        strips it to nothing, and an empty label renders no "Name:" prefix at all, so
+        the guest's own content ("Ms Lin: ...") read exactly like the owner's turn."""
+        quotes, blank = uuid.uuid4(), uuid.uuid4()
+        member = uuid.uuid4()
+        guests = _roster(sessions={quotes: '"', blank: '" "'}, registered={member: '"'})
+
+        transcript, legend = await self._both(guests, [quotes, blank, member], accounts={member: "Mia"})
+
+        assert transcript[quotes] == transcript[blank] == "Guest (guest)"
+        # A member's unusable room label falls through to their account name.
+        assert transcript[member] == legend[member] == "Mia"
+        # The legend keeps its no-filler rule: an unnamed guest is simply absent.
+        assert quotes not in legend
+        assert blank not in legend
+
     async def test_the_marker_survives_a_full_length_name(self) -> None:
         guest = uuid.uuid4()
 
