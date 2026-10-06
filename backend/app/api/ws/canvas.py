@@ -95,16 +95,11 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
 
     # Resolve canvas -> chatroom -> ACL
     async with sm() as session:
-        repo = CanvasRepository(session)
-        canvas = await repo.get(canvas_id)
-        if canvas is None:
-            await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.GONE)
-            return
-        chatroom_id = canvas.chatroom_id
-        crdt_state = canvas.crdt_state
-        legacy_objects = None
-        if crdt_state is None:
-            legacy_objects = await repo.list_objects(canvas_id)
+        canvas = await CanvasRepository(session).get(canvas_id)
+    if canvas is None:
+        await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.GONE)
+        return
+    chatroom_id = canvas.chatroom_id
 
     async def _check_read(principal: Principal) -> None:
         async with sm() as session, session.begin():
@@ -119,6 +114,14 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
     if outcome is not AccessOutcome.ALLOWED:
         await refuse_after_accept(ws, auth.subprotocol, outcome)
         return
+
+    # Only after the access check: the legacy object load is unbounded work a
+    # caller who cannot read the room must not be able to trigger.
+    crdt_state = canvas.crdt_state
+    legacy_objects = None
+    if crdt_state is None:
+        async with sm() as session:
+            legacy_objects = await CanvasRepository(session).list_objects(canvas_id)
 
     # Editor cap check ([R13.53]) -- before connection_loop so the close code
     # is ours (4009), not connection_loop's generic 1008.

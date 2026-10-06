@@ -131,16 +131,19 @@ async def resolve_room_access(
     )
 
 
-async def ensure_parents_live(db: AsyncSession, room: Chatroom) -> None:
-    """Raise ``ChatroomNotFound`` unless the room's workspace and project are live.
+async def ensure_parents_live(db: AsyncSession, room: Chatroom) -> uuid.UUID:
+    """The room's project id; raises ``ChatroomNotFound`` unless the room's
+    workspace and project are live.
 
     Workspace and project soft deletes do not cascade to their rooms, so a room
     row that is not deleted can still be unreachable. Every miss is the same
     not-found, so a dead parent reads exactly like a bad link ([R13.32]).
     """
     workspace = await WorkspaceRepository(db).get(room.workspace_id)
-    if workspace is None or await TenancyFacade(db).get_project(workspace.project_id) is None:
+    project = None if workspace is None else await TenancyFacade(db).get_project(workspace.project_id)
+    if project is None:
         raise ChatroomNotFound(str(room.id))
+    return project.id
 
 
 async def ensure_room_live(db: AsyncSession, chatroom_id: uuid.UUID) -> Chatroom:
@@ -170,17 +173,9 @@ async def _resolve_guest_access(
     if chatroom is None:
         raise ChatroomNotFound(str(chatroom_id))
 
-    workspace = await WorkspaceRepository(db).get(chatroom.workspace_id)
-    if workspace is None:
-        raise WorkspaceNotFound(str(chatroom.workspace_id))
-
-    project = await TenancyFacade(db).get_project(workspace.project_id)
-    if project is None:
-        raise ChatroomNotFound(str(chatroom_id))
-
     return RoomAccess(
         chatroom=chatroom,
-        project_id=project.id,
+        project_id=await ensure_parents_live(db, chatroom),
         roles=frozenset(),
         is_guest=True,
     )

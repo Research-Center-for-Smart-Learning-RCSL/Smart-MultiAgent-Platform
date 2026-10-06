@@ -106,6 +106,8 @@ class AccessOutcome(enum.Enum):
     GONE = "gone"
 
 
+# The one mapping from a refusal to its close frame, for the handshake and the
+# watchdog alike.
 _REFUSAL_CODES = {
     AccessOutcome.FORBIDDEN: (_CLOSE_FORBIDDEN, "access denied"),
     AccessOutcome.GONE: (_CLOSE_NOT_FOUND, "not found"),
@@ -121,7 +123,9 @@ async def refuse_after_accept(ws: WebSocket, subprotocol: str, outcome: AccessOu
     """
     code, reason = _REFUSAL_CODES[outcome]
     await ws.accept(subprotocol=subprotocol)
-    await ws.close(code=code, reason=reason)
+    # The client may already have gone; the refusal stands either way.
+    with suppress(Exception):
+        await ws.close(code=code, reason=reason)
 
 
 def _user_connections_key(user_id: uuid.UUID) -> str:
@@ -429,15 +433,11 @@ async def connection_loop(
                         connection_id=str(conn.connection_id),
                     ).warning("ws room re-auth failed; retrying next window")
                 else:
-                    if verdict is True:
-                        verdict = AccessOutcome.ALLOWED
-                    elif verdict is False:
-                        verdict = AccessOutcome.FORBIDDEN
-                    if verdict is AccessOutcome.FORBIDDEN:
-                        _request_close(_CLOSE_FORBIDDEN, "room access revoked")
-                        return
-                    if verdict is AccessOutcome.GONE:
-                        _request_close(_CLOSE_NOT_FOUND, "room no longer exists")
+                    if verdict is not True and verdict is not AccessOutcome.ALLOWED:
+                        # Anything but an explicit allow refuses, so a probe that
+                        # returns something unexpected fails closed.
+                        refusal = verdict if verdict is AccessOutcome.GONE else AccessOutcome.FORBIDDEN
+                        _request_close(*_REFUSAL_CODES[refusal])
                         return
             jti = conn.token_jti
             if jti is None:

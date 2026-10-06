@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom, WorkspaceNotFound
+from contexts.conversation.interfaces.access import ChatroomNotFound, ForbiddenInRoom, WorkspaceNotFound
 from shared_kernel.realtime import AccessOutcome
 
 

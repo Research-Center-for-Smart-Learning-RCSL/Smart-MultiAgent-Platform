@@ -343,6 +343,12 @@ class ConversationFacade:
         remote_ip: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> GuestRefreshResult:
+        """Rotate the room's refresh cookie and mint a new guest token ([R13.06b]).
+
+        The rotation is written before the room checks that may refuse it, so the
+        caller MUST roll back on any exception (the request transaction does); a
+        caller that commits after catching one burns a still-valid cookie.
+        """
         from contexts.conversation.application.guest_session_service import GuestSessionService
 
         return await GuestSessionService(self._db).refresh(

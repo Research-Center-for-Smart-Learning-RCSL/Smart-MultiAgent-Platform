@@ -196,6 +196,9 @@ async def _race(
         task = asyncio.create_task(run_second())
         try:
             await _settle_second(sessionmaker, task)
+        except BaseException:
+            task.cancel()
+            raise
         finally:
             await session_a.commit()
         result_b = await asyncio.wait_for(task, timeout=10)

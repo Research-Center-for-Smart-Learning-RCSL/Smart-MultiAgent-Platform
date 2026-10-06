@@ -477,7 +477,6 @@ import {
   getGuestChatroomId,
   guestSessionId,
   isGuestSession,
-  markGuestSessionEnded,
   refreshAccessToken,
 } from '@shared/transport'
 import { useGuestSessionStore } from '../stores/guestSession'
@@ -1102,7 +1101,7 @@ const roomGoneForMember = ref(false)
 // 4404 means the room's workspace or project was deleted, for every viewer.
 const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
   if (code === CLOSE_ROOM_GONE) {
-    if (holdsGuestContext.value) markGuestSessionEnded('gone')
+    if (holdsGuestContext.value) guestSessionStore.markGone()
     else roomGoneForMember.value = true
     return
   }

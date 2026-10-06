@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { guestSessionEnd, markGuestSessionEnded } from '@shared/transport'
+import { guestSessionEnd, markGuestSessionEnded, type GuestSessionEnd } from '@shared/transport'
 
 export const GUEST_STORAGE_PREFIX = 'smap:guest:'
 
-export type GuestSessionState = 'active' | 'expired' | 'disabled' | 'gone'
+export type GuestSessionState = 'active' | GuestSessionEnd
 
 export const useGuestSessionStore = defineStore('guestSession', () => {
   // Memory only: the link token must never reach persistent storage ([R24.43]),
@@ -30,10 +30,14 @@ export const useGuestSessionStore = defineStore('guestSession', () => {
     markGuestSessionEnded('disabled')
   }
 
+  function markGone(): void {
+    markGuestSessionEnded('gone')
+  }
+
   function clear(): void {
     guestToken.value = null
     chatroomId.value = null
   }
 
-  return { guestToken, chatroomId, sessionState, rejoinUrl, setGuestToken, markDisabled, clear }
+  return { guestToken, chatroomId, sessionState, rejoinUrl, setGuestToken, markDisabled, markGone, clear }
 })

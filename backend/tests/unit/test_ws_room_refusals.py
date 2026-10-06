@@ -18,7 +18,7 @@ import asyncio
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -157,6 +157,30 @@ async def test_canvas_handshake_refusal_is_accepted_then_closed_with_its_code(
 
     assert (ws.accepted_with, ws.closed) == (_SUBPROTOCOL, code)
     assert "authorize" not in captured
+
+
+class _LegacyCanvases(_Canvases):
+    loaded: ClassVar[int] = 0
+
+    async def get(self, canvas_id: uuid.UUID) -> object:
+        return SimpleNamespace(id=canvas_id, chatroom_id=uuid.uuid4(), crdt_state=None)
+
+    async def list_objects(self, _canvas_id: uuid.UUID) -> list[object]:
+        _LegacyCanvases.loaded += 1
+        return []
+
+
+async def test_a_refused_caller_never_triggers_the_legacy_object_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    _patch_canvas(monkeypatch, _raising(ForbiddenInRoom), captured)
+    monkeypatch.setattr(canvas_mod, "CanvasRepository", _LegacyCanvases)
+    _LegacyCanvases.loaded = 0
+
+    await canvas_mod.ws_canvas(_RecordingWS(), uuid.uuid4())  # type: ignore[arg-type]
+
+    assert _LegacyCanvases.loaded == 0
 
 
 async def test_a_missing_canvas_is_accepted_then_closed_4404(monkeypatch: pytest.MonkeyPatch) -> None:
