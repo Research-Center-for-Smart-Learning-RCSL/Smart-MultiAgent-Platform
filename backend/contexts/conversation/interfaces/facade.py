@@ -21,6 +21,7 @@ from contexts.conversation.application.guest_session_service import (
     GuestRenameResult,
     GuestSessionResult,
 )
+from contexts.conversation.application.room_guests import RoomGuests, load_room_guests
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AgentObservation,
@@ -305,6 +306,15 @@ class ConversationFacade:
         ([R13.33]). Scoped by room in SQL, and names are normalised on write.
         """
         return dict(await GuestSessionRepository(self._db).list_labels(chatroom_id))
+
+    async def room_guests(self, chatroom_id: uuid.UUID) -> RoomGuests:
+        """The room's guests, their labels, and which ids carry the guest marker ([R13.33]).
+
+        The roster and the agent's prompt labels both read it, so a participant
+        is marked in the participant list exactly when the agent reads them as
+        a guest.
+        """
+        return await load_room_guests(self._db, chatroom_id)
 
     async def clear_attachment_uploader(self, user_id: uuid.UUID) -> int:
         """Null a hard-deleted user's id on the attachments they uploaded.
@@ -839,5 +849,6 @@ __all__ = [
     "DraftReadGrant",
     "Message",
     "MessageAttachment",
+    "RoomGuests",
     "SenderType",
 ]

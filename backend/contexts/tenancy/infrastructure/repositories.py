@@ -216,6 +216,23 @@ class OrgMemberRepository:
         ).all()
         return {r.org_id for r in rows}
 
+    async def owner_user_ids(self, *, org_id: uuid.UUID, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Of `user_ids`, the ones who own `org_id` (one query)."""
+        if not user_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.org_members.c.user_id).where(
+                    sa.and_(
+                        t.org_members.c.org_id == org_id,
+                        t.org_members.c.role == OrgMemberRole.OWNER.value,
+                        t.org_members.c.user_id.in_(list(user_ids)),
+                    )
+                )
+            )
+        ).all()
+        return {r.user_id for r in rows}
+
     async def remove(self, *, org_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self._db.execute(
             t.org_members.delete().where(
@@ -569,6 +586,24 @@ class ProjectMemberRepository:
             )
         ).all()
         return {r.project_id for r in rows}
+
+    async def member_user_ids(
+        self, *, project_id: uuid.UUID, user_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Of `user_ids`, the ones holding a membership row (any role) in `project_id` (one query)."""
+        if not user_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.project_members.c.user_id).where(
+                    sa.and_(
+                        t.project_members.c.project_id == project_id,
+                        t.project_members.c.user_id.in_(list(user_ids)),
+                    )
+                )
+            )
+        ).all()
+        return {r.user_id for r in rows}
 
     async def remove(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self._db.execute(
