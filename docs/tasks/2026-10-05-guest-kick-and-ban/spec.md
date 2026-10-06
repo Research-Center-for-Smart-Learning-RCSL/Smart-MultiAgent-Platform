@@ -307,6 +307,29 @@ stack outside CI's e2e.
   whose PR #237 was not yet merged into main; the PR for this dossier must target that branch or
   wait for #237.
 
+After `/code-review` of PR #238, the requester chose to fix findings 1 to 7 on this branch (finding 8,
+the refresh retry's fixed 500 ms, came from #237's `5f002c9b` and is left to it):
+
+- **D-10.** A ban also revokes every live session of the banned session's browser in the room
+  (`GuestSessionRepository.revoke_live_for_browser`), and the removal announces each ended session.
+  A guest removed, rejoined from the same browser, then banned through an old message kept the new
+  session before, since refresh never consults bans. Regression tests: unit and db tier.
+- **D-11.** The browser id lives in its own per-room key, `smap:guest-browser:{room}`
+  (`utils/guestHint.ts` `guestBrowserId`), which the boot restore never removes; a session that
+  expired used to drop the hint and with it the id the ban keys on, so the ban lapsed after the
+  7-day cookie. Regression test: `GuestLandingView.test.ts`.
+- **D-12.** `_room_readable` reads `GuestRemoved` as "not readable", so an orchestration record of a
+  removed guest's former room answers the same 404 as a missing one ([R15.24]). Regression test:
+  `test_orchestration_room_scoped_reads.py`.
+- **D-13.** The guest ws-ticket route refuses a removed session (`ensure_guest_session_live`, shared
+  with the access check) instead of minting tickets the handshake then closes; closes FU-4 for that
+  route (the account ticket route is unaffected: a guest token never reaches it usefully).
+- **D-14.** Rotation emits no `chatroom.updated` (§6 said it would): nothing a viewer's room DTO
+  carries changed, so the frame only told guests an invisible write happened.
+- **D-15.** Removal emits no `chatroom.members_changed` (§6 said it would): a removed session keeps
+  labelling its messages, so the roster is unchanged.
+- **D-16.** `read_guest_link` now uses the same room-level row-18 gate as the new routes; closes FU-10.
+
 ## 16. Follow-ups
 
 - **FU-1.** Registered guests (`chatroom_guests`) cannot be removed from a room either (Q-6).
@@ -317,8 +340,8 @@ stack outside CI's e2e.
   within about 60 s (`shared_kernel/realtime/connection.py:82`), and meanwhile the socket still
   receives room frames and may send typing and drafts. The spec accepts this window (AC-1); a
   per-principal close on the `chatroom.guest_removed` frame would remove it. Security audit, medium.
-- **FU-4.** Both ticket routes (`app/api/v1/guests.py` `guest_ws_ticket`, `app/api/v1/auth.py`
-  ws-ticket) still mint tickets for a removed session; the handshake refuses them with 4408.
+- **FU-4.** (Guest route closed by D-13.) The account ticket route (`app/api/v1/auth.py` ws-ticket)
+  does not check guest sessions; the handshake refuses a removed one with 4408.
 - **FU-5.** Pre-existing sibling of the hardening dossier's bytes fix: registered-guest enrolment
   (`contexts/conversation/application/guest_service.py:63`) still compares the link token as `str`,
   so a non-ASCII token answers 500.
@@ -330,9 +353,7 @@ stack outside CI's e2e.
   and the backend; export them from `@shared/transport`.
 - **FU-9.** `ConversationFacade` now has 51 public methods and guest session, moderation and link
   rotation share `GuestSessionService`; a guest facade and service split would separate them.
-- **FU-10.** `read_guest_link` gates row 18 at project scope (`_require_project_cap`) while the new
-  routes gate on the room's resolved roles; both resolve the same roles today, but one gate would
-  keep them from drifting.
+- **FU-10.** (Closed by D-16.)
 - **FU-11.** `test_guest_session_hardening_db.py` and `test_guest_identity_writes_db.py` still carry
   their own copies of the harness now in `tests/integration/guest_db_kit.py`.
 - **FU-12.** `slices/agents/__tests__/AgentToolsView.test.ts` (CodeMirror lint diagnostic) failed
@@ -340,6 +361,6 @@ stack outside CI's e2e.
 - **FU-13.** `_guest_link_out` builds the link from the request's Host header; a configured public
   base URL would not depend on the proxy pinning it.
 - **FU-14.** Another moderator's open settings page does not pick up a rotated link until reload; the
-  settings view holds no room socket.
+  settings view holds no room socket, and rotation emits no room frame (D-14).
 - **FU-15.** `guest_sessions.browser_id` stays plaintext for the session's 30-day life; storing only
   the hash there too would let resume and ban share one form.

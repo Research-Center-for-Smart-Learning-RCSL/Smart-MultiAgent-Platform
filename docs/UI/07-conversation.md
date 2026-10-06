@@ -1370,8 +1370,9 @@ than inferred from the token, so the room can still explain it once the token is
 - **Removal** ([R13.07a]). `removed` is recorded from a 403 `conversation/guest-removed` answer to
   any request that carried this tab's guest token (never from a landing-page session create), from
   the refresh and the boot restore, from a 4408 socket close, and from a `chatroom.guest_removed`
-  frame naming this tab's session. The boot restore keeps the hint on removal: it holds the browser
-  id a ban keys on.
+  frame naming this tab's session. The browser id a ban keys on lives in its own per-room key
+  (`smap:guest-browser:{chatroomId}`), created on first join and never removed with the hint, so a
+  session that later expires does not hand the browser a fresh id that walks past the ban.
 - **Banners.** Expired: within the page lifetime the banner offers Rejoin (the in-memory link);
   after a reload it says to reopen the link the room owner shared and offers Sign in. Disabled:
   "Guest access has been disabled by the room owner." Removed: "You were removed from this room."
@@ -1491,7 +1492,7 @@ ChatroomSettingsView.vue
 | `agent.finished` | Server -> Client | Clear stream/thinking, real message takes over |
 | `presence.joined` | Server -> Client | Add user to presence set |
 | `presence.left` | Server -> Client | Remove user from presence set |
-| `chatroom.guest_removed` | Server -> Client | Ids only; the named guest session's own tab records `removed` and shows the banner |
+| `chatroom.guest_removed` | Server -> Client | Ids only, one per ended session; the named guest session's own tab records `removed` and shows the banner |
 | `chatroom.members_changed` | Server -> Client | Re-read the participant roster |
 | `approval.requested` | Server -> Client | Add approval card to orchestration store |
 | `approval.resolved` | Server -> Client | Update approval card status |
