@@ -146,6 +146,8 @@
       "typingOne": "{name} 正在輸入",
       "typingTwo": "{a} 和 {b} 正在輸入",
       "typingMany": "{count} 人正在輸入",
+      "guestBadge": "訪客",
+      "guestName": "{name}（訪客）",
       "newMessages": "新訊息",
       "newMessagesCount": "{count} 則新訊息",
       "copy": "複製",

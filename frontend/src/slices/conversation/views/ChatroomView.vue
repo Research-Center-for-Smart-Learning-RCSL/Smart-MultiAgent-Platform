@@ -140,6 +140,7 @@
               :message="item.message"
               :html="rendered[item.message.id] ?? ''"
               :sender-name="senderName(item.message)"
+              :sender-is-guest="isGuestAuthor(item.message.sender_id, item.message.sender_type)"
               :agent-names="agentNames"
               :editing="editingId === item.message.id"
               :edit-draft="editDraft"
@@ -240,7 +241,7 @@
     </SAlert>
 
     <div class="chatroom__typing">
-      <ChatroomTypingIndicator :names="typingNames" />
+      <ChatroomTypingIndicator :typers="typers" />
       <SDraftDisclosureChip v-if="draftsReadable" />
     </div>
 
@@ -486,7 +487,7 @@ import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ChatroomMember, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -666,6 +667,25 @@ const userNames = computed<Record<string, string>>(() => {
   return map
 })
 
+// [R13.33]: the badge comes from who the participant is (roster kind, sender type),
+// never from the name, so a guest cannot shed it by choosing what to be called.
+const rosterGuestIds = computed(() => {
+  const ids = new Set<string>()
+  for (const m of membersQuery.data.value ?? []) {
+    if (m.kind !== 'member') ids.add(m.user_id)
+  }
+  return ids
+})
+
+// A guest's message carries `sender_type: 'guest'`, so it is badged before the
+// roster re-read that brings the new guest's kind lands; the viewer's own session
+// is known from its token for the same reason.
+function isGuestAuthor(id: string | null | undefined, senderType?: string): boolean {
+  if (senderType === 'guest') return true
+  if (!id) return false
+  return id === guestSessionId.value || rosterGuestIds.value.has(id)
+}
+
 // The guest's own name: a rename the roster has not caught up with, then what
 // the roster holds, then the name its token was issued with.
 const ownRosterName = computed(() => {
@@ -717,7 +737,7 @@ const agentList = computed(() =>
 const mentionables = computed<{ id: string; name: string }[]>(() => {
   const agentNameSet = new Set(agentList.value.map((a) => a.name.toLowerCase()))
   const users = (membersQuery.data.value ?? [])
-    .filter((m): m is { user_id: string; display_name: string } => !!m.display_name)
+    .filter((m): m is ChatroomMember & { display_name: string } => !!m.display_name)
     .filter((m) => !agentNameSet.has(m.display_name.toLowerCase()))
     .map((m) => ({ id: m.user_id, name: m.display_name }))
   return [...agentList.value, ...users]
@@ -1187,12 +1207,12 @@ onBeforeUnmount(() => {
   }
 })
 
-const typingNames = computed(() => {
+const typers = computed(() => {
   const set = store.typingUsers[chatroomId]
   if (!set) return []
   return Array.from(set)
     .filter((uid) => uid !== viewerId.value)
-    .map((uid) => userNames.value[uid] ?? uid.slice(0, 8))
+    .map((uid) => ({ name: userNames.value[uid] ?? uid.slice(0, 8), isGuest: isGuestAuthor(uid) }))
 })
 
 const onlineUsers = computed(() => {
@@ -1202,13 +1222,15 @@ const onlineUsers = computed(() => {
     id,
     isYou: id === viewerId.value,
     displayName: userNames.value[id] ?? null,
+    isGuest: isGuestAuthor(id),
   }))
 })
 
 // One binding for every participant-list render site (two layouts, tabbed or
 // not), so the rename control cannot again reach only some of them.
 // `viewerIsGuest` there means "may rename itself", which only an anonymous
-// guest session can: a registered guest's room label is set by the owner.
+// guest session can: a registered guest's room label was chosen at enrolment
+// and has no rename endpoint.
 const presenceProps = computed(() => ({
   onlineUsers: onlineUsers.value,
   agents: agentList.value,

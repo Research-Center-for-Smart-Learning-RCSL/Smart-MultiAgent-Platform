@@ -106,15 +106,17 @@ describe('ChatroomView for an anonymous guest', () => {
 
     // The server echoes typing frames to the sender too (ws/chatroom.py), so the
     // filter is the only thing keeping the guest's own entry out.
-    const names = wrapper.findComponent(ChatroomTypingIndicator).props('names') as string[]
-    expect(names).toHaveLength(1)
-    expect(names[0]).not.toContain(GUEST)
+    const typers = wrapper.findComponent(ChatroomTypingIndicator).props('typers') as Array<{ name: string }>
+    expect(typers).toHaveLength(1)
+    expect(typers[0].name).not.toContain(GUEST)
   })
 
   it("labels another guest's messages with the name from the roster", async () => {
     enterAsGuest()
     server.use(
-      http.get('/api/chatrooms/cr_1/members', () => HttpResponse.json([{ user_id: 'g_2', display_name: 'Carol' }])),
+      http.get('/api/chatrooms/cr_1/members', () =>
+        HttpResponse.json([{ user_id: 'g_2', display_name: 'Carol', kind: 'guest_session' }]),
+      ),
       http.get('/api/chatrooms/cr_1/messages', () =>
         HttpResponse.json([
           {
@@ -364,6 +366,83 @@ describe('ChatroomView when the guest session ends', () => {
   })
 })
 
+// docs/tasks/2026-10-05-guest-sender-marking (AC-1, AC-2): every viewer sees a
+// guest marked as one, decided by sender type or roster kind, never by the name.
+describe('ChatroomView guest badges', () => {
+  function message(id: string, senderType: string, senderId: string) {
+    return {
+      id,
+      chatroom_id: 'cr_1',
+      sender_type: senderType,
+      sender_id: senderId,
+      content_md: id,
+      metadata: {},
+      version: 1,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      deleted_at: null,
+    }
+  }
+
+  function bubbleBadged(wrapper: Awaited<ReturnType<typeof renderView>>, messageId: string): boolean {
+    return wrapper.find(`#msg-${messageId} [data-testid="bubble-guest-badge"]`).exists()
+  }
+
+  it('badges an anonymous guest, a registered guest and no member, wherever they appear', async () => {
+    server.use(
+      http.get('/api/chatrooms/cr_1/members', () =>
+        HttpResponse.json([
+          { user_id: 'g_2', display_name: 'Ms Lin', kind: 'guest_session' },
+          { user_id: 'u_8', display_name: 'Olive', kind: 'room_guest' },
+          { user_id: 'u_7', display_name: 'Ms Lin', kind: 'member' },
+        ]),
+      ),
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json([
+          message('m_1', 'guest', 'g_2'),
+          message('m_2', 'user', 'u_8'),
+          message('m_3', 'user', 'u_7'),
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    const store = useConversationStore()
+    store.setPresence('cr_1', ['g_2', 'u_8', 'u_7'])
+    store.addTyping('cr_1', 'g_2')
+    store.addTyping('cr_1', 'u_7')
+    await settle()
+
+    expect([bubbleBadged(wrapper, 'm_1'), bubbleBadged(wrapper, 'm_2'), bubbleBadged(wrapper, 'm_3')]).toEqual([
+      true,
+      true,
+      false,
+    ])
+    for (const presence of wrapper.findAllComponents(ChatroomPresence)) {
+      const rows = presence.props('onlineUsers') as Array<{ id: string; isGuest: boolean }>
+      expect(Object.fromEntries(rows.map((r) => [r.id, r.isGuest]))).toEqual({ g_2: true, u_8: true, u_7: false })
+    }
+    const typers = wrapper.findComponent(ChatroomTypingIndicator).props('typers') as Array<{
+      name: string
+      isGuest: boolean
+    }>
+    expect(typers).toEqual([
+      { name: 'Ms Lin', isGuest: true },
+      { name: 'Ms Lin', isGuest: false },
+    ])
+  })
+
+  it("badges a new guest's message before the roster knows them", async () => {
+    server.use(
+      http.get('/api/chatrooms/cr_1/members', () => HttpResponse.json([])),
+      http.get('/api/chatrooms/cr_1/messages', () => HttpResponse.json([message('m_1', 'guest', 'g_9')])),
+    )
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+
+    expect(bubbleBadged(wrapper, 'm_1')).toBe(true)
+  })
+})
+
 describe('ChatroomView header for other viewers', () => {
   it('still shows settings, export and Back to a member', async () => {
     useSessionStore().me = {
@@ -413,7 +492,7 @@ describe('ChatroomView header for other viewers', () => {
     expect(wrapper.find('[data-testid="open-export"]').exists()).toBe(false)
     expect(wrapper.find(`[aria-label="${backKey}"]`).exists()).toBe(false)
     // The rename endpoint serves anonymous guest sessions only; a registered
-    // guest's room label is set by the room's owner.
+    // guest's room label is chosen at enrolment and has no rename endpoint.
     for (const presence of wrapper.findAllComponents(ChatroomPresence)) {
       expect(presence.props('viewerIsGuest')).toBe(false)
     }

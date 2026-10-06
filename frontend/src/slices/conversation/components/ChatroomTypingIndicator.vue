@@ -1,11 +1,11 @@
 <template>
   <p
     class="typing"
-    :class="{ 'typing--visible': names.length > 0 }"
+    :class="{ 'typing--visible': typers.length > 0 }"
     aria-live="polite"
     aria-atomic="true"
   >
-    <template v-if="names.length">
+    <template v-if="typers.length">
       {{ text }}
       <span class="typing__dots">
         <span class="typing__dot" />
@@ -21,13 +21,19 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
-  names: string[]
+  typers: Array<{ name: string; isGuest: boolean }>
 }>()
 
 const { t } = useI18n()
 
+// Marked in the text itself: this line is announced to screen readers and has no
+// room for a badge beside each name.
+const names = computed(() =>
+  props.typers.map((u) => (u.isGuest ? t('conversation.chatroom.guestName', { name: u.name }) : u.name)),
+)
+
 const text = computed(() => {
-  const n = props.names
+  const n = names.value
   if (n.length === 1) return t('conversation.chatroom.typingOne', { name: n[0] })
   if (n.length === 2) return t('conversation.chatroom.typingTwo', { a: n[0], b: n[1] })
   return t('conversation.chatroom.typingMany', { count: n.length })

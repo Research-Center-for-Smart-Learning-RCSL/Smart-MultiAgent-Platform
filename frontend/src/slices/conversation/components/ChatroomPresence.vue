@@ -64,6 +64,15 @@
           <span class="presence-user__name">{{ u.displayName || u.id.slice(0, 8) }}</span>
         </template>
 
+        <SBadge
+          v-if="u.isGuest && !(u.isYou && editingName)"
+          variant="neutral"
+          size="sm"
+          data-testid="presence-guest-badge"
+        >
+          {{ t('conversation.chatroom.guestBadge') }}
+        </SBadge>
+
         <span
           v-if="u.isYou && !editingName"
           class="presence-user__you"
@@ -90,14 +99,14 @@
 import { nextTick, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PencilIcon } from '@heroicons/vue/24/outline'
-import { SAvatar, SButton, SDivider, SInput } from '@shared/ui'
+import { SAvatar, SBadge, SButton, SDivider, SInput } from '@shared/ui'
 import ChatroomAgentStatusItem, {
   type AgentStatusEntry,
 } from './ChatroomAgentStatusItem.vue'
 
 const props = withDefaults(
   defineProps<{
-    onlineUsers: Array<{ id: string; isYou: boolean; displayName?: string | null }>
+    onlineUsers: Array<{ id: string; isYou: boolean; displayName?: string | null; isGuest?: boolean }>
     agents: AgentStatusEntry[]
     viewerIsGuest?: boolean
     viewerName?: string

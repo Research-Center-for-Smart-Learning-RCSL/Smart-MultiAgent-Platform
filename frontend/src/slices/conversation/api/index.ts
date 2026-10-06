@@ -300,6 +300,8 @@ export async function setChatroomAgentCanvasWriteAccess(
 export interface ChatroomMember {
   user_id: string
   display_name: string | null
+  // Decided by the server from who the participant is, never from the name.
+  kind: 'member' | 'guest_session' | 'room_guest'
 }
 
 export async function listChatroomMembers(
