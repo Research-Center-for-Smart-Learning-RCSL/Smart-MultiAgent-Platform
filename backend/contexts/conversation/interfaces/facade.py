@@ -340,12 +340,16 @@ class ConversationFacade:
         *,
         chatroom_id: uuid.UUID,
         refresh_token: str,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
     ) -> GuestRefreshResult:
         from contexts.conversation.application.guest_session_service import GuestSessionService
 
         return await GuestSessionService(self._db).refresh(
             chatroom_id=chatroom_id,
             refresh_token=refresh_token,
+            remote_ip=remote_ip,
+            request_id=request_id,
         )
 
     async def ensure_guest_room_open(self, chatroom_id: uuid.UUID) -> None:
@@ -359,12 +363,16 @@ class ConversationFacade:
         *,
         guest_session_id: uuid.UUID,
         display_name: str,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
     ) -> GuestRenameResult:
         from contexts.conversation.application.guest_session_service import GuestSessionService
 
         return await GuestSessionService(self._db).update_display_name(
             guest_session_id=guest_session_id,
             display_name=display_name,
+            remote_ip=remote_ip,
+            request_id=request_id,
         )
 
     async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:

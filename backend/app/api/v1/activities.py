@@ -1013,6 +1013,7 @@ async def set_activity_session_completion(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        actor_guest_room_id=principal.guest_room_id,
     )
     await db.commit()
     if result.transitioned:
@@ -1105,6 +1106,7 @@ async def close_activity_session(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        actor_guest_room_id=principal.guest_room_id,
     )
     await db.commit()
     session = await facade.get_session(session_id)

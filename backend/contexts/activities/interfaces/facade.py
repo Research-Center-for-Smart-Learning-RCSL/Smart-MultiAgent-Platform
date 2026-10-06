@@ -635,6 +635,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> None:
         await self._sessions.close_session(
             session_id=session_id,
@@ -643,6 +644,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_guest_room_id=actor_guest_room_id,
         )
 
     async def get_session(self, session_id: uuid.UUID) -> ActivitySession | None:
@@ -660,6 +662,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> ActivitySessionCompletionResult:
         """Set or clear a participant's "I am finished" declaration ([R30.22]).
         The result carries the round, so the route can address its post-commit
@@ -675,6 +678,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_guest_room_id=actor_guest_room_id,
         )
 
     async def purge_user_activity_rows(self, user_id: uuid.UUID) -> tuple[int, int]:

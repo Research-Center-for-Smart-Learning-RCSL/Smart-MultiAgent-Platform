@@ -56,6 +56,7 @@ class EditAuthority:
     actor_user_id: uuid.UUID
     is_admin: bool
     is_moderator: bool  # project-owner or org-owner on this room's project
+    actor_guest_room_id: uuid.UUID | None = None
 
 
 class MessageService:
@@ -190,6 +191,7 @@ class MessageService:
                     "attachments_requested": len(attachment_ids or []),
                 },
                 request_id=request_id,
+                actor_guest_room_id=chatroom_id if sender_type is SenderType.GUEST else None,
             ),
         )
         await self._db.flush()
@@ -388,6 +390,7 @@ class MessageService:
                     "original_sender_id": str(existing.sender_id) if existing.sender_id else None,
                 },
                 request_id=request_id,
+                actor_guest_room_id=authority.actor_guest_room_id,
             ),
         )
         await self._db.flush()

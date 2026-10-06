@@ -116,6 +116,7 @@ class ActivitySessionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> ActivitySessionCompletionResult:
         """Set or clear this subject's "I am finished" declaration ([R30.22]).
 
@@ -151,6 +152,7 @@ class ActivitySessionService:
                         "subject_user_id": str(subject_user_id),
                     },
                     request_id=request_id,
+                    actor_guest_room_id=actor_guest_room_id,
                 ),
             )
             refreshed = await self._repo.get(session.id)
@@ -201,6 +203,7 @@ class ActivitySessionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> None:
         """Close a session. ``subject_user_id`` is the caller's subject constraint
         (``None`` for the admin arm); a session belonging to a different subject
@@ -228,6 +231,7 @@ class ActivitySessionService:
                         "subject_user_id": str(session.subject_user_id),
                     },
                     request_id=request_id,
+                    actor_guest_room_id=actor_guest_room_id,
                 ),
             )
 

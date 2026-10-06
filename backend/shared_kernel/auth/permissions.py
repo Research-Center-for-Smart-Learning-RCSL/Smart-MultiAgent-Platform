@@ -109,6 +109,11 @@ class Principal:
     is_guest: bool = False
     chatroom_id: uuid.UUID | None = None
 
+    @property
+    def guest_room_id(self) -> uuid.UUID | None:
+        """The room an anonymous guest's session belongs to; None for anyone else."""
+        return self.chatroom_id if self.is_guest else None
+
 
 # ---------------------------------------------------------------------------
 # Role resolver — implemented in contexts.tenancy.interfaces.
