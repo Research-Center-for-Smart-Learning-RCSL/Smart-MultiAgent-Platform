@@ -128,6 +128,18 @@ async def test_joining_a_missing_room_answers_like_a_wrong_link() -> None:
         )
 
 
+async def test_a_non_ascii_link_on_an_existing_room_answers_like_a_wrong_link() -> None:
+    """Security audit: compare_digest on non-ASCII str raises, which answered 500
+    for an existing room and 404 for a missing one."""
+    with (
+        patch.object(ChatroomRepository, "get", AsyncMock(return_value=_room(uuid.uuid4()))),
+        pytest.raises(GuestTokenInvalid),
+    ):
+        await GuestSessionService(AsyncMock()).create_or_resume(
+            chatroom_id=uuid.uuid4(), guest_token="aaaaaaaaaaaaaaaé", display_name="Ann"
+        )
+
+
 async def test_refreshing_in_a_missing_room_with_an_unknown_cookie_answers_like_a_bad_cookie() -> None:
     with (
         patch.object(ChatroomRepository, "get", AsyncMock(return_value=None)),

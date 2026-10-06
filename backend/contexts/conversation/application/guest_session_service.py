@@ -142,7 +142,9 @@ class GuestSessionService:
         # A missing room answers as a wrong link does, so the endpoint cannot be
         # used to tell existing room ids from absent ones. Past the link check the
         # caller holds the token and may learn why it no longer works ([R13.32]).
-        if room is None or not hmac.compare_digest(room.guest_token, guest_token):
+        # Bytes, because compare_digest raises on a non-ASCII str: a 500 for an
+        # existing room against a 404 for a missing one would reopen that oracle.
+        if room is None or not hmac.compare_digest(room.guest_token.encode(), guest_token.encode()):
             raise GuestTokenInvalid(str(chatroom_id))
         await ensure_parents_live(self._db, room)
         if not room.allow_guest_links:
