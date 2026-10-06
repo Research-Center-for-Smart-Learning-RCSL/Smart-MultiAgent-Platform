@@ -13,7 +13,7 @@ import { canonicalRoomId, isProblemWithType, setAccessToken, setGuestContext } f
 import { useSessionStore } from '@shared/stores/session'
 import { createGuestSession, enrollGuest } from '../api'
 import { useGuestSessionStore } from '../stores/guestSession'
-import { readGuestHint, writeGuestHint } from '../utils/guestHint'
+import { guestBrowserId, readGuestHint, writeGuestHint } from '../utils/guestHint'
 import { isUsableGuestName } from '../utils/guestName'
 
 const { t } = useI18n()
@@ -127,7 +127,7 @@ const doEnroll = handleSubmit(async (values) => {
       await enrollRegisteredGuest(values.displayName)
       return
     }
-    const browserId = readGuestHint(linkRoomId)?.browser_id ?? crypto.randomUUID()
+    const browserId = guestBrowserId(linkRoomId)
     const result = await createGuestSession(
       chatroomId,
       guestToken,

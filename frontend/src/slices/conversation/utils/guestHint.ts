@@ -43,6 +43,30 @@ export function writeGuestHint(chatroomId: string, hint: GuestHint): void {
   }
 }
 
+const BROWSER_ID_PREFIX = 'smap:guest-browser:'
+
+/**
+ * This browser's id in the room, created once and kept apart from the hint.
+ * The hint goes when a session ends as expired; this does not, because a ban
+ * keys on the id ([R13.07a]) and a fresh one would walk past it.
+ */
+export function guestBrowserId(chatroomId: string): string {
+  const key = `${BROWSER_ID_PREFIX}${canonicalRoomId(chatroomId)}`
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored) return stored
+  } catch {
+    // localStorage unavailable: fall through to a per-visit id
+  }
+  const id = readGuestHint(chatroomId)?.browser_id ?? crypto.randomUUID()
+  try {
+    localStorage.setItem(key, id)
+  } catch {
+    // localStorage unavailable -- non-fatal
+  }
+  return id
+}
+
 export function removeGuestHint(chatroomId: string): void {
   for (const key of keysFor(chatroomId)) {
     try {
