@@ -57,7 +57,7 @@ async def enroll_guest(
     await service.enroll(
         chatroom_id=chatroom_id,
         token=guest_token,
-        user_id=principal.user_id,
+        principal=principal,
         display_name=body.display_name,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

@@ -44,6 +44,10 @@ def _room(chatroom_id: uuid.UUID, *, links: bool = True, token: str = "correct-t
     return room
 
 
+def _account() -> Principal:
+    return Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=True)
+
+
 def _session(chatroom_id: uuid.UUID) -> GuestSession:
     return GuestSession(
         id=uuid.uuid4(),
@@ -114,12 +118,12 @@ async def test_registered_enrol_with_links_off_names_the_reason() -> None:
         guests.add = AsyncMock()
         with pytest.raises(GuestAccessDisabled):
             await service.enroll(
-                chatroom_id=cr, token="correct-token", user_id=uuid.uuid4(), actor_ip=None, request_id=None
+                chatroom_id=cr, token="correct-token", principal=_account(), actor_ip=None, request_id=None
             )
         rooms.get = AsyncMock(return_value=_room(cr, links=False, token="real-token"))
         with pytest.raises(GuestTokenInvalid):
             await service.enroll(
-                chatroom_id=cr, token="wrong-token", user_id=uuid.uuid4(), actor_ip=None, request_id=None
+                chatroom_id=cr, token="wrong-token", principal=_account(), actor_ip=None, request_id=None
             )
         guests.add.assert_not_awaited()
 

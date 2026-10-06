@@ -21,6 +21,7 @@ import pytest
 
 from contexts.conversation.application.guest_service import GuestService
 from contexts.identity.application.auth_service import _normalise_display_name
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.labels import MAX_DISPLAY_NAME, MAX_GUEST_LABEL, normalise_label
 
 
@@ -94,12 +95,13 @@ class TestGuestEnrolmentNormalisesItsLabel:
             get=AsyncMock(return_value=SimpleNamespace(guest_token=token, allow_guest_links=True))
         )
         service._guests = SimpleNamespace(add=AsyncMock())
+        service._reads_without_guest_row = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         with patch("contexts.conversation.application.guest_service.audit.emit", AsyncMock()):
             await service.enroll(
                 chatroom_id=uuid.uuid4(),
                 token=token,
-                user_id=uuid.uuid4(),
+                principal=Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=True),
                 display_name=display_name,
                 actor_ip=None,
                 request_id=None,
