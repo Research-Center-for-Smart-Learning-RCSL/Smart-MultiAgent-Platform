@@ -73,5 +73,7 @@ export async function restoreGuestSession(pathname: string): Promise<void> {
   const outcome = await resumeGuestSession(roomId)
   // Shown once on the room's banner; a later reload falls through to the
   // ordinary sign-in path instead of re-presenting a dead cookie.
-  if (outcome === 'ended' && guestSessionEnd.value === 'expired') removeGuestHint(roomId)
+  if (outcome === 'ended' && (guestSessionEnd.value === 'expired' || guestSessionEnd.value === 'gone')) {
+    removeGuestHint(roomId)
+  }
 }

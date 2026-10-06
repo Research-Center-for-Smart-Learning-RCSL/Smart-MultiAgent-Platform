@@ -8,6 +8,9 @@ import {
 import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
 import { accessTokenClaims } from '@shared/transport'
 
+const CLOSE_FORBIDDEN = 4403
+const CLOSE_NOT_FOUND = 4404
+
 const AWARENESS_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
   '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
@@ -149,6 +152,15 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
             data: toBase64(sv),
           })
         }
+      }),
+    )
+
+    // 4403 (access lost) and 4404 (room gone) are not cured by a retry; the
+    // room's own state explains them to the viewer.
+    const activeChannel = channel
+    unsubs.push(
+      activeChannel.onCloseCode((code) => {
+        if (code === CLOSE_FORBIDDEN || code === CLOSE_NOT_FOUND) activeChannel.disconnect()
       }),
     )
 

@@ -91,6 +91,7 @@
       "sending": "傳送中…",
       "uploadFailed": "（失敗）{filename}",
       "sendFailed": "傳送訊息失敗。",
+      "roomGone": "此聊天室已不存在。",
       "searchFailed": "搜尋失敗。",
       "exportQueued": "匯出已排入佇列（{jobId}）。下載即將備妥。",
       "exportFailed": "匯出啟動失敗。",

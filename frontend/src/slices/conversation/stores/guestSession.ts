@@ -4,7 +4,7 @@ import { guestSessionEnd, markGuestSessionEnded } from '@shared/transport'
 
 export const GUEST_STORAGE_PREFIX = 'smap:guest:'
 
-export type GuestSessionState = 'active' | 'expired' | 'disabled'
+export type GuestSessionState = 'active' | 'expired' | 'disabled' | 'gone'
 
 export const useGuestSessionStore = defineStore('guestSession', () => {
   // Memory only: the link token must never reach persistent storage ([R24.43]),
