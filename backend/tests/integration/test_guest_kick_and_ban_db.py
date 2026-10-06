@@ -23,14 +23,12 @@ from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config
 from fastapi import FastAPI
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from alembic import command
@@ -38,19 +36,21 @@ from app.api.v1 import attachments as attachments_route
 from app.api.v1 import canvas as canvas_route
 from app.api.v1 import guests as guests_route
 from app.api.v1 import messages as messages_route
-from contexts.conversation.application import attachment_service as attachment_service_mod
 from contexts.conversation.application import guest_session_service as guest_service_mod
 from contexts.conversation.application.guest_session_service import GuestSessionService
 from contexts.conversation.domain.errors import GuestCapReached, GuestRemoved, GuestTokenInvalid
 from contexts.conversation.infrastructure import tables as ct
 from contexts.conversation.infrastructure.repositories import GuestSessionRepository
-from contexts.conversation.interfaces import error_mapping
 from shared_kernel.audit import audit_logs
 from shared_kernel.auth.clients import now
-from shared_kernel.auth.context import RequestContext
-from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
-from shared_kernel.db.session import db_session
+from tests.integration.guest_db_kit import (
+    guest_principal,
+    https_client,
+    purge_room_audit,
+    quiet_message_side_effects,
+    route_app,
+)
 
 pytestmark = pytest.mark.db
 
@@ -70,7 +70,7 @@ async def room(
     project: tuple[uuid.UUID, uuid.UUID],
 ) -> AsyncIterator[Room]:
     """A guest-link room. Rows ride the project cascade; audit rows naming the
-    room are removed under the retention role, as in the hardening db tests."""
+    room are removed under the retention role."""
     project_id, owner_id = project
     workspace_id, chatroom_id = uuid.uuid4(), uuid.uuid4()
     async with sessionmaker() as session:
@@ -91,19 +91,7 @@ async def room(
     try:
         yield Room(project_id, owner_id, chatroom_id)
     finally:
-        async with sessionmaker() as cleanup:
-            await cleanup.execute(text("SET ROLE smap_audit_retention"))
-            try:
-                await cleanup.execute(
-                    text(
-                        "DELETE FROM audit_logs WHERE resource_id = :cid "
-                        "OR metadata->>'chatroom_id' = :cid_text"
-                    ),
-                    {"cid": chatroom_id, "cid_text": str(chatroom_id)},
-                )
-            finally:
-                await cleanup.execute(text("RESET ROLE"))
-            await cleanup.commit()
+        await purge_room_audit(sessionmaker, chatroom_id)
 
 
 @pytest.fixture(autouse=True)
@@ -113,53 +101,27 @@ def _unsigned_guest_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def _quiet_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (
-        "_list_bound_agents_for_dispatch",
-        "_dispatch_message_wakeups",
-        "_dispatch_graphrag_builds",
-        "_dispatch_mention_wakeups",
-        "_dispatch_message_workflow_signal",
-    ):
-        monkeypatch.setattr(messages_route, name, AsyncMock(return_value=None))
-    minio = SimpleNamespace(chat_uploads_bucket="chat-uploads", put_object=AsyncMock(), remove=AsyncMock())
-    monkeypatch.setattr(attachment_service_mod, "get_minio_client", lambda: minio)
-    monkeypatch.setattr(attachment_service_mod, "_enqueue_scan", AsyncMock())
-    monkeypatch.setattr(attachment_service_mod, "_enqueue_extraction", AsyncMock())
+    quiet_message_side_effects(monkeypatch)
+
+
+_ROUTERS = (
+    guests_route.router,
+    messages_route.chatroom_router,
+    attachments_route.chatroom_router,
+    canvas_route.router,
+)
 
 
 def _app(sessionmaker: async_sessionmaker[AsyncSession], principal: Principal | None) -> FastAPI:
-    app = FastAPI()
-    error_mapping.register(app)
-    app.include_router(guests_route.router)
-    app.include_router(messages_route.chatroom_router)
-    app.include_router(attachments_route.chatroom_router)
-    app.include_router(canvas_route.router)
-
-    async def _db() -> AsyncIterator[AsyncSession]:
-        async with sessionmaker() as session:
-            try:
-                yield session
-            except Exception:
-                await session.rollback()
-                raise
-            await session.commit()
-
-    ctx = RequestContext(request_id=uuid.uuid4(), actor_ip="203.0.113.9", principal=principal)
-    app.dependency_overrides[db_session] = _db
-    app.dependency_overrides[current_context] = lambda: ctx
-    if principal is not None:
-        app.dependency_overrides[current_principal] = lambda: principal
-    return app
+    return route_app(sessionmaker, principal, _ROUTERS)
 
 
 def _client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test")
+    return https_client(app)
 
 
 def _guest(guest_id: uuid.UUID, room: Room) -> Principal:
-    return Principal(
-        user_id=guest_id, is_admin=False, email_verified=False, is_guest=True, chatroom_id=room.chatroom_id
-    )
+    return guest_principal(guest_id, room.chatroom_id)
 
 
 async def _join(

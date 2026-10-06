@@ -24,7 +24,12 @@ import pytest
 
 from app.api.ws import canvas as canvas_mod
 from app.api.ws import chatroom as chatroom_mod
-from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom, GuestRemoved, WorkspaceNotFound
+from contexts.conversation.domain.errors import (
+    ChatroomNotFound,
+    ForbiddenInRoom,
+    GuestRemoved,
+    WorkspaceNotFound,
+)
 from shared_kernel.auth import tokens as tokens_mod
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal

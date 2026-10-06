@@ -20,6 +20,7 @@ from contexts.conversation.application.access import ensure_parents_live, ensure
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     GuestAccessDisabled,
+    GuestBanNotFound,
     GuestCapReached,
     GuestDisplayNameInvalid,
     GuestRemoved,
@@ -391,7 +392,7 @@ class GuestSessionService:
     ) -> None:
         lifted = await self._bans.delete(chatroom_id=chatroom_id, ban_id=ban_id)
         if lifted is None:
-            raise GuestSessionNotFound(str(ban_id))
+            raise GuestBanNotFound(str(ban_id))
         await self._audit_moderation(
             "guest.unbanned",
             actor_user_id=actor_user_id,

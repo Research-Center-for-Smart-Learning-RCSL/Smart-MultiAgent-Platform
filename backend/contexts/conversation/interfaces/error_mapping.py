@@ -86,6 +86,11 @@ _MAP: ErrorMap = {
         404,
         "Guest not found in this chatroom",
     ),
+    errors.GuestBanNotFound: (
+        "conversation/guest-ban-not-found",
+        404,
+        "Ban not found in this chatroom",
+    ),
     errors.AttachmentBindingFailed: (
         "conversation/attachment-binding-failed",
         422,

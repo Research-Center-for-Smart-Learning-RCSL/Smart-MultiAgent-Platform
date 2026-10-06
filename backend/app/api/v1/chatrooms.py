@@ -15,8 +15,6 @@ from app.api.v1.deps import PaginationParams, require_if_match
 from app.api.v1.orchestration import ApprovalWithVotesOut, approval_with_votes_out
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
-    RoomAccess,
-    ensure_can_manage_guest_link,
     ensure_can_read,
     ensure_room_creator,
     is_moderator_roles,
@@ -31,8 +29,9 @@ from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     WorkspaceNotFound,
 )
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import Chatroom, ChatroomAgentRole
 from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.access import ensure_can_manage_guest_link
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces import user_channel
@@ -1259,12 +1258,7 @@ async def read_guest_link(
     )
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
-    base = f"{request.url.scheme}://{request.url.netloc}"
-    return GuestLinkOut(
-        url=f"{base}/g/{room.id}/{room.guest_token}",
-        chatroom_id=room.id,
-        guest_token=room.guest_token,
-    )
+    return _guest_link_out(request, room)
 
 
 # --------------------------------------------------------------------------- #
@@ -1283,12 +1277,39 @@ class GuestBanOut(BaseModel):
     created_at: datetime
 
 
-async def _require_guest_moderator(
-    db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID
-) -> RoomAccess:
+async def _require_guest_moderator(db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID) -> None:
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_manage_guest_link(access, principal=principal)
-    return access
+
+
+def _guest_link_out(request: Request, room: Chatroom) -> GuestLinkOut:
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    return GuestLinkOut(
+        url=f"{base}/g/{room.id}/{room.guest_token}", chatroom_id=room.id, guest_token=room.guest_token
+    )
+
+
+async def _emit_guest_removed(db: AsyncSession, chatroom_id: uuid.UUID, guest_session_id: uuid.UUID) -> None:
+    """Commit, then tell the room ([R13.07a]).
+
+    Ids only, like every room-channel frame: the channel has no per-recipient
+    filtering, and only the named session's own client acts on it. Transport
+    failure is swallowed: the removal is durable and the socket watchdog closes
+    the guest's sockets within a window, so a lost frame only delays the banner.
+    """
+    await db.commit()
+    frames = (
+        (
+            "chatroom.guest_removed",
+            {"chatroom_id": str(chatroom_id), "guest_session_id": str(guest_session_id)},
+        ),
+        ("chatroom.members_changed", {"chatroom_id": str(chatroom_id)}),
+    )
+    for event, data in frames:
+        try:
+            await Publisher(room_channel(chatroom_id)).emit(event, data)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(f"{event} emit failed")
 
 
 @chatroom_router.post(
@@ -1313,22 +1334,8 @@ async def remove_guest(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    if not result.changed:
-        return
-    # Ids only, like every room-channel frame: the channel has no per-recipient
-    # filtering, and only the named session's own client acts on it.
-    await db.commit()
-    payload = {"chatroom_id": str(chatroom_id), "guest_session_id": str(guest_session_id)}
-    for event, data in (
-        ("chatroom.guest_removed", payload),
-        ("chatroom.members_changed", {"chatroom_id": str(chatroom_id)}),
-    ):
-        try:
-            await Publisher(room_channel(chatroom_id)).emit(event, data)
-        except Exception:
-            # The removal is durable and the watchdog closes the guest's sockets
-            # within a window; a lost frame only delays the banner.
-            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(f"{event} emit failed")
+    if result.changed:
+        await _emit_guest_removed(db, chatroom_id, guest_session_id)
 
 
 @chatroom_router.get("/{chatroom_id}/guest-bans")
@@ -1380,12 +1387,7 @@ async def rotate_guest_link(
         request_id=ctx.request_id,
     )
     await _emit_chatroom_updated(db, chatroom_id, room_visible=True, creator_user_id=room.created_by_user_id)
-    base = f"{request.url.scheme}://{request.url.netloc}"
-    return GuestLinkOut(
-        url=f"{base}/g/{room.id}/{room.guest_token}",
-        chatroom_id=room.id,
-        guest_token=room.guest_token,
-    )
+    return _guest_link_out(request, room)
 
 
 # --------------------------------------------------------------------------- #

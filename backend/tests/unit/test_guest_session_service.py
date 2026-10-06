@@ -20,6 +20,7 @@ from contexts.conversation.application.guest_session_service import (
 )
 from contexts.conversation.domain.errors import (
     GuestAccessDisabled,
+    GuestBanNotFound,
     GuestCapReached,
     GuestRemoved,
     GuestSessionNotFound,
@@ -513,7 +514,7 @@ async def test_a_session_without_a_browser_id_is_banned_by_session_only(
 
 @pytest.mark.asyncio
 async def test_unban_of_an_unknown_ban_is_not_found(service: GuestSessionService) -> None:
-    with pytest.raises(GuestSessionNotFound):
+    with pytest.raises(GuestBanNotFound):
         await service.unban(chatroom_id=uuid.uuid4(), ban_id=uuid.uuid4(), actor_user_id=uuid.uuid4())
 
 

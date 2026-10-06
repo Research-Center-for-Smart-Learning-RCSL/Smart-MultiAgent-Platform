@@ -93,9 +93,15 @@ class GuestRemoved(ForbiddenInRoom):
 
 
 class GuestSessionNotFound(ConversationError):
-    """No guest session or ban with that id in the path's room."""
+    """No guest session with that id in the path's room."""
 
     code = "conversation/guest-session-not-found"
+
+
+class GuestBanNotFound(ConversationError):
+    """No ban with that id in the path's room."""
+
+    code = "conversation/guest-ban-not-found"
 
 
 # ---- F.5 attachment / tus errors ----------------------------------------- #
@@ -213,6 +219,7 @@ __all__ = [
     "ExportJobNotFound",
     "ExportJobNotReady",
     "ForbiddenInRoom",
+    "GuestBanNotFound",
     "GuestCapReached",
     "GuestRemoved",
     "GuestSessionNotFound",
