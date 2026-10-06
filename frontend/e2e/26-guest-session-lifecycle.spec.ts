@@ -131,3 +131,97 @@ test.describe('Guest session lifecycle', () => {
     await expect(roomSettings).toBeVisible({ timeout: 20_000 })
   })
 })
+
+// docs/tasks/2026-10-05-guest-kick-and-ban §12: the owner removes a connected
+// guest, then bans one; the banned browser's reload lands on the room banner and
+// reopening the link lands on the cannot-join state.
+const REMOVED_BANNER = 'You were removed from this room.'
+const CANNOT_JOIN = 'You cannot join this room.'
+// The room event closes the guest's room at once; the socket watchdog's ~60 s
+// re-check is the fallback if the socket was still connecting when it was sent.
+const REMOVAL_TIMEOUT = 75_000
+
+async function ownGuestSessionId(page: Page, roomId: string): Promise<string> {
+  const hint = await page.evaluate((id) => localStorage.getItem(`smap:guest:${id.toLowerCase()}`), roomId)
+  expect(hint, 'the guest hint holds the session id').not.toBeNull()
+  return (JSON.parse(hint!) as { guest_session_id: string }).guest_session_id
+}
+
+async function removeGuest(api: APIRequestContext, roomId: string, sessionId: string, ban: boolean): Promise<void> {
+  const resp = await api.post(`/api/chatrooms/${roomId}/guests/${sessionId}/remove`, {
+    headers: await bearerFor(api),
+    data: { ban },
+  })
+  expect(resp.status(), `remove ban=${ban}`).toBe(204)
+}
+
+async function liftAllBans(api: APIRequestContext, roomId: string): Promise<void> {
+  const auth = await bearerFor(api)
+  const resp = await api.get(`/api/chatrooms/${roomId}/guest-bans`, { headers: auth })
+  if (!resp.ok()) return
+  for (const ban of (await resp.json()) as Array<{ id: string }>) {
+    await api.delete(`/api/chatrooms/${roomId}/guest-bans/${ban.id}`, { headers: auth })
+  }
+}
+
+test.describe('Guest removal and ban', () => {
+  let roomId: string
+
+  test.beforeEach(async ({ request }) => {
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    roomId = env('E2E_CHATROOM_ID')!
+    await setGuestLinks(request, roomId, true)
+  })
+
+  test.afterAll(async ({ request }) => {
+    const id = env('E2E_CHATROOM_ID')
+    if (!id) return
+    await liftAllBans(request, id)
+    await setGuestLinks(request, id, false)
+  })
+
+  test('the owner removes a connected guest, who sees the removed banner', async ({ browser, request }) => {
+    const link = await guestLinkPath(request, roomId)
+    const ctx = await browser.newContext()
+    try {
+      const page = await ctx.newPage()
+      await page.goto(link)
+      await enterWithName(page, 'E2E Guest Removed')
+      await expectInRoom(page, roomId)
+
+      await removeGuest(request, roomId, await ownGuestSessionId(page, roomId), false)
+
+      await expect(page.getByText(REMOVED_BANNER)).toBeVisible({ timeout: REMOVAL_TIMEOUT })
+      await expect(page.locator('form.composer')).toHaveClass(/composer--disabled/)
+    } finally {
+      await ctx.close()
+    }
+  })
+
+  test('a banned guest reloads onto the banner and cannot rejoin through the link', async ({
+    browser,
+    request,
+  }) => {
+    const link = await guestLinkPath(request, roomId)
+    const ctx = await browser.newContext()
+    try {
+      const page = await ctx.newPage()
+      await page.goto(link)
+      await enterWithName(page, 'E2E Guest Banned')
+      await expectInRoom(page, roomId)
+
+      await removeGuest(request, roomId, await ownGuestSessionId(page, roomId), true)
+      await expect(page.getByText(REMOVED_BANNER)).toBeVisible({ timeout: REMOVAL_TIMEOUT })
+
+      await page.reload()
+      await expect(page.getByText(REMOVED_BANNER)).toBeVisible({ timeout: 20_000 })
+      await expect(page).toHaveURL(new RegExp(`/chatrooms/${roomId}$`))
+
+      await page.goto(link)
+      await page.getByRole('button', { name: ENTER_CHATROOM }).click()
+      await expect(page.getByText(CANNOT_JOIN)).toBeVisible({ timeout: 20_000 })
+    } finally {
+      await ctx.close()
+    }
+  })
+})
