@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R6.11, R13.06, R13.33, R13.34, R30.38]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle]
@@ -240,7 +240,11 @@ difference visible rather than preventing it.
 - [x] AC-6: a guest whose chosen name already ends in `(guest)` or contains delimiters cannot remove or
   alter the marker. (`TestGuestMarker` forged-suffix, delimiter, full-length and
   only-delimiters cases; the last per D-5.)
-- [ ] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+- [x] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+  (PR #233 at `a72fdc29`, Actions run 37408036356: every backend and frontend job green, db and
+  wiring tiers included; `frontend-e2e` 124 passed, 29 skipped, 0 unexpected, spec 27 `expected`.
+  `dependency-audit`, and the `gate` job that aggregates it, fail on an advisory unrelated to this
+  task, FU-11.)
 
 ## 12. Test Plan
 
