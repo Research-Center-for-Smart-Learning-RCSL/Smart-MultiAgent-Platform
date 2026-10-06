@@ -516,6 +516,22 @@ class AdminRepository:
         ).first()
         return row is not None
 
+    async def admin_ids_among(self, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Of `user_ids`, those holding an unrevoked admin row -- `is_admin` in batch (one query)."""
+        if not user_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.admins.c.user_id).where(
+                    sa.and_(
+                        t.admins.c.user_id.in_(list(user_ids)),
+                        t.admins.c.revoked_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.user_id for r in rows}
+
     async def list_active_admin_ids(self, *, for_update: bool = False) -> set[uuid.UUID]:
         stmt = (
             sa.select(t.admins.c.user_id)

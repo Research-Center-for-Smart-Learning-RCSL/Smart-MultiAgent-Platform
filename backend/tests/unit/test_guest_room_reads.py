@@ -78,16 +78,12 @@ def _wire(
         async def is_chatroom_guest(self, *, chatroom_id: uuid.UUID, user_id: uuid.UUID) -> bool:
             return False
 
-        async def list_guests(self, chatroom_id: uuid.UUID) -> list[Any]:
-            return []
-
         async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
             return set(senders or ())
 
-        async def guest_session_labels(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str]:
-            return dict(guest_sessions or {})
-
-        async def room_guests(self, chatroom_id: uuid.UUID) -> RoomGuests:
+        async def room_guests(
+            self, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
+        ) -> RoomGuests:
             return RoomGuests(
                 sessions=dict(guest_sessions or {}),
                 registered=dict(registered or {}),

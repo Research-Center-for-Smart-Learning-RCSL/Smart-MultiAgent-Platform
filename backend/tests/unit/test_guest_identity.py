@@ -60,12 +60,13 @@ class TestReadsWithoutGuestRow:
 
 
 class TestEnrolment:
-    async def _enroll(self, *, reads: bool, is_admin: bool = False) -> AsyncMock:
+    async def _enroll(self, *, reads: bool, is_admin: bool = False) -> tuple[bool, AsyncMock]:
         room = SimpleNamespace(guest_token=_TOKEN, allow_guest_links=True)
         service = GuestService.__new__(GuestService)
         service._db = SimpleNamespace()
         service._rooms = SimpleNamespace(get=AsyncMock(return_value=room))
-        service._guests = SimpleNamespace(add=AsyncMock())
+        add = AsyncMock(return_value=True)
+        service._guests = SimpleNamespace(add=add)
         principal = Principal(user_id=uuid.uuid4(), is_admin=is_admin, email_verified=True)
         access = _access(chatroom_row(), roles=frozenset({Role.PROJECT_MEMBER}) if reads else frozenset())
 
@@ -85,22 +86,24 @@ class TestEnrolment:
                 request_id=None,
             )
 
-        assert out is room
-        return service._guests.add
+        return out, add
 
     async def test_a_member_who_already_reads_the_room_writes_no_row(self) -> None:
-        add = await self._enroll(reads=True)
+        enrolled, add = await self._enroll(reads=True)
 
+        assert enrolled is False
         add.assert_not_awaited()
 
     async def test_an_admin_writes_no_row(self) -> None:
-        add = await self._enroll(reads=False, is_admin=True)
+        enrolled, add = await self._enroll(reads=False, is_admin=True)
 
+        assert enrolled is False
         add.assert_not_awaited()
 
     async def test_an_outsider_is_enrolled_with_their_label(self) -> None:
-        add = await self._enroll(reads=False)
+        enrolled, add = await self._enroll(reads=False)
 
+        assert enrolled is True
         add.assert_awaited_once()
         assert add.await_args.kwargs["display_name"] == "Teacher"
 
@@ -146,8 +149,8 @@ class TestRoomGuests:
             def __init__(self, db: object) -> None:
                 pass
 
-            async def admin_ids(self) -> set[uuid.UUID]:
-                return admins
+            async def admin_ids_among(self, user_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+                return admins & set(user_ids)
 
         async def _pid(db: object, chatroom_id: uuid.UUID) -> uuid.UUID | None:
             return project_id

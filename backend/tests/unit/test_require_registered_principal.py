@@ -103,7 +103,7 @@ class TestGuardedRoutes:
 
     async def test_a_registered_user_still_reaches_legacy_enroll(self) -> None:
         with patch.object(guests_route, "GuestService") as service_cls:
-            service_cls.return_value.enroll = AsyncMock()
+            service_cls.return_value.enroll = AsyncMock(return_value=False)
             response = await _post(
                 _app(guests_route.router, principal=_USER),
                 f"/api/guest/{_ROOM}/{'t' * 32}/enroll",

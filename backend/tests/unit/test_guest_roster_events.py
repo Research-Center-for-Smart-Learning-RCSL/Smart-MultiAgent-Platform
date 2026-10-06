@@ -92,6 +92,33 @@ async def test_joining_emits_only_when_the_roster_changed(changed: bool) -> None
         db.commit.assert_awaited()
 
 
+@pytest.mark.parametrize("written", [True, False])
+async def test_registered_enrolment_emits_only_when_a_row_was_written(written: bool) -> None:
+    """docs/tasks/2026-10-05-guest-sender-marking code review: a registered guest's
+    kind reaches open clients only with the roster re-read, so without this event
+    their messages arrived unbadged until a reconnect ([R13.33])."""
+    room = uuid.uuid4()
+    db = MagicMock(commit=AsyncMock())
+    service = SimpleNamespace(enroll=AsyncMock(return_value=written))
+    publisher, sent = _publisher()
+
+    with (
+        patch.object(guests_route, "GuestService", return_value=service),
+        patch.object(guests_route, "Publisher", publisher),
+    ):
+        await guests_route.enroll_guest(
+            chatroom_id=room,
+            guest_token="t" * 32,
+            body=guests_route.GuestEnrollIn(display_name="Olive"),
+            ctx=SimpleNamespace(actor_ip=None, request_id=None),
+            principal=Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=True),
+            db=db,
+        )
+
+    expected = [(room_channel(room), _EVENT, {"chatroom_id": str(room)})] if written else []
+    assert sent == expected
+
+
 @pytest.mark.parametrize("changed", [True, False])
 async def test_renaming_returns_the_stored_name_and_emits_only_on_a_change(changed: bool) -> None:
     room, session_id = uuid.uuid4(), uuid.uuid4()

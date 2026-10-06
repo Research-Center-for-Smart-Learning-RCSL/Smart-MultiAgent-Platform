@@ -29,7 +29,6 @@ from contexts.conversation.domain.models import (
     AttachmentStatus,
     Chatroom,
     ChatroomAgentRole,
-    ChatroomGuest,
     DraftReadGrant,
     Message,
     MessageAttachment,
@@ -286,9 +285,6 @@ class ConversationFacade:
             user_id=user_id,
         )
 
-    async def list_guests(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
-        return await self._guests.list(chatroom_id)
-
     async def is_guest_session(self, session_id: uuid.UUID) -> bool:
         """Whether an id names an anonymous guest session rather than a user.
 
@@ -298,23 +294,16 @@ class ConversationFacade:
         """
         return await GuestSessionRepository(self._db).find_by_id(session_id) is not None
 
-    async def guest_session_labels(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str]:
-        """``{guest_session_id: display_name}`` for the room's anonymous guests.
-
-        The one reader of a guest's chosen name outside the guest service: the
-        member roster and agent prompt labels both resolve guests through it
-        ([R13.33]). Scoped by room in SQL, and names are normalised on write.
-        """
-        return dict(await GuestSessionRepository(self._db).list_labels(chatroom_id))
-
-    async def room_guests(self, chatroom_id: uuid.UUID) -> RoomGuests:
+    async def room_guests(self, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None) -> RoomGuests:
         """The room's guests, their labels, and which ids carry the guest marker ([R13.33]).
 
-        The roster and the agent's prompt labels both read it, so a participant
-        is marked in the participant list exactly when the agent reads them as
-        a guest.
+        The one reader of guests' chosen names outside the guest services: the
+        roster and the agent's prompt labels both read it, so a participant is
+        marked in the participant list exactly when the agent reads them as a
+        guest. Scoped by room in SQL; names are normalised on write. Pass
+        ``project_id`` when the caller already resolved the room's project.
         """
-        return await load_room_guests(self._db, chatroom_id)
+        return await load_room_guests(self._db, chatroom_id, project_id=project_id)
 
     async def clear_attachment_uploader(self, user_id: uuid.UUID) -> int:
         """Null a hard-deleted user's id on the attachments they uploaded.

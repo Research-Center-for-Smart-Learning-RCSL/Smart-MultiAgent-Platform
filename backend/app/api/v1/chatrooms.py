@@ -1214,7 +1214,7 @@ async def list_chatroom_members(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     conv = ConversationFacade(db)
-    guests = await conv.room_guests(chatroom_id)
+    guests = await conv.room_guests(chatroom_id, project_id=access.project_id)
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
     all_ids = sender_ids | set(guests.registered)
     account_names = await IdentityFacade(db).get_display_names(list(all_ids))

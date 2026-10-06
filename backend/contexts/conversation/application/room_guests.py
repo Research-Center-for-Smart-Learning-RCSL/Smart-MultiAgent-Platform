@@ -47,20 +47,26 @@ class RoomGuests:
         return frozenset(self.sessions) | self.unaffiliated
 
 
-async def load_room_guests(db: AsyncSession, chatroom_id: uuid.UUID) -> RoomGuests:
+async def load_room_guests(
+    db: AsyncSession, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
+) -> RoomGuests:
+    """``project_id`` is the room's project when the caller already resolved it."""
     sessions = dict(await GuestSessionRepository(db).list_labels(chatroom_id))
     registered = {g.user_id: g.display_name for g in await ChatroomGuestRepository(db).list(chatroom_id)}
     return RoomGuests(
         sessions=sessions,
         registered=registered,
-        unaffiliated=frozenset(await _unaffiliated(db, chatroom_id, set(registered))),
+        unaffiliated=frozenset(await _unaffiliated(db, chatroom_id, set(registered), project_id=project_id)),
     )
 
 
-async def _unaffiliated(db: AsyncSession, chatroom_id: uuid.UUID, user_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+async def _unaffiliated(
+    db: AsyncSession, chatroom_id: uuid.UUID, user_ids: set[uuid.UUID], *, project_id: uuid.UUID | None
+) -> set[uuid.UUID]:
     if not user_ids:
         return set()
-    project_id = await project_id_for_room(db, chatroom_id)
+    if project_id is None:
+        project_id = await project_id_for_room(db, chatroom_id)
     # A room whose project chain is broken is unreadable to everyone, so there is
     # no one to mislead; marking every registered guest is the fail-closed reading.
     holders = (
@@ -68,7 +74,7 @@ async def _unaffiliated(db: AsyncSession, chatroom_id: uuid.UUID, user_ids: set[
         if project_id is not None
         else set()
     )
-    admins = await IdentityFacade(db).admin_ids()
+    admins = await IdentityFacade(db).admin_ids_among(list(user_ids - holders))
     return user_ids - holders - admins
 
 
