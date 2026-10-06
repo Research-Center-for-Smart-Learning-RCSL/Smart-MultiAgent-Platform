@@ -233,8 +233,10 @@ export class Channel {
       }
     } catch {
       // No ticket (offline, or the access token could not be refreshed) or the
-      // socket constructor threw — back off and retry.
-      this.scheduleReconnect()
+      // socket constructor threw — back off and retry, unless the channel was
+      // paused or closed while the ticket was in flight: a retry then would
+      // undo the deliberate disconnect.
+      if (!this.closed && !this.paused) this.scheduleReconnect()
     } finally {
       this.connecting = false
     }

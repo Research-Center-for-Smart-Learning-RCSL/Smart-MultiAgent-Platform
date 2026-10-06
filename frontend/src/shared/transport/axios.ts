@@ -11,7 +11,7 @@ import axios, {
   type AxiosInstance,
   type InternalAxiosRequestConfig,
 } from 'axios'
-import { computed, ref, type ComputedRef } from 'vue'
+import { computed, readonly, ref, type ComputedRef, type Ref } from 'vue'
 
 import { AuthError, NetworkError } from '@shared/errors'
 import { markConnectionLost, markConnectionRestored } from '@shared/composables/useNetworkStatus'
@@ -29,6 +29,23 @@ const accessTokenRef = ref<string | null>(null)
 // Guest sessions scope every request to one chatroom. Stored alongside the
 // token so the guest refresh and ws-ticket endpoints know their path.
 const guestChatroomIdRef = ref<string | null>(null)
+
+export type GuestSessionEnd = 'expired' | 'disabled'
+// Recorded, not derived from the token: the token is gone by the time the
+// session is known to have ended, and every consumer that has to explain the
+// end (the room banner, the guard, hydrate) would otherwise forget the tab was
+// ever a guest.
+const guestSessionEndRef = ref<GuestSessionEnd | null>(null)
+export const guestSessionEnd: Readonly<Ref<GuestSessionEnd | null>> = readonly(guestSessionEndRef)
+
+const GUEST_DISABLED_TYPE = '/conversation/guest-access-disabled'
+const GUEST_TICKET_PATH = '/guest/ws-ticket'
+const GUEST_SESSION_ENDED = {
+  type: 'https://smap.local/problems/auth/token-expired',
+  title: 'Guest session ended',
+  status: 401,
+}
+
 let onUnauthorized: (() => void) | null = null
 let refreshInFlight: Promise<boolean> | null = null
 
@@ -40,16 +57,60 @@ export function getAccessToken(): string | null {
   return accessTokenRef.value
 }
 
+/**
+ * The form of a room id the server uses for the guest cookie path. Cookie path
+ * matching is case-sensitive, so a link carrying an upper-case id would never
+ * present the cookie (F-22).
+ */
+export function canonicalRoomId(chatroomId: string): string {
+  return chatroomId.toLowerCase()
+}
+
 export function setGuestContext(chatroomId: string): void {
-  guestChatroomIdRef.value = chatroomId
+  guestChatroomIdRef.value = canonicalRoomId(chatroomId)
+  guestSessionEndRef.value = null
 }
 
 export function clearGuestContext(): void {
   guestChatroomIdRef.value = null
+  guestSessionEndRef.value = null
 }
 
 export function getGuestChatroomId(): string | null {
   return guestChatroomIdRef.value
+}
+
+/** For the socket close codes, which reach the room rather than the transport. */
+export function markGuestSessionEnded(reason: GuestSessionEnd): void {
+  if (guestChatroomIdRef.value) guestSessionEndRef.value = reason
+}
+
+/**
+ * What an answered guest refresh failure means. Only an answer that says the
+ * session is gone ends it; a 5xx during a deploy, a 429 or a proxy's HTML page
+ * is treated like no network (Q-6), or a valid 7-day cookie would be dropped
+ * and, at boot, the hint holding the browser id deleted with it.
+ */
+function endReasonFor(status: number, problemType: unknown): GuestSessionEnd | null {
+  if (status === 403 && typeof problemType === 'string' && problemType.endsWith(GUEST_DISABLED_TYPE)) {
+    return 'disabled'
+  }
+  return status === 401 || status === 403 || status === 404 ? 'expired' : null
+}
+
+// Set by the app at boot. A tab whose guest restore found no network cannot
+// tell whether the account refresh failed for the same reason, so before the
+// guest refresh is retried the account gets its turn: it always wins (Q-1).
+// Returns true when the account took over and the guest restore must stop.
+let pendingGuestResolver: (() => Promise<boolean>) | null = null
+
+export function onPendingGuestRestore(resolver: (() => Promise<boolean>) | null): void {
+  pendingGuestResolver = resolver
+}
+
+/** A guest context with neither a token nor a recorded end: a restore not yet done. */
+export function isGuestRestorePending(): boolean {
+  return guestChatroomIdRef.value !== null && !accessTokenRef.value && !guestSessionEndRef.value
 }
 
 /**
@@ -202,6 +263,15 @@ async function handleResponseError(
   //     refresh): a 401 there is a credential failure, not an expiry —
   //     refreshing and replaying would mask the real error.
   const problemType = typeof problem?.type === 'string' ? problem.type : ''
+  // Only the socket ticket speaks for the held session; the landing page's
+  // session-create can name another room and reports its own answer.
+  if (
+    guestChatroomIdRef.value &&
+    problemType.endsWith(GUEST_DISABLED_TYPE) &&
+    (original.url ?? '').endsWith(GUEST_TICKET_PATH)
+  ) {
+    guestSessionEndRef.value = 'disabled'
+  }
   const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
   const wasAuthenticated = Boolean(original.headers?.Authorization)
   const isRefreshEligible =
@@ -278,22 +348,52 @@ async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = (async () => {
+    const guestRoom = guestChatroomIdRef.value
     try {
-      const guestRoom = guestChatroomIdRef.value
       const url = guestRoom
         ? `/api/guest/${encodeURIComponent(guestRoom)}/refresh`
         : '/api/auth/refresh'
       const res = await refreshHttp.post<{ access_token: string }>(url, {})
+      // A sign-in can replace the guest context while a guest refresh is in
+      // flight; its answer then speaks for nothing this tab still holds.
+      if (guestRoom && guestChatroomIdRef.value !== guestRoom) return false
       setAccessToken(res.data.access_token)
       return true
-    } catch {
+    } catch (error) {
+      if (!guestRoom) {
+        setAccessToken(null)
+        return false
+      }
+      if (guestChatroomIdRef.value !== guestRoom) return false
+      // Q-6: only an answer that says the session is gone ends it. Anything
+      // else may leave the 7-day cookie good; keep everything and let the
+      // existing schedulers retry.
+      const response = axios.isAxiosError<ProblemJson>(error) ? error.response : undefined
+      const end = response ? endReasonFor(response.status, response.data?.type) : null
+      if (!end) return false
       setAccessToken(null)
+      // The context stays so the room can still say why it ended.
+      guestSessionEndRef.value = end
       return false
     } finally {
       refreshInFlight = null
     }
   })()
   return refreshInFlight
+}
+
+/**
+ * Boot-time restore of a guest session for the room in the URL (Q-1). Keeps
+ * the context on every failure so the room, not `/login`, explains the
+ * outcome: `'ended'` carries its reason in `guestSessionEnd`; `'offline'`
+ * carries none and the room retries.
+ */
+export async function resumeGuestSession(
+  chatroomId: string,
+): Promise<'resumed' | 'ended' | 'offline'> {
+  setGuestContext(chatroomId)
+  if (await attemptRefresh()) return 'resumed'
+  return guestSessionEndRef.value ? 'ended' : 'offline'
 }
 
 /**
@@ -317,7 +417,19 @@ export async function refreshAccessToken(): Promise<string | null> {
  * an expired access token is silently refreshed before the ticket is minted.
  */
 export async function fetchWsTicket(): Promise<string> {
-  const url = guestChatroomIdRef.value ? '/guest/ws-ticket' : '/auth/ws-ticket'
+  if (guestChatroomIdRef.value) {
+    if (guestSessionEndRef.value) throw new AuthError(GUEST_SESSION_ENDED)
+    // A guest whose boot restore found no network holds a context and no
+    // token. A ticket request without a bearer is not refresh-eligible, so
+    // restore first; failing here puts the retry on the socket's backoff.
+    if (isGuestRestorePending()) {
+      if (pendingGuestResolver && (await pendingGuestResolver())) {
+        throw new NetworkError('The account took over from a pending guest restore')
+      }
+      if (!(await attemptRefresh())) throw new NetworkError('Guest session could not be restored')
+    }
+  }
+  const url = guestChatroomIdRef.value ? GUEST_TICKET_PATH : '/auth/ws-ticket'
   const res = await http.post<{ ticket: string; expires_in: number }>(url)
   return res.data.ticket
 }

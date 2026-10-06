@@ -326,3 +326,25 @@ describe('Channel per-user cap signal (Q-5)', () => {
     expect(onCapReached).not.toHaveBeenCalledWith(true)
   })
 })
+
+// docs/tasks/2026-10-05-guest-frontend-session-lifecycle §7.4: an ended guest
+// session disconnects its room channel while the ticket request is failing.
+describe('Channel ticket failure after a deliberate disconnect', () => {
+  it('schedules no reconnect', async () => {
+    const { fetchWsTicket } = await import('../axios')
+    let reject!: (e: Error) => void
+    vi.mocked(fetchWsTicket).mockImplementationOnce(
+      () => new Promise<string>((_, r) => { reject = r }),
+    )
+    const callsBefore = vi.mocked(fetchWsTicket).mock.calls.length
+    const channel = new Channel('/chatroom/room-1')
+    channel.connect()
+    channel.disconnect()
+    reject(new Error('guest session ended'))
+
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(FakeWebSocket.instances).toHaveLength(0)
+    expect(vi.mocked(fetchWsTicket).mock.calls.length - callsBefore).toBe(1)
+  })
+})

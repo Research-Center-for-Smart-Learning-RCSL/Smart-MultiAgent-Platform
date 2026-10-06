@@ -18,10 +18,9 @@ import { promptStudioRoutes } from '@slices/prompt-studio'
 import { skillsRoutes } from '@slices/skills'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
-import { onUnauthorizedRedirect, isGuestSession, clearGuestContext, getGuestChatroomId } from '@shared/transport'
-import { useGuestSessionStore } from '@slices/conversation'
+import { onUnauthorizedRedirect, isGuestSession, canonicalRoomId, getGuestChatroomId } from '@shared/transport'
 
-import { runGuards, type GuardContext, type RouteMeta } from './guards'
+import { runGuards, type GuardContext, type GuardResult, type RouteMeta } from './guards'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -58,7 +57,17 @@ export const router = createRouter({
   routes,
 })
 
-router.beforeEach((to: RouteLocationNormalized) => {
+// A guest whose session ended, or whose boot restore found no network, holds a
+// context but no token. It still reaches its own room, where the banner or the
+// reconnecting state says what happened; any other room stays closed to it.
+function holdsGuestSessionFor(to: RouteLocationNormalized): boolean {
+  if (isGuestSession.value) return true
+  const guestRoom = getGuestChatroomId()
+  const target = to.params.chatroomId
+  return guestRoom !== null && typeof target === 'string' && canonicalRoomId(target) === guestRoom
+}
+
+export function guardRoute(to: RouteLocationNormalized): GuardResult {
   const session = useSessionStore()
   const isAdmin = session.me?.is_admin ?? false
   const roles: string[] = []
@@ -68,7 +77,7 @@ router.beforeEach((to: RouteLocationNormalized) => {
     isVerified: session.isVerified,
     isAdmin,
     roles,
-    hasGuestSession: isGuestSession.value,
+    hasGuestSession: holdsGuestSessionFor(to),
   }
   const metaRequiresAuth = to.meta.requiresAuth as boolean | undefined
   const metaRequiresVerifiedEmail = to.meta.requiresVerifiedEmail as boolean | undefined
@@ -81,21 +90,15 @@ router.beforeEach((to: RouteLocationNormalized) => {
     ...(metaAllowGuestSession !== undefined && { allowGuestSession: metaAllowGuestSession }),
   }
   return runGuards(meta, ctx, to.fullPath)
-})
+}
+
+router.beforeEach((to: RouteLocationNormalized) => guardRoute(to))
 
 onUnauthorizedRedirect(() => {
-  // attemptRefresh clears the access token before this fires, so
-  // isGuestSession is already false. Check the guest context ref instead.
-  if (getGuestChatroomId()) {
-    const guestStore = useGuestSessionStore()
-    guestStore.markExpired()
-    const rejoinUrl = guestStore.rejoinUrl
-    clearGuestContext()
-    if (rejoinUrl) {
-      router.push(rejoinUrl)
-    }
-    return
-  }
+  // A guest session's end, if it ended, is already recorded by the refresh
+  // that failed; the room renders it. A refresh that failed for want of a
+  // network ended nothing (Q-6).
+  if (getGuestChatroomId()) return
   const session = useSessionStore()
   session.clear()
   if (router.currentRoute.value.meta.requiresAuth) {

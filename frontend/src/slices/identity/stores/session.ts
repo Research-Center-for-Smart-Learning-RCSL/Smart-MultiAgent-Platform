@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
+  clearGuestContext,
+  getGuestChatroomId,
+  isGuestRestorePending,
   setAccessToken,
   setRefreshToken,
   isGuestSession,
@@ -17,6 +20,10 @@ export const useSessionStore = defineStore('identity/session', () => {
   const isVerified = computed(() => !!me.value?.email_verified)
 
   function applyTokens(pair: TokenPair): void {
+    // The guest context routes refresh and socket tickets to the guest
+    // endpoints; left set under a user token, the guest cookie would replace
+    // this session at its first expiry (F-9).
+    clearGuestContext()
     setAccessToken(pair.access_token)
     setRefreshToken(pair.refresh_token ?? null)
     accessTokenExpiresAt.value = Date.now() + pair.expires_in * 1000
@@ -53,6 +60,7 @@ export const useSessionStore = defineStore('identity/session', () => {
     accessTokenExpiresAt.value = null
     setAccessToken(null)
     setRefreshToken(null)
+    clearGuestContext()
     wsManager.closeAll()
     queryClient.clear()
     runAllCleanups()
@@ -63,18 +71,28 @@ export const useSessionStore = defineStore('identity/session', () => {
     // smap_refresh cookie set by the server. If there is no valid cookie the
     // server returns 401 and we start unauthenticated.
     //
-    // Skip when an anonymous guest session is active: the guest JWT lives in
-    // accessTokenRef (set by GuestLandingView), not in the httpOnly cookie.
-    // Calling authApi.refresh() would 401 and the catch-block clear() would
-    // wipe the guest token, leaving the guest unable to send messages.
-    if (isGuestSession.value) return
+    // Skip while this tab holds a live guest session or a room showing how
+    // one ended: the catch-block clear() would wipe it, and a successful
+    // refresh would swap the account a signed-in user set aside to enter as a
+    // guest back in mid-session. A guest restore still pending for want of a
+    // network is different: the account gets its turn first (Q-1), and a
+    // failure keeps the pending restore rather than clearing it.
+    if (holdsGuestSession()) return
+    const pendingGuest = isGuestRestorePending()
     try {
       const pair = await authApi.refresh()
+      // A guest may have entered while the refresh was in flight (a focus
+      // hydrate racing the landing page); the same reasons apply.
+      if (holdsGuestSession()) return
       applyTokens(pair)
       await refreshMe()
     } catch {
-      clear()
+      if (!pendingGuest && !holdsGuestSession() && !isGuestRestorePending()) clear()
     }
+  }
+
+  function holdsGuestSession(): boolean {
+    return isGuestSession.value || (getGuestChatroomId() !== null && !isGuestRestorePending())
   }
 
   return {

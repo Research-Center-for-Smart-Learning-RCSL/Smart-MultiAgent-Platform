@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R6.11, R6.12, R13.06, R13.06a, R13.06b, R13.07, R24.43]
 depends_on: [2026-10-05-guest-room-read-and-identity]
@@ -352,29 +352,29 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: a guest who reloads the room, or opens it in a new tab via `/chatrooms/:id` or `/c/:id`,
+- [x] AC-1: a guest who reloads the room, or opens it in a new tab via `/chatrooms/:id` or `/c/:id`,
   stays in the room as the same guest session while the refresh cookie is valid, including when the
   network is briefly down at reload (it resumes when the network returns); a signed-in user's reload is
   unaffected.
-- [ ] AC-2: a guest refresh that fails without a response keeps the session, and the socket recovers
+- [x] AC-2: a guest refresh that fails without a response keeps the session, and the socket recovers
   when the network returns; one that fails with a response shows the expired banner (or the disabled
   banner, AC-6) and stops the reconnect loop; tab focus never clears an ended guest session's room.
-- [ ] AC-3: after a guest signs in with an account in the same tab, refresh and socket tickets use the
+- [x] AC-3: after a guest signs in with an account in the same tab, refresh and socket tickets use the
   user endpoints; no guest cookie can replace the user session.
-- [ ] AC-4: a signed-in user choosing "Enter as Guest" confirms first; afterwards the tab has no
+- [x] AC-4: a signed-in user choosing "Enter as Guest" confirms first; afterwards the tab has no
   account state and the room works as a guest; a reload, or signing in again, restores the account
   (Q-1's account-first boot), and tab focus does not.
-- [ ] AC-5: a name that is empty after normalisation is reported as a name error on the form (client
+- [x] AC-5: a name that is empty after normalisation is reported as a name error on the form (client
   and server), never as an invalid link.
-- [ ] AC-6: with guest links off, landing-page entry, guest refresh and the guest socket ticket each
+- [x] AC-6: with guest links off, landing-page entry, guest refresh and the guest socket ticket each
   lead the guest to the "guest access has been disabled" state, including while the socket was
   reconnecting.
-- [ ] AC-7: Retry after a failed resume, a failed own-account choice, or a failed enroll repeats that
+- [x] AC-7: Retry after a failed resume, a failed own-account choice, or a failed enroll repeats that
   action.
-- [ ] AC-8: a link whose room id has upper-case letters refreshes and resumes like a lower-case one.
-- [ ] AC-9: after a reload, a fully expired session lands on the room's expired banner (never `/login`),
+- [x] AC-8: a link whose room id has upper-case letters refreshes and resumes like a lower-case one.
+- [x] AC-9: after a reload, a fully expired session lands on the room's expired banner (never `/login`),
   which tells the guest to reopen the shared link; within a page lifetime it offers Rejoin.
-- [ ] AC-10: backend and frontend lint, typecheck, tests, OpenAPI drift, build and the new e2e spec
+- [x] AC-10: backend and frontend lint, typecheck, tests, OpenAPI drift, build and the new e2e spec
   pass in CI.
 
 ## 11. SRS Delta
@@ -384,6 +384,72 @@ None. The design implements [R13.06b] and [R6.11] as written and stays within [R
 ## 12. Deviation Log
 
 Appended by /build.
+
+- **D-1.** §7.5 says the OpenAPI document gains the two problem types. Domain problem types are not
+  enumerated in the OpenAPI document anywhere in this codebase (they are registered by
+  `error_mapping.py` at runtime), so the exported spec is byte-identical to the committed one and
+  `pnpm run gen:api` produces no diff. The guest ticket route's new `db` dependency is not part of the
+  published contract either.
+- **D-2.** §7.4's "the room closes its socket deliberately" needed a transport fix:
+  `Channel.openSocket` scheduled a reconnect on a failed ticket even after `disconnect()` had paused
+  the channel, so an ended session reconnect-looped anyway. The catch now retries only when the
+  channel is neither paused nor closed (`ws-manager.ts`), with a test in `ws-manager.spec.ts`.
+- **D-3.** §7.1's offline retry "with the transport's backoff" is implemented in `fetchWsTicket`:
+  with a guest context and no token it runs the guest refresh first, so the socket's existing backoff
+  is the retry loop; with an ended session it throws without a request. The `online` event handler
+  lives in `ChatroomView` and calls `wsChannel.connect()`, which takes the same path. When a missing
+  token comes back, the room re-reads its room, agent, member and message queries, since those ran
+  without a bearer.
+- **D-4.** Not in §7.2: `session.hydrate` also re-checks for a guest session after its refresh
+  resolves, in both the success and the failure branch. The self-audit found that a focus hydrate in
+  flight while a guest entered would, on its 401, `clear()` the new guest session, or on success
+  install the account under it. Test-first in `identity/__tests__/session.test.ts`.
+- **D-5.** Not in §7.4: the room's `viewerIsGuest` also holds while the tab holds the room's guest
+  context, so a guest whose session ended (token null) is not shown the member header (settings,
+  export, Back) and does not fire the members-only workspace reads.
+- **D-6.** Structure, for testability: the boot sequence is `app/boot.ts` `restoreSessionAtBoot`
+  (called from `main.ts`), and the guard body is the exported `guardRoute` in `router.ts`. The hint
+  read, write and removal moved from the landing page into `conversation/utils/guestHint.ts`, which
+  also holds `restoreGuestSession`. A read falls back to the key spelled as the link spelled the room
+  id, so a hint written before canonicalisation is still found.
+- **D-7.** §7.3 named the hint key, the guest context and the rejoin URL for F-22; the landing page
+  also sends the canonical id in the session-create and enroll URLs, so one id is used throughout.
+- **D-8.** The existing unit test `test_guest_links_disabled_raises` asserted the 404 that Q-4
+  replaces; it now asserts `GuestAccessDisabled`.
+- **D-9.** §8 item 7's "turn guest links off as the owner and see the disabled banner in the guest
+  tab" reloads the guest tab after the owner's change, exercising the refresh path deterministically;
+  a live socket learns of the change only at its next ticket or refresh, whose timing the e2e cannot
+  control.
+- **D-10.** (Agreed with the requester 2026-10-06, after `/code-review`.) §7.1 recorded an end for
+  any answered guest refresh failure and §7.4 kept a 4401 close as a direct `markExpired`. Both ended
+  live sessions wrongly: 4401 is the server's "re-handshake" close (`ws_auth.py:26`), and a 502
+  during a deploy, a 429 or the two-tab cookie race also counted as an end (and at boot deleted the
+  hint holding the browser id). Now only an answered 401 or 404 (expired) or 403 (disabled when the
+  type is `guest-access-disabled`, expired otherwise) ends the session; any other answer is treated
+  like no network. A 4401 close triggers a guest refresh whose answer decides. §8 item 5's 4401 test
+  now mocks that refresh.
+- **D-11.** (Agreed with the requester 2026-10-06.) Q-1's "the account always wins" did not hold for
+  an account holder who once entered a room as a guest and reloads it offline: boot cannot tell why
+  the account refresh failed, restores the guest context, and the guest session came back with the
+  network. A guest context with neither a token nor an end is now a *pending* restore. In that state
+  `hydrate` tries the account (keeping the pending restore on any failure), and `app/boot.ts`
+  registers `preferAccountOverPendingGuest` with the transport, so every retry (the socket ticket
+  path, the `online` event, tab focus) asks the account first and reloads the page into it when it
+  answers. §7.2's "hydrate skips while a guest context is set" now holds for a live or ended guest
+  session only.
+- **D-12.** (Agreed with the requester 2026-10-06.) Q-4's route list gains the registered enrolment
+  path: `GuestService.enroll` raises `GuestAccessDisabled` after the token check, so "Enter as
+  <account>" shows the disabled state instead of an invalid link.
+- **D-13.** From the same review: the response interceptor records `disabled` only for the guest
+  socket ticket (a landing-page create for another room answered `guest-access-disabled` no longer
+  ends the held room's session); a guest refresh whose context was replaced while it was in flight
+  (a sign-in) leaves the token alone; the room's `online` listener is attached only while the view
+  is active, so a KeepAlive-cached room is not reopened behind another route.
+- **D-14.** §8 item 7's "has no account shell" is asserted through the room header's Settings button
+  (shown to the member who owns the seeded room, hidden from an anonymous guest), with a signed-in
+  baseline first so its absence is meaningful. The first CI run used the sidebar's "Main navigation",
+  which a chatroom route collapses and makes inert: the check failed after the reload and its
+  guest-phase counterpart passed whatever the session.
 
 ## 13. Follow-ups
 
@@ -396,3 +462,25 @@ Appended by /build.
   removes the hint.) Hints for rooms the browser never reloads into still outlive their cookies.
 - **FU-4.** Guest dossier FU-14 (a rate-limit 429 is shown as cap-reached) is still open and touches
   the same `classifyError`; not in this dossier's findings.
+- **FU-5.** A guest holding a live token whose room's links are turned off gets 403
+  `conversation/forbidden-in-room` from ordinary room reads (the room access gate), not
+  `guest-access-disabled`; it learns the reason only at its next refresh or socket ticket (up to the
+  access-token lifetime if its socket stays open). Naming the reason on the room read path, or a
+  server push on the links change, would close that window.
+- **FU-6.** `useGuestSessionStore.clear()` has no caller (pre-existing dead code).
+- **FU-7.** Found by the security audit, owned by `guest-session-backend-hardening`: guest session
+  create and refresh raise `ChatroomNotFound` before the link or cookie check, so a caller can tell an
+  existing room id from a missing one. Room ids are UUIDv4, so there is no practical enumeration.
+- **FU-8.** Local Windows full-suite runs time out two pre-existing tests at 5 s under load
+  (`AppShell.test.ts` "starts collapsed on an immersive route", `ChatroomView.test.ts` "reopening the
+  export modal cancels the in-flight poller"); both pass in isolation. CI is authoritative.
+- **FU-9.** From `/code-review`, owned by `guest-session-backend-hardening` (F-16's 4404): when the
+  room is deleted under a connected guest, the ticket pre-check answers 404 `chatroom-not-found`,
+  which the client does not treat as an end, so the socket retries on its backoff with no banner.
+- **FU-10.** From `/code-review` (altitude): an ended guest's socket is stopped by view-level hooks
+  in `ChatroomView` because `Channel` treats the terminal error from `fetchWsTicket` as retryable.
+  Stopping retries in `Channel.openSocket` on a terminal error would let every consumer drop the
+  hooks.
+- **FU-11.** From `/code-review` (simplification): `useGuestSessionStore.sessionState` and
+  `markDisabled` are pass-throughs to the transport's `guestSessionEnd`, and `GUEST_STORAGE_PREFIX`
+  is used only by `utils/guestHint.ts`; the store could keep only the link token and `rejoinUrl`.

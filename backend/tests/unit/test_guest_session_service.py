@@ -18,6 +18,7 @@ from contexts.conversation.application.guest_session_service import (
 )
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
+    GuestAccessDisabled,
     GuestCapReached,
     GuestTokenInvalid,
 )
@@ -182,7 +183,7 @@ async def test_guest_links_disabled_raises(service: GuestSessionService) -> None
     with patch.object(service, "_rooms") as rooms:
         rooms.get = AsyncMock(return_value=room)
 
-        with pytest.raises(GuestTokenInvalid):
+        with pytest.raises(GuestAccessDisabled):
             await service.create_or_resume(
                 chatroom_id=cr_id,
                 guest_token="correct-token",

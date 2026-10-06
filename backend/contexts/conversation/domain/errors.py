@@ -63,6 +63,20 @@ class GuestTokenInvalid(ConversationError):
     code = "conversation/guest-token-invalid"
 
 
+class GuestAccessDisabled(ConversationError):
+    """The room's guest links are off. Raised only after the caller proved it holds
+    the link, a cookie matched to a session of the room, or a guest token, so the
+    reason is not disclosed to an outsider ([R13.32])."""
+
+    code = "conversation/guest-access-disabled"
+
+
+class GuestDisplayNameInvalid(ConversationError):
+    """The requested name is empty once normalised (e.g. only zero-width characters)."""
+
+    code = "conversation/guest-display-name-invalid"
+
+
 class GuestCapReached(ConversationError):
     code = "guest/cap-reached"
 

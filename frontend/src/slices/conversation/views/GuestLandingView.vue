@@ -7,26 +7,27 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { UserIcon, UserGroupIcon, XCircleIcon } from '@heroicons/vue/24/outline'
 import { SAuthCard, SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
-import { ApiError, RateLimitError } from '@shared/errors'
-import { setAccessToken, setGuestContext } from '@shared/transport'
+import { ApiError, RateLimitError, ValidationError } from '@shared/errors'
+import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
+import { canonicalRoomId, isProblemWithType, setAccessToken, setGuestContext } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { createGuestSession, enrollGuest } from '../api'
-import { GUEST_STORAGE_PREFIX, useGuestSessionStore } from '../stores/guestSession'
+import { useGuestSessionStore } from '../stores/guestSession'
+import { readGuestHint, writeGuestHint } from '../utils/guestHint'
+import { isUsableGuestName } from '../utils/guestName'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const { confirm } = useConfirmDialog()
 
 const session = useSessionStore()
 const guestSessionStore = useGuestSessionStore()
-const chatroomId = route.params.chatroomId as string
+// The guest cookie path is the canonical id and cookie paths are case-sensitive
+// (F-22). The link's own spelling is kept only to find a hint written under it.
+const linkRoomId = route.params.chatroomId as string
+const chatroomId = canonicalRoomId(linkRoomId)
 const guestToken = route.params.guestToken as string
-
-interface StoredGuest {
-  browser_id: string
-  guest_session_id: string
-  display_name: string
-}
 
 type ViewState =
   | 'idle'
@@ -34,44 +35,35 @@ type ViewState =
   | 'resuming'
   | 'enrolling'
   | 'invalid'
+  | 'disabled'
   | 'error'
   | 'cap_reached'
+
+// What Retry replays: the transient-error state is reachable from three
+// actions, and only one of them is a form submit (F-19).
+type LastAction = 'enroll' | 'resume' | 'own-account'
 
 const state = ref<ViewState>('idle')
 const resumedName = ref('')
 const enterAsGuest = ref(false)
+const lastAction = ref<LastAction>('enroll')
 
 const accountDisplayName = computed(
   () => session.me?.display_name ?? session.me?.email ?? '',
 )
 
-function readStored(): StoredGuest | null {
-  try {
-    const raw = localStorage.getItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<StoredGuest>
-    if (parsed.browser_id && parsed.display_name) return parsed as StoredGuest
-    return null
-  } catch {
-    return null
-  }
-}
-
-function writeStored(data: StoredGuest): void {
-  try {
-    localStorage.setItem(`${GUEST_STORAGE_PREFIX}${chatroomId}`, JSON.stringify(data))
-  } catch {
-    // localStorage unavailable -- non-fatal
-  }
-}
-
 const schema = toTypedSchema(
   z.object({
-    displayName: z.string().trim().min(1).max(100),
+    displayName: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .refine(isUsableGuestName, { message: t('conversation.guest.displayNameInvalid') }),
   }),
 )
 
-const { handleSubmit, errors, defineField } = useForm({
+const { handleSubmit, errors, defineField, setFieldError } = useForm({
   validationSchema: schema,
   initialValues: { displayName: '' },
 })
@@ -87,6 +79,11 @@ const displayNameModel = computed({
 function classifyError(e: unknown): ViewState {
   if (e instanceof RateLimitError) return 'cap_reached'
   if (e instanceof ApiError && e.status === 429) return 'cap_reached'
+  if (e instanceof ValidationError && isProblemWithType(e, '/conversation/guest-display-name-invalid')) {
+    setFieldError('displayName', t('conversation.guest.displayNameInvalid'))
+    return 'idle'
+  }
+  if (isProblemWithType(e, '/conversation/guest-access-disabled')) return 'disabled'
   if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return 'invalid'
   return 'error'
 }
@@ -97,10 +94,14 @@ async function enterChatroom(
   name: string,
   browserId: string,
 ): Promise<void> {
+  // A user session left beside a guest token keeps the account shell running
+  // on guest credentials (F-10). The confirm path already cleared it; a focus
+  // re-hydrate in between can have brought it back.
+  if (session.isAuthenticated) session.clear()
   setAccessToken(accessToken)
   setGuestContext(chatroomId)
   guestSessionStore.setGuestToken(chatroomId, guestToken)
-  writeStored({ browser_id: browserId, guest_session_id: guestSessionId, display_name: name })
+  writeGuestHint(chatroomId, { browser_id: browserId, guest_session_id: guestSessionId, display_name: name })
 
   // Strip the token from the URL (R24.43) before navigating to the room.
   history.replaceState(null, '', `/c/${chatroomId}`)
@@ -117,14 +118,14 @@ async function enrollRegisteredGuest(name?: string): Promise<void> {
 }
 
 const doEnroll = handleSubmit(async (values) => {
+  lastAction.value = 'enroll'
   state.value = 'enrolling'
   try {
     if (session.isAuthenticated && !enterAsGuest.value) {
       await enrollRegisteredGuest(values.displayName)
       return
     }
-    const stored = readStored()
-    const browserId = stored?.browser_id ?? crypto.randomUUID()
+    const browserId = readGuestHint(linkRoomId)?.browser_id ?? crypto.randomUUID()
     const result = await createGuestSession(
       chatroomId,
       guestToken,
@@ -138,8 +139,9 @@ const doEnroll = handleSubmit(async (values) => {
 })
 
 async function doResume(): Promise<void> {
+  lastAction.value = 'resume'
   state.value = 'enrolling'
-  const stored = readStored()
+  const stored = readGuestHint(linkRoomId)
   if (!stored) {
     state.value = 'idle'
     return
@@ -162,12 +164,25 @@ function switchToChangeName(): void {
   state.value = 'idle'
 }
 
-function chooseGuest(): void {
+async function chooseGuest(): Promise<void> {
+  if (session.isAuthenticated) {
+    const ok = await confirm({
+      title: t('conversation.guest.enterAsGuestConfirmTitle'),
+      message: t('conversation.guest.enterAsGuestConfirmMessage'),
+      confirmLabel: t('conversation.guest.enterAsGuest'),
+      cancelLabel: t('app.cancel'),
+    })
+    if (!ok) return
+    // Local only (Q-3): the account's refresh cookie survives, so a reload or
+    // signing in brings it back, and no other tab is signed out.
+    session.clear()
+  }
   enterAsGuest.value = true
   state.value = 'idle'
 }
 
 async function chooseOwnAccount(): Promise<void> {
+  lastAction.value = 'own-account'
   state.value = 'enrolling'
   try {
     await enrollRegisteredGuest(accountDisplayName.value || undefined)
@@ -176,12 +191,18 @@ async function chooseOwnAccount(): Promise<void> {
   }
 }
 
+function retry(): void {
+  if (lastAction.value === 'resume') void doResume()
+  else if (lastAction.value === 'own-account') void chooseOwnAccount()
+  else void doEnroll()
+}
+
 onMounted(() => {
   if (session.isAuthenticated) {
     state.value = 'choosing'
     return
   }
-  const stored = readStored()
+  const stored = readGuestHint(linkRoomId)
   if (stored) {
     resumedName.value = stored.display_name
     state.value = 'resuming'
@@ -280,7 +301,7 @@ onMounted(() => {
             type="submit"
             variant="primary"
             class="state-action"
-            :disabled="!displayNameModel.trim()"
+            :disabled="!isUsableGuestName(displayNameModel)"
           >
             {{ t('conversation.guest.enterChatroom') }}
           </SButton>
@@ -323,6 +344,20 @@ onMounted(() => {
         </p>
       </template>
 
+      <!-- Guest links turned off by the owner (403 guest-access-disabled) -->
+      <template v-else-if="state === 'disabled'">
+        <XCircleIcon
+          class="state-icon state-icon--failure"
+          aria-hidden="true"
+        />
+        <p
+          class="state-text"
+          role="alert"
+        >
+          {{ t('conversation.guest.guestDisabled') }}
+        </p>
+      </template>
+
       <!-- Transient error (retryable) -->
       <template v-else>
         <XCircleIcon
@@ -338,7 +373,7 @@ onMounted(() => {
         <SButton
           variant="primary"
           class="state-action"
-          @click="doEnroll"
+          @click="retry"
         >
           {{ t('conversation.guest.retry') }}
         </SButton>

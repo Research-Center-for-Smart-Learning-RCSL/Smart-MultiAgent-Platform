@@ -4,10 +4,18 @@ import bareAxios from 'axios'
 import { server } from '../../../../tests/mocks/server'
 import { http } from '../axios'
 import {
+  canonicalRoomId,
+  clearGuestContext,
+  fetchWsTicket,
   getAccessToken,
+  getGuestChatroomId,
+  guestSessionEnd,
+  onPendingGuestRestore,
   setAccessToken,
+  setGuestContext,
   onUnauthorizedRedirect,
   refreshAccessToken,
+  resumeGuestSession,
 } from '@shared/transport'
 import { markConnectionRestored } from '@shared/composables/useNetworkStatus'
 import { i18n } from '@shared/i18n'
@@ -19,6 +27,7 @@ import { AuthError, PermissionError } from '@shared/errors'
 
 afterEach(() => {
   setAccessToken(null)
+  clearGuestContext()
   onUnauthorizedRedirect(() => {})
   // A network-error test can flip the module-scoped online flag and schedule a
   // recovery probe; reset it so later tests/files don't inherit offline state
@@ -353,5 +362,287 @@ describe('refreshAccessToken', () => {
     expect(refreshCalls).toBe(1)
     expect(a).toBe('coalesced-token')
     expect(b).toBe('coalesced-token')
+  })
+})
+
+// docs/tasks/2026-10-05-guest-frontend-session-lifecycle (F-8, F-20, F-22, Q-6).
+describe('guest session refresh', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+  const DISABLED = {
+    type: 'https://smap.local/problems/conversation/guest-access-disabled',
+    title: 'Guest access has been disabled for this chatroom',
+    status: 403,
+  }
+  const INVALID = {
+    type: 'https://smap.local/problems/conversation/guest-token-invalid',
+    title: 'Guest token invalid',
+    status: 404,
+  }
+
+  it('refreshes on the canonical (lower-case) room path the cookie is scoped to', async () => {
+    let hit = ''
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', ({ params }) => {
+        hit = params.room as string
+        return HttpResponse.json({ access_token: 'guest-2' })
+      }),
+    )
+    setGuestContext(ROOM.toUpperCase())
+
+    expect(getGuestChatroomId()).toBe(ROOM)
+    expect(await refreshAccessToken()).toBe('guest-2')
+    expect(hit).toBe(ROOM)
+    expect(canonicalRoomId(ROOM.toUpperCase())).toBe(ROOM)
+  })
+
+  it('keeps the token and the context when the refresh gets no response', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.error()))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(getAccessToken()).toBe('guest-1')
+    expect(getGuestChatroomId()).toBe(ROOM)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('records an expired session, keeping the context, when the refresh is answered 404', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(INVALID, { status: 404 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(getAccessToken()).toBeNull()
+    expect(getGuestChatroomId()).toBe(ROOM)
+    expect(guestSessionEnd.value).toBe('expired')
+  })
+
+  it('records a disabled session when the refresh is answered guest-access-disabled', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(DISABLED, { status: 403 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await refreshAccessToken()
+    expect(guestSessionEnd.value).toBe('disabled')
+  })
+
+  it('records disabled from any guest-context request answered guest-access-disabled', async () => {
+    server.use(mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json(DISABLED, { status: 403 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(fetchWsTicket()).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBe('disabled')
+  })
+
+  it('a new guest context forgets how the previous one ended', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(INVALID, { status: 404 })))
+    setGuestContext(ROOM)
+    await refreshAccessToken()
+    expect(guestSessionEnd.value).toBe('expired')
+
+    setGuestContext(ROOM)
+    expect(guestSessionEnd.value).toBeNull()
+    clearGuestContext()
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('restores a missing guest token before asking for a socket ticket', async () => {
+    let ticketAuth: string | null = null
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json({ access_token: 'guest-3' })),
+      mswHttp.post('/api/guest/ws-ticket', ({ request }) => {
+        ticketAuth = request.headers.get('Authorization')
+        return HttpResponse.json({ ticket: 't', expires_in: 30 })
+      }),
+    )
+    setGuestContext(ROOM)
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(ticketAuth).toBe('Bearer guest-3')
+  })
+
+  it('asks for no socket ticket once the guest session has ended', async () => {
+    let tickets = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(INVALID, { status: 404 })),
+      mswHttp.post('/api/guest/ws-ticket', () => {
+        tickets += 1
+        return HttpResponse.json({ ticket: 't', expires_in: 30 })
+      }),
+    )
+    setGuestContext(ROOM)
+    await refreshAccessToken()
+
+    await expect(fetchWsTicket()).rejects.toBeTruthy()
+    expect(tickets).toBe(0)
+  })
+})
+
+// Code review of the same dossier: only an answer that says the session is gone
+// ends it, and a context replaced mid-refresh is left alone.
+describe('guest session refresh, transient answers and context changes', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+
+  it.each([502, 503, 429, 500])('a %s answer keeps the token and records no end', async (status) => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => new HttpResponse('<html>bad gateway</html>', { status })),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(getAccessToken()).toBe('guest-1')
+    expect(guestSessionEnd.value).toBeNull()
+    expect(getGuestChatroomId()).toBe(ROOM)
+  })
+
+  it('a 401 answer ends the session as expired', async () => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () =>
+        HttpResponse.json({ type: 'https://smap.local/problems/auth/required', title: 't', status: 401 }, { status: 401 }),
+      ),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await refreshAccessToken()
+    expect(guestSessionEnd.value).toBe('expired')
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it.each([
+    ['fails', 404],
+    ['succeeds', 200],
+  ] as const)('leaves a user token applied while a guest refresh was in flight alone when it %s', async (_, status) => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    let arrived!: () => void
+    const sent = new Promise<void>((r) => {
+      arrived = r
+    })
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', async () => {
+        arrived()
+        await gate
+        return status === 200
+          ? HttpResponse.json({ access_token: 'guest-2' })
+          : HttpResponse.json({ type: 'https://smap.local/problems/conversation/guest-token-invalid', title: 't', status }, { status })
+      }),
+    )
+    setGuestContext(ROOM)
+    const refreshing = refreshAccessToken()
+    await sent
+    // A sign-in lands: the session store clears the context and applies its token.
+    clearGuestContext()
+    setAccessToken('user-token')
+    release()
+    await refreshing
+
+    expect(getAccessToken()).toBe('user-token')
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('a guest-access-disabled answer for another room does not end this one', async () => {
+    const OTHER = '11111111-2222-4333-8444-555555555555'
+    server.use(
+      mswHttp.post(`/api/guest/${OTHER}/tok_abcdefghijklmnop/session`, () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/conversation/guest-access-disabled', title: 't', status: 403 },
+          { status: 403 },
+        ),
+      ),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(http.post(`/guest/${OTHER}/tok_abcdefghijklmnop/session`, {})).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+})
+
+describe('pending guest restore prefers the account', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+
+  afterEach(() => {
+    onPendingGuestRestore(null)
+  })
+
+  it('asks the account resolver before the guest refresh, and stops when it takes over', async () => {
+    let guestRefreshes = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        guestRefreshes += 1
+        return HttpResponse.json({ access_token: 'guest-2' })
+      }),
+    )
+    const resolver = vi.fn(async () => true)
+    onPendingGuestRestore(resolver)
+    setGuestContext(ROOM)
+
+    await expect(fetchWsTicket()).rejects.toBeTruthy()
+    expect(resolver).toHaveBeenCalledTimes(1)
+    expect(guestRefreshes).toBe(0)
+  })
+
+  it('falls back to the guest refresh when there is no account', async () => {
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json({ access_token: 'guest-2' })),
+      mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })),
+    )
+    onPendingGuestRestore(async () => false)
+    setGuestContext(ROOM)
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(getAccessToken()).toBe('guest-2')
+  })
+
+  it('is not consulted while a guest token is held', async () => {
+    server.use(mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json({ ticket: 't', expires_in: 30 })))
+    const resolver = vi.fn(async () => true)
+    onPendingGuestRestore(resolver)
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await fetchWsTicket()).toBe('t')
+    expect(resolver).not.toHaveBeenCalled()
+  })
+})
+
+describe('resumeGuestSession (boot restore)', () => {
+  const ROOM = '0f8e2b1c-aaaa-4bbb-8ccc-0123456789ab'
+
+  it('restores the token and the context on success', async () => {
+    server.use(mswHttp.post(`/api/guest/${ROOM}/refresh`, () => HttpResponse.json({ access_token: 'g' })))
+
+    expect(await resumeGuestSession(ROOM.toUpperCase())).toBe('resumed')
+    expect(getAccessToken()).toBe('g')
+    expect(getGuestChatroomId()).toBe(ROOM)
+  })
+
+  it.each([
+    [404, 'conversation/guest-token-invalid', 'expired'],
+    [403, 'conversation/guest-access-disabled', 'disabled'],
+  ] as const)('keeps the context and records the end for a %s answer', async (status, type, end) => {
+    server.use(
+      mswHttp.post(`/api/guest/${ROOM}/refresh`, () =>
+        HttpResponse.json({ type: `https://smap.local/problems/${type}`, title: 't', status }, { status }),
+      ),
+    )
+
+    expect(await resumeGuestSession(ROOM)).toBe('ended')
+    expect(getAccessToken()).toBeNull()
+    expect(getGuestChatroomId()).toBe(ROOM)
+    expect(guestSessionEnd.value).toBe(end)
+  })
+
+  it('keeps the context with no end reason when there is no network', async () => {
+    server.use(mswHttp.post(`/api/guest/${ROOM}/refresh`, () => HttpResponse.error()))
+
+    expect(await resumeGuestSession(ROOM)).toBe('offline')
+    expect(getGuestChatroomId()).toBe(ROOM)
+    expect(guestSessionEnd.value).toBeNull()
   })
 })

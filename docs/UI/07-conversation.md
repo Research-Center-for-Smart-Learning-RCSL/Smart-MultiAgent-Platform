@@ -1270,18 +1270,37 @@ Pill style: `SBadge`-like, `--radius-full`, padding 2px 10px, 12px font.
 
 ### 5.2 Flow
 
-1. Guest opens the permanent link `/g/{chatroomId}/{guestToken}`
-2. View validates the token via `enrollGuest(chatroomId, token)` on mount
-3. On success: `history.replaceState` strips the token from the URL, then redirects to `/chatrooms/{chatroomId}` with the guest session
-4. On failure: error state is displayed
+The route is public (`requiresAuth: false`, AuthLayout); nothing is requested on mount. Which
+card the visitor sees first depends on the tab's state.
+
+1. A signed-in visitor sees the choice card ([R6.11]): "Enter as {name}" enrolls the account as a
+   registered guest (`enrollGuest`); "Enter as Guest" opens a confirm dialog, and on confirm clears
+   the tab's account state locally (`session.clear()`, no server logout) before showing the name form.
+   The account's refresh cookie survives, so reloading the page or signing in again brings the
+   account back, and other tabs stay signed in.
+2. A browser that already entered this room as a guest (the `smap:guest:{chatroomId}` hint in
+   localStorage) sees the welcome-back card, which resumes the same anonymous session with the
+   stored browser id and name, or lets the guest change the name.
+3. Anyone else sees the name form. Submitting creates an anonymous guest session
+   (`POST /api/guest/{chatroomId}/{guestToken}/session`), which returns a guest access token and sets
+   the room-scoped `smap_guest_refresh_{chatroomId}` cookie.
+4. On success the view stores the guest token and context in memory, writes the hint, strips the
+   link token from the URL with `history.replaceState`, and navigates to `/chatrooms/{chatroomId}`.
+
+The room id is canonicalised to lower case before it becomes part of the guest context, the hint
+key or the rejoin URL, because the guest cookie path is the lower-case UUID and cookie paths are
+case-sensitive.
 
 ### 5.3 Enrollment Card
 
 **Visual spec**:
-- Card: same as AuthLayout card — max-width 420px, `--color-bg`, `--shadow-md`, `--radius-lg`, padding 32px
-- Title: "Join #chatroomName" — 20px 600 weight `--color-fg`
-- Description: "You have been invited to join this chatroom as a guest." — 14px 400 weight `--color-muted`
-- Display name field: `SFormField` + `SInput`, required, placeholder "Your name", maxLength 100
+- Card: same as AuthLayout card, max-width 420px, `--color-bg`, `--shadow-md`, `--radius-lg`, padding 32px
+- Title: "Join Chatroom", 20px 600 weight `--color-fg`
+- Description: "Enter a display name to join the chatroom.", 14px 400 weight `--color-muted`
+- Display name field: `SFormField` + `SInput`, required, maxLength 100. A name that is empty once
+  invisible characters are removed (Unicode category C other than ZWJ and VS16, then trimmed, the
+  same rule as the backend's `normalise_label`) is a field error, and the submit button stays
+  disabled for it
 - Submit button: `SButton` variant primary, full width, "Enter Chatroom"
 - Enter key submits the form
 
@@ -1289,17 +1308,53 @@ Pill style: `SBadge`-like, `--radius-full`, padding 2px 10px, 12px font.
 
 | State | Display |
 |-------|---------|
-| Loading (enrolling) | `SLoadingSpinner` centered in card with "Joining chatroom..." text |
-| Success | Brief success message, then immediate redirect (user rarely sees this) |
-| Invalid token | `SAlert` variant danger: "This link is no longer valid. The chatroom may have been deleted or guest access may have been disabled." No retry — the link is permanently invalid. |
-| Network error | `SAlert` variant danger: "Could not connect. Please check your connection and try again." + retry button |
-| Already enrolled | Auto-redirects to chatroom (transparent re-entry) |
+| Choosing | Signed-in visitor: two choice cards (own account, guest) |
+| Resuming | "Welcome back, {name}" with "Enter Chatroom" and "Change name" |
+| Idle | The name form; a name error from either the client rule or the server's `conversation/guest-display-name-invalid` (422) shows as the field's error |
+| Enrolling | `SLoadingSpinner` with "Joining chatroom..." |
+| Invalid link | `conversation/guest-token-invalid` and other 401/403/404 answers: "This link is no longer valid..." with no action |
+| Disabled | `conversation/guest-access-disabled` (403): "Guest access has been disabled by the room owner." with no action |
+| Cap reached | 429: "This chatroom has reached its guest limit..." |
+| Transient error | Network and other failures: "Could not connect..." with Retry, which repeats the action that failed (enrol, resume, or own-account entry) |
 
 ### 5.5 Security
 
-- The guest token is stripped from the browser URL immediately after successful enrollment via `history.replaceState` — it must never remain in browser history
-- Guest sessions have limited permissions: no chatroom settings, no export, no agent binding, no admin actions
-- The guest landing page does not require prior authentication (meta: `requiresAuth: true` triggers the standard auth flow which handles guest tokens specially)
+- The link token is stripped from the browser URL immediately after a successful entry via
+  `history.replaceState`, and it is never written to persistent storage ([R24.43]). The hint holds
+  only the browser id, the session id and the display name.
+- Guest sessions have limited permissions: no chatroom settings, no export, no agent binding, no
+  admin actions.
+- `guest-access-disabled` is returned only after the caller proved it holds the link (the HMAC check
+  on create), a refresh cookie matched to a session of the room, or a guest token, so the reason is
+  not disclosed to an outsider ([R13.32]).
+
+### 5.6 Guest session in the room
+
+The guest's access token, guest context and link token live in page memory. The session's end is
+recorded by the transport (`guestSessionEnd`: `expired` or `disabled`) rather than inferred from the
+token, so the room can still explain it once the token is gone.
+
+- **Reload and new tabs.** Boot tries the account refresh first. If it fails, the URL is a room
+  (`/chatrooms/:id` or `/c/:id`) and the browser holds that room's hint, boot calls the room's guest
+  refresh before the router installs. Success restores the session. An answered failure keeps the
+  guest context and records the end, so the guard lets the guest into the room, where the banner
+  explains it; an expired answer also removes the hint. A failure with no response keeps the context
+  without an end (a pending restore): the room shows its reconnecting state, and the socket's ticket
+  request, the browser's `online` event and tab focus retry it. Each retry asks the account first,
+  because an offline boot cannot tell an account holder from a guest; if the account answers, the
+  page reloads into it.
+- **Background refresh.** Only an answer that says the session is gone ends it (401 or 404:
+  expired; 403 `guest-access-disabled`: disabled). No response, a 5xx or a 429 keeps the token and
+  the context. A socket ticket answered `guest-access-disabled` records `disabled`. A 4401 socket
+  close is a re-handshake signal: it triggers a refresh, and that answer decides.
+- **Banners.** Expired: within the page lifetime the banner offers Rejoin (the in-memory link);
+  after a reload it says to reopen the link the room owner shared and offers Sign in. Disabled:
+  "Guest access has been disabled by the room owner." With either, the room closes its socket
+  deliberately and disables the composer.
+- **Ownership of the guest context.** Applying a user token (sign-in, Google completion) and
+  clearing the session both clear the guest context, so a later sign-in in the same tab never routes
+  refreshes or socket tickets to the guest endpoints. A focus re-hydrate is skipped while a guest
+  context is held.
 
 ---
 

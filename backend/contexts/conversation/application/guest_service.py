@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
+    GuestAccessDisabled,
     GuestTokenInvalid,
 )
 from contexts.conversation.domain.models import Chatroom
@@ -55,9 +56,8 @@ class GuestService:
         if not hmac.compare_digest(room.guest_token, token):
             raise GuestTokenInvalid(str(chatroom_id))
         if not room.allow_guest_links:
-            # Room is not accepting guests — treat as invalid token to
-            # avoid leaking the fact that the room exists.
-            raise GuestTokenInvalid(str(chatroom_id))
+            # After the token check, so only a link holder learns the reason.
+            raise GuestAccessDisabled(str(chatroom_id))
 
         await self._guests.add(
             chatroom_id=chatroom_id,
