@@ -124,11 +124,17 @@ class GuestSessionRepository:
         )
         return result.scalar_one()
 
-    async def revoke(self, session_id: uuid.UUID) -> bool:
-        """Mark the session removed; False when it already was."""
+    async def revoke(self, session_id: uuid.UUID, *, chatroom_id: uuid.UUID) -> bool:
+        """Mark the room's session removed; False when it already was, or is not the room's."""
         result = await self._db.execute(
             t.guest_sessions.update()
-            .where(sa.and_(t.guest_sessions.c.id == session_id, t.guest_sessions.c.revoked_at.is_(None)))
+            .where(
+                sa.and_(
+                    t.guest_sessions.c.id == session_id,
+                    t.guest_sessions.c.chatroom_id == chatroom_id,
+                    t.guest_sessions.c.revoked_at.is_(None),
+                )
+            )
             .values(revoked_at=now())
         )
         return bool(result.rowcount)

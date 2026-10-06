@@ -362,7 +362,7 @@ class GuestSessionService:
                 metadata=metadata,
             )
 
-        removed = await self._sessions.revoke(guest_session_id)
+        removed = await self._sessions.revoke(guest_session_id, chatroom_id=chatroom_id)
         if removed:
             await audit_on_session("guest.session.removed")
         banned = None

@@ -442,7 +442,7 @@ async def test_remove_with_ban_revokes_bans_by_browser_hash_and_audits_both(
 
     assert result.changed is True
     lock.assert_awaited_once()
-    sessions.revoke.assert_awaited_once_with(session.id)
+    sessions.revoke.assert_awaited_once_with(session.id, chatroom_id=cr_id)
     bans.create.assert_awaited_once_with(
         chatroom_id=cr_id,
         guest_session_id=session.id,
