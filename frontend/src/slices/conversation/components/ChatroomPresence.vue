@@ -77,6 +77,32 @@
           v-if="u.isYou && !editingName"
           class="presence-user__you"
         >{{ t('conversation.chatroom.you') }}</span>
+
+        <span
+          v-if="u.removable"
+          class="presence-user__actions"
+        >
+          <SButton
+            variant="ghost"
+            icon-only
+            size="sm"
+            data-testid="presence-remove-guest"
+            :aria-label="t('conversation.chatroom.removeGuestNamed', { name: u.displayName || u.id.slice(0, 8) })"
+            @click="emit('remove-guest', u.id, u.displayName || u.id.slice(0, 8))"
+          >
+            <UserMinusIcon class="w-3.5 h-3.5" />
+          </SButton>
+          <SButton
+            variant="ghost"
+            icon-only
+            size="sm"
+            data-testid="presence-ban-guest"
+            :aria-label="t('conversation.chatroom.banGuestNamed', { name: u.displayName || u.id.slice(0, 8) })"
+            @click="emit('ban-guest', u.id, u.displayName || u.id.slice(0, 8))"
+          >
+            <NoSymbolIcon class="w-3.5 h-3.5" />
+          </SButton>
+        </span>
       </li>
     </ul>
 
@@ -98,7 +124,7 @@
 <script setup lang="ts">
 import { nextTick, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PencilIcon } from '@heroicons/vue/24/outline'
+import { NoSymbolIcon, PencilIcon, UserMinusIcon } from '@heroicons/vue/24/outline'
 import { SAvatar, SBadge, SButton, SDivider, SInput } from '@shared/ui'
 import ChatroomAgentStatusItem, {
   type AgentStatusEntry,
@@ -106,7 +132,15 @@ import ChatroomAgentStatusItem, {
 
 const props = withDefaults(
   defineProps<{
-    onlineUsers: Array<{ id: string; isYou: boolean; displayName?: string | null; isGuest?: boolean }>
+    onlineUsers: Array<{
+      id: string
+      isYou: boolean
+      displayName?: string | null
+      isGuest?: boolean
+      // A moderator viewing an anonymous guest session (roster kind
+      // `guest_session`); a registered guest is never removable here ([R13.07a]).
+      removable?: boolean
+    }>
     agents: AgentStatusEntry[]
     viewerIsGuest?: boolean
     viewerName?: string
@@ -116,6 +150,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update-display-name': [name: string]
+  'remove-guest': [id: string, name: string]
+  'ban-guest': [id: string, name: string]
 }>()
 
 const { t } = useI18n()
@@ -205,6 +241,11 @@ function saveDisplayName(): void {
 .presence-user__you {
   font-size: var(--font-size-xs);
   color: var(--color-muted);
+}
+
+.presence-user__actions {
+  display: inline-flex;
+  margin-left: auto;
 }
 
 .presence-user__edit {

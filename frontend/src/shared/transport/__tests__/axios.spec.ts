@@ -632,6 +632,50 @@ describe('guest session refresh, transient answers and context changes', () => {
     await expect(http.post(`/guest/${OTHER}/tok_abcdefghijklmnop/session`, {})).rejects.toBeInstanceOf(PermissionError)
     expect(guestSessionEnd.value).toBeNull()
   })
+
+  // docs/tasks/2026-10-05-guest-kick-and-ban: guest-removed is answered only to
+  // the removed session's own token, so any request carrying it speaks for it.
+  const REMOVED = { type: 'https://smap.local/problems/conversation/guest-removed', title: 't', status: 403 }
+
+  it('records a removal from any request made with the guest token', async () => {
+    server.use(mswHttp.get(`/api/chatrooms/${ROOM}/messages`, () => HttpResponse.json(REMOVED, { status: 403 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(http.get(`/chatrooms/${ROOM}/messages`)).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBe('removed')
+  })
+
+  it('records a removal when the refresh is answered guest-removed', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(REMOVED, { status: 403 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(guestSessionEnd.value).toBe('removed')
+  })
+
+  it('a banned answer to a session-create does not end the held session', async () => {
+    const OTHER = '11111111-2222-4333-8444-555555555555'
+    server.use(
+      mswHttp.post(`/api/guest/${OTHER}/tok_abcdefghijklmnop/session`, () =>
+        HttpResponse.json(REMOVED, { status: 403 }),
+      ),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(http.post(`/guest/${OTHER}/tok_abcdefghijklmnop/session`, {})).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('a guest-removed answer outside a guest context records nothing', async () => {
+    server.use(mswHttp.get(`/api/chatrooms/${ROOM}/messages`, () => HttpResponse.json(REMOVED, { status: 403 })))
+    setAccessToken('user-1')
+
+    await expect(http.get(`/chatrooms/${ROOM}/messages`)).rejects.toBeInstanceOf(PermissionError)
+    expect(guestSessionEnd.value).toBeNull()
+  })
 })
 
 describe('pending guest restore prefers the account', () => {
@@ -697,6 +741,7 @@ describe('resumeGuestSession (boot restore)', () => {
     [404, 'conversation/guest-token-invalid', 'expired'],
     [403, 'conversation/guest-access-disabled', 'disabled'],
     [404, 'conversation/chatroom-not-found', 'gone'],
+    [403, 'conversation/guest-removed', 'removed'],
   ] as const)('keeps the context and records the end for a %s answer', async (status, type, end) => {
     server.use(
       mswHttp.post(`/api/guest/${ROOM}/refresh`, () =>

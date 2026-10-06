@@ -36,6 +36,7 @@ type ViewState =
   | 'enrolling'
   | 'invalid'
   | 'disabled'
+  | 'banned'
   | 'error'
   | 'cap_reached'
 
@@ -84,6 +85,7 @@ function classifyError(e: unknown): ViewState {
     return 'idle'
   }
   if (isProblemWithType(e, '/conversation/guest-access-disabled')) return 'disabled'
+  if (isProblemWithType(e, '/conversation/guest-removed')) return 'banned'
   if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return 'invalid'
   return 'error'
 }
@@ -355,6 +357,20 @@ onMounted(() => {
           role="alert"
         >
           {{ t('conversation.guest.guestDisabled') }}
+        </p>
+      </template>
+
+      <!-- This browser is banned from the room (403 guest-removed); no retry -->
+      <template v-else-if="state === 'banned'">
+        <XCircleIcon
+          class="state-icon state-icon--failure"
+          aria-hidden="true"
+        />
+        <p
+          class="state-text"
+          role="alert"
+        >
+          {{ t('conversation.guest.cannotJoin') }}
         </p>
       </template>
 

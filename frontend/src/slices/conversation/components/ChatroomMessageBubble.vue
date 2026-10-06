@@ -226,6 +226,26 @@
         <ClipboardDocumentIcon class="msg-action__icon" />
         {{ t('conversation.chatroom.copy') }}
       </button>
+      <template v-if="canModerateGuest">
+        <button
+          type="button"
+          class="msg-action msg-action--delete"
+          data-testid="bubble-remove-guest"
+          @click="emit('remove-guest')"
+        >
+          <UserMinusIcon class="msg-action__icon" />
+          {{ t('conversation.chatroom.removeGuest') }}
+        </button>
+        <button
+          type="button"
+          class="msg-action msg-action--delete"
+          data-testid="bubble-ban-guest"
+          @click="emit('ban-guest')"
+        >
+          <NoSymbolIcon class="msg-action__icon" />
+          {{ t('conversation.chatroom.banGuest') }}
+        </button>
+      </template>
     </div>
   </li>
 </template>
@@ -243,6 +263,8 @@ import {
   BookOpenIcon,
   ChevronDownIcon,
   DocumentTextIcon,
+  NoSymbolIcon,
+  UserMinusIcon,
 } from '@heroicons/vue/24/outline'
 import { SAvatar, SBadge, SButton, STextarea } from '@shared/ui'
 import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
@@ -260,6 +282,8 @@ const props = defineProps<{
   editDraft: string
   canEdit: boolean
   canDelete: boolean
+  // A moderator viewing an anonymous guest's message ([R13.07a]).
+  canModerateGuest?: boolean
   flash?: boolean
   // agent_id -> display name, for resolving a released observation's
   // observer_agent_id (R28.06) to something readable. Optional: most
@@ -274,6 +298,8 @@ const emit = defineEmits<{
   'cancel-edit': []
   delete: []
   copy: []
+  'remove-guest': []
+  'ban-guest': []
   download: [att: Attachment]
   'update:editDraft': [value: string]
 }>()

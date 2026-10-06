@@ -146,12 +146,15 @@
               :edit-draft="editDraft"
               :can-edit="canEdit(item.message)"
               :can-delete="canDelete(item.message)"
+              :can-moderate-guest="isModerator && item.message.sender_type === 'guest' && !!item.message.sender_id"
               :flash="highlightId === item.message.id"
               @start-edit="startEdit(item.message)"
               @save-edit="saveEdit"
               @cancel-edit="cancelEdit"
               @delete="confirmDelete(item.message)"
               @copy="copyMessage(item.message)"
+              @remove-guest="moderateGuest(item.message.sender_id!, senderName(item.message), false)"
+              @ban-guest="moderateGuest(item.message.sender_id!, senderName(item.message), true)"
               @download="downloadAttachment"
               @update:edit-draft="editDraft = $event"
             />
@@ -240,6 +243,16 @@
       {{ t('conversation.guest.guestDisabled') }}
     </SAlert>
 
+    <!-- No Rejoin: a removed guest may come back through the link, a banned one
+         may not, and this tab cannot tell which ([R13.07a]). -->
+    <SAlert
+      v-if="guestEnd === 'removed'"
+      variant="danger"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.guest.removed') }}
+    </SAlert>
+
     <SAlert
       v-if="roomGone"
       variant="danger"
@@ -300,6 +313,8 @@
           <ChatroomPresence
             v-bind="presenceProps"
             @update-display-name="onUpdateGuestDisplayName"
+            @remove-guest="(id, name) => moderateGuest(id, name, false)"
+            @ban-guest="(id, name) => moderateGuest(id, name, true)"
           />
         </template>
         <template #tab-observer>
@@ -333,6 +348,8 @@
         v-else
         v-bind="presenceProps"
         @update-display-name="onUpdateGuestDisplayName"
+        @remove-guest="(id, name) => moderateGuest(id, name, false)"
+        @ban-guest="(id, name) => moderateGuest(id, name, true)"
       />
     </div>
 
@@ -384,6 +401,8 @@
           <ChatroomPresence
             v-bind="presenceProps"
             @update-display-name="onUpdateGuestDisplayName"
+            @remove-guest="(id, name) => moderateGuest(id, name, false)"
+            @ban-guest="(id, name) => moderateGuest(id, name, true)"
           />
         </template>
         <template #tab-observer>
@@ -417,6 +436,8 @@
         v-else
         v-bind="presenceProps"
         @update-display-name="onUpdateGuestDisplayName"
+        @remove-guest="(id, name) => moderateGuest(id, name, false)"
+        @ban-guest="(id, name) => moderateGuest(id, name, true)"
       />
     </SDrawer>
 
@@ -493,6 +514,7 @@ import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useTransientSurfaces } from '../composables/useTransientSurfaces'
+import { useGuestModeration } from '../composables/useGuestModeration'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
 import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ChatroomMember, type ExportOptions, type ReleaseBody } from '../api'
@@ -935,6 +957,9 @@ const {
   () => roomQuery.data.value?.is_moderator ?? false,
 )
 
+const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
+const { moderateGuest } = useGuestModeration(chatroomId)
+
 // New authors appear over the room's lifetime via WebSocket. When a user message
 // arrives from a sender the roster doesn't name yet, refetch it once for that id
 // so the author label resolves instead of staying a truncated id. Tracking
@@ -1090,6 +1115,7 @@ const guestSessionStore = useGuestSessionStore()
 const CLOSE_AUTH_FAILED = 4401
 const CLOSE_GUEST_DISABLED = 4403
 const CLOSE_ROOM_GONE = 4404
+const CLOSE_GUEST_REMOVED = 4408
 
 // A member has no guest session to record the end on, so the view holds it.
 const roomGoneForMember = ref(false)
@@ -1108,6 +1134,15 @@ const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
   if (!holdsGuestContext.value) return
   if (code === CLOSE_AUTH_FAILED) void refreshAccessToken()
   else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
+  else if (code === CLOSE_GUEST_REMOVED) guestSessionStore.markRemoved()
+})
+
+// The room learns of a removal before the socket's next access re-check; every
+// client receives the frame, and only the named session acts on it ([R13.07a]).
+wsChannel.subscribe('chatroom.guest_removed', (ev) => {
+  if (holdsGuestContext.value && guestSessionId.value && ev.guest_session_id === guestSessionId.value) {
+    guestSessionStore.markRemoved()
+  }
 })
 
 /** How this tab's guest session in this room ended, or null while it lives. */
@@ -1236,6 +1271,16 @@ const typers = computed(() => {
     .map((uid) => ({ name: userNames.value[uid] ?? uid.slice(0, 8), isGuest: isGuestAuthor(uid) }))
 })
 
+// Only anonymous sessions are removable here; a registered guest (`room_guest`)
+// is out of scope ([R13.07a], spec Q-6).
+const rosterSessionIds = computed(() => {
+  const ids = new Set<string>()
+  for (const m of membersQuery.data.value ?? []) {
+    if (m.kind === 'guest_session') ids.add(m.user_id)
+  }
+  return ids
+})
+
 const onlineUsers = computed(() => {
   const set = store.presence[chatroomId]
   if (!set) return []
@@ -1244,6 +1289,7 @@ const onlineUsers = computed(() => {
     isYou: id === viewerId.value,
     displayName: userNames.value[id] ?? null,
     isGuest: isGuestAuthor(id),
+    removable: isModerator.value && id !== viewerId.value && rosterSessionIds.value.has(id),
   }))
 })
 

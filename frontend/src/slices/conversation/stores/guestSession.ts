@@ -34,10 +34,24 @@ export const useGuestSessionStore = defineStore('guestSession', () => {
     markGuestSessionEnded('gone')
   }
 
+  function markRemoved(): void {
+    markGuestSessionEnded('removed')
+  }
+
   function clear(): void {
     guestToken.value = null
     chatroomId.value = null
   }
 
-  return { guestToken, chatroomId, sessionState, rejoinUrl, setGuestToken, markDisabled, markGone, clear }
+  return {
+    guestToken,
+    chatroomId,
+    sessionState,
+    rejoinUrl,
+    setGuestToken,
+    markDisabled,
+    markGone,
+    markRemoved,
+    clear,
+  }
 })
