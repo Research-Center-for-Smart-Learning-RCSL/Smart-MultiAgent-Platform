@@ -65,7 +65,7 @@ from contexts.conversation.infrastructure.repositories import (
     ObservationRepository,
 )
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
-from contexts.conversation.interfaces.facade import ConversationFacade, MessageAttachment
+from contexts.conversation.interfaces.facade import ConversationFacade, MessageAttachment, RoomGuests
 from contexts.identity.interfaces import user_channel
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
@@ -364,8 +364,18 @@ def _parse_approval_id(note: dict[str, Any]) -> uuid.UUID | None:
 _PARTICIPANT_LABEL_NOTE = (
     "Messages from other participants are prefixed with the speaker's name as "
     '"Name: message". Use these names to tell participants apart. When you reply, '
-    "write only your own message content -- never prefix it with your own name."
+    "write only your own message content -- never prefix it with your own name. "
+    'The platform appends "(guest)" to the name of everyone who joined through the '
+    "room's guest link, whatever name they chose, so a guest cannot drop it; a name "
+    "without it is not thereby verified."
 )
+
+# Appended by the platform to the label of every guest identity ([R13.33]): an
+# anonymous session, or a registered guest holding no role in the room's project.
+# Applied after `_one_line_label`, so neither truncation nor the quote strip can
+# reach it, and decided from the participant's identity, never from the name: a
+# guest who calls themselves "Teacher (guest)" reads as "Teacher (guest) (guest)".
+GUEST_LABEL_MARKER = " (guest)"
 
 # The half a name cannot carry. A label is either the account's display name or a
 # room guest label, and both are chosen by the person wearing them: two
@@ -400,7 +410,10 @@ def _participant_note(owner_label: str | None) -> str:
 # teacher's name, which is this platform's common case and not its edge, it
 # under-counted the fixed context by up to 75 tokens. Worst case has to be
 # measured in the unit the consumer subtracts.
-_PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL)
+#
+# The marker is counted too: a creator who is no longer a project member but still
+# holds a guest row is a guest identity, and their owner label carries it.
+_PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER)
 
 
 def _one_line_label(label: str) -> str:
@@ -421,6 +434,15 @@ def _one_line_label(label: str) -> str:
     it.
     """
     return " ".join(label.replace('"', "").split())
+
+
+def _marked_label(label: str, *, is_guest: bool) -> str:
+    """``label`` (already one-lined) with the guest marker when it names a guest.
+
+    An empty label stays empty: it renders no "Name:" prefix at all, so there is
+    no name to mark and nothing it could present as.
+    """
+    return f"{label}{GUEST_LABEL_MARKER}" if is_guest and label else label
 
 
 def _resolve_provider_and_model(agent: Agent) -> tuple[ApiKeyProvider, str]:
@@ -2693,7 +2715,7 @@ class TurnEngine:
             # Fetched once and handed to all three label consumers below (activity
             # legend, owner note, transcript prefixes), which otherwise each pay
             # their own round trip for the same roster.
-            guests = await self._room_guest_names(chatroom_id)
+            guests = await self._room_guests(chatroom_id)
             activity_block = await self._activity_context(chatroom_id, guests=guests)
             canvas_block = await self._canvas_context(chatroom_id, agent_id=agent.id)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
@@ -3562,7 +3584,7 @@ class TurnEngine:
         chatroom_id: uuid.UUID,
         history: list[tx.HistoryMessage],
         *,
-        guests: Mapping[uuid.UUID, str | None] | None = None,
+        guests: RoomGuests | None = None,
     ) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, str]]:
         """Resolve ``(agent_id -> name, user_id -> label)`` for labelling.
 
@@ -3586,32 +3608,29 @@ class TurnEngine:
         user_names = await self._room_user_labels(chatroom_id, list(user_ids), guests=guests)
         return agent_names, user_names
 
-    async def _room_guest_names(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str | None]:
-        """``{sender id: guest label}`` for the room, fetched once per turn.
+    async def _room_guests(self, chatroom_id: uuid.UUID) -> RoomGuests:
+        """The room's guest labels and guest identities, fetched once per turn.
 
         Covers both kinds of guest: a registered guest's per-room label (keyed by
         ``users.id``) and an anonymous guest's session name (keyed by
-        ``guest_sessions.id``, which is the ``sender_id`` of its messages). The two
-        id spaces are independent random UUIDs, so the merge cannot collide.
+        ``guest_sessions.id``, which is the ``sender_id`` of its messages).
         Without the session names every anonymous guest reached the model as the
-        same speaker, ``Guest`` ([R13.33]).
+        same speaker, ``Guest`` ([R13.33]). ``identity_ids`` says whose label
+        carries the guest marker.
 
         Three consumers share it (transcript labels, the activity legend, the
-        owner note). The map is passed down rather than cached on the engine: an
-        arq job builds one engine and runs several agents through it, so an
-        instance cache would hold a stale roster across turns minutes apart.
+        owner note). It is passed down rather than cached on the engine: an arq
+        job builds one engine and runs several agents through it, so an instance
+        cache would hold a stale roster across turns minutes apart.
         """
-        conversation = ConversationFacade(self._db)
-        registered = {g.user_id: g.display_name for g in await conversation.list_guests(chatroom_id)}
-        sessions: dict[uuid.UUID, str | None] = dict(await conversation.guest_session_labels(chatroom_id))
-        return {**sessions, **registered}
+        return await ConversationFacade(self._db).room_guests(chatroom_id)
 
     async def _room_user_labels(
         self,
         chatroom_id: uuid.UUID,
         user_ids: Sequence[uuid.UUID],
         *,
-        guests: Mapping[uuid.UUID, str | None] | None = None,
+        guests: RoomGuests | None = None,
     ) -> dict[uuid.UUID, str]:
         """``{user_id: label}`` for the *transcript*, in the precedence above.
 
@@ -3620,14 +3639,20 @@ class TurnEngine:
         own display names go through a control-character strip), so without this a
         guest can open a second line inside a rendered turn — as a "Name:" prefix
         in the message stream, and, since the activity legend and the owner note
-        were added, inside the system prompt itself.
+        were added, inside the system prompt itself. A guest identity's label then
+        gets the guest marker; a purged session is no longer one and stays the
+        generic ``Guest``.
         """
         if not user_ids:
             return {}
-        guest_names = guests if guests is not None else await self._room_guest_names(chatroom_id)
+        roster = guests if guests is not None else await self._room_guests(chatroom_id)
+        guest_names, marked = roster.labels, roster.identity_ids
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
         return {
-            uid: _one_line_label(guest_names.get(uid) or account_labels.get(uid) or "Guest")
+            uid: _marked_label(
+                _one_line_label(guest_names.get(uid) or account_labels.get(uid) or "Guest"),
+                is_guest=uid in marked,
+            )
             for uid in user_ids
         }
 
@@ -3636,7 +3661,7 @@ class TurnEngine:
         chatroom_id: uuid.UUID,
         user_ids: Sequence[uuid.UUID],
         *,
-        guests: Mapping[uuid.UUID, str | None] | None = None,
+        guests: RoomGuests | None = None,
     ) -> dict[uuid.UUID, str]:
         """``{user_id: display name}`` for the *system prompt*. No email, no filler.
 
@@ -3657,20 +3682,21 @@ class TurnEngine:
         """
         if not user_ids:
             return {}
-        guest_names = guests if guests is not None else await self._room_guest_names(chatroom_id)
+        roster = guests if guests is not None else await self._room_guests(chatroom_id)
+        guest_names, marked = roster.labels, roster.identity_ids
         display = await IdentityFacade(self._db).get_display_names(list(user_ids))
         resolved = {}
         for uid in user_ids:
             label = guest_names.get(uid) or display.get(uid)
             if label:
-                resolved[uid] = _one_line_label(label)
+                resolved[uid] = _marked_label(_one_line_label(label), is_guest=uid in marked)
         return resolved
 
     async def _room_owner_label(
         self,
         chatroom_id: uuid.UUID,
         *,
-        guests: Mapping[uuid.UUID, str | None] | None = None,
+        guests: RoomGuests | None = None,
     ) -> str | None:
         """The room creator's display name, or ``None`` when there isn't one.
 
@@ -4393,7 +4419,7 @@ class TurnEngine:
         self,
         chatroom_id: uuid.UUID,
         *,
-        guests: Mapping[uuid.UUID, str | None] | None = None,
+        guests: RoomGuests | None = None,
     ) -> str | None:
         """Delegate to the activities :class:`ActivityContextProvider` (R30.15).
 
