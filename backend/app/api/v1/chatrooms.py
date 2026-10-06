@@ -218,6 +218,9 @@ class AgentActivityControlIn(BaseModel):
 class ChatroomMemberOut(BaseModel):
     user_id: uuid.UUID
     display_name: str | None
+    # Decided by who the participant is, never by the name ([R13.33]). The two
+    # guest kinds stay apart because only a session can be removed from a room.
+    kind: Literal["member", "guest_session", "room_guest"]
 
 
 def _to_out(
@@ -1197,33 +1200,37 @@ async def list_chatroom_members(
     """Resolve human participants to display names so the client can label
     message authors (REST history + live WS messages share one map).
 
-    Only ``user_id`` + ``display_name`` is returned — never email — so a room
+    Only ``user_id``, ``display_name`` and ``kind`` are returned — never email — so a room
     member (including a guest) cannot harvest other participants' login
     identifiers. The id set is the union of distinct human message authors,
     enrolled registered guests, and the room's anonymous guest sessions; a
     registered guest's per-room display name takes precedence over their account
     display name. Names left unset resolve to ``null`` and the client falls back
     to a short id. Gated like the messages it labels ([R13.32]).
+
+    ``kind`` marks guest identities ([R13.33]): every anonymous session, and a
+    registered guest holding no role in the room's project.
     """
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     conv = ConversationFacade(db)
-    guest_names = {g.user_id: g.display_name for g in await conv.list_guests(chatroom_id)}
+    guests = await conv.room_guests(chatroom_id)
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
-    all_ids = sender_ids | set(guest_names)
+    all_ids = sender_ids | set(guests.registered)
     account_names = await IdentityFacade(db).get_display_names(list(all_ids))
     members = [
         ChatroomMemberOut(
             user_id=uid,
-            display_name=prefer_guest_label(guest_names.get(uid), account_names.get(uid)),
+            display_name=prefer_guest_label(guests.registered.get(uid), account_names.get(uid)),
+            kind="room_guest" if uid in guests.unaffiliated else "member",
         )
         for uid in all_ids
     ]
     # Session ids and user ids are independent random UUIDs, so the two sets
     # cannot collide; the session's name needs no identity lookup.
     members.extend(
-        ChatroomMemberOut(user_id=sid, display_name=name)
-        for sid, name in (await conv.guest_session_labels(chatroom_id)).items()
+        ChatroomMemberOut(user_id=sid, display_name=name, kind="guest_session")
+        for sid, name in guests.sessions.items()
     )
     return members
 
