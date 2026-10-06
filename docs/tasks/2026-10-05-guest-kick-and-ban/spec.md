@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R6.12, R6.13, R13.06, R13.07, R13.33, R17.01]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle, 2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]
@@ -204,22 +204,22 @@ guest's in-flight request that has already passed the check completes.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: after a moderator removes a guest, every HTTP request, socket and refresh of that session is
+- [x] AC-1: after a moderator removes a guest, every HTTP request, socket and refresh of that session is
   refused with `conversation/guest-removed`, open sockets close within one watchdog interval (4408), and
   the guest's client shows the removed banner immediately on the room event.
-- [ ] AC-2: a removed but unbanned guest can rejoin through the link as a new session.
-- [ ] AC-3: a banned guest cannot rejoin from the same browser until unbanned: a reload or new tab lands
+- [x] AC-2: a removed but unbanned guest can rejoin through the link as a new session.
+- [x] AC-3: a banned guest cannot rejoin from the same browser until unbanned: a reload or new tab lands
   on the room's removed banner, and opening the link again shows the landing page's cannot-join state.
-- [ ] AC-3a: removed sessions do not count toward the per-room guest cap.
-- [ ] AC-4: bans survive the 30-day guest-session purge and appear in room settings; unban restores
+- [x] AC-3a: removed sessions do not count toward the per-room guest cap.
+- [x] AC-4: bans survive the 30-day guest-session purge and appear in room settings; unban restores
   joining.
-- [ ] AC-5: rotating the guest link makes the old link refuse new entries while joined guests keep
+- [x] AC-5: rotating the guest link makes the old link refuse new entries while joined guests keep
   working; the settings view shows the new link.
 - [x] AC-6: only Project Owners, Org Owners and Admins of the room can remove, ban, unban, list bans or
   rotate; others get 403, and ids from another room 404.
-- [ ] AC-7: the removed guest's past messages remain with their labels.
-- [ ] AC-8: each action writes its audit row with the moderator as actor.
-- [ ] AC-9: migration applies and downgrades cleanly; backend and frontend lint, typecheck, tests (db
+- [x] AC-7: the removed guest's past messages remain with their labels.
+- [x] AC-8: each action writes its audit row with the moderator as actor.
+- [x] AC-9: migration applies and downgrades cleanly; backend and frontend lint, typecheck, tests (db
   tier included), OpenAPI drift, build and e2e pass in CI.
 
 ## 12. Test Plan
@@ -277,10 +277,11 @@ presence actions target `guest_session` rows only.
 
 ## 15. Deviation Log
 
-Verification state at the time of writing: backend unit suite (11289 passed), ruff, mypy, the
-frontend suite (one unrelated flake, FU-12), lint, typecheck and build ran locally. The db tier (8
-new tests, migration round trip included) and the e2e additions need the CI stack, so AC-1..AC-5,
-AC-7..AC-9 stay unchecked until a CI run passes; AC-6 is fully covered by unit tests.
+Verified on PR #238, CI green at `3d9483a6`: the db tier ran 267 tests against the base branch's 259
+(the 8 new ones, migration round trip included, with the same 4 unrelated skips), e2e 126 passed
+against 123, and every other gate passed. Locally: backend unit suite (11289 passed), ruff, mypy,
+frontend lint, typecheck, build and tests (one unrelated flake, FU-12). Not observed on a running
+stack outside CI's e2e.
 
 - **D-1.** `GuestRemoved` subclasses `ForbiddenInRoom` (§6 named only the problem type). Callers that
   already treat `ForbiddenInRoom` as a denial keep refusing a removed guest; without it the knowledge
