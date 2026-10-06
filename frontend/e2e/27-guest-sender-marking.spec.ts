@@ -14,7 +14,7 @@ import { env } from './fixtures/seed'
 const DISPLAY_NAME = /Display Name/
 const ENTER_CHATROOM = 'Enter Chatroom'
 const COMPOSER_PLACEHOLDER = /^Type a message/
-const GUEST_NAME = 'E2E Ms Lin'
+const FALLBACK_OWNER_NAME = 'E2E Ms Lin'
 
 // Shares the seeded room's guest-link flag with 26-guest-session-lifecycle; the
 // suite runs on one worker, and each spec turns the flag off when it is done.
@@ -60,6 +60,25 @@ async function send(composer: Locator, text: string): Promise<void> {
   await composer.getByRole('button', { name: 'Send' }).click()
 }
 
+/**
+ * The seeded owner's display name (global-setup creates the room as the seed
+ * user), setting one when the account has none so a collision is possible.
+ * Returns the name and how to put the account back.
+ */
+async function ownerName(api: APIRequestContext): Promise<{ name: string; restore: () => Promise<void> }> {
+  const auth = await bearerFor(api)
+  const me = (await (await api.get('/api/auth/me', { headers: auth })).json()) as { display_name: string | null }
+  if (me.display_name) return { name: me.display_name, restore: async () => {} }
+  const set = await api.patch('/api/auth/me', { headers: auth, data: { display_name: FALLBACK_OWNER_NAME } })
+  expect(set.ok(), `PATCH /api/auth/me -> ${set.status()}`).toBe(true)
+  return {
+    name: FALLBACK_OWNER_NAME,
+    restore: async () => {
+      await api.patch('/api/auth/me', { headers: await bearerFor(api), data: { display_name: null } })
+    },
+  }
+}
+
 function bubble(page: Page, text: string): Locator {
   return page.getByRole('log').locator('li.bubble-row').filter({ hasText: text })
 }
@@ -78,12 +97,14 @@ test.describe('Guest sender marking', () => {
     if (id) await setGuestLinks(request, id, false)
   })
 
-  test('a member sees a guest badged everywhere, and their own message unbadged', async ({
+  test('the owner sees a guest using their name badged everywhere, and their own message unbadged', async ({
     authedPage: member,
     browser,
     request,
   }) => {
     const link = await guestLinkPath(request, roomId)
+    const owner = await ownerName(request)
+    const GUEST_NAME = owner.name
     await wide(member)
     await member.goto(`/chatrooms/${roomId}`)
     const memberComposer = await liveComposer(member)
@@ -108,8 +129,11 @@ test.describe('Guest sender marking', () => {
       await expect(bubble(member, fromMember)).toBeVisible({ timeout: 15_000 })
       await expect(bubble(member, fromMember).getByTestId('bubble-guest-badge')).toHaveCount(0)
 
-      const guestRow = member.locator('.chatroom__presence .presence-user').filter({ hasText: GUEST_NAME })
-      await expect(guestRow.getByTestId('presence-guest-badge')).toBeVisible({ timeout: 15_000 })
+      // Both rows read the same name; only the guest's carries the badge.
+      const rows = member.locator('.chatroom__presence .presence-user').filter({ hasText: GUEST_NAME })
+      await expect(rows).toHaveCount(2, { timeout: 15_000 })
+      await expect(rows.getByTestId('presence-guest-badge')).toHaveCount(1)
+      await expect(rows.filter({ hasText: '(you)' }).getByTestId('presence-guest-badge')).toHaveCount(0)
 
       // Typing frames expire on the receiving side, so type until the line shows.
       const textbox = guestComposer.getByRole('textbox', { name: COMPOSER_PLACEHOLDER })
@@ -117,6 +141,7 @@ test.describe('Guest sender marking', () => {
       await expect(member.locator('.typing')).toContainText(`${GUEST_NAME} (guest)`, { timeout: 10_000 })
     } finally {
       await ctx.close()
+      await owner.restore()
     }
   })
 })
