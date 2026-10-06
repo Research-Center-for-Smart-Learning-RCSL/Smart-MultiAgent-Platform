@@ -21,7 +21,7 @@ from contexts.conversation.application.guest_session_service import (
     GuestRenameResult,
     GuestSessionResult,
 )
-from contexts.conversation.application.room_guests import RoomGuests, load_room_guests
+from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AgentObservation,
@@ -422,11 +422,7 @@ class ConversationFacade:
         room as "no authority", and an exception would have to be caught and turned
         back into exactly that.
         """
-        room = await self._rooms.get(chatroom_id)
-        if room is None:
-            return None
-        workspace = await self._workspaces.get(room.workspace_id)
-        return workspace.project_id if workspace is not None else None
+        return await project_id_for_room(self._db, chatroom_id)
 
     async def agent_role_in_chatroom(
         self,

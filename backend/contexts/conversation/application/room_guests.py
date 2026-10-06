@@ -26,9 +26,10 @@ from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 class RoomGuests:
     # Anonymous guest session id (its messages' sender_id) -> chosen name.
     sessions: dict[uuid.UUID, str]
-    # Every `chatroom_guests` row: user id -> room label. Includes members who
-    # enrolled through the link before enrolment skipped them; their room label
-    # still wins the label precedence, but they are not guest identities.
+    # Every `chatroom_guests` row: user id -> room label. Includes project members
+    # holding a row (enrolled before enrolment skipped readers, or in a room whose
+    # flags exclude them); their room label still wins the label precedence, but
+    # they are not guest identities.
     registered: dict[uuid.UUID, str | None]
     # The registered guests who are guest identities: no role in the room's
     # project and not a platform admin.
@@ -59,7 +60,7 @@ async def load_room_guests(db: AsyncSession, chatroom_id: uuid.UUID) -> RoomGues
 async def _unaffiliated(db: AsyncSession, chatroom_id: uuid.UUID, user_ids: set[uuid.UUID]) -> set[uuid.UUID]:
     if not user_ids:
         return set()
-    project_id = await _project_id(db, chatroom_id)
+    project_id = await project_id_for_room(db, chatroom_id)
     # A room whose project chain is broken is unreadable to everyone, so there is
     # no one to mislead; marking every registered guest is the fail-closed reading.
     holders = (
@@ -71,7 +72,8 @@ async def _unaffiliated(db: AsyncSession, chatroom_id: uuid.UUID, user_ids: set[
     return user_ids - holders - admins
 
 
-async def _project_id(db: AsyncSession, chatroom_id: uuid.UUID) -> uuid.UUID | None:
+async def project_id_for_room(db: AsyncSession, chatroom_id: uuid.UUID) -> uuid.UUID | None:
+    """The project a live room belongs to, or ``None`` when the chain is broken."""
     room = await ChatroomRepository(db).get(chatroom_id)
     if room is None:
         return None
@@ -79,4 +81,4 @@ async def _project_id(db: AsyncSession, chatroom_id: uuid.UUID) -> uuid.UUID | N
     return workspace.project_id if workspace is not None else None
 
 
-__all__ = ["RoomGuests", "load_room_guests"]
+__all__ = ["RoomGuests", "load_room_guests", "project_id_for_room"]

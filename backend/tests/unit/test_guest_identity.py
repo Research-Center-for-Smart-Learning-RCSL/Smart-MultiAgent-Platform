@@ -156,7 +156,7 @@ class TestRoomGuests:
         monkeypatch.setattr(room_guests_mod, "ChatroomGuestRepository", _Guests)
         monkeypatch.setattr(room_guests_mod, "TenancyRoleResolver", _Resolver)
         monkeypatch.setattr(room_guests_mod, "IdentityFacade", _Identity)
-        monkeypatch.setattr(room_guests_mod, "_project_id", _pid)
+        monkeypatch.setattr(room_guests_mod, "project_id_for_room", _pid)
         out = await room_guests_mod.load_room_guests(object(), uuid.uuid4())  # type: ignore[arg-type]
         if not registered:
             assert asked == []
