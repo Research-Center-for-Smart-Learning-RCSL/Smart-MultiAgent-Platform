@@ -373,7 +373,14 @@ async def _room_readable(
     `ForbiddenInRoom`, for the reason `visible_room_ids` gives: one predicate,
     no second copy of the tier logic. Admin is the caller's business — both
     public entry points below bypass before reaching here.
+
+    A guest's token names one room, and the guest branch of
+    `resolve_room_access` raises `ForbiddenInRoom` for any other; that is a
+    "not readable" here, so a single read answers 404 and a listing omits the
+    row rather than failing whole ([R15.24]).
     """
+    if principal.is_guest and principal.chatroom_id != chatroom_id:
+        return False
     try:
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     except (ChatroomNotFound, WorkspaceNotFound):

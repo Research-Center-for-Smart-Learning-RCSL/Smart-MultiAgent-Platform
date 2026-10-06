@@ -121,6 +121,12 @@ def _patch_canvas(monkeypatch: pytest.MonkeyPatch, resolve: Any, captured: dict[
     _patch_route(monkeypatch, canvas_mod, resolve, captured)
     monkeypatch.setattr(canvas_mod, "CanvasRepository", _Canvases)
 
+    async def editors(*_a: object) -> int:
+        return 1
+
+    monkeypatch.setattr(canvas_mod, "_register_editor", editors)
+    monkeypatch.setattr(canvas_mod, "_unregister_editor", editors)
+
 
 # -- handshake --
 

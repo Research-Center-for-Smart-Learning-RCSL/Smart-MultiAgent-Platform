@@ -207,7 +207,9 @@ async def _session_ids(sessionmaker: async_sessionmaker[AsyncSession], room: Roo
         return list(
             (
                 await read.execute(
-                    sa.select(ct.guest_sessions.c.id).where(ct.guest_sessions.c.chatroom_id == room.chatroom_id)
+                    sa.select(ct.guest_sessions.c.id).where(
+                        ct.guest_sessions.c.chatroom_id == room.chatroom_id
+                    )
                 )
             )
             .scalars()
@@ -304,7 +306,9 @@ class TestRefreshRotation:
         async with sessionmaker() as session:
             joined = await _join(room, "Ann")(session)
             await session.execute(
-                ct.chatrooms.update().where(ct.chatrooms.c.id == room.chatroom_id).values(allow_guest_links=False)
+                ct.chatrooms.update()
+                .where(ct.chatrooms.c.id == room.chatroom_id)
+                .values(allow_guest_links=False)
             )
             await session.commit()
 
@@ -315,7 +319,9 @@ class TestRefreshRotation:
 
         async with sessionmaker() as session:
             await session.execute(
-                ct.chatrooms.update().where(ct.chatrooms.c.id == room.chatroom_id).values(allow_guest_links=True)
+                ct.chatrooms.update()
+                .where(ct.chatrooms.c.id == room.chatroom_id)
+                .values(allow_guest_links=True)
             )
             await session.commit()
         async with sessionmaker() as session:
@@ -398,7 +404,9 @@ async def _rows(sessionmaker: async_sessionmaker[AsyncSession], actor: uuid.UUID
         return list(
             (
                 await read.execute(
-                    sa.select(audit_logs.c.action, audit_logs.c.metadata).where(audit_logs.c.actor_user_id == actor)
+                    sa.select(audit_logs.c.action, audit_logs.c.metadata).where(
+                        audit_logs.c.actor_user_id == actor
+                    )
                 )
             ).all()
         )
@@ -440,7 +448,9 @@ class TestGuestAuditTrail:
                 json={"completed": True},
             )
             assert completed.status_code == 200, completed.text
-            closed = await client.patch(f"/api/chatrooms/{cid}/activity-sessions/{completed.json()['id']}/close")
+            closed = await client.patch(
+                f"/api/chatrooms/{cid}/activity-sessions/{completed.json()['id']}/close"
+            )
             assert closed.status_code == 200, closed.text
             deleted = await client.delete(f"/api/messages/{sent.json()['id']}")
             assert deleted.status_code == 204, deleted.text
@@ -484,7 +494,9 @@ class TestGuestAuditTrail:
         cid = room.chatroom_id
         request_id = uuid.uuid4()
         async with _client(_app(sessionmaker, None, request_id=request_id)) as public:
-            joined = await public.post(f"/api/guest/{cid}/{_GUEST_TOKEN}/session", json={"display_name": "Ann"})
+            joined = await public.post(
+                f"/api/guest/{cid}/{_GUEST_TOKEN}/session", json={"display_name": "Ann"}
+            )
             assert joined.status_code == 200, joined.text
             refreshed = await public.post(f"/api/guest/{cid}/refresh")
             assert refreshed.status_code == 200, refreshed.text
@@ -508,7 +520,9 @@ class TestGuestAuditTrail:
     ) -> None:
         cid = room.chatroom_id
         async with _client(_app(sessionmaker, None)) as public:
-            joined = await public.post(f"/api/guest/{cid}/{_GUEST_TOKEN}/session", json={"display_name": "Ann"})
+            joined = await public.post(
+                f"/api/guest/{cid}/{_GUEST_TOKEN}/session", json={"display_name": "Ann"}
+            )
             guest_id = uuid.UUID(joined.json()["guest_session_id"])
         async with _client(_app(sessionmaker, _guest(guest_id, room))) as client:
             sent = await client.post(f"/api/chatrooms/{cid}/messages", json={"content_md": "hello"})

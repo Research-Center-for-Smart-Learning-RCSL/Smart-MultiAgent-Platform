@@ -72,7 +72,9 @@ def dead_room(request: pytest.FixtureRequest) -> Iterator[uuid.UUID]:
             patch.object(
                 TenancyFacade,
                 "get_project",
-                AsyncMock(return_value=None if request.param == "project" else SimpleNamespace(id=uuid.uuid4())),
+                AsyncMock(
+                    return_value=None if request.param == "project" else SimpleNamespace(id=uuid.uuid4())
+                ),
             )
         )
         for name, value in (
@@ -100,7 +102,9 @@ async def test_refreshing_in_a_dead_room_is_an_invalid_link(dead_room: uuid.UUID
 
 
 async def test_a_ticket_for_a_dead_room_is_refused(dead_room: uuid.UUID) -> None:
-    guest = Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=False, is_guest=True, chatroom_id=dead_room)
+    guest = Principal(
+        user_id=uuid.uuid4(), is_admin=False, email_verified=False, is_guest=True, chatroom_id=dead_room
+    )
     mint = AsyncMock(return_value=("ticket", 30))
     with patch("shared_kernel.realtime.mint_ws_ticket", mint), pytest.raises(ChatroomNotFound):
         await guests_route.guest_ws_ticket(
@@ -115,7 +119,10 @@ async def test_a_ticket_for_a_dead_room_is_refused(dead_room: uuid.UUID) -> None
 
 
 async def test_joining_a_missing_room_answers_like_a_wrong_link() -> None:
-    with patch.object(ChatroomRepository, "get", AsyncMock(return_value=None)), pytest.raises(GuestTokenInvalid):
+    with (
+        patch.object(ChatroomRepository, "get", AsyncMock(return_value=None)),
+        pytest.raises(GuestTokenInvalid),
+    ):
         await GuestSessionService(AsyncMock()).create_or_resume(
             chatroom_id=uuid.uuid4(), guest_token="any-token", display_name="Ann"
         )

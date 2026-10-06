@@ -18,6 +18,7 @@ forgotten when a new WS endpoint is added.
 from __future__ import annotations
 
 import asyncio
+import enum
 import json
 import time
 import uuid
@@ -80,6 +81,9 @@ _AUTH_RECHECK_SECONDS = 30.0
 # per-request ACL guarantee the HTTP path upholds.
 _ROOM_REAUTH_EVERY_N_TICKS = 2  # ~60s at the 30s watchdog tick
 _CLOSE_FORBIDDEN = 4403  # app-level code — access revoked mid-socket (see §22.14)
+# App-level code for a resource that no longer exists, e.g. a room whose
+# workspace or project was deleted. The client stops reconnecting on it.
+_CLOSE_NOT_FOUND = 4404
 # ASYNC-7: a connection refreshes its heartbeat score in the per-user cap ZSET
 # on every inbound frame. A score older than this — deliberately longer than
 # the idle timeout, so a live connection is always fresh — means the owning
@@ -90,6 +94,34 @@ _CONN_STALE_SECONDS = 300
 # return between frames before it is force-cancelled — bounding the wait so a
 # writer wedged on a half-open socket cannot stall connection teardown.
 _WRITER_DRAIN_GRACE_SECONDS = 2.0
+
+
+class AccessOutcome(enum.Enum):
+    """What an endpoint's access probe found: the caller may stay, is no longer
+    allowed, or the resource is gone. Distinct close codes let the client tell
+    "you lost access" from "this no longer exists"."""
+
+    ALLOWED = "allowed"
+    FORBIDDEN = "forbidden"
+    GONE = "gone"
+
+
+_REFUSAL_CODES = {
+    AccessOutcome.FORBIDDEN: (_CLOSE_FORBIDDEN, "access denied"),
+    AccessOutcome.GONE: (_CLOSE_NOT_FOUND, "not found"),
+}
+
+
+async def refuse_after_accept(ws: WebSocket, subprotocol: str, outcome: AccessOutcome) -> None:
+    """Refuse a handshake with the outcome's close code.
+
+    Accepted first: a close before ``accept`` reaches the browser as 1006 and the
+    code is lost. Only for a caller whose subprotocol is known -- an
+    authentication failure has none to echo and stays a pre-accept 4401.
+    """
+    code, reason = _REFUSAL_CODES[outcome]
+    await ws.accept(subprotocol=subprotocol)
+    await ws.close(code=code, reason=reason)
 
 
 def _user_connections_key(user_id: uuid.UUID) -> str:
@@ -189,7 +221,7 @@ async def connection_loop(
     on_close: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
     on_heartbeat: Callable[[ChannelConnection], Awaitable[None]] | None = None,
-    authorize: Callable[[ChannelConnection], Awaitable[bool]] | None = None,
+    authorize: Callable[[ChannelConnection], Awaitable[bool | AccessOutcome]] | None = None,
     max_frame_bytes: int = _MAX_FRAME_BYTES,
 ) -> None:
     """Drive a single WS connection until it closes.
@@ -203,9 +235,13 @@ async def connection_loop(
     `on_heartbeat` (optional) runs on every inbound frame — used to refresh
     out-of-band liveness state such as room presence. `authorize` (optional) is
     re-run periodically by the auth watchdog so an endpoint whose access can be
-    revoked mid-socket (room ACL) tears the connection down on access loss; it
-    returns False to deny. Both are kept here (not imported from a context) so
-    `shared_kernel` stays free of context dependencies.
+    revoked mid-socket (room ACL) tears the connection down on access loss. It
+    returns an `AccessOutcome` (FORBIDDEN closes 4403, GONE 4404); a bare bool
+    is still read as ALLOWED / FORBIDDEN for endpoints with no "gone" state. A
+    probe that raises is retried next window, so an endpoint must map "the
+    resource no longer exists" to GONE rather than let it escape. Both are kept
+    here (not imported from a context) so `shared_kernel` stays free of context
+    dependencies.
     """
     conn = ChannelConnection(
         ws=ws,
@@ -386,15 +422,22 @@ async def connection_loop(
             # this window and retries — same posture as the denylist probe.
             if authorize is not None and ticks % _ROOM_REAUTH_EVERY_N_TICKS == 0:
                 try:
-                    allowed = await authorize(conn)
+                    verdict = await authorize(conn)
                 except Exception:
                     logger.bind(
                         event="ws_reauth_check_error",
                         connection_id=str(conn.connection_id),
                     ).warning("ws room re-auth failed; retrying next window")
                 else:
-                    if not allowed:
+                    if verdict is True:
+                        verdict = AccessOutcome.ALLOWED
+                    elif verdict is False:
+                        verdict = AccessOutcome.FORBIDDEN
+                    if verdict is AccessOutcome.FORBIDDEN:
                         _request_close(_CLOSE_FORBIDDEN, "room access revoked")
+                        return
+                    if verdict is AccessOutcome.GONE:
+                        _request_close(_CLOSE_NOT_FOUND, "room no longer exists")
                         return
             jti = conn.token_jti
             if jti is None:
@@ -495,4 +538,4 @@ async def _cleanup(
     await _unregister_user_connection(conn.principal.user_id, conn.connection_id)
 
 
-__all__ = ["ChannelConnection", "connection_loop"]
+__all__ = ["AccessOutcome", "ChannelConnection", "connection_loop", "refuse_after_accept"]

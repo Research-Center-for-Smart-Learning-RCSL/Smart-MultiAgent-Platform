@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket
 
+from app.api.ws.room_access import room_read_outcome
 from contexts.canvas.application.crdt_relay import CrdtUpdateError, get_crdt_relay
 from contexts.canvas.infrastructure.channels import canvas_channel
 from contexts.canvas.infrastructure.repositories import CanvasRepository
@@ -25,15 +26,17 @@ from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
 )
-from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom
 from shared_kernel.auth.clients import get_redis
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime import (
+    AccessOutcome,
     ChannelConnection,
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
+    refuse_after_accept,
 )
 from shared_kernel.realtime.pubsub import Publisher
 
@@ -95,25 +98,27 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
         repo = CanvasRepository(session)
         canvas = await repo.get(canvas_id)
         if canvas is None:
-            await ws.close(code=4404)
+            await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.GONE)
             return
         chatroom_id = canvas.chatroom_id
-
-        try:
-            access = await resolve_room_access(
-                session,
-                principal=auth.principal,
-                chatroom_id=chatroom_id,
-            )
-            ensure_can_read(access, is_admin=auth.principal.is_admin)
-        except (ChatroomNotFound, ForbiddenInRoom):
-            await ws.close(code=4403)
-            return
-
         crdt_state = canvas.crdt_state
         legacy_objects = None
         if crdt_state is None:
             legacy_objects = await repo.list_objects(canvas_id)
+
+    async def _check_read(principal: Principal) -> None:
+        async with sm() as session, session.begin():
+            access = await resolve_room_access(
+                session,
+                principal=principal,
+                chatroom_id=chatroom_id,
+            )
+            ensure_can_read(access, is_admin=principal.is_admin)
+
+    outcome = await room_read_outcome(lambda: _check_read(auth.principal))
+    if outcome is not AccessOutcome.ALLOWED:
+        await refuse_after_accept(ws, auth.subprotocol, outcome)
+        return
 
     # Editor cap check ([R13.53]) -- before connection_loop so the close code
     # is ours (4009), not connection_loop's generic 1008.
@@ -264,18 +269,8 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
             except Exception:
                 _log.warning("periodic flush failed for canvas %s", canvas_id, exc_info=True)
 
-    async def authorize(conn: ChannelConnection) -> bool:
-        try:
-            async with sm() as session, session.begin():
-                access = await resolve_room_access(
-                    session,
-                    principal=conn.principal,
-                    chatroom_id=chatroom_id,
-                )
-                ensure_can_read(access, is_admin=conn.principal.is_admin)
-            return True
-        except (ChatroomNotFound, ForbiddenInRoom):
-            return False
+    async def authorize(conn: ChannelConnection) -> AccessOutcome:
+        return await room_read_outcome(lambda: _check_read(conn.principal))
 
     await connection_loop(
         ws=ws,
