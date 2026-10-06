@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-05
 requirements: [R6.12, R13.06, R13.06a, R13.06b, R15.24]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle]

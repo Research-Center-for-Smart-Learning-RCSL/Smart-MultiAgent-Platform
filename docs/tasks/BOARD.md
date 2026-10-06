@@ -463,15 +463,6 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   rows that list this slug, `2026-10-05-guest-kick-and-ban` still waits on
   `2026-10-05-guest-session-backend-hardening`, so it stays in Blocked.
 
-- `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
-  `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. Audit F-14, F-15, F-16,
-  F-17, F-21: one guest audit shape for every guest-caused row, an advisory lock on joins (cap and
-  duplicate `browser_id`), dead workspace/project rooms as invalid links and a 4404 "room no longer
-  exists" close (also fixes a members-affecting socket fail-open), guest orchestration reads as
-  404/omitted, atomic refresh rotation. Also takes the lifecycle dossier's FU-7 (room existence
-  answered before the link or cookie check) and FU-9 (a deleted room's 404 ticket retries with no
-  banner).
-
 ## Blocked
 
 ### From the 2026-10-05 guest audit
@@ -670,6 +661,12 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-05-guest-session-backend-hardening` (bugfix, in progress since 2026-10-06 on
+  `fix/guest-session-backend-hardening`) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`,
+  implemented. Audit F-14, F-15, F-16, F-17, F-21, plus the lifecycle dossier's FU-7 and FU-9. Plan
+  approved with the audit shape extended to the conversation and activities siblings
+  (`message.deleted`, activity session completion and close); canvas rows are a follow-up.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).
