@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
@@ -14,6 +15,8 @@ from app.api.v1.deps import PaginationParams, require_if_match
 from app.api.v1.orchestration import ApprovalWithVotesOut, approval_with_votes_out
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
+    RoomAccess,
+    ensure_can_manage_guest_link,
     ensure_can_read,
     ensure_room_creator,
     is_moderator_roles,
@@ -1256,6 +1259,127 @@ async def read_guest_link(
     )
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    return GuestLinkOut(
+        url=f"{base}/g/{room.id}/{room.guest_token}",
+        chatroom_id=room.id,
+        guest_token=room.guest_token,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Guest moderation — R13.07a (remove / ban / unban) and R6.12 (link rotation).
+# All gated by matrix row 18 on the room's resolved roles.
+# --------------------------------------------------------------------------- #
+
+
+class GuestRemoveIn(BaseModel):
+    ban: bool = False
+
+
+class GuestBanOut(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    created_at: datetime
+
+
+async def _require_guest_moderator(
+    db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID
+) -> RoomAccess:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_manage_guest_link(access, principal=principal)
+    return access
+
+
+@chatroom_router.post(
+    "/{chatroom_id}/guests/{guest_session_id}/remove",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def remove_guest(
+    body: GuestRemoveIn,
+    chatroom_id: uuid.UUID = Path(...),
+    guest_session_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _require_guest_moderator(db, principal, chatroom_id)
+    result = await ConversationFacade(db).remove_guest(
+        chatroom_id=chatroom_id,
+        guest_session_id=guest_session_id,
+        ban=body.ban,
+        actor_user_id=principal.user_id,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if not result.changed:
+        return
+    # Ids only, like every room-channel frame: the channel has no per-recipient
+    # filtering, and only the named session's own client acts on it.
+    await db.commit()
+    payload = {"chatroom_id": str(chatroom_id), "guest_session_id": str(guest_session_id)}
+    for event, data in (
+        ("chatroom.guest_removed", payload),
+        ("chatroom.members_changed", {"chatroom_id": str(chatroom_id)}),
+    ):
+        try:
+            await Publisher(room_channel(chatroom_id)).emit(event, data)
+        except Exception:
+            # The removal is durable and the watchdog closes the guest's sockets
+            # within a window; a lost frame only delays the banner.
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(f"{event} emit failed")
+
+
+@chatroom_router.get("/{chatroom_id}/guest-bans")
+async def list_guest_bans(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[GuestBanOut]:
+    await _require_guest_moderator(db, principal, chatroom_id)
+    bans = await ConversationFacade(db).list_guest_bans(chatroom_id)
+    return [GuestBanOut(id=b.id, display_name=b.display_name, created_at=b.created_at) for b in bans]
+
+
+@chatroom_router.delete(
+    "/{chatroom_id}/guest-bans/{ban_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def unban_guest(
+    chatroom_id: uuid.UUID = Path(...),
+    ban_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    await _require_guest_moderator(db, principal, chatroom_id)
+    await ConversationFacade(db).unban_guest(
+        chatroom_id=chatroom_id,
+        ban_id=ban_id,
+        actor_user_id=principal.user_id,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
+@chatroom_router.post("/{chatroom_id}/guest-link/rotate")
+async def rotate_guest_link(
+    request: Request,
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> GuestLinkOut:
+    await _require_guest_moderator(db, principal, chatroom_id)
+    room = await ConversationFacade(db).rotate_guest_link(
+        chatroom_id=chatroom_id,
+        actor_user_id=principal.user_id,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await _emit_chatroom_updated(db, chatroom_id, room_visible=True, creator_user_id=room.created_by_user_id)
     base = f"{request.url.scheme}://{request.url.netloc}"
     return GuestLinkOut(
         url=f"{base}/g/{room.id}/{room.guest_token}",
