@@ -230,8 +230,9 @@ difference visible rather than preventing it.
   `chatroom_guests` row. (`test_guest_room_reads.py::TestRosterKind`,
   `test_guest_identity.py::TestEnrolment`; scope of the second half per D-3.)
 - [x] AC-4: in an agent turn, transcript prefixes and activity-legend entries for guest identities end
-  in ` (guest)`, applied after the one-line guard; members' labels do not; a purged session stays
-  `Guest`. (`test_turn_participant_note.py::TestGuestMarker`, `::TestRoomGuestNames`.)
+  in ` (guest)`, applied after the one-line guard; members' labels do not; a purged session ~~stays
+  `Guest`~~ reads as `Guest (guest)` (amended by D-7). (`test_turn_participant_note.py::TestGuestMarker`,
+  `::TestRoomGuestNames`.)
 - [x] AC-5: a guest named exactly as the room owner appears to the agent as `<Owner name> (guest)`,
   distinct from the owner's label, and the system note explains the marker.
   (`TestGuestMarker::test_a_guest_named_as_the_owner_reads_as_a_guest`,
@@ -317,7 +318,33 @@ Appended by /build.
   (`backend/tests/wiring/test_project_role_holders.py`), and an e2e spec
   (`frontend/e2e/27-guest-sender-marking.spec.ts`) is the Definition of Done's behavioural check,
   because the full stack could not be started on the build host (Docker not running); it runs in
-  CI's e2e job.
+  CI's e2e job. It passed against the compose stack on PR #233's first run (Actions run
+  37405290396, `frontend-e2e`: 124 passed, 29 skipped; spec 27 outcome `expected` in the report).
+
+Agreed with the requester after `/code-review` on 2026-10-06:
+
+- **D-7. A purged guest session's turns stay marked (amends AC-4).** Retention
+  (`guest_cleanup.py`, 30 days) deletes an idle session while its messages stay, so the roster no
+  longer names it a guest and its turns read as a bare `Guest`, which a member could also be
+  called, while the UI still badged the same messages by sender type. `HistoryMessage` now carries
+  `from_guest_session` (`backend/contexts/agents/application/runtime/transcript.py`), and
+  `_participant_labels` marks those senders: a purged session reads as `Guest (guest)`.
+- **D-8. Note wording (supersedes D-4's wording).** The labelling clause now reads "The platform
+  appends "(guest)" to the name of every guest -- someone in the room through its guest link who is
+  not a member of its project -- whatever name they chose, so a guest cannot drop it; a name without
+  it is not thereby verified." D-4's wording ("everyone who joined through the room's guest link")
+  was false for a project member enrolled in a room that excludes members (D-3), who is unmarked by
+  design (Q-3).
+- **D-9. Review fixes.** Registered enrolment now emits `chatroom.members_changed` when it writes a
+  row (`backend/app/api/v1/guests.py`; `ChatroomGuestRepository.add` reports whether it inserted), so
+  open clients re-read the roster and badge a new registered guest live; before, only a reconnect
+  or the unknown-sender refetch brought the kind. The roster route passes the project it already
+  resolved to `room_guests`, and the admin test reads only the room's registered guests
+  (`IdentityFacade.admin_ids_among`) instead of every admin; the turn engine still resolves the
+  project from the room, because taking it from the agent would trust that no cross-project binding
+  exists. `ConversationFacade.list_guests` and `guest_session_labels` lost their last callers and are
+  removed. The e2e guest now joins under the owner's own display name. `ChatroomMember` is an alias
+  of the generated `ChatroomMemberOut`.
 
 ## 16. Follow-ups
 
@@ -346,3 +373,20 @@ Appended by /build.
 - **FU-7.** `frontend/src/slices/conversation/__tests__/ChatroomView.test.ts` "reopening the export
   modal cancels the in-flight poller (F-16)" failed once in a parallel run of the whole conversation
   slice on the Windows build host and passed alone and in its own file; timing-sensitive under load.
+- **FU-8.** `_project_id_for_chatroom` (`backend/app/api/v1/chatrooms.py`) still walks room ->
+  workspace -> project itself, beside `project_id_for_room`. Not merged in this task: the route
+  helper raises `ChatroomNotFound` or `WorkspaceNotFound`, which reach nine routes as different
+  problem types, and the shared helper answers `None`; unifying them changes those responses.
+- **FU-9.** A signed-in user who can already read the room and submits the landing page's display
+  name field is entered under their account name; the typed name is dropped without a word
+  (`GuestService.enroll` returns before writing). The landing view could hide the field, or say so.
+- **FU-10.** Marking is project-role based (Q-3) while enrolment now skips anyone who can already
+  read (D-3), so the two disagree at the edges: an org member enrolled in an org-members room before
+  this change keeps a row and is badged, while one enrolling now gets no row and is not; a project
+  member enrolled in a room that excludes members carries a self-chosen room label, unmarked.
+  Aligning marking with the read rule would need batched org-member and member-group reads on
+  every roster read and turn.
+- **FU-11.** CI `dependency-audit` fails on PR #233 on a new high advisory against `source-map-js`
+  (event-loop denial of service via indexed source-map section offsets), a transitive frontend
+  production dependency. This task changes no manifest; the failure is independent of it and will
+  fail any branch until the dependency is bumped or the advisory is triaged.
