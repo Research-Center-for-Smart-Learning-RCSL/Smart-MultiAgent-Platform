@@ -452,12 +452,6 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   the dossier; FU-7 and FU-9 belong to `guest-session-backend-hardening`. Unblocks
   `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`, now below.
 
-- `2026-10-05-guest-sender-marking` (feature, **approved 2026-10-05**, SRS Delta applied to [R13.33]
-  and [R30.38]) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. FU-4 of
-  `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label from a
-  guest identity, in the UI (message author, participant list, typing) and the model context
-  (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
-
 - `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
   `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. Audit F-14, F-15, F-16,
   F-17, F-21: one guest audit shape for every guest-caused row, an advisory lock on joins (cap and
@@ -665,6 +659,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-05-guest-sender-marking` (feature, **in progress since 2026-10-06**, SRS Delta applied to
+  [R13.33] and [R30.38]) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented.
+  FU-4 of `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label
+  from a guest identity, in the UI (message author, participant list, typing) and the model context
+  (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
+  Built on branch `feat/guest-sender-marking`; AC-1..AC-6 verified locally, AC-7 and the e2e
+  behavioural check (`27-guest-sender-marking`) wait on CI. D-1..D-6 and FU-4..FU-7 are in the
+  dossier.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).

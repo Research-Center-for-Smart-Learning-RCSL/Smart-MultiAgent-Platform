@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-05
 requirements: [R6.11, R13.06, R13.33, R13.34, R30.38]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle]
@@ -168,7 +168,7 @@ difference visible rather than preventing it.
 
 ## 7. NFR Checklist
 
-- [ ] i18n: the badge and typing pattern go through `$t()` in both locales; the model-facing marker
+- [x] i18n: the badge and typing pattern go through `$t()` in both locales; the model-facing marker
   is fixed English scaffolding, like the rest of the system note.
 - [ ] Audit log: N/A, no state change or new action.
 - [ ] Tenant isolation: N/A, no new endpoint; the roster route keeps its room read gate.
@@ -215,21 +215,30 @@ difference visible rather than preventing it.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: an anonymous guest's messages, participant-list row and typing entry are badged as a guest
+- [x] AC-1: an anonymous guest's messages, participant-list row and typing entry are badged as a guest
   for every viewer, including before the roster re-read after the guest joins (messages).
-- [ ] AC-2: a registered guest with no role in the room's project is badged the same way, with or
+  (`ChatroomViewGuest.test.ts` "guest badges", `ChatroomPresence.test.ts`,
+  `ChatroomTypingIndicator.test.ts`, `ChatroomMessageBubble.test.ts`; live-stack check in
+  `e2e/27-guest-sender-marking.spec.ts`, pending CI.)
+- [x] AC-2: a registered guest with no role in the room's project is badged the same way, with or
   without a room label; a member, owner or admin is never badged, including one who once entered
-  through the guest link with their account.
-- [ ] AC-3: the roster returns `kind` per entry (`guest_session`, `room_guest` per Q-3, or `member`);
+  through the guest link with their account. (`test_guest_identity.py::TestRoomGuests`,
+  `test_project_role_holders.py` unit and wiring, `test_guest_room_reads.py::TestRosterKind`,
+  `ChatroomViewGuest.test.ts`.)
+- [x] AC-3: the roster returns `kind` per entry (`guest_session`, `room_guest` per Q-3, or `member`);
   a signed-in user with a project role who chooses "enter with my account" on the link creates no
-  `chatroom_guests` row.
-- [ ] AC-4: in an agent turn, transcript prefixes and activity-legend entries for guest identities end
+  `chatroom_guests` row. (`test_guest_room_reads.py::TestRosterKind`,
+  `test_guest_identity.py::TestEnrolment`; scope of the second half per D-3.)
+- [x] AC-4: in an agent turn, transcript prefixes and activity-legend entries for guest identities end
   in ` (guest)`, applied after the one-line guard; members' labels do not; a purged session stays
-  `Guest`.
-- [ ] AC-5: a guest named exactly as the room owner appears to the agent as `<Owner name> (guest)`,
+  `Guest`. (`test_turn_participant_note.py::TestGuestMarker`, `::TestRoomGuestNames`.)
+- [x] AC-5: a guest named exactly as the room owner appears to the agent as `<Owner name> (guest)`,
   distinct from the owner's label, and the system note explains the marker.
-- [ ] AC-6: a guest whose chosen name already ends in `(guest)` or contains delimiters cannot remove or
-  alter the marker.
+  (`TestGuestMarker::test_a_guest_named_as_the_owner_reads_as_a_guest`,
+  `::test_the_marker_reaches_the_name_prefix`; note budget in `test_turn_system_blocks.py`.)
+- [x] AC-6: a guest whose chosen name already ends in `(guest)` or contains delimiters cannot remove or
+  alter the marker. (`TestGuestMarker` forged-suffix, delimiter, full-length and
+  only-delimiters cases; the last per D-5.)
 - [ ] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
 
 ## 12. Test Plan
@@ -270,6 +279,46 @@ None.
 
 Appended by /build.
 
+- **D-1. Platform admins are excluded from marking and from enrolment.** §6 subtracts project-role
+  holders only; AC-2 says an admin is never badged. `load_room_guests` also subtracts
+  `IdentityFacade.admin_ids()` (`backend/contexts/conversation/application/room_guests.py`), and
+  enrolment skips an admin (D-3), so the AC holds for an admin who entered through the link before
+  this change.
+- **D-2. Read shape.** The facade method is `ConversationFacade.room_guests(chatroom_id)`, returning a
+  `RoomGuests` value (session labels, registered labels, the unaffiliated registered ids, and
+  `identity_ids`), rather than a bare `guest_identity_ids` set: the roster and the turn engine need the
+  labels and the kinds together, and one read avoids each re-reading both guest tables. The batched
+  role test is `TenancyRoleResolver.project_role_holders` beside `moderated_project_ids`, the other
+  batch form of `roles_for`, rather than a new `TenancyFacade` method, so the gate and its batch form
+  live in one file. The turn engine's `_room_guest_names` became `_room_guests`.
+- **D-3. Enrolment skips anyone who can already read the room, not "anyone with a project role".**
+  §6 said a principal holding a project role is not enrolled; Q-3 said a user who can already read
+  the room is not. They differ for a project member of a room whose flags exclude project members
+  but admit guest links: under the §6 rule that member gets no row and is locked out of a room the
+  link used to admit them to. Requester's choice on 2026-10-06: the Q-3 rule
+  (`reads_without_guest_row` in `backend/contexts/conversation/application/access.py`, evaluated
+  with any existing guest row ignored). Consequence for AC-3's second half: a project member of
+  such a room still gets a row, and is still never badged, because marking stays project-role based.
+- **D-4. Note wording and placement.** The clause is in `_PARTICIPANT_LABEL_NOTE`, so it is present
+  whenever labels are, not only when an owner is named. It does not claim that a name ending in
+  `(guest)` is a guest, because a member can choose such a name: "The platform appends "(guest)" to
+  the name of everyone who joined through the room's guest link, whatever name they chose, so a guest
+  cannot drop it; a name without it is not thereby verified." `_PARTICIPANT_NOTE_MEASURE` counts the
+  owner placeholder with the marker appended, since a creator who left the project but kept a guest
+  row is a guest identity.
+- **D-5. Label precedence is decided on normalised text (security audit, MEDIUM, confirmed).** A name
+  of only quotes or whitespace survives `normalise_label` but `_one_line_label` reduces it to an
+  empty string, and an empty label rendered no "Name:" prefix, so a guest named `"` could post
+  `Teacher: ...` and the agent read it as the owner's turn, unmarked; this defeated AC-6. Both
+  label resolvers now take the first candidate that is non-empty after `_one_line_label`
+  (`_first_label` in `turn_engine.py`): such a guest reads as `Guest (guest)`, and a member whose room
+  label is unusable falls through to their account name. The legend keeps its no-filler rule.
+- **D-6. Tests beyond §12.** A wiring test pins the two new tenancy IN queries against Postgres
+  (`backend/tests/wiring/test_project_role_holders.py`), and an e2e spec
+  (`frontend/e2e/27-guest-sender-marking.spec.ts`) is the Definition of Done's behavioural check,
+  because the full stack could not be started on the build host (Docker not running); it runs in
+  CI's e2e job.
+
 ## 16. Follow-ups
 
 - **FU-1.** Canvas presence cursors take the name from the guest JWT's `display_name` claim through
@@ -281,3 +330,19 @@ Appended by /build.
 - **FU-3.** Research export collapses every guest row to the literal `guest`
   (`research_export_builder.py:214-219`), so guests are indistinguishable from one another in the
   dataset; route to the `research-export-data-shape` dossier from the dashboard audit.
+- **FU-4.** An agent whose name normalises to an empty string (for example `"`) still renders no
+  "Name:" prefix in other agents' transcripts (`_participant_labels`,
+  `backend/contexts/agents/application/runtime/turn_engine.py`), so its content can read as another
+  speaker's turn. Same shape as D-5, but agent names are authored by project members, not guests.
+  Pre-existing; out of scope.
+- **FU-5.** `chatroom_guests` rows written for members before D-3 are left in place. They are not
+  guest identities and are not badged, but their room label still wins the label precedence over the
+  account name (`prefer_guest_label`). A cleanup would need a migration; no current harm, since the
+  label was the member's own choice.
+- **FU-6.** Hardening from the security audit: `project_role_holders` and the roster's
+  `get_display_names` pass every registered guest of a room as one IN list, with no cap on a room's
+  registered-guest count. Reaching the driver's parameter limit takes tens of thousands of enrolled
+  accounts in one room.
+- **FU-7.** `frontend/src/slices/conversation/__tests__/ChatroomView.test.ts` "reopening the export
+  modal cancels the in-flight poller (F-16)" failed once in a parallel run of the whole conversation
+  slice on the Windows build host and passed alone and in its own file; timing-sensitive under load.
