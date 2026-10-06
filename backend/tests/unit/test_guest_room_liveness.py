@@ -79,17 +79,9 @@ def dead_room(request: pytest.FixtureRequest) -> Iterator[uuid.UUID]:
             ("find_by_browser_id", None),
             ("count_active", 0),
             ("create", session),
-            ("find_by_refresh_hash", session),
-            ("update_refresh_hash", None),
+            ("rotate_refresh", session),
         ):
             stack.enter_context(patch.object(GuestSessionRepository, name, AsyncMock(return_value=value)))
-        # Absent before the fix, present after: created so the patch fits both.
-        stack.enter_context(
-            patch.object(GuestSessionRepository, "count_active_for_update", AsyncMock(return_value=0), create=True)
-        )
-        stack.enter_context(
-            patch.object(GuestSessionRepository, "rotate_refresh", AsyncMock(return_value=session), create=True)
-        )
         stack.enter_context(patch(f"{_SERVICE}.sign_guest_token", return_value=("jwt", MagicMock())))
         stack.enter_context(patch(f"{_SERVICE}.audit.emit", AsyncMock()))
         yield cid
@@ -132,8 +124,7 @@ async def test_joining_a_missing_room_answers_like_a_wrong_link() -> None:
 async def test_refreshing_in_a_missing_room_with_an_unknown_cookie_answers_like_a_bad_cookie() -> None:
     with (
         patch.object(ChatroomRepository, "get", AsyncMock(return_value=None)),
-        patch.object(GuestSessionRepository, "find_by_refresh_hash", AsyncMock(return_value=None)),
-        patch.object(GuestSessionRepository, "rotate_refresh", AsyncMock(return_value=None), create=True),
+        patch.object(GuestSessionRepository, "rotate_refresh", AsyncMock(return_value=None)),
         pytest.raises(GuestTokenInvalid),
     ):
         await GuestSessionService(AsyncMock()).refresh(chatroom_id=uuid.uuid4(), refresh_token="unknown")

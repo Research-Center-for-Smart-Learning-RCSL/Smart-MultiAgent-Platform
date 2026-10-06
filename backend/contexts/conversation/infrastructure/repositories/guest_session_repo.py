@@ -74,24 +74,25 @@ class GuestSessionRepository:
         return _row_to_guest_session(row) if row else None
 
     async def find_by_browser_id(self, *, chatroom_id: uuid.UUID, browser_id: str) -> GuestSession | None:
+        """The browser's most recently seen session in the room.
+
+        ``(chatroom_id, browser_id)`` is not unique, and rows duplicated by the
+        join race fixed in 2026-10-05-guest-session-backend-hardening may exist,
+        so this picks one rather than raising on every later resume.
+        """
         row = (
             await self._db.execute(
-                t.guest_sessions.select().where(
+                t.guest_sessions.select()
+                .where(
                     sa.and_(
                         t.guest_sessions.c.chatroom_id == chatroom_id,
                         t.guest_sessions.c.browser_id == browser_id,
                     )
                 )
+                .order_by(t.guest_sessions.c.last_seen_at.desc())
+                .limit(1)
             )
-        ).one_or_none()
-        return _row_to_guest_session(row) if row else None
-
-    async def find_by_refresh_hash(self, *, refresh_token_hash: str) -> GuestSession | None:
-        row = (
-            await self._db.execute(
-                t.guest_sessions.select().where(t.guest_sessions.c.refresh_token_hash == refresh_token_hash)
-            )
-        ).one_or_none()
+        ).first()
         return _row_to_guest_session(row) if row else None
 
     async def count_active(self, chatroom_id: uuid.UUID, *, since: datetime) -> int:
@@ -107,22 +108,30 @@ class GuestSessionRepository:
         )
         return result.scalar_one()
 
-    async def count_active_for_update(self, chatroom_id: uuid.UUID, *, since: datetime) -> int:
-        """count_active with FOR UPDATE lock on the matching rows to prevent
-        TOCTOU races in guest cap enforcement."""
-        locked = (
-            sa.select(t.guest_sessions.c.id)
-            .where(
-                sa.and_(
-                    t.guest_sessions.c.chatroom_id == chatroom_id,
-                    t.guest_sessions.c.last_seen_at > since,
+    async def rotate_refresh(
+        self, *, old_hash: str, new_hash: str, chatroom_id: uuid.UUID
+    ) -> GuestSession | None:
+        """Swap the refresh hash in one statement; None when ``old_hash`` no longer
+        names a session of this room ([R13.06b]).
+
+        A compare-and-swap rather than read-then-write: under READ COMMITTED a
+        concurrent rotation of the same cookie waits on the row lock, re-checks
+        the predicate once the winner commits, and matches nothing.
+        """
+        row = (
+            await self._db.execute(
+                t.guest_sessions.update()
+                .where(
+                    sa.and_(
+                        t.guest_sessions.c.refresh_token_hash == old_hash,
+                        t.guest_sessions.c.chatroom_id == chatroom_id,
+                    )
                 )
+                .values(refresh_token_hash=new_hash, last_seen_at=now())
+                .returning(t.guest_sessions)
             )
-            .with_for_update()
-            .subquery()
-        )
-        result = await self._db.execute(sa.select(sa.func.count()).select_from(locked))
-        return result.scalar_one()
+        ).first()
+        return _row_to_guest_session(row) if row else None
 
     async def update_last_seen(self, session_id: uuid.UUID) -> None:
         await self._db.execute(

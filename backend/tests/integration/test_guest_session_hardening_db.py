@@ -274,6 +274,28 @@ class TestRefreshRotation:
         assert first.guest_session_id == joined.guest_session_id
         assert isinstance(second, GuestTokenInvalid)
 
+    async def test_a_cookie_of_another_rooms_session_rotates_nothing(
+        self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
+    ) -> None:
+        """The rotation's room predicate is the only thing refusing a cookie
+        replayed against another room's path."""
+        async with sessionmaker() as session:
+            joined = await _join(room, "Ann")(session)
+            await session.commit()
+
+        async with sessionmaker() as session:
+            with pytest.raises(GuestTokenInvalid):
+                await GuestSessionService(session).refresh(
+                    chatroom_id=uuid.uuid4(), refresh_token=joined.refresh_token
+                )
+            await session.rollback()
+        async with sessionmaker() as session:
+            refreshed = await GuestSessionService(session).refresh(
+                chatroom_id=room.chatroom_id, refresh_token=joined.refresh_token
+            )
+            await session.commit()
+        assert refreshed.guest_session_id == joined.guest_session_id
+
     async def test_a_refusal_after_the_rotation_leaves_the_cookie_valid(
         self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
     ) -> None:
