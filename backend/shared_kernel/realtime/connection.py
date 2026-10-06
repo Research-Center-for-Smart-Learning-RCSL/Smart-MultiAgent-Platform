@@ -122,9 +122,9 @@ async def refuse_after_accept(ws: WebSocket, subprotocol: str, outcome: AccessOu
     authentication failure has none to echo and stays a pre-accept 4401.
     """
     code, reason = _REFUSAL_CODES[outcome]
-    await ws.accept(subprotocol=subprotocol)
     # The client may already have gone; the refusal stands either way.
     with suppress(Exception):
+        await ws.accept(subprotocol=subprotocol)
         await ws.close(code=code, reason=reason)
 
 

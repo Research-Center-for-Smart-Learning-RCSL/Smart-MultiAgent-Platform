@@ -280,9 +280,11 @@ is the guest dossier's AC-9.
   probe canvas ids that the HTTP surface never exposes. A canvas whose room, workspace or
   project is gone still closes 4404. The canvas legacy object load moved after the access
   check (quality audit), so a refused caller cannot trigger it.
-- **D-8: The guest branch of `resolve_room_access` reuses `ensure_parents_live`.** A guest
-  read of a room whose workspace was deleted now answers `chatroom-not-found` rather than
-  `workspace-not-found` (both 404); the member branch is unchanged.
+- **D-8: Both branches of `resolve_room_access` reuse `ensure_parents_live` (quality audit,
+  `/code-review`).** A read of a room whose workspace was deleted now answers
+  `chatroom-not-found` rather than `workspace-not-found` (both 404), for guests and members
+  alike, so one parent-liveness rule serves the resolver, the guest endpoints and the
+  sockets. No client branches on `workspace-not-found` for a room.
 - **D-9: Existing unit tests were adapted to the approved design, not weakened.**
   `test_refresh_with_links_off_names_the_reason_and_rotates_nothing` asserted that no
   rotation call happened; under Q-6 the rotation runs and the route's rollback undoes it, so
@@ -299,6 +301,18 @@ is the guest dossier's AC-9.
   (second join over the cap, a second session for one browser, both refreshes succeeding,
   no tagged rows, no request context on refresh); the two guard tests passed, as they
   should against unfixed code.
+- **D-12: A guest refresh refused `guest-token-invalid` is retried once after 500 ms
+  (requester's choice after `/code-review`).** Q-6 accepted that the losing tab of a
+  concurrent refresh shows the expired banner. The review found the loss is wider: at boot
+  restore an `'expired'` end deletes the browser-id hint every tab shares, so the winning
+  tab's next reload cannot resume and reopening the link mints a new identity. Tabs share
+  the cookie and the loser's refusal arrives after the winner committed, so one retry
+  presents the rotated cookie and succeeds; only a second refusal ends the session
+  (`frontend/src/shared/transport/axios.ts`, `postRefresh`). Server-side rotation stays
+  strictly single-use.
+- **D-13: `refuse_after_accept` suppresses a failure of either `accept` or `close`
+  (`/code-review`).** A client that left between the ticket redemption and the access check
+  would otherwise surface as an unhandled endpoint error on every such refusal.
 
 ## 13. Follow-ups
 
@@ -349,4 +363,12 @@ is the guest dossier's AC-9.
 - **FU-13.** Pre-existing: the unhandled-error log records `request.url.path`, which for
   guest session create contains the link token.
 - **FU-14.** Hardening: a replayed, already-rotated guest refresh cookie is refused but
-  does not revoke the session; reuse detection would.
+  does not revoke the session; reuse detection would. (With D-12's client retry, reuse
+  detection would also have to tell a sibling tab's loss from a replay.)
+- **FU-15.** From `/code-review`, deferred: the canvas handshake opens three sessions
+  (canvas read, access check, legacy load) where it used to open one; a canvas whose room
+  was deleted closes 4404 for any signed-in caller holding its id, member or not (the chat
+  socket mirrors the HTTP 404 the same way, FU-12); and `MessageService.send` /
+  `SubmissionService._record` fill the guest tag from the subject room rather than from the
+  principal, which agree only because a guest is scoped to one room (FU-7 removes the
+  difference).

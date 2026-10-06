@@ -422,6 +422,51 @@ describe('guest session refresh', () => {
     expect(guestSessionEnd.value).toBe('expired')
   })
 
+  // docs/tasks/2026-10-05-guest-session-backend-hardening D-12: tabs share the
+  // cookie, so a sibling that rotated it first makes this refresh lose once.
+  it('retries once when a sibling tab rotated the shared cookie first', async () => {
+    let calls = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        calls += 1
+        return calls === 1
+          ? HttpResponse.json(INVALID, { status: 404 })
+          : HttpResponse.json({ access_token: 'guest-2' })
+      }),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBe('guest-2')
+    expect(calls).toBe(2)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('ends the session when the retry is refused too, and retries nothing else', async () => {
+    let calls = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        calls += 1
+        return HttpResponse.json(INVALID, { status: 404 })
+      }),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(calls).toBe(2)
+    expect(guestSessionEnd.value).toBe('expired')
+
+    calls = 0
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => {
+      calls += 1
+      return HttpResponse.json(DISABLED, { status: 403 })
+    }))
+    setGuestContext(ROOM)
+    await refreshAccessToken()
+    expect(calls).toBe(1)
+  })
+
   it('records a disabled session when the refresh is answered guest-access-disabled', async () => {
     server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(DISABLED, { status: 403 })))
     setGuestContext(ROOM)

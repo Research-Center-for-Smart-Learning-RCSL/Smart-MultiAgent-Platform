@@ -255,6 +255,9 @@ describe('ChatroomView when the guest session ends', () => {
 
     setAccessToken(null)
     socket.serverClose(4401)
+    // A refused guest refresh is retried once after 500 ms before it ends the
+    // session (a sibling tab may have rotated the shared cookie).
+    await new Promise((r) => setTimeout(r, 700))
     await settle()
 
     expect(wrapper.text()).toContain(expiredKey)

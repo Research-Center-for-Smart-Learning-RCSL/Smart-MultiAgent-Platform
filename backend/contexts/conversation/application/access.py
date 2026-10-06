@@ -94,29 +94,17 @@ async def resolve_room_access(
     if principal.is_guest:
         return await _resolve_guest_access(db, principal=principal, chatroom_id=chatroom_id)
 
-    chatrooms = ChatroomRepository(db)
-    workspaces = WorkspaceRepository(db)
-    tenancy = TenancyFacade(db)
     guests = ChatroomGuestRepository(db)
 
-    chatroom = await chatrooms.get(chatroom_id)
+    chatroom = await ChatroomRepository(db).get(chatroom_id)
     if chatroom is None:
         raise ChatroomNotFound(str(chatroom_id))
-
-    workspace = await workspaces.get(chatroom.workspace_id)
-    if workspace is None:
-        raise WorkspaceNotFound(str(chatroom.workspace_id))
-
-    # Confirm the parent project exists and is not soft-deleted. If it is, the
-    # room is effectively unreachable.
-    project = await tenancy.get_project(workspace.project_id)
-    if project is None:
-        raise ChatroomNotFound(str(chatroom_id))
+    project_id = await ensure_parents_live(db, chatroom)
 
     resolver = TenancyRoleResolver(db)
     roles = await resolver.roles_for(
         principal,
-        Scope(project_id=project.id, chatroom_id=chatroom_id),
+        Scope(project_id=project_id, chatroom_id=chatroom_id),
     )
     is_guest = await guests.is_guest(
         chatroom_id=chatroom_id,
@@ -124,7 +112,7 @@ async def resolve_room_access(
     )
     return RoomAccess(
         chatroom=chatroom,
-        project_id=project.id,
+        project_id=project_id,
         roles=roles,
         is_guest=is_guest,
         in_bound_group=await _in_bound_group(db, principal=principal, chatroom=chatroom),

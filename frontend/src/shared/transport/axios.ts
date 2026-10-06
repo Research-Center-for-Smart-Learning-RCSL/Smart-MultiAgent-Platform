@@ -344,6 +344,30 @@ OpenAPI.WITH_CREDENTIALS = true
 // can no longer use it directly.
 const refreshHttp: AxiosInstance = axios.create({ withCredentials: true })
 
+const GUEST_TOKEN_INVALID_TYPE = '/conversation/guest-token-invalid'
+const SIBLING_ROTATION_RETRY_MS = 500
+
+function isGuestTokenInvalid(error: unknown): boolean {
+  if (!axios.isAxiosError<ProblemJson>(error) || !error.response) return false
+  const type = error.response.data?.type
+  return error.response.status === 404 && typeof type === 'string' && type.endsWith(GUEST_TOKEN_INVALID_TYPE)
+}
+
+async function postRefresh(url: string, isGuest: boolean) {
+  try {
+    return await refreshHttp.post<{ access_token: string }>(url, {})
+  } catch (error) {
+    // Tabs share the guest cookie and rotation is single-use ([R13.06b]): when two
+    // refresh at once the server rotates for one and refuses the other, and by
+    // the time the refusal lands the browser holds the winner's new cookie. One
+    // retry tells that apart from a cookie that is really dead; without it the
+    // loser would record an end and, at boot, delete the hint every tab shares.
+    if (!isGuest || !isGuestTokenInvalid(error)) throw error
+    await new Promise((resolve) => setTimeout(resolve, SIBLING_ROTATION_RETRY_MS))
+    return await refreshHttp.post<{ access_token: string }>(url, {})
+  }
+}
+
 async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
 
@@ -353,7 +377,7 @@ async function attemptRefresh(): Promise<boolean> {
       const url = guestRoom
         ? `/api/guest/${encodeURIComponent(guestRoom)}/refresh`
         : '/api/auth/refresh'
-      const res = await refreshHttp.post<{ access_token: string }>(url, {})
+      const res = await postRefresh(url, guestRoom !== null)
       // A sign-in can replace the guest context while a guest refresh is in
       // flight; its answer then speaks for nothing this tab still holds.
       if (guestRoom && guestChatroomIdRef.value !== guestRoom) return false
