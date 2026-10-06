@@ -183,7 +183,8 @@ async def test_a_refused_caller_never_triggers_the_legacy_object_load(
     assert _LegacyCanvases.loaded == 0
 
 
-async def test_a_missing_canvas_is_accepted_then_closed_4404(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_missing_canvas_reads_like_a_forbidden_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security audit H-1: 4404 here would let any signed-in caller probe canvas ids."""
     captured: dict[str, Any] = {}
     _patch_canvas(monkeypatch, _allowed, captured)
     monkeypatch.setattr(canvas_mod, "CanvasRepository", _NoCanvases)
@@ -191,7 +192,7 @@ async def test_a_missing_canvas_is_accepted_then_closed_4404(monkeypatch: pytest
 
     await canvas_mod.ws_canvas(ws, uuid.uuid4())  # type: ignore[arg-type]
 
-    assert (ws.accepted_with, ws.closed) == (_SUBPROTOCOL, 4404)
+    assert (ws.accepted_with, ws.closed) == (_SUBPROTOCOL, 4403)
 
 
 # -- watchdog probe --

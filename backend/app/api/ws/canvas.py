@@ -97,7 +97,10 @@ async def ws_canvas(ws: WebSocket, canvas_id: uuid.UUID) -> None:
     async with sm() as session:
         canvas = await CanvasRepository(session).get(canvas_id)
     if canvas is None:
-        await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.GONE)
+        # FORBIDDEN, not GONE: the close code now reaches the client, and canvas
+        # ids are not otherwise probeable, so a missing canvas must read like one
+        # in a room the caller cannot open.
+        await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.FORBIDDEN)
         return
     chatroom_id = canvas.chatroom_id
 
