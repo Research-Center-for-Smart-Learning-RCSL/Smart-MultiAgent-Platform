@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-05
 requirements: [R6.12, R13.06, R13.06a, R13.06b, R15.24]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle]
@@ -223,19 +223,27 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: every audit row caused by a guest has `actor_user_id = guest_session_id` and metadata with
+- [x] AC-1: every audit row caused by a guest has `actor_user_id = guest_session_id` and metadata with
   `guest: true` and `chatroom_id`; rows caused by others acting on guest resources carry no guest tag.
-- [ ] AC-2: concurrent joins never exceed the per-room cap, and concurrent first joins with one
+- [x] AC-2: concurrent joins never exceed the per-room cap, and concurrent first joins with one
   `browser_id` create one session (db tier).
-- [ ] AC-3: a guest link, refresh or ticket for a room whose workspace or project is deleted answers
+- [x] AC-3: a guest link, refresh or ticket for a room whose workspace or project is deleted answers
   the invalid-link 404; a connected client (guest or member) is closed with 4404 on both the chat and
   the canvas socket and sees "this room no
   longer exists".
-- [ ] AC-4: socket refusals for a known subprotocol reach the browser with 4403 or 4404, not 1006.
-- [ ] AC-5: a guest's orchestration reads for another room answer 404 (single record) or omit the row
+- [x] AC-4: socket refusals for a known subprotocol reach the browser with 4403 or 4404, not 1006.
+- [x] AC-5: a guest's orchestration reads for another room answer 404 (single record) or omit the row
   (listings).
-- [ ] AC-6: two concurrent refreshes with one cookie yield exactly one success (db tier).
-- [ ] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in CI.
+- [x] AC-6: two concurrent refreshes with one cookie yield exactly one success (db tier).
+- [x] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in CI.
+
+Verified on PR #237, CI green at `5f002c9b` (run 37453183890): `backend-db` 259 passed with
+all eight `test_guest_session_hardening_db.py` tests among them (AC-1, AC-2, AC-6),
+`backend-test` (AC-3, AC-4, AC-5 unit tests), `frontend-test` (AC-3's room-gone state and
+the canvas stop), and `frontend-e2e` 124 passed / 29 skipped, the same skips as `main`.
+Fail-first is D-11. Not done: the behavioural check on a running stack (no local Docker), so
+the 4404 banner has been observed only through the component tests' fake socket, not against
+a real deleted workspace.
 
 ## 11. SRS Delta
 
