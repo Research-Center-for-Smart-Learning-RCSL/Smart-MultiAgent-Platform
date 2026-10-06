@@ -95,6 +95,10 @@ class HistoryMessage:
     # turn's own triggering message — that one carries live content blocks
     # instead, spliced in by the turn engine).
     attachment_excerpt: str | None = None
+    # Sent by an anonymous guest session. Kept on the row because the session
+    # itself is purged by retention while its messages stay, and the guest
+    # marker ([R13.33]) must outlive it.
+    from_guest_session: bool = False
 
 
 def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str | None:
@@ -164,6 +168,7 @@ def _to_history(msg: Message, attachments: Sequence[MessageAttachment] | None = 
         metadata=dict(msg.metadata or {}),
         token_count=estimate_tokens(counted_text),
         attachment_excerpt=excerpt,
+        from_guest_session=msg.sender_type is SenderType.GUEST,
     )
 
 

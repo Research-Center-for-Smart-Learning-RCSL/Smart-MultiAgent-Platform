@@ -365,9 +365,10 @@ _PARTICIPANT_LABEL_NOTE = (
     "Messages from other participants are prefixed with the speaker's name as "
     '"Name: message". Use these names to tell participants apart. When you reply, '
     "write only your own message content -- never prefix it with your own name. "
-    'The platform appends "(guest)" to the name of everyone who joined through the '
-    "room's guest link, whatever name they chose, so a guest cannot drop it; a name "
-    "without it is not thereby verified."
+    'The platform appends "(guest)" to the name of every guest -- someone in the '
+    "room through its guest link who is not a member of its project -- whatever "
+    "name they chose, so a guest cannot drop it; a name without it is not thereby "
+    "verified."
 )
 
 # Appended by the platform to the label of every guest identity ([R13.33]): an
@@ -3616,7 +3617,12 @@ class TurnEngine:
             for aid, name in (await AgentRepository(self._db).names_for_ids(list(agent_ids))).items()
         }
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
-        user_names = await self._room_user_labels(chatroom_id, list(user_ids), guests=guests)
+        session_senders = frozenset(
+            hm.sender_id for hm in history if hm.from_guest_session and hm.sender_id is not None
+        )
+        user_names = await self._room_user_labels(
+            chatroom_id, list(user_ids), guests=guests, guest_senders=session_senders
+        )
         return agent_names, user_names
 
     async def _room_guests(self, chatroom_id: uuid.UUID) -> RoomGuests:
@@ -3642,6 +3648,7 @@ class TurnEngine:
         user_ids: Sequence[uuid.UUID],
         *,
         guests: RoomGuests | None = None,
+        guest_senders: frozenset[uuid.UUID] = frozenset(),
     ) -> dict[uuid.UUID, str]:
         """``{user_id: label}`` for the *transcript*, in the precedence above.
 
@@ -3651,13 +3658,15 @@ class TurnEngine:
         guest can open a second line inside a rendered turn — as a "Name:" prefix
         in the message stream, and, since the activity legend and the owner note
         were added, inside the system prompt itself. A guest identity's label then
-        gets the guest marker; a purged session is no longer one and stays the
-        generic ``Guest``.
+        gets the guest marker. ``guest_senders`` are ids whose messages came from a
+        guest session: retention purges the session but not its messages, and a
+        purged session's turns read as ``Guest (guest)`` rather than a bare
+        ``Guest`` a member could also be called.
         """
         if not user_ids:
             return {}
         roster = guests if guests is not None else await self._room_guests(chatroom_id)
-        guest_names, marked = roster.labels, roster.identity_ids
+        guest_names, marked = roster.labels, roster.identity_ids | guest_senders
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
         return {
             uid: _marked_label(
