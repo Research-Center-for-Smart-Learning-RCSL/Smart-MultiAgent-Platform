@@ -81,6 +81,23 @@ class GuestCapReached(ConversationError):
     code = "guest/cap-reached"
 
 
+class GuestRemoved(ForbiddenInRoom):
+    """A moderator removed or banned this guest ([R13.07a]). Raised only to the
+    removed session's own token or cookie, or past the link check on join.
+
+    A ``ForbiddenInRoom`` so every caller that already treats that as a denial
+    (the knowledge config predicate, its socket watchdog) refuses a removed
+    guest instead of reading an unknown error as a transient fault."""
+
+    code = "conversation/guest-removed"
+
+
+class GuestSessionNotFound(ConversationError):
+    """No guest session or ban with that id in the path's room."""
+
+    code = "conversation/guest-session-not-found"
+
+
 # ---- F.5 attachment / tus errors ----------------------------------------- #
 
 
@@ -197,6 +214,8 @@ __all__ = [
     "ExportJobNotReady",
     "ForbiddenInRoom",
     "GuestCapReached",
+    "GuestRemoved",
+    "GuestSessionNotFound",
     "GuestTokenInvalid",
     "InvalidReleaseTarget",
     "MessageEditWindowExceeded",

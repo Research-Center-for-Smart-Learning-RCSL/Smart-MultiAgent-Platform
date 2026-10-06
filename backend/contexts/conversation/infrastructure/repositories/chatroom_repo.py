@@ -148,6 +148,18 @@ class ChatroomRepository:
         rooms = [_row_to_chatroom(r) for r in rows]
         return {room.id: room for room in rooms}
 
+    async def rotate_guest_token(self, chatroom_id: uuid.UUID) -> Chatroom | None:
+        """Replace the room's guest link token ([R6.12]); None for a missing room."""
+        row = (
+            await self._db.execute(
+                t.chatrooms.update()
+                .where(sa.and_(t.chatrooms.c.id == chatroom_id, t.chatrooms.c.deleted_at.is_(None)))
+                .values(guest_token=_new_guest_token())
+                .returning(t.chatrooms)
+            )
+        ).first()
+        return _row_to_chatroom(row) if row else None
+
     async def get_by_guest_token(self, token: str) -> Chatroom | None:
         row = (
             await self._db.execute(

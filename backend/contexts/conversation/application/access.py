@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     ForbiddenInRoom,
+    GuestRemoved,
     NotRoomCreator,
     WorkspaceNotFound,
 )
@@ -34,6 +35,7 @@ from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomMemberGroupRepository,
     ChatroomRepository,
+    GuestSessionRepository,
     WorkspaceRepository,
 )
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -153,6 +155,10 @@ async def _resolve_guest_access(
 
     The guest JWT carries a chatroom_id claim; access is scoped to that room.
     Any other chatroom_id is rejected outright.
+
+    The token is not revocable by itself, so the session row is read here: this
+    is the one check every room surface and both sockets' watchdogs pass
+    through ([R13.07a]). A missing row is a purged or removed session too.
     """
     if principal.chatroom_id != chatroom_id:
         raise ForbiddenInRoom(str(chatroom_id))
@@ -161,9 +167,15 @@ async def _resolve_guest_access(
     if chatroom is None:
         raise ChatroomNotFound(str(chatroom_id))
 
+    # After the liveness check, so a guest of a deleted room is told it is gone.
+    project_id = await ensure_parents_live(db, chatroom)
+    session = await GuestSessionRepository(db).find_by_id(principal.user_id)
+    if session is None or session.chatroom_id != chatroom_id or session.revoked_at is not None:
+        raise GuestRemoved(str(chatroom_id))
+
     return RoomAccess(
         chatroom=chatroom,
-        project_id=await ensure_parents_live(db, chatroom),
+        project_id=project_id,
         roles=frozenset(),
         is_guest=True,
     )
@@ -494,6 +506,20 @@ def export_sender_scope(access: RoomAccess, *, principal: Principal) -> ExportSe
     raise ForbiddenInRoom("caller cannot export this chatroom")
 
 
+def ensure_can_manage_guest_link(access: RoomAccess, *, principal: Principal) -> None:
+    """Matrix row 18 (guest_link.manage): rotating the link and removing, banning
+    and unbanning a room's anonymous guests ([R13.07a]).
+
+    Reads the row through `outcome_for` over the room's resolved roles, as
+    `export_sender_scope` does for row 19, so the matrix stays authoritative.
+    """
+    if principal.is_admin:
+        return
+    if any(outcome_for(Capability.GUEST_LINK_MANAGE, role) is Outcome.ALLOW for role in access.roles):
+        return
+    raise ForbiddenInRoom("caller cannot manage this chatroom's guests")
+
+
 def is_room_creator(access: RoomAccess, *, principal: Principal) -> bool:
     """R28.02 — who may see observer surfaces (observations, roles, disclosure).
 
@@ -536,6 +562,7 @@ def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
 __all__ = [
     "RoomAccess",
     "can_read_orchestration_record",
+    "ensure_can_manage_guest_link",
     "ensure_can_read",
     "ensure_can_send",
     "ensure_parents_live",

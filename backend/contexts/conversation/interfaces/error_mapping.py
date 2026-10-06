@@ -76,6 +76,16 @@ _MAP: ErrorMap = {
         429,
         "Guest limit reached for this chatroom",
     ),
+    errors.GuestRemoved: (
+        "conversation/guest-removed",
+        403,
+        "You were removed from this chatroom",
+    ),
+    errors.GuestSessionNotFound: (
+        "conversation/guest-session-not-found",
+        404,
+        "Guest not found in this chatroom",
+    ),
     errors.AttachmentBindingFailed: (
         "conversation/attachment-binding-failed",
         422,

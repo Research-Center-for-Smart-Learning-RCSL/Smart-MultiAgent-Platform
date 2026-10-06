@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-05
 requirements: [R5.04, R6.12, R6.13, R13.06, R13.07, R13.33, R17.01]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle, 2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]
