@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Literal
 
@@ -1249,21 +1250,13 @@ async def read_guest_link(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> GuestLinkOut:
-    project_id = await _project_id_for_chatroom(db, chatroom_id)
-    await _require_project_cap(
-        db,
-        principal,
-        project_id,
-        Capability.GUEST_LINK_MANAGE,
-    )
-    service = ChatroomService(db)
-    room = await service.get(chatroom_id)
+    room = await _require_guest_moderator(db, principal, chatroom_id)
     return _guest_link_out(request, room)
 
 
 # --------------------------------------------------------------------------- #
 # Guest moderation — R13.07a (remove / ban / unban) and R6.12 (link rotation).
-# All gated by matrix row 18 on the room's resolved roles.
+# Gated, like reading the link, by matrix row 18 on the room's resolved roles.
 # --------------------------------------------------------------------------- #
 
 
@@ -1277,9 +1270,14 @@ class GuestBanOut(BaseModel):
     created_at: datetime
 
 
-async def _require_guest_moderator(db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID) -> None:
+async def _require_guest_moderator(
+    db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID
+) -> Chatroom:
+    """The room, once the caller holds row 18 on it. One gate for every guest-link
+    surface, so reading the link and changing it cannot drift apart."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_manage_guest_link(access, principal=principal)
+    return access.chatroom
 
 
 def _guest_link_out(request: Request, room: Chatroom) -> GuestLinkOut:
@@ -1289,27 +1287,29 @@ def _guest_link_out(request: Request, room: Chatroom) -> GuestLinkOut:
     )
 
 
-async def _emit_guest_removed(db: AsyncSession, chatroom_id: uuid.UUID, guest_session_id: uuid.UUID) -> None:
-    """Commit, then tell the room ([R13.07a]).
+async def _emit_guests_removed(
+    db: AsyncSession, chatroom_id: uuid.UUID, guest_session_ids: Sequence[uuid.UUID]
+) -> None:
+    """Commit, then tell the room which sessions ended ([R13.07a]).
 
     Ids only, like every room-channel frame: the channel has no per-recipient
-    filtering, and only the named session's own client acts on it. Transport
-    failure is swallowed: the removal is durable and the socket watchdog closes
-    the guest's sockets within a window, so a lost frame only delays the banner.
+    filtering, and only each named session's own client acts on it. No roster
+    frame: a removed session keeps labelling its messages, so the roster is
+    unchanged. Transport failure is swallowed: the removal is durable and the
+    socket watchdog closes the guest's sockets within a window, so a lost frame
+    only delays the banner.
     """
     await db.commit()
-    frames = (
-        (
-            "chatroom.guest_removed",
-            {"chatroom_id": str(chatroom_id), "guest_session_id": str(guest_session_id)},
-        ),
-        ("chatroom.members_changed", {"chatroom_id": str(chatroom_id)}),
-    )
-    for event, data in frames:
+    for session_id in guest_session_ids:
         try:
-            await Publisher(room_channel(chatroom_id)).emit(event, data)
+            await Publisher(room_channel(chatroom_id)).emit(
+                "chatroom.guest_removed",
+                {"chatroom_id": str(chatroom_id), "guest_session_id": str(session_id)},
+            )
         except Exception:
-            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(f"{event} emit failed")
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "chatroom.guest_removed emit failed"
+            )
 
 
 @chatroom_router.post(
@@ -1334,8 +1334,8 @@ async def remove_guest(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    if result.changed:
-        await _emit_guest_removed(db, chatroom_id, guest_session_id)
+    if result.removed_session_ids:
+        await _emit_guests_removed(db, chatroom_id, result.removed_session_ids)
 
 
 @chatroom_router.get("/{chatroom_id}/guest-bans")
@@ -1386,7 +1386,8 @@ async def rotate_guest_link(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    await _emit_chatroom_updated(db, chatroom_id, room_visible=True, creator_user_id=room.created_by_user_id)
+    # No room frame: nothing a viewer's room DTO carries changed, so one would
+    # only signal an invisible write. The link reaches the caller in the response.
     return _guest_link_out(request, room)
 
 

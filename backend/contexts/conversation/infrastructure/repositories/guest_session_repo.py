@@ -139,6 +139,22 @@ class GuestSessionRepository:
         )
         return bool(result.rowcount)
 
+    async def revoke_live_for_browser(self, *, chatroom_id: uuid.UUID, browser_id: str) -> list[uuid.UUID]:
+        """Mark every live session of this browser in the room removed; their ids."""
+        rows = await self._db.execute(
+            t.guest_sessions.update()
+            .where(
+                sa.and_(
+                    t.guest_sessions.c.chatroom_id == chatroom_id,
+                    t.guest_sessions.c.browser_id == browser_id,
+                    t.guest_sessions.c.revoked_at.is_(None),
+                )
+            )
+            .values(revoked_at=now())
+            .returning(t.guest_sessions.c.id)
+        )
+        return [r.id for r in rows]
+
     async def rotate_refresh(
         self, *, old_hash: str, new_hash: str, chatroom_id: uuid.UUID
     ) -> GuestSession | None:

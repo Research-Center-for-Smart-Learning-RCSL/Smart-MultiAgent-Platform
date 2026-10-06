@@ -83,13 +83,23 @@ def _resolving(access: RoomAccess) -> Any:
     return resolve
 
 
+def _removal(*session_ids: uuid.UUID) -> SimpleNamespace:
+    return SimpleNamespace(removed_session_ids=tuple(session_ids), changed=bool(session_ids))
+
+
 def _facade() -> SimpleNamespace:
     return SimpleNamespace(
-        remove_guest=AsyncMock(return_value=SimpleNamespace(changed=True)),
+        remove_guest=AsyncMock(return_value=_removal(uuid.uuid4())),
         list_guest_bans=AsyncMock(return_value=[]),
         unban_guest=AsyncMock(),
         rotate_guest_link=AsyncMock(),
     )
+
+
+def _request() -> MagicMock:
+    request = MagicMock()
+    request.url.scheme, request.url.netloc = "https", "smap.test"
+    return request
 
 
 async def _call_each_route(chatroom_id: uuid.UUID, db: Any) -> None:
@@ -111,7 +121,11 @@ async def _call_each_route(chatroom_id: uuid.UUID, db: Any) -> None:
         )
     with pytest.raises(ForbiddenInRoom):
         await chatrooms_route.rotate_guest_link(
-            request=MagicMock(), chatroom_id=chatroom_id, ctx=ctx, principal=_MEMBER, db=db
+            request=_request(), chatroom_id=chatroom_id, ctx=ctx, principal=_MEMBER, db=db
+        )
+    with pytest.raises(ForbiddenInRoom):
+        await chatrooms_route.read_guest_link(
+            request=_request(), chatroom_id=chatroom_id, principal=_MEMBER, db=db
         )
 
 
@@ -124,14 +138,31 @@ async def test_every_route_refuses_a_project_member_before_acting(monkeypatch: p
         method.assert_not_awaited()
 
 
-@pytest.mark.parametrize("changed", [True, False])
-async def test_removal_announces_ids_only_after_commit_and_only_on_a_change(
-    monkeypatch: pytest.MonkeyPatch, changed: bool
+async def test_reading_the_link_uses_the_same_room_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code review: reading and rotating the link answer to one row-18 gate."""
+    room = chatroom_row()
+    room.guest_token = "the-link-token"
+    access = RoomAccess(
+        chatroom=room, project_id=uuid.uuid4(), roles=frozenset({Role.ORG_OWNER}), is_guest=False
+    )
+    monkeypatch.setattr(chatrooms_route, "resolve_room_access", _resolving(access))
+    out = await chatrooms_route.read_guest_link(
+        request=_request(), chatroom_id=access.chatroom.id, principal=_MEMBER, db=MagicMock()
+    )
+    assert out.url == f"https://smap.test/g/{access.chatroom.id}/{access.chatroom.guest_token}"
+
+
+@pytest.mark.parametrize("ended", [0, 1, 2])
+async def test_removal_announces_each_ended_session_by_id_after_commit(
+    monkeypatch: pytest.MonkeyPatch, ended: int
 ) -> None:
+    """One frame per ended session (a ban ends the browser's other live sessions
+    too), none when nothing ended, and no roster frame: the roster is unchanged."""
     monkeypatch.setattr(chatrooms_route, "resolve_room_access", _resolving(_access(Role.PROJECT_OWNER)))
-    room, session_id = uuid.uuid4(), uuid.uuid4()
+    room = uuid.uuid4()
+    session_ids = [uuid.uuid4() for _ in range(ended)]
     facade = _facade()
-    facade.remove_guest = AsyncMock(return_value=SimpleNamespace(changed=changed))
+    facade.remove_guest = AsyncMock(return_value=_removal(*session_ids))
     publisher, sent = _publisher()
     order: list[str] = []
     db = MagicMock(commit=AsyncMock(side_effect=lambda: order.append("commit")))
@@ -143,7 +174,7 @@ async def test_removal_announces_ids_only_after_commit_and_only_on_a_change(
         await chatrooms_route.remove_guest(
             body=chatrooms_route.GuestRemoveIn(ban=True),
             chatroom_id=room,
-            guest_session_id=session_id,
+            guest_session_id=uuid.uuid4(),
             ctx=RequestContext(),
             principal=_MEMBER,
             db=db,
@@ -151,24 +182,24 @@ async def test_removal_announces_ids_only_after_commit_and_only_on_a_change(
 
     assert facade.remove_guest.await_args.kwargs["ban"] is True
     assert facade.remove_guest.await_args.kwargs["actor_user_id"] == _MEMBER.user_id
-    expected = [
+    assert sent == [
         (
             room_channel(room),
             "chatroom.guest_removed",
-            {"chatroom_id": str(room), "guest_session_id": str(session_id)},
-        ),
-        (room_channel(room), "chatroom.members_changed", {"chatroom_id": str(room)}),
+            {"chatroom_id": str(room), "guest_session_id": str(sid)},
+        )
+        for sid in session_ids
     ]
-    assert sent == (expected if changed else [])
-    if changed:
-        assert order == ["commit"]
+    assert order == (["commit"] if ended else [])
 
 
 async def test_a_failed_emit_does_not_fail_the_removal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chatrooms_route, "resolve_room_access", _resolving(_access(Role.ORG_OWNER)))
     broken = SimpleNamespace(emit=AsyncMock(side_effect=RuntimeError("redis down")))
+    facade = _facade()
+    facade.remove_guest = AsyncMock(return_value=_removal(uuid.uuid4(), uuid.uuid4()))
     with (
-        patch.object(chatrooms_route, "ConversationFacade", return_value=_facade()),
+        patch.object(chatrooms_route, "ConversationFacade", return_value=facade),
         patch.object(chatrooms_route, "Publisher", return_value=broken),
     ):
         await chatrooms_route.remove_guest(
@@ -203,9 +234,9 @@ async def test_the_ban_list_carries_name_and_time_only(monkeypatch: pytest.Monke
     ]
 
 
-async def test_rotation_returns_the_new_link_and_tells_viewers_to_refetch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_rotation_returns_the_new_link_and_signals_no_one_else(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code review: nothing in a viewer's room DTO changes, so a room frame would
+    only tell guests that an invisible write happened."""
     monkeypatch.setattr(chatrooms_route, "resolve_room_access", _resolving(_access(Role.PROJECT_OWNER)))
     room = chatroom_row()
     rotated = SimpleNamespace(
@@ -214,17 +245,18 @@ async def test_rotation_returns_the_new_link_and_tells_viewers_to_refetch(
     facade = _facade()
     facade.rotate_guest_link = AsyncMock(return_value=rotated)
     emitted = AsyncMock()
-    request = MagicMock()
-    request.url.scheme, request.url.netloc = "https", "smap.test"
+    publisher, sent = _publisher()
 
     with (
         patch.object(chatrooms_route, "ConversationFacade", return_value=facade),
         patch.object(chatrooms_route, "_emit_chatroom_updated", emitted),
+        patch.object(chatrooms_route, "Publisher", publisher),
     ):
         out = await chatrooms_route.rotate_guest_link(
-            request=request, chatroom_id=room.id, ctx=RequestContext(), principal=_MEMBER, db=MagicMock()
+            request=_request(), chatroom_id=room.id, ctx=RequestContext(), principal=_MEMBER, db=MagicMock()
         )
 
     assert out.url == f"https://smap.test/g/{room.id}/fresh-token"
     assert out.guest_token == "fresh-token"
-    assert emitted.await_args.kwargs["room_visible"] is True
+    emitted.assert_not_awaited()
+    assert sent == []

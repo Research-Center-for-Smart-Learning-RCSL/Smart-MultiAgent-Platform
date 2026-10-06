@@ -169,9 +169,7 @@ async def _resolve_guest_access(
 
     # After the liveness check, so a guest of a deleted room is told it is gone.
     project_id = await ensure_parents_live(db, chatroom)
-    session = await GuestSessionRepository(db).find_by_id(principal.user_id)
-    if session is None or session.chatroom_id != chatroom_id or session.revoked_at is not None:
-        raise GuestRemoved(str(chatroom_id))
+    await ensure_guest_session_live(db, guest_session_id=principal.user_id, chatroom_id=chatroom_id)
 
     return RoomAccess(
         chatroom=chatroom,
@@ -179,6 +177,16 @@ async def _resolve_guest_access(
         roles=frozenset(),
         is_guest=True,
     )
+
+
+async def ensure_guest_session_live(
+    db: AsyncSession, *, guest_session_id: uuid.UUID, chatroom_id: uuid.UUID
+) -> None:
+    """Raise ``GuestRemoved`` unless the session exists in the room and was not
+    removed ([R13.07a]). A missing row is a purged or removed session too."""
+    session = await GuestSessionRepository(db).find_by_id(guest_session_id)
+    if session is None or session.chatroom_id != chatroom_id or session.revoked_at is not None:
+        raise GuestRemoved(str(chatroom_id))
 
 
 async def _in_bound_group(
@@ -378,7 +386,8 @@ async def _room_readable(
         return False
     try:
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
-    except (ChatroomNotFound, WorkspaceNotFound):
+    except (ChatroomNotFound, WorkspaceNotFound, GuestRemoved):
+        # A removed guest's former room is as unreadable as a missing one.
         return False
     return _satisfies_room_flags(access)
 
@@ -565,6 +574,7 @@ __all__ = [
     "ensure_can_manage_guest_link",
     "ensure_can_read",
     "ensure_can_send",
+    "ensure_guest_session_live",
     "ensure_parents_live",
     "ensure_room_creator",
     "ensure_room_live",

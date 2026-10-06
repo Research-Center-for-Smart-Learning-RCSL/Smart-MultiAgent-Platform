@@ -71,8 +71,9 @@ class GuestRefreshResult:
 
 @dataclass(frozen=True, slots=True)
 class GuestRemovalResult:
-    # False for a repeat of a removal already in force: the route then emits no
-    # event, so an idempotent retry does not re-announce it.
+    # The sessions this call ended; the route announces exactly these, so an
+    # idempotent retry announces nothing.
+    removed_session_ids: tuple[uuid.UUID, ...]
     changed: bool
 
 
@@ -350,23 +351,33 @@ class GuestSessionService:
         # the revoke and the ban and come back with a live session.
         await advisory_xact_lock(self._db, _join_lock_key(chatroom_id))
 
-        async def audit_on_session(action: str, metadata: dict[str, str] | None = None) -> None:
+        async def audit_on_session(
+            action: str, session_id: uuid.UUID, metadata: dict[str, str] | None = None
+        ) -> None:
             await self._audit_moderation(
                 action,
                 actor_user_id=actor_user_id,
                 resource_type="guest_session",
-                resource_id=guest_session_id,
+                resource_id=session_id,
                 chatroom_id=chatroom_id,
                 remote_ip=remote_ip,
                 request_id=request_id,
                 metadata=metadata,
             )
 
-        removed = await self._sessions.revoke(guest_session_id, chatroom_id=chatroom_id)
-        if removed:
-            await audit_on_session("guest.session.removed")
+        removed: list[uuid.UUID] = []
+        if await self._sessions.revoke(guest_session_id, chatroom_id=chatroom_id):
+            removed.append(guest_session_id)
         banned = None
         if ban:
+            # The ban keys on the browser, so every live session it holds here
+            # ends with it: a guest removed and rejoined, then banned from an
+            # old message, would otherwise keep the new session, since refresh
+            # never consults bans.
+            if session.browser_id:
+                removed += await self._sessions.revoke_live_for_browser(
+                    chatroom_id=chatroom_id, browser_id=session.browser_id
+                )
             banned = await self._bans.create(
                 chatroom_id=chatroom_id,
                 guest_session_id=guest_session_id,
@@ -374,9 +385,13 @@ class GuestSessionService:
                 display_name=session.display_name,
                 created_by=actor_user_id,
             )
-            if banned is not None:
-                await audit_on_session("guest.banned", {"ban_id": str(banned.id)})
-        return GuestRemovalResult(changed=removed or banned is not None)
+        for session_id in removed:
+            await audit_on_session("guest.session.removed", session_id)
+        if banned is not None:
+            await audit_on_session("guest.banned", guest_session_id, {"ban_id": str(banned.id)})
+        return GuestRemovalResult(
+            removed_session_ids=tuple(removed), changed=bool(removed) or banned is not None
+        )
 
     async def list_bans(self, chatroom_id: uuid.UUID) -> list[GuestBan]:
         return await self._bans.list_for_room(chatroom_id)

@@ -248,9 +248,14 @@ async def guest_ws_ticket(
     """Mint a WS ticket for a guest. Requires a valid guest JWT in Bearer."""
     if not principal.is_guest or principal.chatroom_id is None:
         raise GuestTokenInvalid("not a guest principal")
-    # A socket refused before accept reaches the browser as 1006, so this is the
-    # one place a reconnecting guest can learn that links were turned off.
-    await ConversationFacade(db).ensure_guest_room_open(principal.chatroom_id)
+    # Refused here rather than at the handshake so a guest the room no longer
+    # admits does not keep minting tickets, each opening a socket that is
+    # accepted only to be closed again.
+    facade = ConversationFacade(db)
+    await facade.ensure_guest_room_open(principal.chatroom_id)
+    await facade.ensure_guest_session_live(
+        guest_session_id=principal.user_id, chatroom_id=principal.chatroom_id
+    )
 
     from shared_kernel.realtime import mint_ws_ticket
 

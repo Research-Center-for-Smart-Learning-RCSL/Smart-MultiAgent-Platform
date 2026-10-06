@@ -27,6 +27,7 @@ from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     GuestAccessDisabled,
     GuestDisplayNameInvalid,
+    GuestRemoved,
     GuestTokenInvalid,
 )
 from contexts.conversation.domain.models import GuestSession
@@ -190,7 +191,9 @@ def _request() -> SimpleNamespace:
 @pytest.mark.parametrize("raised", [GuestAccessDisabled, ChatroomNotFound])
 async def test_ticket_is_refused_when_the_room_no_longer_admits_the_guest(raised: type[Exception]) -> None:
     room = uuid.uuid4()
-    facade = SimpleNamespace(ensure_guest_room_open=AsyncMock(side_effect=raised(str(room))))
+    facade = SimpleNamespace(
+        ensure_guest_room_open=AsyncMock(side_effect=raised(str(room))), ensure_guest_session_live=AsyncMock()
+    )
     mint = AsyncMock(return_value=("ticket", 30))
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
@@ -204,15 +207,40 @@ async def test_ticket_is_refused_when_the_room_no_longer_admits_the_guest(raised
 
 async def test_ticket_is_minted_for_a_room_that_admits_guests() -> None:
     room = uuid.uuid4()
-    facade = SimpleNamespace(ensure_guest_room_open=AsyncMock(return_value=None))
+    principal = _guest(room)
+    facade = SimpleNamespace(
+        ensure_guest_room_open=AsyncMock(return_value=None),
+        ensure_guest_session_live=AsyncMock(return_value=None),
+    )
     mint = AsyncMock(return_value=("ticket", 30))
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
         patch("shared_kernel.realtime.mint_ws_ticket", mint),
     ):
-        out = await guests_route.guest_ws_ticket(request=_request(), principal=_guest(room), db=MagicMock())
+        out = await guests_route.guest_ws_ticket(request=_request(), principal=principal, db=MagicMock())
     assert (out.ticket, out.expires_in) == ("ticket", 30)
     mint.assert_awaited_once_with("guest-jwt")
+    facade.ensure_guest_session_live.assert_awaited_once_with(
+        guest_session_id=principal.user_id, chatroom_id=room
+    )
+
+
+async def test_ticket_is_refused_for_a_removed_guest() -> None:
+    """docs/tasks/2026-10-05-guest-kick-and-ban code review: otherwise every
+    reconnect mints a ticket for a socket the handshake then closes 4408."""
+    room = uuid.uuid4()
+    facade = SimpleNamespace(
+        ensure_guest_room_open=AsyncMock(return_value=None),
+        ensure_guest_session_live=AsyncMock(side_effect=GuestRemoved(str(room))),
+    )
+    mint = AsyncMock(return_value=("ticket", 30))
+    with (
+        patch.object(guests_route, "ConversationFacade", return_value=facade),
+        patch("shared_kernel.realtime.mint_ws_ticket", mint),
+        pytest.raises(GuestRemoved),
+    ):
+        await guests_route.guest_ws_ticket(request=_request(), principal=_guest(room), db=MagicMock())
+    mint.assert_not_awaited()
 
 
 async def test_service_room_check_raises_for_links_off_and_missing_rooms(

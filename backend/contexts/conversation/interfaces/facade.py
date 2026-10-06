@@ -430,6 +430,12 @@ class ConversationFacade:
 
         await GuestSessionService(self._db).ensure_admits_guests(chatroom_id)
 
+    async def ensure_guest_session_live(self, *, guest_session_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+        """Raise ``GuestRemoved`` unless the guest session is live in the room ([R13.07a])."""
+        from contexts.conversation.application.access import ensure_guest_session_live
+
+        await ensure_guest_session_live(self._db, guest_session_id=guest_session_id, chatroom_id=chatroom_id)
+
     async def update_guest_display_name(
         self,
         *,

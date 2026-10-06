@@ -262,6 +262,34 @@ class TestRejoin:
         back = await _join(sessionmaker, room, "Ann", browser_id="br-a")
         assert back.guest_session_id != first.guest_session_id
 
+    async def test_a_ban_from_an_old_session_ends_the_rejoined_one(
+        self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
+    ) -> None:
+        """Code review finding 1: removed, rejoined from the same browser, then
+        banned through the old session's message, the guest must lose the new
+        session too; refresh never consults bans."""
+        first = await _join(sessionmaker, room, "Ann", browser_id="br-a")
+        await _remove(sessionmaker, room, first.guest_session_id, ban=False)
+        second = await _join(sessionmaker, room, "Ann", browser_id="br-a")
+        assert second.guest_session_id != first.guest_session_id
+
+        async with sessionmaker() as session:
+            result = await GuestSessionService(session).remove(
+                chatroom_id=room.chatroom_id,
+                guest_session_id=first.guest_session_id,
+                ban=True,
+                actor_user_id=room.owner_user_id,
+            )
+            await session.commit()
+        assert result.removed_session_ids == (second.guest_session_id,)
+
+        async with sessionmaker() as session:
+            with pytest.raises(GuestRemoved):
+                await GuestSessionService(session).refresh(
+                    chatroom_id=room.chatroom_id, refresh_token=second.refresh_token
+                )
+            await session.rollback()
+
     async def test_the_ban_row_stores_a_hash_and_survives_the_session_purge(
         self, sessionmaker: async_sessionmaker[AsyncSession], room: Room
     ) -> None:

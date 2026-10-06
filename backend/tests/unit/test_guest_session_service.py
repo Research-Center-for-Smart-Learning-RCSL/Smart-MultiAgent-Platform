@@ -433,6 +433,7 @@ async def test_remove_with_ban_revokes_bans_by_browser_hash_and_audits_both(
     ):
         sessions.find_by_id = AsyncMock(return_value=session)
         sessions.revoke = AsyncMock(return_value=True)
+        sessions.revoke_live_for_browser = AsyncMock(return_value=[])
         mock_audit.emit = AsyncMock()
         mock_audit.AuditEvent = real_audit.AuditEvent
 
@@ -441,6 +442,7 @@ async def test_remove_with_ban_revokes_bans_by_browser_hash_and_audits_both(
         )
 
     assert result.changed is True
+    assert result.removed_session_ids == (session.id,)
     lock.assert_awaited_once()
     sessions.revoke.assert_awaited_once_with(session.id, chatroom_id=cr_id)
     bans.create.assert_awaited_once_with(
@@ -455,6 +457,39 @@ async def test_remove_with_ban_revokes_bans_by_browser_hash_and_audits_both(
     assert {e.actor_user_id for e in events} == {actor}
     assert all(e.actor_guest_room_id is None for e in events)
     assert all(e.resource_id == session.id for e in events)
+
+
+@pytest.mark.asyncio
+async def test_a_ban_also_ends_the_browsers_other_live_sessions(
+    service: GuestSessionService, bans: MagicMock
+) -> None:
+    """Code review finding 1: a guest removed, then rejoined as a new session from
+    the same browser, and banned from an old message must lose the new session
+    too; refresh never consults bans, so a live session would outlast the ban."""
+    cr_id, actor = uuid.uuid4(), uuid.uuid4()
+    old = _fake_session(chatroom_id=cr_id, browser_id="br-1", revoked=True)
+    live_id = uuid.uuid4()
+    bans.create = AsyncMock(return_value=_ban(cr_id, old.id))
+
+    with (
+        patch.object(service, "_sessions") as sessions,
+        patch(f"{_SERVICE}.advisory_xact_lock", AsyncMock()),
+        patch(f"{_SERVICE}.audit") as mock_audit,
+    ):
+        sessions.find_by_id = AsyncMock(return_value=old)
+        sessions.revoke = AsyncMock(return_value=False)
+        sessions.revoke_live_for_browser = AsyncMock(return_value=[live_id])
+        mock_audit.emit = AsyncMock()
+        mock_audit.AuditEvent = real_audit.AuditEvent
+
+        result = await service.remove(
+            chatroom_id=cr_id, guest_session_id=old.id, ban=True, actor_user_id=actor
+        )
+
+    sessions.revoke_live_for_browser.assert_awaited_once_with(chatroom_id=cr_id, browser_id="br-1")
+    assert result.removed_session_ids == (live_id,)
+    events = [(call.args[1].action, call.args[1].resource_id) for call in mock_audit.emit.await_args_list]
+    assert events == [("guest.session.removed", live_id), ("guest.banned", old.id)]
 
 
 @pytest.mark.asyncio
