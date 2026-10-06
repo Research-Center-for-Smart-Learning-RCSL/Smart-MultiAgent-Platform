@@ -22,6 +22,7 @@ import app.api.v1.guests as guests_route
 from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.domain.errors import ForbiddenInRoom, GuestTokenInvalid
 from contexts.conversation.interfaces import room_channel
+from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.permissions import Principal
 from tests.unit.chatroom_fakes import chatroom_row
 
@@ -140,6 +141,7 @@ async def test_renaming_returns_the_stored_name_and_emits_only_on_a_change(chang
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="  Alice   Chen "),
             guest_session_id=session_id,
+            ctx=RequestContext(),
             principal=principal,
             db=db,
         )
@@ -168,6 +170,7 @@ async def test_a_failed_emit_does_not_fail_the_rename() -> None:
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="Bob"),
             guest_session_id=session_id,
+            ctx=RequestContext(),
             principal=principal,
             db=MagicMock(commit=AsyncMock()),
         )
@@ -199,6 +202,7 @@ async def test_a_guest_the_room_no_longer_admits_cannot_rename(_room: SimpleName
         await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="Bob"),
             guest_session_id=session_id,
+            ctx=RequestContext(),
             principal=principal,
             db=MagicMock(commit=AsyncMock()),
         )
@@ -226,6 +230,7 @@ async def test_only_the_session_itself_may_rename(case: str) -> None:
         await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="Bob"),
             guest_session_id=session_id,
+            ctx=RequestContext(),
             principal=principal,
             db=MagicMock(commit=AsyncMock()),
         )
