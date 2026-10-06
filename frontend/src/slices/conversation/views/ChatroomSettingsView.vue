@@ -36,16 +36,14 @@ import {
   getWorkspace,
   listChatrooms,
   listChatroomMemberGroups,
-  listGuestBans,
-  rotateGuestLink,
   setChatroomMemberGroups,
-  unbanGuest,
 } from '../api'
-import { convKeys } from '../queries'
 import { DlqViewer } from '@slices/workflow'
 import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
+import { useGuestLinkModeration } from '../composables/useGuestLinkModeration'
+import GuestBansCard from '../components/GuestBansCard.vue'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
 import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
@@ -312,50 +310,11 @@ async function copyGuest(): Promise<void> {
 // Matrix row 18, which is exactly the room's moderator bit; the server decides.
 
 const isGuestModerator = computed(() => room.value?.is_moderator ?? false)
-const rotating = ref(false)
+const guestLink = useGuestLinkModeration(chatroomId, isGuestModerator)
 
 async function onRotateLink(): Promise<void> {
-  const ok = await confirm({
-    title: t('conversation.settings.rotateLinkTitle'),
-    message: t('conversation.settings.rotateLinkConfirm'),
-    variant: 'warning',
-    confirmLabel: t('conversation.settings.rotateLink'),
-  })
-  if (!ok) return
-  rotating.value = true
-  try {
-    const link = await rotateGuestLink(chatroomId)
-    guestUrl.value = link.url
-    toast.success(t('conversation.settings.linkRotated'))
-  } catch {
-    toast.error(t('conversation.settings.rotateFailed'))
-  } finally {
-    rotating.value = false
-  }
-}
-
-const bansQuery = useQuery({
-  queryKey: convKeys.guestBans(chatroomId),
-  queryFn: () => listGuestBans(chatroomId),
-  enabled: isGuestModerator,
-})
-const unbanningId = ref<string | null>(null)
-
-async function onUnban(banId: string): Promise<void> {
-  unbanningId.value = banId
-  try {
-    await unbanGuest(chatroomId, banId)
-    toast.success(t('conversation.settings.unbanned'))
-  } catch {
-    toast.error(t('conversation.settings.unbanFailed'))
-  } finally {
-    unbanningId.value = null
-    void qc.invalidateQueries({ queryKey: convKeys.guestBans(chatroomId) })
-  }
-}
-
-function formatBanTime(iso: string): string {
-  return new Date(iso).toLocaleString()
+  const url = await guestLink.rotateLink()
+  if (url) guestUrl.value = url
 }
 
 // ---- danger zone: compact -------------------------------------------------
@@ -752,7 +711,7 @@ watchEffect(() => {
               variant="secondary"
               size="sm"
               data-testid="rotate-guest-link"
-              :loading="rotating"
+              :loading="guestLink.rotating.value"
               @click="onRotateLink"
             >
               <template #icon-left>
@@ -764,53 +723,14 @@ watchEffect(() => {
         </SCard>
 
         <!-- Banned guests: shown whatever the link flag, since bans outlive it -->
-        <SCard v-if="isGuestModerator">
-          <h2 class="settings__heading">
-            {{ t('conversation.settings.bannedGuests') }}
-          </h2>
-          <p class="access-row__desc mb-2">
-            {{ t('conversation.settings.bannedGuestsHelp') }}
-          </p>
-          <SSkeleton
-            v-if="bansQuery.isPending.value"
-            :lines="2"
-          />
-          <SAlert
-            v-else-if="bansQuery.isError.value"
-            variant="danger"
-          >
-            {{ t('conversation.settings.bansLoadFailed') }}
-          </SAlert>
-          <p
-            v-else-if="!bansQuery.data.value?.length"
-            class="access-row__desc"
-            data-testid="no-banned-guests"
-          >
-            {{ t('conversation.settings.noBannedGuests') }}
-          </p>
-          <ul
-            v-else
-            class="ban-list"
-          >
-            <li
-              v-for="ban in bansQuery.data.value"
-              :key="ban.id"
-              class="ban-list__row"
-              data-testid="banned-guest"
-            >
-              <span class="ban-list__name">{{ ban.display_name }}</span>
-              <span class="ban-list__time">{{ t('conversation.settings.bannedAt', { time: formatBanTime(ban.created_at) }) }}</span>
-              <SButton
-                variant="ghost"
-                size="sm"
-                :loading="unbanningId === ban.id"
-                @click="onUnban(ban.id)"
-              >
-                {{ t('conversation.settings.unban') }}
-              </SButton>
-            </li>
-          </ul>
-        </SCard>
+        <GuestBansCard
+          v-if="isGuestModerator"
+          :bans="guestLink.bansQuery.data.value ?? []"
+          :pending="guestLink.bansQuery.isPending.value"
+          :failed="guestLink.bansQuery.isError.value"
+          :is-unbanning="guestLink.isUnbanning"
+          @unban="guestLink.unban"
+        />
 
         <!-- Bound Agents -->
         <SCard>
@@ -1111,32 +1031,6 @@ watchEffect(() => {
   flex: 1;
 }
 
-.ban-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.ban-list__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 36px;
-}
-
-.ban-list__name {
-  font-size: var(--font-size-sm);
-  color: var(--color-fg);
-}
-
-.ban-list__time {
-  flex: 1;
-  font-size: var(--font-size-xs);
-  color: var(--color-muted);
-}
 
 .agent-add {
   display: flex;

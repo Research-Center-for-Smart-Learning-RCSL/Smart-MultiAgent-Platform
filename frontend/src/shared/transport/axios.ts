@@ -279,17 +279,17 @@ async function handleResponseError(
   // so any request that carried this tab's guest token speaks for it. The
   // landing page's session-create carries no such claim (it may name another
   // room) and reports its own answer.
+  const wasAuthenticated = Boolean(original.headers?.Authorization)
   if (
     status === 403 &&
     problemType.endsWith(GUEST_REMOVED_TYPE) &&
     guestChatroomIdRef.value &&
-    Boolean(original.headers?.Authorization) &&
+    wasAuthenticated &&
     !(original.url ?? '').endsWith('/session')
   ) {
     guestSessionEndRef.value = 'removed'
   }
   const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
-  const wasAuthenticated = Boolean(original.headers?.Authorization)
   const isRefreshEligible =
     status === 401 && !isTokenRevoked && wasAuthenticated
 

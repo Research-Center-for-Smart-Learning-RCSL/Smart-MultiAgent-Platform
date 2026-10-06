@@ -18,7 +18,7 @@
         </span>
 
         <template v-if="u.isYou && viewerIsGuest && !editingName">
-          <span class="presence-user__name">{{ viewerName || u.displayName || u.id.slice(0, 8) }}</span>
+          <span class="presence-user__name">{{ viewerName || labelOf(u) }}</span>
           <SButton
             variant="ghost"
             icon-only
@@ -61,7 +61,7 @@
         </template>
 
         <template v-else>
-          <span class="presence-user__name">{{ u.displayName || u.id.slice(0, 8) }}</span>
+          <span class="presence-user__name">{{ labelOf(u) }}</span>
         </template>
 
         <SBadge
@@ -87,8 +87,8 @@
             icon-only
             size="sm"
             data-testid="presence-remove-guest"
-            :aria-label="t('conversation.chatroom.removeGuestNamed', { name: u.displayName || u.id.slice(0, 8) })"
-            @click="emit('remove-guest', u.id, u.displayName || u.id.slice(0, 8))"
+            :aria-label="t('conversation.chatroom.removeGuestNamed', { name: labelOf(u) })"
+            @click="emit('remove-guest', u.id, labelOf(u))"
           >
             <UserMinusIcon class="w-3.5 h-3.5" />
           </SButton>
@@ -97,8 +97,8 @@
             icon-only
             size="sm"
             data-testid="presence-ban-guest"
-            :aria-label="t('conversation.chatroom.banGuestNamed', { name: u.displayName || u.id.slice(0, 8) })"
-            @click="emit('ban-guest', u.id, u.displayName || u.id.slice(0, 8))"
+            :aria-label="t('conversation.chatroom.banGuestNamed', { name: labelOf(u) })"
+            @click="emit('ban-guest', u.id, labelOf(u))"
           >
             <NoSymbolIcon class="w-3.5 h-3.5" />
           </SButton>
@@ -155,6 +155,13 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+type Row = (typeof props.onlineUsers)[number]
+
+function labelOf(u: Row): string {
+  return u.displayName || u.id.slice(0, 8)
+}
+
 const editingName = ref(false)
 const editNameValue = ref('')
 const editInputRef = useTemplateRef<InstanceType<typeof SInput>>('editInputRef')

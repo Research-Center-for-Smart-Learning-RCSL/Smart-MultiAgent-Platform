@@ -146,15 +146,15 @@
               :edit-draft="editDraft"
               :can-edit="canEdit(item.message)"
               :can-delete="canDelete(item.message)"
-              :can-moderate-guest="isModerator && item.message.sender_type === 'guest' && !!item.message.sender_id"
+              :can-moderate-guest="canModerateSender(item.message)"
               :flash="highlightId === item.message.id"
               @start-edit="startEdit(item.message)"
               @save-edit="saveEdit"
               @cancel-edit="cancelEdit"
               @delete="confirmDelete(item.message)"
               @copy="copyMessage(item.message)"
-              @remove-guest="moderateGuest(item.message.sender_id!, senderName(item.message), false)"
-              @ban-guest="moderateGuest(item.message.sender_id!, senderName(item.message), true)"
+              @remove-guest="moderateSender(item.message, false)"
+              @ban-guest="moderateSender(item.message, true)"
               @download="downloadAttachment"
               @update:edit-draft="editDraft = $event"
             />
@@ -930,6 +930,8 @@ async function onObservationDelete(o: Observation): Promise<void> {
 
 // ---- composables ----------------------------------------------------------
 
+const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
+
 const {
   messages,
   hasOlderMessages,
@@ -954,11 +956,19 @@ const {
   // position, so it is the one that resets the pill and the at-bottom flag.
   () => scrollToBottom(),
   () => agentList.value,
-  () => roomQuery.data.value?.is_moderator ?? false,
+  () => isModerator.value,
 )
 
-const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
 const { moderateGuest } = useGuestModeration(chatroomId)
+
+// A moderator acting on an anonymous guest's message ([R13.07a]).
+function canModerateSender(message: Message): boolean {
+  return isModerator.value && message.sender_type === 'guest' && !!message.sender_id
+}
+
+function moderateSender(message: Message, ban: boolean): void {
+  if (message.sender_id) void moderateGuest(message.sender_id, senderName(message), ban)
+}
 
 // New authors appear over the room's lifetime via WebSocket. When a user message
 // arrives from a sender the roster doesn't name yet, refetch it once for that id

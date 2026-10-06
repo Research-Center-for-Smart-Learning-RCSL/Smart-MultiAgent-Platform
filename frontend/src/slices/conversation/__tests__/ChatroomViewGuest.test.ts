@@ -7,7 +7,6 @@
 // other guest as an eight-character id.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { nextTick } from 'vue'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -20,32 +19,23 @@ import {
   setGuestContext,
 } from '@shared/transport'
 import { markConnectionRestored } from '@shared/composables/useNetworkStatus'
-import ChatroomComposer from '../components/ChatroomComposer.vue'
 import { useGuestSessionStore } from '../stores/guestSession'
 import { useSessionStore } from '@shared/stores/session'
 import ChatroomView from '../views/ChatroomView.vue'
 import ChatroomPresence from '../components/ChatroomPresence.vue'
 import ChatroomTypingIndicator from '../components/ChatroomTypingIndicator.vue'
 import { useConversationStore } from '../stores/conversation'
+import { FakeWebSocket, composerDisabled, settle, unsignedToken } from './kit'
 
 const routes = [{ path: '/chatrooms/:chatroomId', name: 'conversation.chatroom', component: ChatroomView }]
 const GUEST = 'g_1'
 const settingsKey = 'conversation.chatroom.settingsLabel'
 const backKey = 'conversation.chatroom.back'
 
-function unsignedToken(claims: Record<string, unknown>): string {
-  return `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
-}
-
 function enterAsGuest(): void {
   setAccessToken(
     unsignedToken({ sub: GUEST, token_use: 'guest_access', display_name: 'Alice', chatroom_id: 'cr_1' }),
   )
-}
-
-async function settle(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 100))
-  await nextTick()
 }
 
 let width = 0
@@ -183,36 +173,6 @@ describe('ChatroomView for an anonymous guest', () => {
 
 // docs/tasks/2026-10-05-guest-frontend-session-lifecycle (F-7, F-8, F-20, Q-2)
 describe('ChatroomView when the guest session ends', () => {
-  class FakeWebSocket {
-    static readonly CONNECTING = 0
-    static readonly OPEN = 1
-    static readonly CLOSING = 2
-    static readonly CLOSED = 3
-    static instances: FakeWebSocket[] = []
-    readyState = FakeWebSocket.CONNECTING
-    closedWith: number | null = null
-    onopen: (() => void) | null = null
-    onclose: ((ev: { code: number; reason: string }) => void) | null = null
-    onmessage: ((ev: { data: string }) => void) | null = null
-    onerror: (() => void) | null = null
-    constructor() {
-      FakeWebSocket.instances.push(this)
-    }
-    send(): void {}
-    close(code?: number): void {
-      this.closedWith = code ?? 1000
-      this.readyState = FakeWebSocket.CLOSED
-    }
-    open(): void {
-      this.readyState = FakeWebSocket.OPEN
-      this.onopen?.()
-    }
-    serverClose(code: number): void {
-      this.readyState = FakeWebSocket.CLOSED
-      this.onclose?.({ code, reason: '' })
-    }
-  }
-
   const expiredKey = 'conversation.guest.sessionExpired'
   const reopenKey = 'conversation.guest.sessionExpiredReopen'
   const disabledKey = 'conversation.guest.guestDisabled'
@@ -229,10 +189,6 @@ describe('ChatroomView when the guest session ends', () => {
     clearGuestContext()
     markConnectionRestored()
   })
-
-  function composerDisabled(wrapper: Awaited<ReturnType<typeof renderView>>): boolean {
-    return wrapper.findComponent(ChatroomComposer).props('disabled') === true
-  }
 
   // 4401 is the server's "re-handshake" signal (ws_auth.py), so the refresh it
   // triggers decides whether the session ended (code review finding 1).

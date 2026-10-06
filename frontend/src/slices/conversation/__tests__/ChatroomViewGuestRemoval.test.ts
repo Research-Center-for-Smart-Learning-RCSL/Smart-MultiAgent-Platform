@@ -3,7 +3,6 @@
 // close or the problem type, and moderators get the actions on anonymous guests only.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { nextTick } from 'vue'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -11,65 +10,19 @@ import { clearGuestContext, guestSessionEnd, setAccessToken, setGuestContext } f
 import { markConnectionRestored } from '@shared/composables/useNetworkStatus'
 import { useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
-import ChatroomComposer from '../components/ChatroomComposer.vue'
 import ChatroomPresence from '../components/ChatroomPresence.vue'
 import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
+import { FakeWebSocket, composerDisabled, settle, unsignedToken } from './kit'
 
 const routes = [{ path: '/chatrooms/:chatroomId', name: 'conversation.chatroom', component: ChatroomView }]
 const GUEST = 'g_1'
 const removedKey = 'conversation.guest.removed'
 
-class FakeWebSocket {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-  static instances: FakeWebSocket[] = []
-  readyState = FakeWebSocket.CONNECTING
-  closedWith: number | null = null
-  onopen: (() => void) | null = null
-  onclose: ((ev: { code: number; reason: string }) => void) | null = null
-  onmessage: ((ev: { data: string }) => void) | null = null
-  onerror: (() => void) | null = null
-  constructor() {
-    FakeWebSocket.instances.push(this)
-  }
-  send(): void {}
-  close(code?: number): void {
-    this.closedWith = code ?? 1000
-    this.readyState = FakeWebSocket.CLOSED
-  }
-  open(): void {
-    this.readyState = FakeWebSocket.OPEN
-    this.onopen?.()
-  }
-  serverClose(code: number): void {
-    this.readyState = FakeWebSocket.CLOSED
-    this.onclose?.({ code, reason: '' })
-  }
-  frame(event: Record<string, unknown>): void {
-    this.onmessage?.({ data: JSON.stringify(event) })
-  }
-}
-
-function unsignedToken(claims: Record<string, unknown>): string {
-  return `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
-}
-
 function enterAsGuest(): void {
   setAccessToken(unsignedToken({ sub: GUEST, token_use: 'guest_access', display_name: 'Alice', chatroom_id: 'cr_1' }))
   setGuestContext('cr_1')
-}
-
-async function settle(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 100))
-  await nextTick()
-}
-
-function composerDisabled(wrapper: Awaited<ReturnType<typeof renderView>>): boolean {
-  return wrapper.findComponent(ChatroomComposer).props('disabled') === true
 }
 
 let width = 0
