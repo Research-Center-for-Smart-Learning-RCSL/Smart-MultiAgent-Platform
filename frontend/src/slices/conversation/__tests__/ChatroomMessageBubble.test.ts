@@ -262,3 +262,30 @@ describe('ChatroomMessageBubble attachments', () => {
     expect(chips.some((c) => c.text().includes('raster.png'))).toBe(false)
   })
 })
+
+// docs/tasks/2026-10-05-guest-sender-marking (AC-1, AC-2): the badge follows the
+// identity the view hands in, never the sender's name.
+describe('ChatroomMessageBubble guest badge', () => {
+  const guestMessage: DisplayMessage = { ...agentMessage({}), sender_type: 'guest', sender_id: 'g_1' }
+
+  it('badges a guest author next to the name', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, senderName: 'Ms Lin', senderIsGuest: true, message: guestMessage },
+    })
+    const badge = wrapper.find('[data-testid="bubble-guest-badge"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('conversation.chatroom.guestBadge')
+  })
+
+  it('leaves a member unbadged, whatever their name says', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        senderName: 'Alice (guest)',
+        senderIsGuest: false,
+        message: { ...guestMessage, sender_type: 'user', sender_id: 'u_1' },
+      },
+    })
+    expect(wrapper.find('[data-testid="bubble-guest-badge"]').exists()).toBe(false)
+  })
+})

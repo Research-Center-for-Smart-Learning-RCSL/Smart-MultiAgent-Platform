@@ -527,6 +527,6 @@ class TestGuestSessionLabels:
             await session.commit()
 
         async with sessionmaker() as session:
-            labels = await ConversationFacade(session).guest_session_labels(guest_room.chatroom_id)
+            labels = (await ConversationFacade(session).room_guests(guest_room.chatroom_id)).sessions
 
         assert labels == {guest_room.guest_id: "Guest Student"}

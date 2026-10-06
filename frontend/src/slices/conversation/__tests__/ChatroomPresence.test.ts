@@ -48,6 +48,24 @@ describe('ChatroomPresence', () => {
     expect(wrapper.text()).toContain('u_3abcde')
   })
 
+  // docs/tasks/2026-10-05-guest-sender-marking (AC-1, AC-2).
+  it('badges guest rows, the viewer\'s own included, and no member row', async () => {
+    const wrapper = await renderView(ChatroomPresence, {
+      props: props({
+        viewerIsGuest: true,
+        viewerName: 'Alice',
+        onlineUsers: [
+          { id: 'g_1', isYou: true, displayName: 'Alice', isGuest: true },
+          { id: 'g_2', isYou: false, displayName: 'Ms Lin', isGuest: true },
+          { id: 'u_2', isYou: false, displayName: 'Ms Lin', isGuest: false },
+        ],
+      }),
+    })
+    const rows = wrapper.findAll('.presence-user')
+    const badged = rows.map((r) => r.find('[data-testid="presence-guest-badge"]').exists())
+    expect(badged).toEqual([true, true, false])
+  })
+
   it('draws avatar initials from the name, not the id', async () => {
     const wrapper = await renderView(ChatroomPresence, { props: props() })
     const names = wrapper.findAllComponents(SAvatar).map((a) => a.props('name'))

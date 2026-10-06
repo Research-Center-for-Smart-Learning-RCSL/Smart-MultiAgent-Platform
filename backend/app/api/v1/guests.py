@@ -54,14 +54,16 @@ async def enroll_guest(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = GuestService(db)
-    await service.enroll(
+    enrolled = await service.enroll(
         chatroom_id=chatroom_id,
         token=guest_token,
-        user_id=principal.user_id,
+        principal=principal,
         display_name=body.display_name,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    if enrolled:
+        await _emit_members_changed(db, chatroom_id)
 
 
 # -- Anonymous guest session endpoints (R13.06) --

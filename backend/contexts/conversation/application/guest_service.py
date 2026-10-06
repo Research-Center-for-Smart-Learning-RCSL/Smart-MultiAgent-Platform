@@ -20,17 +20,18 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.application.access import reads_without_guest_row, resolve_room_access
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     GuestAccessDisabled,
     GuestTokenInvalid,
 )
-from contexts.conversation.domain.models import Chatroom
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomRepository,
 )
 from shared_kernel import audit
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.labels import MAX_GUEST_LABEL, normalise_label
 
 
@@ -45,11 +46,17 @@ class GuestService:
         *,
         chatroom_id: uuid.UUID,
         token: str,
-        user_id: uuid.UUID,
+        principal: Principal,
         display_name: str | None = None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
-    ) -> Chatroom:
+    ) -> bool:
+        """Enrol ``principal`` as a registered guest; ``True`` when a new row was written.
+
+        The caller announces a written row to the room ([R13.19]): a new guest's
+        kind reaches open clients only with the roster re-read, and without it
+        their messages arrive unbadged ([R13.33]).
+        """
         room = await self._rooms.get(chatroom_id)
         if room is None:
             raise ChatroomNotFound(str(chatroom_id))
@@ -58,8 +65,15 @@ class GuestService:
         if not room.allow_guest_links:
             # After the token check, so only a link holder learns the reason.
             raise GuestAccessDisabled(str(chatroom_id))
+        if await self._reads_without_guest_row(principal, chatroom_id):
+            # A member who opens the link with their account enters as themselves:
+            # a row would let them pick a room label that wins over their account
+            # name, unmarked, which is the guest-presents-as-member hole the guest
+            # marker closes from the other side ([R13.33]).
+            return False
 
-        await self._guests.add(
+        user_id = principal.user_id
+        written = await self._guests.add(
             chatroom_id=chatroom_id,
             user_id=user_id,
             joined_via_token=token,
@@ -84,7 +98,11 @@ class GuestService:
                 request_id=request_id,
             ),
         )
-        return room
+        return written
+
+    async def _reads_without_guest_row(self, principal: Principal, chatroom_id: uuid.UUID) -> bool:
+        access = await resolve_room_access(self._db, principal=principal, chatroom_id=chatroom_id)
+        return reads_without_guest_row(access, is_admin=principal.is_admin)
 
 
 __all__ = ["GuestService"]

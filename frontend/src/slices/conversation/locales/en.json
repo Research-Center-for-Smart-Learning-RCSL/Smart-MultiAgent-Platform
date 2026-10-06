@@ -146,6 +146,8 @@
       "typingOne": "{name} is typing",
       "typingTwo": "{a} and {b} are typing",
       "typingMany": "{count} people are typing",
+      "guestBadge": "Guest",
+      "guestName": "{name} (guest)",
       "newMessages": "New messages",
       "newMessagesCount": "{count} new messages",
       "copy": "Copy",

@@ -504,13 +504,16 @@ export class ChatroomsService {
      * Resolve human participants to display names so the client can label
      * message authors (REST history + live WS messages share one map).
      *
-     * Only ``user_id`` + ``display_name`` is returned — never email — so a room
+     * Only ``user_id``, ``display_name`` and ``kind`` are returned — never email — so a room
      * member (including a guest) cannot harvest other participants' login
      * identifiers. The id set is the union of distinct human message authors,
      * enrolled registered guests, and the room's anonymous guest sessions; a
      * registered guest's per-room display name takes precedence over their account
      * display name. Names left unset resolve to ``null`` and the client falls back
      * to a short id. Gated like the messages it labels ([R13.32]).
+     *
+     * ``kind`` marks guest identities ([R13.33]): every anonymous session, and a
+     * registered guest holding no role in the room's project.
      * @returns ChatroomMemberOut Successful Response
      * @throws ApiError
      */

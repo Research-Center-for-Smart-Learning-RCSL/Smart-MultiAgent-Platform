@@ -5371,6 +5371,15 @@
             ],
             "title": "Display Name"
           },
+          "kind": {
+            "enum": [
+              "member",
+              "guest_session",
+              "room_guest"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "user_id": {
             "format": "uuid",
             "title": "User Id",
@@ -5379,7 +5388,8 @@
         },
         "required": [
           "user_id",
-          "display_name"
+          "display_name",
+          "kind"
         ],
         "title": "ChatroomMemberOut",
         "type": "object"
@@ -22567,7 +22577,7 @@
     },
     "/api/chatrooms/{chatroom_id}/members": {
       "get": {
-        "description": "Resolve human participants to display names so the client can label\nmessage authors (REST history + live WS messages share one map).\n\nOnly ``user_id`` + ``display_name`` is returned \u2014 never email \u2014 so a room\nmember (including a guest) cannot harvest other participants' login\nidentifiers. The id set is the union of distinct human message authors,\nenrolled registered guests, and the room's anonymous guest sessions; a\nregistered guest's per-room display name takes precedence over their account\ndisplay name. Names left unset resolve to ``null`` and the client falls back\nto a short id. Gated like the messages it labels ([R13.32]).",
+        "description": "Resolve human participants to display names so the client can label\nmessage authors (REST history + live WS messages share one map).\n\nOnly ``user_id``, ``display_name`` and ``kind`` are returned \u2014 never email \u2014 so a room\nmember (including a guest) cannot harvest other participants' login\nidentifiers. The id set is the union of distinct human message authors,\nenrolled registered guests, and the room's anonymous guest sessions; a\nregistered guest's per-room display name takes precedence over their account\ndisplay name. Names left unset resolve to ``null`` and the client falls back\nto a short id. Gated like the messages it labels ([R13.32]).\n\n``kind`` marks guest identities ([R13.33]): every anonymous session, and a\nregistered guest holding no role in the room's project.",
         "operationId": "list_chatroom_members_api_chatrooms__chatroom_id__members_get",
         "parameters": [
           {

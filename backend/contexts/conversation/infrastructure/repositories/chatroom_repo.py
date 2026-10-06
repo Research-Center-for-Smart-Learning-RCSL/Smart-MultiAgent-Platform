@@ -995,7 +995,8 @@ class ChatroomGuestRepository:
         user_id: uuid.UUID,
         joined_via_token: str,
         display_name: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Whether a row was written; ``False`` when the user is already a guest here."""
         stmt = (
             pg.insert(t.chatroom_guests)
             .values(
@@ -1006,7 +1007,8 @@ class ChatroomGuestRepository:
             )
             .on_conflict_do_nothing()
         )
-        await self._db.execute(stmt)
+        result = await self._db.execute(stmt)
+        return bool(result.rowcount)
 
     async def is_guest(
         self,

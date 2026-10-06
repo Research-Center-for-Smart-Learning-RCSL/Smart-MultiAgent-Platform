@@ -20,7 +20,13 @@ import {
   WorkspacesService,
 } from '@shared/api-client'
 import { asBinaryFormField, http } from '@shared/transport'
-import type { AgentNameOut, GuestDisplayNameOut, MessageOut, ObservationOut } from '@shared/api-client'
+import type {
+  AgentNameOut,
+  ChatroomMemberOut,
+  GuestDisplayNameOut,
+  MessageOut,
+  ObservationOut,
+} from '@shared/api-client'
 import type { Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
@@ -297,10 +303,8 @@ export async function setChatroomAgentCanvasWriteAccess(
 // Human participants (message authors + guests) with their resolved display
 // names. Used to label user messages; `display_name` is null when unset, in
 // which case the UI falls back to a truncated id. Never includes email.
-export interface ChatroomMember {
-  user_id: string
-  display_name: string | null
-}
+// `kind` is decided by the server from who the participant is, never from the name.
+export type ChatroomMember = ChatroomMemberOut
 
 export async function listChatroomMembers(
   chatroomId: string,

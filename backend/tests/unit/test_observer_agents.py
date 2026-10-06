@@ -27,6 +27,7 @@ from contexts.conversation.application.access import (
     ensure_room_creator,
     is_room_creator,
 )
+from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.domain.errors import (
     InvalidReleaseTarget,
     NotRoomCreator,
@@ -2051,8 +2052,8 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     async def _labels(agent_, chatroom_id, history, **k):
         return {}, {}
 
-    async def _labels_empty(*a, **k):
-        return {}
+    async def _no_guests(*a, **k):
+        return RoomGuests(sessions={}, registered={}, unaffiliated=frozenset())
 
     async def _none(*a, **k):
         return None
@@ -2081,7 +2082,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     engine._turn_rate_allowed = _true  # type: ignore[attr-defined]
     engine._assemble_history = _history  # type: ignore[attr-defined]
     engine._participant_labels = _labels  # type: ignore[attr-defined]
-    engine._room_guest_names = _labels_empty  # type: ignore[attr-defined]
+    engine._room_guests = _no_guests  # type: ignore[attr-defined]
     engine._room_owner_label = _none  # type: ignore[attr-defined]
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]

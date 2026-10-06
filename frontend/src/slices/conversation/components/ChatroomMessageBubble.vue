@@ -55,6 +55,14 @@
           class="bubble__sender"
           :class="{ 'bubble__sender--agent': isAgent }"
         >{{ senderName }}</span>
+        <SBadge
+          v-if="senderIsGuest"
+          variant="neutral"
+          size="sm"
+          data-testid="bubble-guest-badge"
+        >
+          {{ t('conversation.chatroom.guestBadge') }}
+        </SBadge>
         <time class="bubble__time">{{ time }}</time>
         <span
           v-if="message._status === 'sending'"
@@ -236,7 +244,7 @@ import {
   ChevronDownIcon,
   DocumentTextIcon,
 } from '@heroicons/vue/24/outline'
-import { SAvatar, SButton, STextarea } from '@shared/ui'
+import { SAvatar, SBadge, SButton, STextarea } from '@shared/ui'
 import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
 import AttachmentImage from './AttachmentImage.vue'
 import { formatTime } from '../utils/format'
@@ -246,6 +254,8 @@ const props = defineProps<{
   message: DisplayMessage
   html: string
   senderName: string
+  // Decided by the view from the sender's identity ([R13.33]), not from the name.
+  senderIsGuest?: boolean
   editing: boolean
   editDraft: string
   canEdit: boolean

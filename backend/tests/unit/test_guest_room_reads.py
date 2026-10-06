@@ -25,6 +25,7 @@ from fastapi import HTTPException
 
 import app.api.v1.chatrooms as chatrooms_mod
 from contexts.conversation.application.access import RoomAccess
+from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.domain.errors import ForbiddenInRoom
 from contexts.conversation.domain.models import ChatroomAgentRole
 from shared_kernel.auth.permissions import Principal, Role
@@ -48,6 +49,10 @@ def _wire(
     *,
     access: RoomAccess,
     guest_sessions: dict[uuid.UUID, str] | None = None,
+    registered: dict[uuid.UUID, str | None] | None = None,
+    unaffiliated: frozenset[uuid.UUID] = frozenset(),
+    senders: set[uuid.UUID] | None = None,
+    account_names: dict[uuid.UUID, str] | None = None,
     agent_rows: list[Any] | None = None,
     agent_names: dict[uuid.UUID, str] | None = None,
 ) -> None:
@@ -73,21 +78,24 @@ def _wire(
         async def is_chatroom_guest(self, *, chatroom_id: uuid.UUID, user_id: uuid.UUID) -> bool:
             return False
 
-        async def list_guests(self, chatroom_id: uuid.UUID) -> list[Any]:
-            return []
-
         async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
-            return set()
+            return set(senders or ())
 
-        async def guest_session_labels(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, str]:
-            return dict(guest_sessions or {})
+        async def room_guests(
+            self, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
+        ) -> RoomGuests:
+            return RoomGuests(
+                sessions=dict(guest_sessions or {}),
+                registered=dict(registered or {}),
+                unaffiliated=unaffiliated,
+            )
 
     class _Identity:
         def __init__(self, db: object) -> None:
             pass
 
         async def get_display_names(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
-            return {}
+            return {i: n for i, n in (account_names or {}).items() if i in ids}
 
     class _Agents:
         def __init__(self, db: object) -> None:
@@ -177,6 +185,59 @@ class TestAnonymousGuest:
         )
 
         assert {(m.user_id, m.display_name) for m in roster} == {(alice, "Alice"), (bob, "Bob")}
+        assert {m.kind for m in roster} == {"guest_session"}
+
+
+class TestRosterKind:
+    """Guest sender marking AC-2, AC-3: the roster says which participants are guests.
+
+    Spec: ``docs/tasks/2026-10-05-guest-sender-marking/spec.md`` §6, Q-3.
+    """
+
+    async def test_each_source_carries_its_kind(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        room = chatroom_row()
+        session, outsider, enrolled_member, speaker = (uuid.uuid4() for _ in range(4))
+        _wire(
+            monkeypatch,
+            access=_access(room, roles=frozenset({Role.PROJECT_MEMBER})),
+            guest_sessions={session: "Sam"},
+            # The enrolled member clicked the link with their account before
+            # enrolment skipped readers; their row survives but grants no kind.
+            registered={outsider: "Olive", enrolled_member: None},
+            unaffiliated=frozenset({outsider}),
+            senders={speaker, enrolled_member},
+            account_names={speaker: "Teacher", enrolled_member: "Mia"},
+        )
+
+        roster = await chatrooms_mod.list_chatroom_members(
+            chatroom_id=room.id, principal=_member(), db=object()
+        )
+
+        assert {(m.user_id, m.display_name, m.kind) for m in roster} == {
+            (session, "Sam", "guest_session"),
+            (outsider, "Olive", "room_guest"),
+            (enrolled_member, "Mia", "member"),
+            (speaker, "Teacher", "member"),
+        }
+
+    async def test_a_registered_guest_without_a_room_label_is_still_a_guest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        room = chatroom_row()
+        outsider = uuid.uuid4()
+        _wire(
+            monkeypatch,
+            access=_access(room, roles=frozenset({Role.PROJECT_MEMBER})),
+            registered={outsider: None},
+            unaffiliated=frozenset({outsider}),
+            account_names={outsider: "Teacher"},
+        )
+
+        roster = await chatrooms_mod.list_chatroom_members(
+            chatroom_id=room.id, principal=_member(), db=object()
+        )
+
+        assert [(m.display_name, m.kind) for m in roster] == [("Teacher", "room_guest")]
 
     async def test_sees_the_rooms_agents_by_name_without_creator_fields(
         self, monkeypatch: pytest.MonkeyPatch

@@ -36,6 +36,7 @@ from contexts.agents.application.runtime.turn_engine import (
     _PARTICIPANT_LABEL_NOTE,
     _PARTICIPANT_NOTE_BLOCK,
     _PARTICIPANT_NOTE_MEASURE,
+    GUEST_LABEL_MARKER,
     _BlockRole,
     _BlockSlot,
     _participant_note,
@@ -242,6 +243,8 @@ class TestTheParticipantNoteSlot:
         "label",
         [
             "王" * MAX_GUEST_LABEL,  # the token-worst case: 1 token per char
+            # A creator who is a guest identity carries the guest marker ([R13.33]).
+            "王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER,
             "柯佩蓉老師",
             "W" * MAX_GUEST_LABEL,
             "Alice Chen",

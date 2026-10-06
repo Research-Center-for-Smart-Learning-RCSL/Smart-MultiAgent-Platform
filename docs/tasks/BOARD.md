@@ -452,11 +452,16 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   the dossier; FU-7 and FU-9 belong to `guest-session-backend-hardening`. Unblocks
   `2026-10-05-guest-sender-marking` and `2026-10-05-guest-session-backend-hardening`, now below.
 
-- `2026-10-05-guest-sender-marking` (feature, **approved 2026-10-05**, SRS Delta applied to [R13.33]
-  and [R30.38]) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. FU-4 of
-  `2026-10-05-guest-room-read-and-identity`: a platform-applied guest marker on every label from a
-  guest identity, in the UI (message author, participant list, typing) and the model context
-  (` (guest)` suffix in transcript and legend); the roster gains `kind`. Scheduled before the pilot.
+- (implemented 2026-10-06) `2026-10-05-guest-sender-marking`. AC-1..AC-7 verified on PR #233 (CI
+  green at `a72fdc29` apart from `dependency-audit`, an unrelated `source-map-js` advisory recorded as
+  the dossier's FU-11; db, wiring and e2e tiers included, the new `27-guest-sender-marking` spec ran
+  and passed). Guest identities (anonymous sessions, and registered guests with no project role) carry
+  a `Guest` badge on the message, participant list and typing line, and a ` (guest)` suffix in the
+  agent's transcript, legend and owner note; the roster gains `kind`; a reader of the room who opens
+  the link with their account is no longer enrolled. Deviations D-1..D-9 (D-3 the requester's choice
+  at plan approval, D-7..D-9 agreed after `/code-review`) and FU-1..FU-11 are in the dossier. Of the
+  rows that list this slug, `2026-10-05-guest-kick-and-ban` still waits on
+  `2026-10-05-guest-session-backend-hardening`, so it stays in Blocked.
 
 - `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
   `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. Audit F-14, F-15, F-16,
@@ -473,8 +478,8 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 
 - `2026-10-05-guest-kick-and-ban` (feature, **approved 2026-10-05**, SRS Delta applied: [R6.12] and
   [R13.07] rewritten, [R13.07a] added) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle,
-  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]` (the lifecycle
-  dossier is implemented; the other two are not yet). Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked
+  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]` (the lifecycle and
+  sender-marking dossiers are implemented; backend-hardening is not yet). Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked
   session checked at the room access choke point; durable ban table keyed by session and a hash of
   the browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`.
   Last of the guest-audit dossiers.

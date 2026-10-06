@@ -104,6 +104,37 @@ class TenancyRoleResolver(RoleResolver):
             or p.owner_user_id == principal.user_id
         }
 
+    async def project_role_holders(
+        self,
+        user_ids: Sequence[uuid.UUID],
+        *,
+        project_id: uuid.UUID,
+    ) -> set[uuid.UUID]:
+        """Which of these users hold a project role here? (R5.03, [R13.33])
+
+        The batch form of "``roles_for`` on this project yields PROJECT_OWNER or
+        PROJECT_MEMBER", for the room roster and the agent's prompt labels, which
+        both ask it of every registered guest of a room at once: a registered guest
+        with no role in the room's project is a guest identity and is marked as
+        one. Same three grounds as ``roles_for`` -- a membership row of any role,
+        ownership of the parent org, ownership of a user-owned project. ORG_MEMBER
+        alone is not a project role, so a plain org member enrolled through the
+        guest link stays a guest.
+
+        Admin is not considered here, as in ``roles_for``.
+        """
+        if not user_ids:
+            return set()
+        holders = await self._project_members.member_user_ids(project_id=project_id, user_ids=user_ids)
+        project = await self._projects.get(project_id, include_deleted=True)
+        if project is None:
+            return holders
+        if project.owner_user_id is not None and project.owner_user_id in user_ids:
+            holders.add(project.owner_user_id)
+        if project.owner_org_id is not None:
+            holders |= await self._org_members.owner_user_ids(org_id=project.owner_org_id, user_ids=user_ids)
+        return holders
+
     async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
         member = await self._org_members.get(org_id=org_id, user_id=user_id)
         return member is not None and member.is_original_creator

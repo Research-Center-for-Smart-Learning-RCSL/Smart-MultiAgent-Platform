@@ -22,6 +22,7 @@ from typing import Any, ClassVar
 import pytest
 
 import contexts.agents.application.runtime.turn_engine as te
+from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.skills.application.binding_service import BoundSet
 
@@ -213,8 +214,8 @@ def wire_engine(
     async def _labels(*a: Any, **k: Any) -> tuple[dict, dict]:
         return {}, {}
 
-    async def _empty_dict(*a: Any, **k: Any) -> dict[Any, Any]:
-        return {}
+    async def _no_guests(*a: Any, **k: Any) -> RoomGuests:
+        return RoomGuests(sessions={}, registered={}, unaffiliated=frozenset())
 
     async def _no_staging(*a: Any, **k: Any) -> tuple[None, list[Any]]:
         return None, []
@@ -250,7 +251,7 @@ def wire_engine(
     engine._participant_labels = _labels  # type: ignore[attr-defined]
     # The room roster and the owner lookup are DB reads on the turn path; the
     # harness has no session, so they are seams like every other context read.
-    engine._room_guest_names = _empty_dict  # type: ignore[attr-defined]
+    engine._room_guests = _no_guests  # type: ignore[attr-defined]
     engine._room_owner_label = _none  # type: ignore[attr-defined]
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]

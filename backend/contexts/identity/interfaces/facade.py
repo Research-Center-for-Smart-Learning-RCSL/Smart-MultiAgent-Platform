@@ -91,6 +91,10 @@ class IdentityFacade:
     async def is_admin(self, user_id: uuid.UUID) -> bool:
         return await self._admins.is_admin(user_id)
 
+    async def admin_ids_among(self, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of these users are platform admins, by the same test as :pymeth:`is_admin`."""
+        return await self._admins.admin_ids_among(user_ids)
+
     async def admin_ids(self) -> set[uuid.UUID]:
         return await self._admins.list_active_admin_ids()
 

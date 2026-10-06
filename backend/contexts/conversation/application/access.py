@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -233,6 +233,16 @@ def _satisfies_room_flags(access: RoomAccess) -> bool:
     if room.allow_org_members and (Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles):
         return True
     return bool(room.allow_guest_links and access.is_guest)
+
+
+def reads_without_guest_row(access: RoomAccess, *, is_admin: bool) -> bool:
+    """Would the caller pass the read gate with no ``chatroom_guests`` row?
+
+    Guest enrolment asks this so that a member who opens the guest link with
+    their account enters as themselves rather than becoming a registered guest
+    ([R13.33]); a member the room's flags exclude still needs the row to get in.
+    """
+    return is_admin or _satisfies_room_flags(replace(access, is_guest=False))
 
 
 async def visible_room_ids(

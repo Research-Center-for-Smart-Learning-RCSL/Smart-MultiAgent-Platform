@@ -133,7 +133,7 @@ function captureAll(): { value: Captured | null } {
       { agent_id: 'a_1', role: null },
       { agent_id: 'a_2', role: 'observer' },
     ]),
-    on('get', '/api/chatrooms/:chatroomId/members', [{ user_id: 'u_1', display_name: null }]),
+    on('get', '/api/chatrooms/:chatroomId/members', [{ user_id: 'u_1', display_name: null, kind: 'member' }]),
     on('post', '/api/chatrooms/:chatroomId/agents', null, 204),
     on('patch', '/api/chatrooms/:chatroomId/agents/:agentId', null, 204),
     on('delete', '/api/chatrooms/:chatroomId/agents/:agentId', null, 204),
