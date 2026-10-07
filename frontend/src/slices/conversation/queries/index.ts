@@ -46,7 +46,8 @@ export const convKeys = {
   chatroomAgents: (chatroomId: string) =>
     ['conversation', 'chatroom-agents', chatroomId] as const,
   // The participant roster (author and presence labels). Invalidated by
-  // `chatroom.members_changed`, when a guest joins or renames, and on reconnect.
+  // `chatroom.members_changed` (a guest joins or renames, a present member renames)
+  // and on reconnect.
   chatroomMembers: (chatroomId: string) =>
     ['conversation', 'chatroom-members', chatroomId] as const,
   guestBans: (chatroomId: string) => ['conversation', 'guest-bans', chatroomId] as const,
