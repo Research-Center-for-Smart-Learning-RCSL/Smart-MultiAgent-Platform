@@ -279,7 +279,8 @@ presence actions target `guest_session` rows only.
 
 Verified on PR #238, CI green at `3d9483a6`: the db tier ran 267 tests against the base branch's 259
 (the 8 new ones, migration round trip included, with the same 4 unrelated skips), e2e 126 passed
-against 123, and every other gate passed. Locally: backend unit suite (11289 passed), ruff, mypy,
+against 123, and every other gate passed. After the code-review fixes (D-10..D-16), CI green again at
+`bdea5316`: db tier 268 (the D-10 regression test), backend unit 11300, frontend 1988, e2e 126. Locally: backend unit suite (11289 passed), ruff, mypy,
 frontend lint, typecheck, build and tests (one unrelated flake, FU-12). Not observed on a running
 stack outside CI's e2e.
 

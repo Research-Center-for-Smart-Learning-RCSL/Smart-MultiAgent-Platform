@@ -473,7 +473,8 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   Not observed on a running stack. Unblocks `2026-10-05-guest-kick-and-ban`, now below.
 
 - (implemented 2026-10-06) `2026-10-05-guest-kick-and-ban`. AC-1..AC-9 verified on PR #238
-  (stacked on #237; CI green at `3d9483a6`, db tier 267 against the base's 259 and e2e included).
+  (stacked on #237; CI green at `bdea5316` after the code-review fixes D-10..D-16, db tier 268 against
+  the base's 259 and e2e included).
   Moderators (matrix row 18) remove or ban an anonymous guest, list and lift bans in room settings,
   and rotate the guest link; a removed session is refused at the room access layer and its sockets
   close 4408. Migration `0099`. Deviations D-1..D-9 and FU-3..FU-15 are in the dossier; FU-3 (no
