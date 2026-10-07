@@ -38,6 +38,18 @@ _JOB = uuid.uuid4()
 _MSG = uuid.uuid4()
 
 
+@pytest.fixture(autouse=True)
+def _no_sender_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Name resolution has its own suite (test_chat_export_names.py)."""
+
+    async def _none(
+        self: object, chatroom_id: uuid.UUID, rows: object, *, project_id: object
+    ) -> dict[uuid.UUID, str]:
+        return {}
+
+    monkeypatch.setattr(ChatExportService, "_sender_names", _none)
+
+
 def _moderator_access() -> RoomAccess:
     """The unnarrowed path these tests have always exercised.
 

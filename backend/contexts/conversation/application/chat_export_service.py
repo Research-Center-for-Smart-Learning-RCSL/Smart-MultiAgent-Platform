@@ -12,23 +12,27 @@ import asyncio
 import html as _html
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.access import (
     ensure_can_read,
     export_sender_scope,
     resolve_room_access,
 )
-from contexts.conversation.domain.models import ExportSenderScope
+from contexts.conversation.application.room_guests import load_room_guests
+from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
     MessageAttachmentRepository,
     MessageEditRepository,
     MessageRepository,
 )
+from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel import audit
 from shared_kernel.auth.permissions import Principal
@@ -117,6 +121,7 @@ class ChatExportService:
             created_before=created_before,
             own_user_id=(owner_user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None),
         )
+        sender_names = await self._sender_names(chatroom_id, rows, project_id=access.project_id)
         serialized: list[dict[str, Any]] = []
         for m in rows:
             msg_edits = await edits.list_for_message(m.id)
@@ -126,6 +131,7 @@ class ChatExportService:
                     "id": str(m.id),
                     "sender_type": m.sender_type.value,
                     "sender_id": str(m.sender_id) if m.sender_id else None,
+                    "sender_name": sender_names.get(m.sender_id) if m.sender_id else None,
                     "content_md": m.content_md,
                     "content_html": render_safe_html(m.content_md),
                     "metadata": m.metadata,
@@ -195,6 +201,39 @@ class ChatExportService:
         )
         return bucket, key
 
+    async def _sender_names(
+        self, chatroom_id: uuid.UUID, rows: Sequence[Message], *, project_id: uuid.UUID
+    ) -> dict[uuid.UUID, str]:
+        """Sender id -> the name the room shows for it ([R13.17], [R13.33]).
+
+        Accounts resolve through ``get_display_names``, never ``get_chat_labels``:
+        the export is read by people, and that one falls back to the login email.
+        """
+        ids: dict[SenderType, set[uuid.UUID]] = {kind: set() for kind in SenderType}
+        for m in rows:
+            if m.sender_id is not None:
+                ids[m.sender_type].add(m.sender_id)
+        names: dict[uuid.UUID, str] = {}
+        if ids[SenderType.AGENT]:
+            names.update(await AgentsFacade(self._db).agent_names(list(ids[SenderType.AGENT])))
+        people = ids[SenderType.USER] | ids[SenderType.GUEST]
+        if not people:
+            return names
+        guests = await load_room_guests(self._db, chatroom_id, project_id=project_id)
+        accounts = (
+            await IdentityFacade(self._db).get_display_names(list(ids[SenderType.USER]))
+            if ids[SenderType.USER]
+            else {}
+        )
+        for uid in ids[SenderType.USER]:
+            label = prefer_guest_label(guests.registered.get(uid), accounts.get(uid))
+            if label:
+                names[uid] = label
+        for sid in ids[SenderType.GUEST]:
+            if session_label := guests.sessions.get(sid):
+                names[sid] = session_label
+        return names
+
     @classmethod
     async def _render_and_upload(
         cls,
@@ -217,10 +256,13 @@ class ChatExportService:
 
     @staticmethod
     def _sender_label(message: dict[str, Any]) -> str:
-        label = str(message.get("sender_type") or "")
         sender_id = message.get("sender_id")
-        if sender_id:
-            label += f" ({str(sender_id)[:8]})"
+        if message.get("sender_name"):
+            label = str(message["sender_name"])
+        else:
+            label = str(message.get("sender_type") or "")
+            if sender_id:
+                label += f" ({str(sender_id)[:8]})"
         if message.get("created_at"):
             label += f" — {message['created_at']}"
         if message.get("edited_at"):
