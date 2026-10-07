@@ -486,12 +486,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 `docs/audits/2026-10-07-display-name-resolution/findings.md` spawned six bugfix dossiers;
 rows are added as each is written.
 
-- `2026-10-07-google-display-name-normalisation` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`.
-  F-1, F-6, F-17: Google profile names go through the account display-name normalisation
-  (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
-  keeps whole grapheme clusters, and migration `0100` repairs stored account names.
-  **Migration chain**: `0102` (from `agent-reply-delivery-gaps`) already revises `0099`, so
-  `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
+- (moved to In progress on 2026-10-07) `2026-10-07-google-display-name-normalisation`.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`.
@@ -702,6 +697,14 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-07-google-display-name-normalisation` (bugfix, in progress since 2026-10-07, no
+  SRS Delta) - `depends_on: []`. F-1, F-6, F-17: Google profile names go through the
+  account display-name normalisation (ends the 500 and the Google sign-in lockout for names
+  over 50 characters), truncation keeps whole grapheme clusters, and migration `0100`
+  repairs stored account names. **Migration chain**: `0100` revises `0102`, the head when
+  it was written. AC-1..AC-4 verified locally; AC-5 (scratch-DB migration tests) and AC-6
+  wait on CI. D-1: `regex` turned out to be a new runtime dependency, not just a new pin.
 
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`. AC-1..AC-7 verified on PR
   #242 (CI green at `697fa20a`, db, wiring and e2e tiers included). AC-2..AC-6 rest on tests,
