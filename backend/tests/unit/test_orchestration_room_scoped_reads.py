@@ -26,7 +26,7 @@ from app.api.v1 import orchestration
 from app.api.v1.deps import PaginationParams
 from contexts.conversation.application import access as access_mod
 from contexts.conversation.application.access import RoomAccess
-from contexts.conversation.domain.errors import ChatroomNotFound
+from contexts.conversation.domain.errors import ChatroomNotFound, GuestRemoved
 from contexts.conversation.domain.models import Chatroom
 from contexts.orchestration.domain.models import (
     AgentInstance,
@@ -245,6 +245,32 @@ async def test_a_room_that_no_longer_resolves_denies_rather_than_falls_back(
         )
 
     assert exc.value.status_code == 404
+
+
+async def test_a_removed_guest_gets_the_same_404_as_a_missing_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/tasks/2026-10-05-guest-kick-and-ban code review: a removed guest's room
+    access raises GuestRemoved, which must read as "not readable" here; a 403
+    for a record of its former room against a 404 for a missing one would let
+    it tell the room's record ids apart."""
+    approval = _approval(chatroom_id=_OPEN_ROOM)
+    _approval_service(monkeypatch, [approval])
+
+    async def _removed(_db: Any, *, principal: Principal, chatroom_id: uuid.UUID) -> RoomAccess:
+        raise GuestRemoved(str(chatroom_id))
+
+    monkeypatch.setattr(access_mod, "resolve_room_access", _removed)
+    guest = Principal(
+        user_id=uuid.uuid4(), is_admin=False, email_verified=False, is_guest=True, chatroom_id=_OPEN_ROOM
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await orchestration.get_approval(
+            approval_id=approval.id, db=MagicMock(), principal=guest, resolver=_Resolver(frozenset())
+        )
+
+    assert (exc.value.status_code, exc.value.detail) == (404, "approval not found")
 
 
 # ---------------------------------------------------------------------------

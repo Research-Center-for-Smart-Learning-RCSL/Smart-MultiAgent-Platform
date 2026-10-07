@@ -7,6 +7,7 @@ the authentication credential; the server issues a chatroom-scoped JWT.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import uuid
 from dataclasses import dataclass
@@ -17,13 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.conversation.application.access import ensure_parents_live, ensure_room_live
 from contexts.conversation.domain.errors import (
+    ChatroomNotFound,
     GuestAccessDisabled,
+    GuestBanNotFound,
     GuestCapReached,
     GuestDisplayNameInvalid,
+    GuestRemoved,
+    GuestSessionNotFound,
     GuestTokenInvalid,
 )
+from contexts.conversation.domain.models import Chatroom, GuestBan
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
+    GuestBanRepository,
     GuestSessionRepository,
 )
 from shared_kernel import audit
@@ -62,11 +69,20 @@ class GuestRefreshResult:
     guest_session_id: uuid.UUID
 
 
+@dataclass(frozen=True, slots=True)
+class GuestRemovalResult:
+    # The sessions this call ended; the route announces exactly these, so an
+    # idempotent retry announces nothing.
+    removed_session_ids: tuple[uuid.UUID, ...]
+    changed: bool
+
+
 class GuestSessionService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._rooms = ChatroomRepository(db)
         self._sessions = GuestSessionRepository(db)
+        self._bans = GuestBanRepository(db)
 
     async def ensure_admits_guests(self, chatroom_id: uuid.UUID) -> None:
         """Raise unless the room is live and its guest links are on."""
@@ -159,9 +175,16 @@ class GuestSessionService:
         # is taken before the browser lookup too: two first joins from one browser
         # would otherwise both miss and both insert. A row lock on existing
         # sessions locks nothing in an empty room, which is the case that matters.
-        await advisory_xact_lock(self._db, f"guest-join:{chatroom_id}")
+        await advisory_xact_lock(self._db, _join_lock_key(chatroom_id))
 
         if browser_id:
+            banned = await self._bans.is_banned(
+                chatroom_id=chatroom_id, browser_id_hash=browser_id_hash(browser_id)
+            )
+            if banned:
+                raise GuestRemoved(str(chatroom_id))
+            # A removed but unbanned session is not found here, so its browser
+            # rejoins as a new session ([R13.07a]).
             existing = await self._sessions.find_by_browser_id(chatroom_id=chatroom_id, browser_id=browser_id)
             if existing:
                 renamed = existing.display_name != display_name
@@ -253,6 +276,8 @@ class GuestSessionService:
         if session is None:
             raise GuestTokenInvalid(str(chatroom_id))
         room = await ensure_room_live(self._db, chatroom_id)
+        if session.revoked_at is not None:
+            raise GuestRemoved(str(chatroom_id))
         if not room.allow_guest_links:
             raise GuestAccessDisabled(str(chatroom_id))
 
@@ -276,5 +301,162 @@ class GuestSessionService:
             guest_session_id=session.id,
         )
 
+    # -- Moderation ([R13.07a], [R6.12]). Callers gate on matrix row 18. --
 
-__all__ = ["GuestRefreshResult", "GuestSessionResult", "GuestSessionService"]
+    async def _audit_moderation(
+        self,
+        action: str,
+        *,
+        actor_user_id: uuid.UUID,
+        resource_type: str,
+        resource_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=action,
+                actor_user_id=actor_user_id,
+                actor_ip=remote_ip,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                metadata={"chatroom_id": str(chatroom_id), **(metadata or {})},
+                request_id=request_id,
+            ),
+        )
+
+    async def remove(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        guest_session_id: uuid.UUID,
+        ban: bool,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> GuestRemovalResult:
+        """End a guest session and, with ``ban``, refuse its browser re-entry.
+
+        Idempotent: removing a removed session changes nothing, and banning it
+        afterwards only adds the ban. The row is kept so its name still labels
+        the guest's messages ([R13.33]).
+        """
+        session = await self._sessions.find_by_id(guest_session_id)
+        if session is None or session.chatroom_id != chatroom_id:
+            raise GuestSessionNotFound(str(guest_session_id))
+        # The join lock, so a resume from the same browser cannot slip between
+        # the revoke and the ban and come back with a live session.
+        await advisory_xact_lock(self._db, _join_lock_key(chatroom_id))
+
+        async def audit_on_session(
+            action: str, session_id: uuid.UUID, metadata: dict[str, str] | None = None
+        ) -> None:
+            await self._audit_moderation(
+                action,
+                actor_user_id=actor_user_id,
+                resource_type="guest_session",
+                resource_id=session_id,
+                chatroom_id=chatroom_id,
+                remote_ip=remote_ip,
+                request_id=request_id,
+                metadata=metadata,
+            )
+
+        removed: list[uuid.UUID] = []
+        if await self._sessions.revoke(guest_session_id, chatroom_id=chatroom_id):
+            removed.append(guest_session_id)
+        banned = None
+        if ban:
+            # The ban keys on the browser, so every live session it holds here
+            # ends with it: a guest removed and rejoined, then banned from an
+            # old message, would otherwise keep the new session, since refresh
+            # never consults bans.
+            if session.browser_id:
+                removed += await self._sessions.revoke_live_for_browser(
+                    chatroom_id=chatroom_id, browser_id=session.browser_id
+                )
+            banned = await self._bans.create(
+                chatroom_id=chatroom_id,
+                guest_session_id=guest_session_id,
+                browser_id_hash=browser_id_hash(session.browser_id) if session.browser_id else None,
+                display_name=session.display_name,
+                created_by=actor_user_id,
+            )
+        for session_id in removed:
+            await audit_on_session("guest.session.removed", session_id)
+        if banned is not None:
+            await audit_on_session("guest.banned", guest_session_id, {"ban_id": str(banned.id)})
+        return GuestRemovalResult(
+            removed_session_ids=tuple(removed), changed=bool(removed) or banned is not None
+        )
+
+    async def list_bans(self, chatroom_id: uuid.UUID) -> list[GuestBan]:
+        return await self._bans.list_for_room(chatroom_id)
+
+    async def unban(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        ban_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        lifted = await self._bans.delete(chatroom_id=chatroom_id, ban_id=ban_id)
+        if lifted is None:
+            raise GuestBanNotFound(str(ban_id))
+        await self._audit_moderation(
+            "guest.unbanned",
+            actor_user_id=actor_user_id,
+            resource_type="guest_session",
+            resource_id=lifted.guest_session_id,
+            chatroom_id=chatroom_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+            metadata={"ban_id": str(ban_id)},
+        )
+
+    async def rotate_link(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> Chatroom:
+        """Replace the room's guest link token. Joined guests keep their sessions:
+        refresh rides the session cookie, never the link ([R6.12])."""
+        room = await self._rooms.rotate_guest_token(chatroom_id)
+        if room is None:
+            raise ChatroomNotFound(str(chatroom_id))
+        await self._audit_moderation(
+            "chatroom.guest_link.rotated",
+            actor_user_id=actor_user_id,
+            resource_type="chatroom",
+            resource_id=chatroom_id,
+            chatroom_id=chatroom_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+        )
+        return room
+
+
+def browser_id_hash(browser_id: str) -> str:
+    """What a ban stores in place of the browser id (spec §8, privacy)."""
+    return hashlib.sha256(browser_id.encode()).hexdigest()
+
+
+def _join_lock_key(chatroom_id: uuid.UUID) -> str:
+    return f"guest-join:{chatroom_id}"
+
+
+__all__ = [
+    "GuestRefreshResult",
+    "GuestRemovalResult",
+    "GuestSessionResult",
+    "GuestSessionService",
+    "browser_id_hash",
+]

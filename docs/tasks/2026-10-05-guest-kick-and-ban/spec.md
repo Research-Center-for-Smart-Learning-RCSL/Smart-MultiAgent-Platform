@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-10-05
 requirements: [R5.04, R6.12, R6.13, R13.06, R13.07, R13.33, R17.01]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle, 2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]
@@ -163,13 +163,13 @@ guest's in-flight request that has already passed the check completes.
 
 ## 7. NFR Checklist
 
-- [ ] i18n: every new string through `$t()` in both locales.
-- [ ] Audit log: four new actions (§6), moderator as actor, guest session or room as resource.
-- [ ] Tenant isolation: every route resolves the room through `resolve_room_access` and gates on row 18;
+- [x] i18n: every new string through `$t()` in both locales.
+- [x] Audit log: four new actions (§6), moderator as actor, guest session or room as resource.
+- [x] Tenant isolation: every route resolves the room through `resolve_room_access` and gates on row 18;
   ban and session ids are checked against the path's room.
-- [ ] Error handling UX: confirm dialogs, success toasts, the removed banner, the landing state, an
+- [x] Error handling UX: confirm dialogs, success toasts, the removed banner, the landing state, an
   empty state for the ban list.
-- [ ] Performance: one primary-key read per guest request; the ban list is per room and small.
+- [x] Performance: one primary-key read per guest request; the ban list is per room and small.
 
 ## 8. Security Considerations
 
@@ -204,22 +204,22 @@ guest's in-flight request that has already passed the check completes.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: after a moderator removes a guest, every HTTP request, socket and refresh of that session is
+- [x] AC-1: after a moderator removes a guest, every HTTP request, socket and refresh of that session is
   refused with `conversation/guest-removed`, open sockets close within one watchdog interval (4408), and
   the guest's client shows the removed banner immediately on the room event.
-- [ ] AC-2: a removed but unbanned guest can rejoin through the link as a new session.
-- [ ] AC-3: a banned guest cannot rejoin from the same browser until unbanned: a reload or new tab lands
+- [x] AC-2: a removed but unbanned guest can rejoin through the link as a new session.
+- [x] AC-3: a banned guest cannot rejoin from the same browser until unbanned: a reload or new tab lands
   on the room's removed banner, and opening the link again shows the landing page's cannot-join state.
-- [ ] AC-3a: removed sessions do not count toward the per-room guest cap.
-- [ ] AC-4: bans survive the 30-day guest-session purge and appear in room settings; unban restores
+- [x] AC-3a: removed sessions do not count toward the per-room guest cap.
+- [x] AC-4: bans survive the 30-day guest-session purge and appear in room settings; unban restores
   joining.
-- [ ] AC-5: rotating the guest link makes the old link refuse new entries while joined guests keep
+- [x] AC-5: rotating the guest link makes the old link refuse new entries while joined guests keep
   working; the settings view shows the new link.
-- [ ] AC-6: only Project Owners, Org Owners and Admins of the room can remove, ban, unban, list bans or
+- [x] AC-6: only Project Owners, Org Owners and Admins of the room can remove, ban, unban, list bans or
   rotate; others get 403, and ids from another room 404.
-- [ ] AC-7: the removed guest's past messages remain with their labels.
-- [ ] AC-8: each action writes its audit row with the moderator as actor.
-- [ ] AC-9: migration applies and downgrades cleanly; backend and frontend lint, typecheck, tests (db
+- [x] AC-7: the removed guest's past messages remain with their labels.
+- [x] AC-8: each action writes its audit row with the moderator as actor.
+- [x] AC-9: migration applies and downgrades cleanly; backend and frontend lint, typecheck, tests (db
   tier included), OpenAPI drift, build and e2e pass in CI.
 
 ## 12. Test Plan
@@ -277,7 +277,59 @@ presence actions target `guest_session` rows only.
 
 ## 15. Deviation Log
 
-Appended by /build.
+Verified on PR #238, CI green at `3d9483a6`: the db tier ran 267 tests against the base branch's 259
+(the 8 new ones, migration round trip included, with the same 4 unrelated skips), e2e 126 passed
+against 123, and every other gate passed. After the code-review fixes (D-10..D-16), CI green again at
+`bdea5316`: db tier 268 (the D-10 regression test), backend unit 11300, frontend 1988, e2e 126. Locally: backend unit suite (11289 passed), ruff, mypy,
+frontend lint, typecheck, build and tests (one unrelated flake, FU-12). Not observed on a running
+stack outside CI's e2e.
+
+- **D-1.** `GuestRemoved` subclasses `ForbiddenInRoom` (§6 named only the problem type). Callers that
+  already treat `ForbiddenInRoom` as a denial keep refusing a removed guest; without it the knowledge
+  config socket's watchdog (`contexts/knowledge/interfaces/config_access.py:63`) would read the new
+  error as a transient fault and keep the socket open. `room_read_outcome` catches it first.
+- **D-2.** The ban stores a plain sha256 of the browser id; the requester chose this at plan
+  approval. The id is a client-generated random UUID, and `guest_sessions.browser_id` stays plaintext
+  until the purge (FU-15), so a keyed hash would add key management for no gain.
+- **D-3.** A session that joined without a browser id is banned by session only; agreed at plan
+  approval. Removing an already-removed session succeeds and changes nothing; banning it adds the
+  ban. Events are emitted only when something changed.
+- **D-4.** Ids of another room answer 404 with `conversation/guest-session-not-found` or
+  `conversation/guest-ban-not-found` (§6 named only the status).
+- **D-5.** `remove` takes the per-room join lock as well, so a resume from the same browser cannot
+  land between the revoke and the ban.
+- **D-6.** The guest access check reads the session after the room's parents are known to be live,
+  so a removed guest of a deleted room is told the room is gone.
+- **D-7.** `removed` is recorded from a guest-removed answer to any request carrying this tab's guest
+  token, not only the ticket path, since the server answers it only to that session; the landing
+  page's session create is excluded because it may name another room.
+- **D-8.** The settings copy "Share this permanent link" lost "permanent", which rotation made untrue.
+- **D-9.** Built on `feat/guest-kick-and-ban`, stacked on `fix/guest-session-backend-hardening`,
+  whose PR #237 was not yet merged into main; the PR for this dossier must target that branch or
+  wait for #237.
+
+After `/code-review` of PR #238, the requester chose to fix findings 1 to 7 on this branch (finding 8,
+the refresh retry's fixed 500 ms, came from #237's `5f002c9b` and is left to it):
+
+- **D-10.** A ban also revokes every live session of the banned session's browser in the room
+  (`GuestSessionRepository.revoke_live_for_browser`), and the removal announces each ended session.
+  A guest removed, rejoined from the same browser, then banned through an old message kept the new
+  session before, since refresh never consults bans. Regression tests: unit and db tier.
+- **D-11.** The browser id lives in its own per-room key, `smap:guest-browser:{room}`
+  (`utils/guestHint.ts` `guestBrowserId`), which the boot restore never removes; a session that
+  expired used to drop the hint and with it the id the ban keys on, so the ban lapsed after the
+  7-day cookie. Regression test: `GuestLandingView.test.ts`.
+- **D-12.** `_room_readable` reads `GuestRemoved` as "not readable", so an orchestration record of a
+  removed guest's former room answers the same 404 as a missing one ([R15.24]). Regression test:
+  `test_orchestration_room_scoped_reads.py`.
+- **D-13.** The guest ws-ticket route refuses a removed session (`ensure_guest_session_live`, shared
+  with the access check) instead of minting tickets the handshake then closes; closes FU-4 for that
+  route (the account ticket route is unaffected: a guest token never reaches it usefully).
+- **D-14.** Rotation emits no `chatroom.updated` (§6 said it would): nothing a viewer's room DTO
+  carries changed, so the frame only told guests an invisible write happened.
+- **D-15.** Removal emits no `chatroom.members_changed` (§6 said it would): a removed session keeps
+  labelling its messages, so the roster is unchanged.
+- **D-16.** `read_guest_link` now uses the same room-level row-18 gate as the new routes; closes FU-10.
 
 ## 16. Follow-ups
 
@@ -285,3 +337,31 @@ Appended by /build.
 - **FU-2.** The guest branch of the auth middleware accepts a guest token without any database read;
   routes outside the room access layer (the two ticket routes) rely on the handshake check. Consider a
   shared guest-session check there if more such routes appear.
+- **FU-3.** Nothing closes a removed guest's open sockets server-side at removal; the watchdog does,
+  within about 60 s (`shared_kernel/realtime/connection.py:82`), and meanwhile the socket still
+  receives room frames and may send typing and drafts. The spec accepts this window (AC-1); a
+  per-principal close on the `chatroom.guest_removed` frame would remove it. Security audit, medium.
+- **FU-4.** (Guest route closed by D-13.) The account ticket route (`app/api/v1/auth.py` ws-ticket)
+  does not check guest sessions; the handshake refuses a removed one with 4408.
+- **FU-5.** Pre-existing sibling of the hardening dossier's bytes fix: registered-guest enrolment
+  (`contexts/conversation/application/guest_service.py:63`) still compares the link token as `str`,
+  so a non-ASCII token answers 500.
+- **FU-6.** `GET .../guest-bans` is unbounded; only moderators create bans, but a cap or paging would
+  bound it.
+- **FU-7.** A ban of a session that joined without a browser id does not stop re-entry; the UI could
+  tell the moderator.
+- **FU-8.** Socket close codes (4403, 4404, 4408) are literals in the chat view, the canvas provider
+  and the backend; export them from `@shared/transport`.
+- **FU-9.** `ConversationFacade` now has 51 public methods and guest session, moderation and link
+  rotation share `GuestSessionService`; a guest facade and service split would separate them.
+- **FU-10.** (Closed by D-16.)
+- **FU-11.** `test_guest_session_hardening_db.py` and `test_guest_identity_writes_db.py` still carry
+  their own copies of the harness now in `tests/integration/guest_db_kit.py`.
+- **FU-12.** `slices/agents/__tests__/AgentToolsView.test.ts` (CodeMirror lint diagnostic) failed
+  once under the full local run and passes alone; unrelated to this change.
+- **FU-13.** `_guest_link_out` builds the link from the request's Host header; a configured public
+  base URL would not depend on the proxy pinning it.
+- **FU-14.** Another moderator's open settings page does not pick up a rotated link until reload; the
+  settings view holds no room socket, and rotation emits no room frame (D-14).
+- **FU-15.** `guest_sessions.browser_id` stays plaintext for the session's 30-day life; storing only
+  the hash there too would let resume and ban share one form.

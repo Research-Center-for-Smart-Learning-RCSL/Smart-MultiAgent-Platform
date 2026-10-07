@@ -17,6 +17,7 @@ from contexts.conversation.infrastructure.repositories.chatroom_repo import (
     _new_guest_token,
 )
 from contexts.conversation.infrastructure.repositories.guest_session_repo import (
+    GuestBanRepository,
     GuestSessionRepository,
 )
 from contexts.conversation.infrastructure.repositories.message_repo import (
@@ -35,6 +36,7 @@ __all__ = [
     "ChatroomGuestRepository",
     "ChatroomMemberGroupRepository",
     "ChatroomRepository",
+    "GuestBanRepository",
     "GuestSessionRepository",
     "MessageAttachmentRepository",
     "MessageEditRepository",

@@ -84,6 +84,9 @@ _CLOSE_FORBIDDEN = 4403  # app-level code — access revoked mid-socket (see §2
 # App-level code for a resource that no longer exists, e.g. a room whose
 # workspace or project was deleted. The client stops reconnecting on it.
 _CLOSE_NOT_FOUND = 4404
+# App-level code for a caller a moderator removed from the resource ([R13.07a]).
+# Distinct from 4403 so the client tells "removed" from "links turned off".
+_CLOSE_REMOVED = 4408
 # ASYNC-7: a connection refreshes its heartbeat score in the per-user cap ZSET
 # on every inbound frame. A score older than this — deliberately longer than
 # the idle timeout, so a live connection is always fresh — means the owning
@@ -104,6 +107,7 @@ class AccessOutcome(enum.Enum):
     ALLOWED = "allowed"
     FORBIDDEN = "forbidden"
     GONE = "gone"
+    REMOVED = "removed"
 
 
 # The one mapping from a refusal to its close frame, for the handshake and the
@@ -111,6 +115,7 @@ class AccessOutcome(enum.Enum):
 _REFUSAL_CODES = {
     AccessOutcome.FORBIDDEN: (_CLOSE_FORBIDDEN, "access denied"),
     AccessOutcome.GONE: (_CLOSE_NOT_FOUND, "not found"),
+    AccessOutcome.REMOVED: (_CLOSE_REMOVED, "removed"),
 }
 
 
@@ -240,7 +245,7 @@ async def connection_loop(
     out-of-band liveness state such as room presence. `authorize` (optional) is
     re-run periodically by the auth watchdog so an endpoint whose access can be
     revoked mid-socket (room ACL) tears the connection down on access loss. It
-    returns an `AccessOutcome` (FORBIDDEN closes 4403, GONE 4404); a bare bool
+    returns an `AccessOutcome` (FORBIDDEN closes 4403, GONE 4404, REMOVED 4408); a bare bool
     is still read as ALLOWED / FORBIDDEN for endpoints with no "gone" state. A
     probe that raises is retried next window, so an endpoint must map "the
     resource no longer exists" to GONE rather than let it escape. Both are kept
@@ -436,7 +441,7 @@ async def connection_loop(
                     if verdict is not True and verdict is not AccessOutcome.ALLOWED:
                         # Anything but an explicit allow refuses, so a probe that
                         # returns something unexpected fails closed.
-                        refusal = verdict if verdict is AccessOutcome.GONE else AccessOutcome.FORBIDDEN
+                        refusal = verdict if verdict in _REFUSAL_CODES else AccessOutcome.FORBIDDEN
                         _request_close(*_REFUSAL_CODES[refusal])
                         return
             jti = conn.token_jti

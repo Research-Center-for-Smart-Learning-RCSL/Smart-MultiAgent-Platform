@@ -257,6 +257,17 @@ class GuestSession:
     refresh_token_hash: str
     last_seen_at: datetime
     created_at: datetime
+    revoked_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GuestBan:
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    guest_session_id: uuid.UUID
+    display_name: str
+    created_by: uuid.UUID | None
+    created_at: datetime
 
 
 __all__ = [
@@ -269,6 +280,7 @@ __all__ = [
     "ChatroomAgentRole",
     "ChatroomGuest",
     "DraftReadGrant",
+    "GuestBan",
     "GuestSession",
     "Message",
     "MessageAttachment",

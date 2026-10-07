@@ -6970,6 +6970,31 @@
         "title": "GroupPatchIn",
         "type": "object"
       },
+      "GuestBanOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "created_at"
+        ],
+        "title": "GuestBanOut",
+        "type": "object"
+      },
       "GuestDisplayNameIn": {
         "properties": {
           "display_name": {
@@ -7051,6 +7076,17 @@
           "access_token"
         ],
         "title": "GuestRefreshOut",
+        "type": "object"
+      },
+      "GuestRemoveIn": {
+        "properties": {
+          "ban": {
+            "default": false,
+            "title": "Ban",
+            "type": "boolean"
+          }
+        },
+        "title": "GuestRemoveIn",
         "type": "object"
       },
       "GuestSessionIn": {
@@ -22436,6 +22472,99 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/guest-bans": {
+      "get": {
+        "operationId": "list_guest_bans_api_chatrooms__chatroom_id__guest_bans_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GuestBanOut"
+                  },
+                  "title": "Response List Guest Bans Api Chatrooms  Chatroom Id  Guest Bans Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Guest Bans",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/guest-bans/{ban_id}": {
+      "delete": {
+        "operationId": "unban_guest_api_chatrooms__chatroom_id__guest_bans__ban_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ban_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ban Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Unban Guest",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/guest-link": {
       "get": {
         "operationId": "read_guest_link_api_chatrooms__chatroom_id__guest_link_get",
@@ -22474,6 +22603,105 @@
           }
         },
         "summary": "Read Guest Link",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/guest-link/rotate": {
+      "post": {
+        "operationId": "rotate_guest_link_api_chatrooms__chatroom_id__guest_link_rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Rotate Guest Link",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/guests/{guest_session_id}/remove": {
+      "post": {
+        "operationId": "remove_guest_api_chatrooms__chatroom_id__guests__guest_session_id__remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "guest_session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Guest Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestRemoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Remove Guest",
         "tags": [
           "chatrooms"
         ]

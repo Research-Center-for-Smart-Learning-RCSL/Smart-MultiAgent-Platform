@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from contexts.conversation.interfaces.access import ChatroomNotFound, ForbiddenInRoom, WorkspaceNotFound
+from contexts.conversation.interfaces.access import (
+    ChatroomNotFound,
+    ForbiddenInRoom,
+    GuestRemoved,
+    WorkspaceNotFound,
+)
 from shared_kernel.realtime import AccessOutcome
 
 
@@ -26,6 +31,8 @@ async def room_read_outcome(check: Callable[[], Awaitable[None]]) -> AccessOutco
         await check()
     except (ChatroomNotFound, WorkspaceNotFound):
         return AccessOutcome.GONE
+    except GuestRemoved:
+        return AccessOutcome.REMOVED
     except ForbiddenInRoom:
         return AccessOutcome.FORBIDDEN
     return AccessOutcome.ALLOWED

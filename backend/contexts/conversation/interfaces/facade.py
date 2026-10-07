@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.application.access import visible_room_ids
 from contexts.conversation.application.guest_session_service import (
     GuestRefreshResult,
+    GuestRemovalResult,
     GuestRenameResult,
     GuestSessionResult,
 )
@@ -30,6 +31,7 @@ from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgentRole,
     DraftReadGrant,
+    GuestBan,
     Message,
     MessageAttachment,
     SenderType,
@@ -358,11 +360,81 @@ class ConversationFacade:
             request_id=request_id,
         )
 
+    async def remove_guest(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        guest_session_id: uuid.UUID,
+        ban: bool,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> GuestRemovalResult:
+        """Remove (and optionally ban) an anonymous guest ([R13.07a]). The caller
+        gates on matrix row 18 first."""
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).remove(
+            chatroom_id=chatroom_id,
+            guest_session_id=guest_session_id,
+            ban=ban,
+            actor_user_id=actor_user_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+        )
+
+    async def list_guest_bans(self, chatroom_id: uuid.UUID) -> list[GuestBan]:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).list_bans(chatroom_id)
+
+    async def unban_guest(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        ban_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        await GuestSessionService(self._db).unban(
+            chatroom_id=chatroom_id,
+            ban_id=ban_id,
+            actor_user_id=actor_user_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+        )
+
+    async def rotate_guest_link(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        remote_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> Chatroom:
+        from contexts.conversation.application.guest_session_service import GuestSessionService
+
+        return await GuestSessionService(self._db).rotate_link(
+            chatroom_id=chatroom_id,
+            actor_user_id=actor_user_id,
+            remote_ip=remote_ip,
+            request_id=request_id,
+        )
+
     async def ensure_guest_room_open(self, chatroom_id: uuid.UUID) -> None:
         """Raise ``ChatroomNotFound`` or ``GuestAccessDisabled`` unless the room admits guests."""
         from contexts.conversation.application.guest_session_service import GuestSessionService
 
         await GuestSessionService(self._db).ensure_admits_guests(chatroom_id)
+
+    async def ensure_guest_session_live(self, *, guest_session_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+        """Raise ``GuestRemoved`` unless the guest session is live in the room ([R13.07a])."""
+        from contexts.conversation.application.access import ensure_guest_session_live
+
+        await ensure_guest_session_live(self._db, guest_session_id=guest_session_id, chatroom_id=chatroom_id)
 
     async def update_guest_display_name(
         self,

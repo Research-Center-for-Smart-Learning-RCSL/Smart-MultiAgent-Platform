@@ -13,7 +13,7 @@ import { canonicalRoomId, isProblemWithType, setAccessToken, setGuestContext } f
 import { useSessionStore } from '@shared/stores/session'
 import { createGuestSession, enrollGuest } from '../api'
 import { useGuestSessionStore } from '../stores/guestSession'
-import { readGuestHint, writeGuestHint } from '../utils/guestHint'
+import { guestBrowserId, readGuestHint, writeGuestHint } from '../utils/guestHint'
 import { isUsableGuestName } from '../utils/guestName'
 
 const { t } = useI18n()
@@ -36,6 +36,7 @@ type ViewState =
   | 'enrolling'
   | 'invalid'
   | 'disabled'
+  | 'banned'
   | 'error'
   | 'cap_reached'
 
@@ -84,6 +85,7 @@ function classifyError(e: unknown): ViewState {
     return 'idle'
   }
   if (isProblemWithType(e, '/conversation/guest-access-disabled')) return 'disabled'
+  if (isProblemWithType(e, '/conversation/guest-removed')) return 'banned'
   if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return 'invalid'
   return 'error'
 }
@@ -125,7 +127,7 @@ const doEnroll = handleSubmit(async (values) => {
       await enrollRegisteredGuest(values.displayName)
       return
     }
-    const browserId = readGuestHint(linkRoomId)?.browser_id ?? crypto.randomUUID()
+    const browserId = guestBrowserId(linkRoomId)
     const result = await createGuestSession(
       chatroomId,
       guestToken,
@@ -355,6 +357,20 @@ onMounted(() => {
           role="alert"
         >
           {{ t('conversation.guest.guestDisabled') }}
+        </p>
+      </template>
+
+      <!-- This browser is banned from the room (403 guest-removed); no retry -->
+      <template v-else-if="state === 'banned'">
+        <XCircleIcon
+          class="state-icon state-icon--failure"
+          aria-hidden="true"
+        />
+        <p
+          class="state-text"
+          role="alert"
+        >
+          {{ t('conversation.guest.cannotJoin') }}
         </p>
       </template>
 

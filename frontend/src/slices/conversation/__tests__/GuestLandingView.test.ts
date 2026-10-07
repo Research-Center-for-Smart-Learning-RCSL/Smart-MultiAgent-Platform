@@ -241,6 +241,52 @@ describe('GuestLandingView session lifecycle', () => {
     expect(wrapper.text()).not.toContain('conversation.guest.invalidToken')
   })
 
+  // docs/tasks/2026-10-05-guest-kick-and-ban code review finding 2: the boot
+  // restore drops the hint once a session expires, and a ban keys on the browser
+  // id, so a later join must still present the id this browser joined with.
+  it('joins with the same browser id after the hint was dropped', async () => {
+    const browserIds: unknown[] = []
+    server.use(
+      http.post(SESSION_URL, async ({ request }) => {
+        browserIds.push(((await request.json()) as { browser_id?: string }).browser_id)
+        return HttpResponse.json({ access_token: guestJwt(), guest_session_id: 'g_1', display_name: 'Alice', is_resuming: false })
+      }),
+    )
+    await submitName(await mountLanding(), 'Alice')
+    clearGuestContext()
+    setAccessToken(null)
+    localStorage.removeItem(`smap:guest:${ROOM}`)
+
+    await submitName(await mountLanding(), 'Alice')
+
+    expect(browserIds).toHaveLength(2)
+    expect(browserIds[0]).toBeTruthy()
+    expect(browserIds[1]).toBe(browserIds[0])
+  })
+
+  // docs/tasks/2026-10-05-guest-kick-and-ban (AC-3): a banned browser reopening
+  // the link resumes with its stored browser id and is refused for good.
+  it('shows a banned browser that it cannot join, with no retry, when it resumes', async () => {
+    holdHint()
+    const bodies: unknown[] = []
+    server.use(
+      http.post(SESSION_URL, async ({ request }) => {
+        bodies.push(await request.json())
+        return problem(403, 'conversation/guest-removed')
+      }),
+    )
+    const wrapper = await mountLanding()
+
+    await wrapper.find('.guest-actions button').trigger('click')
+    await settle()
+
+    expect(bodies).toHaveLength(1)
+    expect((bodies[0] as { browser_id?: string }).browser_id).toBeTruthy()
+    expect(wrapper.text()).toContain('conversation.guest.cannotJoin')
+    expect(wrapper.text()).not.toContain('conversation.guest.retry')
+    expect(wrapper.text()).not.toContain('conversation.guest.invalidToken')
+  })
+
   it('Retry after a failed resume repeats the resume', async () => {
     holdHint()
     const bodies: unknown[] = []

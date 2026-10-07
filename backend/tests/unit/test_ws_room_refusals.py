@@ -24,7 +24,12 @@ import pytest
 
 from app.api.ws import canvas as canvas_mod
 from app.api.ws import chatroom as chatroom_mod
-from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom, WorkspaceNotFound
+from contexts.conversation.domain.errors import (
+    ChatroomNotFound,
+    ForbiddenInRoom,
+    GuestRemoved,
+    WorkspaceNotFound,
+)
 from shared_kernel.auth import tokens as tokens_mod
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
@@ -38,6 +43,8 @@ _REFUSALS = [
     pytest.param(WorkspaceNotFound, 4404, id="workspace-deleted"),
     pytest.param(ChatroomNotFound, 4404, id="room-or-project-deleted"),
     pytest.param(ForbiddenInRoom, 4403, id="forbidden"),
+    # [R13.07a]: a subclass of ForbiddenInRoom, so it must be told apart first.
+    pytest.param(GuestRemoved, 4408, id="guest-removed"),
 ]
 
 
@@ -218,6 +225,7 @@ async def _authorize(monkeypatch: pytest.MonkeyPatch, mod: Any, resolve: Any) ->
         pytest.param(WorkspaceNotFound, "GONE", id="workspace-deleted"),
         pytest.param(ChatroomNotFound, "GONE", id="room-or-project-deleted"),
         pytest.param(ForbiddenInRoom, "FORBIDDEN", id="forbidden"),
+        pytest.param(GuestRemoved, "REMOVED", id="guest-removed"),
         pytest.param(None, "ALLOWED", id="allowed"),
     ],
 )
@@ -272,7 +280,7 @@ class _LiveWS:
         self.closed = code
 
 
-@pytest.mark.parametrize(("name", "code"), [("GONE", 4404), ("FORBIDDEN", 4403)])
+@pytest.mark.parametrize(("name", "code"), [("GONE", 4404), ("FORBIDDEN", 4403), ("REMOVED", 4408)])
 async def test_connection_loop_closes_with_the_probes_code(
     monkeypatch: pytest.MonkeyPatch, name: str, code: int
 ) -> None:

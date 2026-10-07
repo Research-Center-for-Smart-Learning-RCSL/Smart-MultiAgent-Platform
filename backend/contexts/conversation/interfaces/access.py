@@ -15,6 +15,7 @@ second copy over there is how a room tier stops applying to half the platform.
 
 from contexts.conversation.application.access import (
     can_read_orchestration_record,
+    ensure_can_manage_guest_link,
     ensure_can_read,
     ensure_can_send,
     ensure_room_creator,
@@ -26,14 +27,17 @@ from contexts.conversation.application.access import (
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     ForbiddenInRoom,
+    GuestRemoved,
     WorkspaceNotFound,
 )
 
 __all__ = [
     "ChatroomNotFound",
     "ForbiddenInRoom",
+    "GuestRemoved",
     "WorkspaceNotFound",
     "can_read_orchestration_record",
+    "ensure_can_manage_guest_link",
     "ensure_can_read",
     "ensure_can_send",
     "ensure_room_creator",

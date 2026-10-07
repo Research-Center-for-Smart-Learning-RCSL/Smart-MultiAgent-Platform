@@ -7,9 +7,10 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import GuestSession
+from contexts.conversation.domain.models import GuestBan, GuestSession
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
@@ -22,6 +23,18 @@ def _row_to_guest_session(row: Any) -> GuestSession:
         browser_id=row.browser_id,
         refresh_token_hash=row.refresh_token_hash,
         last_seen_at=row.last_seen_at,
+        created_at=row.created_at,
+        revoked_at=row.revoked_at,
+    )
+
+
+def _row_to_guest_ban(row: Any) -> GuestBan:
+    return GuestBan(
+        id=row.id,
+        chatroom_id=row.chatroom_id,
+        guest_session_id=row.guest_session_id,
+        display_name=row.display_name,
+        created_by=row.created_by,
         created_at=row.created_at,
     )
 
@@ -74,11 +87,12 @@ class GuestSessionRepository:
         return _row_to_guest_session(row) if row else None
 
     async def find_by_browser_id(self, *, chatroom_id: uuid.UUID, browser_id: str) -> GuestSession | None:
-        """The browser's most recently seen session in the room.
+        """The browser's most recently seen live session in the room.
 
         ``(chatroom_id, browser_id)`` is not unique, and rows duplicated by the
         join race fixed in 2026-10-05-guest-session-backend-hardening may exist,
-        so this picks one rather than raising on every later resume.
+        so this picks one rather than raising on every later resume. A removed
+        session is never resumed ([R13.07a]).
         """
         row = (
             await self._db.execute(
@@ -87,6 +101,7 @@ class GuestSessionRepository:
                     sa.and_(
                         t.guest_sessions.c.chatroom_id == chatroom_id,
                         t.guest_sessions.c.browser_id == browser_id,
+                        t.guest_sessions.c.revoked_at.is_(None),
                     )
                 )
                 .order_by(t.guest_sessions.c.last_seen_at.desc())
@@ -103,10 +118,42 @@ class GuestSessionRepository:
                 sa.and_(
                     t.guest_sessions.c.chatroom_id == chatroom_id,
                     t.guest_sessions.c.last_seen_at > since,
+                    t.guest_sessions.c.revoked_at.is_(None),
                 )
             )
         )
         return result.scalar_one()
+
+    async def revoke(self, session_id: uuid.UUID, *, chatroom_id: uuid.UUID) -> bool:
+        """Mark the room's session removed; False when it already was, or is not the room's."""
+        result = await self._db.execute(
+            t.guest_sessions.update()
+            .where(
+                sa.and_(
+                    t.guest_sessions.c.id == session_id,
+                    t.guest_sessions.c.chatroom_id == chatroom_id,
+                    t.guest_sessions.c.revoked_at.is_(None),
+                )
+            )
+            .values(revoked_at=now())
+        )
+        return bool(result.rowcount)
+
+    async def revoke_live_for_browser(self, *, chatroom_id: uuid.UUID, browser_id: str) -> list[uuid.UUID]:
+        """Mark every live session of this browser in the room removed; their ids."""
+        rows = await self._db.execute(
+            t.guest_sessions.update()
+            .where(
+                sa.and_(
+                    t.guest_sessions.c.chatroom_id == chatroom_id,
+                    t.guest_sessions.c.browser_id == browser_id,
+                    t.guest_sessions.c.revoked_at.is_(None),
+                )
+            )
+            .values(revoked_at=now())
+            .returning(t.guest_sessions.c.id)
+        )
+        return [r.id for r in rows]
 
     async def rotate_refresh(
         self, *, old_hash: str, new_hash: str, chatroom_id: uuid.UUID
@@ -157,3 +204,73 @@ class GuestSessionRepository:
             t.guest_sessions.delete().where(t.guest_sessions.c.last_seen_at < cutoff)
         )
         return result.rowcount or 0
+
+
+class GuestBanRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        guest_session_id: uuid.UUID,
+        browser_id_hash: str | None,
+        display_name: str,
+        created_by: uuid.UUID | None,
+    ) -> GuestBan | None:
+        """Insert the ban; None when this session is already banned in the room."""
+        row = (
+            await self._db.execute(
+                pg_insert(t.chatroom_guest_bans)
+                .values(
+                    chatroom_id=chatroom_id,
+                    guest_session_id=guest_session_id,
+                    browser_id_hash=browser_id_hash,
+                    display_name=display_name,
+                    created_by=created_by,
+                )
+                .on_conflict_do_nothing(constraint="uq_chatroom_guest_bans_room_session")
+                .returning(t.chatroom_guest_bans)
+            )
+        ).first()
+        return _row_to_guest_ban(row) if row else None
+
+    async def is_banned(self, *, chatroom_id: uuid.UUID, browser_id_hash: str) -> bool:
+        row = (
+            await self._db.execute(
+                sa.select(t.chatroom_guest_bans.c.id)
+                .where(
+                    sa.and_(
+                        t.chatroom_guest_bans.c.chatroom_id == chatroom_id,
+                        t.chatroom_guest_bans.c.browser_id_hash == browser_id_hash,
+                    )
+                )
+                .limit(1)
+            )
+        ).first()
+        return row is not None
+
+    async def list_for_room(self, chatroom_id: uuid.UUID) -> list[GuestBan]:
+        rows = await self._db.execute(
+            t.chatroom_guest_bans.select()
+            .where(t.chatroom_guest_bans.c.chatroom_id == chatroom_id)
+            .order_by(t.chatroom_guest_bans.c.created_at.desc())
+        )
+        return [_row_to_guest_ban(r) for r in rows]
+
+    async def delete(self, *, chatroom_id: uuid.UUID, ban_id: uuid.UUID) -> GuestBan | None:
+        """Delete the room's ban; None when no such ban exists in that room."""
+        row = (
+            await self._db.execute(
+                t.chatroom_guest_bans.delete()
+                .where(
+                    sa.and_(
+                        t.chatroom_guest_bans.c.id == ban_id,
+                        t.chatroom_guest_bans.c.chatroom_id == chatroom_id,
+                    )
+                )
+                .returning(t.chatroom_guest_bans)
+            )
+        ).first()
+        return _row_to_guest_ban(row) if row else None

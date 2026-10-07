@@ -289,3 +289,25 @@ describe('ChatroomMessageBubble guest badge', () => {
     expect(wrapper.find('[data-testid="bubble-guest-badge"]').exists()).toBe(false)
   })
 })
+
+// docs/tasks/2026-10-05-guest-kick-and-ban (AC-6): the view decides who may
+// moderate; the bubble renders the actions and reports the click.
+describe('ChatroomMessageBubble guest moderation', () => {
+  const guestMessage: DisplayMessage = { ...agentMessage({}), sender_type: 'guest', sender_id: 'g_2' }
+
+  it('shows no moderation actions unless allowed', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, { props: { ...baseProps, message: guestMessage } })
+    expect(wrapper.find('[data-testid="bubble-remove-guest"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="bubble-ban-guest"]').exists()).toBe(false)
+  })
+
+  it('reports remove and ban when allowed', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: guestMessage, canModerateGuest: true },
+    })
+    await wrapper.find('[data-testid="bubble-remove-guest"]').trigger('click')
+    await wrapper.find('[data-testid="bubble-ban-guest"]').trigger('click')
+    expect(wrapper.emitted('remove-guest')).toHaveLength(1)
+    expect(wrapper.emitted('ban-guest')).toHaveLength(1)
+  })
+})

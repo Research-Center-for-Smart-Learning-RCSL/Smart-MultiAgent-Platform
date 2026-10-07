@@ -472,13 +472,14 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   FU-5..FU-15 are in the dossier; FU-6 (any sender may delete the whole canvas) wants a decision.
   Not observed on a running stack. Unblocks `2026-10-05-guest-kick-and-ban`, now below.
 
-- `2026-10-05-guest-kick-and-ban` (feature, **approved 2026-10-05**, SRS Delta applied: [R6.12] and
-  [R13.07] rewritten, [R13.07a] added) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle,
-  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]`, all implemented.
-  Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked session
-  checked at the room access choke point; durable ban table keyed by session and a hash of the
-  browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`
-  (take the revision number from `alembic heads`). Last of the guest-audit dossiers.
+- (implemented 2026-10-06) `2026-10-05-guest-kick-and-ban`. AC-1..AC-9 verified on PR #238
+  (stacked on #237; CI green at `bdea5316` after the code-review fixes D-10..D-16, db tier 268 against
+  the base's 259 and e2e included).
+  Moderators (matrix row 18) remove or ban an anonymous guest, list and lift bans in room settings,
+  and rotate the guest link; a removed session is refused at the room access layer and its sockets
+  close 4408. Migration `0099`. Deviations D-1..D-9 and FU-3..FU-15 are in the dossier; FU-3 (no
+  server-side socket close at removal, about 60 s window) is the security audit's medium. Last of
+  the guest-audit dossiers; nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
 ## Blocked
 
@@ -668,7 +669,6 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
-
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).

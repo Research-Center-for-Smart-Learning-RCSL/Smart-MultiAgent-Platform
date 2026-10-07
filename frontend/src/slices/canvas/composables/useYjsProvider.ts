@@ -10,6 +10,8 @@ import { accessTokenClaims } from '@shared/transport'
 
 const CLOSE_FORBIDDEN = 4403
 const CLOSE_NOT_FOUND = 4404
+const CLOSE_GUEST_REMOVED = 4408
+const TERMINAL_CLOSE_CODES = new Set([CLOSE_FORBIDDEN, CLOSE_NOT_FOUND, CLOSE_GUEST_REMOVED])
 
 const AWARENESS_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
@@ -155,12 +157,12 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
       }),
     )
 
-    // 4403 (access lost) and 4404 (room gone) are not cured by a retry; the
-    // room's own state explains them to the viewer.
+    // 4403 (access lost), 4404 (room gone) and 4408 (guest removed) are not
+    // cured by a retry; the room's own state explains them to the viewer.
     const activeChannel = channel
     unsubs.push(
       activeChannel.onCloseCode((code) => {
-        if (code === CLOSE_FORBIDDEN || code === CLOSE_NOT_FOUND) activeChannel.disconnect()
+        if (TERMINAL_CLOSE_CODES.has(code)) activeChannel.disconnect()
       }),
     )
 

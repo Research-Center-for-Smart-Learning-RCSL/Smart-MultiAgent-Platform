@@ -72,3 +72,27 @@ describe('ChatroomPresence', () => {
     expect(names).toEqual(['Alice', 'Carol', 'u_3abcdefghij'])
   })
 })
+
+// docs/tasks/2026-10-05-guest-kick-and-ban (AC-6): the view marks which rows a
+// moderator may remove; the list only renders and reports the choice.
+describe('ChatroomPresence moderator actions', () => {
+  it('offers remove and ban on a removable row only, and reports the row', async () => {
+    const wrapper = await renderView(ChatroomPresence, {
+      props: props({
+        onlineUsers: [
+          { id: 'g_2', isYou: false, displayName: 'Carol', isGuest: true, removable: true },
+          { id: 'u_8', isYou: false, displayName: 'Olive', isGuest: true, removable: false },
+        ],
+      }),
+    })
+
+    expect(wrapper.findAll('[data-testid="presence-remove-guest"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="presence-ban-guest"]')).toHaveLength(1)
+
+    await wrapper.find('[data-testid="presence-remove-guest"]').trigger('click')
+    await wrapper.find('[data-testid="presence-ban-guest"]').trigger('click')
+
+    expect(wrapper.emitted('remove-guest')).toEqual([['g_2', 'Carol']])
+    expect(wrapper.emitted('ban-guest')).toEqual([['g_2', 'Carol']])
+  })
+})

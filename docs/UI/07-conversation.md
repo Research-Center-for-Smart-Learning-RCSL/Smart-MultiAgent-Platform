@@ -617,6 +617,13 @@ When agent finishes with an error or the watchdog triggers timeout:
 - User items: height 36px, hover `--color-sidebar-hover` background
 - Green dot indicator: 8px circle `--color-success` on avatar corner (bottom-right)
 - Users sorted alphabetically, current user first
+- Moderator actions ([R13.07a]): for a viewer whose room DTO carries `is_moderator`, an anonymous
+  guest's row (roster `kind: "guest_session"`) ends with two ghost icon buttons, "Remove guest"
+  (`UserMinusIcon`) and "Ban guest" (`NoSymbolIcon`). A registered guest (`kind: "room_guest"`) and
+  the viewer's own row never show them. The same pair appears in the hover actions of an anonymous
+  guest's message bubble. Each opens an `SConfirmDialog`; the ban dialog says that a ban does not
+  stop another browser or device and points at link rotation. Success toasts "{name} was removed
+  from the room." / "{name} was banned from the room."
 
 **Section: Agent Status**:
 - Section header: "AGENT STATUS", same style as above
@@ -1192,6 +1199,18 @@ Pill style: `SBadge`-like, `--radius-full`, padding 2px 10px, 12px font.
 - Copy button: `SButton` size sm variant secondary with `ClipboardDocumentIcon`
 - On copy success: toast "Link copied to clipboard"
 - Guest link format: `https://{host}/g/{chatroomId}/{guestToken}`
+- "Rotate link" (`SButton` sm secondary, `ArrowPathIcon`), moderators only ([R6.12]): an
+  `SConfirmDialog` explains that the current link stops working for anyone who has not joined yet and
+  that guests already in the room stay; on confirm `POST /api/chatrooms/{cid}/guest-link/rotate`
+  replaces the input's URL and toasts "Guest link rotated. The old link no longer works."
+
+#### Banned Guests
+
+- Moderators only, shown whether or not guest links are on, since bans outlive the flag ([R13.07a])
+- `GuestBansCard`: one row per ban from `GET /api/chatrooms/{cid}/guest-bans` with the name
+  snapshot, "Banned {time}" and a ghost "Lift ban" button (`DELETE .../guest-bans/{banId}`), each row
+  tracking its own pending state
+- Empty: "No guests are banned from this room."; load failure: `SAlert` danger
 
 #### Bound Agents
 
@@ -1314,6 +1333,7 @@ case-sensitive.
 | Enrolling | `SLoadingSpinner` with "Joining chatroom..." |
 | Invalid link | `conversation/guest-token-invalid` and other 401/403/404 answers: "This link is no longer valid..." with no action |
 | Disabled | `conversation/guest-access-disabled` (403): "Guest access has been disabled by the room owner." with no action |
+| Banned | `conversation/guest-removed` (403), a browser banned from the room resuming or joining: "You cannot join this room." with no action |
 | Cap reached | 429: "This chatroom has reached its guest limit..." |
 | Transient error | Network and other failures: "Could not connect..." with Retry, which repeats the action that failed (enrol, resume, or own-account entry) |
 
@@ -1331,8 +1351,8 @@ case-sensitive.
 ### 5.6 Guest session in the room
 
 The guest's access token, guest context and link token live in page memory. The session's end is
-recorded by the transport (`guestSessionEnd`: `expired` or `disabled`) rather than inferred from the
-token, so the room can still explain it once the token is gone.
+recorded by the transport (`guestSessionEnd`: `expired`, `disabled`, `gone` or `removed`) rather
+than inferred from the token, so the room can still explain it once the token is gone.
 
 - **Reload and new tabs.** Boot tries the account refresh first. If it fails, the URL is a room
   (`/chatrooms/:id` or `/c/:id`) and the browser holds that room's hint, boot calls the room's guest
@@ -1347,10 +1367,18 @@ token, so the room can still explain it once the token is gone.
   expired; 403 `guest-access-disabled`: disabled). No response, a 5xx or a 429 keeps the token and
   the context. A socket ticket answered `guest-access-disabled` records `disabled`. A 4401 socket
   close is a re-handshake signal: it triggers a refresh, and that answer decides.
+- **Removal** ([R13.07a]). `removed` is recorded from a 403 `conversation/guest-removed` answer to
+  any request that carried this tab's guest token (never from a landing-page session create), from
+  the refresh and the boot restore, from a 4408 socket close, and from a `chatroom.guest_removed`
+  frame naming this tab's session. The browser id a ban keys on lives in its own per-room key
+  (`smap:guest-browser:{chatroomId}`), created on first join and never removed with the hint, so a
+  session that later expires does not hand the browser a fresh id that walks past the ban.
 - **Banners.** Expired: within the page lifetime the banner offers Rejoin (the in-memory link);
   after a reload it says to reopen the link the room owner shared and offers Sign in. Disabled:
-  "Guest access has been disabled by the room owner." With either, the room closes its socket
-  deliberately and disables the composer.
+  "Guest access has been disabled by the room owner." Removed: "You were removed from this room."
+  with no action, since the tab cannot tell a removal (rejoin through the link) from a ban. With
+  any of them, the room closes its socket deliberately and disables the composer; the canvas socket
+  does not reconnect after 4403, 4404 or 4408.
 - **Ownership of the guest context.** Applying a user token (sign-in, Google completion) and
   clearing the session both clear the guest context, so a later sign-in in the same tab never routes
   refreshes or socket tickets to the guest endpoints. A focus re-hydrate is skipped while a guest
@@ -1464,6 +1492,8 @@ ChatroomSettingsView.vue
 | `agent.finished` | Server -> Client | Clear stream/thinking, real message takes over |
 | `presence.joined` | Server -> Client | Add user to presence set |
 | `presence.left` | Server -> Client | Remove user from presence set |
+| `chatroom.guest_removed` | Server -> Client | Ids only, one per ended session; the named guest session's own tab records `removed` and shows the banner |
+| `chatroom.members_changed` | Server -> Client | Re-read the participant roster |
 | `approval.requested` | Server -> Client | Add approval card to orchestration store |
 | `approval.resolved` | Server -> Client | Update approval card status |
 | `typing.start` | Client -> Server | Sent on first keystroke (debounced) |

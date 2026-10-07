@@ -215,6 +215,28 @@ guest_sessions = sa.Table(
     sa.Column("refresh_token_hash", sa.Text, nullable=False, unique=True),
     sa.Column("last_seen_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
+)
+
+# No FK on guest_session_id: a ban must outlive the session purge (0099).
+chatroom_guest_bans = sa.Table(
+    "chatroom_guest_bans",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("guest_session_id", pg.UUID(as_uuid=True), nullable=False),
+    sa.Column("browser_id_hash", sa.Text, nullable=True),
+    sa.Column("display_name", sa.String(100), nullable=False),
+    sa.Column(
+        "created_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.UniqueConstraint("chatroom_id", "guest_session_id", name="uq_chatroom_guest_bans_room_session"),
 )
 
 messages = sa.Table(

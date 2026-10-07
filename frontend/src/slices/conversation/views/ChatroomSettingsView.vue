@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowLeftIcon,
+  ArrowPathIcon,
   ClipboardDocumentIcon,
   TrashIcon,
   ArchiveBoxArrowDownIcon,
@@ -41,6 +42,8 @@ import { DlqViewer } from '@slices/workflow'
 import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
+import { useGuestLinkModeration } from '../composables/useGuestLinkModeration'
+import GuestBansCard from '../components/GuestBansCard.vue'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
 import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
@@ -301,6 +304,17 @@ async function copyGuest(): Promise<void> {
   } catch {
     toast.error(t('conversation.settings.copyFailed'))
   }
+}
+
+// ---- guest moderation ([R6.12], [R13.07a]) --------------------------------
+// Matrix row 18, which is exactly the room's moderator bit; the server decides.
+
+const isGuestModerator = computed(() => room.value?.is_moderator ?? false)
+const guestLink = useGuestLinkModeration(chatroomId, isGuestModerator)
+
+async function onRotateLink(): Promise<void> {
+  const url = await guestLink.rotateLink()
+  if (url) guestUrl.value = url
 }
 
 // ---- danger zone: compact -------------------------------------------------
@@ -692,8 +706,31 @@ watchEffect(() => {
               </template>
               {{ t('conversation.settings.copy') }}
             </SButton>
+            <SButton
+              v-if="isGuestModerator"
+              variant="secondary"
+              size="sm"
+              data-testid="rotate-guest-link"
+              :loading="guestLink.rotating.value"
+              @click="onRotateLink"
+            >
+              <template #icon-left>
+                <ArrowPathIcon class="w-4 h-4" />
+              </template>
+              {{ t('conversation.settings.rotateLink') }}
+            </SButton>
           </div>
         </SCard>
+
+        <!-- Banned guests: shown whatever the link flag, since bans outlive it -->
+        <GuestBansCard
+          v-if="isGuestModerator"
+          :bans="guestLink.bansQuery.data.value ?? []"
+          :pending="guestLink.bansQuery.isPending.value"
+          :failed="guestLink.bansQuery.isError.value"
+          :is-unbanning="guestLink.isUnbanning"
+          @unban="guestLink.unban"
+        />
 
         <!-- Bound Agents -->
         <SCard>
@@ -993,6 +1030,7 @@ watchEffect(() => {
 .guest-link__input {
   flex: 1;
 }
+
 
 .agent-add {
   display: flex;

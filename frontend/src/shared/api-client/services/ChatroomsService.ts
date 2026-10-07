@@ -15,7 +15,9 @@ import type { ChatroomMemberGroupsOut } from '../models/ChatroomMemberGroupsOut'
 import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
 import type { ChatroomPatchIn } from '../models/ChatroomPatchIn';
+import type { GuestBanOut } from '../models/GuestBanOut';
 import type { GuestLinkOut } from '../models/GuestLinkOut';
+import type { GuestRemoveIn } from '../models/GuestRemoveIn';
 import type { PresenceOut } from '../models/PresenceOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -419,6 +421,51 @@ export class ChatroomsService {
         });
     }
     /**
+     * List Guest Bans
+     * @returns GuestBanOut Successful Response
+     * @throws ApiError
+     */
+    public static listGuestBansApiChatroomsChatroomIdGuestBansGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<Array<GuestBanOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/guest-bans',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Unban Guest
+     * @returns void
+     * @throws ApiError
+     */
+    public static unbanGuestApiChatroomsChatroomIdGuestBansBanIdDelete({
+        chatroomId,
+        banId,
+    }: {
+        chatroomId: string,
+        banId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/chatrooms/{chatroom_id}/guest-bans/{ban_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'ban_id': banId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Read Guest Link
      * @returns GuestLinkOut Successful Response
      * @throws ApiError
@@ -434,6 +481,55 @@ export class ChatroomsService {
             path: {
                 'chatroom_id': chatroomId,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Rotate Guest Link
+     * @returns GuestLinkOut Successful Response
+     * @throws ApiError
+     */
+    public static rotateGuestLinkApiChatroomsChatroomIdGuestLinkRotatePost({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<GuestLinkOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/guest-link/rotate',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Remove Guest
+     * @returns void
+     * @throws ApiError
+     */
+    public static removeGuestApiChatroomsChatroomIdGuestsGuestSessionIdRemovePost({
+        chatroomId,
+        guestSessionId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        guestSessionId: string,
+        requestBody: GuestRemoveIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/guests/{guest_session_id}/remove',
+            path: {
+                'chatroom_id': chatroomId,
+                'guest_session_id': guestSessionId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

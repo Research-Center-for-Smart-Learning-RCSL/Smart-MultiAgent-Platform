@@ -32,7 +32,8 @@ const guestChatroomIdRef = ref<string | null>(null)
 
 // 'gone': the room itself no longer exists (its workspace or project was
 // deleted), so neither rejoining nor re-enabling links can bring it back.
-export type GuestSessionEnd = 'expired' | 'disabled' | 'gone'
+// 'removed': a moderator removed or banned this session ([R13.07a]).
+export type GuestSessionEnd = 'expired' | 'disabled' | 'gone' | 'removed'
 // Recorded, not derived from the token: the token is gone by the time the
 // session is known to have ended, and every consumer that has to explain the
 // end (the room banner, the guard, hydrate) would otherwise forget the tab was
@@ -41,6 +42,7 @@ const guestSessionEndRef = ref<GuestSessionEnd | null>(null)
 export const guestSessionEnd: Readonly<Ref<GuestSessionEnd | null>> = readonly(guestSessionEndRef)
 
 const GUEST_DISABLED_TYPE = '/conversation/guest-access-disabled'
+const GUEST_REMOVED_TYPE = '/conversation/guest-removed'
 const ROOM_GONE_TYPE = '/conversation/chatroom-not-found'
 const GUEST_TICKET_PATH = '/guest/ws-ticket'
 const GUEST_SESSION_ENDED = {
@@ -97,6 +99,7 @@ export function markGuestSessionEnded(reason: GuestSessionEnd): void {
 function endReasonFor(status: number, problemType: unknown): GuestSessionEnd | null {
   const type = typeof problemType === 'string' ? problemType : ''
   if (status === 403 && type.endsWith(GUEST_DISABLED_TYPE)) return 'disabled'
+  if (status === 403 && type.endsWith(GUEST_REMOVED_TYPE)) return 'removed'
   if (status === 404 && type.endsWith(ROOM_GONE_TYPE)) return 'gone'
   return status === 401 || status === 403 || status === 404 ? 'expired' : null
 }
@@ -272,8 +275,21 @@ async function handleResponseError(
     const end = endReasonFor(status, problemType)
     if (end === 'disabled' || end === 'gone') guestSessionEndRef.value = end
   }
-  const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
+  // The server answers guest-removed only to the removed session's own token,
+  // so any request that carried this tab's guest token speaks for it. The
+  // landing page's session-create carries no such claim (it may name another
+  // room) and reports its own answer.
   const wasAuthenticated = Boolean(original.headers?.Authorization)
+  if (
+    status === 403 &&
+    problemType.endsWith(GUEST_REMOVED_TYPE) &&
+    guestChatroomIdRef.value &&
+    wasAuthenticated &&
+    !(original.url ?? '').endsWith('/session')
+  ) {
+    guestSessionEndRef.value = 'removed'
+  }
+  const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
   const isRefreshEligible =
     status === 401 && !isTokenRevoked && wasAuthenticated
 

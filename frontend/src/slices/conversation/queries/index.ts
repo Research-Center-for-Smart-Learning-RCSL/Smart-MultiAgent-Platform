@@ -49,6 +49,7 @@ export const convKeys = {
   // `chatroom.members_changed`, when a guest joins or renames, and on reconnect.
   chatroomMembers: (chatroomId: string) =>
     ['conversation', 'chatroom-members', chatroomId] as const,
+  guestBans: (chatroomId: string) => ['conversation', 'guest-bans', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   observations: (chatroomId: string) =>
     ['conversation', 'observations', chatroomId] as const,

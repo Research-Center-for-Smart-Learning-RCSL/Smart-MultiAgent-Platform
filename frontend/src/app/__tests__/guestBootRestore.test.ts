@@ -139,6 +139,25 @@ describe('restoreSessionAtBoot', () => {
     expect(roomDecision()).toBe(true)
   })
 
+  // docs/tasks/2026-10-05-guest-kick-and-ban (AC-3): the hint holds the browser id
+  // a ban keys on, so dropping it would let a reload walk past the ban.
+  it('lands a removed session on the room and keeps the hint', async () => {
+    server.use(NO_ACCOUNT)
+    guestRefreshAnswers(() =>
+      HttpResponse.json(
+        { type: 'https://smap.local/problems/conversation/guest-removed', title: 'x', status: 403 },
+        { status: 403 },
+      ),
+    )
+    holdHint()
+
+    await restoreSessionAtBoot(`/chatrooms/${ROOM}`)
+
+    expect(guestSessionEnd.value).toBe('removed')
+    expect(localStorage.getItem(HINT)).not.toBeNull()
+    expect(roomDecision()).toBe(true)
+  })
+
   it('lands an offline guest on the room and resumes once the network returns', async () => {
     server.use(NO_ACCOUNT)
     guestRefreshAnswers(() => HttpResponse.error())

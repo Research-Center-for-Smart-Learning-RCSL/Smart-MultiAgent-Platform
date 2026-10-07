@@ -23,6 +23,7 @@ import { asBinaryFormField, http } from '@shared/transport'
 import type {
   AgentNameOut,
   ChatroomMemberOut,
+  GuestBanOut,
   GuestDisplayNameOut,
   MessageOut,
   ObservationOut,
@@ -120,6 +121,29 @@ export async function getGuestLink(
   chatroomId: string,
 ): Promise<{ url: string }> {
   return ChatroomsService.readGuestLinkApiChatroomsChatroomIdGuestLinkGet({ chatroomId })
+}
+
+// ---- guest moderation ([R13.07a], [R6.12]) -------------------------------
+// Matrix row 18 (owners, admins); everyone else is refused server-side.
+
+export async function rotateGuestLink(chatroomId: string): Promise<{ url: string }> {
+  return ChatroomsService.rotateGuestLinkApiChatroomsChatroomIdGuestLinkRotatePost({ chatroomId })
+}
+
+export async function removeGuest(chatroomId: string, guestSessionId: string, ban: boolean): Promise<void> {
+  await ChatroomsService.removeGuestApiChatroomsChatroomIdGuestsGuestSessionIdRemovePost({
+    chatroomId,
+    guestSessionId,
+    requestBody: { ban },
+  })
+}
+
+export async function listGuestBans(chatroomId: string): Promise<GuestBanOut[]> {
+  return ChatroomsService.listGuestBansApiChatroomsChatroomIdGuestBansGet({ chatroomId })
+}
+
+export async function unbanGuest(chatroomId: string, banId: string): Promise<void> {
+  await ChatroomsService.unbanGuestApiChatroomsChatroomIdGuestBansBanIdDelete({ chatroomId, banId })
 }
 
 // ---- member-group bindings (section 13.2a) --------------------------------
