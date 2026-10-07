@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-07
 requirements: [R13.17, R13.33, R28.06, R28.09, R28.10]
 depends_on: [2026-10-07-room-roster-completeness]
@@ -182,9 +182,43 @@ None.
 
 ## 13. Deviation Log
 
-Appended by /build.
+- **D-1.** `RELEASED_OBSERVATION_TYPE` moved from `observation_service.py` to
+  `contexts/conversation/domain/models.py` (re-imported there). The new repository query
+  filters on it, and the repository importing the application service would have formed an
+  import cycle.
+- **D-2.** `prefer_guest_label` moved to `contexts/conversation/domain/author_labels.py`,
+  with `interfaces/author_labels.py` kept as a re-export. The export service needs it, and
+  the quality gate flagged the application layer importing its own interfaces layer as an
+  upward dependency.
+- **D-3.** The agent-label route omits ids with no stored name rather than returning
+  `name: null`; the client already treats an absent id as an unknown agent, so the response
+  model keeps `name` required.
+- **D-4.** The room view re-reads the agent labels once for each agent id its history
+  shows that no source names, mirroring the participant-roster re-read
+  (`ChatroomView.vue`). §7.1 specified only the layering; without the re-read, a release
+  disclosing an observer that arrives live would show "Unknown agent" to non-creators
+  until reload.
+- **D-5.** A new key `conversation.chatroom.unknownAgent` (en, zh-TW) labels unknown agents
+  on message authors, released-observation headers and search hits, instead of reusing the
+  `observers` or `settings` keys of the same text.
+- **D-6.** `ChatroomMessageBubble.test.ts` pinned the eight-character fallback that AC-3
+  reverses; that case now asserts the unknown-agent label and the absence of the id.
+- **D-7.** AC-2 to AC-6 rest on tests, not on observation in a running app. A local test
+  stack was brought up and then stopped at the requester's direction, with verification
+  moved to CI on the PR; the live check is FU-4.
 
 ## 14. Follow-ups
 
 - **FU-1.** Search hits from authors past the roster cap still fall back to the id; the
   search API could return names itself if that cap ever bites.
+- **FU-2.** The Markdown transcript writes the sender name into a `## ` heading without
+  collapsing line breaks (security audit, hardening). Agent names are not yet normalised at
+  source (`2026-10-07-display-name-validation`), so an agent editor could forge heading
+  lines; message content can already do the same, so no new capability is added. Collapse
+  whitespace in `_sender_label`, or rely on that dossier's source normalisation.
+- **FU-3.** The agent-label re-read in `ChatroomView.vue` repeats the shape of the
+  participant-roster re-read (quality audit, info); a shared "refetch once per unnamed id"
+  composable would serve both if a third consumer appears.
+- **FU-4.** Staging check: as an anonymous guest, a released observation's header and an
+  unbound agent's messages show names; search hits show names; Markdown, PDF and JSON
+  exports name senders; an avatar for "🦊 Fox" shows the emoji.

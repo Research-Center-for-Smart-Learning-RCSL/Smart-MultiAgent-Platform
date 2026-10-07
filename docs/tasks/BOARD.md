@@ -494,12 +494,7 @@ rows are added as each is written.
   `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
-- `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) -
-  `depends_on: [2026-10-07-room-roster-completeness]`, implemented. F-9..F-14: a room
-  agent-label read names unbound, deleted and disclosed-observer agents for every viewer
-  ("Unknown agent" only when nothing resolves), search and export name senders, and avatar
-  initials take the first grapheme. Both rows edit `ChatroomView.vue`, so building them in
-  parallel will conflict there.
+- (moved to In progress on 2026-10-07) `2026-10-07-name-fallback-surfaces`.
 - `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
   its security aspect: only compaction summaries become the agent's summary block; released
   observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
@@ -707,6 +702,11 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-07-name-fallback-surfaces` (bugfix, in progress since 2026-10-07). F-9..F-14: a room
+  agent-label read names unbound, deleted and disclosed-observer agents for every viewer
+  ("Unknown agent" only when nothing resolves), search and export name senders, and avatar
+  initials take the first grapheme.
 
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`. AC-1..AC-5 verified on PR
   #241 (CI green at `91d48f45`). AC-2..AC-4 rest on tests, not on observation in a running
