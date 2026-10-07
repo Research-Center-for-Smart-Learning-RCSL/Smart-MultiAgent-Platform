@@ -495,10 +495,7 @@ rows are added as each is written.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`.
-- `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
-  its security aspect: only compaction summaries become the agent's summary block; released
-  observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
-  square brackets so no participant can wear the marker.
+- (moved to In progress on 2026-10-07) `2026-10-07-system-rows-in-agent-context`.
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
@@ -702,6 +699,13 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-07-system-rows-in-agent-context` (bugfix, in progress since 2026-10-07, no SRS
+  Delta) - `depends_on: []`. F-4 and its security aspect: only compaction summaries become
+  the agent's summary block; released observations and activity echoes stay in order as
+  `[Room notice]` turns, and labels lose square brackets so no participant can wear the
+  marker. AC-1..AC-5 verified locally (unit tier 11335 passed); AC-6 waits on CI.
+  Deviations D-1..D-4 and FU-1..FU-4 are in the dossier.
 
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`. AC-1..AC-7 verified on PR
   #242 (CI green at `697fa20a`, db, wiring and e2e tiers included). AC-2..AC-6 rest on tests,

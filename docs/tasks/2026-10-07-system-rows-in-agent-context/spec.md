@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-07
 requirements: [R9.10, R13.33, R13.34, R28.06, R30.08]
 depends_on: []
@@ -161,13 +161,13 @@ Written first; each fails against current code for the stated reason.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: the system prompt's summary block contains compaction summaries only.
-- [ ] AC-3: a released observation and an activity echo reach the agent in chronological
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: the system prompt's summary block contains compaction summaries only.
+- [x] AC-3: a released observation and an activity echo reach the agent in chronological
   order among the other turns, each opened by `[Room notice]`.
-- [ ] AC-4: no human or agent label in the model context contains `[` or `]`, and the
+- [x] AC-4: no human or agent label in the model context contains `[` or `]`, and the
   participant note states that only the platform writes `[Room notice]`.
-- [ ] AC-5: the summary retrieval query is built only from a compaction summary.
+- [x] AC-5: the summary retrieval query is built only from a compaction summary.
 - [ ] AC-6: backend lint, typecheck and tests pass in CI.
 
 ## 12. SRS Delta
@@ -177,9 +177,44 @@ None. [R28.06] and [R30.08] already put these messages in the room's transcript,
 
 ## 13. Deviation Log
 
-Appended by /build.
+- **D-1. Assembly tests run against extracted helpers, not a full room turn.** No unit
+  harness drives `run_turn`'s request assembly, which is a closure. A behaviour-preserving
+  commit first moved the summary and stream selection into `_summary_blocks` and
+  `_stream_rows` (`turn_engine.py`), which the closure calls. The §8 tests feed them the
+  real `load_model_history` output, so they failed against the pre-fix role assignment
+  for the documented reason. `_shows_participant_note` was extracted the same way for D-3.
+- **D-2. §9's claim that the echo digest is one line was wrong.** `submission_service.py:637`
+  collapses only the group label; `build_agent_digest` passes a validator `detail` through
+  raw. Found by `/code-review` and fixed with the requester's agreement: the marker is
+  defanged inside notice bodies, an activity notice renders on one line, and the
+  participant note states that text after "Content:" is the participant's submission.
+- **D-3. Further review fixes, agreed with the requester.** (a) An agent whose name is missing
+  or one-lines to nothing (for example `[ ]`) is labelled `Agent:` instead of being sent
+  unprefixed, and any other agent's turn now brings the participant note. (b) The
+  participant note renders whenever a notice is present, not only when a turn is
+  labelled, since only the note explains the marker. (c) A released observation reads "An
+  analysis was released to the room:", not "The room owner shared an analysis:", because
+  admins and moderators of a room with no recorded creator can release too
+  (`access.py:544-551`). (d) Notices feed the "Recent conversation" retrieval query as
+  `Notice:` rows, so a question about a just-released analysis retrieves against it.
+- **D-4. Marker defanged in every body, not only in notices.** From the `check-security`
+  gate, agreed with the requester. Providers combine consecutive user turns, so a
+  `[Room notice]` line inside a participant message, another agent's reply, an attachment
+  excerpt or the live input read like a real notice. Every such body has the marker
+  rewritten, case-insensitively and with any spacing. This narrows §9's "not addressed
+  further here" for the marker string only; other body content is still FU-5 of the audit.
 
 ## 14. Follow-ups
 
 - **FU-1.** Compaction summaries still carry no speaker names (audit FU-3); a notice folded
   into a summary keeps its marker word but not who released it.
+- **FU-2.** A row's `token_count` leaves out render-time prefixes (`[Room notice] `, the
+  observation lead-in, and the existing `Name: ` labels), so the history budget and the
+  compaction trigger undercount by a few tokens per row. Pre-existing pattern, from
+  `/code-review`.
+- **FU-3.** A display name such as `Room notice` (brackets stripped) or one using fullwidth
+  brackets still reads close to the marker. The note quotes the marker with its ASCII
+  brackets; a stronger fix belongs with `2026-10-07-display-name-validation`. From
+  `/code-review`.
+- **FU-4.** Behaviour in a running app (an agent answering after a release and after an
+  echo) has not been observed; the ACs rest on unit tests. A staging check.
