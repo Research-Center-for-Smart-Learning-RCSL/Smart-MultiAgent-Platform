@@ -145,6 +145,9 @@ describe('useChatroomSocket agent streaming', () => {
     degradedHandlers.length = 0
     listMessagesMock.mockClear()
     getMessageMock.mockReset()
+    // message.created and agent.finished fetch the named row by id; rejecting
+    // is the inert default, leaving the since-delta as the only source.
+    getMessageMock.mockRejectedValue(new Error('getMessage not stubbed'))
     listChatroomApprovalsMock.mockReset()
     listChatroomApprovalsMock.mockResolvedValue([])
     getActiveActivationMock.mockReset()
@@ -1056,6 +1059,9 @@ describe('useChatroomSocket agent.token throttling (F-15)', () => {
     degradedHandlers.length = 0
     listMessagesMock.mockClear()
     getMessageMock.mockReset()
+    // message.created and agent.finished fetch the named row by id; rejecting
+    // is the inert default, leaving the since-delta as the only source.
+    getMessageMock.mockRejectedValue(new Error('getMessage not stubbed'))
     listChatroomApprovalsMock.mockReset()
     listChatroomApprovalsMock.mockResolvedValue([])
     getActiveActivationMock.mockReset()
@@ -1373,5 +1379,202 @@ describe('useChatroomSocket chatroom.members_changed', () => {
     await flushPromises()
 
     expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.chatroomMembers(ROOM) })
+  })
+})
+// docs/tasks/2026-10-07-agent-reply-delivery-gaps: an agent reply was stamped at
+// the start of its stream, so a message committed during the stream moved every
+// client's `since` cursor past it and the reply was never fetched.
+describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
+  let wrapper: VueWrapper | null = null
+
+  type Row = { id: string; created_at: string; sender_type: string; sender_id: string }
+
+  function at(seconds: number): string {
+    return new Date(Date.UTC(2024, 0, 1, 0, 0, seconds)).toISOString()
+  }
+
+  function row(id: string, seconds: number, sender_type = 'user', sender_id = 'u1'): Row {
+    return { id, created_at: at(seconds), sender_type, sender_id }
+  }
+
+  function cachedIds(qc: QueryClient): string[] {
+    return ((qc.getQueryData(convKeys.messages(ROOM)) ?? []) as Row[]).map((m) => m.id)
+  }
+
+  beforeEach(() => {
+    subscribedHandlers.length = 0
+    statusHandlers.length = 0
+    degradedHandlers.length = 0
+    listMessagesMock.mockReset()
+    listMessagesMock.mockResolvedValue([])
+    getMessageMock.mockReset()
+    getMessageMock.mockRejectedValue(new Error('getMessage not stubbed'))
+    listChatroomApprovalsMock.mockReset()
+    listChatroomApprovalsMock.mockResolvedValue([])
+    getActiveActivationMock.mockReset()
+    getActiveActivationMock.mockResolvedValue(null)
+    getApprovalMock.mockReset()
+    getApprovalMock.mockRejectedValue(new Error('getApproval not stubbed'))
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.useRealTimers()
+  })
+
+  it('fetches a back-dated reply by id when its since-delta comes back empty', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    // The cursor already sits on S, committed while R was streaming.
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    const reply = row('m_r', 5, 'agent', AGENT)
+    getMessageMock.mockImplementation(async (id: string) => {
+      if (id === 'm_r') return reply
+      throw new Error(`unexpected getMessage(${id})`)
+    })
+    emit({ type: 'message.created', message_id: 'm_r', sender_type: 'agent', sender_id: AGENT })
+    await flushPromises()
+
+    expect(listMessagesMock).toHaveBeenCalledWith(ROOM, { since: 'm_s' })
+    expect(cachedIds(mounted.qc)).toContain('m_r')
+
+    // Applying an older row must not move the cursor backwards.
+    listMessagesMock.mockClear()
+    emitDegraded(true)
+    vi.advanceTimersByTime(10_000)
+    expect(listMessagesMock).toHaveBeenCalledWith(ROOM, { since: 'm_s' })
+  })
+
+  it('keeps the streaming bubble until the finished reply is in the cache', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    let resolveReply!: (m: Row) => void
+    getMessageMock.mockReturnValueOnce(new Promise<Row>((resolve) => { resolveReply = resolve }))
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'the answer', agent_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+    flushTokenWindow()
+    await flushPromises()
+
+    expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBeFalsy()
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('the answer')
+
+    resolveReply(row('m_r', 5, 'agent', AGENT))
+    await flushPromises()
+
+    expect(cachedIds(mounted.qc)).toContain('m_r')
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('clears the streaming bubble at once when the reply is already cached', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_r', 5, 'agent', AGENT)])
+    await flushPromises()
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'the answer', agent_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+    expect(getMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('clears the streaming bubble when the finished reply cannot be fetched', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'the answer', agent_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+    await flushPromises()
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('does not let a failed fetch of a finished reply clear the next turn', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    let rejectReply!: (e: Error) => void
+    getMessageMock.mockReturnValueOnce(new Promise<Row>((_resolve, reject) => { rejectReply = reject }))
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    emit({ type: 'agent.token', text: 'next turn', agent_id: AGENT })
+    flushTokenWindow()
+    rejectReply(new Error('gone'))
+    await flushPromises()
+
+    expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('next turn')
+  })
+
+  it('applies an older delta that resolves after a newer one', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    let resolveFirst!: (m: Row[]) => void
+    let resolveSecond!: (m: Row[]) => void
+    listMessagesMock
+      .mockReturnValueOnce(new Promise<Row[]>((resolve) => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise<Row[]>((resolve) => { resolveSecond = resolve }))
+
+    emit({ type: 'message.created', message_id: 'm_a', sender_type: 'user', sender_id: 'u1' })
+    emit({ type: 'message.created', message_id: 'm_b', sender_type: 'user', sender_id: 'u1' })
+
+    resolveSecond([row('m_b', 12)])
+    await flushPromises()
+    resolveFirst([row('m_a', 11), row('m_b', 12)])
+    await flushPromises()
+
+    expect(cachedIds(mounted.qc)).toEqual(expect.arrayContaining(['m_s', 'm_a', 'm_b']))
+  })
+
+  it('fills a reconnect gap larger than one page', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_0', 0)])
+    statusHandlers.forEach((h) => h(false))
+
+    // The server holds m_0 plus 150 messages created while the socket was down.
+    const server: Row[] = [row('m_0', 0)]
+    for (let i = 1; i <= 150; i++) server.push(row(`m_${i}`, i))
+    listMessagesMock.mockImplementation(
+      async (_room: string, opts: { before?: string; since?: string; limit?: number } = {}) => {
+        const limit = opts.limit ?? 50
+        const asc = [...server]
+        if (opts.since !== undefined) {
+          const idx = asc.findIndex((m) => m.id === opts.since)
+          return asc.slice(idx + 1, idx + 1 + limit)
+        }
+        let upTo = asc.length
+        if (opts.before !== undefined) upTo = asc.findIndex((m) => m.id === opts.before)
+        return asc.slice(Math.max(0, upTo - limit), upTo).reverse()
+      },
+    )
+
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    const ids = new Set(cachedIds(mounted.qc))
+    const missing = server.filter((m) => !ids.has(m.id)).map((m) => m.id)
+    expect(missing).toEqual([])
   })
 })

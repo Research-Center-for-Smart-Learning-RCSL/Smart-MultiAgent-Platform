@@ -95,10 +95,11 @@ export function useChatroomSocket(
     }
   }
 
-  // Monotonic generation guard: each reconnect bumps this counter, so if the
-  // socket flaps and two replays overlap, a slower earlier fetch cannot
-  // resolve last and re-apply an older delta over fresher data (R24.23).
-  let replayGeneration = 0
+  // Monotonic generation guard for the connect-time page reconcile: if the
+  // socket flaps and two reconciles overlap, a slower earlier page cannot
+  // resolve last and merge an older window over fresher data (R24.23). Deltas
+  // are append-only and deduped by id, so they need no guard.
+  let reconcileGeneration = 0
   let activationGeneration = 0
   // F-19: per-message generation guard for message.updated refetches (see
   // the handler below) — keyed by message id, not a single shared counter,
@@ -127,19 +128,61 @@ export function useChatroomSocket(
       await qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
       return
     }
-    const generation = ++replayGeneration
     try {
       const delta = await listMessages(roomId, { since: lastSeenMessageId.value })
-      if (generation !== replayGeneration) return
-      for (const m of delta) applyMessageCreated(m)
+      // Applied even when a newer delta started meanwhile: the newer one's
+      // cursor can already sit past rows only this one covers.
+      appendMessages(delta)
     } catch {
       // BUG-8: the cursor message may have been hard-deleted → 422.
       // Fall back to a full query invalidation so TanStack refetches the
       // latest page instead of silently losing messages.
-      if (generation === replayGeneration) {
-        qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
-      }
+      void qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
     }
+  }
+
+  function isCached(messageId: string): boolean {
+    return qc.getQueryData<Message[]>(convKeys.messages(roomId))?.some((m) => m.id === messageId) ?? false
+  }
+
+  // A message the server named (`message.created`, `agent.finished`) is fetched
+  // by id as well as through the `since` delta: the cursor orders by
+  // `created_at`, so a row stamped earlier than one already seen, or one whose
+  // delta was lost, would otherwise never arrive. Concurrent requests for the
+  // same id share one fetch. Resolves true once the row has been applied.
+  const messageFetches = new Map<string, Promise<boolean>>()
+
+  function fetchMessageById(messageId: string): Promise<boolean> {
+    if (isCached(messageId)) return Promise.resolve(true)
+    let fetch = messageFetches.get(messageId)
+    if (!fetch) {
+      fetch = getMessage(messageId)
+        .then(
+          (m) => {
+            if (disposed) return false
+            applyMessageCreated(m)
+            return true
+          },
+          () => false,
+        )
+        .finally(() => messageFetches.delete(messageId))
+      messageFetches.set(messageId, fetch)
+    }
+    return fetch
+  }
+
+  // agent id -> the reply its `agent.finished` named. The streaming bubble is
+  // held until that reply is shown so the turn never blinks out of the feed;
+  // a newer turn or a reconnect drops the entry.
+  const pendingReplies = new Map<string, string>()
+
+  function holdStreamUntilShown(agentId: string, replyId: string): void {
+    pendingReplies.set(agentId, replyId)
+    void fetchMessageById(replyId).then(() => {
+      if (disposed || pendingReplies.get(agentId) !== replyId) return
+      pendingReplies.delete(agentId)
+      resetAgentStream(agentId)
+    })
   }
 
   // Approval cards are inserted from WS alone (approval.requested), so a dropped
@@ -279,43 +322,80 @@ export function useChatroomSocket(
     }
   }
 
-  function applyMessageCreated(m: Message): void {
-    if (!deletedTombstones.has(m.id)) {
-      const key = convKeys.messages(roomId)
-      qc.setQueryData<Message[]>(key, (prev) => {
-        if (!prev) return [m]
-        if (prev.some((x) => x.id === m.id)) return prev
-        return [...prev, m]
+  // Appends rows the cache lacks, in one write. The cursor is left to the
+  // QueryCache subscription below, which follows the newest `created_at`: a
+  // row fetched by id may be older than the cursor, and moving the cursor onto
+  // it would make the next delta re-read rows already shown.
+  function appendMessages(rows: readonly Message[]): void {
+    const fresh = rows.filter((m) => !deletedTombstones.has(m.id))
+    if (fresh.length > 0) {
+      qc.setQueryData<Message[]>(convKeys.messages(roomId), (prev) => {
+        if (!prev) return [...fresh]
+        const have = new Set(prev.map((x) => x.id))
+        const added = fresh.filter((m) => !have.has(m.id))
+        return added.length > 0 ? [...prev, ...added] : prev
       })
     }
-    lastSeenMessageId.value = m.id
-    clearAgentSideEffects(m)
+    for (const m of rows) clearAgentSideEffects(m)
   }
+
+  function applyMessageCreated(m: Message): void {
+    appendMessages([m])
+  }
+
+  // Server order: `created_at`, then `id` (message_repo.list).
+  function isAfter(a: Message, b: Message): boolean {
+    return a.created_at > b.created_at || (a.created_at === b.created_at && a.id > b.id)
+  }
+
+  // The server's maximum `limit` (messages.py); a gap is paged in as few
+  // requests as it allows.
+  const BACKFILL_PAGE_SIZE = 200
 
   // F-11: the connect burst used to call replayDelta(), whose `since` window
   // is append-only and cannot express a deletion or an edit of an older row.
   // Fetch the current page instead and merge it through the same
   // `mergeMessages` semantics the initial query uses (FIX-04's additive
   // merge, not a raw replacement) so a message deleted while disconnected is
-  // actually removed, not just left unreconciled. Shares `replayGeneration`
-  // with replayDelta — both write the same cache key, and a flapping socket
-  // can overlap a connect fetch with a message.created delta.
+  // actually removed, not just left unreconciled. Rows applied live while the
+  // page is in flight are not in it and are kept (`knownAtRequest`).
   async function reconcileMessages(): Promise<void> {
-    const generation = ++replayGeneration
+    const generation = ++reconcileGeneration
+    const key = convKeys.messages(roomId)
+    const cached = qc.getQueryData<Message[]>(key) ?? []
+    const knownAtRequest = new Set(cached.map((m) => m.id))
+    let lastShown: Message | null = null
+    for (const m of cached) if (!lastShown || isAfter(m, lastShown)) lastShown = m
     try {
-      // No `since`/`before`, so the backend orders this page newest-first —
-      // the opposite of the since-delta's ascending order applyMessageCreated
-      // assumes. Don't touch `lastSeenMessageId` here: the QueryCache
-      // subscription below already recomputes it correctly from the merged
-      // cache contents (order-independent), on every write to this key.
-      const page = await listMessages(roomId, { limit: PAGE_SIZE })
-      if (generation !== replayGeneration) return
-      const key = convKeys.messages(roomId)
-      qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page))
+      // No `since`/`before`, so the backend orders this page newest-first.
+      // Don't touch `lastSeenMessageId` here: the QueryCache subscription
+      // below recomputes it from the merged cache contents (order-independent),
+      // on every write to this key.
+      const fetched = await listMessages(roomId, { limit: PAGE_SIZE })
+      if (generation !== reconcileGeneration) return
+      const page = fetched.filter((m) => !deletedTombstones.has(m.id))
+      qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page, knownAtRequest))
       for (const m of page) clearAgentSideEffects(m)
+      if (lastShown && page.length >= PAGE_SIZE) await backfillGap(page, lastShown, generation)
     } catch {
       // Best-effort, matching resyncPresence/resyncActivation: a subsequent
       // connect or live event will reconcile.
+    }
+  }
+
+  // More than one page was created while the socket was down: page backwards
+  // from the reconcile page until reaching the newest row the client showed
+  // before the gap. Backwards rather than `since` that row, which may itself
+  // have been deleted during the gap (a dead `since` anchor is a 422).
+  async function backfillGap(page: readonly Message[], lastShown: Message, generation: number): Promise<void> {
+    let anchor = page[0]!
+    for (const m of page) if (isAfter(anchor, m)) anchor = m
+    while (isAfter(anchor, lastShown)) {
+      const older = await listMessages(roomId, { before: anchor.id, limit: BACKFILL_PAGE_SIZE })
+      if (generation !== reconcileGeneration) return
+      appendMessages(older.filter((m) => isAfter(m, lastShown)))
+      if (older.length < BACKFILL_PAGE_SIZE) return
+      anchor = older[older.length - 1]!
     }
   }
 
@@ -355,14 +435,15 @@ export function useChatroomSocket(
     switch (ev.type) {
       case 'message.created': {
         // FIX-04: delta append instead of blind invalidation so the additive
-        // merge cache is never replaced with a smaller window.
+        // merge cache is never replaced with a smaller window. The named row
+        // is fetched by id too, since the delta's cursor can already be past it.
         void replayDelta()
+        if (typeof ev.message_id === 'string' && ev.message_id) {
+          void fetchMessageById(ev.message_id)
+        }
         // clearAgentError stays eager (synchronous, from the event's own
         // payload); the draft is left to applyMessageCreated so its clear
-        // lands after the row is appended. That ordering is a flicker
-        // preference, not a guarantee — `agent.finished` clears the draft
-        // unconditionally (see its case), so whichever frame arrives first
-        // decides, and only this path avoids the gap.
+        // lands after the row is appended.
         if (ev.sender_type === 'agent' && agentId) {
           store.clearAgentError(roomId, agentId)
         }
@@ -455,6 +536,7 @@ export function useChatroomSocket(
       case 'agent.thinking':
         if (agentId) {
           store.setAgentThinking(roomId, agentId, true)
+          pendingReplies.delete(agentId)
           resetAgentStream(agentId)
           // A fresh turn supersedes the prior failure — clear the badge.
           store.clearAgentError(roomId, agentId)
@@ -493,12 +575,14 @@ export function useChatroomSocket(
         clearThinkingTimeout()
         if (agentId) {
           store.setAgentThinking(roomId, agentId, false)
-          // Always clear — on success the persisted message has already
-          // arrived via message.created so the clear is harmless; on
-          // error/empty_reply this is the only cleanup site. Clearing
-          // unconditionally is safer than relying on message.created
-          // delivery which can be lost during reconnect races (R7).
-          resetAgentStream(agentId)
+          // A reply that is not shown yet keeps the draft up until it is
+          // (fetched by id, so a lost message.created or delta cannot strand
+          // it); a failed fetch clears it anyway. A frame without a
+          // `message_id` (error, empty reply) has nothing to wait for, and this
+          // is its only cleanup site.
+          const replyId = typeof ev.message_id === 'string' ? ev.message_id : ''
+          if (replyId && !isCached(replyId)) holdStreamUntilShown(agentId, replyId)
+          else resetAgentStream(agentId)
         }
         if (typeof ev.error === 'string' && ev.error) {
           store.setAgentError(roomId, ev.error)
@@ -648,6 +732,7 @@ export function useChatroomSocket(
       everConnected = true
       stopPolling()
       store.clearAllAgentThinking(roomId)
+      pendingReplies.clear()
       resetAgentStream()
       clearThinkingTimeout()
       // F-5 constraint 3: reconcileOlder must run after reconcileMessages has
