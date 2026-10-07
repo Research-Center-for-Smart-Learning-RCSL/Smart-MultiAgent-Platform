@@ -494,7 +494,7 @@ rows are added as each is written.
   F-15 (chat): the room roster also names everyone present, the client re-reads it for an
   unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
   the rooms the user is in.
-- `2026-10-07-system-rows-in-agent-context` (bugfix, **draft**) - `depends_on: []`. F-4 and
+- `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
   its security aspect: only compaction summaries become the agent's summary block; released
   observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
   square brackets so no participant can wear the marker.
