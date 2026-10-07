@@ -506,7 +506,7 @@ rows are added as each is written.
 - `2026-10-07-canvas-awareness-names` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
   `2026-10-07-room-roster-completeness`. F-3, F-15 (canvas): cursors broadcast the editor's
   display name and viewers prefer the room roster's name for the cursor's user id.
-- `2026-10-07-name-fallback-surfaces` (bugfix, **draft**) - waits on
+- `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
   `2026-10-07-room-roster-completeness` (shared edits to `ChatroomView.vue`'s name maps).
   F-9..F-14: a room agent-label read names unbound, deleted and disclosed-observer agents for
   every viewer ("Unknown agent" only when nothing resolves), search and export name senders,
