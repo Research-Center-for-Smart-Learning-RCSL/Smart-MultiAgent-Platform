@@ -27,6 +27,7 @@ from contexts.conversation.domain.errors import (
     ObservationNotFound,
 )
 from contexts.conversation.domain.models import (
+    RELEASED_OBSERVATION_TYPE,
     AgentObservation,
     ChatroomAgentRole,
     Message,
@@ -39,8 +40,6 @@ from contexts.conversation.infrastructure.repositories import (
     ObservationRepository,
 )
 from shared_kernel import audit
-
-RELEASED_OBSERVATION_TYPE = "released_observation"
 
 
 @dataclass(frozen=True, slots=True)

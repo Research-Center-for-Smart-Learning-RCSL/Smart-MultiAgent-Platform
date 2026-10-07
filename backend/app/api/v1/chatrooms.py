@@ -226,6 +226,11 @@ class ChatroomMemberOut(BaseModel):
     kind: Literal["member", "guest_session", "room_guest"]
 
 
+class AgentLabelOut(BaseModel):
+    agent_id: uuid.UUID
+    name: str
+
+
 def _to_out(
     r,
     *,
@@ -781,6 +786,28 @@ async def list_chatroom_agents(
         )
         for r in rows
     ]
+
+
+@chatroom_router.get("/{chatroom_id}/agent-labels")
+async def list_chatroom_agent_labels(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[AgentLabelOut]:
+    """Names for the agents the room's history shows, bound or not, deleted or not.
+
+    The bound list cannot serve history: it drops unbound agents, and observer
+    bindings for anyone but the creator. This read names only ids already present
+    in the room's live messages (authors, and the observer a release disclosed),
+    so it neither enumerates the project's agents nor reveals an observer binding
+    ([R28.10]). Gated like the messages it labels ([R13.32]). Ids with no stored
+    name are omitted; the client labels them as an unknown agent.
+    """
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    ids = await ConversationFacade(db).agent_label_ids(chatroom_id)
+    names = await AgentsFacade(db).agent_names(list(ids))
+    return [AgentLabelOut(agent_id=aid, name=name) for aid, name in names.items()]
 
 
 @chatroom_router.post(

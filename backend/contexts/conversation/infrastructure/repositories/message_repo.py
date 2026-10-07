@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import VersionMismatch
 from contexts.conversation.domain.models import (
+    RELEASED_OBSERVATION_TYPE,
     Message,
     MessageEdit,
     SenderType,
@@ -195,6 +196,50 @@ class MessageRepository:
             )
         ).all()
         return {r.sender_id for r in rows}
+
+    async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
+        """Agent ids the room's live history shows: message authors, and the observer
+        a released observation names.
+
+        A release carries ``observer_agent_id`` only when the room disclosed
+        observers at release time ([R28.09]), so an undisclosed observer is never
+        returned ([R28.10]). Capped like ``distinct_user_sender_ids``.
+        """
+        live = sa.and_(t.messages.c.chatroom_id == chatroom_id, t.messages.c.deleted_at.is_(None))
+        authors = (
+            await self._db.execute(
+                sa.select(t.messages.c.sender_id)
+                .where(
+                    live,
+                    t.messages.c.sender_type == SenderType.AGENT.value,
+                    t.messages.c.sender_id.is_not(None),
+                )
+                .distinct()
+                .order_by(t.messages.c.sender_id)
+                .limit(limit)
+            )
+        ).all()
+        observer = t.messages.c.metadata["observer_agent_id"].astext
+        observers = (
+            await self._db.execute(
+                sa.select(observer)
+                .where(
+                    live,
+                    t.messages.c.sender_type == SenderType.SYSTEM.value,
+                    t.messages.c.metadata["type"].astext == RELEASED_OBSERVATION_TYPE,
+                    observer.is_not(None),
+                )
+                .distinct()
+                .limit(limit)
+            )
+        ).scalars()
+        ids = {r.sender_id for r in authors}
+        for raw in observers:
+            try:
+                ids.add(uuid.UUID(raw))
+            except ValueError:
+                continue
+        return ids
 
     async def update_content(
         self,
