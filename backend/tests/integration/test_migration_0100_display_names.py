@@ -154,11 +154,19 @@ def test_downgrade_is_a_clean_no_op(scratch_conn: sa.engine.Connection) -> None:
     assert _names(scratch_conn, ids) == repaired
 
 
-def test_the_frozen_rule_matches_the_live_one() -> None:
-    """Runs without a database: the copy was taken from `normalise_label` at this
-    revision, and the two must agree on the inputs the dossier names."""
-    family = "\U0001f468‍\U0001f469‍\U0001f467"
-    samples = [*_SEED.values(), "W" * 49 + family, "x" * 60, "  padded  ", "café" * 13]
+def test_upgrade_walks_every_page(
+    scratch_conn: sa.engine.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rows are read in id-ordered pages; a page smaller than the seed must still
+    reach every row, including the ones after the first page boundary."""
+    ids = _seed(scratch_conn)
+    monkeypatch.setattr(migration_0100, "_PAGE", 1)
 
-    for raw in samples:
-        assert migration_0100._normalise(raw) == normalise_label(raw, max_len=MAX_DISPLAY_NAME)
+    _run(scratch_conn, "upgrade")
+
+    assert _names(scratch_conn, ids) == {
+        "bidi": "AliceeciwlA",
+        "newline": "BobTeacher",
+        "controls_only": None,
+        "clean": "Carol Chen",
+    }

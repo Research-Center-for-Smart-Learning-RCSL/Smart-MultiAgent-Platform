@@ -8,8 +8,15 @@ name that is already clean. A name that normalises to nothing becomes ``NULL``,
 the state a cleared name has.
 
 The rule is copied here as it stands at this revision, not imported from
-``shared_kernel.labels``: a later change to that module must not alter what an
-already-applied migration did.
+``shared_kernel.labels``, so a later change to that module cannot alter what this
+migration does. One input stays outside the copy: grapheme segmentation follows
+the Unicode tables of the installed ``regex`` release, so a database that applies
+this later under a newer release can cut a name over 50 characters at a slightly
+different cluster boundary. Every result is still a valid normalised name.
+
+Rows are read in pages ordered by id, so the whole column is never held in
+memory at once. The updates still share the migration's one transaction, which
+touches only rows whose name actually changes.
 
 The downgrade does nothing. The stripped characters are not recoverable, and they
 were never valid input.
@@ -38,7 +45,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _MAX_DISPLAY_NAME = 50
-_KEEP = ("‍", "️")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
+_KEEP = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
 _GRAPHEME = regex.compile(r"\X")
 
 
@@ -48,24 +55,36 @@ def _normalise(raw: str) -> str | None:
     ).strip()
     if len(cleaned) > _MAX_DISPLAY_NAME:
         kept = 0
-        for cluster in _GRAPHEME.findall(cleaned):
-            if kept + len(cluster) > _MAX_DISPLAY_NAME:
+        for match in _GRAPHEME.finditer(cleaned):
+            size = match.end() - match.start()
+            if kept + size > _MAX_DISPLAY_NAME:
                 break
-            kept += len(cluster)
-        cleaned = cleaned[:kept]
+            kept += size
+        cleaned = cleaned[: kept or 1]
     return cleaned.strip() or None
+
+
+_PAGE = 1000
 
 
 def upgrade() -> None:
     conn = op.get_bind()
-    rows = conn.execute(sa.text("SELECT id, display_name FROM users WHERE display_name IS NOT NULL")).all()
-    changed = [
-        {"id": row.id, "name": normalised}
-        for row in rows
-        if (normalised := _normalise(row.display_name)) != row.display_name
-    ]
-    if changed:
-        conn.execute(sa.text("UPDATE users SET display_name = :name WHERE id = :id"), changed)
+    select = sa.text(
+        "SELECT id, display_name FROM users "
+        "WHERE display_name IS NOT NULL AND (CAST(:after AS uuid) IS NULL OR id > CAST(:after AS uuid)) "
+        "ORDER BY id LIMIT :page"
+    )
+    update = sa.text("UPDATE users SET display_name = :name WHERE id = :id")
+    after = None
+    while rows := conn.execute(select, {"after": after, "page": _PAGE}).all():
+        changed = [
+            {"id": row.id, "name": normalised}
+            for row in rows
+            if (normalised := _normalise(row.display_name)) != row.display_name
+        ]
+        if changed:
+            conn.execute(update, changed)
+        after = rows[-1].id
 
 
 def downgrade() -> None:
