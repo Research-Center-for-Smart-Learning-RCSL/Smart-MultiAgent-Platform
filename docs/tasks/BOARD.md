@@ -486,7 +486,7 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
 `docs/audits/2026-10-07-display-name-resolution/findings.md` spawned six bugfix dossiers;
 rows are added as each is written.
 
-- `2026-10-07-google-display-name-normalisation` (bugfix, **draft**) - `depends_on: []`.
+- `2026-10-07-google-display-name-normalisation` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`.
   F-1, F-6, F-17: Google profile names go through the account display-name normalisation
   (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
   keeps whole grapheme clusters, and migration `0100` repairs stored account names.
