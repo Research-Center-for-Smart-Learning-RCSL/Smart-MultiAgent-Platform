@@ -106,6 +106,31 @@ describe('ChatroomView roster re-read for unknown participants', () => {
     expect(typers.map((t) => t.name)).toEqual(['Bob'])
   })
 
+  it('asks again after a failed roster read, on the next participant change', async () => {
+    const wrapper = await mount()
+    let failNext = true
+    server.use(
+      http.get('/api/chatrooms/cr_1/members', () => {
+        rosterReads += 1
+        if (failNext) {
+          failNext = false
+          return HttpResponse.json({ status: 502 }, { status: 502 })
+        }
+        return HttpResponse.json([{ user_id: READER, display_name: 'Alice', kind: 'member' }])
+      }),
+    )
+    const store = useConversationStore()
+
+    store.setPresence('cr_1', [READER])
+    await settle()
+    expect(onlineRow(wrapper, READER)?.displayName).toBeNull()
+
+    store.addTyping('cr_1', READER)
+    await settle()
+
+    expect(onlineRow(wrapper, READER)?.displayName).toBe('Alice')
+  })
+
   it('asks about an account with no display name once, wherever it appears', async () => {
     await mount()
     const before = rosterReads

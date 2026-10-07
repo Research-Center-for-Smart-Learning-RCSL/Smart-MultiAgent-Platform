@@ -985,18 +985,30 @@ function moderateSender(message: Message, ban: boolean): void {
 // not, and F-1 of the query-cache sweep found the same hole in the agent-side
 // equivalent, where it also broke @mention resolution.)
 const resolvedParticipantAttempts = new Set<string>()
-const unnamedParticipantIds = computed(() => {
+// Kept apart so a presence or typing frame does not rescan the whole message list.
+const humanSenderIds = computed(() => {
   const ids = new Set<string>()
   for (const m of messages.value) {
     if ((m.sender_type === 'user' || m.sender_type === 'guest') && m.sender_id) ids.add(m.sender_id)
   }
-  for (const id of store.presence[chatroomId] ?? []) ids.add(id)
-  for (const id of store.typingUsers[chatroomId] ?? []) ids.add(id)
-  for (const id of ids) {
-    if (id in userNames.value) ids.delete(id)
+  return ids
+})
+const unnamedParticipantIds = computed(() => {
+  const ids = new Set<string>()
+  const sources = [humanSenderIds.value, store.presence[chatroomId] ?? [], store.typingUsers[chatroomId] ?? []]
+  for (const source of sources) {
+    for (const id of source) {
+      if (!(id in userNames.value)) ids.add(id)
+    }
   }
   return ids
 })
+// The query does not retry, so a failed read would otherwise leave every id it
+// was asked about unnamed for the session; the next participant change asks again.
+watch(
+  () => membersQuery.errorUpdatedAt.value,
+  () => resolvedParticipantAttempts.clear(),
+)
 watch(unnamedParticipantIds, (ids) => {
   let needsRefetch = false
   for (const id of ids) {
