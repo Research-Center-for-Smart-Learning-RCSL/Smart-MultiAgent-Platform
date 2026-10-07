@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R13.17, R13.33, R28.06, R28.09, R28.10]
 depends_on: [2026-10-07-room-roster-completeness]
@@ -165,16 +165,21 @@ Written first; each fails against current code for the stated reason.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: guests and members see the same agent names on past messages and in released
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: guests and members see the same agent names on past messages and in released
   observation headers, including for unbound and soft-deleted agents.
-- [ ] AC-3: an agent with no resolvable name is labelled "Unknown agent", never by its id.
-- [ ] AC-4: search hits show the sender's name wherever the room view names that sender.
-- [ ] AC-5: Markdown, PDF and JSON exports name each sender, never by email, keeping the
+- [x] AC-3: an agent with no resolvable name is labelled "Unknown agent", never by its id.
+- [x] AC-4: search hits show the sender's name wherever the room view names that sender.
+- [x] AC-5: Markdown, PDF and JSON exports name each sender, never by email, keeping the
   short id only when no name exists.
-- [ ] AC-6: avatar initials never render a broken glyph for a name starting with an emoji
+- [x] AC-6: avatar initials never render a broken glyph for a name starting with an emoji
   or another astral character.
-- [ ] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+- [x] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+
+Verification: AC-1 observed failing first locally for the backend unit, export, avatar,
+view and search tests; the db-tier test targets a method that did not exist. AC-2 to AC-6
+rest on unit, view and db tests, not on observation in a running app (D-7, FU-4); AC-3 as
+narrowed by D-8. AC-7: PR #242, CI green at `697fa20a` (db, wiring and e2e tiers included).
 
 ## 12. SRS Delta
 

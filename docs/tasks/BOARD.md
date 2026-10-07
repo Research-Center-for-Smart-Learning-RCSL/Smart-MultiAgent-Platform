@@ -494,7 +494,7 @@ rows are added as each is written.
   `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
-- (moved to In progress on 2026-10-07) `2026-10-07-name-fallback-surfaces`.
+- (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`.
 - `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
   its security aspect: only compaction summaries become the agent's summary block; released
   observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
@@ -703,10 +703,13 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-07-name-fallback-surfaces` (bugfix, in progress since 2026-10-07). F-9..F-14: a room
-  agent-label read names unbound, deleted and disclosed-observer agents for every viewer
-  ("Unknown agent" only when nothing resolves), search and export name senders, and avatar
-  initials take the first grapheme.
+- (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`. AC-1..AC-7 verified on PR
+  #242 (CI green at `697fa20a`, db, wiring and e2e tiers included). AC-2..AC-6 rest on tests,
+  not on observation in a running app (FU-4, a staging check). Deviations D-1..D-8 (D-8 the
+  ten `/code-review` fixes, applied at the requester's choice) and FU-1..FU-4 are in the
+  dossier; FU-2 (Markdown export heading injection through an unnormalised agent name)
+  pairs with `2026-10-07-display-name-validation`. Nothing lists this slug in `depends_on`,
+  so no row moves out of Blocked.
 
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`. AC-1..AC-5 verified on PR
   #241 (CI green at `91d48f45`). AC-2..AC-4 rest on tests, not on observation in a running
