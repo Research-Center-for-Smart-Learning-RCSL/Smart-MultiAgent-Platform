@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R6.14, R6.15, R13.34]
 depends_on: []
@@ -183,9 +183,9 @@ Written first; each fails against current code for the stated reason.
   `users.display_name` through Google sign-in.
 - [x] AC-4: `normalise_label` never returns a string that ends inside a grapheme cluster, for
   every caller.
-- [ ] AC-5: after migration `0100`, every non-null `users.display_name` equals its own
+- [x] AC-5: after migration `0100`, every non-null `users.display_name` equals its own
   normalisation, and the migration upgrades and downgrades cleanly on the scratch database.
-- [ ] AC-6: backend lint, typecheck, unit and db-tier tests and the dependency audit pass in
+- [x] AC-6: backend lint, typecheck, unit and db-tier tests and the dependency audit pass in
   CI.
 
 ## 11. SRS Delta
