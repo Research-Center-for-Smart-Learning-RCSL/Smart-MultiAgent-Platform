@@ -229,6 +229,19 @@ Appended by /build.
   row fetched by id is applied only when its `chatroom_id` is this room (security-gate
   hardening; the frame's `message_id` is server-authored today). The by-id fetch is skipped
   when the row is already cached, and concurrent requests for one id share a fetch.
+- **D-5.** Changes agreed with the requester after `/code-review` (findings 2-5):
+  - The backfill stop in D-2 is now "a page ends on a row the client held when the
+    reconcile started", not "a row at or before the newest cached row". A row cached out of
+    band (an own send over REST while the socket was down) is newer than the gap behind it
+    and hid the gap.
+  - §7.2's by-id fetch no longer runs in parallel with the since-delta. A named message is
+    looked for in the delta first and fetched by id only if the delta did not bring it. One
+    arrival per id is shared by `message.created` and `agent.finished`, so the normal path
+    costs one request per viewer, as before this task.
+  - §7.3's clear-on-failure also refetches the latest page, which does not depend on the
+    cursor, so a transient by-id failure does not strand the reply.
+  - The 422 fallback refetch passes `cancelRefetch: false`. With the delta generation guard
+    gone (§7.5), a burst of failing deltas otherwise kept aborting the recovery refetch.
 
 ## 13. Follow-ups
 
@@ -247,8 +260,21 @@ Appended by /build.
   (delta, by-id fetch, reconcile, backfill, bubble hold) are a separable composable.
 - **FU-5.** `clearAgentSideEffects` resets an agent's streaming draft whenever any row from
   that agent arrives, so a late row from a finished turn (delta, reconcile page, by-id
-  fetch, backfill) can clear the start of the agent's next turn. Pre-existing on the delta
-  and reconcile paths.
-- **FU-6.** Each viewer now reads a new message twice (since-delta and by-id); the by-id read
-  is skipped only when the delta resolved first. Cheap today; revisit if room fan-out
-  makes it visible.
+  fetch, backfill) can clear the start of the agent's next turn, and its error badge.
+  Pre-existing on the delta and reconcile paths; this task adds the by-id and backfill
+  paths (`/code-review` finding 1). A fix needs a way to tie a row to the turn it closes.
+- **FU-6.** (Closed by D-5.) Each viewer read a new message twice (since-delta and by-id in
+  parallel).
+- **FU-7.** `clock_timestamp()` is insert time, not commit time: a sub-second window remains
+  in which a row inserted earlier commits after a later one that becomes a client's cursor.
+  The by-id path covers it for every frame the client receives, but the degraded-mode
+  poll has no frame to drive it. A commit-ordered cursor (a sequence assigned at commit, or
+  a transaction-id watermark) would close it.
+- **FU-8.** The reconnect backfill is sequential and unbounded by design (AC-5), so a very
+  long gap in a busy room issues many requests before `reconcileOlder` runs, and the recent
+  cache grows with it. A cap with a "load the rest" affordance would bound it.
+- **FU-9.** The cursor subscription picks the newest row by `created_at` alone, while the
+  server orders by `(created_at, id)`; equal timestamps can leave the cursor on a
+  different row than the server's order would. `applyMessageCreated` wraps
+  `appendMessages`, and `onSend`'s cache seed repeats the dedupe-append without the
+  tombstone check; one shared helper would serve both.

@@ -490,6 +490,8 @@ rows are added as each is written.
   F-1, F-6, F-17: Google profile names go through the account display-name normalisation
   (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
   keeps whole grapheme clusters, and migration `0100` repairs stored account names.
+  **Migration chain**: `0102` (from `agent-reply-delivery-gaps`) already revises `0099`, so
+  `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
 - `2026-10-07-room-roster-completeness` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-2, F-5,
   F-15 (chat): the room roster also names everyone present, the client re-reads it for an
   unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
@@ -520,7 +522,8 @@ rows are added as each is written.
   (shared edits to `normalise_label`, `_one_line_label`, `_provider_message`; migration order).
   F-7, F-8: names need a visible character and lose default-ignorables, agent names are
   normalised at source with an `Agent <id>` render fallback, and migration `0101` repairs
-  stored blank names.
+  stored blank names. Its `down_revision` comes from `alembic heads` (see the `0102` note
+  above), not from the number.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
