@@ -6,6 +6,7 @@ import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
 import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
 import type { AgentCanvasWriteAccessIn } from '../models/AgentCanvasWriteAccessIn';
 import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
+import type { AgentLabelOut } from '../models/AgentLabelOut';
 import type { AgentRef } from '../models/AgentRef';
 import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
 import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
@@ -90,6 +91,35 @@ export class ChatroomsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * List Chatroom Agent Labels
+     * Names for the agents the room's history shows, bound or not, deleted or not.
+     *
+     * The bound list cannot serve history: it drops unbound agents, and observer
+     * bindings for anyone but the creator. This read names only ids already present
+     * in the room's live messages (authors, and the observer a release disclosed),
+     * so it neither enumerates the project's agents nor reveals an observer binding
+     * ([R28.10]). Gated like the messages it labels ([R13.32]). Ids with no stored
+     * name are omitted; the client labels them as an unknown agent.
+     * @returns AgentLabelOut Successful Response
+     * @throws ApiError
+     */
+    public static listChatroomAgentLabelsApiChatroomsChatroomIdAgentLabelsGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<Array<AgentLabelOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/agent-labels',
+            path: {
+                'chatroom_id': chatroomId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },
