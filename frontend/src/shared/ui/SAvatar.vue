@@ -15,7 +15,17 @@ const props = withDefaults(
   },
 )
 
-const initial = computed(() => props.name.charAt(0).toUpperCase())
+// The first character a reader sees: names keep emoji, and `charAt(0)` would take
+// half of a surrogate pair. Code points are the fallback where Segmenter is missing.
+function firstGrapheme(text: string): string {
+  if (typeof Intl.Segmenter === 'function') {
+    const first = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)[Symbol.iterator]().next()
+    return first.done ? '' : first.value.segment
+  }
+  return Array.from(text)[0] ?? ''
+}
+
+const initial = computed(() => firstGrapheme(props.name).toUpperCase())
 
 const sizeClass = computed(() => `s-avatar--${props.size}`)
 </script>
