@@ -156,6 +156,25 @@ describe('ChatroomMessageBubble released observation (R28.06)', () => {
       expect(wrapper.find('.released__head').text()).toContain('Unknown agent')
       expect(wrapper.find('.released__head').text()).not.toContain('abcdef12')
     })
+
+    // Code review finding 3: while the room's names are loading, a missing name
+    // is not known to be missing, so the short id is shown instead.
+    it('falls back to the short id while agent names are not settled', async () => {
+      i18n.global.mergeLocaleMessage('en', conversationEn)
+      const wrapper = await renderView(ChatroomMessageBubble, {
+        props: {
+          ...baseProps,
+          html: '<p>x</p>',
+          message: systemMessage({
+            type: 'released_observation',
+            observer_agent_id: 'abcdef1234567890',
+          }),
+          agentNamesSettled: false,
+        },
+      })
+      expect(wrapper.find('.released__head').text()).toContain('abcdef12')
+      expect(wrapper.find('.released__head').text()).not.toContain('Unknown agent')
+    })
   })
 
   it('falls back to the plain system divider when metadata is not a released observation', async () => {

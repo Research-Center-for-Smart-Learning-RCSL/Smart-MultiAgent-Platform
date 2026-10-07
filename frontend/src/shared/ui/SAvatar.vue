@@ -17,9 +17,12 @@ const props = withDefaults(
 
 // The first character a reader sees: names keep emoji, and `charAt(0)` would take
 // half of a surrogate pair. Code points are the fallback where Segmenter is missing.
+// Built once and shared by every avatar: construction resolves a locale.
+let segmenter: Intl.Segmenter | undefined
 function firstGrapheme(text: string): string {
   if (typeof Intl.Segmenter === 'function') {
-    const first = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)[Symbol.iterator]().next()
+    segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    const first = segmenter.segment(text)[Symbol.iterator]().next()
     return first.done ? '' : first.value.segment
   }
   return Array.from(text)[0] ?? ''

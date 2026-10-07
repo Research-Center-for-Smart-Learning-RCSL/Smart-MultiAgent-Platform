@@ -71,8 +71,7 @@
           :query="searchQuery"
           :hits="searchHits"
           :rendered-snippets="renderedSnippets"
-          :user-names="userNames"
-          :agent-names="agentNames"
+          :sender-label="senderLabel"
           :searching="searching"
           @update:query="searchQuery = $event"
           @search="doSearch"
@@ -144,6 +143,7 @@
               :sender-name="senderName(item.message)"
               :sender-is-guest="isGuestAuthor(item.message.sender_id, item.message.sender_type)"
               :agent-names="agentNames"
+              :agent-names-settled="agentNamesSettled"
               :editing="editingId === item.message.id"
               :edit-draft="editDraft"
               :can-edit="canEdit(item.message)"
@@ -676,9 +676,21 @@ const projectAgentsQuery = useQuery({
 // and deleted authors, and observers a release disclosed. The bound list cannot
 // serve history (it drops unbound agents, and observers for a non-creator), and
 // the project list is members-only and drops deleted agents.
+// The history's agent ids at the moment a read is sent. The server answers from
+// what was persisted by then, so only these ids count as asked; one that reaches
+// the history while the read is in flight is asked about again. Bound late
+// because the history is defined further down.
+// The first read waits for the first history page, so its snapshot covers what
+// the room view will label and a nameless agent is not asked about twice.
+let historyAgentIdsNow: () => Set<string> = () => new Set()
+const historyFirstPageSettled = ref(false)
 const agentLabelsQuery = useQuery({
   queryKey: convKeys.chatroomAgentLabels(chatroomId),
-  queryFn: () => listChatroomAgentLabels(chatroomId),
+  queryFn: async () => {
+    const asked = [...historyAgentIdsNow()]
+    return { labels: await listChatroomAgentLabels(chatroomId), asked }
+  },
+  enabled: historyFirstPageSettled,
   retry: false,
 })
 
@@ -686,13 +698,21 @@ const agentLabelsQuery = useQuery({
 // which names every bound agent, layered on top.
 const agentNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {}
-  for (const a of agentLabelsQuery.data.value ?? []) map[a.agent_id] = a.name
+  for (const a of agentLabelsQuery.data.value?.labels ?? []) map[a.agent_id] = a.name
   for (const a of projectAgentsQuery.data.value ?? []) map[a.id] = a.name
   for (const a of boundAgentsQuery.data.value ?? []) {
     if (a.name) map[a.agent_id] = a.name
   }
   return map
 })
+
+// "Unknown agent" is a finding, so it is stated only once the history labels have
+// answered; while they load, or after a failed read, the short id keeps agents
+// apart without claiming anything about them.
+const agentNamesSettled = computed(() => agentLabelsQuery.isSuccess.value)
+function agentLabel(id: string): string {
+  return agentNames.value[id] ?? (agentNamesSettled.value ? t('conversation.chatroom.unknownAgent') : id.slice(0, 8))
+}
 
 // Human display names (message authors, everyone present, registered guests and
 // anonymous guest sessions). One map resolves REST history, live WS messages,
@@ -1042,40 +1062,40 @@ watch(unnamedParticipantIds, (ids) => {
 
 // The agent-side equivalent, for an agent the history names that no source names
 // yet: a release disclosing an observer arrives live, or an agent is unbound
-// mid-session. Every id the history held when the labels last answered has been
-// asked about, so an agent with no stored name is not asked about again.
+// mid-session. An id a successful read was asked about is not asked about again,
+// so an agent with no stored name costs one read, not one per frame.
+// Mirrors the server's rule (`MessageRepository.agent_label_ids`): authors, and
+// the observer of a released observation only.
 const historyAgentIds = computed(() => {
   const ids = new Set<string>()
   for (const m of messages.value) {
     if (m.sender_type === 'agent' && m.sender_id) ids.add(m.sender_id)
-    const observer = m.metadata?.observer_agent_id
-    if (typeof observer === 'string' && observer) ids.add(observer)
+    if (m.sender_type === 'system' && m.metadata?.type === 'released_observation') {
+      const observer = m.metadata.observer_agent_id
+      if (typeof observer === 'string' && observer) ids.add(observer)
+    }
   }
   return ids
 })
-const unnamedAgentIds = computed(() => [...historyAgentIds.value].filter((id) => !(id in agentNames.value)))
-const agentLabelAttempts = new Set<string>()
-// Registered before the watch below so it runs first when both fire in one flush.
+historyAgentIdsNow = () => historyAgentIds.value
 watch(
-  () => agentLabelsQuery.dataUpdatedAt.value,
-  () => {
-    for (const id of historyAgentIds.value) agentLabelAttempts.add(id)
+  messagesPending,
+  (pending) => {
+    if (!pending) historyFirstPageSettled.value = true
   },
+  { immediate: true },
 )
-watch(
-  () => agentLabelsQuery.errorUpdatedAt.value,
-  () => agentLabelAttempts.clear(),
-)
-watch(unnamedAgentIds, (ids) => {
-  if (!agentLabelsQuery.isFetched.value) return
-  let needsRefetch = false
-  for (const id of ids) {
-    if (!agentLabelAttempts.has(id)) {
-      agentLabelAttempts.add(id)
-      needsRefetch = true
-    }
-  }
-  if (needsRefetch) void agentLabelsQuery.refetch()
+const unnamedAgentIds = computed(() => [...historyAgentIds.value].filter((id) => !(id in agentNames.value)))
+// One decision, so a new id and a landing read in the same flush cost one read.
+// Re-evaluated when a read lands, which covers an id that appeared mid-flight.
+const agentLabelsStale = computed(() => {
+  const data = agentLabelsQuery.data.value
+  if (!data || agentLabelsQuery.isFetching.value) return false
+  const asked = new Set(data.asked)
+  return unnamedAgentIds.value.some((id) => !asked.has(id))
+})
+watch(agentLabelsStale, (stale) => {
+  if (stale) void agentLabelsQuery.refetch()
 })
 
 const { editingId, editDraft, startEdit, cancelEdit, saveEdit } =
@@ -1546,18 +1566,19 @@ async function onUpdateGuestDisplayName(requested: string): Promise<void> {
   }
 }
 
+// One rule for every surface that names a sender (message author, search hit).
+function senderLabel(senderType: string, senderId: string | null): string {
+  if (!senderId) return senderType
+  if (senderType === 'agent') return agentLabel(senderId)
+  if (senderType === 'guest' && senderId === guestSessionId.value) {
+    return guestViewerName.value || senderId.slice(0, 8)
+  }
+  if (senderType === 'user' || senderType === 'guest') return userNames.value[senderId] ?? senderId.slice(0, 8)
+  return senderId.slice(0, 8)
+}
+
 function senderName(m: Message): string {
-  if (m.sender_type === 'agent' && m.sender_id) {
-    return agentNames.value[m.sender_id] ?? t('conversation.chatroom.unknownAgent')
-  }
-  if (m.sender_type === 'user' && m.sender_id) {
-    return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
-  }
-  if (m.sender_type === 'guest' && m.sender_id) {
-    if (m.sender_id === guestSessionId.value) return guestViewerName.value || m.sender_id.slice(0, 8)
-    return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
-  }
-  return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
+  return senderLabel(m.sender_type, m.sender_id)
 }
 
 async function copyMessage(m: Message): Promise<void> {

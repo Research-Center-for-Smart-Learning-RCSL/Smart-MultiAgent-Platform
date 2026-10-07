@@ -59,9 +59,10 @@ describe('ChatroomSearchPanel highlighting', () => {
 })
 
 // docs/tasks/2026-10-07-name-fallback-surfaces AC-4: every hit was labelled with
-// eight characters of the sender id, because the panel was given no names.
+// eight characters of the sender id, because the panel was given no names. The
+// view now hands down its own sender rule, so a hit reads as its message does.
 describe('ChatroomSearchPanel sender labels', () => {
-  function labelled(over: Partial<SearchHit>, names: { userNames?: Record<string, string>; agentNames?: Record<string, string> }) {
+  function labelled(over: Partial<SearchHit>, senderLabel?: (type: string, id: string | null) => string) {
     const h = { ...hit('x'), ...over }
     return renderView(ChatroomSearchPanel, {
       props: {
@@ -69,37 +70,25 @@ describe('ChatroomSearchPanel sender labels', () => {
         hits: [h],
         renderedSnippets: { [h.message_id]: 'x' },
         searching: false,
-        userNames: names.userNames ?? {},
-        agentNames: names.agentNames ?? {},
+        ...(senderLabel ? { senderLabel } : {}),
       },
     })
   }
 
-  it('names a member from the user map', async () => {
-    const wrapper = await labelled({ sender_id: 'u1abcdefgh' }, { userNames: { u1abcdefgh: 'Teacher' } })
-    expect(wrapper.find('.result__meta').text()).toContain('Teacher')
-    expect(wrapper.find('.result__meta').text()).not.toContain('u1abcdef')
+  it("labels each hit with the view's rule, by sender type and id", async () => {
+    const calls: Array<[string, string | null]> = []
+    const wrapper = await labelled({ sender_type: 'agent', sender_id: 'a1abcdefgh' }, (type, id) => {
+      calls.push([type, id])
+      return 'Tutor'
+    })
+
+    expect(calls).toContainEqual(['agent', 'a1abcdefgh'])
+    expect(wrapper.find('.result__meta').text()).toContain('Tutor')
+    expect(wrapper.find('.result__meta').text()).not.toContain('a1abcdef')
   })
 
-  it('names a guest session from the user map', async () => {
-    const wrapper = await labelled(
-      { sender_type: 'guest', sender_id: 'g1abcdefgh' },
-      { userNames: { g1abcdefgh: 'Sam' } },
-    )
-    expect(wrapper.find('.result__meta').text()).toContain('Sam')
-  })
-
-  it('names an agent from the agent map, and an unnamed one as unknown', async () => {
-    const named = await labelled({ sender_type: 'agent', sender_id: 'a1abcdefgh' }, { agentNames: { a1abcdefgh: 'Tutor' } })
-    expect(named.find('.result__meta').text()).toContain('Tutor')
-
-    const unnamed = await labelled({ sender_type: 'agent', sender_id: 'a2abcdefgh' }, {})
-    expect(unnamed.find('.result__meta').text()).toContain('conversation.chatroom.unknownAgent')
-    expect(unnamed.find('.result__meta').text()).not.toContain('a2abcdef')
-  })
-
-  it('keeps the short id for a person nothing names', async () => {
-    const wrapper = await labelled({ sender_id: 'u9abcdefgh' }, {})
+  it('keeps the short id when no rule is given', async () => {
+    const wrapper = await labelled({ sender_id: 'u9abcdefgh' })
     expect(wrapper.find('.result__meta').text()).toContain('u9abcdef')
   })
 })

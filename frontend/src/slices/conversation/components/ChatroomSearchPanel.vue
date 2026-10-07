@@ -53,7 +53,7 @@
           @click="emit('select', h)"
         >
           <span class="result__meta">
-            {{ senderLabel(h) }} · {{ formatDateTime(h.created_at) }}
+            {{ hitSender(h) }} · {{ formatDateTime(h.created_at) }}
           </span>
           <!-- Snippet sanitised via sanitizeSnippet (eslint allowlist). -->
           <span
@@ -82,18 +82,14 @@ import { useFocusTrap } from '@shared/composables'
 import { formatDateTime } from '../utils/format'
 import type { SearchHit } from '../types'
 
-const props = withDefaults(
-  defineProps<{
-    query: string
-    hits: SearchHit[]
-    renderedSnippets: Record<string, string>
-    searching: boolean
-    // The room view's maps; guest sessions are named in `userNames` too.
-    userNames?: Record<string, string>
-    agentNames?: Record<string, string>
-  }>(),
-  { userNames: () => ({}), agentNames: () => ({}) },
-)
+const props = defineProps<{
+  query: string
+  hits: SearchHit[]
+  renderedSnippets: Record<string, string>
+  searching: boolean
+  // The room view's own rule, so a hit is named exactly as its message is.
+  senderLabel?: (senderType: string, senderId: string | null) => string
+}>()
 
 const emit = defineEmits<{
   'update:query': [value: string]
@@ -104,12 +100,9 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-// Falls back as a message author does: an agent nothing names is unknown, a
-// person keeps a short id.
-function senderLabel(h: SearchHit): string {
-  if (!h.sender_id) return h.sender_type
-  if (h.sender_type === 'agent') return props.agentNames[h.sender_id] ?? t('conversation.chatroom.unknownAgent')
-  return props.userNames[h.sender_id] ?? h.sender_id.slice(0, 8)
+function hitSender(h: SearchHit): string {
+  if (props.senderLabel) return props.senderLabel(h.sender_type, h.sender_id ?? null)
+  return h.sender_id ? h.sender_id.slice(0, 8) : h.sender_type
 }
 
 const panelRef = ref<HTMLElement | null>(null)
