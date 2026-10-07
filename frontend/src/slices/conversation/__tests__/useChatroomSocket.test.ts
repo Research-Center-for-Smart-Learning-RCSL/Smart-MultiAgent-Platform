@@ -1577,4 +1577,33 @@ describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
     const missing = server.filter((m) => !ids.has(m.id)).map((m) => m.id)
     expect(missing).toEqual([])
   })
+
+  it('still fills the gap when a row of the reconcile page was deleted meanwhile', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_0', 0)])
+    statusHandlers.forEach((h) => h(false))
+
+    const server: Row[] = [row('m_0', 0)]
+    for (let i = 1; i <= 150; i++) server.push(row(`m_${i}`, i))
+    let resolvePage!: (rows: Row[]) => void
+    listMessagesMock.mockReturnValueOnce(new Promise<Row[]>((resolve) => { resolvePage = resolve }))
+    listMessagesMock.mockImplementation(async (_room: string, opts: { before?: string; limit?: number } = {}) => {
+      const upTo = server.findIndex((m) => m.id === opts.before)
+      return server.slice(Math.max(0, upTo - (opts.limit ?? 50)), upTo).reverse()
+    })
+
+    statusHandlers.forEach((h) => h(true))
+    // The page was read before m_150 was deleted; its frame arrives first.
+    emit({ type: 'message.deleted', message_id: 'm_150' })
+    resolvePage(server.slice(51).reverse())
+    await flushPromises()
+
+    const ids = new Set(cachedIds(mounted.qc))
+    const missing = server.filter((m) => m.id !== 'm_150' && !ids.has(m.id)).map((m) => m.id)
+    expect(missing).toEqual([])
+    expect(ids.has('m_150')).toBe(false)
+  })
 })

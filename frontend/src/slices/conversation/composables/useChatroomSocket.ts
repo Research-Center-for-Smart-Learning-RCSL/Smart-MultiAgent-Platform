@@ -376,7 +376,12 @@ export function useChatroomSocket(
       const page = fetched.filter((m) => !deletedTombstones.has(m.id))
       qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page, knownAtRequest))
       for (const m of page) clearAgentSideEffects(m)
-      if (lastShown && page.length >= PAGE_SIZE) await backfillGap(page, lastShown, generation)
+      // A full page (counted before tombstones are filtered) may not reach back
+      // to what was shown; the anchor comes from the filtered rows, since a
+      // deleted anchor would 422.
+      if (lastShown && fetched.length >= PAGE_SIZE && page.length > 0) {
+        await backfillGap(page, lastShown, generation)
+      }
     } catch {
       // Best-effort, matching resyncPresence/resyncActivation: a subsequent
       // connect or live event will reconcile.
