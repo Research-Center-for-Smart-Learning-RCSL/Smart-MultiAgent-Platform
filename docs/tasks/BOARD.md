@@ -497,6 +497,12 @@ rows are added as each is written.
 
 ## Blocked
 
+### From the 2026-10-07 display-name audit
+
+- `2026-10-07-canvas-awareness-names` (bugfix, **draft**) - waits on
+  `2026-10-07-room-roster-completeness`. F-3, F-15 (canvas): cursors broadcast the editor's
+  display name and viewers prefer the room roster's name for the cursor's user id.
+
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
 
