@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-07
 requirements: [R6.11, R13.33, R13.34]
 depends_on: [2026-10-07-google-display-name-normalisation, 2026-10-07-system-rows-in-agent-context]

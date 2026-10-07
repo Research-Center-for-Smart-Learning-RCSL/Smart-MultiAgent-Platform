@@ -1,6 +1,6 @@
 ---
 type: audit
-status: reviewed
+status: closed
 created: 2026-10-07
 requirements: [R6.11, R6.14, R6.15, R9.10, R13.17, R13.33, R13.34, R13.55, R28.06, R30.38]
 ---
@@ -381,7 +381,7 @@ Ordered by severity.
 | Finding | Decision | Task dossier |
 |---|---|---|
 Triaged with the requester on 2026-10-07: every finding but F-16 is to be fixed, grouped
-into six bugfix dossiers by root cause.
+into six bugfix dossiers by root cause, all approved the same day.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
