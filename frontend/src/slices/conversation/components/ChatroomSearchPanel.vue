@@ -53,7 +53,7 @@
           @click="emit('select', h)"
         >
           <span class="result__meta">
-            {{ h.sender_id ? h.sender_id.slice(0, 8) : h.sender_type }} · {{ formatDateTime(h.created_at) }}
+            {{ hitSender(h) }} · {{ formatDateTime(h.created_at) }}
           </span>
           <!-- Snippet sanitised via sanitizeSnippet (eslint allowlist). -->
           <span
@@ -82,11 +82,13 @@ import { useFocusTrap } from '@shared/composables'
 import { formatDateTime } from '../utils/format'
 import type { SearchHit } from '../types'
 
-defineProps<{
+const props = defineProps<{
   query: string
   hits: SearchHit[]
   renderedSnippets: Record<string, string>
   searching: boolean
+  // The room view's own rule, so a hit is named exactly as its message is.
+  senderLabel?: (senderType: string, senderId: string | null) => string
 }>()
 
 const emit = defineEmits<{
@@ -97,6 +99,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+function hitSender(h: SearchHit): string {
+  if (props.senderLabel) return props.senderLabel(h.sender_type, h.sender_id ?? null)
+  return h.sender_id ? h.sender_id.slice(0, 8) : h.sender_type
+}
 
 const panelRef = ref<HTMLElement | null>(null)
 // The panel is `v-if`-mounted only while open, so `isOpen` is constant and the

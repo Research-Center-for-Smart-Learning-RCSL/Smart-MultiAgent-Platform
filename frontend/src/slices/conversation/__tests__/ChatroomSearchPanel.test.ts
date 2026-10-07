@@ -58,6 +58,41 @@ describe('ChatroomSearchPanel highlighting', () => {
   })
 })
 
+// docs/tasks/2026-10-07-name-fallback-surfaces AC-4: every hit was labelled with
+// eight characters of the sender id, because the panel was given no names. The
+// view now hands down its own sender rule, so a hit reads as its message does.
+describe('ChatroomSearchPanel sender labels', () => {
+  function labelled(over: Partial<SearchHit>, senderLabel?: (type: string, id: string | null) => string) {
+    const h = { ...hit('x'), ...over }
+    return renderView(ChatroomSearchPanel, {
+      props: {
+        query: 'x',
+        hits: [h],
+        renderedSnippets: { [h.message_id]: 'x' },
+        searching: false,
+        ...(senderLabel ? { senderLabel } : {}),
+      },
+    })
+  }
+
+  it("labels each hit with the view's rule, by sender type and id", async () => {
+    const calls: Array<[string, string | null]> = []
+    const wrapper = await labelled({ sender_type: 'agent', sender_id: 'a1abcdefgh' }, (type, id) => {
+      calls.push([type, id])
+      return 'Tutor'
+    })
+
+    expect(calls).toContainEqual(['agent', 'a1abcdefgh'])
+    expect(wrapper.find('.result__meta').text()).toContain('Tutor')
+    expect(wrapper.find('.result__meta').text()).not.toContain('a1abcdef')
+  })
+
+  it('keeps the short id when no rule is given', async () => {
+    const wrapper = await labelled({ sender_id: 'u9abcdefgh' })
+    expect(wrapper.find('.result__meta').text()).toContain('u9abcdef')
+  })
+})
+
 // T-10 (search half) of docs/tasks/2026-08-19-chatroom-scroll-and-composer,
 // F-48. The panel is mounted inside `.chatroom__feed`, which is grid-row 2 of
 // `48px 1fr auto auto` and is the positioned ancestor -- so its top edge is

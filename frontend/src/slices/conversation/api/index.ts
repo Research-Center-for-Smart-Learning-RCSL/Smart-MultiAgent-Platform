@@ -21,6 +21,7 @@ import {
 } from '@shared/api-client'
 import { asBinaryFormField, http } from '@shared/transport'
 import type {
+  AgentLabelOut,
   AgentNameOut,
   ChatroomMemberOut,
   GuestBanOut,
@@ -207,6 +208,14 @@ export async function listProjectAgentNames(projectId: string): Promise<AgentNam
     projectId,
     limit: AGENT_PAGE_SIZE,
   })
+}
+
+/** `[{agent_id, name}]` for the agents the room's history shows: past authors,
+ *  bound or not, deleted or not, and observers a release disclosed. Readable by
+ *  every room participant, guests included. An id with no stored name is absent.
+ */
+export async function listChatroomAgentLabels(chatroomId: string): Promise<AgentLabelOut[]> {
+  return ChatroomsService.listChatroomAgentLabelsApiChatroomsChatroomIdAgentLabelsGet({ chatroomId })
 }
 
 // `role` is present only for the room creator (R28.10) — never default it

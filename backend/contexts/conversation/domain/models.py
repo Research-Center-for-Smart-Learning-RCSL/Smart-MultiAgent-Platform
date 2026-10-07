@@ -16,6 +16,10 @@ class SenderType(str, enum.Enum):
     GUEST = "guest"
 
 
+# `metadata.type` of the system row a room release writes ([R28.06]).
+RELEASED_OBSERVATION_TYPE = "released_observation"
+
+
 class ExportSenderScope(str, enum.Enum):
     """How much of a readable room a chat export may carry (matrix row 19).
 

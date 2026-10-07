@@ -2392,6 +2392,25 @@
         "title": "AgentInstanceOut",
         "type": "object"
       },
+      "AgentLabelOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name"
+        ],
+        "title": "AgentLabelOut",
+        "type": "object"
+      },
       "AgentModelHint": {
         "enum": [
           "claude",
@@ -20625,6 +20644,54 @@
         "summary": "Get Room Activity Type",
         "tags": [
           "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agent-labels": {
+      "get": {
+        "description": "Names for the agents the room's history shows, bound or not, deleted or not.\n\nThe bound list cannot serve history: it drops unbound agents, and observer\nbindings for anyone but the creator. This read names only ids already present\nin the room's live messages (authors, and the observer a release disclosed),\nso it neither enumerates the project's agents nor reveals an observer binding\n([R28.10]). Gated like the messages it labels ([R13.32]). Ids with no stored\nname are omitted; the client labels them as an unknown agent.",
+        "operationId": "list_chatroom_agent_labels_api_chatrooms__chatroom_id__agent_labels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentLabelOut"
+                  },
+                  "title": "Response List Chatroom Agent Labels Api Chatrooms  Chatroom Id  Agent Labels Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "List Chatroom Agent Labels",
+        "tags": [
+          "chatrooms"
         ]
       }
     },

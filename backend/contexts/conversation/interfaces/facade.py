@@ -460,6 +460,10 @@ class ConversationFacade:
         """Human author ids present in the room's live message history (capped)."""
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
 
+    async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
+        """Agent ids the room's live history shows: authors and disclosed observers (capped)."""
+        return await self._messages.agent_label_ids(chatroom_id, limit=limit)
+
     async def present_user_ids(self, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
         """Principals with a live connection to the room: user ids and guest session ids.
 

@@ -272,7 +272,7 @@ import AttachmentImage from './AttachmentImage.vue'
 import { formatTime } from '../utils/format'
 import type { Attachment, DisplayMessage, RagSource } from '../types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   message: DisplayMessage
   html: string
   senderName: string
@@ -287,10 +287,13 @@ const props = defineProps<{
   flash?: boolean
   // agent_id -> display name, for resolving a released observation's
   // observer_agent_id (R28.06) to something readable. Optional: most
-  // messages never touch it, and the fallback below still degrades to a
-  // truncated id when a name isn't resolvable.
+  // messages never touch it.
   agentNames?: Record<string, string>
-}>()
+  // False while the room's name sources are still loading or failed: an id
+  // missing from the map is then not known to be unnamed, so the short id is
+  // shown instead of the unknown-agent label.
+  agentNamesSettled?: boolean
+}>(), { agentNames: () => ({}), agentNamesSettled: true })
 
 const emit = defineEmits<{
   'start-edit': []
@@ -321,11 +324,12 @@ const releasedHeader = computed(() => {
   // Observer name is present only when the room disclosed observers at release
   // time (R28.09); otherwise attribute to the owner alone. The metadata only
   // ever carries the agent's id, so resolve it against agentNames the same
-  // way every other sender label does — falling back to a truncated id when
-  // the map doesn't have it (e.g. the agent was later removed from the project).
+  // way every other agent label does, with the same unknown-agent fallback.
   return typeof observer === 'string' && observer
     ? t('conversation.observers.releasedByOwnerNamed', {
-        name: props.agentNames?.[observer] ?? observer.slice(0, 8),
+        name:
+          props.agentNames?.[observer] ??
+          (props.agentNamesSettled ? t('conversation.chatroom.unknownAgent') : observer.slice(0, 8)),
       })
     : t('conversation.observers.releasedByOwner')
 })

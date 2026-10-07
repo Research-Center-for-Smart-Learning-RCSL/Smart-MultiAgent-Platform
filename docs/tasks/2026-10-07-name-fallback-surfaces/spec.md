@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-07
 requirements: [R13.17, R13.33, R28.06, R28.09, R28.10]
 depends_on: [2026-10-07-room-roster-completeness]
@@ -165,16 +165,21 @@ Written first; each fails against current code for the stated reason.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: guests and members see the same agent names on past messages and in released
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: guests and members see the same agent names on past messages and in released
   observation headers, including for unbound and soft-deleted agents.
-- [ ] AC-3: an agent with no resolvable name is labelled "Unknown agent", never by its id.
-- [ ] AC-4: search hits show the sender's name wherever the room view names that sender.
-- [ ] AC-5: Markdown, PDF and JSON exports name each sender, never by email, keeping the
+- [x] AC-3: an agent with no resolvable name is labelled "Unknown agent", never by its id.
+- [x] AC-4: search hits show the sender's name wherever the room view names that sender.
+- [x] AC-5: Markdown, PDF and JSON exports name each sender, never by email, keeping the
   short id only when no name exists.
-- [ ] AC-6: avatar initials never render a broken glyph for a name starting with an emoji
+- [x] AC-6: avatar initials never render a broken glyph for a name starting with an emoji
   or another astral character.
-- [ ] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+- [x] AC-7: backend and frontend lint, typecheck, tests, OpenAPI drift and build pass in CI.
+
+Verification: AC-1 observed failing first locally for the backend unit, export, avatar,
+view and search tests; the db-tier test targets a method that did not exist. AC-2 to AC-6
+rest on unit, view and db tests, not on observation in a running app (D-7, FU-4); AC-3 as
+narrowed by D-8. AC-7: PR #242, CI green at `697fa20a` (db, wiring and e2e tiers included).
 
 ## 12. SRS Delta
 
@@ -182,9 +187,60 @@ None.
 
 ## 13. Deviation Log
 
-Appended by /build.
+- **D-1.** `RELEASED_OBSERVATION_TYPE` moved from `observation_service.py` to
+  `contexts/conversation/domain/models.py` (re-imported there). The new repository query
+  filters on it, and the repository importing the application service would have formed an
+  import cycle.
+- **D-2.** `prefer_guest_label` moved to `contexts/conversation/domain/author_labels.py`,
+  with `interfaces/author_labels.py` kept as a re-export. The export service needs it, and
+  the quality gate flagged the application layer importing its own interfaces layer as an
+  upward dependency.
+- **D-3.** The agent-label route omits ids with no stored name rather than returning
+  `name: null`; the client already treats an absent id as an unknown agent, so the response
+  model keeps `name` required.
+- **D-4.** The room view re-reads the agent labels once for each agent id its history
+  shows that no source names, mirroring the participant-roster re-read
+  (`ChatroomView.vue`). §7.1 specified only the layering; without the re-read, a release
+  disclosing an observer that arrives live would show "Unknown agent" to non-creators
+  until reload.
+- **D-5.** A new key `conversation.chatroom.unknownAgent` (en, zh-TW) labels unknown agents
+  on message authors, released-observation headers and search hits, instead of reusing the
+  `observers` or `settings` keys of the same text.
+- **D-6.** `ChatroomMessageBubble.test.ts` pinned the eight-character fallback that AC-3
+  reverses; that case now asserts the unknown-agent label and the absence of the id.
+- **D-8.** `/code-review` fixes, all ten applied at the requester's choice:
+  (1, 5) a labels read records the history ids it was sent with, and the view re-reads
+  whenever an unnamed id is outside that set, decided by one computed; the first read waits
+  for the first history page. This replaces the attempts set and the two order-dependent
+  watchers of D-4, whose recorded ordering was wrong: a trace showed the re-read watcher
+  ran before the seeding one. The race test does not fail against the earlier commit in
+  jsdom for that reason; it covers the behaviour, not a reproduction.
+  (2, 3) "Unknown agent" is shown only once the history labels have answered; while they
+  load or after a failed read the short id is shown (bubble prop `agentNamesSettled`),
+  narrowing AC-3 to agents known to have no name.
+  (4) the search panel takes the view's `senderLabel` rule instead of two name maps.
+  (6) the view counts an observer id only on a released observation, as the server does.
+  (7) the export reads guest labels through `load_room_guest_labels`, without the
+  project-membership read. (8) `SAvatar` shares one lazily built segmenter. (9)
+  `agent_label_ids` is one UNION query, ordered before the cap. (10) `observations.py`
+  imports `RELEASED_OBSERVATION_TYPE` from the domain, and the service no longer
+  re-exports it.
+- **D-7.** AC-2 to AC-6 rest on tests, not on observation in a running app. A local test
+  stack was brought up and then stopped at the requester's direction, with verification
+  moved to CI on the PR; the live check is FU-4.
 
 ## 14. Follow-ups
 
 - **FU-1.** Search hits from authors past the roster cap still fall back to the id; the
   search API could return names itself if that cap ever bites.
+- **FU-2.** The Markdown transcript writes the sender name into a `## ` heading without
+  collapsing line breaks (security audit, hardening). Agent names are not yet normalised at
+  source (`2026-10-07-display-name-validation`), so an agent editor could forge heading
+  lines; message content can already do the same, so no new capability is added. Collapse
+  whitespace in `_sender_label`, or rely on that dossier's source normalisation.
+- **FU-3.** The participant-roster re-read in `ChatroomView.vue` still uses the attempts-set
+  and watcher shape that D-8 removed from the agent side; it could adopt the same
+  asked-snapshot rule.
+- **FU-4.** Staging check: as an anonymous guest, a released observation's header and an
+  unbound agent's messages show names; search hits show names; Markdown, PDF and JSON
+  exports name senders; an avatar for "🦊 Fox" shows the emoji.

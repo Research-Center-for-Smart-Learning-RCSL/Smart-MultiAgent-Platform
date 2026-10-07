@@ -50,6 +50,10 @@ export const convKeys = {
   // and on reconnect.
   chatroomMembers: (chatroomId: string) =>
     ['conversation', 'chatroom-members', chatroomId] as const,
+  // Names of the agents the room's history shows. Re-read by the view when its
+  // history names an agent no source names yet.
+  chatroomAgentLabels: (chatroomId: string) =>
+    ['conversation', 'chatroom-agent-labels', chatroomId] as const,
   guestBans: (chatroomId: string) => ['conversation', 'guest-bans', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   observations: (chatroomId: string) =>
