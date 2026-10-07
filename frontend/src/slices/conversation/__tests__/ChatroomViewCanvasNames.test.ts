@@ -7,18 +7,19 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
+import type * as CanvasSlice from '@slices/canvas'
 import ChatroomView from '../views/ChatroomView.vue'
 import { settle } from './kit'
 
 vi.mock('@slices/canvas', async (importOriginal) => {
   const { defineComponent, h } = await import('vue')
   return {
-    ...(await importOriginal<typeof import('@slices/canvas')>()),
+    ...(await importOriginal<typeof CanvasSlice>()),
     CanvasPanel: defineComponent({
       name: 'CanvasPanelStub',
       props: {
-        chatroomId: String,
-        chatroomName: String,
+        chatroomId: { type: String, default: '' },
+        chatroomName: { type: String, default: '' },
         isFullscreen: Boolean,
         viewerName: { type: String, default: null },
         participantNames: { type: Object, default: () => ({}) },
