@@ -481,7 +481,49 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   server-side socket close at removal, about 60 s window) is the security audit's medium. Last of
   the guest-audit dossiers; nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+### From the 2026-10-07 display-name audit
+
+`docs/audits/2026-10-07-display-name-resolution/findings.md` spawned six bugfix dossiers;
+rows are added as each is written.
+
+- `2026-10-07-google-display-name-normalisation` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`.
+  F-1, F-6, F-17: Google profile names go through the account display-name normalisation
+  (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
+  keeps whole grapheme clusters, and migration `0100` repairs stored account names.
+  **Migration chain**: `0102` (from `agent-reply-delivery-gaps`) already revises `0099`, so
+  `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
+- `2026-10-07-room-roster-completeness` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-2, F-5,
+  F-15 (chat): the room roster also names everyone present, the client re-reads it for an
+  unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
+  the rooms the user is in.
+- `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
+  its security aspect: only compaction summaries become the agent's summary block; released
+  observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
+  square brackets so no participant can wear the marker.
+
+### From the 2026-10-07 missing-agent-reply analysis
+
+- (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
+
 ## Blocked
+
+### From the 2026-10-07 display-name audit
+
+- `2026-10-07-canvas-awareness-names` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
+  `2026-10-07-room-roster-completeness`. F-3, F-15 (canvas): cursors broadcast the editor's
+  display name and viewers prefer the room roster's name for the cursor's user id.
+- `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
+  `2026-10-07-room-roster-completeness` (shared edits to `ChatroomView.vue`'s name maps).
+  F-9..F-14: a room agent-label read names unbound, deleted and disclosed-observer agents for
+  every viewer ("Unknown agent" only when nothing resolves), search and export name senders,
+  and avatar initials take the first grapheme.
+- `2026-10-07-display-name-validation` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
+  `2026-10-07-google-display-name-normalisation` and `2026-10-07-system-rows-in-agent-context`
+  (shared edits to `normalise_label`, `_one_line_label`, `_provider_message`; migration order).
+  F-7, F-8: names need a visible character and lose default-ignorables, agent names are
+  normalised at source with an `Agent <id>` render fallback, and migration `0101` repairs
+  stored blank names. Its `down_revision` comes from `alembic heads` (see the `0102` note
+  above), not from the number.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
@@ -669,6 +711,14 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`. AC-3..AC-6 verified on PR
+  #239 (CI green at `17c054df`, db tier and e2e included). AC-1's db half (fail-first not
+  observed) and AC-2 (no e2e for the scenario, no running stack) unticked. Migration `0102`
+  revises `0099`. Deviations D-1..D-5 (D-5 the `/code-review` fixes agreed with the requester)
+  and FU-1..FU-9 are in the dossier; FU-5 (a late agent row clears the next turn's draft) and
+  FU-7 (insert-time is not commit-time) are the substantive ones. Nothing lists this slug in
+  `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).

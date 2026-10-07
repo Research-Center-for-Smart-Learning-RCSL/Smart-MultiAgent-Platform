@@ -263,7 +263,12 @@ messages = sa.Table(
     sa.Column("content_tsv", pg.TSVECTOR, nullable=True),
     sa.Column("metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    # Insert time, not transaction start (migration 0102): clients page new
+    # messages by `created_at`, and an agent reply's transaction opens when its
+    # stream begins.
+    sa.Column(
+        "created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("clock_timestamp()")
+    ),
     sa.Column("edited_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )

@@ -478,6 +478,46 @@ describe('useChatroomMessages loading/error state (F-17)', () => {
   })
 })
 
+describe('useChatroomMessages refetch merge (agent-reply-delivery-gaps)', () => {
+  it('keeps a row applied live while the refetch was in flight', async () => {
+    const s = msg({ id: 'm_s', created_at: '2026-01-01T00:00:01.000Z' })
+    api.listMessages.mockResolvedValueOnce([s])
+    const { qc } = mountHost()
+    await flushPromises()
+
+    const refetch = deferred<Message[]>()
+    api.listMessages.mockReturnValueOnce(refetch.promise)
+    composable.refetchMessages()
+    await nextTick()
+
+    // The reply lands live (by-id fetch or delta) after the refetch was issued,
+    // so the server page that started earlier cannot contain it.
+    const reply = msg({ id: 'm_r', sender_type: 'agent', created_at: '2026-01-01T00:00:02.000Z' })
+    qc.setQueryData<Message[]>(convKeys.messages(ROOM), (prev) => [...(prev ?? []), reply])
+
+    refetch.resolve([s])
+    await flushPromises()
+
+    const ids = (qc.getQueryData<Message[]>(convKeys.messages(ROOM)) ?? []).map((m) => m.id)
+    expect(ids).toContain('m_r')
+  })
+
+  it('still drops a row that was cached before the refetch and is gone from its page', async () => {
+    const s = msg({ id: 'm_s', created_at: '2026-01-01T00:00:01.000Z' })
+    const gone = msg({ id: 'm_gone', created_at: '2026-01-01T00:00:02.000Z' })
+    api.listMessages.mockResolvedValueOnce([gone, s])
+    const { qc } = mountHost()
+    await flushPromises()
+
+    api.listMessages.mockResolvedValueOnce([s])
+    composable.refetchMessages()
+    await flushPromises()
+
+    const ids = (qc.getQueryData<Message[]>(convKeys.messages(ROOM)) ?? []).map((m) => m.id)
+    expect(ids).toEqual(['m_s'])
+  })
+})
+
 describe('useChatroomMessages reconcileOlder (F-5)', () => {
   // F-5: paged-in older messages are never reconciled after a socket gap, so a
   // hard-deleted message stays legible. reconcileOlder re-fetches the paged-in

@@ -13,8 +13,17 @@ import type { Message } from '../types'
  * at all), so a stale out-of-window row can persist until it is next paged
  * past as a `before` anchor, where the 422-on-a-dead-anchor fallback in
  * `useChatroomMessages.loadEarlier` degrades it to a refetch (V-2).
+ *
+ * `knownAtRequest` is the set of cached ids when `next` was requested. A
+ * cached row outside it arrived while the request was in flight, so `next`
+ * not containing it says nothing about whether it was deleted — it is kept.
+ * Without the set every cached row is treated as known.
  */
-export function mergeMessages(prev: Message[], next: Message[]): Message[] {
+export function mergeMessages(
+  prev: Message[],
+  next: Message[],
+  knownAtRequest?: ReadonlySet<string>,
+): Message[] {
   const nextById = new Map<string, Message>()
   for (const m of next) nextById.set(m.id, m)
 
@@ -28,7 +37,12 @@ export function mergeMessages(prev: Message[], next: Message[]): Message[] {
   const merged = new Map<string, Message>()
 
   for (const m of prev) {
-    if (windowStart !== null && m.created_at >= windowStart && !nextById.has(m.id)) {
+    if (
+      windowStart !== null &&
+      m.created_at >= windowStart &&
+      !nextById.has(m.id) &&
+      (knownAtRequest === undefined || knownAtRequest.has(m.id))
+    ) {
       continue
     }
     merged.set(m.id, m)
