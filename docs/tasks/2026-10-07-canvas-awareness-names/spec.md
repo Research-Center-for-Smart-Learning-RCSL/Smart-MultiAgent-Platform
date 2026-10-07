@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-07
 requirements: [R13.33, R13.55]
 depends_on: [2026-10-07-room-roster-completeness]
@@ -126,15 +126,15 @@ Written first; each fails against current code for the stated reason.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: a member or registered guest with a display name appears on other editors'
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: a member or registered guest with a display name appears on other editors'
   canvases under that name, never as a UUID.
-- [ ] AC-3: an account without a display name appears as its eight-character id, and no
+- [x] AC-3: an account without a display name appears as its eight-character id, and no
   cursor label ever contains an email or a part of one.
-- [ ] AC-4: after a participant renames themselves (guest rename, or member rename with
+- [x] AC-4: after a participant renames themselves (guest rename, or member rename with
   `2026-10-07-room-roster-completeness` in place), other editors' cursor labels show the new
   name without the canvas reconnecting.
-- [ ] AC-5: frontend lint (including the slice boundary rules), typecheck, tests and build
+- [x] AC-5: frontend lint (including the slice boundary rules), typecheck, tests and build
   pass in CI.
 
 ## 11. SRS Delta
@@ -145,8 +145,35 @@ None. [R13.55] already requires the display name in awareness.
 
 Appended by /build.
 
+- **D-1.** For an account, the viewer's own cursor name is the room roster's name for the
+  viewer, falling back to `session.me.display_name` (§7.3 named the session value alone).
+  Reason: for a registered guest the roster carries the room label that every other
+  participant sees, and after a profile rename the roster updates through
+  `chatroom.members_changed` while `session.me` in this tab does not. The broadcast name then
+  matches what the other editors' roster lookup shows.
+- **D-2.** The renderer accepts a broadcast `user.name` only when it is a string (§7.2 used it
+  as is). Reason: awareness is client-asserted, and the check-quality gate flagged an
+  unchecked value reaching Excalidraw's `username`.
+
+Verification record. AC-1 was observed directly. The three new `useYjsProvider` tests failed
+before the fix: the broadcast name was the full token subject, a rename was not re-broadcast,
+and the email's local part was used. The three `CanvasRenderer` tests also failed: the
+broadcast name `spoof` was shown instead of the roster's name, and there was no truncated-id
+fallback. `ChatroomViewCanvasNames.test.ts` failed without the room view wiring. All of them
+pass after the fix. AC-2 to AC-4 are checked against those tests, not observed in a running
+app, because no local stack was available (FU-2). AC-5 was verified by CI run 37587191969 on
+PR #241 at `91d48f45`: every required job passed. The first run had failed on
+`frontend-lint` alone, with three warnings in the new view test, because that file was
+written after the last full lint.
+
 ## 13. Follow-ups
 
 - **FU-1.** Awareness frames are relayed without checking that a state's `userId` matches
   the sending connection's principal (`backend/app/api/ws/canvas.py:254-262`), so a client
-  can impersonate another participant's cursor. Route to `check-security`.
+  can impersonate another participant's cursor. Route to `check-security`. (check-security
+  in /build confirmed this as a pre-existing MEDIUM. This change does not widen it: before,
+  a client could set any label text; now it can only borrow a name from its own room's
+  roster.)
+- **FU-2.** AC-2 to AC-4 have not been watched in a running app. They should be checked on
+  staging with two browsers on one canvas: a member with a display name, one without, and a
+  guest who renames themselves.

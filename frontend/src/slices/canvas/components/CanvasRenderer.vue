@@ -9,6 +9,8 @@ import type { Awareness } from 'y-protocols/awareness'
 const props = defineProps<{
   doc: Y.Doc
   awareness: Awareness
+  // User id -> display name from the room roster.
+  names: Record<string, string>
 }>()
 
 const { t } = useI18n()
@@ -174,7 +176,12 @@ function onAwarenessChange() {
     if (!user) return
     const entry: Record<string, unknown> = {}
     if (state.cursor) entry.pointer = state.cursor
-    if (user.name) entry.username = user.name
+    // The roster's name wins over what the sender broadcast, so a rename follows the
+    // roster and a client cannot label its own cursor with someone else's name.
+    const userId = typeof user.userId === 'string' ? user.userId : ''
+    const broadcast = typeof user.name === 'string' ? user.name : ''
+    const username = (userId && props.names[userId]) || broadcast || userId.slice(0, 8)
+    if (username) entry.username = username
     if (user.color) {
       entry.color = { background: `${user.color}33`, stroke: user.color }
     }
@@ -197,6 +204,8 @@ watch(
   },
   { immediate: true },
 )
+
+watch(() => props.names, onAwarenessChange)
 
 function teardown() {
   if (awarenessHandler && boundAwareness) {
