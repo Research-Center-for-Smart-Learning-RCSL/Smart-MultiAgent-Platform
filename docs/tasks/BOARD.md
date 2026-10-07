@@ -501,7 +501,7 @@ rows are added as each is written.
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
-- `2026-10-07-agent-reply-delivery-gaps` (bugfix, **draft**) - `depends_on: []`. Agent
+- `2026-10-07-agent-reply-delivery-gaps` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. Agent
   replies are stamped at transaction start and skipped by clients' `since` cursor;
   `messages.created_at` defaults to `clock_timestamp()`, `message.created` fetches the
   named message by id, `agent.finished` holds the bubble until the reply is shown, and
