@@ -452,6 +452,16 @@ def _first_label(*candidates: str | None) -> str | None:
     return None
 
 
+def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
+    """The compaction summaries, as the system prompt carries them."""
+    return [f"[Earlier conversation summary]\n{hm.content}" for hm in history if hm.role == "system"]
+
+
+def _stream_rows(history: Sequence[tx.HistoryMessage]) -> list[tx.HistoryMessage]:
+    """The rows that become provider messages, in transcript order."""
+    return [hm for hm in history if hm.role in ("user", "agent")]
+
+
 def _marked_label(label: str, *, is_guest: bool) -> str:
     """``label`` (non-empty, already one-lined) with the guest marker when it names a guest."""
     return f"{label}{GUEST_LABEL_MARKER}" if is_guest else label
@@ -2796,21 +2806,18 @@ class TurnEngine:
                 history: list[tx.HistoryMessage],
             ) -> tuple[str, list[dict[str, Any]], RagContext | None, _Starvation | None]:
                 nonlocal has_knowledge_source, owner_label, owner_resolved
-                summaries = [
-                    f"[Earlier conversation summary]\n{hm.content}"
-                    for hm in history
-                    if hm.role == "system"  # compact_summary
-                ]
+                summaries = _summary_blocks(history)
+                stream_rows = _stream_rows(history)
                 # F-16: distribute the knowledge budget by narrow-scope precedence
                 # over what remains after the fixed context (system blocks + tools
-                # + message history + response reserve). Counting only user/agent
+                # + message history + response reserve). Counting only the stream
                 # rows here avoids double-counting the summaries already in the
                 # system-block estimate.
                 fixed_context = (
                     tx.estimate_tokens(system_blocks.measure(summaries))
                     + tool_tokens
                     + input_tokens
-                    + sum(h.token_count for h in history if h.role in ("user", "agent"))
+                    + sum(h.token_count for h in stream_rows)
                 )
                 total_budget = ctxmod.knowledge_budget(
                     ceiling=ceiling,
@@ -2874,8 +2881,7 @@ class TurnEngine:
                         user_names,
                         attachment_blocks=attach_blocks if hm.id == history_attach_id else None,
                     )
-                    for hm in history
-                    if hm.role in ("user", "agent")
+                    for hm in stream_rows
                 ]
                 other_agents_present = any(
                     hm.role == "agent"
