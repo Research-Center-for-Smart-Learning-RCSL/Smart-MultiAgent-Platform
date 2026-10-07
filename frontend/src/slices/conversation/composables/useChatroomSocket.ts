@@ -135,40 +135,52 @@ export function useChatroomSocket(
       appendMessages(delta)
     } catch {
       // BUG-8: the cursor message may have been hard-deleted → 422.
-      // Fall back to a full query invalidation so TanStack refetches the
-      // latest page instead of silently losing messages.
-      void qc.invalidateQueries({ queryKey: convKeys.messages(roomId) })
+      // Fall back to refetching the latest page instead of silently losing
+      // messages.
+      refetchLatestPage()
     }
+  }
+
+  // `cancelRefetch: false` joins a refetch already in flight instead of
+  // restarting it: every delta fails while the cursor row is dead, and a burst
+  // of them would otherwise keep aborting the very refetch that recovers it.
+  function refetchLatestPage(): void {
+    void qc.invalidateQueries({ queryKey: convKeys.messages(roomId) }, { cancelRefetch: false })
   }
 
   function isCached(messageId: string): boolean {
     return qc.getQueryData<Message[]>(convKeys.messages(roomId))?.some((m) => m.id === messageId) ?? false
   }
 
-  // A message the server named (`message.created`, `agent.finished`) is fetched
-  // by id as well as through the `since` delta: the cursor orders by
-  // `created_at`, so a row stamped earlier than one already seen, or one whose
-  // delta was lost, would otherwise never arrive. Concurrent requests for the
-  // same id share one fetch. Resolves true once the row has been applied.
-  const messageFetches = new Map<string, Promise<boolean>>()
+  // A message the server named (`message.created`, `agent.finished`) is looked
+  // for in the `since` delta first and fetched by id only if the delta did not
+  // bring it: the cursor orders by `created_at`, so a row stamped earlier than
+  // one already seen, or one whose frame was lost, never reaches the delta.
+  // Concurrent requests for one id share one arrival. Resolves true once the
+  // row has been applied.
+  const messageArrivals = new Map<string, Promise<boolean>>()
 
-  function fetchMessageById(messageId: string): Promise<boolean> {
+  function ensureMessage(messageId: string): Promise<boolean> {
     if (isCached(messageId)) return Promise.resolve(true)
-    let fetch = messageFetches.get(messageId)
-    if (!fetch) {
-      fetch = getMessage(messageId)
-        .then(
-          (m) => {
-            if (disposed || m.chatroom_id !== roomId) return false
-            applyMessageCreated(m)
-            return true
-          },
-          () => false,
-        )
-        .finally(() => messageFetches.delete(messageId))
-      messageFetches.set(messageId, fetch)
+    let arrival = messageArrivals.get(messageId)
+    if (!arrival) {
+      arrival = replayDelta()
+        .then(() => isCached(messageId) || fetchMessageById(messageId))
+        .finally(() => messageArrivals.delete(messageId))
+      messageArrivals.set(messageId, arrival)
     }
-    return fetch
+    return arrival
+  }
+
+  async function fetchMessageById(messageId: string): Promise<boolean> {
+    try {
+      const m = await getMessage(messageId)
+      if (disposed || m.chatroom_id !== roomId) return false
+      applyMessageCreated(m)
+      return true
+    } catch {
+      return false
+    }
   }
 
   // agent id -> the reply its `agent.finished` named. The streaming bubble is
@@ -178,10 +190,13 @@ export function useChatroomSocket(
 
   function holdStreamUntilShown(agentId: string, replyId: string): void {
     pendingReplies.set(agentId, replyId)
-    void fetchMessageById(replyId).then(() => {
+    void ensureMessage(replyId).then((shown) => {
       if (disposed || pendingReplies.get(agentId) !== replyId) return
       pendingReplies.delete(agentId)
       resetAgentStream(agentId)
+      // The latest page does not depend on the cursor, so it still brings a
+      // reply the by-id read failed on (a transient error, not a deletion).
+      if (!shown) refetchLatestPage()
     })
   }
 
@@ -343,11 +358,6 @@ export function useChatroomSocket(
     appendMessages([m])
   }
 
-  // Server order: `created_at`, then `id` (message_repo.list).
-  function isAfter(a: Message, b: Message): boolean {
-    return a.created_at > b.created_at || (a.created_at === b.created_at && a.id > b.id)
-  }
-
   // The server's maximum `limit` (messages.py); a gap is paged in as few
   // requests as it allows.
   const BACKFILL_PAGE_SIZE = 200
@@ -364,8 +374,6 @@ export function useChatroomSocket(
     const key = convKeys.messages(roomId)
     const cached = qc.getQueryData<Message[]>(key) ?? []
     const knownAtRequest = new Set(cached.map((m) => m.id))
-    let lastShown: Message | null = null
-    for (const m of cached) if (!lastShown || isAfter(m, lastShown)) lastShown = m
     try {
       // No `since`/`before`, so the backend orders this page newest-first.
       // Don't touch `lastSeenMessageId` here: the QueryCache subscription
@@ -377,10 +385,10 @@ export function useChatroomSocket(
       qc.setQueryData<Message[]>(key, (prev) => mergeMessages(prev ?? [], page, knownAtRequest))
       for (const m of page) clearAgentSideEffects(m)
       // A full page (counted before tombstones are filtered) may not reach back
-      // to what was shown; the anchor comes from the filtered rows, since a
-      // deleted anchor would 422.
-      if (lastShown && fetched.length >= PAGE_SIZE && page.length > 0) {
-        await backfillGap(page, lastShown, generation)
+      // to what the client held; the anchor comes from the filtered rows, since
+      // a deleted anchor would 422.
+      if (knownAtRequest.size > 0 && fetched.length >= PAGE_SIZE && page.length > 0) {
+        await backfillGap(page, knownAtRequest, generation)
       }
     } catch {
       // Best-effort, matching resyncPresence/resyncActivation: a subsequent
@@ -389,18 +397,24 @@ export function useChatroomSocket(
   }
 
   // More than one page was created while the socket was down: page backwards
-  // from the reconcile page until reaching the newest row the client showed
-  // before the gap. Backwards rather than `since` that row, which may itself
-  // have been deleted during the gap (a dead `since` anchor is a 422).
-  async function backfillGap(page: readonly Message[], lastShown: Message, generation: number): Promise<void> {
-    let anchor = page[0]!
-    for (const m of page) if (isAfter(anchor, m)) anchor = m
-    while (isAfter(anchor, lastShown)) {
-      const older = await listMessages(roomId, { before: anchor.id, limit: BACKFILL_PAGE_SIZE })
+  // (newest-first pages, so the last row is the oldest) until a page ends on a
+  // row the client already held. The stop is a held row, not "older than the
+  // newest cached row": a row cached out of band, such as an own send over
+  // REST while the socket was down, is newer than the gap behind it. Backwards
+  // rather than `since` a held row, which may have been deleted during the gap
+  // (a dead `since` anchor is a 422).
+  async function backfillGap(
+    page: readonly Message[],
+    knownAtRequest: ReadonlySet<string>,
+    generation: number,
+  ): Promise<void> {
+    let oldest = page[page.length - 1]!
+    while (!knownAtRequest.has(oldest.id)) {
+      const older = await listMessages(roomId, { before: oldest.id, limit: BACKFILL_PAGE_SIZE })
       if (generation !== reconcileGeneration) return
-      appendMessages(older.filter((m) => isAfter(m, lastShown)))
+      appendMessages(older)
       if (older.length < BACKFILL_PAGE_SIZE) return
-      anchor = older[older.length - 1]!
+      oldest = older[older.length - 1]!
     }
   }
 
@@ -440,11 +454,12 @@ export function useChatroomSocket(
     switch (ev.type) {
       case 'message.created': {
         // FIX-04: delta append instead of blind invalidation so the additive
-        // merge cache is never replaced with a smaller window. The named row
-        // is fetched by id too, since the delta's cursor can already be past it.
-        void replayDelta()
-        if (typeof ev.message_id === 'string' && ev.message_id) {
-          void fetchMessageById(ev.message_id)
+        // merge cache is never replaced with a smaller window. A named row the
+        // delta does not bring is fetched by id (`ensureMessage`).
+        if (typeof ev.message_id === 'string' && ev.message_id && !isCached(ev.message_id)) {
+          void ensureMessage(ev.message_id)
+        } else {
+          void replayDelta()
         }
         // clearAgentError stays eager (synchronous, from the event's own
         // payload); the draft is left to applyMessageCreated so its clear

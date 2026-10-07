@@ -1558,6 +1558,80 @@ describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
     expect(cachedIds(mounted.qc)).toEqual(expect.arrayContaining(['m_s', 'm_a', 'm_b']))
   })
 
+  it('does not fetch by id a row its since-delta already brought', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    listMessagesMock.mockResolvedValueOnce([row('m_r', 11, 'agent', AGENT)])
+    emit({ type: 'message.created', message_id: 'm_r', sender_type: 'agent', sender_id: AGENT })
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+    await flushPromises()
+
+    expect(cachedIds(mounted.qc)).toContain('m_r')
+    expect(getMessageMock).not.toHaveBeenCalled()
+    expect(listMessagesMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refetches the latest page when a finished reply cannot be fetched', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    emit({ type: 'agent.finished', agent_id: AGENT, message_id: 'm_r' })
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: convKeys.messages(ROOM) }, { cancelRefetch: false })
+  })
+
+  it('does not let failing deltas cancel the recovery refetch', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+    const spy = vi.spyOn(mounted.qc, 'invalidateQueries')
+
+    listMessagesMock.mockRejectedValue(new Error('422 dead cursor'))
+    emit({ type: 'message.created', message_id: 'm_a', sender_type: 'user', sender_id: 'u1' })
+    emit({ type: 'message.created', message_id: 'm_b', sender_type: 'user', sender_id: 'u1' })
+    await flushPromises()
+
+    const messageCalls = spy.mock.calls.filter(
+      ([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(convKeys.messages(ROOM)),
+    )
+    expect(messageCalls.length).toBeGreaterThan(0)
+    for (const [, options] of messageCalls) expect(options).toEqual({ cancelRefetch: false })
+  })
+
+  it('fills a reconnect gap behind an own message sent while the socket was down', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+    statusHandlers.forEach((h) => h(false))
+
+    // 150 messages posted during the gap, then the user's own REST send (m_151,
+    // seeded into the cache by onSend), then 10 more.
+    const server: Row[] = [row('m_0', 0)]
+    for (let i = 1; i <= 161; i++) server.push(row(`m_${i}`, i))
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_0', 0), row('m_151', 151)])
+    listMessagesMock.mockImplementation(
+      async (_room: string, opts: { before?: string; limit?: number } = {}) => {
+        const upTo = opts.before === undefined ? server.length : server.findIndex((m) => m.id === opts.before)
+        return server.slice(Math.max(0, upTo - (opts.limit ?? 50)), upTo).reverse()
+      },
+    )
+
+    statusHandlers.forEach((h) => h(true))
+    await flushPromises()
+
+    const ids = new Set(cachedIds(mounted.qc))
+    expect(server.filter((m) => !ids.has(m.id)).map((m) => m.id)).toEqual([])
+  })
+
   it('keeps a row applied live while the reconnect page was in flight', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
