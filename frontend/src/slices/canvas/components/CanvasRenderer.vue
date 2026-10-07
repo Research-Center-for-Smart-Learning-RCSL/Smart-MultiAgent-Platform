@@ -179,7 +179,8 @@ function onAwarenessChange() {
     // The roster's name wins over what the sender broadcast, so a rename follows the
     // roster and a client cannot label its own cursor with someone else's name.
     const userId = typeof user.userId === 'string' ? user.userId : ''
-    const username = (userId && props.names[userId]) || user.name || userId.slice(0, 8)
+    const broadcast = typeof user.name === 'string' ? user.name : ''
+    const username = (userId && props.names[userId]) || broadcast || userId.slice(0, 8)
     if (username) entry.username = username
     if (user.color) {
       entry.color = { background: `${user.color}33`, stroke: user.color }
