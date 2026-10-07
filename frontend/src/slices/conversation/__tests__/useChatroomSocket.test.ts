@@ -1558,6 +1558,27 @@ describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
     expect(cachedIds(mounted.qc)).toEqual(expect.arrayContaining(['m_s', 'm_a', 'm_b']))
   })
 
+  it('keeps a row applied live while the reconnect page was in flight', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    let resolvePage!: (rows: Row[]) => void
+    listMessagesMock.mockReturnValueOnce(new Promise<Row[]>((resolve) => { resolvePage = resolve }))
+    statusHandlers.forEach((h) => h(true))
+
+    getMessageMock.mockResolvedValueOnce(row('m_r', 12, 'agent', AGENT))
+    emit({ type: 'message.created', message_id: 'm_r', sender_type: 'agent', sender_id: AGENT })
+    await flushPromises()
+    expect(cachedIds(mounted.qc)).toContain('m_r')
+
+    resolvePage([row('m_s', 10)])
+    await flushPromises()
+
+    expect(cachedIds(mounted.qc)).toContain('m_r')
+  })
+
   it('fills a reconnect gap larger than one page', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
