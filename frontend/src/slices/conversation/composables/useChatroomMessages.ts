@@ -98,9 +98,12 @@ export function useChatroomMessages(
   const query = useQuery({
     queryKey: convKeys.messages(chatroomId),
     queryFn: async () => {
+      const knownAtRequest = new Set(
+        (qc.getQueryData<Message[]>(convKeys.messages(chatroomId)) ?? []).map((m) => m.id),
+      )
       const page = await listMessages(chatroomId, { limit: PAGE_SIZE })
       const prev = qc.getQueryData<Message[]>(convKeys.messages(chatroomId)) ?? []
-      return mergeMessages(prev, page)
+      return mergeMessages(prev, page, knownAtRequest)
     },
   })
 
