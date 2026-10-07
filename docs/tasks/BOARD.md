@@ -699,7 +699,7 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - (implemented 2026-10-07) `2026-10-07-google-display-name-normalisation`. AC-1..AC-6
-  verified on PR #244 (CI green at `ca4fd67d`; the scratch-database `0100` migration tests
+  verified on PR #244 (CI green at `53767bf0`, after the D-4 review fixes; the scratch-database `0100` migration tests
   ran in the db tier, dependency audit included). AC-2 rests on tests, not on a live Google
   sign-in (FU-4, a staging check). Deviations D-1..D-3 (D-1: `regex` is a new runtime
   dependency, not just a new pin, kept at the requester's choice) and FU-1..FU-4 are in the
