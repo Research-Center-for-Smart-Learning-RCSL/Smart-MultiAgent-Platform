@@ -37,6 +37,8 @@ from contexts.conversation.domain.models import (
     SenderType,
     Workspace,
 )
+from contexts.conversation.infrastructure.channels import room_channel
+from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomGuestRepository,
@@ -48,6 +50,7 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
+from shared_kernel.realtime.pubsub import Publisher
 
 # Ceiling on the candidate rooms one visibility-filtered listing will read.
 #
@@ -456,6 +459,34 @@ class ConversationFacade:
     async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Human author ids present in the room's live message history (capped)."""
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
+
+    async def present_user_ids(self, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
+        """Principals with a live connection to the room: user ids and guest session ids."""
+        return await PresenceTracker().list_room(chatroom_id)
+
+    async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
+        """Tell every room the user is present in to re-read its roster ([R13.19]).
+
+        Only rooms with a live connection: those are where the old name sits beside
+        a live participant, and the presence index bounds the fan-out. The caller
+        commits the rename first. Ids only, and transport failure is swallowed, as
+        for a guest rename: the name is durable, and a missed frame is reconciled by
+        the client's focus or reconnect re-read.
+        """
+        try:
+            room_ids = await PresenceTracker().list_user_rooms(user_id)
+        except Exception:
+            logger.opt(exception=True).warning("presence read for rename announcement failed")
+            return
+        for room_id in room_ids:
+            try:
+                await Publisher(room_channel(room_id)).emit(
+                    "chatroom.members_changed", {"chatroom_id": str(room_id)}
+                )
+            except Exception:
+                logger.bind(room_id=str(room_id)).opt(exception=True).warning(
+                    "chatroom.members_changed emit failed"
+                )
 
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)

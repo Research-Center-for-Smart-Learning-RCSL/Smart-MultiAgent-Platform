@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from app.config.settings import get_settings
+from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.domain.models import UserStatus
@@ -531,16 +532,23 @@ async def update_me(
 ) -> UserOut:
     # True PATCH: only touch display_name when the caller actually sent the key,
     # so an omitted field leaves it unchanged while an explicit null clears it.
+    identity = IdentityFacade(db)
+    before: str | None = None
     if "display_name" in body.model_fields_set:
+        before = (await identity.get_display_names([principal.user_id])).get(principal.user_id)
         await _service(db).update_display_name(
             user_id=principal.user_id,
             display_name=body.display_name,
             remote_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
-    profile = await IdentityFacade(db).get_profile(principal.user_id)
+    profile = await identity.get_profile(principal.user_id)
     if profile is None:
         raise HTTPException(status_code=500, detail="User profile not found for authenticated token")
+    if "display_name" in body.model_fields_set and profile.display_name != before:
+        # Open rooms otherwise keep the old name until each viewer refocuses.
+        await db.commit()
+        await ConversationFacade(db).announce_participant_renamed(principal.user_id)
     return _user_out(profile)
 
 

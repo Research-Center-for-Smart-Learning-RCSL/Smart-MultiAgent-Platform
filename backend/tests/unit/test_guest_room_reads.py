@@ -81,6 +81,9 @@ def _wire(
         async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
             return set(senders or ())
 
+        async def present_user_ids(self, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
+            return []
+
         async def room_guests(
             self, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
         ) -> RoomGuests:

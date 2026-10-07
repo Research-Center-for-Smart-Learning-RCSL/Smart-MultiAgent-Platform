@@ -247,6 +247,13 @@ class PresenceTracker:
         live = await _reconcile_roster(get_redis(), room_id)
         return [uuid.UUID(v) for v in live]
 
+    async def list_user_rooms(self, user_id: uuid.UUID) -> list[uuid.UUID]:
+        """Rooms the inverse index places this user in. Unreconciled: a ghost
+        entry lingers until the next `list_room`/`leave` of that room or the
+        scrub, so callers must tolerate a room the user has already left."""
+        rooms = await get_redis().smembers(_user_rooms_key(user_id))
+        return [uuid.UUID(v) for v in rooms]
+
 
 async def _reconcile_roster(r: Redis, room_id: uuid.UUID) -> list[str]:
     """Drop roster members whose conns key has expired; return the survivors.

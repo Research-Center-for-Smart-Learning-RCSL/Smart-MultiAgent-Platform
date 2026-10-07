@@ -138,6 +138,24 @@ async def test_multi_tab_announces_once_and_leaves_on_last(fake_redis: _FakeRedi
 
 
 @pytest.mark.asyncio
+async def test_user_rooms_follow_join_and_last_leave(fake_redis: _FakeRedis) -> None:
+    """Room roster completeness §7.3: a profile rename is announced to the rooms
+    this index lists."""
+    p = PresenceTracker()
+    user = uuid.uuid4()
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    conn_a, conn_b = uuid.uuid4(), uuid.uuid4()
+
+    await p.join(room_id=room_a, user_id=user, connection_id=conn_a)
+    await p.join(room_id=room_b, user_id=user, connection_id=conn_b)
+    assert set(await p.list_user_rooms(user)) == {room_a, room_b}
+
+    await p.leave(room_id=room_a, user_id=user, connection_id=conn_a)
+    assert await p.list_user_rooms(user) == [room_b]
+    assert await p.list_user_rooms(uuid.uuid4()) == []
+
+
+@pytest.mark.asyncio
 async def test_last_leave_reports_empty_roster_despite_a_ghost_member(fake_redis: _FakeRedis) -> None:
     """F-5: a ghost member (conns key expired without a clean leave) must not
     inflate the cardinality the last real leaver observes."""
