@@ -1206,10 +1206,13 @@ async def list_chatroom_members(
     Only ``user_id``, ``display_name`` and ``kind`` are returned — never email — so a room
     member (including a guest) cannot harvest other participants' login
     identifiers. The id set is the union of distinct human message authors,
-    enrolled registered guests, and the room's anonymous guest sessions; a
-    registered guest's per-room display name takes precedence over their account
-    display name. Names left unset resolve to ``null`` and the client falls back
-    to a short id. Gated like the messages it labels ([R13.32]).
+    enrolled registered guests, everyone currently present, and the room's
+    anonymous guest sessions; a registered guest's per-room display name takes
+    precedence over their account display name. Present users are named because a
+    reader who never posts is otherwise shown as an id in the participant list and
+    typing indicator; presence holds only principals that passed this same gate.
+    Names left unset resolve to ``null`` and the client falls back to a short id.
+    Gated like the messages it labels ([R13.32]).
 
     ``kind`` marks guest identities ([R13.33]): every anonymous session, and a
     registered guest holding no role in the room's project.
@@ -1219,8 +1222,13 @@ async def list_chatroom_members(
     conv = ConversationFacade(db)
     guests = await conv.room_guests(chatroom_id, project_id=access.project_id)
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
-    all_ids = sender_ids | set(guests.registered)
-    account_names = await IdentityFacade(db).get_display_names(list(all_ids))
+    present_ids = set(await conv.present_user_ids(chatroom_id)) - set(guests.sessions)
+    known_ids = sender_ids | set(guests.registered)
+    account_names = await IdentityFacade(db).get_display_names(list(known_ids | present_ids))
+    # A present id with no user row is a guest session outside `guests.sessions`
+    # (past its listing cap, or ended with its socket still open); listing it here
+    # would mark it a member, so it stays unlisted as it was before presence counted.
+    all_ids = known_ids | (present_ids & account_names.keys())
     members = [
         ChatroomMemberOut(
             user_id=uid,

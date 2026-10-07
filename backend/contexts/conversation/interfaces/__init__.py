@@ -9,7 +9,11 @@ from contexts.conversation.domain.compaction import (
     summary_metadata,
     summary_producer,
 )
-from contexts.conversation.infrastructure.channels import emit_agent_finished_error, room_channel
+from contexts.conversation.infrastructure.channels import (
+    emit_agent_finished_error,
+    emit_members_changed,
+    room_channel,
+)
 
 # §32's live-draft surface, re-exported on exactly the terms `PresenceTracker` is:
 # both are room-scoped Redis state that a *caller outside this context* legitimately
@@ -54,6 +58,7 @@ __all__ = [
     "PresenceTracker",
     "compacted_ids",
     "emit_agent_finished_error",
+    "emit_members_changed",
     "is_compact_summary",
     "normalise_draft_key",
     "room_channel",

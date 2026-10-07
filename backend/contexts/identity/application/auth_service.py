@@ -978,15 +978,18 @@ class AuthService:
         display_name: str | None,
         remote_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> str | None:
+    ) -> bool:
         """Set (or clear) the caller's optional display name.
 
         Non-destructive and unauthenticated beyond the live session: a display
         name carries no security weight, so unlike email/password changes this
-        does not re-prompt for the password or invalidate sessions. Returns the
-        normalised value actually stored so the router can echo it back.
+        does not re-prompt for the password or invalidate sessions. Returns whether
+        the stored name differs from the one it replaced, so the caller announces
+        only a real change to the rooms that show it.
         """
         normalised = _normalise_display_name(display_name)
+        current = await self._users.get_by_id(user_id)
+        changed = current is None or current.display_name != normalised
         await self._users.set_display_name(user_id, normalised)
         await audit.emit(
             self._db,
@@ -1000,7 +1003,7 @@ class AuthService:
                 request_id=request_id,
             ),
         )
-        return normalised
+        return changed
 
     async def delete_account(
         self,

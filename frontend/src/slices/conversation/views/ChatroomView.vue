@@ -680,9 +680,9 @@ const agentNames = computed<Record<string, string>>(() => {
   return map
 })
 
-// Human author display names (members, registered guests and anonymous guest
-// sessions). One map resolves REST history, live WS messages, presence and
-// typing; absent names fall back to a truncated id.
+// Human display names (message authors, everyone present, registered guests and
+// anonymous guest sessions). One map resolves REST history, live WS messages,
+// presence and typing; absent names fall back to a truncated id.
 const membersQuery = useQuery({
   queryKey: convKeys.chatroomMembers(chatroomId),
   queryFn: () => listChatroomMembers(chatroomId),
@@ -970,29 +970,50 @@ function moderateSender(message: Message, ban: boolean): void {
   if (message.sender_id) void moderateGuest(message.sender_id, senderName(message), ban)
 }
 
-// New authors appear over the room's lifetime via WebSocket. When a user message
-// arrives from a sender the roster doesn't name yet, refetch it once for that id
-// so the author label resolves instead of staying a truncated id. Tracking
-// attempted ids bounds this to one refetch per sender (a sender with no display
-// name stays unnamed without re-querying every message).
+// New participants appear over the room's lifetime via WebSocket: as message
+// senders, in presence, and in the typing set. When one of those ids is not named
+// by the roster yet, refetch it once for that id so the label resolves instead of
+// staying a truncated id (the roster also names everyone present). Tracking
+// attempted ids across all three sources bounds this to one refetch per id (an
+// account with no display name stays unnamed without re-querying on every frame).
 //
-// This is an *absence* test, so it catches a sender the map has never had and
+// This is an *absence* test, so it catches an id the map has never had and
 // nothing else. A rename of someone already in the map is invisible to it — the
-// id is present, only the value is stale — and is left to the focus refetch.
+// id is present, only the value is stale — and is left to `chatroom.members_changed`
+// (sent to the rooms the renamed user is present in) and the focus refetch.
 // (An earlier version of this comment claimed renames were covered; they are
 // not, and F-1 of the query-cache sweep found the same hole in the agent-side
 // equivalent, where it also broke @mention resolution.)
-const resolvedSenderAttempts = new Set<string>()
-watch(messages, (list) => {
+const resolvedParticipantAttempts = new Set<string>()
+// Kept apart so a presence or typing frame does not rescan the whole message list.
+const humanSenderIds = computed(() => {
+  const ids = new Set<string>()
+  for (const m of messages.value) {
+    if ((m.sender_type === 'user' || m.sender_type === 'guest') && m.sender_id) ids.add(m.sender_id)
+  }
+  return ids
+})
+const unnamedParticipantIds = computed(() => {
+  const ids = new Set<string>()
+  const sources = [humanSenderIds.value, store.presence[chatroomId] ?? [], store.typingUsers[chatroomId] ?? []]
+  for (const source of sources) {
+    for (const id of source) {
+      if (!(id in userNames.value)) ids.add(id)
+    }
+  }
+  return ids
+})
+// The query does not retry, so a failed read would otherwise leave every id it
+// was asked about unnamed for the session; the next participant change asks again.
+watch(
+  () => membersQuery.errorUpdatedAt.value,
+  () => resolvedParticipantAttempts.clear(),
+)
+watch(unnamedParticipantIds, (ids) => {
   let needsRefetch = false
-  for (const m of list) {
-    if (
-      (m.sender_type === 'user' || m.sender_type === 'guest') &&
-      m.sender_id &&
-      !(m.sender_id in userNames.value) &&
-      !resolvedSenderAttempts.has(m.sender_id)
-    ) {
-      resolvedSenderAttempts.add(m.sender_id)
+  for (const id of ids) {
+    if (!resolvedParticipantAttempts.has(id)) {
+      resolvedParticipantAttempts.add(id)
       needsRefetch = true
     }
   }
