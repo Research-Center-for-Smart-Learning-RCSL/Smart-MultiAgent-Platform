@@ -25,6 +25,7 @@ from contexts.conversation.application.access import (
     resolve_room_access,
 )
 from contexts.conversation.application.room_guests import load_room_guests
+from contexts.conversation.domain.author_labels import prefer_guest_label
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
@@ -32,7 +33,6 @@ from contexts.conversation.infrastructure.repositories import (
     MessageEditRepository,
     MessageRepository,
 )
-from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel import audit
 from shared_kernel.auth.permissions import Principal

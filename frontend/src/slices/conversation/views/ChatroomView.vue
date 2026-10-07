@@ -682,8 +682,8 @@ const agentLabelsQuery = useQuery({
   retry: false,
 })
 
-// Lowest to highest precedence: history labels, the project's live names (a
-// rename since), then the room's own agent list, which names every bound agent.
+// History labels underneath; the project's names and the room's own agent list,
+// which names every bound agent, layered on top.
 const agentNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {}
   for (const a of agentLabelsQuery.data.value ?? []) map[a.agent_id] = a.name
@@ -1043,7 +1043,7 @@ watch(unnamedParticipantIds, (ids) => {
 // The agent-side equivalent, for an agent the history names that no source names
 // yet: a release disclosing an observer arrives live, or an agent is unbound
 // mid-session. Every id the history held when the labels last answered has been
-// asked about, so a deleted agent with no name costs no second read on open.
+// asked about, so an agent with no stored name is not asked about again.
 const historyAgentIds = computed(() => {
   const ids = new Set<string>()
   for (const m of messages.value) {
