@@ -251,4 +251,4 @@ class ObservationService:
         )
 
 
-__all__ = ["RELEASED_OBSERVATION_TYPE", "ObservationService", "ReleaseResult"]
+__all__ = ["ObservationService", "ReleaseResult"]

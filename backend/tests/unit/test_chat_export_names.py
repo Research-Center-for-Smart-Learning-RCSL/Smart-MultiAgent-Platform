@@ -22,7 +22,7 @@ import pytest
 import contexts.conversation.application.chat_export_service as export_mod
 from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.application.chat_export_service import ChatExportService
-from contexts.conversation.application.room_guests import RoomGuests
+from contexts.conversation.application.room_guests import RoomGuestLabels
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from shared_kernel.auth.permissions import Role
 
@@ -95,14 +95,8 @@ def minio(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
         async def agent_names(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
             return {i: n for i, n in {_AGENT: "Tutor"}.items() if i in ids}
 
-    async def _guests(
-        db: object, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
-    ) -> RoomGuests:
-        return RoomGuests(
-            sessions={_SESSION: "Sam"},
-            registered={_REGISTERED: "Olive"},
-            unaffiliated=frozenset({_REGISTERED}),
-        )
+    async def _guests(db: object, chatroom_id: uuid.UUID) -> RoomGuestLabels:
+        return RoomGuestLabels(sessions={_SESSION: "Sam"}, registered={_REGISTERED: "Olive"})
 
     def _repo(**methods: Any) -> MagicMock:
         return MagicMock(return_value=AsyncMock(**methods))
@@ -113,7 +107,7 @@ def minio(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     monkeypatch.setattr(export_mod, "ensure_can_read", MagicMock())
     monkeypatch.setattr(export_mod, "IdentityFacade", _Identity)
     monkeypatch.setattr(export_mod, "AgentsFacade", _Agents)
-    monkeypatch.setattr(export_mod, "load_room_guests", _guests)
+    monkeypatch.setattr(export_mod, "load_room_guest_labels", _guests)
     monkeypatch.setattr(export_mod, "ChatroomRepository", _repo(get=AsyncMock(return_value=room)))
     monkeypatch.setattr(
         export_mod, "MessageRepository", _repo(all_for_chatroom=AsyncMock(return_value=_MESSAGES))

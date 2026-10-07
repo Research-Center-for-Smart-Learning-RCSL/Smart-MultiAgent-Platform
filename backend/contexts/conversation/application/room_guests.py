@@ -47,16 +47,34 @@ class RoomGuests:
         return frozenset(self.sessions) | self.unaffiliated
 
 
+@dataclass(frozen=True, slots=True)
+class RoomGuestLabels:
+    """What a room's guests call themselves, without deciding who is a guest."""
+
+    sessions: dict[uuid.UUID, str]
+    registered: dict[uuid.UUID, str | None]
+
+
+async def load_room_guest_labels(db: AsyncSession, chatroom_id: uuid.UUID) -> RoomGuestLabels:
+    """The labels alone, for a reader that names people but does not mark them
+    (the chat export); skips the project-membership read ``unaffiliated`` needs."""
+    return RoomGuestLabels(
+        sessions=dict(await GuestSessionRepository(db).list_labels(chatroom_id)),
+        registered={g.user_id: g.display_name for g in await ChatroomGuestRepository(db).list(chatroom_id)},
+    )
+
+
 async def load_room_guests(
     db: AsyncSession, chatroom_id: uuid.UUID, *, project_id: uuid.UUID | None = None
 ) -> RoomGuests:
     """``project_id`` is the room's project when the caller already resolved it."""
-    sessions = dict(await GuestSessionRepository(db).list_labels(chatroom_id))
-    registered = {g.user_id: g.display_name for g in await ChatroomGuestRepository(db).list(chatroom_id)}
+    labels = await load_room_guest_labels(db, chatroom_id)
     return RoomGuests(
-        sessions=sessions,
-        registered=registered,
-        unaffiliated=frozenset(await _unaffiliated(db, chatroom_id, set(registered), project_id=project_id)),
+        sessions=labels.sessions,
+        registered=labels.registered,
+        unaffiliated=frozenset(
+            await _unaffiliated(db, chatroom_id, set(labels.registered), project_id=project_id)
+        ),
     )
 
 
@@ -87,4 +105,10 @@ async def project_id_for_room(db: AsyncSession, chatroom_id: uuid.UUID) -> uuid.
     return workspace.project_id if workspace is not None else None
 
 
-__all__ = ["RoomGuests", "load_room_guests", "project_id_for_room"]
+__all__ = [
+    "RoomGuestLabels",
+    "RoomGuests",
+    "load_room_guest_labels",
+    "load_room_guests",
+    "project_id_for_room",
+]

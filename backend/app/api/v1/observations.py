@@ -22,12 +22,11 @@ from contexts.conversation.application.access import (
     resolve_room_access,
 )
 from contexts.conversation.application.observation_service import (
-    RELEASED_OBSERVATION_TYPE,
     ObservationService,
     ReleaseResult,
 )
 from contexts.conversation.application.triggers import evaluate_message_wakeups
-from contexts.conversation.domain.models import AgentObservation
+from contexts.conversation.domain.models import RELEASED_OBSERVATION_TYPE, AgentObservation
 from contexts.conversation.interfaces import room_channel
 from contexts.identity.interfaces import user_channel
 from contexts.orchestration.infrastructure import pending_notify

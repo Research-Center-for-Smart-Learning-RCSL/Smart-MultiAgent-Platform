@@ -78,5 +78,8 @@ async def test_authors_and_disclosed_observers_only(
         await session.commit()
 
         ids = await MessageRepository(session).agent_label_ids(room_id)
+        # The cap applies to the union in a fixed order, so a capped read is stable.
+        capped = await MessageRepository(session).agent_label_ids(room_id, limit=1)
 
     assert ids == {author, disclosed}
+    assert capped == {min(author, disclosed, key=str)}

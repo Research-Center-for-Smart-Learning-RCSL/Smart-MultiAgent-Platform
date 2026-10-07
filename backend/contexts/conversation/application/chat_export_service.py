@@ -24,7 +24,7 @@ from contexts.conversation.application.access import (
     export_sender_scope,
     resolve_room_access,
 )
-from contexts.conversation.application.room_guests import load_room_guests
+from contexts.conversation.application.room_guests import load_room_guest_labels
 from contexts.conversation.domain.author_labels import prefer_guest_label
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from contexts.conversation.infrastructure.repositories import (
@@ -121,7 +121,7 @@ class ChatExportService:
             created_before=created_before,
             own_user_id=(owner_user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None),
         )
-        sender_names = await self._sender_names(chatroom_id, rows, project_id=access.project_id)
+        sender_names = await self._sender_names(chatroom_id, rows)
         serialized: list[dict[str, Any]] = []
         for m in rows:
             msg_edits = await edits.list_for_message(m.id)
@@ -201,9 +201,7 @@ class ChatExportService:
         )
         return bucket, key
 
-    async def _sender_names(
-        self, chatroom_id: uuid.UUID, rows: Sequence[Message], *, project_id: uuid.UUID
-    ) -> dict[uuid.UUID, str]:
+    async def _sender_names(self, chatroom_id: uuid.UUID, rows: Sequence[Message]) -> dict[uuid.UUID, str]:
         """Sender id -> the name the room shows for it ([R13.17], [R13.33]).
 
         Accounts resolve through ``get_display_names``, never ``get_chat_labels``:
@@ -219,7 +217,7 @@ class ChatExportService:
         people = ids[SenderType.USER] | ids[SenderType.GUEST]
         if not people:
             return names
-        guests = await load_room_guests(self._db, chatroom_id, project_id=project_id)
+        guests = await load_room_guest_labels(self._db, chatroom_id)
         accounts = (
             await IdentityFacade(self._db).get_display_names(list(ids[SenderType.USER]))
             if ids[SenderType.USER]
