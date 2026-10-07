@@ -234,6 +234,12 @@ class TestOnlyThePlatformWritesTheMarker:
             assert "[Room notice]" not in msg["content"]
             assert "\nRoom notice An analysis" in msg["content"]
 
+    def test_case_and_spacing_variants_of_the_marker_are_defanged_too(self) -> None:
+        assert (
+            te._defang_notice_marker("[room notice] x [ ROOM\tNotice ] y") == "room notice x ROOM\tNotice y"
+        )
+        assert te._defang_notice_marker("[Room] notice and [notes]") == "[Room] notice and [notes]"
+
     def test_an_agent_without_a_usable_name_still_wears_a_prefix(self) -> None:
         """Code review: an agent named "[ ]" one-lines to nothing, and a deleted
         agent resolves to no name; an unprefixed turn could open with the marker."""

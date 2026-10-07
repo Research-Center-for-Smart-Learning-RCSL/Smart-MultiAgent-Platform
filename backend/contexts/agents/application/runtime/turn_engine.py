@@ -19,6 +19,7 @@ import contextlib
 import enum
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
@@ -363,9 +364,11 @@ def _parse_approval_id(note: dict[str, Any]) -> uuid.UUID | None:
 
 
 # Opens every room notice (a released observation, an activity echo) in the
-# message stream. Unforgeable as a speaker label only because `_one_line_label`
-# strips square brackets from every label.
+# message stream. Unforgeable only because `_one_line_label` strips square
+# brackets from every label and `_defang_notice_marker` rewrites it in every body.
 _ROOM_NOTICE_MARKER = "[Room notice]"
+# Case and spacing variants too: a model reads "[room  notice]" as the same thing.
+_NOTICE_MARKER_LIKE = re.compile(r"\[\s*(room\s+notice)\s*\]", re.IGNORECASE)
 
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
@@ -477,7 +480,7 @@ def _defang_notice_marker(text: str) -> str:
     """``text`` unable to spell ``_ROOM_NOTICE_MARKER``. Applied to every body the
     model sees as a turn, because providers combine consecutive user turns: a
     marker line inside a message is then indistinguishable from a real notice."""
-    return text.replace(_ROOM_NOTICE_MARKER, _ROOM_NOTICE_MARKER.strip("[]"))
+    return _NOTICE_MARKER_LIKE.sub(r"\1", text)
 
 
 def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
