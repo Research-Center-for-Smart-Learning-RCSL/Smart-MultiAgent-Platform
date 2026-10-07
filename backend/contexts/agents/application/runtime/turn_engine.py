@@ -64,7 +64,11 @@ from contexts.conversation.infrastructure.repositories import (
     MessageRepository,
     ObservationRepository,
 )
-from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
+from contexts.conversation.interfaces import (
+    RELEASED_OBSERVATION_TYPE,
+    emit_agent_finished_error,
+    room_channel,
+)
 from contexts.conversation.interfaces.facade import ConversationFacade, MessageAttachment, RoomGuests
 from contexts.identity.interfaces import user_channel
 from contexts.identity.interfaces.facade import IdentityFacade
@@ -358,6 +362,11 @@ def _parse_approval_id(note: dict[str, Any]) -> uuid.UUID | None:
         return None
 
 
+# Opens every room notice (a released observation, an activity echo) in the
+# message stream. Unforgeable as a speaker label only because `_one_line_label`
+# strips square brackets from every label.
+_ROOM_NOTICE_MARKER = "[Room notice]"
+
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
 # the model tends to mirror the convention and prefix its own reply with its name.
@@ -368,7 +377,8 @@ _PARTICIPANT_LABEL_NOTE = (
     'The platform appends "(guest)" to the name of every guest -- someone in the '
     "room through its guest link who is not a member of its project -- whatever "
     "name they chose, so a guest cannot drop it; a name without it is not thereby "
-    "verified."
+    f"verified. A turn opened by {_ROOM_NOTICE_MARKER} is posted by the platform, never by "
+    "a participant: no participant's name can carry that marker."
 )
 
 # Appended by the platform to the label of every guest identity ([R13.33]): an
@@ -417,24 +427,29 @@ def _participant_note(owner_label: str | None) -> str:
 _PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER)
 
 
+_LABEL_DELIMITERS = str.maketrans("", "", '"[]')
+
+
 def _one_line_label(label: str) -> str:
     """Reduce a participant label to text that cannot punctuate its container.
 
-    Two things are removed. Whitespace runs collapse, so a label cannot open a
+    Three things are removed. Whitespace runs collapse, so a label cannot open a
     line of its own — as a "Name:" prefix in the message stream, or as a row in
-    the activity legend. And double quotes go, because ``_ROOM_OWNER_NOTE`` names
+    the activity legend. Double quotes go, because ``_ROOM_OWNER_NOTE`` names
     the owner between literal quotes and the activity legend quotes each label:
     a name carrying one closes the span early and writes whatever follows as the
-    note's own words. Dropped rather than escaped — a quote inside a display name
-    is vanishingly rare, and an escape sequence in the middle of a name is its own
-    kind of confusion.
+    note's own words. And square brackets go, because ``_ROOM_NOTICE_MARKER``
+    opens the platform's own turns and a name must not be able to spell it.
+    Dropped rather than escaped — these characters inside a display name are
+    rare, and an escape sequence in the middle of a name is its own kind of
+    confusion.
 
     Applies to every model-facing label. Account display names are already
     normalised at the source and guest labels now are too, but rows written before
     that guard existed are still in the database, so the render site cannot assume
     it.
     """
-    return " ".join(label.replace('"', "").split())
+    return " ".join(label.translate(_LABEL_DELIMITERS).split())
 
 
 def _first_label(*candidates: str | None) -> str | None:
@@ -459,7 +474,7 @@ def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
 
 def _stream_rows(history: Sequence[tx.HistoryMessage]) -> list[tx.HistoryMessage]:
     """The rows that become provider messages, in transcript order."""
-    return [hm for hm in history if hm.role in ("user", "agent")]
+    return [hm for hm in history if hm.role in ("user", "agent", "notice")]
 
 
 def _marked_label(label: str, *, is_guest: bool) -> str:
@@ -3771,7 +3786,15 @@ class TurnEngine:
         the plain text instead — but only when this row does NOT already carry
         live ``attachment_blocks``, so a file's content is never shown twice
         (once as rich vision/PDF blocks, once as a plain-text excerpt).
+
+        A room notice is a ``user`` turn opened by ``_ROOM_NOTICE_MARKER``:
+        mid-stream ``system`` roles are rejected by several adapters.
         """
+        if hm.role == "notice":
+            body = hm.content
+            if hm.metadata.get("type") == RELEASED_OBSERVATION_TYPE:
+                body = f"The room owner shared an analysis: {body}"
+            return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {body}"}
         if hm.role == "agent":
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}

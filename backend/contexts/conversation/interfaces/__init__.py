@@ -9,6 +9,7 @@ from contexts.conversation.domain.compaction import (
     summary_metadata,
     summary_producer,
 )
+from contexts.conversation.domain.models import RELEASED_OBSERVATION_TYPE
 from contexts.conversation.infrastructure.channels import (
     emit_agent_finished_error,
     emit_members_changed,
@@ -52,6 +53,7 @@ __all__ = [
     "DRAFT_SURFACES",
     "ORIGINAL_COMPACTED_IDS_KEY",
     "PRODUCER_AGENT_ID_KEY",
+    "RELEASED_OBSERVATION_TYPE",
     "VOIDED_SUMMARY_TYPE",
     "DraftEntry",
     "DraftStore",
