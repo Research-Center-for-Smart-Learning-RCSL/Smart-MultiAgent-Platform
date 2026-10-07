@@ -499,6 +499,14 @@ rows are added as each is written.
   observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
   square brackets so no participant can wear the marker.
 
+### From the 2026-10-07 missing-agent-reply analysis
+
+- `2026-10-07-agent-reply-delivery-gaps` (bugfix, **draft**) - `depends_on: []`. Agent
+  replies are stamped at transaction start and skipped by clients' `since` cursor;
+  `messages.created_at` defaults to `clock_timestamp()`, `message.created` fetches the
+  named message by id, `agent.finished` holds the bubble until the reply is shown, and
+  three client races (refetch merge, delta generation, gaps over 100) are closed.
+
 ## Blocked
 
 ### From the 2026-10-07 display-name audit
