@@ -501,11 +501,7 @@ rows are added as each is written.
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
-- `2026-10-07-agent-reply-delivery-gaps` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. Agent
-  replies are stamped at transaction start and skipped by clients' `since` cursor;
-  `messages.created_at` defaults to `clock_timestamp()`, `message.created` fetches the
-  named message by id, `agent.finished` holds the bubble until the reply is shown, and
-  three client races (refetch merge, delta generation, gaps over 100) are closed.
+- (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
 
@@ -712,6 +708,13 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-07-agent-reply-delivery-gaps` (bugfix, in progress since 2026-10-07) - `depends_on: []`.
+  Agent replies are stamped at transaction start and skipped by clients' `since` cursor;
+  `messages.created_at` defaults to `clock_timestamp()` (migration `0102`, revising `0099`),
+  `message.created` fetches the named message by id, `agent.finished` holds the bubble until
+  the reply is shown, and three client races (refetch merge, delta generation, gaps over 100)
+  are closed.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).

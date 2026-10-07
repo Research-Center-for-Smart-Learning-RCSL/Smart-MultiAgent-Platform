@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-07
 requirements: [R13.19, R13.27]
 depends_on: []
@@ -180,11 +180,25 @@ Written first; each fails against current code for the stated reason.
 - [ ] AC-2: an agent reply committed while other messages are posted during its stream
   appears on every connected client without reload, focus change or reconnect, and is
   ordered after the messages committed before it.
-- [ ] AC-3: the streaming bubble is cleared only once the reply is shown, or when the turn
+- [x] AC-3: the streaming bubble is cleared only once the reply is shown, or when the turn
   produced no message.
-- [ ] AC-4: a message applied live is never removed by a concurrent refetch or reconcile.
-- [ ] AC-5: after a reconnect, every message created during the gap is in the cache,
+- [x] AC-4: a message applied live is never removed by a concurrent refetch or reconcile.
+- [x] AC-5: after a reconnect, every message created during the gap is in the cache,
   however many there were.
+
+Verification status at build close (2026-10-07). AC-3 is pinned by the `useChatroomSocket`
+cases "keeps the streaming bubble until the finished reply is in the cache", "clears the
+streaming bubble at once when the reply is already cached", "clears the streaming bubble
+when the finished reply cannot be fetched" and "does not let a failed fetch of a finished
+reply clear the next turn", plus the existing no-`message_id` cases. AC-4 is pinned by the
+`useChatroomMessages` refetch-merge case and the socket case "keeps a row applied live
+while the reconnect page was in flight" (observed failing with the merge rule removed).
+AC-5 is pinned by "fills a reconnect gap larger than one page" and "still fills the gap
+when a row of the reconcile page was deleted meanwhile". For AC-1, the five frontend
+regression tests were observed failing on `0cac6d3d` for the documented reasons and passing
+after; the db-tier test could not run on the build host (no Postgres), so its fail-first
+and pass are owed to CI. AC-2 and AC-6 need CI (db tier, e2e) and a running stack; neither
+was available on the build host.
 - [ ] AC-6: the migration upgrades and downgrades cleanly; backend and frontend lint,
   typecheck, tests (db tier included), build and e2e pass in CI.
 
@@ -196,6 +210,26 @@ None. [R13.19] already requires clients to receive new messages.
 
 Appended by /build.
 
+- **D-1.** The migration is `0102_messages_created_at_clock_timestamp`, revising `0099`.
+  Requester's choice at plan approval: `0100` and `0101` stay with the two display-name
+  dossiers that claim them, and whichever builds next takes its `down_revision` from
+  `alembic heads`. A scratch-database test of the migration in both directions was added to
+  `test_message_created_at_db.py` for AC-6.
+- **D-2.** §7.6 pages the gap forward with `since` from the previous newest row. The build
+  pages backwards with `before` from the reconcile page's oldest row, `limit` 200, until it
+  reaches a row at or before the newest row shown before the gap or a page comes back short.
+  That row may itself have been deleted during the gap, and a dead `since` anchor is a 422;
+  the backwards walk does not need it to exist. The gap is detected on the page's raw length,
+  before tombstoned rows are filtered.
+- **D-3.** §7.4's "record the request start, keep cached rows whose ids were applied since"
+  is implemented as the set of ids cached when the request started (`mergeMessages`'
+  `knownAtRequest`); a cached row outside that set is kept. Same rule, no timestamps.
+- **D-4.** Beyond §7, three small additions on the same paths. The reconcile page drops
+  tombstoned rows, so a message deleted while the page was in flight is not resurrected. A
+  row fetched by id is applied only when its `chatroom_id` is this room (security-gate
+  hardening; the frame's `message_id` is server-authored today). The by-id fetch is skipped
+  when the row is already cached, and concurrent requests for one id share a fetch.
+
 ## 13. Follow-ups
 
 - **FU-1.** Other `server_default=now()` timestamps written inside long transactions
@@ -204,3 +238,17 @@ Appended by /build.
   should be `clock_timestamp()`.
 - **FU-2.** Replies stored before the migration keep their back-dated `created_at` and sort
   above messages posted during their stream; there is no record of their true insert time.
+- **FU-3.** The `scratch_engine` fixture now exists in three db-tier files
+  (`test_guest_kick_and_ban_db.py`, `test_migration_0084_schema.py`,
+  `test_message_created_at_db.py`); hoist it into `tests/integration/conftest.py`. Deferred
+  from the quality gate because it edits two unrelated test files that cannot be run on a
+  host without Postgres.
+- **FU-4.** `useChatroomSocket.ts` is past 800 lines; the message-delivery functions
+  (delta, by-id fetch, reconcile, backfill, bubble hold) are a separable composable.
+- **FU-5.** `clearAgentSideEffects` resets an agent's streaming draft whenever any row from
+  that agent arrives, so a late row from a finished turn (delta, reconcile page, by-id
+  fetch, backfill) can clear the start of the agent's next turn. Pre-existing on the delta
+  and reconcile paths.
+- **FU-6.** Each viewer now reads a new message twice (since-delta and by-id); the by-id read
+  is skipped only when the delta resolved first. Cheap today; revisit if room fan-out
+  makes it visible.
