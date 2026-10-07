@@ -511,6 +511,12 @@ rows are added as each is written.
   F-9..F-14: a room agent-label read names unbound, deleted and disclosed-observer agents for
   every viewer ("Unknown agent" only when nothing resolves), search and export name senders,
   and avatar initials take the first grapheme.
+- `2026-10-07-display-name-validation` (bugfix, **draft**) - waits on
+  `2026-10-07-google-display-name-normalisation` and `2026-10-07-system-rows-in-agent-context`
+  (shared edits to `normalise_label`, `_one_line_label`, `_provider_message`; migration order).
+  F-7, F-8: names need a visible character and lose default-ignorables, agent names are
+  normalised at source with an `Agent <id>` render fallback, and migration `0101` repairs
+  stored blank names.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
