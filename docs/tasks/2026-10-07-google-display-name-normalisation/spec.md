@@ -210,6 +210,20 @@ fix restores it.
   does not overwrite an existing account's missing name (`set_display_name` is not called),
   and the migration test also pins its frozen copy of the rule against `normalise_label` so
   the two cannot drift silently.
+- **D-4. `/code-review` fixes after CI, all applied at the requester's choice.** (1) The
+  migration's `_KEEP` held literal ZWJ and VS16 characters instead of escapes (the writing
+  tool decoded them), the exact hazard `labels.py` documents: one editor pass would empty
+  the keep-list and the migration would strip every emoji joiner irreversibly. Rewritten as
+  escapes, with a unit test that fails on a literal; the new tests had the same defect and
+  were fixed too. (2) A first grapheme cluster longer than the cap now keeps its first code
+  point instead of collapsing the label to `None` (this resolves what FU-3 recorded).
+  (3) Truncation stops segmenting once the cap is reached (`finditer`). (4) The frozen-rule
+  test moved to the unit tier (`tests/unit/test_migration_0100_rule.py`), since the db
+  marker kept it out of the fast job. (5) The migration's docstring no longer claims
+  independence from the installed `regex` Unicode tables. (6) The migration reads users in
+  id-ordered pages of 1000 instead of the whole column, with a db-tier test at page size 1.
+  Finding 7 (file numbering against chain order) needed no change: the migration docstring
+  and BOARD.md both name the head.
 
 ## 13. Follow-ups
 
@@ -219,8 +233,7 @@ fix restores it.
 - **FU-2.** The guest name form validates length with `zod`'s `max(100)`, which counts UTF-16
   code units, while the server caps code points; a name full of emoji is rejected by the
   form earlier than the server would cut it. Harmless, but the two counts differ.
-- **FU-3.** A single grapheme cluster longer than the cap (a letter carrying dozens of
-  combining marks) truncates to nothing, so the name becomes `NULL` rather than a cut
-  cluster. Deliberate, but no message tells the user why their name was not taken.
+- **FU-3.** (Resolved by D-4 (2).) A single grapheme cluster longer than the cap truncated
+  to nothing; it now keeps its first code point.
 - **FU-4.** No live Google sign-in with a long name has been observed in a running stack;
   AC-2 rests on unit tests with `_verify_google` stubbed. A staging check.
