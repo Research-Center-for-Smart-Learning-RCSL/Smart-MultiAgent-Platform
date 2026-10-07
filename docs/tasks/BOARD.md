@@ -710,7 +710,8 @@ each row for its own list — the frontmatter wins over this preamble.
 
 - `2026-10-07-canvas-awareness-names` (bugfix, in progress since 2026-10-07) - F-3, F-15
   (canvas): cursors broadcast the editor's display name and viewers prefer the room roster's
-  name for the cursor's user id.
+  name for the cursor's user id. Code complete on branch `fix/canvas-awareness-names`;
+  AC-1..AC-4 checked by tests, AC-5 waits on CI.
 
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`. AC-1..AC-6 verified on PR
   #240 (CI green at `0e8a7c1b`, db, wiring and e2e tiers included). AC-2..AC-5 rest on tests,
