@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R13.19, R13.33]
 depends_on: []
@@ -157,7 +157,7 @@ Written first; each fails against current code for the stated reason.
   name to every viewer without a reload or refocus.
 - [x] AC-5: an account with no display name causes at most one roster re-read per viewer, and
   members' frames on the room channel remain ids only.
-- [ ] AC-6: backend and frontend lint, typecheck, tests and build pass in CI.
+- [x] AC-6: backend and frontend lint, typecheck, tests and build pass in CI.
 
 ## 11. SRS Delta
 
@@ -209,7 +209,10 @@ present member, and the rename emitted nothing), and so did the four tests in
 All of them pass after the fix. AC-2 through AC-5 are checked against those tests, together
 with the existing `useChatroomSocket` test showing that `chatroom.members_changed` invalidates
 the roster. They were not observed in a running app because no local stack was available.
-AC-6 stays open until CI runs on the pushed branch.
+AC-6 was verified by CI run 37581375351 on PR #240 at `0e8a7c1b`: every required job passed,
+including the db, wiring and e2e tiers. An earlier run had failed only on
+`frontend-gate-openapi-drift`, because the members route docstring is embedded in
+`backend/openapi.json` and the generated client; regenerating both fixed it.
 
 ## 13. Follow-ups
 

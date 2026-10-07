@@ -492,7 +492,17 @@ rows are added as each is written.
   keeps whole grapheme clusters, and migration `0100` repairs stored account names.
   **Migration chain**: `0102` (from `agent-reply-delivery-gaps`) already revises `0099`, so
   `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
-- (moved to In progress on 2026-10-07) `2026-10-07-room-roster-completeness`.
+- (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
+- `2026-10-07-canvas-awareness-names` (bugfix, **approved 2026-10-07**, no SRS Delta) -
+  `depends_on: [2026-10-07-room-roster-completeness]`, implemented. F-3, F-15 (canvas):
+  cursors broadcast the editor's display name and viewers prefer the room roster's name for
+  the cursor's user id.
+- `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) -
+  `depends_on: [2026-10-07-room-roster-completeness]`, implemented. F-9..F-14: a room
+  agent-label read names unbound, deleted and disclosed-observer agents for every viewer
+  ("Unknown agent" only when nothing resolves), search and export name senders, and avatar
+  initials take the first grapheme. Both rows edit `ChatroomView.vue`, so building them in
+  parallel will conflict there.
 - `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
   its security aspect: only compaction summaries become the agent's summary block; released
   observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
@@ -506,14 +516,6 @@ rows are added as each is written.
 
 ### From the 2026-10-07 display-name audit
 
-- `2026-10-07-canvas-awareness-names` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
-  `2026-10-07-room-roster-completeness`. F-3, F-15 (canvas): cursors broadcast the editor's
-  display name and viewers prefer the room roster's name for the cursor's user id.
-- `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
-  `2026-10-07-room-roster-completeness` (shared edits to `ChatroomView.vue`'s name maps).
-  F-9..F-14: a room agent-label read names unbound, deleted and disclosed-observer agents for
-  every viewer ("Unknown agent" only when nothing resolves), search and export name senders,
-  and avatar initials take the first grapheme.
 - `2026-10-07-display-name-validation` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
   `2026-10-07-google-display-name-normalisation` and `2026-10-07-system-rows-in-agent-context`
   (shared edits to `normalise_label`, `_one_line_label`, `_provider_message`; migration order).
@@ -709,12 +711,13 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-07-room-roster-completeness` (bugfix, in progress since 2026-10-07) - F-2, F-5,
-  F-15 (chat): the room roster also names everyone present, the client re-reads it for an
-  unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
-  the rooms the user is in. Code complete on branch `fix/room-roster-completeness`; AC-1..AC-5
-  checked by tests, AC-6 waits on CI. Moves to implemented once CI is green, which unblocks
-  `canvas-awareness-names` and `name-fallback-surfaces`.
+- (implemented 2026-10-07) `2026-10-07-room-roster-completeness`. AC-1..AC-6 verified on PR
+  #240 (CI green at `0e8a7c1b`, db, wiring and e2e tiers included). AC-2..AC-5 rest on tests,
+  not on observation in a running app (FU-5, a staging check). Deviations D-1..D-4 (D-4 the
+  `/code-review` fixes agreed with the requester) and FU-1..FU-5 are in the dossier; FU-4
+  (no debounce on rename announcements) is the substantive one. This unblocked
+  `2026-10-07-canvas-awareness-names` and `2026-10-07-name-fallback-surfaces`, which moved to
+  Ready.
 
 - (implemented 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`. AC-3..AC-6 verified on PR
   #239 (CI green at `17c054df`, db tier and e2e included). AC-1's db half (fail-first not
