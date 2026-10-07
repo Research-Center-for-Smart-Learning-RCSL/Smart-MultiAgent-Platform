@@ -1223,8 +1223,12 @@ async def list_chatroom_members(
     guests = await conv.room_guests(chatroom_id, project_id=access.project_id)
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
     present_ids = set(await conv.present_user_ids(chatroom_id)) - set(guests.sessions)
-    all_ids = sender_ids | present_ids | set(guests.registered)
-    account_names = await IdentityFacade(db).get_display_names(list(all_ids))
+    known_ids = sender_ids | set(guests.registered)
+    account_names = await IdentityFacade(db).get_display_names(list(known_ids | present_ids))
+    # A present id with no user row is a guest session outside `guests.sessions`
+    # (past its listing cap, or ended with its socket still open); listing it here
+    # would mark it a member, so it stays unlisted as it was before presence counted.
+    all_ids = known_ids | (present_ids & account_names.keys())
     members = [
         ChatroomMemberOut(
             user_id=uid,

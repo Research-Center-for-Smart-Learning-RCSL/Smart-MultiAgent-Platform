@@ -31,4 +31,22 @@ async def emit_agent_finished_error(chatroom_id: uuid.UUID, agent_id: uuid.UUID,
         )
 
 
-__all__ = ["emit_agent_finished_error", "room_channel"]
+async def emit_members_changed(chatroom_id: uuid.UUID) -> None:
+    """Tell the room's open clients to re-read the participant roster ([R13.19]).
+
+    Ids only: the room channel has no per-recipient filtering, and each client's
+    re-read answers for that client. Callers commit first so the frame never
+    announces a write a rollback could undo. Swallows transport failure: the change
+    is durable, and a missed refresh is reconciled by the client's reconnect re-read.
+    """
+    try:
+        await Publisher(room_channel(chatroom_id)).emit(
+            "chatroom.members_changed", {"chatroom_id": str(chatroom_id)}
+        )
+    except Exception:
+        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+            "chatroom.members_changed emit failed"
+        )
+
+
+__all__ = ["emit_agent_finished_error", "emit_members_changed", "room_channel"]

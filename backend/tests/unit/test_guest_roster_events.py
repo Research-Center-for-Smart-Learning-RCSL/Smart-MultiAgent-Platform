@@ -1,6 +1,6 @@
 """Other viewers learn of a guest joining or renaming -- AC-4.
 
-Spec: ``docs/tasks/2026-10-05-guest-room-read-and-identity/spec.md`` §7.3, Q-3.
+Spec: ``docs/tasks/2026-10-05-guest-room-read-and-identity/spec.md`` 禮7.3, Q-3.
 
 The rename route emitted nothing and no event invalidated the roster, so a guest's
 name never reached anyone else's screen without a reload. The fix emits an ids-only
@@ -19,6 +19,7 @@ import pytest
 from fastapi import Response
 
 import app.api.v1.guests as guests_route
+import contexts.conversation.infrastructure.channels as channels_mod
 from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.domain.errors import ForbiddenInRoom, GuestTokenInvalid
 from contexts.conversation.interfaces import room_channel
@@ -76,7 +77,7 @@ async def test_joining_emits_only_when_the_roster_changed(changed: bool) -> None
 
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
-        patch.object(guests_route, "Publisher", publisher),
+        patch.object(channels_mod, "Publisher", publisher),
     ):
         await guests_route.create_guest_session(
             body=guests_route.GuestSessionIn(display_name="Alice"),
@@ -105,7 +106,7 @@ async def test_registered_enrolment_emits_only_when_a_row_was_written(written: b
 
     with (
         patch.object(guests_route, "GuestService", return_value=service),
-        patch.object(guests_route, "Publisher", publisher),
+        patch.object(channels_mod, "Publisher", publisher),
     ):
         await guests_route.enroll_guest(
             chatroom_id=room,
@@ -136,7 +137,7 @@ async def test_renaming_returns_the_stored_name_and_emits_only_on_a_change(chang
 
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
-        patch.object(guests_route, "Publisher", publisher),
+        patch.object(channels_mod, "Publisher", publisher),
     ):
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="  Alice   Chen "),
@@ -165,7 +166,7 @@ async def test_a_failed_emit_does_not_fail_the_rename() -> None:
 
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
-        patch.object(guests_route, "Publisher", return_value=broken),
+        patch.object(channels_mod, "Publisher", return_value=broken),
     ):
         out = await guests_route.update_guest_display_name(
             body=guests_route.GuestDisplayNameIn(display_name="Bob"),
@@ -196,7 +197,7 @@ async def test_a_guest_the_room_no_longer_admits_cannot_rename(_room: SimpleName
 
     with (
         patch.object(guests_route, "ConversationFacade", return_value=facade),
-        patch.object(guests_route, "Publisher", publisher),
+        patch.object(channels_mod, "Publisher", publisher),
         pytest.raises(ForbiddenInRoom),
     ):
         await guests_route.update_guest_display_name(

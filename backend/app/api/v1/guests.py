@@ -17,21 +17,19 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Path, Request, Response, status
-from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.conversation.application.guest_service import GuestService
 from contexts.conversation.domain.errors import GuestTokenInvalid
-from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces import emit_members_changed
 from contexts.conversation.interfaces.access import ensure_can_read, resolve_room_access
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal, require_registered_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
-from shared_kernel.realtime.pubsub import Publisher
 
 router = APIRouter(prefix="/api/guest", tags=["guests"])
 
@@ -212,23 +210,9 @@ async def update_guest_display_name(
 
 
 async def _emit_members_changed(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
-    """Tell the room's open clients to re-read the participant roster ([R13.19]).
-
-    Ids only, like ``chatroom.updated``: the room channel has no per-recipient
-    filtering, and each client's re-read answers for that client. Commits first so
-    the frame never announces a write a later rollback could undo, and swallows
-    transport failure: the change is durable, and a missed refresh is reconciled
-    by the client's reconnect re-read.
-    """
+    """Commit, then tell the room's open clients to re-read the roster ([R13.19])."""
     await db.commit()
-    try:
-        await Publisher(room_channel(chatroom_id)).emit(
-            "chatroom.members_changed", {"chatroom_id": str(chatroom_id)}
-        )
-    except Exception:
-        logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
-            "chatroom.members_changed emit failed"
-        )
+    await emit_members_changed(chatroom_id)
 
 
 # -- Guest WS ticket (AC-7) --

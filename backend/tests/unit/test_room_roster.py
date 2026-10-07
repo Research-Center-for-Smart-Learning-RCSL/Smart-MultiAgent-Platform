@@ -1,6 +1,6 @@
 """The room roster names everyone present, and a rename reaches open rooms -- AC-1.
 
-Spec: ``docs/tasks/2026-10-07-room-roster-completeness/spec.md`` §7, §8.
+Spec: ``docs/tasks/2026-10-07-room-roster-completeness/spec.md`` 禮7, 禮8.
 
 The roster's id set was message authors plus guest records, so a member who opened
 a room and read without posting was listed, typed and left out of the mention list
@@ -20,10 +20,15 @@ import pytest
 
 import app.api.v1.auth as auth_mod
 import app.api.v1.chatrooms as chatrooms_mod
+import contexts.conversation.infrastructure.channels as channels_mod
 import contexts.conversation.interfaces.facade as facade_mod
+import contexts.identity.application.auth_service as auth_service_mod
 from contexts.conversation.application.access import RoomAccess
 from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.application.auth_service import AuthService
+from contexts.identity.application.email_domain_policy_reader import EmailDomainPolicyReader
 from contexts.identity.domain.models import UserStatus
 from contexts.identity.interfaces.facade import UserProfile
 from shared_kernel.auth.context import RequestContext
@@ -44,7 +49,7 @@ def _wire_roster(
     guest_sessions: dict[uuid.UUID, str] | None = None,
     registered: dict[uuid.UUID, str | None] | None = None,
     unaffiliated: frozenset[uuid.UUID] = frozenset(),
-    account_names: dict[uuid.UUID, str] | None = None,
+    account_names: dict[uuid.UUID, str | None] | None = None,
 ) -> None:
     room = chatroom_row()
     access = RoomAccess(
@@ -77,7 +82,7 @@ def _wire_roster(
         def __init__(self, db: object) -> None:
             pass
 
-        async def get_display_names(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        async def get_display_names(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str | None]:
             return {i: n for i, n in (account_names or {}).items() if i in ids}
 
     monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
@@ -95,6 +100,31 @@ class TestRosterIncludesPresentUsers:
         )
 
         assert [(m.user_id, m.display_name, m.kind) for m in roster] == [(reader, "Alice", "member")]
+
+    async def test_a_present_account_without_a_name_is_listed_unnamed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        reader = uuid.uuid4()
+        _wire_roster(monkeypatch, present=[reader], account_names={reader: None})
+
+        roster = await chatrooms_mod.list_chatroom_members(
+            chatroom_id=uuid.uuid4(), principal=_member(), db=object()
+        )
+
+        assert [(m.user_id, m.display_name, m.kind) for m in roster] == [(reader, None, "member")]
+
+    async def test_a_present_id_that_is_no_account_is_not_listed_as_a_member(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """/code-review: a guest session past `list_labels`' cap, or one whose row is gone
+        while its socket is open, is not in `guests.sessions`; it must not become a member."""
+        _wire_roster(monkeypatch, present=[uuid.uuid4()])
+
+        roster = await chatrooms_mod.list_chatroom_members(
+            chatroom_id=uuid.uuid4(), principal=_member(), db=object()
+        )
+
+        assert roster == []
 
     async def test_a_present_guest_session_is_listed_once_as_a_session(
         self, monkeypatch: pytest.MonkeyPatch
@@ -159,12 +189,10 @@ def _wire_rename(
         async def get_profile(self, uid: uuid.UUID) -> UserProfile:
             return _profile(user_id, stored["name"])
 
-        async def get_display_names(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str | None]:
-            return {i: stored["name"] for i in ids if i == user_id}
-
-    async def _update_display_name(**kwargs: object) -> str | None:
+    async def _update_display_name(**kwargs: object) -> bool:
+        changed = stored["name"] != after
         stored["name"] = after
-        return after
+        return changed
 
     class _Presence:
         async def list_user_rooms(self, uid: uuid.UUID) -> list[uuid.UUID]:
@@ -184,8 +212,8 @@ def _wire_rename(
     service = SimpleNamespace(update_display_name=_update_display_name)
     monkeypatch.setattr(auth_mod, "_service", lambda db: service)
     monkeypatch.setattr(auth_mod, "IdentityFacade", _Identity)
-    monkeypatch.setattr(facade_mod, "PresenceTracker", _Presence, raising=False)
-    monkeypatch.setattr(facade_mod, "Publisher", _publisher, raising=False)
+    monkeypatch.setattr(facade_mod, "PresenceTracker", _Presence)
+    monkeypatch.setattr(channels_mod, "Publisher", _publisher)
     return MagicMock(commit=AsyncMock(side_effect=_commit))
 
 
@@ -251,3 +279,57 @@ class TestProfileRenameReachesOpenRooms:
         )
 
         assert out.display_name == "Alicia"
+
+
+class _BrokenPresence:
+    async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
+        raise ConnectionError("redis down")
+
+    async def list_user_rooms(self, user_id: uuid.UUID) -> list[uuid.UUID]:
+        raise ConnectionError("redis down")
+
+
+class TestPresenceOutage:
+    """/code-review: presence only adds names, so a Redis outage must not fail the
+    Postgres-backed roster or a rename that has already been committed."""
+
+    async def test_the_roster_reads_no_present_users(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(facade_mod, "PresenceTracker", _BrokenPresence)
+
+        assert await ConversationFacade(MagicMock()).present_user_ids(uuid.uuid4()) == []
+
+    async def test_the_rename_announcement_gives_up_quietly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(facade_mod, "PresenceTracker", _BrokenPresence)
+
+        await ConversationFacade(MagicMock()).announce_participant_renamed(uuid.uuid4())
+
+
+class TestDisplayNameChange:
+    """The service reports whether the stored name changed; only a change is announced."""
+
+    @pytest.mark.parametrize(
+        ("stored", "sent", "changed"),
+        [("Alice", "Alicia", True), ("Alice", "  Alice ", False), (None, None, False), ("Alice", None, True)],
+    )
+    async def test_reports_a_change_against_the_stored_name(
+        self, monkeypatch: pytest.MonkeyPatch, stored: str | None, sent: str | None, changed: bool
+    ) -> None:
+        svc = AuthService(
+            db=AsyncMock(),
+            hasher=MagicMock(),
+            email_sender=AsyncMock(),
+            public_origin="https://smap.test",
+            email_domain_policy=EmailDomainPolicyReader(
+                repository=AsyncMock(), mirror=AsyncMock(), legacy=AsyncMock()
+            ),
+        )
+        users = AsyncMock()
+        users.get_by_id.return_value = SimpleNamespace(display_name=stored)
+        svc._users = users
+        monkeypatch.setattr(auth_service_mod.audit, "emit", AsyncMock())
+
+        result = await svc.update_display_name(
+            user_id=uuid.uuid4(), display_name=sent, remote_ip=None, request_id=None
+        )
+
+        assert result is changed

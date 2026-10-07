@@ -7,6 +7,7 @@ they never import repositories or tables directly.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
@@ -37,7 +38,7 @@ from contexts.conversation.domain.models import (
     SenderType,
     Workspace,
 )
-from contexts.conversation.infrastructure.channels import room_channel
+from contexts.conversation.infrastructure.channels import emit_members_changed
 from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
@@ -50,7 +51,6 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
-from shared_kernel.realtime.pubsub import Publisher
 
 # Ceiling on the candidate rooms one visibility-filtered listing will read.
 #
@@ -461,32 +461,34 @@ class ConversationFacade:
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
 
     async def present_user_ids(self, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
-        """Principals with a live connection to the room: user ids and guest session ids."""
-        return await PresenceTracker().list_room(chatroom_id)
+        """Principals with a live connection to the room: user ids and guest session ids.
+
+        Empty when presence cannot be read: the roster only uses it to name more
+        people, and a Redis outage must not take down the Postgres-backed names too.
+        """
+        try:
+            return await PresenceTracker().list_room(chatroom_id)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "presence read for roster failed"
+            )
+            return []
 
     async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
         """Tell every room the user is present in to re-read its roster ([R13.19]).
 
         Only rooms with a live connection: those are where the old name sits beside
         a live participant, and the presence index bounds the fan-out. The caller
-        commits the rename first. Ids only, and transport failure is swallowed, as
-        for a guest rename: the name is durable, and a missed frame is reconciled by
-        the client's focus or reconnect re-read.
+        commits the rename first. Failures are swallowed, as for a guest rename: the
+        name is durable, and a missed frame is reconciled by the client's focus or
+        reconnect re-read.
         """
         try:
             room_ids = await PresenceTracker().list_user_rooms(user_id)
         except Exception:
             logger.opt(exception=True).warning("presence read for rename announcement failed")
             return
-        for room_id in room_ids:
-            try:
-                await Publisher(room_channel(room_id)).emit(
-                    "chatroom.members_changed", {"chatroom_id": str(room_id)}
-                )
-            except Exception:
-                logger.bind(room_id=str(room_id)).opt(exception=True).warning(
-                    "chatroom.members_changed emit failed"
-                )
+        await asyncio.gather(*(emit_members_changed(room_id) for room_id in room_ids))
 
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)
