@@ -463,26 +463,24 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   rows that list this slug, `2026-10-05-guest-kick-and-ban` still waits on
   `2026-10-05-guest-session-backend-hardening`, so it stays in Blocked.
 
-- `2026-10-05-guest-session-backend-hardening` (bugfix, **approved 2026-10-05**) -
-  `depends_on: [2026-10-05-guest-frontend-session-lifecycle]`, implemented. Audit F-14, F-15, F-16,
-  F-17, F-21: one guest audit shape for every guest-caused row, an advisory lock on joins (cap and
-  duplicate `browser_id`), dead workspace/project rooms as invalid links and a 4404 "room no longer
-  exists" close (also fixes a members-affecting socket fail-open), guest orchestration reads as
-  404/omitted, atomic refresh rotation. Also takes the lifecycle dossier's FU-7 (room existence
-  answered before the link or cookie check) and FU-9 (a deleted room's 404 ticket retries with no
-  banner).
-
-## Blocked
-
-### From the 2026-10-05 guest audit
+- (implemented 2026-10-06) `2026-10-05-guest-session-backend-hardening`. AC-1..AC-7 verified on
+  PR #237 (CI green at `5f002c9b`, db tier and e2e included; fail-first observed on throwaway
+  draft #236). One guest audit shape owned by `audit.emit`, a per-room join lock, single-use
+  refresh rotation, dead workspace/project rooms as invalid links with a 4404 "room no longer
+  exists" close for every viewer, guest orchestration reads as 404/omitted, and the lifecycle
+  dossier's FU-7 and FU-9. Deviations D-1..D-13 (D-1, D-4, D-5, D-12 the requester's choices) and
+  FU-5..FU-15 are in the dossier; FU-6 (any sender may delete the whole canvas) wants a decision.
+  Not observed on a running stack. Unblocks `2026-10-05-guest-kick-and-ban`, now below.
 
 - `2026-10-05-guest-kick-and-ban` (feature, **approved 2026-10-05**, SRS Delta applied: [R6.12] and
   [R13.07] rewritten, [R13.07a] added) - `depends_on: [2026-10-05-guest-frontend-session-lifecycle,
-  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]` (the lifecycle and
-  sender-marking dossiers are implemented; backend-hardening is not yet). Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked
-  session checked at the room access choke point; durable ban table keyed by session and a hash of
-  the browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`.
-  Last of the guest-audit dossiers.
+  2026-10-05-guest-session-backend-hardening, 2026-10-05-guest-sender-marking]`, all implemented.
+  Audit F-24: moderators (matrix row 18) remove or ban a single anonymous guest (revoked session
+  checked at the room access choke point; durable ban table keyed by session and a hash of the
+  browser id), list and lift bans in room settings, and rotate the guest link. Migration `0099`
+  (take the revision number from `alembic heads`). Last of the guest-audit dossiers.
+
+## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
@@ -670,6 +668,7 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).

@@ -240,6 +240,14 @@
       {{ t('conversation.guest.guestDisabled') }}
     </SAlert>
 
+    <SAlert
+      v-if="roomGone"
+      variant="danger"
+      class="chatroom__guest-banner"
+    >
+      {{ t('conversation.chatroom.roomGone') }}
+    </SAlert>
+
     <div class="chatroom__typing">
       <ChatroomTypingIndicator :typers="typers" />
       <SDraftDisclosureChip v-if="draftsReadable" />
@@ -248,7 +256,7 @@
     <ChatroomComposer
       v-model="draft"
       class="chatroom__composer"
-      :disabled="guestEnd !== null"
+      :disabled="guestEnd !== null || roomGone"
       :pending-uploads="pendingUploads"
       :agents="mentionables"
       @submit="send"
@@ -1081,12 +1089,22 @@ const guestSessionStore = useGuestSessionStore()
 
 const CLOSE_AUTH_FAILED = 4401
 const CLOSE_GUEST_DISABLED = 4403
+const CLOSE_ROOM_GONE = 4404
+
+// A member has no guest session to record the end on, so the view holds it.
+const roomGoneForMember = ref(false)
 
 // Keyed on the context, not the token: the token may already be null. 4401 is
 // the server's "re-handshake" signal (ws_auth.py), not proof the session is
 // gone, so it triggers a refresh whose answer decides: only an answered
 // 401/403/404 records an end, and anything else lets the reconnect proceed.
+// 4404 means the room's workspace or project was deleted, for every viewer.
 const unsubscribeCloseCode = wsChannel.onCloseCode((code) => {
+  if (code === CLOSE_ROOM_GONE) {
+    if (holdsGuestContext.value) guestSessionStore.markGone()
+    else roomGoneForMember.value = true
+    return
+  }
   if (!holdsGuestContext.value) return
   if (code === CLOSE_AUTH_FAILED) void refreshAccessToken()
   else if (code === CLOSE_GUEST_DISABLED) guestSessionStore.markDisabled()
@@ -1099,12 +1117,15 @@ const guestEnd = computed(() =>
     : null,
 )
 
-// An ended session gets no reconnect loop: nothing it could reconnect with is
-// left. Registered after useChatroomSocket's own mount/activate hooks, which
-// connect, so this runs after them.
+const roomGone = computed(() => roomGoneForMember.value || guestEnd.value === 'gone')
+
+// An ended session, or a room that no longer exists, gets no reconnect loop:
+// nothing it could reconnect to is left. Registered after useChatroomSocket's
+// own mount/activate hooks, which connect, so this runs after them.
 function stopSocketIfEnded(): void {
-  if (guestEnd.value !== null) wsChannel.disconnect()
+  if (guestEnd.value !== null || roomGone.value) wsChannel.disconnect()
 }
+watch(roomGone, stopSocketIfEnded)
 watch(guestEnd, stopSocketIfEnded)
 onMounted(stopSocketIfEnded)
 onActivated(stopSocketIfEnded)

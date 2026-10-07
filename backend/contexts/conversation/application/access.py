@@ -94,29 +94,17 @@ async def resolve_room_access(
     if principal.is_guest:
         return await _resolve_guest_access(db, principal=principal, chatroom_id=chatroom_id)
 
-    chatrooms = ChatroomRepository(db)
-    workspaces = WorkspaceRepository(db)
-    tenancy = TenancyFacade(db)
     guests = ChatroomGuestRepository(db)
 
-    chatroom = await chatrooms.get(chatroom_id)
+    chatroom = await ChatroomRepository(db).get(chatroom_id)
     if chatroom is None:
         raise ChatroomNotFound(str(chatroom_id))
-
-    workspace = await workspaces.get(chatroom.workspace_id)
-    if workspace is None:
-        raise WorkspaceNotFound(str(chatroom.workspace_id))
-
-    # Confirm the parent project exists and is not soft-deleted. If it is, the
-    # room is effectively unreachable.
-    project = await tenancy.get_project(workspace.project_id)
-    if project is None:
-        raise ChatroomNotFound(str(chatroom_id))
+    project_id = await ensure_parents_live(db, chatroom)
 
     resolver = TenancyRoleResolver(db)
     roles = await resolver.roles_for(
         principal,
-        Scope(project_id=project.id, chatroom_id=chatroom_id),
+        Scope(project_id=project_id, chatroom_id=chatroom_id),
     )
     is_guest = await guests.is_guest(
         chatroom_id=chatroom_id,
@@ -124,11 +112,35 @@ async def resolve_room_access(
     )
     return RoomAccess(
         chatroom=chatroom,
-        project_id=project.id,
+        project_id=project_id,
         roles=roles,
         is_guest=is_guest,
         in_bound_group=await _in_bound_group(db, principal=principal, chatroom=chatroom),
     )
+
+
+async def ensure_parents_live(db: AsyncSession, room: Chatroom) -> uuid.UUID:
+    """The room's project id; raises ``ChatroomNotFound`` unless the room's
+    workspace and project are live.
+
+    Workspace and project soft deletes do not cascade to their rooms, so a room
+    row that is not deleted can still be unreachable. Every miss is the same
+    not-found, so a dead parent reads exactly like a bad link ([R13.32]).
+    """
+    workspace = await WorkspaceRepository(db).get(room.workspace_id)
+    project = None if workspace is None else await TenancyFacade(db).get_project(workspace.project_id)
+    if project is None:
+        raise ChatroomNotFound(str(room.id))
+    return project.id
+
+
+async def ensure_room_live(db: AsyncSession, chatroom_id: uuid.UUID) -> Chatroom:
+    """The room, provided it and its workspace and project are all live ([R6.12])."""
+    room = await ChatroomRepository(db).get(chatroom_id)
+    if room is None:
+        raise ChatroomNotFound(str(chatroom_id))
+    await ensure_parents_live(db, room)
+    return room
 
 
 async def _resolve_guest_access(
@@ -149,17 +161,9 @@ async def _resolve_guest_access(
     if chatroom is None:
         raise ChatroomNotFound(str(chatroom_id))
 
-    workspace = await WorkspaceRepository(db).get(chatroom.workspace_id)
-    if workspace is None:
-        raise WorkspaceNotFound(str(chatroom.workspace_id))
-
-    project = await TenancyFacade(db).get_project(workspace.project_id)
-    if project is None:
-        raise ChatroomNotFound(str(chatroom_id))
-
     return RoomAccess(
         chatroom=chatroom,
-        project_id=project.id,
+        project_id=await ensure_parents_live(db, chatroom),
         roles=frozenset(),
         is_guest=True,
     )
@@ -352,7 +356,14 @@ async def _room_readable(
     `ForbiddenInRoom`, for the reason `visible_room_ids` gives: one predicate,
     no second copy of the tier logic. Admin is the caller's business — both
     public entry points below bypass before reaching here.
+
+    A guest's token names one room, and the guest branch of
+    `resolve_room_access` raises `ForbiddenInRoom` for any other; that is a
+    "not readable" here, so a single read answers 404 and a listing omits the
+    row rather than failing whole ([R15.24]).
     """
+    if principal.is_guest and principal.chatroom_id != chatroom_id:
+        return False
     try:
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     except (ChatroomNotFound, WorkspaceNotFound):
@@ -527,7 +538,9 @@ __all__ = [
     "can_read_orchestration_record",
     "ensure_can_read",
     "ensure_can_send",
+    "ensure_parents_live",
     "ensure_room_creator",
+    "ensure_room_live",
     "export_sender_scope",
     "filter_readable_by_room",
     "is_moderator_roles",

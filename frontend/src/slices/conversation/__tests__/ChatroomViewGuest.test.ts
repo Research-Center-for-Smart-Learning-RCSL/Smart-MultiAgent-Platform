@@ -255,6 +255,9 @@ describe('ChatroomView when the guest session ends', () => {
 
     setAccessToken(null)
     socket.serverClose(4401)
+    // A refused guest refresh is retried once after 500 ms before it ends the
+    // session (a sibling tab may have rotated the shared cookie).
+    await new Promise((r) => setTimeout(r, 700))
     await settle()
 
     expect(wrapper.text()).toContain(expiredKey)
@@ -307,6 +310,59 @@ describe('ChatroomView when the guest session ends', () => {
     expect(wrapper.text()).toContain(disabledKey)
     expect(socket.closedWith).toBe(1000)
     expect(FakeWebSocket.instances).toHaveLength(before)
+    expect(composerDisabled(wrapper)).toBe(true)
+  })
+
+  // docs/tasks/2026-10-05-guest-session-backend-hardening (AC-3, Q-3): a room
+  // whose workspace or project was deleted closes 4404 for every viewer.
+  const goneKey = 'conversation.chatroom.roomGone'
+
+  it.each([
+    ['a guest', () => { enterAsGuest(); setGuestContext('cr_1') }],
+    ['a member', () => {
+      useSessionStore().me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    }],
+  ])('a 4404 close shows %s that the room is gone and stops reconnecting', async (_who, enter) => {
+    enter()
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.open()
+    const before = FakeWebSocket.instances.length
+
+    socket.serverClose(4404)
+    await settle()
+    await new Promise((r) => setTimeout(r, 1200))
+    await settle()
+
+    expect(wrapper.text()).toContain(goneKey)
+    expect(wrapper.text()).not.toContain(expiredKey)
+    expect(FakeWebSocket.instances).toHaveLength(before)
+    expect(composerDisabled(wrapper)).toBe(true)
+  })
+
+  // Lifecycle FU-9: a guest whose socket dropped for another reason reconnects
+  // through the ticket, which is where a deleted room answers.
+  it('shows a guest that the room is gone when the reconnect ticket says so', async () => {
+    let tickets = 0
+    server.use(
+      http.post('/api/guest/ws-ticket', () => {
+        tickets += 1
+        return HttpResponse.json(
+          { type: 'https://smap.local/problems/conversation/chatroom-not-found', title: 't', status: 404 },
+          { status: 404 },
+        )
+      }),
+    )
+    enterAsGuest()
+    setGuestContext('cr_1')
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    await settle()
+    await new Promise((r) => setTimeout(r, 1200))
+    await settle()
+
+    expect(wrapper.text()).toContain(goneKey)
+    expect(tickets).toBe(1)
     expect(composerDisabled(wrapper)).toBe(true)
   })
 

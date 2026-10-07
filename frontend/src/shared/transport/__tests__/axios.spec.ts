@@ -378,6 +378,11 @@ describe('guest session refresh', () => {
     title: 'Guest token invalid',
     status: 404,
   }
+  const ROOM_GONE = {
+    type: 'https://smap.local/problems/conversation/chatroom-not-found',
+    title: 'Chatroom not found',
+    status: 404,
+  }
 
   it('refreshes on the canonical (lower-case) room path the cookie is scoped to', async () => {
     let hit = ''
@@ -417,6 +422,51 @@ describe('guest session refresh', () => {
     expect(guestSessionEnd.value).toBe('expired')
   })
 
+  // docs/tasks/2026-10-05-guest-session-backend-hardening D-12: tabs share the
+  // cookie, so a sibling that rotated it first makes this refresh lose once.
+  it('retries once when a sibling tab rotated the shared cookie first', async () => {
+    let calls = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        calls += 1
+        return calls === 1
+          ? HttpResponse.json(INVALID, { status: 404 })
+          : HttpResponse.json({ access_token: 'guest-2' })
+      }),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBe('guest-2')
+    expect(calls).toBe(2)
+    expect(guestSessionEnd.value).toBeNull()
+  })
+
+  it('ends the session when the retry is refused too, and retries nothing else', async () => {
+    let calls = 0
+    server.use(
+      mswHttp.post('/api/guest/:room/refresh', () => {
+        calls += 1
+        return HttpResponse.json(INVALID, { status: 404 })
+      }),
+    )
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(calls).toBe(2)
+    expect(guestSessionEnd.value).toBe('expired')
+
+    calls = 0
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => {
+      calls += 1
+      return HttpResponse.json(DISABLED, { status: 403 })
+    }))
+    setGuestContext(ROOM)
+    await refreshAccessToken()
+    expect(calls).toBe(1)
+  })
+
   it('records a disabled session when the refresh is answered guest-access-disabled', async () => {
     server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(DISABLED, { status: 403 })))
     setGuestContext(ROOM)
@@ -433,6 +483,27 @@ describe('guest session refresh', () => {
 
     await expect(fetchWsTicket()).rejects.toBeInstanceOf(PermissionError)
     expect(guestSessionEnd.value).toBe('disabled')
+  })
+
+  // docs/tasks/2026-10-05-guest-session-backend-hardening (AC-3, lifecycle FU-9):
+  // a deleted room answers chatroom-not-found, which is neither an expiry nor a
+  // retryable fault.
+  it('records a gone room when the refresh is answered chatroom-not-found', async () => {
+    server.use(mswHttp.post('/api/guest/:room/refresh', () => HttpResponse.json(ROOM_GONE, { status: 404 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    expect(await refreshAccessToken()).toBeNull()
+    expect(guestSessionEnd.value).toBe('gone')
+  })
+
+  it('records a gone room when the socket ticket is answered chatroom-not-found', async () => {
+    server.use(mswHttp.post('/api/guest/ws-ticket', () => HttpResponse.json(ROOM_GONE, { status: 404 })))
+    setGuestContext(ROOM)
+    setAccessToken('guest-1')
+
+    await expect(fetchWsTicket()).rejects.toBeTruthy()
+    expect(guestSessionEnd.value).toBe('gone')
   })
 
   it('a new guest context forgets how the previous one ended', async () => {
@@ -625,6 +696,7 @@ describe('resumeGuestSession (boot restore)', () => {
   it.each([
     [404, 'conversation/guest-token-invalid', 'expired'],
     [403, 'conversation/guest-access-disabled', 'disabled'],
+    [404, 'conversation/chatroom-not-found', 'gone'],
   ] as const)('keeps the context and records the end for a %s answer', async (status, type, end) => {
     server.use(
       mswHttp.post(`/api/guest/${ROOM}/refresh`, () =>

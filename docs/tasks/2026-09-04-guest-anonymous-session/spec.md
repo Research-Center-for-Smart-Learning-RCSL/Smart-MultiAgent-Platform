@@ -822,6 +822,14 @@ verification gate.
   silently overwrite the user's access token, breaking their session for non-chatroom
   endpoints. Phase 3's choice UI replaces this guard.
 
+- **D-7: AC-9's audit shape holds only for rows written after 2026-10-06.** Until
+  `2026-10-05-guest-session-backend-hardening` shipped, the guest session events wrote
+  `actor_user_id = NULL` with `guest_session_id` in metadata, and `message.sent`,
+  `attachment.uploaded` and `activity.submitted` carried the guest id with no `guest` key.
+  `audit_logs` is append-only (`backend/alembic/versions/0004_audit.py`), so those rows keep
+  their shapes; an investigation that must reach them also queries
+  `metadata->>'guest_session_id'`, which the session events still write.
+
 ## 16. Follow-ups
 
 - **FU-1: Guest session analytics.** Dashboard for room owners showing guest session

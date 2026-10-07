@@ -9,7 +9,12 @@ contexts framework-free and lets `app/api/ws/*` stay thin.
 
 from __future__ import annotations
 
-from shared_kernel.realtime.connection import ChannelConnection, connection_loop
+from shared_kernel.realtime.connection import (
+    AccessOutcome,
+    ChannelConnection,
+    connection_loop,
+    refuse_after_accept,
+)
 from shared_kernel.realtime.ws_auth import (
     WsAuthError,
     authenticate_subprotocol,
@@ -17,9 +22,11 @@ from shared_kernel.realtime.ws_auth import (
 )
 
 __all__ = [
+    "AccessOutcome",
     "ChannelConnection",
     "WsAuthError",
     "authenticate_subprotocol",
     "connection_loop",
     "mint_ws_ticket",
+    "refuse_after_accept",
 ]

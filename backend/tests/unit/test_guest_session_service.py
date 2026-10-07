@@ -8,6 +8,7 @@ validation.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +18,6 @@ from contexts.conversation.application.guest_session_service import (
     GuestSessionService,
 )
 from contexts.conversation.domain.errors import (
-    ChatroomNotFound,
     GuestAccessDisabled,
     GuestCapReached,
     GuestTokenInvalid,
@@ -54,6 +54,16 @@ def _fake_session(
     )
 
 
+_SERVICE = "contexts.conversation.application.guest_session_service"
+
+
+@pytest.fixture(autouse=True)
+def live_parents() -> Iterator[None]:
+    """The room's workspace and project are live; test_guest_room_liveness covers the rest."""
+    with patch(f"{_SERVICE}.ensure_parents_live", AsyncMock()):
+        yield
+
+
 @pytest.fixture
 def db() -> AsyncMock:
     return AsyncMock()
@@ -81,7 +91,7 @@ async def test_create_session_returns_tokens(service: GuestSessionService) -> No
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=None)
-        sessions.count_active_for_update = AsyncMock(return_value=0)
+        sessions.count_active = AsyncMock(return_value=0)
         sessions.create = AsyncMock(return_value=new_session)
         mock_audit.emit = AsyncMock()
         sign.return_value = ("jwt-token", MagicMock())
@@ -146,7 +156,7 @@ async def test_cap_reached_raises(service: GuestSessionService) -> None:
     ):
         rooms.get = AsyncMock(return_value=room)
         sessions.find_by_browser_id = AsyncMock(return_value=None)
-        sessions.count_active_for_update = AsyncMock(return_value=50)
+        sessions.count_active = AsyncMock(return_value=50)
 
         with pytest.raises(GuestCapReached):
             await service.create_or_resume(
@@ -192,11 +202,12 @@ async def test_guest_links_disabled_raises(service: GuestSessionService) -> None
 
 
 @pytest.mark.asyncio
-async def test_missing_room_raises(service: GuestSessionService) -> None:
+async def test_missing_room_answers_like_a_wrong_link(service: GuestSessionService) -> None:
+    """Lifecycle FU-7: room existence is not answered before the link check."""
     with patch.object(service, "_rooms") as rooms:
         rooms.get = AsyncMock(return_value=None)
 
-        with pytest.raises(ChatroomNotFound):
+        with pytest.raises(GuestTokenInvalid):
             await service.create_or_resume(
                 chatroom_id=uuid.uuid4(),
                 guest_token="any",
@@ -214,17 +225,15 @@ async def test_refresh_returns_new_tokens(service: GuestSessionService) -> None:
     existing = _fake_session(chatroom_id=cr_id)
 
     with (
-        patch.object(service, "_rooms") as rooms,
+        patch(f"{_SERVICE}.ensure_room_live", AsyncMock(return_value=room)),
         patch.object(service, "_sessions") as sessions,
         patch("contexts.conversation.application.guest_session_service.sign_guest_token") as sign,
         patch("contexts.conversation.application.guest_session_service.token_utils") as tu,
         patch("contexts.conversation.application.guest_session_service.audit") as mock_audit,
     ):
-        rooms.get = AsyncMock(return_value=room)
-        tu.hash_refresh.return_value = existing.refresh_token_hash
+        tu.hash_refresh.side_effect = lambda token: f"hash:{token}"
         tu.new_refresh_token.return_value = "new-refresh"
-        sessions.find_by_refresh_hash = AsyncMock(return_value=existing)
-        sessions.update_refresh_hash = AsyncMock()
+        sessions.rotate_refresh = AsyncMock(return_value=existing)
         mock_audit.emit = AsyncMock()
         sign.return_value = ("new-jwt", MagicMock())
 
@@ -236,6 +245,9 @@ async def test_refresh_returns_new_tokens(service: GuestSessionService) -> None:
     assert result.access_token == "new-jwt"
     assert result.refresh_token == "new-refresh"
     assert result.guest_session_id == existing.id
+    sessions.rotate_refresh.assert_awaited_once_with(
+        old_hash="hash:old-refresh", new_hash="hash:new-refresh", chatroom_id=cr_id
+    )
 
 
 # -- guest-room-read-and-identity AC-4: roster changes are reported --

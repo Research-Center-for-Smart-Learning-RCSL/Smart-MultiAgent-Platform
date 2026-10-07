@@ -273,6 +273,7 @@ class TusService:
         chunk: bytes | bytearray,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> TusPatchResult:
         upload = await self._store.get(upload_id)
         if upload is None or upload.user_id != user_id:
@@ -389,6 +390,7 @@ class TusService:
                     size_bytes=staged_bytes,
                     actor_ip=actor_ip,
                     request_id=request_id,
+                    actor_guest_room_id=actor_guest_room_id,
                 )
             elif upload.purpose == "knowmap_source":
                 assert upload.knowmap_config_id is not None

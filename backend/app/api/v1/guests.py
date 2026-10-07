@@ -142,6 +142,7 @@ async def refresh_guest_session(
     request: Request,
     response: Response,
     chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> GuestRefreshOut:
     cookie_name = _refresh_cookie_name(chatroom_id)
@@ -153,6 +154,8 @@ async def refresh_guest_session(
     result = await facade.refresh_guest_session(
         chatroom_id=chatroom_id,
         refresh_token=refresh_token,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
 
     settings = get_settings()
@@ -186,6 +189,7 @@ class GuestDisplayNameOut(BaseModel):
 async def update_guest_display_name(
     body: GuestDisplayNameIn,
     guest_session_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> GuestDisplayNameOut:
@@ -199,6 +203,8 @@ async def update_guest_display_name(
     result = await facade.update_guest_display_name(
         guest_session_id=guest_session_id,
         display_name=body.display_name,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     if result.changed:
         await _emit_members_changed(db, principal.chatroom_id)

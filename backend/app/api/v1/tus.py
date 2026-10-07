@@ -390,6 +390,7 @@ async def tus_patch(
         chunk=body,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        actor_guest_room_id=principal.guest_room_id,
     )
     headers = _tus_base_headers() | {"Upload-Offset": str(result.new_offset)}
     # X-SMAP-Resource lets the client jump straight to the created resource

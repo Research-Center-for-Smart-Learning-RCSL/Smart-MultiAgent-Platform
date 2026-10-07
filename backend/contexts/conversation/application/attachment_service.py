@@ -131,6 +131,7 @@ class AttachmentService:
         data: bytes,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> MessageAttachment:
         if len(data) > SINGLE_SHOT_MAX_BYTES:
             raise AttachmentTooLarge(
@@ -159,6 +160,7 @@ class AttachmentService:
             minio_path=f"{self._minio.chat_uploads_bucket}/{key}",
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_guest_room_id=actor_guest_room_id,
         )
 
     # ---- tus completion ---------------------------------------------------
@@ -176,6 +178,7 @@ class AttachmentService:
         size_bytes: int,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_guest_room_id: uuid.UUID | None = None,
     ) -> MessageAttachment:
         """Upload the staged file to MinIO and persist the attachment row.
 
@@ -205,6 +208,7 @@ class AttachmentService:
             minio_path=f"{self._minio.chat_uploads_bucket}/{key}",
             actor_ip=actor_ip,
             request_id=request_id,
+            actor_guest_room_id=actor_guest_room_id,
         )
 
     # ---- shared insert + audit + scan enqueue -----------------------------
@@ -221,6 +225,7 @@ class AttachmentService:
         minio_path: str,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
+        actor_guest_room_id: uuid.UUID | None,
     ) -> MessageAttachment:
         expires = now() + ATTACHMENT_TTL
         row = await self._repo.create(
@@ -249,6 +254,7 @@ class AttachmentService:
                     "minio_path": minio_path,
                 },
                 request_id=request_id,
+                actor_guest_room_id=actor_guest_room_id,
             ),
         )
         # Scan is fire-and-forget via Arq; failing to enqueue must NOT fail

@@ -133,6 +133,7 @@ def _authority_from(
         actor_user_id=principal.user_id,
         is_admin=principal.is_admin,
         is_moderator=access.is_moderator,
+        actor_guest_room_id=principal.guest_room_id,
     )
 
 

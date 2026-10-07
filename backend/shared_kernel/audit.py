@@ -110,6 +110,18 @@ class AuditEvent:
     metadata: dict[str, Any] = field(default_factory=dict)
     session_id: uuid.UUID | None = None
     request_id: uuid.UUID | None = None
+    # Set when the actor is an anonymous guest: the room its session belongs to.
+    # Taken from the acting principal, never from the subject, so an admin acting
+    # on a guest's resource stays an untagged actor. `emit` owns the resulting
+    # metadata shape so call sites cannot drift (guest dossier AC-9).
+    actor_guest_room_id: uuid.UUID | None = None
+
+
+def _metadata_of(event: AuditEvent) -> dict[str, Any]:
+    metadata = dict(event.metadata or {})
+    if event.actor_guest_room_id is not None:
+        metadata |= {"guest": True, "chatroom_id": str(event.actor_guest_room_id)}
+    return metadata
 
 
 async def emit(session: AsyncSession, event: AuditEvent, *, isolated: bool = False) -> bool:
@@ -138,7 +150,7 @@ async def emit(session: AsyncSession, event: AuditEvent, *, isolated: bool = Fal
     tool ran cleanly when its record did not (docs/tasks/
     2026-07-22-tool-dispatch-failure-categories AC-4).
     """
-    payload = redact(event.metadata or {})
+    payload = redact(_metadata_of(event))
     stmt = audit_logs.insert().values(
         actor_user_id=event.actor_user_id,
         actor_ip=event.actor_ip,

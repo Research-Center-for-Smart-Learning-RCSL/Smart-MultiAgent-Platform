@@ -91,6 +91,7 @@
       "sending": "Sending…",
       "uploadFailed": "(failed) {filename}",
       "sendFailed": "Failed to send message.",
+      "roomGone": "This room no longer exists.",
       "searchFailed": "Search failed.",
       "exportQueued": "Export queued ({jobId}). Download will be ready shortly.",
       "exportFailed": "Failed to start export.",

@@ -13,6 +13,7 @@ guest token, so naming the reason discloses nothing to an outsider ([R13.32]).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -58,6 +59,13 @@ def _session(chatroom_id: uuid.UUID) -> GuestSession:
         last_seen_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
     )
+
+
+@pytest.fixture(autouse=True)
+def live_parents() -> Iterator[None]:
+    """The room's workspace and project are live; test_guest_room_liveness covers the rest."""
+    with patch(f"{_SERVICE}.ensure_parents_live", AsyncMock()):
+        yield
 
 
 @pytest.fixture
@@ -131,40 +139,39 @@ async def test_registered_enrol_with_links_off_names_the_reason() -> None:
 # -- links off on refresh: the cookie is matched first --
 
 
-async def test_refresh_with_links_off_names_the_reason_and_rotates_nothing(
+async def test_refresh_with_links_off_names_the_reason_and_audits_nothing(
     service: GuestSessionService,
 ) -> None:
+    """The rotation runs first and is undone by the route's rollback on this
+    refusal (spec 2026-10-05-guest-session-backend-hardening Q-6); that the cookie
+    survives is proven against Postgres in test_guest_session_hardening_db."""
     cr = uuid.uuid4()
     with (
-        patch.object(service, "_rooms") as rooms,
+        patch(f"{_SERVICE}.ensure_room_live", AsyncMock(return_value=_room(cr, links=False))),
         patch.object(service, "_sessions") as sessions,
         patch(f"{_SERVICE}.audit") as audit,
     ):
-        rooms.get = AsyncMock(return_value=_room(cr, links=False))
-        sessions.find_by_refresh_hash = AsyncMock(return_value=_session(cr))
-        sessions.update_refresh_hash = AsyncMock()
+        sessions.rotate_refresh = AsyncMock(return_value=_session(cr))
         audit.emit = AsyncMock()
         with pytest.raises(GuestAccessDisabled):
             await service.refresh(chatroom_id=cr, refresh_token="live-cookie")
-        sessions.update_refresh_hash.assert_not_awaited()
+        audit.emit.assert_not_awaited()
 
 
-@pytest.mark.parametrize("cookie", ["unknown", "foreign"])
 async def test_an_unmatched_cookie_on_a_links_off_room_answers_like_a_links_on_room(
-    service: GuestSessionService, cookie: str
+    service: GuestSessionService,
 ) -> None:
     """Otherwise any request with an arbitrary cookie value could learn whether a
-    room has its guest links off."""
+    room has its guest links off. An unknown cookie and one of another room's
+    sessions both fail the rotation's predicate, before the room is read."""
     cr = uuid.uuid4()
-    found = None if cookie == "unknown" else _session(uuid.uuid4())
     for links in (True, False):
-        with patch.object(service, "_rooms") as rooms, patch.object(service, "_sessions") as sessions:
-            rooms.get = AsyncMock(return_value=_room(cr, links=links))
-            sessions.find_by_refresh_hash = AsyncMock(return_value=found)
-            sessions.update_refresh_hash = AsyncMock()
+        live = AsyncMock(return_value=_room(cr, links=links))
+        with patch(f"{_SERVICE}.ensure_room_live", live), patch.object(service, "_sessions") as sessions:
+            sessions.rotate_refresh = AsyncMock(return_value=None)
             with pytest.raises(GuestTokenInvalid):
                 await service.refresh(chatroom_id=cr, refresh_token="whatever")
-            sessions.update_refresh_hash.assert_not_awaited()
+            live.assert_not_awaited()
 
 
 # -- the guest ws ticket route checks the room --
@@ -212,15 +219,18 @@ async def test_service_room_check_raises_for_links_off_and_missing_rooms(
     service: GuestSessionService,
 ) -> None:
     cr = uuid.uuid4()
-    with patch.object(service, "_rooms") as rooms:
-        rooms.get = AsyncMock(return_value=_room(cr))
+    with patch(f"{_SERVICE}.ensure_room_live", AsyncMock(return_value=_room(cr))):
         await service.ensure_admits_guests(cr)
-        rooms.get = AsyncMock(return_value=_room(cr, links=False))
-        with pytest.raises(GuestAccessDisabled):
-            await service.ensure_admits_guests(cr)
-        rooms.get = AsyncMock(return_value=None)
-        with pytest.raises(ChatroomNotFound):
-            await service.ensure_admits_guests(cr)
+    with (
+        patch(f"{_SERVICE}.ensure_room_live", AsyncMock(return_value=_room(cr, links=False))),
+        pytest.raises(GuestAccessDisabled),
+    ):
+        await service.ensure_admits_guests(cr)
+    with (
+        patch(f"{_SERVICE}.ensure_room_live", AsyncMock(side_effect=ChatroomNotFound(str(cr)))),
+        pytest.raises(ChatroomNotFound),
+    ):
+        await service.ensure_admits_guests(cr)
 
 
 # -- the problem types the client branches on --

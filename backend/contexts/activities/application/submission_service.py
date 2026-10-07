@@ -348,6 +348,8 @@ class SubmissionService:
                     "validation_status": validation_status.value,
                 },
                 request_id=request_id,
+                # The producer is the caller, so this tags the actor, not the subject.
+                actor_guest_room_id=chatroom_id if producer_is_guest else None,
             ),
         )
 

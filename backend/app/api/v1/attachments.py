@@ -91,6 +91,7 @@ async def create_single_shot(
         data=body,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        actor_guest_room_id=principal.guest_room_id,
     )
     return to_attachment_out(attachment)
 

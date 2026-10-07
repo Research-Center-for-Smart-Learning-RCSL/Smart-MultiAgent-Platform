@@ -8,12 +8,12 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
+from app.api.ws.room_access import room_read_outcome
 from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
 )
 from contexts.conversation.application.triggers import evaluate_presence_change
-from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom
 from contexts.conversation.interfaces import (
     ACTIVITY_SURFACE,
     DRAFT_SURFACES,
@@ -23,12 +23,15 @@ from contexts.conversation.interfaces import (
     room_channel,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import async_session, get_sessionmaker
 from shared_kernel.realtime import (
+    AccessOutcome,
     ChannelConnection,
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
+    refuse_after_accept,
 )
 from shared_kernel.realtime.pubsub import Publisher
 
@@ -66,16 +69,19 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     # ACL: reuse the same resolver the HTTP router uses so any change in
     # room-access rules is picked up in both channels at once.
     sm = get_sessionmaker()
-    try:
+
+    async def _check_read(principal: Principal) -> None:
         async with sm() as session, session.begin():
             access = await resolve_room_access(
                 session,
-                principal=auth.principal,
+                principal=principal,
                 chatroom_id=chatroom_id,
             )
-            ensure_can_read(access, is_admin=auth.principal.is_admin)
-    except (ChatroomNotFound, ForbiddenInRoom):
-        await ws.close(code=4403)
+            ensure_can_read(access, is_admin=principal.is_admin)
+
+    outcome = await room_read_outcome(lambda: _check_read(auth.principal))
+    if outcome is not AccessOutcome.ALLOWED:
+        await refuse_after_accept(ws, auth.subprotocol, outcome)
         return
 
     presence = PresenceTracker()
@@ -260,21 +266,12 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 connection_id=conn.connection_id,
             )
 
-    async def authorize(conn: ChannelConnection) -> bool:
+    async def authorize(conn: ChannelConnection) -> AccessOutcome:
         # Re-resolve room access mid-socket so a revoked guest link / lost
-        # membership / tightened ACL tears the connection down (SEC-H2). Reads
-        # the current (possibly refreshed) principal off `conn`.
-        try:
-            async with sm() as session, session.begin():
-                access = await resolve_room_access(
-                    session,
-                    principal=conn.principal,
-                    chatroom_id=chatroom_id,
-                )
-                ensure_can_read(access, is_admin=conn.principal.is_admin)
-            return True
-        except (ChatroomNotFound, ForbiddenInRoom):
-            return False
+        # membership / tightened ACL / deleted workspace or project tears the
+        # connection down (SEC-H2, F-16). Reads the current (possibly refreshed)
+        # principal off `conn`.
+        return await room_read_outcome(lambda: _check_read(conn.principal))
 
     async def on_open(conn: ChannelConnection) -> None:
         added, roster_size = await presence.join(

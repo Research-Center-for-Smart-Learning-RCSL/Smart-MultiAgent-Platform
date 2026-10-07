@@ -30,7 +30,9 @@ const accessTokenRef = ref<string | null>(null)
 // token so the guest refresh and ws-ticket endpoints know their path.
 const guestChatroomIdRef = ref<string | null>(null)
 
-export type GuestSessionEnd = 'expired' | 'disabled'
+// 'gone': the room itself no longer exists (its workspace or project was
+// deleted), so neither rejoining nor re-enabling links can bring it back.
+export type GuestSessionEnd = 'expired' | 'disabled' | 'gone'
 // Recorded, not derived from the token: the token is gone by the time the
 // session is known to have ended, and every consumer that has to explain the
 // end (the room banner, the guard, hydrate) would otherwise forget the tab was
@@ -39,6 +41,7 @@ const guestSessionEndRef = ref<GuestSessionEnd | null>(null)
 export const guestSessionEnd: Readonly<Ref<GuestSessionEnd | null>> = readonly(guestSessionEndRef)
 
 const GUEST_DISABLED_TYPE = '/conversation/guest-access-disabled'
+const ROOM_GONE_TYPE = '/conversation/chatroom-not-found'
 const GUEST_TICKET_PATH = '/guest/ws-ticket'
 const GUEST_SESSION_ENDED = {
   type: 'https://smap.local/problems/auth/token-expired',
@@ -92,9 +95,9 @@ export function markGuestSessionEnded(reason: GuestSessionEnd): void {
  * and, at boot, the hint holding the browser id deleted with it.
  */
 function endReasonFor(status: number, problemType: unknown): GuestSessionEnd | null {
-  if (status === 403 && typeof problemType === 'string' && problemType.endsWith(GUEST_DISABLED_TYPE)) {
-    return 'disabled'
-  }
+  const type = typeof problemType === 'string' ? problemType : ''
+  if (status === 403 && type.endsWith(GUEST_DISABLED_TYPE)) return 'disabled'
+  if (status === 404 && type.endsWith(ROOM_GONE_TYPE)) return 'gone'
   return status === 401 || status === 403 || status === 404 ? 'expired' : null
 }
 
@@ -265,12 +268,9 @@ async function handleResponseError(
   const problemType = typeof problem?.type === 'string' ? problem.type : ''
   // Only the socket ticket speaks for the held session; the landing page's
   // session-create can name another room and reports its own answer.
-  if (
-    guestChatroomIdRef.value &&
-    problemType.endsWith(GUEST_DISABLED_TYPE) &&
-    (original.url ?? '').endsWith(GUEST_TICKET_PATH)
-  ) {
-    guestSessionEndRef.value = 'disabled'
+  if (guestChatroomIdRef.value && (original.url ?? '').endsWith(GUEST_TICKET_PATH)) {
+    const end = endReasonFor(status, problemType)
+    if (end === 'disabled' || end === 'gone') guestSessionEndRef.value = end
   }
   const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
   const wasAuthenticated = Boolean(original.headers?.Authorization)
@@ -344,6 +344,30 @@ OpenAPI.WITH_CREDENTIALS = true
 // can no longer use it directly.
 const refreshHttp: AxiosInstance = axios.create({ withCredentials: true })
 
+const GUEST_TOKEN_INVALID_TYPE = '/conversation/guest-token-invalid'
+const SIBLING_ROTATION_RETRY_MS = 500
+
+function isGuestTokenInvalid(error: unknown): boolean {
+  if (!axios.isAxiosError<ProblemJson>(error) || !error.response) return false
+  const type = error.response.data?.type
+  return error.response.status === 404 && typeof type === 'string' && type.endsWith(GUEST_TOKEN_INVALID_TYPE)
+}
+
+async function postRefresh(url: string, isGuest: boolean) {
+  try {
+    return await refreshHttp.post<{ access_token: string }>(url, {})
+  } catch (error) {
+    // Tabs share the guest cookie and rotation is single-use ([R13.06b]): when two
+    // refresh at once the server rotates for one and refuses the other, and by
+    // the time the refusal lands the browser holds the winner's new cookie. One
+    // retry tells that apart from a cookie that is really dead; without it the
+    // loser would record an end and, at boot, delete the hint every tab shares.
+    if (!isGuest || !isGuestTokenInvalid(error)) throw error
+    await new Promise((resolve) => setTimeout(resolve, SIBLING_ROTATION_RETRY_MS))
+    return await refreshHttp.post<{ access_token: string }>(url, {})
+  }
+}
+
 async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
 
@@ -353,7 +377,7 @@ async function attemptRefresh(): Promise<boolean> {
       const url = guestRoom
         ? `/api/guest/${encodeURIComponent(guestRoom)}/refresh`
         : '/api/auth/refresh'
-      const res = await refreshHttp.post<{ access_token: string }>(url, {})
+      const res = await postRefresh(url, guestRoom !== null)
       // A sign-in can replace the guest context while a guest refresh is in
       // flight; its answer then speaks for nothing this tab still holds.
       if (guestRoom && guestChatroomIdRef.value !== guestRoom) return false

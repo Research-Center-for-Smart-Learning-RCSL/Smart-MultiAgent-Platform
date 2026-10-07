@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-05
 requirements: [R6.12, R13.06, R13.06a, R13.06b, R15.24]
 depends_on: [2026-10-05-guest-frontend-session-lifecycle]
@@ -223,19 +223,27 @@ Written first, failing against current code:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: every audit row caused by a guest has `actor_user_id = guest_session_id` and metadata with
+- [x] AC-1: every audit row caused by a guest has `actor_user_id = guest_session_id` and metadata with
   `guest: true` and `chatroom_id`; rows caused by others acting on guest resources carry no guest tag.
-- [ ] AC-2: concurrent joins never exceed the per-room cap, and concurrent first joins with one
+- [x] AC-2: concurrent joins never exceed the per-room cap, and concurrent first joins with one
   `browser_id` create one session (db tier).
-- [ ] AC-3: a guest link, refresh or ticket for a room whose workspace or project is deleted answers
+- [x] AC-3: a guest link, refresh or ticket for a room whose workspace or project is deleted answers
   the invalid-link 404; a connected client (guest or member) is closed with 4404 on both the chat and
   the canvas socket and sees "this room no
   longer exists".
-- [ ] AC-4: socket refusals for a known subprotocol reach the browser with 4403 or 4404, not 1006.
-- [ ] AC-5: a guest's orchestration reads for another room answer 404 (single record) or omit the row
+- [x] AC-4: socket refusals for a known subprotocol reach the browser with 4403 or 4404, not 1006.
+- [x] AC-5: a guest's orchestration reads for another room answer 404 (single record) or omit the row
   (listings).
-- [ ] AC-6: two concurrent refreshes with one cookie yield exactly one success (db tier).
-- [ ] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in CI.
+- [x] AC-6: two concurrent refreshes with one cookie yield exactly one success (db tier).
+- [x] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in CI.
+
+Verified on PR #237, CI green at `5f002c9b` (run 37453183890): `backend-db` 259 passed with
+all eight `test_guest_session_hardening_db.py` tests among them (AC-1, AC-2, AC-6),
+`backend-test` (AC-3, AC-4, AC-5 unit tests), `frontend-test` (AC-3's room-gone state and
+the canvas stop), and `frontend-e2e` 124 passed / 29 skipped, the same skips as `main`.
+Fail-first is D-11. Not done: the behavioural check on a running stack (no local Docker), so
+the 4404 banner has been observed only through the component tests' fake socket, not against
+a real deleted workspace.
 
 ## 11. SRS Delta
 
@@ -244,7 +252,75 @@ is the guest dossier's AC-9.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1: The audit shape reaches three more guest-caused rows (requester's choice at plan
+  approval).** A sweep of guest-reachable audit emits found `message.deleted` (a guest
+  deleting its own message), `activity.session_completed` / `activity.session_completion_cleared`
+  and `activity.session_closed`, which wrote the guest id with no tag. They take the shape
+  too, so AC-1 holds for every guest-caused row in the conversation and activities
+  contexts. The canvas and template rows write `actor_user_id = NULL` for guests and are FU-5.
+- **D-2: The TUS upload path is tagged as well as the single-shot one.** §7.1 cites only
+  `attachment_service.py`, but guests can also upload through `POST /api/tus` with
+  `purpose=chat_attachment`, which reaches the same audit row through
+  `TusService.patch` → `AttachmentService.finalize_tus`.
+- **D-3: The tag travels as `AuditEvent.actor_guest_room_id`, fed by `Principal.guest_room_id`.**
+  Route-supplied on the paths that had no guest flag; derived from `sender_type` in
+  `MessageService.send` and from `producer_is_guest` in `SubmissionService._record`, both
+  already computed from the principal at the route. The session events keep
+  `guest_session_id` in metadata (Q-1). The old shapes are recorded as D-7 in the guest
+  dossier's log.
+- **D-4: Lifecycle FU-7 is included (requester's choice).** Create answers
+  `GuestTokenInvalid` for a missing room, so it cannot tell existing room ids from absent
+  ones; refresh is covered by Q-6's ordering. The security audit then found that
+  `hmac.compare_digest` raises on a non-ASCII `str`, which answered 500 for an existing room
+  and 404 for a missing one; the comparison is now over bytes. `test_missing_room_raises`
+  was renamed and now asserts `GuestTokenInvalid`.
+- **D-5: Lifecycle FU-9 is included, and a guest's refresh or ticket answered
+  `chatroom-not-found` records a new `'gone'` end (requester's choice).** Without it a guest
+  whose socket dropped for another reason would reconnect through the ticket, get the
+  invalid-link 404 and retry silently, and a background refresh would show "session
+  expired" for a room that no longer exists. `'gone'` shows the same "this room no longer
+  exists" state as a 4404 close and drops the browser hint, as `'expired'` does.
+- **D-6: `connection_loop`'s probe accepts `bool | AccessOutcome`.** The project and
+  knowledge-config sockets have no "gone" state and still return a bool; anything other than
+  an explicit allow refuses, so an unexpected verdict fails closed.
+- **D-7: A missing canvas closes 4403, not 4404 (security audit H-1).** With
+  accept-then-close the code reaches the client, and 4404 would let any signed-in caller
+  probe canvas ids that the HTTP surface never exposes. A canvas whose room, workspace or
+  project is gone still closes 4404. The canvas legacy object load moved after the access
+  check (quality audit), so a refused caller cannot trigger it.
+- **D-8: Both branches of `resolve_room_access` reuse `ensure_parents_live` (quality audit,
+  `/code-review`).** A read of a room whose workspace was deleted now answers
+  `chatroom-not-found` rather than `workspace-not-found` (both 404), for guests and members
+  alike, so one parent-liveness rule serves the resolver, the guest endpoints and the
+  sockets. No client branches on `workspace-not-found` for a room.
+- **D-9: Existing unit tests were adapted to the approved design, not weakened.**
+  `test_refresh_with_links_off_names_the_reason_and_rotates_nothing` asserted that no
+  rotation call happened; under Q-6 the rotation runs and the route's rollback undoes it, so
+  the unit test now asserts no audit row and the cookie's survival is proven against
+  Postgres (`test_a_refusal_after_the_rotation_leaves_the_cookie_valid`). The
+  unknown/foreign-cookie case is one predicate miss in SQL, so its foreign half moved to
+  the db tier (`test_a_cookie_of_another_rooms_session_rotates_nothing`).
+  `GuestSessionRepository.find_by_refresh_hash` was removed as dead code.
+- **D-10: AC-1's "others acting on guest resources" half is verified on an admin deleting
+  a guest's message, not on an attachment.** No admin action on another user's attachment
+  writes an audit row.
+- **D-11: Fail-first for the db tier was observed in CI on a throwaway draft PR (#236,
+  run 37446271301):** all five regression tests failed for their documented reasons
+  (second join over the cap, a second session for one browser, both refreshes succeeding,
+  no tagged rows, no request context on refresh); the two guard tests passed, as they
+  should against unfixed code.
+- **D-12: A guest refresh refused `guest-token-invalid` is retried once after 500 ms
+  (requester's choice after `/code-review`).** Q-6 accepted that the losing tab of a
+  concurrent refresh shows the expired banner. The review found the loss is wider: at boot
+  restore an `'expired'` end deletes the browser-id hint every tab shares, so the winning
+  tab's next reload cannot resume and reopening the link mints a new identity. Tabs share
+  the cookie and the loser's refusal arrives after the winner committed, so one retry
+  presents the rotated cookie and succeeds; only a second refusal ends the session
+  (`frontend/src/shared/transport/axios.ts`, `postRefresh`). Server-side rotation stays
+  strictly single-use.
+- **D-13: `refuse_after_accept` suppresses a failure of either `accept` or `close`
+  (`/code-review`).** A client that left between the ticket redemption and the access check
+  would otherwise surface as an unhandled endpoint error on every such refusal.
 
 ## 13. Follow-ups
 
@@ -257,3 +333,50 @@ Appended by /build.
 - **FU-3.** An admin audit filter for guest activity (Q-1 left it out).
 - **FU-4.** Existing duplicate `(chatroom_id, browser_id)` rows, if any, are tolerated but not removed;
   a dedupe plus a unique index would need a migration.
+- **FU-5.** The canvas and template audit rows a guest can cause (`canvas.created`,
+  `canvas.settings_updated`, `canvas.deleted`, `canvas.object_created`/`_deleted`,
+  `canvas.snapshot_created`/`_restored`, `canvas.comment_created`/`_updated`/`_deleted`,
+  `canvas.template_applied`) write `actor_user_id = NULL` for a guest
+  (`backend/app/api/v1/canvas.py:231`), and `update_object` / `batch_operate` write no audit
+  row at all (`contexts/canvas/application/canvas_service.py:234,284`).
+- **FU-6.** Possible authorization gap, to decide: any participant who may send, guests
+  included, can delete the whole canvas (`DELETE /api/chatrooms/{id}/canvas`) and toggle its
+  `expose_to_agents` setting (`PATCH`), with no moderator or creator check
+  (`backend/app/api/v1/canvas.py:334,361`).
+- **FU-7.** Replace the threaded `actor_user_id` / `actor_ip` / `request_id` /
+  `actor_guest_room_id` parameters with one actor value built from `Principal` and
+  `RequestContext`, so a new guest-reachable call site cannot forget the tag (quality audit).
+- **FU-8.** Close-code policy lives in each consumer: `ChatroomView.vue` and
+  `useYjsProvider.ts` redeclare 4403/4404 and call `disconnect()` themselves, the chat
+  socket keeps reconnecting on a member's 4403 while the canvas socket stops, and a deleted
+  canvas shows a bare "disconnected". A set of final close codes in `ws-manager.ts` plus
+  shared constants, and a gone/forbidden state in `CanvasPanel`, would settle it (lifecycle
+  FU-10 is the same altitude).
+- **FU-9.** `_check_read` is the same closure in `app/api/ws/chatroom.py` and
+  `app/api/ws/canvas.py`; `room_access.py` owns only the exception mapping. Moving the check
+  there or behind a facade method needs the drafts and typing socket tests to stop patching
+  `resolve_room_access` on the route module.
+- **FU-10.** The per-room join lock waits up to `statement_timeout` and is held across the
+  synchronous Vault signing call; a burst of joins from link holders parks pooled
+  connections. `SET LOCAL lock_timeout` before the lock, or signing after the commit, would
+  bound it (security audit, hardening).
+- **FU-11.** Non-ASCII input still answers 500 on two guest paths: a refresh cookie
+  (`token_utils.hash_refresh` encodes ASCII) and the registered enrol's
+  `hmac.compare_digest` (`contexts/conversation/application/guest_service.py:63`). Neither is
+  an existence oracle. The enrol also answers `chatroom-not-found` vs `guest-token-invalid`
+  for a missing room vs a wrong token (both 404, registered callers only).
+- **FU-12.** Pre-existing: `GET /api/chatrooms/{id}` answers a non-member 403 for an
+  existing room and 404 for a missing one (`backend/app/api/v1/chatrooms.py:465-474`),
+  contrary to its own comment; the chat socket's 4403/4404 now mirrors it.
+- **FU-13.** Pre-existing: the unhandled-error log records `request.url.path`, which for
+  guest session create contains the link token.
+- **FU-14.** Hardening: a replayed, already-rotated guest refresh cookie is refused but
+  does not revoke the session; reuse detection would. (With D-12's client retry, reuse
+  detection would also have to tell a sibling tab's loss from a replay.)
+- **FU-15.** From `/code-review`, deferred: the canvas handshake opens three sessions
+  (canvas read, access check, legacy load) where it used to open one; a canvas whose room
+  was deleted closes 4404 for any signed-in caller holding its id, member or not (the chat
+  socket mirrors the HTTP 404 the same way, FU-12); and `MessageService.send` /
+  `SubmissionService._record` fill the guest tag from the subject room rather than from the
+  principal, which agree only because a guest is scoped to one room (FU-7 removes the
+  difference).

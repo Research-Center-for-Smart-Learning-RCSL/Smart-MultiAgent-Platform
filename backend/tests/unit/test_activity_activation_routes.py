@@ -19,6 +19,7 @@ from contexts.activities.domain.models import (
     SessionStatus,
 )
 from contexts.activities.interfaces import broadcast
+from shared_kernel.auth.permissions import Principal
 
 
 @pytest.mark.parametrize(("transitioned", "expected_dispatches"), [(False, 0), (True, 1)])
@@ -136,7 +137,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=caller, is_admin=False, is_guest=False),
+            principal=Principal(user_id=caller, is_admin=False, email_verified=True),
             db=db,
         )
 
@@ -160,7 +161,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=caller, is_admin=False, is_guest=False),
+            principal=Principal(user_id=caller, is_admin=False, email_verified=True),
             db=MagicMock(commit=AsyncMock()),
         )
 
@@ -177,7 +178,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=True, is_guest=False),
+            principal=Principal(user_id=uuid.uuid4(), is_admin=True, email_verified=True),
             db=MagicMock(commit=AsyncMock()),
         )
 
@@ -197,7 +198,7 @@ class TestCompletionRoute:
             chatroom_id=activation.chatroom_id,
             activation_id=activation.id,
             ctx=SimpleNamespace(actor_ip=None, request_id=None),
-            principal=SimpleNamespace(user_id=uuid.uuid4(), is_admin=False, is_guest=False),
+            principal=Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=True),
             db=MagicMock(commit=AsyncMock()),
         )
 
