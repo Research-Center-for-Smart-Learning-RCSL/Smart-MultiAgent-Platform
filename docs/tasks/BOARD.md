@@ -493,7 +493,7 @@ rows are added as each is written.
   **Migration chain**: `0102` (from `agent-reply-delivery-gaps`) already revises `0099`, so
   `0100` must set `down_revision` from `alembic heads`, not to `0099`, or the chain forks.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
-- (moved to In progress on 2026-10-07) `2026-10-07-canvas-awareness-names`.
+- (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
 - `2026-10-07-name-fallback-surfaces` (bugfix, **approved 2026-10-07**, no SRS Delta) -
   `depends_on: [2026-10-07-room-roster-completeness]`, implemented. F-9..F-14: a room
   agent-label read names unbound, deleted and disclosed-observer agents for every viewer
@@ -708,10 +708,11 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-07-canvas-awareness-names` (bugfix, in progress since 2026-10-07) - F-3, F-15
-  (canvas): cursors broadcast the editor's display name and viewers prefer the room roster's
-  name for the cursor's user id. Code complete on branch `fix/canvas-awareness-names`;
-  AC-1..AC-4 checked by tests, AC-5 waits on CI.
+- (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`. AC-1..AC-5 verified on PR
+  #241 (CI green at `91d48f45`). AC-2..AC-4 rest on tests, not on observation in a running
+  app (FU-2, a staging check). Deviations D-1, D-2 and FU-1, FU-2 are in the dossier; FU-1
+  (the server does not bind awareness `userId` to the sender) is the substantive one.
+  Nothing else lists this slug in `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`. AC-1..AC-6 verified on PR
   #240 (CI green at `0e8a7c1b`, db, wiring and e2e tiers included). AC-2..AC-5 rest on tests,

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R13.33, R13.55]
 depends_on: [2026-10-07-room-roster-completeness]
@@ -134,7 +134,7 @@ Written first; each fails against current code for the stated reason.
 - [x] AC-4: after a participant renames themselves (guest rename, or member rename with
   `2026-10-07-room-roster-completeness` in place), other editors' cursor labels show the new
   name without the canvas reconnecting.
-- [ ] AC-5: frontend lint (including the slice boundary rules), typecheck, tests and build
+- [x] AC-5: frontend lint (including the slice boundary rules), typecheck, tests and build
   pass in CI.
 
 ## 11. SRS Delta
@@ -161,7 +161,10 @@ and the email's local part was used. The three `CanvasRenderer` tests also faile
 broadcast name `spoof` was shown instead of the roster's name, and there was no truncated-id
 fallback. `ChatroomViewCanvasNames.test.ts` failed without the room view wiring. All of them
 pass after the fix. AC-2 to AC-4 are checked against those tests, not observed in a running
-app, because no local stack was available (FU-2). AC-5 waits on CI.
+app, because no local stack was available (FU-2). AC-5 was verified by CI run 37587191969 on
+PR #241 at `91d48f45`: every required job passed. The first run had failed on
+`frontend-lint` alone, with three warnings in the new view test, because that file was
+written after the last full lint.
 
 ## 13. Follow-ups
 
