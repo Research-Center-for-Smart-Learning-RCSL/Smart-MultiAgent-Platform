@@ -22,6 +22,10 @@ const props = defineProps<{
   chatroomId: string
   chatroomName: string
   isFullscreen: boolean
+  // The host room's names, passed in because the canvas slice imports no other slice:
+  // the viewer's own name for its cursor, and the roster for everyone else's.
+  viewerName: string | null
+  participantNames: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -43,7 +47,7 @@ const {
 useCanvasSocket(chatroomIdRef, getExcalidrawApi)
 
 const canvasIdRef = computed(() => canvas.value?.id ?? '')
-const { doc, awareness, connected } = useYjsProvider(canvasIdRef)
+const { doc, awareness, connected } = useYjsProvider(canvasIdRef, toRef(props, 'viewerName'))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- React-in-Vue bridge
 const canvasRendererRef = ref<ComponentPublicInstance<any> | null>(null)
@@ -217,6 +221,7 @@ async function toggleExposeToAgents() {
               ref="canvasRendererRef"
               :doc="doc"
               :awareness="awareness"
+              :names="participantNames"
             />
             <template #fallback>
               <SLoadingSpinner />

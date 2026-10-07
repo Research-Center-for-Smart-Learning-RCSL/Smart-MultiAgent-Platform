@@ -51,7 +51,13 @@ export interface YjsProviderState {
   destroy: () => void
 }
 
-export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
+// `displayName` is the viewer's own name as the room shows it. Token claims are not
+// a name source: a member token carries no name, and a guest's claim goes stale on
+// rename ([R13.55]); the email must never reach a surface other members read ([R13.33]).
+export function useYjsProvider(
+  canvasId: Ref<string>,
+  displayName: Ref<string | null>,
+): YjsProviderState {
   const doc = shallowRef<Y.Doc>(new Y.Doc())
   const awareness = shallowRef<Awareness>(new Awareness(doc.value))
   const connected = ref(false)
@@ -66,11 +72,17 @@ export function useYjsProvider(canvasId: Ref<string>): YjsProviderState {
     if (!claims) return
     const userId = String(claims.sub ?? 'unknown')
     awareness.value.setLocalStateField('user', {
-      name: String(claims.display_name ?? claims.email ?? userId).split('@')[0],
+      name: displayName.value || userId.slice(0, 8),
       color: pickColor(userId),
       userId,
     })
   }
+
+  // Awareness is re-sent on change, so a rename reaches the other editors without
+  // the canvas reconnecting.
+  watch(displayName, () => {
+    if (connected.value) setLocalAwareness()
+  })
 
   function onDocUpdate(update: Uint8Array, origin: unknown) {
     if (origin === 'remote' || !channel) return

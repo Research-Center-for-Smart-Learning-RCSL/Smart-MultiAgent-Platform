@@ -359,6 +359,8 @@
       :chatroom-id="chatroomId"
       :chatroom-name="roomName"
       :is-fullscreen="canvasSplit.isFullscreen.value"
+      :viewer-name="canvasViewerName"
+      :participant-names="userNames"
       @close="canvasSplit.close()"
       @toggle-fullscreen="canvasSplit.toggleFullscreen()"
     />
@@ -727,6 +729,12 @@ const guestViewerName = computed(() => {
   if (ownRosterName.value) return ownRosterName.value
   const claims = accessTokenClaims.value
   return typeof claims?.display_name === 'string' ? claims.display_name : ''
+})
+// The name this viewer's canvas cursor broadcasts: what the room shows for them, so
+// a registered guest's room label and a fresh rename are used before the account name.
+const canvasViewerName = computed<string | null>(() => {
+  if (isGuestSession.value) return guestViewerName.value || null
+  return ownRosterName.value ?? session.me?.display_name ?? null
 })
 watch(ownRosterName, (name) => {
   if (name !== null && name === guestNameOverride.value) guestNameOverride.value = null
