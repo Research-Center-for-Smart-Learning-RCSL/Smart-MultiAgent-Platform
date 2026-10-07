@@ -481,6 +481,16 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   server-side socket close at removal, about 60 s window) is the security audit's medium. Last of
   the guest-audit dossiers; nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
+### From the 2026-10-07 display-name audit
+
+`docs/audits/2026-10-07-display-name-resolution/findings.md` spawned six bugfix dossiers;
+rows are added as each is written.
+
+- `2026-10-07-google-display-name-normalisation` (bugfix, **draft**) - `depends_on: []`.
+  F-1, F-6, F-17: Google profile names go through the account display-name normalisation
+  (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
+  keeps whole grapheme clusters, and migration `0100` repairs stored account names.
+
 ## Blocked
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
