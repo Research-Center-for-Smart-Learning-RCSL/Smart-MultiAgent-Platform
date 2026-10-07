@@ -159,7 +159,7 @@ export function useChatroomSocket(
       fetch = getMessage(messageId)
         .then(
           (m) => {
-            if (disposed) return false
+            if (disposed || m.chatroom_id !== roomId) return false
             applyMessageCreated(m)
             return true
           },

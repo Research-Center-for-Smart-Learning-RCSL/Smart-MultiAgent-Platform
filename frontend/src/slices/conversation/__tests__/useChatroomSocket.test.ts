@@ -1387,14 +1387,14 @@ describe('useChatroomSocket chatroom.members_changed', () => {
 describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
   let wrapper: VueWrapper | null = null
 
-  type Row = { id: string; created_at: string; sender_type: string; sender_id: string }
+  type Row = { id: string; chatroom_id: string; created_at: string; sender_type: string; sender_id: string }
 
   function at(seconds: number): string {
     return new Date(Date.UTC(2024, 0, 1, 0, 0, seconds)).toISOString()
   }
 
   function row(id: string, seconds: number, sender_type = 'user', sender_id = 'u1'): Row {
-    return { id, created_at: at(seconds), sender_type, sender_id }
+    return { id, chatroom_id: ROOM, created_at: at(seconds), sender_type, sender_id }
   }
 
   function cachedIds(qc: QueryClient): string[] {
@@ -1447,6 +1447,19 @@ describe('useChatroomSocket reply delivery (agent-reply-delivery-gaps)', () => {
     emitDegraded(true)
     vi.advanceTimersByTime(10_000)
     expect(listMessagesMock).toHaveBeenCalledWith(ROOM, { since: 'm_s' })
+  })
+
+  it('ignores a row fetched by id that belongs to another room', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    mounted.qc.setQueryData(convKeys.messages(ROOM), [row('m_s', 10)])
+    await flushPromises()
+
+    getMessageMock.mockResolvedValueOnce({ ...row('m_x', 11), chatroom_id: 'cr_other' })
+    emit({ type: 'message.created', message_id: 'm_x', sender_type: 'user', sender_id: 'u1' })
+    await flushPromises()
+
+    expect(cachedIds(mounted.qc)).not.toContain('m_x')
   })
 
   it('keeps the streaming bubble until the finished reply is in the cache', async () => {
