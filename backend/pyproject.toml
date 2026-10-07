@@ -59,7 +59,7 @@ dependencies = [
   "idna>=3.7,<4",
   # Extended grapheme clusters (`\X`) for label truncation (shared_kernel/labels.py):
   # a code-point cut can split an emoji or leave an accent without its letter.
-  "regex>=2026.1.15",
+  "regex>=2026.1.15,<2027",
   "pycrdt>=0.12,<1.0",
 ]
 
