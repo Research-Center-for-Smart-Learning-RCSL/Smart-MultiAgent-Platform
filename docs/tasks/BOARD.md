@@ -712,7 +712,9 @@ each row for its own list — the frontmatter wins over this preamble.
 - `2026-10-07-room-roster-completeness` (bugfix, in progress since 2026-10-07) - F-2, F-5,
   F-15 (chat): the room roster also names everyone present, the client re-reads it for an
   unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
-  the rooms the user is in.
+  the rooms the user is in. Code complete on branch `fix/room-roster-completeness`; AC-1..AC-5
+  checked by tests, AC-6 waits on CI. Moves to implemented once CI is green, which unblocks
+  `canvas-awareness-names` and `name-fallback-surfaces`.
 
 - (implemented 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`. AC-3..AC-6 verified on PR
   #239 (CI green at `17c054df`, db tier and e2e included). AC-1's db half (fail-first not

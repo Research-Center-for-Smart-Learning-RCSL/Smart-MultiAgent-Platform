@@ -681,8 +681,8 @@ const agentNames = computed<Record<string, string>>(() => {
 })
 
 // Human display names (message authors, everyone present, registered guests and
-// anonymous guest sessions). One map resolves REST history, live WS messages, presence and
-// typing; absent names fall back to a truncated id.
+// anonymous guest sessions). One map resolves REST history, live WS messages,
+// presence and typing; absent names fall back to a truncated id.
 const membersQuery = useQuery({
   queryKey: convKeys.chatroomMembers(chatroomId),
   queryFn: () => listChatroomMembers(chatroomId),

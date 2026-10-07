@@ -5,7 +5,7 @@
 // member who opened the room and read, or started typing a first message, stayed
 // an eight-character id on every other screen.
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
@@ -45,11 +45,17 @@ function onlineRow(wrapper: Awaited<ReturnType<typeof renderView>>, id: string) 
   return rows.find((r) => r.id === id)
 }
 
+let width = 0
 beforeEach(() => {
   rosterReads = 0
   roster = []
+  width = window.innerWidth
   window.innerWidth = 1440
   serveRoster()
+})
+
+afterEach(() => {
+  window.innerWidth = width
 })
 
 async function mount() {

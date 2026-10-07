@@ -147,15 +147,15 @@ Written first; each fails against current code for the stated reason.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: a member who is present in a room and has a display name is shown by that name in
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: a member who is present in a room and has a display name is shown by that name in
   every viewer's participant list and mention autocomplete without having posted, including
   in their own row.
-- [ ] AC-3: the typing indicator names a member with a display name from their first
+- [x] AC-3: the typing indicator names a member with a display name from their first
   keystroke.
-- [ ] AC-4: after a member renames themselves, every room they are present in shows the new
+- [x] AC-4: after a member renames themselves, every room they are present in shows the new
   name to every viewer without a reload or refocus.
-- [ ] AC-5: an account with no display name causes at most one roster re-read per viewer, and
+- [x] AC-5: an account with no display name causes at most one roster re-read per viewer, and
   members' frames on the room channel remain ids only.
 - [ ] AC-6: backend and frontend lint, typecheck, tests and build pass in CI.
 
@@ -168,6 +168,29 @@ None. The participant list and typing indicator already name participants by dis
 
 Appended by /build.
 
+- **D-1.** The members route reads presence through a new
+  `ConversationFacade.present_user_ids` rather than calling `PresenceTracker().list_room`
+  itself (§7.1). Reason: the route then stays on the facade, as the layer rules require, and
+  the route's existing tests can substitute the facade instead of a Redis client.
+- **D-2.** `announce_participant_renamed` also swallows a failure to read the presence index,
+  not only a failure to publish (§7.3). Reason: the rename is committed before the
+  announcement runs, so a Redis outage there would otherwise answer 500 for a change that
+  happened, which is the outcome the transport-failure rule exists to avoid.
+- **D-3.** The profile route decides "the stored name actually changed" by reading the name
+  before the update (`IdentityFacade.get_display_names`) and comparing it with the profile
+  it already reads afterwards, rather than changing the return type of
+  `AuthService.update_display_name`. Reason: the route is the service method's only caller,
+  and the comparison leaves the identity service unchanged.
+
+Verification record. AC-1 was observed directly: the backend tests in
+`backend/tests/unit/test_room_roster.py` failed before the fix (the roster omitted the
+present member, and the rename emitted nothing), and so did the four tests in
+`frontend/src/slices/conversation/__tests__/ChatroomViewRoster.test.ts` (no roster re-read).
+All of them pass after the fix. AC-2 through AC-5 are checked against those tests, together
+with the existing `useChatroomSocket` test showing that `chatroom.members_changed` invalidates
+the roster. They were not observed in a running app because no local stack was available.
+AC-6 stays open until CI runs on the pushed branch.
+
 ## 13. Follow-ups
 
 - **FU-1.** Viewers of a room where a renamed member only posted earlier (and is not present
@@ -175,3 +198,15 @@ Appended by /build.
 - **FU-2.** The roster still has its 1000-author cap with an arbitrary drop order
   (`backend/contexts/conversation/infrastructure/repositories/message_repo.py:168-194`), a
   documented limitation the audit did not count as a defect.
+- **FU-3.** `ConversationFacade.announce_participant_renamed` and `guests._emit_members_changed`
+  (`backend/app/api/v1/guests.py:214-231`) each emit `chatroom.members_changed` and log the
+  failure in their own copy; one helper in `contexts/conversation/infrastructure/channels.py`
+  could serve both (check-quality Info).
+- **FU-4.** Neither the profile rename nor the anonymous guest rename limits how often it
+  announces. A member who alternates between two names can cause about five roster re-reads
+  per second for each viewer in every room they are present in, bounded only by the `auth`
+  nginx zone (`deploy/compose/nginx/conf.d/smap.conf:107`). A per-user debounce (Redis
+  `SET NX EX`) would close this (check-security MEDIUM, plausible).
+- **FU-5.** AC-2 through AC-5 have not been watched in a running app (no local stack was
+  available during /build). They should be checked on staging with two browsers: a silent
+  reader, a first typing burst, and a rename.
