@@ -499,7 +499,7 @@ rows are added as each is written.
 
 ### From the 2026-10-07 display-name audit
 
-- `2026-10-07-canvas-awareness-names` (bugfix, **draft**) - waits on
+- `2026-10-07-canvas-awareness-names` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
   `2026-10-07-room-roster-completeness`. F-3, F-15 (canvas): cursors broadcast the editor's
   display name and viewers prefer the room roster's name for the cursor's user id.
 

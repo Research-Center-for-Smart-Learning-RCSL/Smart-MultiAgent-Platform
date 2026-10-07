@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-07
 requirements: [R13.33, R13.55]
 depends_on: [2026-10-07-room-roster-completeness]
