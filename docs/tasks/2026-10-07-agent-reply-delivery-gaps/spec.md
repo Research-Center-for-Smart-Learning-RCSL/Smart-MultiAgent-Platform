@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R13.19, R13.27]
 depends_on: []
@@ -199,7 +199,16 @@ regression tests were observed failing on `0cac6d3d` for the documented reasons 
 after; the db-tier test could not run on the build host (no Postgres), so its fail-first
 and pass are owed to CI. AC-2 and AC-6 need CI (db tier, e2e) and a running stack; neither
 was available on the build host.
-- [ ] AC-6: the migration upgrades and downgrades cleanly; backend and frontend lint,
+
+CI on PR #239 (run `37576550544`, head `17c054df`) is green on every job, `frontend-e2e`
+included. `backend-db` ran 270 tests against the 268 of the previous build: the two new
+db-tier tests (R/S ordering, and migration 0102 up/down/up on the scratch database) ran and
+passed. AC-6 is ticked on that run. AC-1 stays unticked for its db half only: the ordering
+test was observed passing but was never run against the `now()` schema, so its fail-first
+is unobserved. AC-2 stays unticked: no e2e spec drives a reply streamed while another
+participant posts, and no running stack was available; its client half is covered by the
+unit cases above and its server half by the db test.
+- [x] AC-6: the migration upgrades and downgrades cleanly; backend and frontend lint,
   typecheck, tests (db tier included), build and e2e pass in CI.
 
 ## 11. SRS Delta

@@ -712,12 +712,13 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-07-agent-reply-delivery-gaps` (bugfix, in progress since 2026-10-07) - `depends_on: []`.
-  Agent replies are stamped at transaction start and skipped by clients' `since` cursor;
-  `messages.created_at` defaults to `clock_timestamp()` (migration `0102`, revising `0099`),
-  `message.created` fetches the named message by id, `agent.finished` holds the bubble until
-  the reply is shown, and three client races (refetch merge, delta generation, gaps over 100)
-  are closed.
+- (implemented 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`. AC-3..AC-6 verified on PR
+  #239 (CI green at `17c054df`, db tier and e2e included). AC-1's db half (fail-first not
+  observed) and AC-2 (no e2e for the scenario, no running stack) unticked. Migration `0102`
+  revises `0099`. Deviations D-1..D-5 (D-5 the `/code-review` fixes agreed with the requester)
+  and FU-1..FU-9 are in the dossier; FU-5 (a late agent row clears the next turn's draft) and
+  FU-7 (insert-time is not commit-time) are the substantive ones. Nothing lists this slug in
+  `depends_on`, so no row moves out of Blocked.
 
 - (implemented 2026-09-14) `2026-09-14-canvas-crdt-bridge-defects`. AC-2/AC-3
   unticked (code complete, need running stack for WS/browser verification).
