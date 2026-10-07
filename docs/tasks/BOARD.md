@@ -490,6 +490,10 @@ rows are added as each is written.
   F-1, F-6, F-17: Google profile names go through the account display-name normalisation
   (ends the 500 and the Google sign-in lockout for names over 50 characters), truncation
   keeps whole grapheme clusters, and migration `0100` repairs stored account names.
+- `2026-10-07-room-roster-completeness` (bugfix, **draft**) - `depends_on: []`. F-2, F-5,
+  F-15 (chat): the room roster also names everyone present, the client re-reads it for an
+  unknown present or typing id, and a profile rename emits `chatroom.members_changed` to
+  the rooms the user is in.
 
 ## Blocked
 
