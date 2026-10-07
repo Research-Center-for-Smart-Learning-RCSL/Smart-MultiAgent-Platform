@@ -497,6 +497,9 @@ class AuthService:
             )
 
         email = _normalise_email(profile.email)
+        # The claim is user content from another system: the account-name rule
+        # applies to it like any other write, and the column is VARCHAR(50).
+        name = _normalise_display_name(profile.name)
         existing = await self._users.get_active_by_email(email)
         if existing is not None:
             await self._guard_oauth_status(existing, remote_ip=remote_ip, request_id=request_id)
@@ -519,8 +522,8 @@ class AuthService:
                 await self._invalidate_user_sessions(existing.id, reason="google_link_password_disabled")
                 token, _ = await self._reset.issue(existing.id, _RESET_TTL)
                 await self._notifier.send_google_linked_password_disabled(email, token, user_id=existing.id)
-            if existing.display_name is None and profile.name:
-                await self._users.set_display_name(existing.id, profile.name)
+            if existing.display_name is None and name is not None:
+                await self._users.set_display_name(existing.id, name)
             user = await self._users.get_by_id(existing.id)
             if user is None:
                 raise OAuthExchangeFailed()
@@ -536,7 +539,7 @@ class AuthService:
                     password_hash=None,
                     status=UserStatus.ACTIVE,
                     email_verified=True,
-                    display_name=profile.name,
+                    display_name=name,
                 )
                 await self._identities.insert(
                     user_id=user.id,
