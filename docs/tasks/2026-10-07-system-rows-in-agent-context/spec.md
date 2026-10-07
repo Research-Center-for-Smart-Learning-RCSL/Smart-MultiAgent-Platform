@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R9.10, R13.33, R13.34, R28.06, R30.08]
 depends_on: []
@@ -168,7 +168,7 @@ Written first; each fails against current code for the stated reason.
 - [x] AC-4: no human or agent label in the model context contains `[` or `]`, and the
   participant note states that only the platform writes `[Room notice]`.
 - [x] AC-5: the summary retrieval query is built only from a compaction summary.
-- [ ] AC-6: backend lint, typecheck and tests pass in CI.
+- [x] AC-6: backend lint, typecheck and tests pass in CI.
 
 ## 12. SRS Delta
 
