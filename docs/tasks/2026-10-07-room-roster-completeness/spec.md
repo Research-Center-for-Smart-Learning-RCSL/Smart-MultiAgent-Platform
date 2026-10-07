@@ -182,6 +182,26 @@ Appended by /build.
   `AuthService.update_display_name`. Reason: the route is the service method's only caller,
   and the comparison leaves the identity service unchanged.
 
+- **D-4.** The requester accepted these `/code-review` fixes on PR #240:
+  - `present_user_ids` returns `[]` when presence cannot be read, so a Redis outage no longer
+    makes the roster return 500.
+  - The roster lists a present id only if a user row exists for it. A guest session outside
+    `list_labels`' window, or one ended while its socket is still open, would otherwise have
+    been listed as `member`.
+  - The roster re-read now scans message senders in their own computed, so presence and typing
+    frames no longer rescan the whole message list.
+  - The set of ids already asked about is cleared when a roster read fails. Each later
+    participant change can then trigger one more read, including during an outage.
+  - The rename notice is sent to all the user's rooms at once (`asyncio.gather`).
+  - Both roster notices now share one helper, `emit_members_changed` in `channels.py`, used by
+    the guest routes and the profile rename. This closes FU-3.
+  - `AuthService.update_display_name` now returns whether the name changed, which replaces the
+    route's own before-and-after comparison (superseding D-3).
+
+  The requester kept two review findings as the spec decided them. Finding #3 (a platform
+  admin who opens a room is now named) follows §6. Finding #4 (rooms the user has left keep
+  the old name) is FU-1.
+
 Verification record. AC-1 was observed directly: the backend tests in
 `backend/tests/unit/test_room_roster.py` failed before the fix (the roster omitted the
 present member, and the rename emitted nothing), and so did the four tests in
@@ -198,7 +218,7 @@ AC-6 stays open until CI runs on the pushed branch.
 - **FU-2.** The roster still has its 1000-author cap with an arbitrary drop order
   (`backend/contexts/conversation/infrastructure/repositories/message_repo.py:168-194`), a
   documented limitation the audit did not count as a defect.
-- **FU-3.** `ConversationFacade.announce_participant_renamed` and `guests._emit_members_changed`
+- **FU-3.** (Closed by D-4.) `ConversationFacade.announce_participant_renamed` and `guests._emit_members_changed`
   (`backend/app/api/v1/guests.py:214-231`) each emit `chatroom.members_changed` and log the
   failure in their own copy; one helper in `contexts/conversation/infrastructure/channels.py`
   could serve both (check-quality Info).
