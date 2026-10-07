@@ -275,6 +275,7 @@ export const handlers = [
   ),
   http.get('/api/chatrooms/:chatroomId/messages', () => HttpResponse.json([])),
   http.get('/api/chatrooms/:chatroomId/agents', () => HttpResponse.json([])),
+  http.get('/api/chatrooms/:chatroomId/agent-labels', () => HttpResponse.json([])),
   http.get('/api/workspaces', () => HttpResponse.json([])),
   http.get('/api/workspaces/:workspaceId', () =>
     HttpResponse.json({

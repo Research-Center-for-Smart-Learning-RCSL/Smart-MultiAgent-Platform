@@ -58,6 +58,52 @@ describe('ChatroomSearchPanel highlighting', () => {
   })
 })
 
+// docs/tasks/2026-10-07-name-fallback-surfaces AC-4: every hit was labelled with
+// eight characters of the sender id, because the panel was given no names.
+describe('ChatroomSearchPanel sender labels', () => {
+  function labelled(over: Partial<SearchHit>, names: { userNames?: Record<string, string>; agentNames?: Record<string, string> }) {
+    const h = { ...hit('x'), ...over }
+    return renderView(ChatroomSearchPanel, {
+      props: {
+        query: 'x',
+        hits: [h],
+        renderedSnippets: { [h.message_id]: 'x' },
+        searching: false,
+        userNames: names.userNames ?? {},
+        agentNames: names.agentNames ?? {},
+      },
+    })
+  }
+
+  it('names a member from the user map', async () => {
+    const wrapper = await labelled({ sender_id: 'u1abcdefgh' }, { userNames: { u1abcdefgh: 'Teacher' } })
+    expect(wrapper.find('.result__meta').text()).toContain('Teacher')
+    expect(wrapper.find('.result__meta').text()).not.toContain('u1abcdef')
+  })
+
+  it('names a guest session from the user map', async () => {
+    const wrapper = await labelled(
+      { sender_type: 'guest', sender_id: 'g1abcdefgh' },
+      { userNames: { g1abcdefgh: 'Sam' } },
+    )
+    expect(wrapper.find('.result__meta').text()).toContain('Sam')
+  })
+
+  it('names an agent from the agent map, and an unnamed one as unknown', async () => {
+    const named = await labelled({ sender_type: 'agent', sender_id: 'a1abcdefgh' }, { agentNames: { a1abcdefgh: 'Tutor' } })
+    expect(named.find('.result__meta').text()).toContain('Tutor')
+
+    const unnamed = await labelled({ sender_type: 'agent', sender_id: 'a2abcdefgh' }, {})
+    expect(unnamed.find('.result__meta').text()).toContain('conversation.chatroom.unknownAgent')
+    expect(unnamed.find('.result__meta').text()).not.toContain('a2abcdef')
+  })
+
+  it('keeps the short id for a person nothing names', async () => {
+    const wrapper = await labelled({ sender_id: 'u9abcdefgh' }, {})
+    expect(wrapper.find('.result__meta').text()).toContain('u9abcdef')
+  })
+})
+
 // T-10 (search half) of docs/tasks/2026-08-19-chatroom-scroll-and-composer,
 // F-48. The panel is mounted inside `.chatroom__feed`, which is grid-row 2 of
 // `48px 1fr auto auto` and is the positioned ancestor -- so its top edge is

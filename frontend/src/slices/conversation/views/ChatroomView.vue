@@ -71,6 +71,8 @@
           :query="searchQuery"
           :hits="searchHits"
           :rendered-snippets="renderedSnippets"
+          :user-names="userNames"
+          :agent-names="agentNames"
           :searching="searching"
           @update:query="searchQuery = $event"
           @search="doSearch"
@@ -519,7 +521,7 @@ import { useTransientSurfaces } from '../composables/useTransientSurfaces'
 import { useGuestModeration } from '../composables/useGuestModeration'
 import { useConversationStore } from '../stores/conversation'
 import { agentErrorMessageKey } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ChatroomMember, type ExportOptions, type ReleaseBody } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgentLabels, listChatroomAgents, listChatroomMembers, listProjectAgentNames, updateGuestDisplayName, type ChatroomMember, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, Observation, SearchHit } from '../types'
@@ -670,11 +672,21 @@ const projectAgentsQuery = useQuery({
   retry: false,
 })
 
-// The project's names cover agents since unbound from this room (their history
-// still needs a label), but a guest cannot read them; the room's own agent list
-// names every bound agent for any participant, so it is layered on top.
+// Names for every agent the room's history shows, for any participant: unbound
+// and deleted authors, and observers a release disclosed. The bound list cannot
+// serve history (it drops unbound agents, and observers for a non-creator), and
+// the project list is members-only and drops deleted agents.
+const agentLabelsQuery = useQuery({
+  queryKey: convKeys.chatroomAgentLabels(chatroomId),
+  queryFn: () => listChatroomAgentLabels(chatroomId),
+  retry: false,
+})
+
+// Lowest to highest precedence: history labels, the project's live names (a
+// rename since), then the room's own agent list, which names every bound agent.
 const agentNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {}
+  for (const a of agentLabelsQuery.data.value ?? []) map[a.agent_id] = a.name
   for (const a of projectAgentsQuery.data.value ?? []) map[a.id] = a.name
   for (const a of boundAgentsQuery.data.value ?? []) {
     if (a.name) map[a.agent_id] = a.name
@@ -1026,6 +1038,44 @@ watch(unnamedParticipantIds, (ids) => {
     }
   }
   if (needsRefetch) void membersQuery.refetch()
+})
+
+// The agent-side equivalent, for an agent the history names that no source names
+// yet: a release disclosing an observer arrives live, or an agent is unbound
+// mid-session. Every id the history held when the labels last answered has been
+// asked about, so a deleted agent with no name costs no second read on open.
+const historyAgentIds = computed(() => {
+  const ids = new Set<string>()
+  for (const m of messages.value) {
+    if (m.sender_type === 'agent' && m.sender_id) ids.add(m.sender_id)
+    const observer = m.metadata?.observer_agent_id
+    if (typeof observer === 'string' && observer) ids.add(observer)
+  }
+  return ids
+})
+const unnamedAgentIds = computed(() => [...historyAgentIds.value].filter((id) => !(id in agentNames.value)))
+const agentLabelAttempts = new Set<string>()
+// Registered before the watch below so it runs first when both fire in one flush.
+watch(
+  () => agentLabelsQuery.dataUpdatedAt.value,
+  () => {
+    for (const id of historyAgentIds.value) agentLabelAttempts.add(id)
+  },
+)
+watch(
+  () => agentLabelsQuery.errorUpdatedAt.value,
+  () => agentLabelAttempts.clear(),
+)
+watch(unnamedAgentIds, (ids) => {
+  if (!agentLabelsQuery.isFetched.value) return
+  let needsRefetch = false
+  for (const id of ids) {
+    if (!agentLabelAttempts.has(id)) {
+      agentLabelAttempts.add(id)
+      needsRefetch = true
+    }
+  }
+  if (needsRefetch) void agentLabelsQuery.refetch()
 })
 
 const { editingId, editDraft, startEdit, cancelEdit, saveEdit } =
@@ -1498,7 +1548,7 @@ async function onUpdateGuestDisplayName(requested: string): Promise<void> {
 
 function senderName(m: Message): string {
   if (m.sender_type === 'agent' && m.sender_id) {
-    return agentNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
+    return agentNames.value[m.sender_id] ?? t('conversation.chatroom.unknownAgent')
   }
   if (m.sender_type === 'user' && m.sender_id) {
     return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)

@@ -191,7 +191,8 @@
       "exportExpiry": "Link expires in 24 hours.",
       "retry": "Retry",
       "copied": "Copied to clipboard.",
-      "copyFailed": "Failed to copy."
+      "copyFailed": "Failed to copy.",
+      "unknownAgent": "Unknown agent"
     },
     "observers": {
       "tab": "Observer",

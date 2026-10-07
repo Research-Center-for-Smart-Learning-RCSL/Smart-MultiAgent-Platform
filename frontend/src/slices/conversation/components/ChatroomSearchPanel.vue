@@ -53,7 +53,7 @@
           @click="emit('select', h)"
         >
           <span class="result__meta">
-            {{ h.sender_id ? h.sender_id.slice(0, 8) : h.sender_type }} · {{ formatDateTime(h.created_at) }}
+            {{ senderLabel(h) }} · {{ formatDateTime(h.created_at) }}
           </span>
           <!-- Snippet sanitised via sanitizeSnippet (eslint allowlist). -->
           <span
@@ -82,12 +82,18 @@ import { useFocusTrap } from '@shared/composables'
 import { formatDateTime } from '../utils/format'
 import type { SearchHit } from '../types'
 
-defineProps<{
-  query: string
-  hits: SearchHit[]
-  renderedSnippets: Record<string, string>
-  searching: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    query: string
+    hits: SearchHit[]
+    renderedSnippets: Record<string, string>
+    searching: boolean
+    // The room view's maps; guest sessions are named in `userNames` too.
+    userNames?: Record<string, string>
+    agentNames?: Record<string, string>
+  }>(),
+  { userNames: () => ({}), agentNames: () => ({}) },
+)
 
 const emit = defineEmits<{
   'update:query': [value: string]
@@ -97,6 +103,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// Falls back as a message author does: an agent nothing names is unknown, a
+// person keeps a short id.
+function senderLabel(h: SearchHit): string {
+  if (!h.sender_id) return h.sender_type
+  if (h.sender_type === 'agent') return props.agentNames[h.sender_id] ?? t('conversation.chatroom.unknownAgent')
+  return props.userNames[h.sender_id] ?? h.sender_id.slice(0, 8)
+}
 
 const panelRef = ref<HTMLElement | null>(null)
 // The panel is `v-if`-mounted only while open, so `isOpen` is constant and the

@@ -139,7 +139,9 @@ describe('ChatroomMessageBubble released observation (R28.06)', () => {
       expect(wrapper.find('.released__head').text()).not.toContain('agent-123')
     })
 
-    it('falls back to a truncated id when the agent is not in agentNames', async () => {
+    // docs/tasks/2026-10-07-name-fallback-surfaces AC-3: an agent nothing names is
+    // an unknown agent, never its id (this used to pin the truncated id).
+    it('falls back to an unknown-agent label when the agent is not in agentNames', async () => {
       i18n.global.mergeLocaleMessage('en', conversationEn)
       const wrapper = await renderView(ChatroomMessageBubble, {
         props: {
@@ -151,7 +153,8 @@ describe('ChatroomMessageBubble released observation (R28.06)', () => {
           }),
         },
       })
-      expect(wrapper.find('.released__head').text()).toContain('abcdef12')
+      expect(wrapper.find('.released__head').text()).toContain('Unknown agent')
+      expect(wrapper.find('.released__head').text()).not.toContain('abcdef12')
     })
   })
 

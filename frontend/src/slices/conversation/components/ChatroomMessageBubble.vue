@@ -321,11 +321,10 @@ const releasedHeader = computed(() => {
   // Observer name is present only when the room disclosed observers at release
   // time (R28.09); otherwise attribute to the owner alone. The metadata only
   // ever carries the agent's id, so resolve it against agentNames the same
-  // way every other sender label does — falling back to a truncated id when
-  // the map doesn't have it (e.g. the agent was later removed from the project).
+  // way every other agent label does, with the same unknown-agent fallback.
   return typeof observer === 'string' && observer
     ? t('conversation.observers.releasedByOwnerNamed', {
-        name: props.agentNames?.[observer] ?? observer.slice(0, 8),
+        name: props.agentNames?.[observer] ?? t('conversation.chatroom.unknownAgent'),
       })
     : t('conversation.observers.releasedByOwner')
 })
