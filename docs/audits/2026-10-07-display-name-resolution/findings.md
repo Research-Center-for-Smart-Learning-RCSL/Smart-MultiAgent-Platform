@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-10-07
 requirements: [R6.11, R6.14, R6.15, R9.10, R13.17, R13.33, R13.34, R13.55, R28.06, R30.38]
 ---
@@ -380,23 +380,28 @@ Ordered by severity.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | | |
-| F-2 | | |
-| F-3 | | |
-| F-4 | | |
-| F-5 | | |
-| F-6 | | |
-| F-7 | | |
-| F-8 | | |
-| F-9 | | |
-| F-10 | | |
-| F-11 | | |
-| F-12 | | |
-| F-13 | | |
-| F-14 | | |
-| F-15 | | |
-| F-16 | | |
-| F-17 | | |
+Triaged with the requester on 2026-10-07: every finding but F-16 is to be fixed, grouped
+into six bugfix dossiers by root cause.
+
+| Finding | Decision | Task dossier |
+|---|---|---|
+| F-1 | fix | `docs/tasks/2026-10-07-google-display-name-normalisation/` |
+| F-2 | fix | `docs/tasks/2026-10-07-room-roster-completeness/` |
+| F-3 | fix | `docs/tasks/2026-10-07-canvas-awareness-names/` |
+| F-4 | fix | `docs/tasks/2026-10-07-system-rows-in-agent-context/` |
+| F-5 | fix | `docs/tasks/2026-10-07-room-roster-completeness/` |
+| F-6 | fix | `docs/tasks/2026-10-07-google-display-name-normalisation/` |
+| F-7 | fix | `docs/tasks/2026-10-07-display-name-validation/` |
+| F-8 | fix | `docs/tasks/2026-10-07-display-name-validation/` |
+| F-9 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-10 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-11 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-12 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-13 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-14 | fix | `docs/tasks/2026-10-07-name-fallback-surfaces/` |
+| F-15 | fix | `docs/tasks/2026-10-07-room-roster-completeness/` (chat roster); canvas awareness part in `docs/tasks/2026-10-07-canvas-awareness-names/` |
+| F-16 | defer (2026-10-07) | none; waits on a requirements decision about a room-side generic label for unresolved authors |
+| F-17 | fix | `docs/tasks/2026-10-07-google-display-name-normalisation/` |
 
 ## 6. Out-of-scope Observations
 
