@@ -473,6 +473,13 @@ def _first_label(*candidates: str | None) -> str | None:
     return None
 
 
+def _defang_notice_marker(text: str) -> str:
+    """``text`` unable to spell ``_ROOM_NOTICE_MARKER``. Applied to every body the
+    model sees as a turn, because providers combine consecutive user turns: a
+    marker line inside a message is then indistinguishable from a real notice."""
+    return text.replace(_ROOM_NOTICE_MARKER, _ROOM_NOTICE_MARKER.strip("[]"))
+
+
 def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
     """The compaction summaries, as the system prompt carries them."""
     return [f"[Earlier conversation summary]\n{hm.content}" for hm in history if hm.role == "system"]
@@ -2939,15 +2946,16 @@ class TurnEngine:
                 )
 
                 if input_text:
+                    live_text = _defang_notice_marker(input_text)
                     if attach_blocks:
                         request_messages.append(
                             {
                                 "role": "user",
-                                "content": [{"type": "text", "text": input_text}, *attach_blocks],
+                                "content": [{"type": "text", "text": live_text}, *attach_blocks],
                             }
                         )
                     else:
-                        request_messages.append({"role": "user", "content": input_text})
+                        request_messages.append({"role": "user", "content": live_text})
                 # FIX-02: providers (Anthropic in particular) reject a leading
                 # assistant turn. Compaction can fold the range so the first
                 # survivor is this agent's own reply — anchor with a neutral turn.
@@ -3800,27 +3808,33 @@ class TurnEngine:
         mid-stream ``system`` roles are rejected by several adapters.
         """
         if hm.role == "notice":
-            # An echo's "Content:" digest is participant text that reaches this
-            # body unflattened, so it must not be able to spell the marker.
-            body = hm.content.replace(_ROOM_NOTICE_MARKER, _ROOM_NOTICE_MARKER.strip("[]"))
+            body = _defang_notice_marker(hm.content)
             if hm.metadata.get("type") == RELEASED_OBSERVATION_TYPE:
                 # Not "the room owner": admins, and moderators of a room with no
                 # recorded creator, can release too.
                 body = f"An analysis was released to the room: {body}"
+            else:
+                # An activity echo is one line by construction except for its
+                # "Content:" digest, which is participant text that reaches this
+                # body unflattened; kept on one line, everything after
+                # "Content:" stays visibly the participant's.
+                body = " ".join(body.split())
             return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {body}"}
         if hm.role == "agent":
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
-            content = f"{label or _AGENT_LABEL_FALLBACK}: {hm.content}"
+            content = f"{label or _AGENT_LABEL_FALLBACK}: {_defang_notice_marker(hm.content)}"
             # Other agents are external actors from this agent's perspective;
             # mapping them to "user" prevents consecutive assistant turns which
             # the Anthropic and OpenAI APIs reject with a 400.
             return {"role": "user", "content": content}
         label = user_names.get(hm.sender_id) if hm.sender_id is not None else None
-        content = f"{label}: {hm.content}" if label else hm.content
+        body = _defang_notice_marker(hm.content)
+        content = f"{label}: {body}" if label else body
         if hm.attachment_excerpt and not attachment_blocks:
-            content = f"{content}\n\n{hm.attachment_excerpt}" if content else hm.attachment_excerpt
+            excerpt = _defang_notice_marker(hm.attachment_excerpt)
+            content = f"{content}\n\n{excerpt}" if content else excerpt
         if attachment_blocks:
             text_blocks = [{"type": "text", "text": content}] if content else []
             return {"role": "user", "content": text_blocks + attachment_blocks}
