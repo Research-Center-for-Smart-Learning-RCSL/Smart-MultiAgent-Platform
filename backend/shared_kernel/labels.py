@@ -73,15 +73,20 @@ def _truncate_graphemes(text: str, max_len: int) -> str:
     The cap counts code points because the ``VARCHAR(n)`` columns do; slicing at
     that count could leave a dangling ZWJ, half a flag, or a letter without its
     combining accent.
+
+    A first cluster that alone exceeds the cap (a letter stacked with dozens of
+    combining marks) keeps its first code point, a cluster of its own, rather than
+    collapsing the whole label to nothing.
     """
     if len(text) <= max_len:
         return text
     kept = 0
-    for cluster in _GRAPHEME.findall(text):
-        if kept + len(cluster) > max_len:
+    for match in _GRAPHEME.finditer(text):
+        size = match.end() - match.start()
+        if kept + size > max_len:
             break
-        kept += len(cluster)
-    return text[:kept]
+        kept += size
+    return text[: kept or 1]
 
 
 __all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "normalise_label"]
