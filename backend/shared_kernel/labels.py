@@ -26,6 +26,11 @@ from __future__ import annotations
 import unicodedata
 from typing import Final
 
+import regex
+
+# Unicode extended grapheme clusters (UAX #29); the stdlib `re` has no `\X`.
+_GRAPHEME: Final = regex.compile(r"\X")
+
 # Format chars that legitimately appear *inside* an emoji grapheme. Kept so
 # multi-codepoint emoji (ZWJ sequences like the family/profession emoji, and
 # VS16-presented glyphs) survive normalisation; every other control/format char —
@@ -58,8 +63,25 @@ def normalise_label(raw: str | None, *, max_len: int) -> str | None:
     cleaned = "".join(
         ch for ch in raw if ch in _KEEP or ch == " " or not unicodedata.category(ch).startswith("C")
     )
-    cleaned = cleaned.strip()[:max_len].strip()
+    cleaned = _truncate_graphemes(cleaned.strip(), max_len).strip()
     return cleaned or None
+
+
+def _truncate_graphemes(text: str, max_len: int) -> str:
+    """At most ``max_len`` code points, cut only between grapheme clusters.
+
+    The cap counts code points because the ``VARCHAR(n)`` columns do; slicing at
+    that count could leave a dangling ZWJ, half a flag, or a letter without its
+    combining accent.
+    """
+    if len(text) <= max_len:
+        return text
+    kept = 0
+    for cluster in _GRAPHEME.findall(text):
+        if kept + len(cluster) > max_len:
+            break
+        kept += len(cluster)
+    return text[:kept]
 
 
 __all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "normalise_label"]
