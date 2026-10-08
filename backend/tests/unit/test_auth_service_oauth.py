@@ -33,6 +33,7 @@ from contexts.identity.domain.errors import (
 from contexts.identity.domain.models import AuthIdentity, User, UserStatus
 from contexts.identity.infrastructure.oauth import google as g
 from shared_kernel.auth.password import PasswordHasher
+from shared_kernel.labels import MAX_DISPLAY_NAME
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 _HASHER = PasswordHasher()
@@ -317,6 +318,64 @@ class TestResolveOauthLogin:
         assert insert_kwargs["status"] is UserStatus.ACTIVE
         assert insert_kwargs["display_name"] == "New Name"
         identities.insert.assert_awaited_once()
+
+    async def _provision(self, name: str) -> str | None:
+        new_user = _make_user(status=UserStatus.ACTIVE, email_verified=True, password_hash=None)
+        identities = AsyncMock()
+        identities.get_by_provider_subject.return_value = None
+        users = AsyncMock()
+        users.get_active_by_email.return_value = None
+        users.insert.return_value = new_user
+        svc = _make_service(users=users, identities=identities)
+        svc._verify_google = AsyncMock(return_value=_profile(name=name))
+
+        await _login(svc)
+
+        return users.insert.await_args.kwargs["display_name"]
+
+    async def test_a_long_google_name_is_capped_before_the_insert(self) -> None:
+        """F-1: `users.display_name` is VARCHAR(50); the raw claim raised a
+        DataError no handler caught, and the callback answered 500."""
+        stored = await self._provision("Professor " + "W" * 50)
+
+        assert stored == ("Professor " + "W" * 50)[:MAX_DISPLAY_NAME]
+
+    async def test_control_and_format_characters_are_stripped(self) -> None:
+        """F-6: the claim bypassed the rule every other display-name write applies."""
+        rlo = chr(0x202E)  # RIGHT-TO-LEFT OVERRIDE
+        stored = await self._provision(f"Alice{rlo}\nTeacher")
+
+        assert stored == "AliceTeacher"
+
+    async def test_an_existing_account_without_a_name_gets_the_normalised_one(self) -> None:
+        """F-1, the lockout: this write ran outside any savepoint, so its DataError
+        also rolled back the identity link and every retry took the same branch."""
+        existing = _make_user(email_verified=True)
+        identities = AsyncMock()
+        identities.get_by_provider_subject.return_value = None
+        users = AsyncMock()
+        users.get_active_by_email.return_value = existing
+        users.get_by_id.return_value = existing
+        svc = _make_service(users=users, identities=identities)
+        svc._verify_google = AsyncMock(return_value=_profile(name="W" * 60 + "\n"))
+
+        await _login(svc)
+
+        users.set_display_name.assert_awaited_once_with(existing.id, "W" * MAX_DISPLAY_NAME)
+
+    async def test_an_existing_account_is_not_given_a_name_that_normalises_to_nothing(self) -> None:
+        existing = _make_user(email_verified=True)
+        identities = AsyncMock()
+        identities.get_by_provider_subject.return_value = None
+        users = AsyncMock()
+        users.get_active_by_email.return_value = existing
+        users.get_by_id.return_value = existing
+        svc = _make_service(users=users, identities=identities)
+        svc._verify_google = AsyncMock(return_value=_profile(name="\n\t"))
+
+        await _login(svc)
+
+        users.set_display_name.assert_not_called()
 
     async def test_verified_account_auto_links(self) -> None:
         # AC-4: email matches an already-verified account -> auto-link, password intact.

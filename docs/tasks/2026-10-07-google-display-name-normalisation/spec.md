@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-07
 requirements: [R6.14, R6.15, R13.34]
 depends_on: []
@@ -174,18 +174,18 @@ Written first; each fails against current code for the stated reason.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: a Google sign-in whose profile name exceeds 50 characters succeeds for a new
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after.
+- [x] AC-2: a Google sign-in whose profile name exceeds 50 characters succeeds for a new
   account and for an existing account without a display name, storing a name of at most 50
   characters that ends on a grapheme boundary.
-- [ ] AC-3: a Google profile name is stored with exactly the result `_normalise_display_name`
+- [x] AC-3: a Google profile name is stored with exactly the result `_normalise_display_name`
   gives for it, so control and format characters other than ZWJ and VS16 never reach
   `users.display_name` through Google sign-in.
-- [ ] AC-4: `normalise_label` never returns a string that ends inside a grapheme cluster, for
+- [x] AC-4: `normalise_label` never returns a string that ends inside a grapheme cluster, for
   every caller.
-- [ ] AC-5: after migration `0100`, every non-null `users.display_name` equals its own
+- [x] AC-5: after migration `0100`, every non-null `users.display_name` equals its own
   normalisation, and the migration upgrades and downgrades cleanly on the scratch database.
-- [ ] AC-6: backend lint, typecheck, unit and db-tier tests and the dependency audit pass in
+- [x] AC-6: backend lint, typecheck, unit and db-tier tests and the dependency audit pass in
   CI.
 
 ## 11. SRS Delta
@@ -195,7 +195,35 @@ fix restores it.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1. Q-2's premise was wrong: `regex` is a new runtime dependency, not a new pin.**
+  `pip show regex` reported "Required-by: tiktoken" on the developer machine, but `tiktoken`
+  there comes from unrelated locally installed tools; neither appears in
+  `backend/requirements.lock`, which is all the runtime image installs. Found at the
+  freshness check; the requester chose to keep `regex` anyway. It is declared as
+  `regex>=2026.1.15,<2027` in `pyproject.toml` (the upper bound from the `check-security`
+  hardening note) and pinned `==2026.1.15` in `requirements.lock`, and `types-regex` is
+  pinned exactly in the dev extras, following the repo's rule for typeshed stubs. `pip-audit`
+  reports no known vulnerabilities for either. §9's third risk bullet understates this.
+- **D-2. Migration `0100` revises `0102`.** The number was claimed by this dossier before
+  `0102` landed, so the chain runs `0099 → 0102 → 0100`, as BOARD.md warned.
+- **D-3. One extra regression test on each side.** A Google name that normalises to nothing
+  does not overwrite an existing account's missing name (`set_display_name` is not called),
+  and the migration test also pins its frozen copy of the rule against `normalise_label` so
+  the two cannot drift silently.
+- **D-4. `/code-review` fixes after CI, all applied at the requester's choice.** (1) The
+  migration's `_KEEP` held literal ZWJ and VS16 characters instead of escapes (the writing
+  tool decoded them), the exact hazard `labels.py` documents: one editor pass would empty
+  the keep-list and the migration would strip every emoji joiner irreversibly. Rewritten as
+  escapes, with a unit test that fails on a literal; the new tests had the same defect and
+  were fixed too. (2) A first grapheme cluster longer than the cap now keeps its first code
+  point instead of collapsing the label to `None` (this resolves what FU-3 recorded).
+  (3) Truncation stops segmenting once the cap is reached (`finditer`). (4) The frozen-rule
+  test moved to the unit tier (`tests/unit/test_migration_0100_rule.py`), since the db
+  marker kept it out of the fast job. (5) The migration's docstring no longer claims
+  independence from the installed `regex` Unicode tables. (6) The migration reads users in
+  id-ordered pages of 1000 instead of the whole column, with a db-tier test at page size 1.
+  Finding 7 (file numbering against chain order) needed no change: the migration docstring
+  and BOARD.md both name the head.
 
 ## 13. Follow-ups
 
@@ -205,3 +233,7 @@ Appended by /build.
 - **FU-2.** The guest name form validates length with `zod`'s `max(100)`, which counts UTF-16
   code units, while the server caps code points; a name full of emoji is rejected by the
   form earlier than the server would cut it. Harmless, but the two counts differ.
+- **FU-3.** (Resolved by D-4 (2).) A single grapheme cluster longer than the cap truncated
+  to nothing; it now keeps its first code point.
+- **FU-4.** No live Google sign-in with a long name has been observed in a running stack;
+  AC-2 rests on unit tests with `_verify_google` stubbed. A staging check.

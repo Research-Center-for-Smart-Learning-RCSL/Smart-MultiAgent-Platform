@@ -57,6 +57,9 @@ dependencies = [
   # domain now imports it directly, and an undeclared direct import breaks the
   # day a transitive consumer drops it.
   "idna>=3.7,<4",
+  # Extended grapheme clusters (`\X`) for label truncation (shared_kernel/labels.py):
+  # a code-point cut can split an emoji or leave an accent without its letter.
+  "regex>=2026.1.15,<2027",
   "pycrdt>=0.12,<1.0",
 ]
 
@@ -84,6 +87,7 @@ dev = [
   "types-bleach==6.4.0.20260728",
   "types-defusedxml==0.7.0.20260504",
   "types-redis==4.6.0.20241004",
+  "types-regex==2026.1.15.20260116",
 ]
 
 [build-system]

@@ -196,6 +196,8 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
+regex==2026.1.15
+    # via smap-backend (pyproject.toml)
 requests==2.34.2
     # via
     #   docker

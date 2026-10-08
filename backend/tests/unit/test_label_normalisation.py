@@ -58,7 +58,7 @@ class TestNormaliseLabel:
         assert normalise_label("柯佩蓉 Ke Pei-jung", max_len=MAX_GUEST_LABEL) == "柯佩蓉 Ke Pei-jung"
 
     def test_emoji_joiners_survive_so_a_grapheme_is_not_split(self) -> None:
-        family = "\U0001f468‍\U0001f469‍\U0001f467"
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
         assert normalise_label(family, max_len=MAX_GUEST_LABEL) == family
 
     def test_empty_and_whitespace_only_collapse_to_none(self) -> None:
@@ -71,6 +71,37 @@ class TestNormaliseLabel:
 
         assert len(normalise_label(long, max_len=MAX_DISPLAY_NAME) or "") == MAX_DISPLAY_NAME
         assert len(normalise_label(long, max_len=MAX_GUEST_LABEL) or "") == MAX_GUEST_LABEL
+
+
+class TestTruncationKeepsWholeGraphemes:
+    """F-17: the cap sliced code points, so a cut could land inside a character a
+    reader sees as one -- a dangling joiner, half a flag, a letter without its
+    accent. The cap is still a code-point count, because the columns count those."""
+
+    def test_a_zwj_sequence_is_dropped_whole(self) -> None:
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+
+        assert normalise_label("abc" + family, max_len=5) == "abc"
+
+    def test_half_a_flag_is_not_kept(self) -> None:
+        flag = "\U0001f1f9\U0001f1fc"
+
+        assert normalise_label("ab" + flag, max_len=3) == "ab"
+
+    def test_a_combining_accent_stays_with_its_letter(self) -> None:
+        assert normalise_label("cafe\u0301", max_len=4) == "caf"
+
+    def test_a_first_cluster_over_the_cap_keeps_its_base(self) -> None:
+        """Code review: dropping the whole straddling cluster left nothing when the
+        very first one was over the cap, and the label collapsed to None."""
+        stacked = "a" + chr(0x0301) * 60
+
+        assert normalise_label(stacked, max_len=MAX_DISPLAY_NAME) == "a"
+
+    def test_a_cluster_that_fits_is_kept(self) -> None:
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+
+        assert normalise_label("ab" + family, max_len=7) == "ab" + family
 
 
 class TestIdentityKeepsItsOwnCap:
