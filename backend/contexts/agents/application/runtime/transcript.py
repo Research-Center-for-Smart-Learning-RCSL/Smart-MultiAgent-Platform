@@ -76,7 +76,11 @@ _ROLE_BY_SENDER = {
     # the guest-session name the turn engine resolves.
     SenderType.GUEST: "user",
     SenderType.AGENT: "agent",
-    SenderType.SYSTEM: "system",
+    # Every system message that is not a compaction summary (a released
+    # observation, an activity echo) is something posted *into* the room, so it
+    # keeps its place in the conversation. ``system`` stays reserved for
+    # summaries, which the turn engine lifts into the system prompt.
+    SenderType.SYSTEM: "notice",
 }
 
 
@@ -140,7 +144,7 @@ def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str 
 
 def _to_history(msg: Message, attachments: Sequence[MessageAttachment] | None = None) -> HistoryMessage:
     role = "system" if is_compact_summary(msg.metadata) else _ROLE_BY_SENDER.get(msg.sender_type, "user")
-    # Excerpt only for user rows — an agent/system row never carries an
+    # Excerpt only for user rows — an agent/system/notice row never carries an
     # uploaded attachment. Folded into token_count (so compaction budgeting
     # stays accurate) but deliberately NOT into `.content`, so RAG query
     # building and the compaction summariser keep seeing exactly today's
