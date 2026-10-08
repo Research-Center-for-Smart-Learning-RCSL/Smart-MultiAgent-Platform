@@ -53,7 +53,7 @@ class MessageLike(Protocol):
     """Minimum fields the compactor needs off a chat message."""
 
     id: Any
-    role: str  # "user" | "agent" | "system" | "tool"
+    role: str  # "user" | "agent" | "notice" | "system" | "tool"
     content: str
     metadata: dict[str, Any]
     token_count: int

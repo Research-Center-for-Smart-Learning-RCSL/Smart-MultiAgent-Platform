@@ -490,10 +490,15 @@ rows are added as each is written.
 - (implemented 2026-10-07) `2026-10-07-room-roster-completeness`.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`.
-- `2026-10-07-system-rows-in-agent-context` (bugfix, **approved 2026-10-07**, no SRS Delta) - `depends_on: []`. F-4 and
-  its security aspect: only compaction summaries become the agent's summary block; released
-  observations and activity echoes stay in order as `[Room notice]` turns, and labels lose
-  square brackets so no participant can wear the marker.
+- (implemented 2026-10-07) `2026-10-07-system-rows-in-agent-context`.
+- `2026-10-07-display-name-validation` (bugfix, **approved 2026-10-07**, no SRS Delta) - moved
+  to Ready on 2026-10-08: both dependencies, `2026-10-07-google-display-name-normalisation`
+  and `2026-10-07-system-rows-in-agent-context`, are implemented (shared edits to
+  `normalise_label`, `_one_line_label`, `_provider_message`; migration order). F-7, F-8:
+  names need a visible character and lose default-ignorables, agent names are normalised at
+  source with an `Agent <id>` render fallback, and migration `0101` repairs stored blank
+  names. Its `down_revision` is `0100_normalise_account_display_names`, the head after
+  `0100` landed; take it from `alembic heads`, not from the number.
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
@@ -503,13 +508,9 @@ rows are added as each is written.
 
 ### From the 2026-10-07 display-name audit
 
-- `2026-10-07-display-name-validation` (bugfix, **approved 2026-10-07**, no SRS Delta) - waits on
-  `2026-10-07-google-display-name-normalisation` and `2026-10-07-system-rows-in-agent-context`
-  (shared edits to `normalise_label`, `_one_line_label`, `_provider_message`; migration order).
-  F-7, F-8: names need a visible character and lose default-ignorables, agent names are
-  normalised at source with an `Agent <id>` render fallback, and migration `0101` repairs
-  stored blank names. Its `down_revision` comes from `alembic heads` (see the `0102` note
-  above), not from the number.
+- (moved to Ready now on 2026-10-08, unblocked by the implemented
+  `2026-10-07-google-display-name-normalisation` and `2026-10-07-system-rows-in-agent-context`)
+  `2026-10-07-display-name-validation`.
 
 From the 2026-08-19 page-presentation audit. Every entry below is blocked only by file
 overlap, so each unblocks as soon as its predecessor is `implemented`.
@@ -699,14 +700,19 @@ each row for its own list — the frontmatter wins over this preamble.
 ## In progress
 
 - (implemented 2026-10-07) `2026-10-07-google-display-name-normalisation`. AC-1..AC-6
-  verified on PR #244 (CI green at `53767bf0`, after the D-4 review fixes; the scratch-database `0100` migration tests
-  ran in the db tier, dependency audit included). AC-2 rests on tests, not on a live Google
-  sign-in (FU-4, a staging check). Deviations D-1..D-3 (D-1: `regex` is a new runtime
-  dependency, not just a new pin, kept at the requester's choice) and FU-1..FU-4 are in the
-  dossier. **Migration chain**: `0099 -> 0102 -> 0100`. `2026-10-07-display-name-validation`
-  lists this slug in `depends_on`; its other dependency,
-  `2026-10-07-system-rows-in-agent-context`, is implemented on PR #243, so it unblocks once
-  both PRs are merged.
+  verified on PR #244 (CI green at `53767bf0`, after the D-4 review fixes; the
+  scratch-database `0100` migration tests ran in the db tier, dependency audit included).
+  AC-2 rests on tests, not on a live Google sign-in (FU-4, a staging check). Deviations
+  D-1..D-4 (D-1: `regex` is a new runtime dependency, not just a new pin, kept at the
+  requester's choice) and FU-1..FU-4 are in the dossier. **Migration chain**:
+  `0099 -> 0102 -> 0100`. With `2026-10-07-system-rows-in-agent-context` also implemented,
+  this moved `2026-10-07-display-name-validation` from Blocked to Ready.
+
+- (implemented 2026-10-07) `2026-10-07-system-rows-in-agent-context`. AC-1..AC-6 verified on
+  PR #243 (CI green at `2bdafc1c`, db and wiring tiers included). AC-2..AC-5 rest on tests,
+  not on observation in a running app (FU-4, a staging check). Deviations D-1..D-4 (D-2..D-4
+  the `/code-review` and `check-security` fixes agreed with the requester) and FU-1..FU-4
+  are in the dossier.
 
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`. AC-1..AC-7 verified on PR
   #242 (CI green at `697fa20a`, db, wiring and e2e tiers included). AC-2..AC-6 rest on tests,

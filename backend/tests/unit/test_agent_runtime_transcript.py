@@ -157,6 +157,26 @@ async def test_load_model_history_treats_a_null_producer_as_no_producer(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_released_observations_and_activity_echoes_load_as_notices(monkeypatch) -> None:
+    """F-4: the turn engine reserves the ``system`` role for compaction summaries,
+    so every other system message must load under a role of its own."""
+    producer = uuid.uuid4()
+    newest_first, _ = _room_with_one_summary(producer)
+    observation = _msg(SenderType.SYSTEM, "ANALYSIS", metadata={"type": "released_observation"})
+    echo = _msg(SenderType.SYSTEM, "ECHO", metadata={"type": "activity_submission", "attempt_no": 1})
+    monkeypatch.setattr(tx, "ConversationFacade", _fake_facade([echo, observation, *newest_first]))
+
+    history = await tx.load_model_history(object(), chatroom_id=uuid.uuid4(), for_agent_id=producer)
+
+    assert [(h.role, h.content) for h in history] == [
+        ("system", "SUMMARY"),
+        ("user", "latest user"),
+        ("notice", "ANALYSIS"),
+        ("notice", "ECHO"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_load_model_history_folds_extracted_attachment_into_token_count_only(monkeypatch) -> None:
     m1 = _msg(SenderType.USER, "look at this file")
     att = _attachment(message_id=m1.id, extracted_text="A" * 100)
