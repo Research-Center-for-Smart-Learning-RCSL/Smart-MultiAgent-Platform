@@ -238,6 +238,61 @@ describe('usePolling', () => {
     scope.stop()
   })
 
+  it('restarting a key while its fetch is in flight leaves exactly one loop', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const first = deferred<{ done: boolean }>()
+    const fetcher = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ done: false })
+    const onResult = vi.fn()
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs: 1000,
+        isTerminal: (v: { done: boolean }) => v.done,
+        onResult,
+      }),
+    )!
+
+    poll.start('A')
+    poll.start('A') // e.g. "Check again" before the first fetch returned
+    first.resolve({ done: false }) // the superseded run's fetch lands late
+    await vi.advanceTimersByTimeAsync(0)
+    fetcher.mockClear()
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetcher).toHaveBeenCalledTimes(5) // one per second, not two
+    poll.cancel('A')
+    fetcher.mockClear()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetcher).not.toHaveBeenCalled() // no orphaned timer survives cancel
+
+    scope.stop()
+  })
+
+  it('waits at least retryAfterMs after a transient error that names one', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const limited = new Error('429')
+    const fetcher = vi.fn().mockRejectedValueOnce(limited).mockResolvedValue({ done: true })
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs: 1000,
+        isTerminal: (v: { done: boolean }) => v.done,
+        onResult: vi.fn(),
+        retryAfterMs: (e) => (e === limited ? 7000 : null),
+      }),
+    )!
+
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(6999)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+
+    scope.stop()
+  })
+
   it('stops a key once its value is terminal', async () => {
     vi.useFakeTimers()
     const scope = effectScope()
