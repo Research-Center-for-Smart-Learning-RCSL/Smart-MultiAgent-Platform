@@ -731,7 +731,7 @@ Five composable flags per chat room:
 
 - **[R13.15]** Messages are retained for **5 years** from creation by default, platform-wide.
 - **[R13.16]** Users (with their permission scope) can **manually delete** messages; deleted messages are removed immediately from both DB and search index.
-- **[R13.17]** Users can **export** a chat room's history as JSON + a folder of attachments (attachments are regenerated from MinIO if still alive; missing ones are noted).
+- **[R13.17]** Users can **export** a chat room's history as Markdown, JSON or PDF. By default the export is a ZIP containing the transcript and an `attachments/` folder. Attachments are regenerated from MinIO if still alive; expired, quarantined, missing or over-budget ones are omitted and noted. Markdown and JSON exports have no message cap. A PDF export is limited to 5,000 messages and is refused up front when the window exceeds it. A user may have one export in progress per room.
 - **[R13.18]** Search is **database-only** using PostgreSQL `tsvector` with GIN index on message content. No external search engine. Guest users can search only within rooms they belong to.
 
 ### 13.7 Realtime

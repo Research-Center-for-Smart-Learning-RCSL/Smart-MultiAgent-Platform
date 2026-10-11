@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-11
 requirements: [R13.17]
 depends_on: [2026-10-11-browser-file-delivery, 2026-10-11-chat-export-modal-states]
@@ -257,7 +257,7 @@ Write these failing tests first:
 
 ## 11. SRS Delta
 
-[R13.17] is reworded to state the delivered behavior precisely. It is applied at approval.
+[R13.17] is reworded to state the delivered behavior precisely. It was applied at approval on 2026-10-11.
 
 > **[R13.17]** Users can **export** a chat room's history as Markdown, JSON or PDF. By default the
 > export is a ZIP containing the transcript and an `attachments/` folder. Attachments are

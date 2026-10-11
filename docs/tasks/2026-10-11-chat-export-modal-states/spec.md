@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-11
 requirements: [R13.17]
 depends_on: [2026-10-11-browser-file-delivery]
@@ -232,7 +232,7 @@ Write these failing tests first:
 ## 11. SRS Delta
 
 None. The UI doc already specifies the ready and failed end states and the Retry action.
-§3.9 gains one sentence for the stalled state when this dossier is approved: "If the job is
+§3.9 gains one sentence for the stalled state when this dossier is approved (applied 2026-10-11): "If the job is
 still running after the polling window, the modal shows 'Still processing' with a 'Check
 again' action that resumes polling."
 

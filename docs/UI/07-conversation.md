@@ -847,7 +847,7 @@ Export generates an offline archive of the chatroom's message history. The flow 
 └─────────────────────────────────────────────────┘
 ```
 
-4. `useChatroomExport` polls the export job status every 3 seconds
+4. `useChatroomExport` polls the export job status every 3 seconds. If the job is still running after the polling window, the modal shows 'Still processing' with a 'Check again' action that resumes polling.
 5. On completion:
 
 ```

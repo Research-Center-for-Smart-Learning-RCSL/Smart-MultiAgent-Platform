@@ -528,7 +528,7 @@ The audit's three dossiers form one overlap chain:
 three edit `useChatroomExport.ts` and `ChatroomExportModal.vue`, and the first and last both
 edit the export filename logic in `exports.py`.
 
-- `2026-10-11-chat-export-modal-states` (bugfix, **draft**) - waiting on
+- `2026-10-11-chat-export-modal-states` (bugfix, **approved 2026-10-11**) - waiting on
   `2026-10-11-browser-file-delivery`. F-3, F-8, F-9:
   - a slow export no longer leaves the modal spinning: it polls for about 12 minutes, then
     offers "Check again";
@@ -537,14 +537,14 @@ edit the export filename logic in `exports.py`.
   - a request token discards superseded create responses.
 
   `usePolling` gains optional `isFatal`, `onExhausted` and per-attempt interval hooks.
-- `2026-10-11-chat-export-archive-content` (bugfix, **draft**) - waiting on
+- `2026-10-11-chat-export-archive-content` (bugfix, **approved 2026-10-11**) - waiting on
   `2026-10-11-browser-file-delivery` and `2026-10-11-chat-export-modal-states`. F-4, F-5, F-6:
   - an "Include attachments" ZIP with omissions noted;
   - streamed Markdown/JSON with no message cap;
   - PDF refused above 5,000 messages;
   - a cancelled job marked failed.
 
-  It carries an [R13.17] rewording to apply at approval. **Read its Q-6**: removing the cap
+  Its [R13.17] rewording was applied at approval. **Read its Q-6**: removing the cap
   widened the open export-quota finding, so it adds one active export per user per room (409).
 
 ### From the 2026-10-07 display-name audit
