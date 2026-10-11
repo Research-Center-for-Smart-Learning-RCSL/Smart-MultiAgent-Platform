@@ -1,68 +1,158 @@
 // Composable: chatroom export job creation and status polling.
-// Extracted from ChatroomView.vue (C4 SoC fix).
+// Extracted from ChatroomView.vue (C4 SoC fix). State and terminal outcomes:
+// docs/tasks/2026-10-11-chat-export-modal-states/spec.md §7.
 
 import { ref } from 'vue'
 
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { usePolling } from '@shared/composables'
+import { ApiError, RateLimitError, ValidationError } from '@shared/errors'
 import { createExport, getExport, type ExportOptions } from '../api'
 import type { ExportStatus } from '../types'
 import { downloadFresh } from '@shared/utils/download'
+
+export type ExportPhase =
+  | { kind: 'idle' }
+  | { kind: 'starting' }
+  | { kind: 'running'; jobId: string }
+  // `unreachable`: no status request succeeded in the whole window, so the
+  // job's state is unknown rather than slow.
+  | { kind: 'stalled'; jobId: string; reason: 'slow' | 'unreachable' }
+  | { kind: 'ready'; jobId: string }
+  | { kind: 'start-failed'; opts: ExportOptions }
+  | { kind: 'job-failed' }
+  | { kind: 'invalid'; field: 'start' | 'end' | null }
+
+// About 12 minutes, enough for the worker's 600-second timeout plus queue
+// wait: 3 s for the first minute, 6 s to minute 4, then 10 s.
+const POLL_ATTEMPTS = 98
+function pollDelay(attempt: number): number {
+  if (attempt <= 20) return 3000
+  if (attempt <= 50) return 6000
+  return 10_000
+}
+
+// Status responses that cannot change on retry: the job is gone or not ours.
+const FATAL_STATUS = new Set([403, 404, 410])
+
+// Only body errors are about the form's inputs (see ValidationFieldError).
+function invalidField(error: ValidationError): 'start' | 'end' | null {
+  for (const { location, path } of error.fieldErrors) {
+    if (location !== 'body') continue
+    const leaf = path.split('.').pop()
+    if (leaf === 'start' || leaf === 'end') return leaf
+  }
+  return null
+}
 
 export function useChatroomExport(chatroomId: string) {
   const { t } = useI18n()
   const toast = useToast()
 
-  const EXPORT_TERMINAL = new Set<ExportStatus['status']>(['ready', 'failed'])
-  const exportJob = ref<Pick<ExportStatus, 'status'> | null>(null)
-  // The single-slot consumer: `exportJob` holds one job at a time, so the
-  // poller must feed it from exactly one key. Track which key owns the slot and
-  // ignore ticks from any superseded job.
-  const activeJobId = ref<string | null>(null)
+  const phase = ref<ExportPhase>({ kind: 'idle' })
+  // The single-slot consumer: `phase` describes one job at a time, so the
+  // poller must feed it from exactly one key. Ticks from any other job are
+  // superseded and ignored.
+  let activeJobId: string | null = null
+  // A job id does not exist until the create returns, so supersession of a
+  // pending create is tracked by this token instead: every runExport and
+  // reset advances it, and a create response carrying an older one is dropped.
+  let requestToken = 0
+  // Whether any status request in the current polling window got an answer.
+  let answered = false
 
-  const exportPoll = usePolling<ExportStatus>((jobId) => getExport(jobId), {
-    maxAttempts: 60,
-    isTerminal: (s) => EXPORT_TERMINAL.has(s.status),
+  async function fetchStatus(jobId: string): Promise<ExportStatus> {
+    const s = await getExport(jobId)
+    if (jobId === activeJobId) answered = true
+    return s
+  }
+
+  const exportPoll = usePolling<ExportStatus>(fetchStatus, {
+    intervalMs: pollDelay,
+    maxAttempts: POLL_ATTEMPTS,
+    isTerminal: (s) => s.status === 'ready' || s.status === 'failed',
+    isFatal: (e) => e instanceof ApiError && FATAL_STATUS.has(e.status),
+    retryAfterMs: (e) => (e instanceof RateLimitError ? e.retryAfterMs : null),
     onResult: (jobId, s) => {
-      if (jobId !== activeJobId.value) return
-      exportJob.value = { status: s.status }
+      if (jobId !== activeJobId) return
+      if (s.status === 'ready') phase.value = { kind: 'ready', jobId }
+      else if (s.status === 'failed') phase.value = { kind: 'job-failed' }
+      else phase.value = { kind: 'running', jobId }
+    },
+    onError: (jobId) => {
+      if (jobId !== activeJobId) return
+      phase.value = { kind: 'job-failed' }
+    },
+    onExhausted: (jobId) => {
+      if (jobId !== activeJobId) return
+      phase.value = { kind: 'stalled', jobId, reason: answered ? 'slow' : 'unreachable' }
     },
   })
 
+  function poll(jobId: string): void {
+    answered = false
+    exportPoll.start(jobId)
+  }
+
+  function supersede(): number {
+    if (activeJobId) exportPoll.cancel(activeJobId)
+    activeJobId = null
+    return ++requestToken
+  }
+
   async function runExport(opts: ExportOptions = {}): Promise<void> {
-    // Supersede any earlier job before starting a new one, so its poller stops
-    // and cannot write into the slot the new job now owns.
-    if (activeJobId.value) exportPoll.cancel(activeJobId.value)
+    const token = supersede()
+    phase.value = { kind: 'starting' }
     try {
-      const { job_id, status } = await createExport(chatroomId, opts)
-      activeJobId.value = job_id
-      exportJob.value = { status: status as ExportStatus['status'] }
-      exportPoll.start(job_id)
-    } catch {
-      activeJobId.value = null
-      exportJob.value = { status: 'failed' }
-      toast.error(t('conversation.chatroom.exportFailed'))
+      const { job_id } = await createExport(chatroomId, opts)
+      if (token !== requestToken) return
+      activeJobId = job_id
+      phase.value = { kind: 'running', jobId: job_id }
+      poll(job_id)
+    } catch (e) {
+      if (token !== requestToken) return
+      phase.value =
+        e instanceof ValidationError
+          ? { kind: 'invalid', field: invalidField(e) }
+          : { kind: 'start-failed', opts }
     }
+  }
+
+  function checkAgain(): void {
+    if (phase.value.kind !== 'stalled') return
+    const { jobId } = phase.value
+    phase.value = { kind: 'running', jobId }
+    poll(jobId)
+  }
+
+  // A start failure is retried as is. A job failure goes back to the form,
+  // because the range or format may be what failed (Q-4).
+  async function retry(): Promise<void> {
+    const current = phase.value
+    if (current.kind === 'start-failed') await runExport(current.opts)
+    else if (current.kind === 'job-failed') reset()
   }
 
   // A link held since the job became ready may have expired; fetch one now.
   async function download(): Promise<void> {
-    const jobId = activeJobId.value
-    if (!jobId) return
+    if (phase.value.kind !== 'ready') return
+    const { jobId } = phase.value
     const result = await downloadFresh(() => getExport(jobId))
     if (result === 'expired') toast.error(t('conversation.chatroom.exportExpired'))
     else if (result === 'failed') toast.error(t('conversation.chatroom.exportDownloadFailed'))
   }
+
   function reset(): void {
-    if (activeJobId.value) exportPoll.cancel(activeJobId.value)
-    activeJobId.value = null
-    exportJob.value = null
+    supersede()
+    phase.value = { kind: 'idle' }
   }
 
   return {
-    exportJob,
+    phase,
     runExport,
+    checkAgain,
+    retry,
     download,
     reset,
   }

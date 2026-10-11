@@ -7,11 +7,11 @@
   >
     <!-- Job in flight or resolved. -->
     <div
-      v-if="job"
+      v-if="!showForm"
       class="export-state"
       data-testid="export-status"
     >
-      <template v-if="job.status === 'ready'">
+      <template v-if="phase.kind === 'ready'">
         <CheckCircleIcon class="export-state__icon export-state__icon--ok" />
         <p class="export-state__title">
           {{ t('conversation.chatroom.exportReady') }}
@@ -31,16 +31,54 @@
         </p>
       </template>
 
-      <template v-else-if="job.status === 'failed'">
+      <template v-else-if="phase.kind === 'start-failed' || phase.kind === 'job-failed'">
         <ExclamationCircleIcon class="export-state__icon export-state__icon--err" />
         <p class="export-state__title">
-          {{ t('conversation.chatroom.exportFailed') }}
+          {{
+            phase.kind === 'job-failed'
+              ? t('conversation.chatroom.exportJobFailed')
+              : t('conversation.chatroom.exportStartFailed')
+          }}
+        </p>
+        <p
+          v-if="phase.kind === 'job-failed'"
+          class="export-state__hint"
+        >
+          {{ t('conversation.chatroom.exportJobFailedDetail') }}
+        </p>
+        <div class="export-state__actions">
+          <SButton
+            variant="secondary"
+            data-testid="export-cancel"
+            @click="emit('close')"
+          >
+            {{ t('conversation.chatroom.cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            data-testid="export-retry"
+            @click="emit('retry')"
+          >
+            {{ t('conversation.chatroom.retry') }}
+          </SButton>
+        </div>
+      </template>
+
+      <template v-else-if="phase.kind === 'stalled'">
+        <ClockIcon class="export-state__icon" />
+        <p class="export-state__title">
+          {{
+            phase.reason === 'unreachable'
+              ? t('conversation.chatroom.exportUnreachable')
+              : t('conversation.chatroom.exportStalled')
+          }}
         </p>
         <SButton
           variant="primary"
-          @click="submit"
+          data-testid="export-check-again"
+          @click="emit('checkAgain')"
         >
-          {{ t('conversation.chatroom.retry') }}
+          {{ t('conversation.chatroom.exportCheckAgain') }}
         </SButton>
       </template>
 
@@ -95,6 +133,7 @@
         <SFormField
           :label="t('conversation.chatroom.exportStart')"
           name="export-start"
+          :error="startError"
         >
           <SInput
             v-model="start"
@@ -104,6 +143,7 @@
         <SFormField
           :label="t('conversation.chatroom.exportEnd')"
           name="export-end"
+          :error="endError"
         >
           <SInput
             v-model="end"
@@ -111,10 +151,18 @@
           />
         </SFormField>
       </div>
+
+      <p
+        v-if="formError"
+        class="export-form__error"
+        role="alert"
+      >
+        {{ formError }}
+      </p>
     </form>
 
     <template
-      v-if="!job"
+      v-if="showForm"
       #footer
     >
       <SButton
@@ -126,9 +174,15 @@
       <SButton
         variant="primary"
         data-testid="submit-export"
-        :disabled="dateRange === 'custom' && (!start || !end)"
+        :disabled="!canSubmit"
         @click="submit"
       >
+        <template
+          v-if="phase.kind === 'starting'"
+          #icon-left
+        >
+          <SLoadingSpinner size="sm" />
+        </template>
         {{ t('conversation.chatroom.export') }}
       </SButton>
     </template>
@@ -136,10 +190,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   CheckCircleIcon,
+  ClockIcon,
   ExclamationCircleIcon,
   DocumentArrowDownIcon,
   ArrowDownTrayIcon,
@@ -152,19 +207,22 @@ import {
   SInput,
   SFormField,
   SProgressBar,
+  SLoadingSpinner,
 } from '@shared/ui'
 import type { ExportOptions } from '../api'
-import type { ExportStatus } from '../types'
+import type { ExportPhase } from '../composables/useChatroomExport'
 
-defineProps<{
+const props = defineProps<{
   open: boolean
-  job: { status: ExportStatus['status'] } | null
+  phase: ExportPhase
 }>()
 
 const emit = defineEmits<{
   close: []
   submit: [opts: ExportOptions]
   download: []
+  retry: []
+  checkAgain: []
 }>()
 
 const { t } = useI18n()
@@ -193,7 +251,57 @@ const rangeOptions = computed(() => [
   { value: 'custom', label: t('conversation.chatroom.rangeCustom') },
 ])
 
+// The form is kept mounted state-wise (its refs live here), so whenever it is
+// shown again it still holds the values last submitted.
+const showForm = computed(() =>
+  ['idle', 'starting', 'invalid'].includes(props.phase.kind),
+)
+
+// Dates are ISO `yyyy-mm-dd`, so string order is date order.
+const rangeReversed = computed(
+  () => dateRange.value === 'custom' && !!start.value && !!end.value && end.value < start.value,
+)
+
+// A server 422 stays on screen until the user changes the input.
+const serverInvalid = ref<{ field: 'start' | 'end' | null } | null>(null)
+watch(
+  () => props.phase,
+  (p) => {
+    serverInvalid.value = p.kind === 'invalid' ? { field: p.field } : null
+  },
+  { immediate: true },
+)
+watch([format, dateRange, start, end], () => {
+  serverInvalid.value = null
+})
+
+const endError = computed(() => {
+  if (rangeReversed.value) return t('conversation.chatroom.exportRangeInvalid')
+  if (serverInvalid.value?.field === 'end') return t('conversation.chatroom.exportInvalid')
+  return ''
+})
+const startError = computed(() =>
+  serverInvalid.value?.field === 'start' ? t('conversation.chatroom.exportInvalid') : '',
+)
+const formError = computed(() =>
+  serverInvalid.value && serverInvalid.value.field === null
+    ? t('conversation.chatroom.exportInvalid')
+    : '',
+)
+
+// A 422 that names a date blocks submit until that input changes. One that
+// names nothing the user can edit only explains itself; locking the button
+// then would leave no way forward.
+const canSubmit = computed(
+  () =>
+    props.phase.kind !== 'starting' &&
+    !serverInvalid.value?.field &&
+    !rangeReversed.value &&
+    !(dateRange.value === 'custom' && (!start.value || !end.value)),
+)
+
 function submit(): void {
+  if (!canSubmit.value) return
   const opts: ExportOptions = { format: format.value, date_range: dateRange.value }
   if (dateRange.value === 'custom') {
     opts.start = start.value
@@ -258,6 +366,17 @@ function submit(): void {
 .export-state__title {
   font-size: var(--font-size-sm);
   color: var(--color-fg);
+}
+
+.export-form__error {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-top: var(--space-3);
+}
+
+.export-state__actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
 .export-state__hint {

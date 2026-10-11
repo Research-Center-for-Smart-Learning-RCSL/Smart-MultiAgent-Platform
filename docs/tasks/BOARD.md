@@ -512,12 +512,20 @@ rows are added as each is written.
   `http://minio:9000` presigned URL. The canvas `/minio-assets/` proxy returns 502, because
   nginx and MinIO share no network. Replaces presigned URLs with `GET /api/files/{ticket}`, a
   backend-streamed endpoint behind an HMAC ticket.
-- `2026-10-11-chat-export-modal-states` (bugfix, **approved 2026-10-11**) - ready: its only
-  dependency, `browser-file-delivery`, is implemented. **Rebase onto it rather than assuming
-  the code its spec cites**: `useChatroomExport` already has `download()` (via the shared
-  `downloadFresh`), `exportJob` no longer carries `url`, and the modal's Download button emits
-  `download`. F-3, F-8, F-9. **Read its Q-6 before building**: files now come from the app origin, so PDF
-  attachments switch from inline preview to download.
+- (moved to In progress on 2026-10-11) `2026-10-11-chat-export-modal-states`.
+- `2026-10-11-chat-export-archive-content` (bugfix, **approved 2026-10-11**) - ready: both
+  dependencies, `browser-file-delivery` and `chat-export-modal-states`, are implemented. Build
+  it on a branch stacked on `fix/chat-export-modal-states` until PR #245 merges. The modal's
+  state is now the `ExportPhase` union and `phase` replaces `exportJob`; the 409 for a second
+  active export is a create failure, so map it in `runExport` (today it would show
+  "Could not start the export."). F-4, F-5, F-6:
+  - an "Include attachments" ZIP with omissions noted;
+  - streamed Markdown/JSON with no message cap;
+  - PDF refused above 5,000 messages;
+  - a cancelled job marked failed.
+
+  Its [R13.17] rewording was applied at approval. **Read its Q-6**: removing the cap
+  widened the open export-quota finding, so it adds one active export per user per room (409).
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
@@ -541,15 +549,8 @@ edit the export filename logic in `exports.py`.
   - a request token discards superseded create responses.
 
   `usePolling` gains optional `isFatal`, `onExhausted` and per-attempt interval hooks.
-- `2026-10-11-chat-export-archive-content` (bugfix, **approved 2026-10-11**) - waiting on
-  `2026-10-11-browser-file-delivery` and `2026-10-11-chat-export-modal-states`. F-4, F-5, F-6:
-  - an "Include attachments" ZIP with omissions noted;
-  - streamed Markdown/JSON with no message cap;
-  - PDF refused above 5,000 messages;
-  - a cancelled job marked failed.
-
-  Its [R13.17] rewording was applied at approval. **Read its Q-6**: removing the cap
-  widened the open export-quota finding, so it adds one active export per user per room (409).
+- (moved to Ready now on 2026-10-11, unblocked by the implemented
+  `2026-10-11-chat-export-modal-states`) `2026-10-11-chat-export-archive-content`.
 
 ### From the 2026-10-07 display-name audit
 
@@ -744,9 +745,18 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
+- (implemented 2026-10-11) `2026-10-11-chat-export-modal-states`, on branch
+  `fix/chat-export-modal-states`, stacked on `fix/browser-file-delivery` (PR #245, not yet
+  merged). AC-1..AC-7 verified: the unit tests, plus Chromium against the compose stack for
+  stalled/Check again, 404, worker failure, 422 and the close/reopen and double-click races.
+  Deviations D-1..D-3 (D-3: branch review fixes, among them one polling loop per key, an
+  "unreachable" variant of the stalled state, and closing the modal abandons the job) and
+  FU-1..FU-3 are in the dossier. This moved `2026-10-11-chat-export-archive-content` from
+  Blocked to Ready.
+
 - (implemented 2026-10-11) `2026-10-11-browser-file-delivery`. All 12 ACs verified on the compose
   test stack: through nginx, in Chromium (download, attachment image, canvas image) and against a
-  real MinIO (wiring test). Not yet run in CI. Deviations D-1..D-12 (notably D-3, a per-ticket
+  real MinIO (wiring test). CI green on PR #245 at `386c6777`, after the D-15..D-20 review fixes. Deviations D-1..D-12 (notably D-3, a per-ticket
   nonce found by the live rate-limit check, and D-6, the security-gate additions) and
   FU-1..FU-15 are in the dossier; the two security MEDIUMs FU-4/FU-5 were resolved on the same
   branch as D-13 (nginx `realip`; **recreate the nginx container on deploy**) and D-14 (per-ticket
