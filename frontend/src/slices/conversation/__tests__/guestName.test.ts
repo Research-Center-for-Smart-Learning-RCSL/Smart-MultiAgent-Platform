@@ -7,15 +7,15 @@ import { isUsableGuestName, normaliseGuestName } from '../utils/guestName'
 
 describe('isUsableGuestName', () => {
   it.each([
-    ['HANGUL FILLER', 'ㅤ'],
-    ['HALFWIDTH HANGUL FILLER', 'ﾠ'],
-    ['BRAILLE PATTERN BLANK', '⠀'],
-    ['a lone combining mark', '́'],
-    ['combining marks only', '̣́̈'],
-    ['a lone ZERO WIDTH JOINER', '‍'],
-    ['a lone VARIATION SELECTOR-16', '️'],
-    ['joiners and selectors only', '‍️‍'],
-    ['fillers between spaces', ' ㅤ ⠀ '],
+    ['HANGUL FILLER', '\u3164'],
+    ['HALFWIDTH HANGUL FILLER', '\uFFA0'],
+    ['BRAILLE PATTERN BLANK', '\u2800'],
+    ['a lone combining mark', '\u0301'],
+    ['combining marks only', '\u0301\u0308\u0323'],
+    ['a lone ZERO WIDTH JOINER', '\u200D'],
+    ['a lone VARIATION SELECTOR-16', '\uFE0F'],
+    ['joiners and selectors only', '\u200D\uFE0F\u200D'],
+    ['fillers between spaces', ' \u3164 \u2800 '],
     ['an ideographic space', '　'],
   ])('refuses %s', (_label, raw) => {
     expect(isUsableGuestName(raw)).toBe(false)
@@ -23,18 +23,18 @@ describe('isUsableGuestName', () => {
 
   it('accepts a name with a visible character', () => {
     expect(isUsableGuestName('柯老師')).toBe(true)
-    expect(isUsableGuestName('é')).toBe(true)
-    expect(isUsableGuestName('❤️')).toBe(true)
+    expect(isUsableGuestName('e\u0301')).toBe(true)
+    expect(isUsableGuestName('❤\uFE0F')).toBe(true)
   })
 })
 
 describe('normaliseGuestName', () => {
   it('strips a filler inside a name', () => {
-    expect(normaliseGuestName('Alㅤice')).toBe('Alice')
+    expect(normaliseGuestName('Al\u3164ice')).toBe('Alice')
   })
 
   it('keeps an emoji ZWJ sequence whole', () => {
-    const family = '\u{1F468}‍\u{1F469}‍\u{1F467}'
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'
     expect(normaliseGuestName(family)).toBe(family)
   })
 })
