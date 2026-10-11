@@ -117,7 +117,9 @@ class SandboxRunner(Protocol):
         The retrieval tier for artifacts too large to inline in the exec reply.
         Returns ``None`` rather than raising for expected failures (kernel
         evicted or reaped mid-turn): the caller reports the loss, and an
-        artifact must never cost the turn its text response.
+        artifact must never cost the turn its text response. Raises
+        ``ArtifactTooLarge`` when the file proves larger than *max_bytes*, so
+        the caller can say why.
         """
         ...
 

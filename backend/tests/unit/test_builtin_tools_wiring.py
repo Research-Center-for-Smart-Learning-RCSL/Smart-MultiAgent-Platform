@@ -578,6 +578,26 @@ async def test_an_unfetchable_artifact_is_not_blamed_on_the_budget() -> None:
     assert "late.bin" in note
     assert "budget" not in note
     assert "could not be read back" in note
+    # The file may be gone or may never have been under outputs/ at all; the
+    # note must not assert an outcome it cannot know (G.4).
+    assert "remain" not in note
+
+
+async def test_an_artifact_that_proves_too_large_on_read_is_reported_as_too_large() -> None:
+    """The descriptor's size is agent-supplied and can understate the file. A
+    model told only that the read failed retries a file that can never come
+    back instead of writing a smaller one."""
+    from contexts.agents.domain.errors import ArtifactTooLarge
+
+    runner = AsyncMock()
+    runner.fetch_kernel_artifact.side_effect = ArtifactTooLarge()
+    tool = _code_exec_tool(runner, sink=[])
+
+    note = (await _invoke_with(tool, runner, [_oversized("grown.bin", size=1)])).content
+
+    assert "too large to return" in note
+    assert "grown.bin" in note
+    assert "could not be read back" not in note
 
 
 async def test_a_budget_skipped_artifact_is_not_refetched_later() -> None:

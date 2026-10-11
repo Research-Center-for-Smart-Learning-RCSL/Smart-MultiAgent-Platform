@@ -46,6 +46,7 @@ from io import UnsupportedOperation
 from typing import IO, Any, Literal, cast
 
 from contexts.agents.domain.errors import (
+    ArtifactTooLarge,
     McpEgressDenied,
     McpTimeout,
     SandboxReconcileError,
@@ -366,7 +367,8 @@ def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
     path that turned out to be a directory -- costs the budget rather than the
     worker. A tar whose member is a symlink, a directory, or absent yields
     ``None``; the stream comes from a path the agent's own code controls, so its
-    shape is not a given.
+    shape is not a given. Raises ``ArtifactTooLarge`` when the stream or the
+    member exceeds the budget.
     """
     import tarfile
 
@@ -385,10 +387,13 @@ def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
                 # One byte past the ceiling so an oversized member is detected
                 # rather than silently truncated into a corrupt artifact.
                 data = extracted.read(max_bytes + 1)
-                return None if len(data) > max_bytes else data
+                if len(data) > max_bytes:
+                    _log.warning("artifact fetch: member exceeds %d bytes", max_bytes)
+                    raise ArtifactTooLarge
+                return data
     except _ArchiveTooLarge:
         _log.warning("artifact fetch: archive stream exceeded %d bytes -- abandoned", max_bytes)
-        return None
+        raise ArtifactTooLarge from None
     except tarfile.TarError:
         _log.warning("artifact fetch: unreadable tar stream", exc_info=True)
         return None
@@ -1633,7 +1638,8 @@ class DockerRunscSandbox:
         kernel may have been evicted or idle-reaped between the exec reply and
         this call, and an artifact is one output of a turn whose text response is
         still worth delivering. The caller reports the loss; it must not become
-        a failed turn.
+        a failed turn. The one exception is ``ArtifactTooLarge``, raised so the
+        caller can tell the model to write a smaller file rather than retry.
         """
         # The descriptor carrying this path was produced inside a container that
         # executes agent-authored code, in the same process as the kernel — so
@@ -1692,7 +1698,7 @@ class DockerRunscSandbox:
                 return None
             if declared > max_bytes:
                 _log.warning("artifact %r is %d bytes, above the %d ceiling", safe, declared, max_bytes)
-                return None
+                raise ArtifactTooLarge
             return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
         finally:
             close = getattr(stream, "close", None)
