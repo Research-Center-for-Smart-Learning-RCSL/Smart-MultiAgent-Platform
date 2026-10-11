@@ -22,7 +22,6 @@ import {
 import { renderMarkdown } from '../utils/renderMarkdown'
 import { resolveMentions, type MentionableAgent } from '../utils/mentions'
 import { mergeMessages } from '../utils/mergeMessages'
-import { INLINE_VIEWABLE_MIME } from '../utils/attachmentUrl'
 import { convKeys } from '../queries'
 import type { Attachment, DisplayMessage, Message } from '../types'
 
@@ -372,8 +371,7 @@ export function useChatroomMessages(
     // Types the server serves as attachments are saved in place; only viewable
     // ones need a tab, which must be opened inside the click to dodge the
     // popup blocker.
-    const baseMime = (att.mime.split(';', 1)[0] ?? '').trim().toLowerCase()
-    if (!INLINE_VIEWABLE_MIME.has(baseMime)) {
+    if (!att.inline) {
       getAttachment(att.id)
         .then((dl) => triggerDownload(dl.url))
         .catch(() => toast.error(t('conversation.chatroom.attachmentFailed')))

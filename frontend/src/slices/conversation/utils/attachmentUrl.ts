@@ -38,14 +38,3 @@ export function invalidateAttachmentUrl(id: string): void {
 export function resetAttachmentUrlCache(): void {
   cache.clear()
 }
-
-// Mirrors the backend's inline allowlist (`attachment_service._INLINE_SAFE_MIME`):
-// everything else, PDF included, is served as a download.
-export const INLINE_VIEWABLE_MIME: ReadonlySet<string> = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-  'image/bmp',
-  'text/plain',
-])

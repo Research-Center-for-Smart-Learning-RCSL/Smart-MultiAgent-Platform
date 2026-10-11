@@ -4,8 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import SCard from '@shared/ui/SCard.vue'
 import { useToast } from '@shared/composables'
-import { ApiError } from '@shared/errors'
-import { triggerDownload } from '@shared/utils/download'
+import { downloadFresh } from '@shared/utils/download'
 import {
   createResearchExport,
   getResearchExportStatus,
@@ -84,22 +83,14 @@ async function pollForCompletion(jobId: string) {
 async function downloadReady() {
   const jobId = readyJobId.value
   if (!jobId) return
-  try {
-    const status = await getResearchExportStatus(jobId)
-    if (status.status === 'ready' && status.url) {
-      triggerDownload(status.url)
-      return
-    }
-    toasts.error(t('dashboard.researchExport.expired'))
-  } catch (err) {
-    const gone = err instanceof ApiError && (err.status === 404 || err.status === 410)
-    toasts.error(t(gone ? 'dashboard.researchExport.expired' : 'dashboard.researchExport.error'))
-  }
+  const result = await downloadFresh(() => getResearchExportStatus(jobId))
+  if (result === 'expired') toasts.error(t('dashboard.researchExport.expired'))
+  else if (result === 'failed') toasts.error(t('dashboard.researchExport.error'))
 }
-
 function closeDialog() {
   if (!isExporting.value) {
     isOpen.value = false
+    readyJobId.value = null
   }
 }
 </script>

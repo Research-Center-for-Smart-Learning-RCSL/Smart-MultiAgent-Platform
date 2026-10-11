@@ -18,8 +18,6 @@ const api = vi.hoisted(() => ({
   getResearchExportStatus: vi.fn(),
 }))
 vi.mock('../api/researchExport', () => api)
-const downloadSpy = vi.hoisted(() => vi.fn())
-vi.mock('@shared/utils/download', () => ({ triggerDownload: downloadSpy }))
 
 function ready(url: string) {
   return { job_id: 'j1', workspace_id: 'w1', status: 'ready', url, error: null }
@@ -90,6 +88,10 @@ describe('ResearchExportButton', () => {
   it('never opens a popup; downloads a link fetched at click time', async () => {
     vi.useFakeTimers()
     const open = vi.spyOn(window, 'open')
+    const downloadSpy = vi.fn()
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      downloadSpy(this.getAttribute('href'))
+    })
     api.createResearchExport.mockResolvedValue({ job_id: 'j1', status: 'queued' })
     api.getResearchExportStatus.mockResolvedValueOnce(ready('/api/files/first.t'))
     const wrapper = mountButton()

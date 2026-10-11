@@ -158,7 +158,7 @@ import type { ExportStatus } from '../types'
 
 defineProps<{
   open: boolean
-  job: { status: ExportStatus['status']; url: string | null } | null
+  job: { status: ExportStatus['status'] } | null
 }>()
 
 const emit = defineEmits<{

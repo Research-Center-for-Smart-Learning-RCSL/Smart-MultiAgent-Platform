@@ -47,4 +47,25 @@ describe('attachment link memo', () => {
     await fetchAttachmentUrl('a')
     expect(getAttachment).toHaveBeenCalledTimes(2)
   })
+
+  it('shares one in-flight fetch between bubbles mounting together', async () => {
+    getAttachment.mockResolvedValue({ url: '/api/files/a.1', expires_in: 900 })
+    const [x, y] = await Promise.all([fetchAttachmentUrl('a'), fetchAttachmentUrl('a')])
+    expect([x, y]).toEqual(['/api/files/a.1', '/api/files/a.1'])
+    expect(getAttachment).toHaveBeenCalledTimes(1)
+  })
+
+  it('a superseded fetch failing does not evict its replacement', async () => {
+    let rejectFirst!: (e: Error) => void
+    getAttachment
+      .mockReturnValueOnce(new Promise((_, reject) => (rejectFirst = reject)))
+      .mockResolvedValueOnce({ url: '/api/files/a.2', expires_in: 900 })
+    const first = fetchAttachmentUrl('a')
+    invalidateAttachmentUrl('a')
+    await expect(fetchAttachmentUrl('a')).resolves.toBe('/api/files/a.2')
+    rejectFirst(new Error('late'))
+    await expect(first).resolves.toBeNull()
+    await expect(fetchAttachmentUrl('a')).resolves.toBe('/api/files/a.2')
+    expect(getAttachment).toHaveBeenCalledTimes(2)
+  })
 })

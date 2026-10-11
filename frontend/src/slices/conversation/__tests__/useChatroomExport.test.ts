@@ -16,8 +16,6 @@ vi.mock('vue-i18n', async (importOriginal) => {
   return { ...actual, useI18n: () => ({ t: (k: string) => k }) }
 })
 vi.mock('../api', () => api)
-const downloadSpy = vi.hoisted(() => vi.fn())
-vi.mock('@shared/utils/download', () => ({ triggerDownload: downloadSpy }))
 
 import { useChatroomExport } from '../composables/useChatroomExport'
 
@@ -39,7 +37,6 @@ describe('useChatroomExport', () => {
     vi.useFakeTimers()
     api.createExport.mockReset()
     api.getExport.mockReset()
-    downloadSpy.mockReset()
     mockToast.error.mockReset()
   })
   afterEach(() => {
@@ -66,7 +63,6 @@ describe('useChatroomExport', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     // A's completion (ready + its download URL) must not reach the slot B owns.
-    expect(exp.exportJob.value?.url).not.toBe('https://minio/A')
     expect(exp.exportJob.value?.status).not.toBe('ready')
 
     scope.stop()
@@ -132,6 +128,14 @@ describe('useChatroomExport', () => {
   })
 
   describe('download()', () => {
+    let downloadSpy: ReturnType<typeof vi.fn>
+    beforeEach(() => {
+      downloadSpy = vi.fn()
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        downloadSpy(this.getAttribute('href'))
+      })
+    })
+    afterEach(() => vi.restoreAllMocks())
 
     it('re-fetches the job at click time and downloads that fresh link', async () => {
       const scope = effectScope()
@@ -164,6 +168,22 @@ describe('useChatroomExport', () => {
 
       expect(downloadSpy).not.toHaveBeenCalled()
       expect(mockToast.error).toHaveBeenCalledWith('conversation.chatroom.exportExpired')
+      scope.stop()
+    })
+
+    it('reports a failed job as a failure, not as expired', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockResolvedValueOnce(status('A', 'failed'))
+      await exp.download()
+
+      expect(downloadSpy).not.toHaveBeenCalled()
+      expect(mockToast.error).toHaveBeenCalledWith('conversation.chatroom.exportDownloadFailed')
       scope.stop()
     })
   })

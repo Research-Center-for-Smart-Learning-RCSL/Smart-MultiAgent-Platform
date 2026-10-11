@@ -758,7 +758,7 @@ describe('useChatroomMessages before-cursor 422 fallback (V-2)', () => {
 describe('downloadAttachment', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  function att(mime: string) {
+  function att(mime: string, inline: boolean) {
     return {
       id: 'a1',
       chatroom_id: ROOM,
@@ -768,6 +768,7 @@ describe('downloadAttachment', () => {
       size_bytes: 1,
       status: 'active' as const,
       scan_status: 'clean' as const,
+      inline,
     }
   }
 
@@ -780,7 +781,7 @@ describe('downloadAttachment', () => {
     })
     api.getAttachment.mockResolvedValue({ url: '/api/files/pdf.t', expires_in: 900 })
 
-    composable.downloadAttachment(att('application/pdf'))
+    composable.downloadAttachment(att('application/pdf', false))
     await flushPromises()
 
     expect(open).not.toHaveBeenCalled()
@@ -793,7 +794,7 @@ describe('downloadAttachment', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
     api.getAttachment.mockResolvedValue({ url: '/api/files/txt.t', expires_in: 900 })
 
-    composable.downloadAttachment(att('text/plain'))
+    composable.downloadAttachment(att('text/plain', true))
     expect(open).toHaveBeenCalledOnce()
     await flushPromises()
 
