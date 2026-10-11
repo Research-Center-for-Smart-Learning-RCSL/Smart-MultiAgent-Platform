@@ -49,7 +49,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
-from shared_kernel.labels import LABEL_DELIMITERS, has_visible_character, normalise_label
+from shared_kernel.labels import has_visible_character, normalise_label, one_line_label
 from shared_kernel.type_guards import is_plain_int
 from shared_kernel.validation import BoundedConfig
 
@@ -274,7 +274,7 @@ def _normalise_agent_name(value: str) -> str:
     human label rule, and must still say something once the label's delimiters
     are dropped: a name of only quotes reached the model as no speaker at all."""
     name = normalise_label(value, max_len=_MAX_AGENT_NAME)
-    if name is None or not has_visible_character(name.translate(LABEL_DELIMITERS)):
+    if name is None or not has_visible_character(one_line_label(name)):
         raise ValueError("name must contain a visible character")
     return name
 

@@ -52,10 +52,10 @@ _IGNORABLE: Final = regex.compile(r"\p{Default_Ignorable_Code_Point}")
 # kept inside a name and only does not count as the visible part of one.
 _BLANK_GLYPH: Final = "\u2800"  # BRAILLE PATTERN BLANK
 
-#: Characters a model-facing label drops because the containers it is rendered
-#: into use them: ``"`` quotes a name in the owner note and the activity legend,
-#: ``[]`` spell the platform's room notice marker. For ``str.translate``.
-LABEL_DELIMITERS: Final = str.maketrans("", "", '"[]')
+# Characters a model-facing label drops because the containers it is rendered
+# into use them: ``"`` quotes a name in the owner note and the activity legend,
+# ``[]`` spell the platform's room notice marker.
+_LABEL_DELIMITERS: Final = str.maketrans("", "", '"[]')
 
 #: Account display names (``users.display_name``).
 MAX_DISPLAY_NAME: Final = 50
@@ -80,14 +80,16 @@ def normalise_label(raw: str | None, *, max_len: int) -> str | None:
     return cleaned if has_visible_character(cleaned) else None
 
 
-def strip_hidden(text: str) -> str:
-    """``text`` without the characters ``normalise_label`` strips, whitespace aside.
+def one_line_label(label: str) -> str:
+    """``label`` as a model-facing render site shows it: on one line, without the
+    characters ``normalise_label`` strips, and without label delimiters (``"[]``).
 
-    For render sites that collapse whitespace themselves (a line break becomes a
-    space there, where ``normalise_label`` drops it), applied to rows stored
-    before the source rule existed.
+    The render-side guard for rows stored before the source rule existed, and the
+    measure the agent-name rule checks against, so the two cannot drift. Whitespace
+    collapses to a space here where ``normalise_label`` drops a line break.
     """
-    return "".join(ch for ch in text if ch.isspace() or not _is_hidden(ch))
+    visible = "".join(ch for ch in label if ch.isspace() or not _is_hidden(ch))
+    return " ".join(visible.translate(_LABEL_DELIMITERS).split())
 
 
 def _is_hidden(ch: str) -> bool:
@@ -99,12 +101,14 @@ def _is_hidden(ch: str) -> bool:
 
 def has_visible_character(text: str) -> bool:
     """Whether some character draws on its own: joiners, selectors and combining
-    marks only modify a neighbour, and whitespace and the blank cell draw nothing."""
+    marks only modify a neighbour; whitespace, the blank cell and the characters
+    ``normalise_label`` strips draw nothing. Holds for raw text too."""
     return any(
         not ch.isspace()
         and ch not in _KEEP
         and ch != _BLANK_GLYPH
         and not unicodedata.category(ch).startswith("M")
+        and not _is_hidden(ch)
         for ch in text
     )
 
@@ -132,10 +136,9 @@ def _truncate_graphemes(text: str, max_len: int) -> str:
 
 
 __all__ = [
-    "LABEL_DELIMITERS",
     "MAX_DISPLAY_NAME",
     "MAX_GUEST_LABEL",
     "has_visible_character",
     "normalise_label",
-    "strip_hidden",
+    "one_line_label",
 ]

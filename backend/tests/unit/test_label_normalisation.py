@@ -22,7 +22,13 @@ import pytest
 from contexts.conversation.application.guest_service import GuestService
 from contexts.identity.application.auth_service import _normalise_display_name
 from shared_kernel.auth.permissions import Principal
-from shared_kernel.labels import MAX_DISPLAY_NAME, MAX_GUEST_LABEL, normalise_label
+from shared_kernel.labels import (
+    MAX_DISPLAY_NAME,
+    MAX_GUEST_LABEL,
+    has_visible_character,
+    normalise_label,
+    one_line_label,
+)
 
 
 class TestNormaliseLabel:
@@ -108,6 +114,21 @@ class TestANameNeedsAVisibleCharacter:
 
     def test_a_letter_with_its_accent_is_visible(self) -> None:
         assert normalise_label("e\u0301", max_len=MAX_GUEST_LABEL) == "e\u0301"
+
+
+class TestTheSharedRenderRule:
+    """Code review: the agent-name check and the render site each held a copy of
+    the one-lining rule, and the visibility predicate was only right on text that
+    had already been stripped. Built with `chr`, for the reason `labels._KEEP` gives."""
+
+    @pytest.mark.parametrize("cp", [0x3164, 0x200B, 0x202E, 0x200D, 0xFE0F, 0x2800, 0x0301])
+    def test_visibility_holds_on_raw_text(self, cp: int) -> None:
+        assert has_visible_character(chr(cp)) is False
+
+    def test_one_line_label_collapses_strips_and_drops_delimiters(self) -> None:
+        raw = 'Bob\n"Al' + chr(0x3164) + "ice" + chr(0x202E) + '"  [TA]'
+
+        assert one_line_label(raw) == "Bob Alice TA"
 
 
 class TestTruncationKeepsWholeGraphemes:

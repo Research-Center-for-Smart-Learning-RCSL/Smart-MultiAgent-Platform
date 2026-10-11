@@ -16,6 +16,12 @@ The predicate is copied here as it stands at this revision, not imported from
 migration does. Which code points are default-ignorable or combining follows the
 Unicode tables of the installed ``regex`` release and Python's ``unicodedata``.
 
+Each table is read in key-ordered pages, and only rows with no ASCII letter or
+digit: one such character is visible, so those rows cannot be blank, and the
+Python predicate then sees the few candidates rather than every name.
+PostgreSQL bracket ranges compare code points, so the filter does not depend on
+the database collation.
+
 The downgrade does nothing: the cleared names were never usable.
 
 Dossier: ``docs/tasks/2026-10-07-display-name-validation``.
@@ -77,7 +83,8 @@ def upgrade() -> None:
     _repair(
         sa.text(
             "SELECT id, display_name FROM users "
-            "WHERE display_name IS NOT NULL AND (CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid)) "
+            "WHERE display_name IS NOT NULL AND display_name !~ '[A-Za-z0-9]' "
+            "AND (CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid)) "
             "ORDER BY id LIMIT :page"
         ),
         sa.text("UPDATE users SET display_name = :name WHERE id = :id"),
@@ -87,7 +94,8 @@ def upgrade() -> None:
     _repair(
         sa.text(
             "SELECT chatroom_id, user_id, display_name FROM chatroom_guests "
-            "WHERE display_name IS NOT NULL AND (CAST(:chatroom_id AS uuid) IS NULL "
+            "WHERE display_name IS NOT NULL AND display_name !~ '[A-Za-z0-9]' "
+            "AND (CAST(:chatroom_id AS uuid) IS NULL "
             "OR (chatroom_id, user_id) > (CAST(:chatroom_id AS uuid), CAST(:user_id AS uuid))) "
             "ORDER BY chatroom_id, user_id LIMIT :page"
         ),
@@ -101,7 +109,8 @@ def upgrade() -> None:
     _repair(
         sa.text(
             "SELECT id, display_name FROM guest_sessions "
-            "WHERE CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid) "
+            "WHERE display_name !~ '[A-Za-z0-9]' "
+            "AND (CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid)) "
             "ORDER BY id LIMIT :page"
         ),
         sa.text("UPDATE guest_sessions SET display_name = :name WHERE id = :id"),
@@ -111,7 +120,8 @@ def upgrade() -> None:
     _repair(
         sa.text(
             "SELECT id, display_name FROM chatroom_guest_bans "
-            "WHERE CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid) "
+            "WHERE display_name !~ '[A-Za-z0-9]' "
+            "AND (CAST(:id AS uuid) IS NULL OR id > CAST(:id AS uuid)) "
             "ORDER BY id LIMIT :page"
         ),
         sa.text("UPDATE chatroom_guest_bans SET display_name = :name WHERE id = :id"),

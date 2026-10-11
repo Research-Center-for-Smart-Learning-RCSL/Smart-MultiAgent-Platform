@@ -44,7 +44,15 @@ _ACUTE = chr(0x0301)
 _ZWJ = chr(0x200D)
 
 _BLANK = {"filler": _FILLER, "braille": _BLANK_CELL, "marks": _ACUTE * 3, "joiner": _ZWJ}
-_KEPT = {"clean": "Carol Chen", "inner_filler": f"Al{_FILLER}ice", "accented": "e" + _ACUTE}
+# "cjk" and "heart" have no ASCII letter or digit, so they pass the SQL prefilter
+# and reach the Python predicate, which must keep them.
+_KEPT = {
+    "clean": "Carol Chen",
+    "inner_filler": f"Al{_FILLER}ice",
+    "accented": "e" + _ACUTE,
+    "cjk": "柯老師",
+    "heart": chr(0x2764) + chr(0xFE0F),
+}
 _SEED = {**_BLANK, **_KEPT}
 
 

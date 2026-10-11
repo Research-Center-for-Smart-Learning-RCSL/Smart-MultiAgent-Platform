@@ -98,7 +98,7 @@ from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.db.faults import is_infrastructure_error
-from shared_kernel.labels import LABEL_DELIMITERS, MAX_GUEST_LABEL, has_visible_character, strip_hidden
+from shared_kernel.labels import MAX_GUEST_LABEL, has_visible_character, one_line_label
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.distributed_lock import LockHandle
 from shared_kernel.realtime.pubsub import Publisher
@@ -456,9 +456,10 @@ def _one_line_label(label: str) -> str:
 
     Applies to every model-facing label. Human and agent names are normalised at
     the source, but rows written before that guard existed are still in the
-    database, so the render site cannot assume it.
+    database, so the render site cannot assume it. The rule itself is
+    ``shared_kernel.labels.one_line_label``, which the agent-name check shares.
     """
-    return " ".join(strip_hidden(label).translate(LABEL_DELIMITERS).split())
+    return one_line_label(label)
 
 
 def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
