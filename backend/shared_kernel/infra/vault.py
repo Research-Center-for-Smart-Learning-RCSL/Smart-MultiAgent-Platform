@@ -113,6 +113,7 @@ class VaultClient:
         self._hmac_current_at: float = 0.0
         # Old seed versions KV could not produce, until when (monotonic).
         self._hmac_missing: dict[int, float] = {}
+        self._hmac_recheck_at: float = float("-inf")
         self._last_login: float = 0.0
         self._login()
 
@@ -306,6 +307,8 @@ class VaultClient:
         Vault outage propagates rather than reading as a bad signature.
         """
         current, _ = self._current_hmac()
+        if version > current:
+            current = self._recheck_current_hmac()
         if not 1 <= version <= current:
             return False
         missing_until = self._hmac_missing.get(version)
@@ -318,6 +321,19 @@ class VaultClient:
             _log.warning("HMAC seed version %s unavailable for verification: %s", version, exc)
             return False
         return hmac.compare_digest(hmac.new(key, data, sha256).digest(), mac)
+
+    def _recheck_current_hmac(self) -> int:
+        """Re-read the current seed version ahead of its TTL.
+
+        After a rotation, a peer process that already refreshed signs with a
+        version this one has not seen yet. The version is attacker-chosen, so
+        the early read happens at most once per ``_HMAC_RETRY_AFTER``."""
+        now = time.monotonic()
+        if now - self._hmac_recheck_at >= _HMAC_RETRY_AFTER:
+            self._hmac_recheck_at = now
+            self._hmac_current_at = 0.0
+            self._current_hmac()
+        return self._hmac_current_version
 
     @staticmethod
     def _parse_hmac_kv(raw: dict[str, Any]) -> tuple[int, bytes]:
