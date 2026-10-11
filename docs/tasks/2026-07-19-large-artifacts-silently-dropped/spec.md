@@ -328,6 +328,17 @@ drafted speculatively.
   would have failed on staging and production. Set to `EXEC: 1` on the user's decision; the
   proxy already allows `CONTAINERS` with `POST`, which can create a privileged container with host
   mounts, so exec widens nothing in practice. Verified with the real proxy image (§17).
+- **D-14.** From a `/code-review` of PR #248. D-11 and D-13 stayed hidden for three and a half
+  months because `_kernel_exec_call` turned every exec exception into `_KernelGone`: retried once,
+  then "kernel unavailable", with nothing logged. Only a 404 or 409 now means the kernel is gone;
+  any other failure is logged with its cause, not retried, and reported to the model as a server
+  fault. The same review found that a retry re-adopting the same live kernel by name was flagged
+  as a restart, telling the model its state was lost when it was not.
+- **D-15.** From the same review. A file that proved larger than the ceiling once read (the
+  descriptor understated it) came back as `None`, which D-12 then reported as "could not be read
+  back", steering the model to retry a file that can never return. The fetch now raises
+  `ArtifactTooLarge` and the note files it under "too large". D-12's line also claimed the files
+  "remain in outputs/", which is false when the file was deleted; it now only asks for a rewrite.
 
 **Build state (2026-07-19).** Gates: `pytest tests/unit` 5370 passed / 6 skipped, `ruff check`,
 `ruff format --check`, `mypy .` (792 files) clean. Integration and wiring tiers not run (no local
@@ -545,6 +556,13 @@ with their resolutions, because the reasoning for each is what justifies the fix
   (a traceback held by a caller, a refactor that returns the stream) would leave the next call
   on that container waiting for its read timeout. Fix by owning the HTTP response and closing it, and correct the
   comment. Type: `bugfix` (hardening).
+- **FU-9: the socket proxy cannot scope what its clients touch.** D-13's `EXEC: 1` lets
+  `backend-web` and `backend-worker` exec into any container on the host, Vault and Postgres
+  included. That adds nothing today, because `CONTAINERS` with `POST` already lets them create a
+  privileged container with host mounts, but the D-13 comment's "widens nothing" holds only while
+  that is true: narrowing container creation later would leave exec as the open path. A proxy that
+  filters by container label (only `smap.sandbox` / `smap.kernel` containers) would close both.
+  Type: `bugfix` (hardening), deploy.
 - **FU-3: `_OUTPUTS` is never cleaned.** `_collect_artifacts` diffs on mtime (`kernel.py:88-89`), so
   a file untouched by a later call is simply not re-reported - but it stays on the session volume
   forever, against a volume with no enforced quota (`2026-07-19-session-dir-room-isolation` FU-1).
