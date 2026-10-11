@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -42,7 +43,7 @@ class _Signer:
 
 
 @pytest.fixture
-def signer(monkeypatch: pytest.MonkeyPatch) -> _Signer:
+def signer(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Signer]:
     s = _Signer()
     monkeypatch.setattr(file_tickets, "_signer", lambda: s)
     clock = {"now": _T0}

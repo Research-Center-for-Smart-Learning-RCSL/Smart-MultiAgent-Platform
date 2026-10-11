@@ -419,6 +419,9 @@ class LimitsSection(BaseSettings):
     chat_per_min_user: int = 60
     upload_per_min_user: int = 10
     other_per_min_user: int = 300
+    # Per download ticket, not per IP: a classroom behind one NAT shares an IP
+    # and must not throttle itself on an image-heavy room ([R19a.14]).
+    files_per_min_ticket: int = 60
     max_guests_per_chatroom: int = 50
     ws_concurrent_per_user: int = 5
     # F-4 (R14.07a): per-workflow ceiling on event-triggered runs within a

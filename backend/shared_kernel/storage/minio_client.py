@@ -13,6 +13,7 @@ import asyncio
 import io
 import threading
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -159,6 +160,47 @@ class MinioClient:
                     resp.release_conn()
 
         await asyncio.to_thread(_download)
+
+    async def open_stream(
+        self, *, bucket: str, key: str, chunk_size: int = 1 << 20
+    ) -> tuple[ObjectStat, AsyncIterator[bytes]] | None:
+        """Open an object for chunked reading; ``None`` if it does not exist.
+
+        The iterator must be consumed or closed: it owns a pooled connection,
+        released in its ``finally``. That release runs synchronously because it
+        is reached on cancellation (client disconnect), where awaiting a thread
+        hop would itself be cancelled and leak the connection.
+        """
+
+        def _open() -> Any:
+            try:
+                return self._client.get_object(bucket, key)
+            except S3Error as exc:
+                if exc.code in ("NoSuchKey", "NoSuchBucket"):
+                    return None
+                raise StorageError(f"get_object failed: {exc}") from exc
+
+        resp = await asyncio.to_thread(_open)
+        if resp is None:
+            return None
+        stat = ObjectStat(
+            size=int(resp.headers.get("Content-Length") or 0),
+            etag=(resp.headers.get("ETag") or "").strip('"'),
+            content_type=resp.headers.get("Content-Type"),
+        )
+
+        async def _chunks() -> AsyncIterator[bytes]:
+            try:
+                while True:
+                    data = await asyncio.to_thread(resp.read, chunk_size)
+                    if not data:
+                        return
+                    yield data
+            finally:
+                resp.close()
+                resp.release_conn()
+
+        return stat, _chunks()
 
     async def stat(self, *, bucket: str, key: str) -> ObjectStat | None:
         def _stat() -> ObjectStat | None:
