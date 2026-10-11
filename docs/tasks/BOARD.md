@@ -551,6 +551,15 @@ rows are added as each is written.
   `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
   gated on a recorded deploy state as well as the dependency, starting with the backfill
   reporting 0 remaining.
+- `2026-10-12-graphrag-phase5b-member-filter` (feature, draft, SRS Delta amends [R11.22]) -
+  `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
+  2026-10-12-graph-build-busy-retry]` (overlap: `neo4j_driver.py` relation Cypher, and
+  `graphrag_build`).
+  - **Provenance fix:** agent_group provenance becomes the authoring member, or the
+    co-present members for other messages, not the room's smallest member id.
+  - **Filter:** a Project-Owner-set per-member read filter (`read_member_ids`, matched by
+    intersection, entities derived from visible relations).
+  - **Rebuild:** an armed operator command rebuilds existing agent_group maps in place.
 
 ### From the 2026-10-11 chat and research export audit
 
