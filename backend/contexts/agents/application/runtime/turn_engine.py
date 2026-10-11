@@ -440,7 +440,7 @@ _PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LA
 _LABEL_DELIMITERS = str.maketrans("", "", '"[]')
 
 # As `shared_kernel.labels._KEEP`: format characters that live inside an emoji.
-_EMOJI_JOINERS = ("‍", "️")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
+_EMOJI_JOINERS = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
 
 
 def _one_line_label(label: str) -> str:

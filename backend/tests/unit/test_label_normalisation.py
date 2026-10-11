@@ -81,15 +81,15 @@ class TestANameNeedsAVisibleCharacter:
     @pytest.mark.parametrize(
         "raw",
         [
-            "ㅤ",  # HANGUL FILLER
-            "ﾠ",  # HALFWIDTH HANGUL FILLER
-            "⠀",  # BRAILLE PATTERN BLANK
-            "́",  # a combining mark with nothing to combine with
-            "̣́̈",
-            "‍",  # ZERO WIDTH JOINER
-            "️",  # VARIATION SELECTOR-16
-            "‍️‍",
-            " ㅤ ⠀ ",
+            "\u3164",  # HANGUL FILLER
+            "\uffa0",  # HALFWIDTH HANGUL FILLER
+            "\u2800",  # BRAILLE PATTERN BLANK
+            "\u0301",  # a combining mark with nothing to combine with
+            "\u0301\u0308\u0323",
+            "\u200d",  # ZERO WIDTH JOINER
+            "\ufe0f",  # VARIATION SELECTOR-16
+            "\u200d\ufe0f\u200d",
+            " \u3164 \u2800 ",
             "　",  # IDEOGRAPHIC SPACE
         ],
     )
@@ -97,17 +97,17 @@ class TestANameNeedsAVisibleCharacter:
         assert normalise_label(raw, max_len=MAX_GUEST_LABEL) is None
 
     def test_a_filler_inside_a_name_is_stripped(self) -> None:
-        assert normalise_label("Alㅤice", max_len=MAX_GUEST_LABEL) == "Alice"
+        assert normalise_label("Al\u3164ice", max_len=MAX_GUEST_LABEL) == "Alice"
 
     def test_emoji_sequences_survive(self) -> None:
-        family = "\U0001f468‍\U0001f469‍\U0001f467"
-        heart = "❤️"
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+        heart = "❤\ufe0f"
 
         assert normalise_label(family, max_len=MAX_GUEST_LABEL) == family
         assert normalise_label(heart, max_len=MAX_GUEST_LABEL) == heart
 
     def test_a_letter_with_its_accent_is_visible(self) -> None:
-        assert normalise_label("é", max_len=MAX_GUEST_LABEL) == "é"
+        assert normalise_label("e\u0301", max_len=MAX_GUEST_LABEL) == "e\u0301"
 
 
 class TestTruncationKeepsWholeGraphemes:

@@ -213,7 +213,7 @@ def test_patch_rejects_a_non_bool_capability_flag(cap_key: str) -> None:
 _RLO = chr(0x202E)  # RIGHT-TO-LEFT OVERRIDE; built with chr for ruff PLE2502
 
 
-@pytest.mark.parametrize("name", ['"  "', "ㅤ", "   ", "[ ]", "‍"])
+@pytest.mark.parametrize("name", ['"  "', "\u3164", "   ", "[ ]", "\u200d"])
 def test_a_name_that_labels_nothing_is_refused(name: str) -> None:
     """The model-facing label drops whitespace and the delimiters `"[]`, so a name
     made only of them reached the model as no speaker at all."""
