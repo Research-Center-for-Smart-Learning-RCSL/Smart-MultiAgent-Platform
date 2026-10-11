@@ -191,18 +191,27 @@ def write_json(target: Path, work: Path, header: dict[str, Any], packing: Packin
     return count
 
 
+def _attachment_note(entry: dict[str, Any], packing: Packing | None) -> str:
+    """One attachment as a transcript names it. The uploaded name is flattened
+    as an archive entry is, so it cannot break the transcript's line structure."""
+    name = safe_input_name(entry["filename"])
+    if packing is None:
+        return name
+    if entry.get("archive_path"):
+        return f"{name} ({entry['archive_path']})"
+    return f"{name}: not included ({_REASON_TEXT[entry['omitted_reason']]})"
+
+
 def _markdown_attachments(message: dict[str, Any], packing: Packing | None) -> list[str]:
     entries = _attachment_entries(message, packing)
     if not entries:
         return []
     if packing is None:
-        return ["", f"_Attachments: {', '.join(a['filename'] for a in entries)}_"]
+        return ["", f"_Attachments: {', '.join(_attachment_note(a, None) for a in entries)}_"]
     lines = ["", "_Attachments:_", ""]
     for a in entries:
-        if a.get("archive_path"):
-            lines.append(f"- {a['filename']} ({a['archive_path']})")
-        else:
-            lines.append(f"- _{a['filename']}: not included ({_REASON_TEXT[a['omitted_reason']]})_")
+        note = _attachment_note(a, packing)
+        lines.append(f"- {note}" if a.get("archive_path") else f"- _{note}_")
     return lines
 
 
@@ -250,19 +259,9 @@ def pdf_html(work: Path, header: dict[str, Any], packing: Packing | None) -> str
         parts.append(f'<div class="msg msg--{sender_type}">')
         parts.append(f'<div class="msg-head">{_html.escape(_sender_label(m))}</div>')
         parts.append(f'<div class="msg-body">{m.get("content_html") or ""}</div>')
-        entries = _attachment_entries(m, packing)
-        if entries:
-            notes = [
-                a["filename"]
-                if packing is None
-                else (
-                    f"{a['filename']} ({a['archive_path']})"
-                    if a.get("archive_path")
-                    else f"{a['filename']} (not included: {_REASON_TEXT[a['omitted_reason']]})"
-                )
-                for a in entries
-            ]
-            parts.append(f'<div class="meta">Attachments: {_html.escape(", ".join(notes))}</div>')
+        notes = [_attachment_note(a, packing) for a in _attachment_entries(m, packing)]
+        if notes:
+            parts.append(f'<div class="meta">Attachments: {_html.escape("; ".join(notes))}</div>')
         parts.append("</div>")
     parts.append("</body></html>")
     return "".join(parts)

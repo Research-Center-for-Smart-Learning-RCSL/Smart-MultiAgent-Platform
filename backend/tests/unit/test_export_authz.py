@@ -119,25 +119,10 @@ class TestExportSenderScope:
 class TestRepositoryPredicate:
     """AC-3: the narrowing is in the WHERE clause, not a post-filter."""
 
-    @staticmethod
-    async def _where_clause(**kwargs: object) -> str:
-        db = AsyncMock()
-        result = MagicMock()
-        result.all.return_value = []
-        db.execute.return_value = result
-
-        await MessageRepository(db).all_for_chatroom(_ROOM, **kwargs)  # type: ignore[arg-type]
-
-        sql = str(
-            db.execute.await_args_list[0]
-            .args[0]
-            .compile(
-                dialect=postgresql.dialect(),
-                compile_kwargs={"literal_binds": True},
-            )
-        )
-        # Assert on the predicate only: the SELECT list always names every column.
-        return sql.split(" \nWHERE ", 1)[1]
+    @classmethod
+    async def _where_clause(cls, **kwargs: object) -> str:
+        """The paged export read's predicate (the SELECT list always names every column)."""
+        return (await cls._export_reads_where(**kwargs))[0]
 
     async def test_own_user_id_narrows_the_where_clause(self) -> None:
         where = await self._where_clause(own_user_id=_CALLER)

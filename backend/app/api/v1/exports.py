@@ -26,7 +26,6 @@ from contexts.conversation.application.chat_export_service import ensure_pdf_fit
 from contexts.conversation.application.export_service import ExportJobState, ExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
 from contexts.conversation.domain.export_formats import export_artifact
-from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -125,7 +124,8 @@ async def create_export(
             chatroom_id,
             created_after=created_after,
             created_before=created_before,
-            own_user_id=principal.user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None,
+            sender_scope=sender_scope,
+            owner_user_id=principal.user_id,
         )
     # Raises ExportInProgress (409, with the running job's id) while one is active.
     state = await export_service.create(

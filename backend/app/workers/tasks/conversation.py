@@ -214,10 +214,10 @@ async def extract_attachment_text(ctx: dict[str, Any], attachment_id: str) -> st
 extract_attachment_text.max_tries = 3  # type: ignore[attr-defined]
 
 
-# Long enough to copy the 2 GiB attachment budget into an archive and upload
-# it; registered with `max_tries=1` (`app.workers.main`) because a re-run
-# would deliver a second archive and a second `message.exported` audit row.
-CHAT_EXPORT_TIMEOUT_S = 30 * 60
+# Registered with `max_tries=1` (`app.workers.main`) because a re-run would
+# deliver a second archive and a second `message.exported` audit row. The
+# export slot's staleness is derived from the same constant.
+CHAT_EXPORT_TIMEOUT_S = export_service.CHAT_EXPORT_TIMEOUT_S
 
 
 async def chat_export(

@@ -282,6 +282,40 @@ class TestChatExportBuildAndUpload:
         assert not any(p.exists() for p in made)
 
 
+class TestPdfRender:
+    def test_render_fetches_nothing_but_inline_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Message markdown can embed `<img src="http://internal/...">`. A
+        default WeasyPrint render requests it from the worker's networks
+        (SSRF), and `file:` would read its disk. Verified live against
+        WeasyPrint 70 in the backend image; this pins the configuration."""
+        import sys
+        import types
+
+        seen: dict[str, Any] = {}
+
+        class _Fetcher:
+            def __init__(self, **kwargs: Any) -> None:
+                seen["fetcher"] = kwargs
+
+        class _HTML:
+            def __init__(self, **kwargs: Any) -> None:
+                seen["html"] = kwargs
+
+            def write_pdf(self) -> bytes:
+                return b"%PDF"
+
+        weasy = types.ModuleType("weasyprint")
+        weasy.HTML = _HTML  # type: ignore[attr-defined]
+        urls = types.ModuleType("weasyprint.urls")
+        urls.URLFetcher = _Fetcher  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "weasyprint", weasy)
+        monkeypatch.setitem(sys.modules, "weasyprint.urls", urls)
+
+        assert ChatExportService._html_to_pdf("<img src='http://10.0.0.1/'>") == b"%PDF"
+        assert seen["fetcher"] == {"allowed_protocols": {"data"}, "allow_redirects": False}
+        assert isinstance(seen["html"]["url_fetcher"], _Fetcher)
+
+
 class TestUpload:
     async def test_upload_timeout_raises(self, tmp_path: Path) -> None:
         minio = AsyncMock()

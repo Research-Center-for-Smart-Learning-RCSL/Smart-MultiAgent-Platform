@@ -390,24 +390,6 @@ class MessageRepository:
             conditions.append(t.messages.c.created_at < created_before)
         return conditions
 
-    async def all_for_chatroom(
-        self,
-        chatroom_id: uuid.UUID,
-        *,
-        created_after: datetime | None = None,
-        created_before: datetime | None = None,
-        own_user_id: uuid.UUID | None = None,
-    ) -> Sequence[Message]:
-        """A room's live messages in one read, chronologically, with the export
-        predicate (`_export_conditions`). Unbounded: the export itself pages
-        through `iter_for_export` instead."""
-        conditions = self._export_conditions(
-            chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
-        )
-        q = t.messages.select().where(sa.and_(*conditions)).order_by(t.messages.c.created_at.asc())
-        rows = (await self._db.execute(q)).all()
-        return [_row_to_message(r) for r in rows]
-
     async def iter_for_export(
         self,
         chatroom_id: uuid.UUID,

@@ -35,6 +35,7 @@ from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application import chat_export_archive as archive
 from contexts.conversation.application.access import (
     ensure_can_read,
+    export_own_user_id,
     export_sender_scope,
     resolve_room_access,
 )
@@ -90,15 +91,20 @@ async def ensure_pdf_fits(
     *,
     created_after: datetime | None,
     created_before: datetime | None,
-    own_user_id: uuid.UUID | None,
+    sender_scope: ExportSenderScope,
+    owner_user_id: uuid.UUID,
 ) -> None:
     """Refuse a PDF export whose window exceeds the cap, before any job exists (Q-4).
 
-    Counted under the caller's own row-19 scope (*own_user_id*), since that is
-    what the export would hold. Raises ``ExportTooLargeForPdf``.
+    Counted under the caller's own row-19 scope, since that is what the export
+    would hold. Raises ``ExportTooLargeForPdf``.
     """
     count = await count_export_messages(
-        db, chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
+        db,
+        chatroom_id,
+        created_after=created_after,
+        created_before=created_before,
+        own_user_id=export_own_user_id(sender_scope, owner_user_id),
     )
     if count > pdf_max_messages():
         raise ExportTooLargeForPdf(message_count=count, limit=pdf_max_messages())
@@ -253,7 +259,7 @@ class ChatExportService:
                 chatroom_id,
                 created_after=created_after,
                 created_before=created_before,
-                own_user_id=(owner_user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None),
+                own_user_id=export_own_user_id(sender_scope, owner_user_id),
             ):
                 count += len(page)
                 if pdf_cap is not None and count > pdf_cap:
@@ -451,8 +457,15 @@ class ChatExportService:
         # Lazy import: WeasyPrint pulls in cairo/pango via cffi at import time,
         # so it is only loaded on the PDF path (and stubbed in tests).
         from weasyprint import HTML
+        from weasyprint.urls import URLFetcher
 
-        return bytes(HTML(string=html).write_pdf())
+        # Message markdown may carry `<img src="http://...">`, and the worker
+        # sits on internal networks: fetching it would let any room member
+        # make the worker request internal URLs (SSRF), and `file:` would read
+        # its disk. Only inline `data:` resources render; anything else is an
+        # image that does not load.
+        fetcher = URLFetcher(allowed_protocols={"data"}, allow_redirects=False)
+        return bytes(HTML(string=html, url_fetcher=fetcher).write_pdf())
 
     @staticmethod
     async def _upload(

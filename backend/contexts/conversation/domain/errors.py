@@ -8,10 +8,6 @@ import uuid
 class ConversationError(Exception):
     code: str = "conversation.generic"
 
-    def problem_extras(self) -> dict[str, object]:
-        """Extra RFC 7807 members a client acts on; none by default."""
-        return {}
-
 
 class WorkspaceNotFound(ConversationError):
     code = "conversation/workspace-not-found"
@@ -226,9 +222,6 @@ class ExportTooLargeForPdf(ConversationError):
         self.message_count = message_count
         self.limit = limit
 
-    def problem_extras(self) -> dict[str, object]:
-        return {"message_count": self.message_count, "limit": self.limit}
-
 
 class ExportInProgress(ConversationError):
     """[R13.17]: one export in progress per user per room."""
@@ -238,9 +231,6 @@ class ExportInProgress(ConversationError):
     def __init__(self, *, job_id: uuid.UUID) -> None:
         super().__init__("An export of this room is already in progress.")
         self.job_id = job_id
-
-    def problem_extras(self) -> dict[str, object]:
-        return {"job_id": str(self.job_id)}
 
 
 __all__ = [

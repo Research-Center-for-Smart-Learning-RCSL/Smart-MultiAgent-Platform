@@ -28,11 +28,13 @@ from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import get_redis, now
 
 _JOB_TTL_SECONDS: Final = 24 * 3600
-# A job older than this can no longer be queued or running in earnest: the
-# worker allows a chat export 30 minutes (CHAT_EXPORT_TIMEOUT_S), so this
-# leaves as long again for queue wait. Past it, a job still reading queued or
-# running was abandoned (worker killed mid-job), and must not hold the room.
-ACTIVE_EXPORT_STALE_AFTER: Final = timedelta(hours=1)
+# How long the worker lets one export run (its arq job timeout): long enough
+# to copy the 2 GiB attachment budget into an archive and upload it.
+CHAT_EXPORT_TIMEOUT_S: Final = 30 * 60
+# A job older than this can no longer be queued or running in earnest: it is
+# the run limit plus as long again for queue wait. Past it, a job still reading
+# queued or running was abandoned (worker killed mid-job), and must not hold the room.
+ACTIVE_EXPORT_STALE_AFTER: Final = timedelta(seconds=2 * CHAT_EXPORT_TIMEOUT_S)
 
 
 class ExportJobStatus(StrEnum):
@@ -270,6 +272,7 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
 
 __all__ = [
     "ACTIVE_EXPORT_STALE_AFTER",
+    "CHAT_EXPORT_TIMEOUT_S",
     "ExportJobState",
     "ExportJobStatus",
     "create",

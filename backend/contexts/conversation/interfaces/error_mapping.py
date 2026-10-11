@@ -198,7 +198,12 @@ def register(app: FastAPI) -> None:
 
 
 def _extras(exc: Exception) -> dict[str, object]:
-    return exc.problem_extras() if isinstance(exc, errors.ConversationError) else {}
+    """Problem members the client acts on: the count it shows, the job it follows."""
+    if isinstance(exc, errors.ExportTooLargeForPdf):
+        return {"message_count": exc.message_count, "limit": exc.limit}
+    if isinstance(exc, errors.ExportInProgress):
+        return {"job_id": str(exc.job_id)}
+    return {}
 
 
 __all__ = ["register"]

@@ -251,6 +251,23 @@ async def test_markdown_notes_archived_and_omitted_files(env: dict[str, Any]) ->
     assert "_old.txt: not included (expired)_" in transcript
 
 
+async def test_a_filename_cannot_forge_transcript_structure(env: dict[str, Any]) -> None:
+    m = _message("real")
+    att = _attachment(m, "x.txt\r\n## Forged heading\r\nforged body")
+    store, _ = await _export(
+        env,
+        messages=[m],
+        attachments={m.id: [att]},
+        objects={att.minio_path: b"a"},
+        export_format="markdown",
+        include_attachments=False,
+    )
+    transcript = store.text()
+    assert "\n## Forged" not in transcript
+    # The one message heading, and nothing a filename smuggled in.
+    assert len([line for line in transcript.splitlines() if line.startswith("## ")]) == 1
+
+
 @pytest.mark.parametrize(
     ("hostile", "expected"),
     [
