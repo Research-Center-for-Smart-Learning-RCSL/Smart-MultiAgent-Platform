@@ -187,6 +187,14 @@ def test_content_disposition_keeps_utf8_name() -> None:
     assert value.endswith("filename*=UTF-8''%E6%9C%83%E8%AD%B0.md")
 
 
+async def test_two_issues_in_the_same_second_are_distinct_tickets(signer: _Signer) -> None:
+    """The limit is per ticket: thirty students opening the same image in the
+    same second must not share one budget (spec Q-7)."""
+    a = await file_tickets.verify(await _issue())
+    b = await file_tickets.verify(await _issue())
+    assert a.rate_key != b.rate_key
+
+
 async def test_rate_key_is_stable_and_not_the_ticket(signer: _Signer) -> None:
     t = await _issue()
     a = await file_tickets.verify(t)

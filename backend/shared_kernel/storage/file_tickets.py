@@ -17,6 +17,7 @@ import base64
 import binascii
 import hashlib
 import json
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, Protocol
@@ -102,6 +103,9 @@ async def issue(
             "t": content_type,
             "d": disposition,
             "e": expires,
+            # Distinct per issue, so the per-ticket rate limit is per ticket and
+            # not shared by every link to one object minted in the same second.
+            "n": secrets.token_urlsafe(6),
         },
         separators=(",", ":"),
         ensure_ascii=False,
