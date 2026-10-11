@@ -44,6 +44,7 @@ from app.workers.tasks.activities import (
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import approval_gate_announce, drive_approver_turn
 from app.workers.tasks.conversation import (
+    CHAT_EXPORT_TIMEOUT_S,
     chat_export,
     compact_chatroom,
     extract_attachment_text,
@@ -297,7 +298,9 @@ class WorkerSettings:
         noop,
         file_scan_requested,
         extract_attachment_text,
-        chat_export,
+        # Not retry-safe either: a re-run delivers a second archive and a second
+        # `message.exported` audit row. Its timeout covers the attachment budget.
+        func(chat_export, name="chat_export", timeout=CHAT_EXPORT_TIMEOUT_S, max_tries=1),
         research_data_export,
         # A turn is not retry-safe: it commits its reply with post-commit work
         # still to run, and the turn lock's `finally` releases during the
