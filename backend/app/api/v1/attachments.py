@@ -33,6 +33,7 @@ from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.storage.file_tickets import TICKET_TTL
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["attachments"])
 attachment_router = APIRouter(prefix="/api/attachments", tags=["attachments"])
@@ -51,6 +52,8 @@ class AttachmentOut(BaseModel):
 
 class AttachmentDownloadOut(AttachmentOut):
     url: str
+    # Seconds the link stays valid, so a client cache can evict before it dies.
+    expires_in: int
 
 
 @chatroom_router.post(
@@ -126,7 +129,7 @@ async def read_attachment(
 
     ptr = await service.get_for_download(attachment_id=attachment_id)
     base = to_attachment_out(ptr.attachment).model_dump()
-    return AttachmentDownloadOut(url=ptr.url, **base)
+    return AttachmentDownloadOut(url=ptr.url, expires_in=int(TICKET_TTL.total_seconds()), **base)
 
 
 def to_attachment_out(m: object) -> AttachmentOut:

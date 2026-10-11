@@ -6,6 +6,7 @@ import type { AttachmentStatus } from './AttachmentStatus';
 import type { ScanStatus } from './ScanStatus';
 export type AttachmentDownloadOut = {
     chatroom_id: (string | null);
+    expires_in: number;
     filename: string;
     id: string;
     message_id: (string | null);

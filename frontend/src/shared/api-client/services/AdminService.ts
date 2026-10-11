@@ -13,6 +13,7 @@ import type { AdminInstallReportOut } from '../models/AdminInstallReportOut';
 import type { AdminPlatformActivityTypeIn } from '../models/AdminPlatformActivityTypeIn';
 import type { AdminPolicyImpactOut } from '../models/AdminPolicyImpactOut';
 import type { AdminPromoteIn } from '../models/AdminPromoteIn';
+import type { AuditExportOut } from '../models/AuditExportOut';
 import type { AuditPageOut } from '../models/AuditPageOut';
 import type { BanIn } from '../models/BanIn';
 import type { EmailDomainPolicyIn } from '../models/EmailDomainPolicyIn';
@@ -359,8 +360,8 @@ export class AdminService {
     }
     /**
      * Export Audit
-     * Kick off audit CSV export -> MinIO `exports/` bucket.
-     * @returns any Successful Response
+     * Build the audit CSV into the `exports` bucket and return its download link.
+     * @returns AuditExportOut Successful Response
      * @throws ApiError
      */
     public static exportAuditApiAdminAuditExportPost({
@@ -383,7 +384,7 @@ export class AdminService {
         ipPrefix?: (string | null),
         sessionId?: (string | null),
         requestId?: (string | null),
-    }): CancelablePromise<Record<string, any>> {
+    }): CancelablePromise<AuditExportOut> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/admin/audit/export',

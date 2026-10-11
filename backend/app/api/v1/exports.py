@@ -1,8 +1,9 @@
 """`/api/chatrooms/{id}/export` + `/api/exports/{job_id}` (F.10 / R13.17).
 
 The POST enqueues an Arq `chat_export` job; the GET returns either a
-`status: queued|running|failed` payload or a short-lived signed URL once
-the worker has written the manifest to MinIO.
+`status: queued|running|failed` payload or, once the worker has written the
+archive to MinIO, a short-lived `/api/files/{ticket}` download link minted
+per request ([R19a.14]).
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from contexts.conversation.application.access import (
     export_sender_scope,
     resolve_room_access,
 )
-from contexts.conversation.application.export_service import ExportJobStatus
+from contexts.conversation.application.export_service import ExportJobState, ExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.context import RequestContext
@@ -33,7 +34,8 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 from shared_kernel.observability.metrics import EXPORT_JOBS
-from shared_kernel.storage import get_minio_client
+from shared_kernel.storage import file_tickets
+from shared_kernel.storage.file_tickets import content_disposition
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["exports"])
 export_router = APIRouter(prefix="/api/exports", tags=["exports"])
@@ -72,6 +74,18 @@ def _resolve_window(body: ExportCreateIn) -> tuple[datetime | None, datetime | N
     if body.date_range == "last_30_days":
         return now() - timedelta(days=30), None
     return None, None
+
+
+_FORMAT_MEDIA: dict[str, tuple[str, str]] = {
+    "markdown": ("text/markdown; charset=utf-8", "md"),
+    "json": ("application/json", "json"),
+    "pdf": ("application/pdf", "pdf"),
+}
+
+
+def _download_name(state: ExportJobState, ext: str) -> str:
+    stem = (state.room_name or "").strip() or "chat-export"
+    return f"{stem}-{state.created_at:%Y%m%d}.{ext}"
 
 
 class ExportCreateOut(BaseModel):
@@ -114,6 +128,7 @@ async def create_export(
         created_after=created_after,
         created_before=created_before,
         sender_scope=sender_scope,
+        room_name=access.chatroom.name,
     )
     from shared_kernel.queue import enqueue
 
@@ -135,10 +150,14 @@ async def get_export(
         _raise_forbidden("not the export owner")
     url: str | None = None
     if state.status == "ready" and state.bucket and state.object_key:
-        url = await get_minio_client().presigned_get(
+        # Minted per request, so a client that re-fetches at click time always
+        # holds a live link; the archive itself lives 24 h.
+        content_type, ext = _FORMAT_MEDIA.get(state.export_format, _FORMAT_MEDIA["markdown"])
+        url = await file_tickets.issue(
             bucket=state.bucket,
             key=state.object_key,
-            expires=timedelta(minutes=15),
+            content_type=content_type,
+            disposition=content_disposition("attachment", _download_name(state, ext)),
         )
     return ExportStatusOut(
         job_id=state.job_id,

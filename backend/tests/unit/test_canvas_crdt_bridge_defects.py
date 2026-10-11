@@ -12,6 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.unit.file_ticket_support import decode, ticket_signer
+
+__all__ = ["ticket_signer"]
+
 from contexts.canvas.application.crdt_relay import CrdtRelay, build_element_dict
 
 
@@ -182,22 +186,19 @@ class TestDeferredBroadcast:
         assert "data" in pending[0][1]
 
 
-class TestMinioUrlProxy:
-    """B-2: _minio_url_to_proxy strips internal hostname."""
+@pytest.mark.usefixtures("ticket_signer")
+class TestCanvasImageLink:
+    """B-2: the image URL a browser receives points at the backend, not MinIO.
 
-    def test_rewrites_minio_url(self) -> None:
-        from app.api.v1.canvas import _minio_url_to_proxy
+    The earlier `/minio-assets/` rewrite reached an nginx location that cannot
+    resolve MinIO (browser-file-delivery §5), so the link is now a ticket.
+    """
 
-        url = "http://minio:9000/chat-uploads/proj/room/img.png?X-Amz-Signature=abc"
-        result = _minio_url_to_proxy(url)
-        assert result.startswith("/minio-assets/")
-        assert "minio:9000" not in result
-        assert "chat-uploads/proj/room/img.png" in result
-        assert "X-Amz-Signature=abc" in result
+    async def test_image_link_is_a_ticket_for_the_upload(self) -> None:
+        from app.api.v1.canvas import _image_link
 
-    def test_no_query_string(self) -> None:
-        from app.api.v1.canvas import _minio_url_to_proxy
-
-        url = "http://minio:9000/bucket/key"
-        result = _minio_url_to_proxy(url)
-        assert result == "/minio-assets/bucket/key"
+        url = await _image_link(key="proj/room/obj.png", content_type="image/png")
+        ticket = await decode(url)
+        assert (ticket.bucket, ticket.key) == ("chat-uploads", "proj/room/obj.png")
+        assert ticket.content_type == "image/png"
+        assert ticket.disposition.startswith("inline")

@@ -19,7 +19,8 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
+from urllib.parse import quote
 
 from app.config.settings import get_settings
 from shared_kernel.auth.clients import get_vault_client, now
@@ -58,6 +59,22 @@ class FileTicket:
     # Identifies the ticket for rate limiting without putting the bearer
     # string itself into a Redis key.
     rate_key: str
+
+
+def content_disposition(kind: Literal["inline", "attachment"], filename: str) -> str:
+    """RFC 6266 value with an ASCII ``filename`` fallback and a UTF-8 ``filename*``.
+
+    The value is sent verbatim as a response header, which Starlette encodes as
+    latin-1, so a raw CJK filename would fail the response. Quotes, backslashes,
+    separators and control characters are stripped so the value cannot break
+    out of the header (SEC-M2).
+    """
+    cleaned = "".join(c for c in filename if c.isprintable() and c not in '"\\/\r\n')[:200].strip()
+    cleaned = cleaned or "download"
+    fallback = cleaned.encode("ascii", "ignore").decode("ascii").strip()
+    if not fallback or fallback[0] in ".-_":
+        fallback = "download" + fallback
+    return f"{kind}; filename=\"{fallback}\"; filename*=UTF-8''{quote(cleaned, safe='')}"
 
 
 def deliverable_buckets() -> frozenset[str]:
@@ -146,6 +163,7 @@ __all__ = [
     "FileTicket",
     "TicketExpired",
     "TicketInvalid",
+    "content_disposition",
     "deliverable_buckets",
     "issue",
     "verify",

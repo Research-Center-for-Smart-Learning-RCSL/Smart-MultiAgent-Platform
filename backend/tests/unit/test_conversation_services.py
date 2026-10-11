@@ -48,6 +48,9 @@ from contexts.conversation.domain.models import (
     SenderType,
 )
 from shared_kernel.auth.clients import now
+from tests.unit.file_ticket_support import decode, ticket_signer
+
+__all__ = ["ticket_signer"]
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
 _USER = uuid.uuid4()
@@ -926,35 +929,31 @@ class TestAttachmentDownload:
         with pytest.raises(AttachmentQuarantined):
             await svc.get_for_download(attachment_id=att.id)
 
+    @pytest.mark.usefixtures("ticket_signer")
     async def test_inline_safe_mime(self) -> None:
         att = _attachment(mime="image/png")
         repo = AsyncMock()
         repo.get.return_value = att
-        minio = AsyncMock()
-        minio.presigned_get.return_value = "https://minio/signed"
-        svc = _make_attachment_service(repo=repo, minio=minio)
+        svc = _make_attachment_service(repo=repo, minio=AsyncMock())
 
         result = await svc.get_for_download(attachment_id=att.id)
 
         assert isinstance(result, AttachmentPointer)
-        assert result.url == "https://minio/signed"
-        call_kwargs = minio.presigned_get.call_args.kwargs
-        assert call_kwargs["response_content_type"] == "image/png"
-        assert "inline" in call_kwargs["response_content_disposition"]
+        ticket = await decode(result.url)
+        assert ticket.content_type == "image/png"
+        assert ticket.disposition.startswith("inline")
 
+    @pytest.mark.usefixtures("ticket_signer")
     async def test_scriptable_mime_forced_download(self) -> None:
         att = _attachment(mime="text/html")
         repo = AsyncMock()
         repo.get.return_value = att
-        minio = AsyncMock()
-        minio.presigned_get.return_value = "https://minio/signed"
-        svc = _make_attachment_service(repo=repo, minio=minio)
+        svc = _make_attachment_service(repo=repo, minio=AsyncMock())
 
-        await svc.get_for_download(attachment_id=att.id)
+        ticket = await decode((await svc.get_for_download(attachment_id=att.id)).url)
 
-        call_kwargs = minio.presigned_get.call_args.kwargs
-        assert call_kwargs["response_content_type"] == "application/octet-stream"
-        assert "attachment" in call_kwargs["response_content_disposition"]
+        assert ticket.content_type == "application/octet-stream"
+        assert ticket.disposition.startswith("attachment")
 
 
 class TestAttachmentScanResult:

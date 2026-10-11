@@ -80,23 +80,34 @@ def _headers(ticket: FileTicket, stat: ObjectStat) -> dict[str, str]:
     return headers
 
 
-@router.api_route("/{ticket}", methods=["GET", "HEAD"], response_class=Response)
-async def get_file(request: Request, ticket: str = Path(...)) -> Response:
+async def _verified_or_429(request: Request, ticket: str) -> FileTicket | Response:
     try:
-        verified = await _authorise(ticket)
+        return await _authorise(ticket)
     except _RateLimited as exc:
         return _rate_limited_response(request, exc.retry_after)
-    minio = get_minio_client()
-    if request.method == "HEAD":
-        stat = await minio.stat(bucket=verified.bucket, key=verified.key)
-        if stat is None:
-            raise HTTPException(status_code=404, detail="File not found")
-        return Response(status_code=200, media_type=verified.content_type, headers=_headers(verified, stat))
-    opened = await minio.open_stream(bucket=verified.bucket, key=verified.key)
+
+
+@router.get("/{ticket}", response_class=Response)
+async def get_file(request: Request, ticket: str = Path(...)) -> Response:
+    verified = await _verified_or_429(request, ticket)
+    if isinstance(verified, Response):
+        return verified
+    opened = await get_minio_client().open_stream(bucket=verified.bucket, key=verified.key)
     if opened is None:
         raise HTTPException(status_code=404, detail="File not found")
     stat, chunks = opened
     return StreamingResponse(chunks, media_type=verified.content_type, headers=_headers(verified, stat))
+
+
+@router.head("/{ticket}", response_class=Response)
+async def head_file(request: Request, ticket: str = Path(...)) -> Response:
+    verified = await _verified_or_429(request, ticket)
+    if isinstance(verified, Response):
+        return verified
+    stat = await get_minio_client().stat(bucket=verified.bucket, key=verified.key)
+    if stat is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(status_code=200, media_type=verified.content_type, headers=_headers(verified, stat))
 
 
 __all__ = ["router"]

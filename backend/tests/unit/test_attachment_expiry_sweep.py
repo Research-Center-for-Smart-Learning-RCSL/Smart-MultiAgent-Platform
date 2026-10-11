@@ -32,23 +32,28 @@ from contexts.conversation.domain.models import (
     ScanStatus,
 )
 from shared_kernel.auth.clients import now
+from shared_kernel.storage import file_tickets
+from tests.unit.file_ticket_support import assert_browser_url, ticket_signer
+
+__all__ = ["ticket_signer"]
 
 
 class _FakeMinio:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
+    """The service needs a storage client; the download path no longer uses it."""
 
-    async def presigned_get(
-        self,
-        *,
-        bucket: str,
-        key: str,
-        expires: timedelta = timedelta(minutes=15),
-        response_content_type: str | None = None,
-        response_content_disposition: str | None = None,
-    ) -> str:
-        self.calls.append({"bucket": bucket, "key": key})
-        return f"https://minio.local/{bucket}/{key}?signed=1"
+
+@pytest.fixture
+def issued(monkeypatch: pytest.MonkeyPatch, ticket_signer: None) -> list[dict[str, str]]:
+    """Every download link the service asked for, in order."""
+    calls: list[dict[str, str]] = []
+    real_issue = file_tickets.issue
+
+    async def _issue(*, bucket: str, key: str, content_type: str, disposition: str) -> str:
+        calls.append({"bucket": bucket, "key": key})
+        return await real_issue(bucket=bucket, key=key, content_type=content_type, disposition=disposition)
+
+    monkeypatch.setattr(file_tickets, "issue", _issue)
+    return calls
 
 
 class _FakeRepo:
@@ -208,71 +213,73 @@ async def test_sweep_ignores_rows_never_bound_to_a_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_of_an_expired_attachment_is_refused() -> None:
+async def test_download_of_an_expired_attachment_is_refused(issued: list[dict[str, str]]) -> None:
     # The lag window: MinIO has already deleted the bytes but the nightly sweep
-    # has not run yet, so the row still reads ACTIVE. Presigning here hands the
-    # client a URL that resolves to a NoSuchKey body.
+    # has not run yet, so the row still reads ACTIVE. Issuing a link here hands
+    # the client a URL that resolves to a 404.
     row = _row(expires_at=now() - timedelta(hours=1))
-    svc, _, minio = _service([row])
+    svc, _, _ = _service([row])
 
     with pytest.raises(AttachmentExpired):
         await svc.get_for_download(attachment_id=row.id)
 
-    assert minio.calls == []
+    assert issued == []
 
 
 @pytest.mark.asyncio
-async def test_download_of_a_row_marked_expired_is_refused() -> None:
+async def test_download_of_a_row_marked_expired_is_refused(issued: list[dict[str, str]]) -> None:
     row = _row(expires_at=None, status=AttachmentStatus.EXPIRED)
-    svc, _, minio = _service([row])
+    svc, _, _ = _service([row])
 
     with pytest.raises(AttachmentExpired):
         await svc.get_for_download(attachment_id=row.id)
 
-    assert minio.calls == []
+    assert issued == []
 
 
 @pytest.mark.asyncio
-async def test_download_of_a_live_attachment_still_presigns() -> None:
+async def test_download_of_a_live_attachment_still_issues_a_link(issued: list[dict[str, str]]) -> None:
     # Guard against an over-broad horizon comparison taking working downloads
     # away -- the highest-consequence risk in the dossier (section 9).
     row = _row(expires_at=now() + timedelta(days=1))
-    svc, _, minio = _service([row])
+    svc, _, _ = _service([row])
 
     ptr = await svc.get_for_download(attachment_id=row.id)
 
-    assert ptr.url.startswith("https://minio.local/")
-    assert len(minio.calls) == 1
+    assert_browser_url(ptr.url)
+    assert len(issued) == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("naive", [False, True], ids=["aware", "naive"])
-async def test_horizon_comparison_tolerates_a_naive_timestamp(naive: bool) -> None:
+async def test_horizon_comparison_tolerates_a_naive_timestamp(
+    naive: bool, issued: list[dict[str, str]]
+) -> None:
     # Comparing a naive datetime against an aware one raises TypeError rather
     # than returning a wrong answer, and on this path that is a 500 on every
     # download. The schema stores TIMESTAMP(timezone=True) so the real read path
     # is always aware, but the guard costs nothing and the failure mode is loud.
     expires = now() - timedelta(hours=1)
     row = _row(expires_at=expires.replace(tzinfo=None) if naive else expires)
-    svc, _, minio = _service([row])
+    svc, _, _ = _service([row])
 
     with pytest.raises(AttachmentExpired):
         await svc.get_for_download(attachment_id=row.id)
 
-    assert minio.calls == []
+    assert issued == []
 
 
 @pytest.mark.asyncio
-async def test_quarantine_is_refused_ahead_of_expiry() -> None:
+async def test_quarantine_is_refused_ahead_of_expiry(issued: list[dict[str, str]]) -> None:
     # A row that is both quarantined and past its horizon must still report the
     # quarantine: 403 with the scan verdict, not 410 with "it aged out".
     row = _row(
         expires_at=now() - timedelta(days=2),
         status=AttachmentStatus.QUARANTINED,
     )
-    svc, _, minio = _service([row])
+    svc, _, _ = _service([row])
 
     with pytest.raises(AttachmentQuarantined):
         await svc.get_for_download(attachment_id=row.id)
 
-    assert minio.calls == []
+    assert issued == []

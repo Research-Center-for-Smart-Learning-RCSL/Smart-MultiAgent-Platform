@@ -6,7 +6,6 @@ import os
 import re
 import uuid
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
@@ -26,7 +25,7 @@ from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import db_session
-from shared_kernel.storage import get_minio_client
+from shared_kernel.storage import file_tickets, get_minio_client
 from shared_kernel.storage.svg_sanitize import SvgSanitizeError, sanitize_svg
 
 router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"])
@@ -36,15 +35,18 @@ _ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"
 _GUEST_RATE_LIMIT_PER_MINUTE = 60
 
 
-def _minio_url_to_proxy(presigned_url: str) -> str:
-    """Rewrite a MinIO presigned URL into a relative ``/minio-assets/`` path.
+async def _image_link(*, key: str, content_type: str) -> str:
+    """Browser link for an uploaded canvas image ([R13.71], [R19a.14]).
 
-    The presigned URL has the form ``http://minio:9000/{bucket}/{key}?sig...``.
-    The browser cannot reach the Docker-internal hostname, so we strip the
-    scheme+host and prepend ``/minio-assets`` -- nginx proxies that to MinIO.
+    `content_type` is one of `_ALLOWED_IMAGE_TYPES`, already validated (and an
+    SVG already sanitised) by the upload path.
     """
-    parsed = urlparse(presigned_url)
-    return f"/minio-assets{parsed.path}{'?' + parsed.query if parsed.query else ''}"
+    return await file_tickets.issue(
+        bucket=get_minio_client().chat_uploads_bucket,
+        key=key,
+        content_type=content_type,
+        disposition=file_tickets.content_disposition("inline", key.rsplit("/", 1)[-1]),
+    )
 
 
 # ---- Request/Response models -----------------------------------------------
@@ -624,8 +626,7 @@ async def upload_image(
         [image_element],
     )
 
-    image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)
-    proxied_url = _minio_url_to_proxy(image_url)
+    image_url = await _image_link(key=key, content_type=file.content_type or "application/octet-stream")
 
     await facade.persist_and_broadcast_crdt(
         canvas.id,
@@ -640,14 +641,14 @@ async def upload_image(
         "canvas.image_added",
         {
             "fileId": str(object_id),
-            "url": proxied_url,
+            "url": image_url,
             "mimeType": file.content_type or "application/octet-stream",
             "width": 400,
             "height": 300,
         },
     )
 
-    return CanvasObjectOut.from_domain(obj, image_url=proxied_url)
+    return CanvasObjectOut.from_domain(obj, image_url=image_url)
 
 
 # ---- Snapshots --------------------------------------------------------------

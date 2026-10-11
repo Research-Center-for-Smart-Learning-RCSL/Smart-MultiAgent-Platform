@@ -162,6 +162,31 @@ async def test_malformed_is_invalid(signer: _Signer, garbage: str) -> None:
         await file_tickets.verify(garbage)
 
 
+@pytest.mark.parametrize(
+    ("name", "fallback"),
+    [
+        ("report.pdf", "report.pdf"),
+        ("會議紀錄.md", "download.md"),
+        ("會議", "download"),
+        ('evil".exe\r\nX-Inject: 1', "evil.exeX-Inject: 1"),
+        ("../../etc/passwd", "download....etcpasswd"),
+        ("", "download"),
+    ],
+)
+def test_content_disposition_is_latin1_safe(name: str, fallback: str) -> None:
+    value = file_tickets.content_disposition("attachment", name)
+    value.encode("latin-1")  # Starlette encodes headers as latin-1
+    assert value.startswith(f"attachment; filename=\"{fallback}\"; filename*=UTF-8''")
+    assert value.count('"') == 2
+    assert "\r" not in value
+    assert "\n" not in value
+
+
+def test_content_disposition_keeps_utf8_name() -> None:
+    value = file_tickets.content_disposition("inline", "會議.md")
+    assert value.endswith("filename*=UTF-8''%E6%9C%83%E8%AD%B0.md")
+
+
 async def test_rate_key_is_stable_and_not_the_ticket(signer: _Signer) -> None:
     t = await _issue()
     a = await file_tickets.verify(t)

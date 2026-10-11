@@ -15,7 +15,6 @@ import threading
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -253,42 +252,6 @@ class MinioClient:
             if exc.code not in ("NoSuchKey",):
                 raise StorageError(f"remove_object failed: {exc}") from exc
 
-    async def presigned_get(
-        self,
-        *,
-        bucket: str,
-        key: str,
-        expires: timedelta = timedelta(minutes=15),
-        response_content_type: str | None = None,
-        response_content_disposition: str | None = None,
-    ) -> str:
-        # Response-header overrides ride in the presigned URL's signed query
-        # string, so the object's *stored* Content-Type (which is
-        # attacker-controlled for chat uploads) is overridden at serve time —
-        # the browser sees what we dictate, not what the uploader declared
-        # (SEC-M2). MinIO honours `response-content-type` /
-        # `response-content-disposition` exactly like S3.
-        # Widened to the minio stub's value type (str | list[str] | tuple[str]);
-        # we only ever store str values but the SDK signature is broader.
-        response_headers: dict[str, str | list[str] | tuple[str]] = {}
-        if response_content_type is not None:
-            response_headers["response-content-type"] = response_content_type
-        if response_content_disposition is not None:
-            response_headers["response-content-disposition"] = response_content_disposition
-
-        def _sign() -> str:
-            try:
-                return self._client.presigned_get_object(
-                    bucket,
-                    key,
-                    expires=expires,
-                    response_headers=response_headers or None,
-                )
-            except S3Error as exc:  # pragma: no cover
-                raise StorageError(f"presigned_get failed: {exc}") from exc
-
-        return await asyncio.to_thread(_sign)
-
 
 def get_minio_client() -> MinioClient:
     global _instance
@@ -359,8 +322,8 @@ def skill_import_staging_key(*, job_id: uuid.UUID) -> str:
 
 
 def skill_export_key(*, job_id: uuid.UUID) -> str:
-    # The finished export zip, in the `exports` bucket (§6), fetched by presigned URL. A
-    # fixed basename because the download's filename is dictated by the presigned URL's
+    # The finished export zip, in the `exports` bucket (§6), fetched through a file ticket.
+    # A fixed basename because the download's filename is dictated by the ticket's
     # response-content-disposition, not the object key.
     return f"skills/{job_id}/skill.zip"
 
