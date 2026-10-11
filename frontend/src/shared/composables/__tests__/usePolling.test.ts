@@ -125,6 +125,119 @@ describe('usePolling', () => {
     expect(onResult).not.toHaveBeenCalled()
   })
 
+  it('calls onExhausted once when attempts run out, and start() afterwards polls again', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const fetcher = vi.fn(async () => ({ done: false }))
+    const onExhausted = vi.fn()
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs: 1000,
+        maxAttempts: 2,
+        isTerminal: (v: { done: boolean }) => v.done,
+        onResult: vi.fn(),
+        onExhausted,
+      }),
+    )!
+
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(onExhausted).toHaveBeenCalledOnce()
+    expect(onExhausted).toHaveBeenCalledWith('A')
+
+    fetcher.mockClear()
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetcher).toHaveBeenCalledWith('A')
+
+    scope.stop()
+  })
+
+  it('stops after one attempt on a fatal error and reports it', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const boom = new Error('gone')
+    const fetcher = vi.fn(async () => {
+      throw boom
+    })
+    const onError = vi.fn()
+    const onExhausted = vi.fn()
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs: 1000,
+        isTerminal: () => false,
+        onResult: vi.fn(),
+        isFatal: (e) => e === boom,
+        onError,
+        onExhausted,
+      }),
+    )!
+
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(onError).toHaveBeenCalledWith('A', boom)
+    expect(onExhausted).not.toHaveBeenCalled()
+
+    scope.stop()
+  })
+
+  it('keeps retrying an error that is not fatal', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const fetcher = vi.fn(async () => {
+      throw new Error('blip')
+    })
+    const onError = vi.fn()
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs: 1000,
+        isTerminal: () => false,
+        onResult: vi.fn(),
+        isFatal: () => false,
+        onError,
+      }),
+    )!
+
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    expect(onError).not.toHaveBeenCalled()
+
+    scope.stop()
+  })
+
+  it('consults a function intervalMs for each attempt', async () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const fetcher = vi.fn(async () => ({ done: false }))
+    const intervalMs = vi.fn((attempt: number) => (attempt <= 1 ? 1000 : 5000))
+
+    const poll = scope.run(() =>
+      usePolling(fetcher, {
+        intervalMs,
+        isTerminal: (v: { done: boolean }) => v.done,
+        onResult: vi.fn(),
+      }),
+    )!
+
+    poll.start('A')
+    await vi.advanceTimersByTimeAsync(1000) // attempt 1 after 1 s
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(4999) // attempt 2 is 5 s later
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(intervalMs).toHaveBeenCalledWith(1)
+    expect(intervalMs).toHaveBeenCalledWith(2)
+
+    scope.stop()
+  })
+
   it('stops a key once its value is terminal', async () => {
     vi.useFakeTimers()
     const scope = effectScope()

@@ -7,6 +7,10 @@
 //     `maxAttempts` is reached;
 //   - a transient fetch error does NOT stop polling — it counts as an attempt
 //     and reschedules, so one network blip can't strand the UI mid-job;
+//   - an error `isFatal` accepts stops the key and goes to `onError`, and
+//     running out of attempts goes to `onExhausted`, so the consumer always
+//     learns how polling ended (a later `start(key)` resumes either way);
+//   - `intervalMs` may be a function of the attempt number, to back off;
 //   - keyed: `start(key)` may be called for several keys concurrently
 //     (e.g. building multiple GraphRAG configs at once), and `cancel(key)`
 //     stops one of them without touching the others — including dropping a
@@ -17,10 +21,14 @@
 import { onScopeDispose } from 'vue'
 
 export interface UsePollingOptions<T> {
-  intervalMs?: number
+  /** Delay before each attempt after the first; a function receives the attempt number (1-based). */
+  intervalMs?: number | ((attempt: number) => number)
   maxAttempts?: number
   isTerminal: (value: T) => boolean
   onResult: (key: string, value: T) => void
+  isFatal?: (error: unknown) => boolean
+  onError?: (key: string, error: unknown) => void
+  onExhausted?: (key: string) => void
 }
 
 export interface PollingController {
@@ -33,7 +41,8 @@ export function usePolling<T>(
   fetcher: (key: string) => Promise<T>,
   options: UsePollingOptions<T>,
 ): PollingController {
-  const intervalMs = options.intervalMs ?? 3000
+  const interval = options.intervalMs ?? 3000
+  const delayFor = typeof interval === 'function' ? interval : () => interval
   const maxAttempts = options.maxAttempts ?? 40
   // One timer per active key, so cancelling a key clears exactly its pending
   // tick. A key may be active with no pending timer (between start() and the
@@ -49,12 +58,17 @@ export function usePolling<T>(
     // The map entry for `key` stays set to this (soon-fired) timer until the
     // next tick overwrites it; keeping the key present is what `isActive`
     // reads, so we must not delete it when the timer fires.
-    const timer = setTimeout(() => void tick(key, attempts), intervalMs)
+    const timer = setTimeout(() => void tick(key, attempts), delayFor(attempts))
     timers.set(key, timer)
   }
 
+  function finish(key: string): void {
+    active.delete(key)
+    timers.delete(key)
+  }
+
   async function tick(key: string, attempts: number): Promise<void> {
-    if (disposed || !isActive(key) || attempts > maxAttempts) return
+    if (disposed || !isActive(key)) return
     try {
       const value = await fetcher(key)
       // Re-check after the await: the key may have been cancelled (or the
@@ -63,14 +77,24 @@ export function usePolling<T>(
       if (disposed || !isActive(key)) return
       options.onResult(key, value)
       if (options.isTerminal(value)) {
-        active.delete(key)
-        timers.delete(key)
+        finish(key)
         return
       }
-    } catch {
+    } catch (error) {
+      if (disposed || !isActive(key)) return
+      if (options.isFatal?.(error)) {
+        finish(key)
+        options.onError?.(key, error)
+        return
+      }
       // Transient — fall through and reschedule (still bounded by maxAttempts)
       // so a single blip does not permanently halt polling.
-      if (disposed || !isActive(key)) return
+    }
+    if (attempts >= maxAttempts) {
+      // Cleared before the callback, so the consumer may start(key) again from it.
+      finish(key)
+      options.onExhausted?.(key)
+      return
     }
     schedule(key, attempts + 1)
   }
