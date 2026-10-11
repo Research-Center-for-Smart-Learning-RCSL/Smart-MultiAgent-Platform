@@ -21,7 +21,7 @@ doesn't need a `depends_on` backfill).
   follow-up build for that revision then collides with the failed job's retained arq
   result, leaving a document uploaded mid-build out of the graph for up to an hour. Fix:
   arq `Retry` with a budget covering the build timeout.
-- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, draft, no SRS Delta) -
+- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, **approved 2026-10-12**, no SRS Delta) -
   `depends_on: []`. Blueprint D-1, release A of three:
   - Dual-write the Neo4j relation evidence as `evidence_refs` and `evidence_msg_ids`,
     still reading the old key.
@@ -546,7 +546,7 @@ rows are added as each is written.
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
-- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, draft) - `depends_on:
+- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
   [2026-10-12-graphrag-phase5a-evidence-refs-expand]`. Releases B (reads switch to
   `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
   gated on a recorded deploy state as well as the dependency, starting with the backfill

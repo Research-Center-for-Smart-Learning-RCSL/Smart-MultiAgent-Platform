@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-10-12
 requirements: [R11.15, R11.23, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand]
