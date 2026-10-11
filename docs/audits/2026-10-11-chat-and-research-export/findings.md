@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-10-11
 requirements: [R13.17, R33.10]
 ---
@@ -271,19 +271,29 @@ allow-lists, and `app/workers/main.py` (registration and `job_timeout` only).
 
 ## 5. Hand-off
 
-To be filled at triage.
+Triaged with the requester on 2026-10-11. Every finding will be fixed, grouped by root cause
+into three dossiers:
+
+- The delivery dossier carries F-1, F-2 and F-7. It also carries the same raw-URL defect on
+  the research export path, and the shared URL-publishing helper that FU-6 calls for.
+- The F-2 intent conflict was decided in favor of re-minting the presigned URL when the user
+  clicks Download. The signature stays short-lived. The UI copy and the 24-hour statements in
+  `REQUIREMENTS.md:1694` and UI doc §3.9 are reworded to describe how long the archive is
+  retained, not how long the link lives.
+
+Dossier paths below are the planned slugs. Each becomes a link once `/spec` creates it.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | | |
-| F-2 | | |
-| F-3 | | |
-| F-4 | | |
-| F-5 | | |
-| F-6 | | |
-| F-7 | | |
-| F-8 | | |
-| F-9 | | |
+| F-1 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
+| F-2 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
+| F-3 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
+| F-4 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
+| F-5 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
+| F-6 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
+| F-7 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
+| F-8 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
+| F-9 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
 
 ## 6. Out-of-scope Observations
 
