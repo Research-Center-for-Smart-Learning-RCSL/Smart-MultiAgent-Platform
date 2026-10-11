@@ -491,14 +491,7 @@ rows are added as each is written.
 - (implemented 2026-10-07) `2026-10-07-canvas-awareness-names`.
 - (implemented 2026-10-07) `2026-10-07-name-fallback-surfaces`.
 - (implemented 2026-10-07) `2026-10-07-system-rows-in-agent-context`.
-- `2026-10-07-display-name-validation` (bugfix, **approved 2026-10-07**, no SRS Delta) - moved
-  to Ready on 2026-10-08: both dependencies, `2026-10-07-google-display-name-normalisation`
-  and `2026-10-07-system-rows-in-agent-context`, are implemented (shared edits to
-  `normalise_label`, `_one_line_label`, `_provider_message`; migration order). F-7, F-8:
-  names need a visible character and lose default-ignorables, agent names are normalised at
-  source with an `Agent <id>` render fallback, and migration `0101` repairs stored blank
-  names. Its `down_revision` is `0100_normalise_account_display_names`, the head after
-  `0100` landed; take it from `alembic heads`, not from the number.
+- (moved to In progress on 2026-10-11) `2026-10-07-display-name-validation`.
 
 ### From the 2026-10-11 chat and research export audit
 
@@ -732,6 +725,12 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-07-display-name-validation` (bugfix, no SRS Delta), on branch
+  `fix/display-name-validation` from `main`. F-7, F-8: names need a visible character and
+  lose default-ignorables, agent names are normalised at source with an `Agent <id>` render
+  fallback, and migration `0101` repairs stored blank names (`down_revision`
+  `0100_normalise_account_display_names`).
 
 - (implemented 2026-10-11) `2026-10-11-chat-export-archive-content`, on branch
   `fix/chat-export-archive-content` from `main`.
