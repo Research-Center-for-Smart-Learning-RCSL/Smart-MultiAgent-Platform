@@ -51,8 +51,10 @@ class TestCreateJobState:
 
 
 class TestJobTtl:
-    def test_ttl_is_72_hours(self) -> None:
-        assert _JOB_TTL_SECONDS == 72 * 3600
+    def test_ttl_matches_the_24_hour_archive(self) -> None:
+        # The exports bucket purges after 24 h; a longer record would report a
+        # purged archive as ready (browser-file-delivery Q-9, 2026-10-05 F-5).
+        assert _JOB_TTL_SECONDS == 24 * 3600
 
 
 class TestMarkTransitions:

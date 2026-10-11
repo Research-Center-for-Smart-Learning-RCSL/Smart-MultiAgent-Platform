@@ -203,11 +203,3 @@ class TestResolveWindow:
         assert after.day == 1
         assert before.day == 1
         assert before.month == 2
-
-
-def test_job_record_lives_as_long_as_the_archive() -> None:
-    """The exports bucket purges after 24 h; a record outliving it reports a
-    dead archive as ready (2026-10-05 audit F-5, browser-file-delivery Q-9)."""
-    from contexts.conversation.application import research_export_service
-
-    assert research_export_service._JOB_TTL_SECONDS == 24 * 3600
