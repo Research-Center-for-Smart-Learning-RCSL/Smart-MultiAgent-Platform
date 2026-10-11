@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-07
 requirements: [R6.11, R13.33, R13.34]
 depends_on: [2026-10-07-google-display-name-normalisation, 2026-10-07-system-rows-in-agent-context]
@@ -147,17 +147,27 @@ Written first; each fails against current code for the stated reason.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: the regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: no write path (guest session, room guest label, profile update, admin
+- [x] AC-1: the regression tests in §8 fail before the fix and pass after. Each was run
+  red, then green. The agents route test is a request-model test (`test_agents_api_models.py`,
+  `ValidationError` is the 422), as that file already does.
+- [x] AC-2: no write path (guest session, room guest label, profile update, admin
   provisioning, Google sign-in, agent create or update) stores a name without a visible
-  character.
-- [ ] AC-3: the guest form refuses exactly the names the server refuses.
-- [ ] AC-4: every agent turn in the model context carries a non-empty label, and no
-  model-facing label carries a control or format character other than ZWJ and VS16.
-- [ ] AC-5: after migration `0101`, no stored account name, room guest label or guest session
-  name lacks a visible character.
-- [ ] AC-6: backend and frontend lint, typecheck, tests (db tier included) and build pass in
-  CI.
+  character. Every human path goes through `normalise_label`; the security gate traced each
+  one. Agent create and patch go through `_normalise_agent_name`.
+- [x] AC-3: the guest form refuses exactly the names the server refuses. A parity sweep
+  covered every code point, alone and embedded, in Node 22 against Python 3.12. It differs
+  only on code points that Python's Unicode 15 tables leave unassigned: the form accepts
+  them and the server refuses them. The form is never stricter than the server.
+- [x] AC-4: every agent turn in the model context carries a non-empty label, and no
+  model-facing label carries a control or format character other than ZWJ and VS16
+  (`_agent_label`, `_one_line_label` through `strip_hidden`; D-5).
+- [x] AC-5: after migration `0101`, no stored account name, room guest label or guest session
+  name lacks a visible character. Verified by the db-tier tests against Postgres 16 on a
+  scratch database: 4/4 passed, not skipped. `alembic upgrade head`, `downgrade -1` and a
+  second upgrade were also run.
+- [x] AC-6: backend and frontend lint, typecheck, tests (db tier included) and build pass in
+  CI. PR #250 at `45e2ec3c`: 24 checks passed, including backend-db, backend-wiring and
+  frontend-e2e; compose-boot-prod was skipped.
 
 ## 12. SRS Delta
 
@@ -167,6 +177,79 @@ None. [R6.11] and [R13.34] already require a usable, normalised name.
 
 Appended by /build.
 
+- **D-1. The agent fallback sits at render, and covers deleted agents too.** §4 step 3
+  and §8 predate `2026-10-07-system-rows-in-agent-context`, which added
+  `_AGENT_LABEL_FALLBACK = "Agent"` to `_provider_message`, so a blank agent name already
+  rendered as `Agent:` rather than with no prefix. The regression test still failed before
+  the fix, because the id was missing. Rather than `_first_label(name, ...)` at resolution
+  (§7.4), the id-bearing label is built by `_agent_label` in `_provider_message`. It is the
+  one place every agent turn passes through, and it also gives a deleted agent (absent from
+  `names_for_ids`) its id. The existing test
+  `test_turn_room_notices.py::test_an_agent_without_a_usable_name_still_wears_a_prefix`
+  now expects `Agent <8 hex>:` for both cases.
+- **D-2. Agent names made only of label delimiters are refused (requester's choice).**
+  §4/§8 require `"  "` (quote, two spaces, quote) to answer 422, but the §7.3 design
+  (`normalise_label` returns `None`) accepts it, because a quote is a visible character.
+  The requester chose to satisfy §8: the validator also refuses a name with no visible
+  character once `"`, `[` and `]` are dropped, the delimiters `_one_line_label` removes. To
+  serve that check, `shared_kernel.labels` exports the predicate as `has_visible_character`.
+- **D-3. Migration `0101` also repairs guest ban snapshots (requester's choice).**
+  `chatroom_guest_bans.display_name` (`NOT NULL`) copies a guest session's name when the
+  guest is banned, and the moderator's ban list shows it. Blank snapshots become "Guest",
+  as guest session names do. Q-2 did not list this table.
+- **D-4. Invisible characters in source are written as escapes.** The editing tools turned
+  `\u` escapes in new test inputs and in `turn_engine._EMOJI_JOINERS` into literal
+  invisible characters. These were caught by a scan of the diff and rewritten as escapes.
+  `guestName.ts` already carried a literal ZWJ and VS16 in its keep-list from before this
+  task, and it is now written as escapes too. `test_migration_0101_rule.py` pins the
+  migration's keep-list, as `test_migration_0100_rule.py` does for `0100`.
+- **D-5. The render guard applies the full source rule (quality and security gates).**
+  As first built, the render fallback tested only for an empty string, and
+  `_one_line_label` stripped only category C. That left a gap in two cases:
+  - An agent saved before this change with a name of only fillers (`0101` does not touch
+    `agents`).
+  - A human name such as `"` + U+2800 + `"`, which `normalise_label` keeps because quotes
+    are visible, and which one-lines to the blank cell.
+
+  Both still rendered as an invisible speaker, so §10's claim that "the render fallback
+  covers them meanwhile" did not hold. The fix has three parts:
+  - `shared_kernel.labels` exports `strip_hidden` (the source strip, sparing whitespace)
+    and `LABEL_DELIMITERS`, so the render site and the agent validator share one rule
+    instead of copies.
+  - `_one_line_label` uses both, so it now also strips default-ignorable characters.
+  - `_first_label` and `_agent_label` require `has_visible_character`.
+
+  Regression tests:
+  - `test_a_stored_agent_name_that_draws_nothing_falls_back`
+  - `test_a_human_label_that_draws_nothing_once_one_lined_falls_through`
+
+  Both fail against the first build.
+- **D-6. `/code-review` fixes on PR #250 (requester's choice: findings 2+10, 6, 7, 9).**
+  - **Agent form (findings 2, 10).** The agent form sends the stored name on every save
+    (`AgentDetailView.vue`, `agentsApi.patch`), so an agent named before the server rule
+    answered a bare 422 to any edit. The form now refines its name with
+    `isUsableModelLabel` and shows `agents.form.nameInvalid` before any request is made.
+    The rule lives in `frontend/src/shared/utils/labels.ts`, and `guestName.ts` now
+    re-exports it. This resolves FU-3.
+  - **One rule definition (finding 6).** `shared_kernel.labels.one_line_label` is now the
+    only definition of the model-facing one-line rule. `_one_line_label` delegates to it,
+    and the agent-name check measures against it, so source and render cannot drift.
+    `strip_hidden` and the public `LABEL_DELIMITERS` from D-5 are folded into it.
+  - **Raw-text visibility (finding 7).** `has_visible_character` also discounts the
+    characters `normalise_label` strips, so it holds on raw text.
+  - **Migration pre-filter (finding 9).** Migration `0101` selects only rows with no ASCII
+    letter or digit, because those are the only ones that can be blank. PostgreSQL bracket
+    ranges compare code points; this was checked under `en_US.utf8`, where `é`, `Ａ` and `ß`
+    do not match. The db test seeds CJK and emoji names that pass the filter and must be
+    kept.
+  - **Dismissed:**
+    - 1: clearing on profile update is §7.1's design, as for whitespace before.
+    - 3: a removed line break matches the human rule pinned by
+      `test_label_normalisation.py::TestIdentityKeepsItsOwnCap`.
+    - 5: already FU-1.
+    - 8: a name of 50 blank cells and then text is an edge case.
+    - 4 is FU-9.
+
 ## 14. Follow-ups
 
 - **FU-1.** Activity type names and member group labels reach the model context and room
@@ -174,3 +257,40 @@ Appended by /build.
   the visible-character rule; teacher-authored, so lower risk.
 - **FU-2.** Combining marks per base character are not limited (the audit's refuted Zalgo
   candidate); a cap would stop visual spill without affecting real scripts much.
+- **FU-3.** (Resolved by D-6.) The agent form validates the name with `z.string().trim().min(1)`
+  (`frontend/src/slices/agents/types/schemas.ts:19, 82, 102, 114`). A name the server now
+  refuses (D-2, or a name of only fillers) surfaces as the form's generic error instead of
+  a field message. The fix is to mirror the rule there, as `guestName.ts` does for guests.
+- **FU-4.** Stored names are left as they are until they are next written in two cases:
+  - names that carry an invisible character among visible ones, such as `Al` + U+3164 +
+    `ice`;
+  - human names whose only visible characters are label delimiters, such as `"` + U+2800
+    + `"`.
+
+  `0101` clears only names with nothing visible (Q-2). The human source rule is not
+  delimiter-aware, unlike the agent rule (D-2). Since D-5 the render guard strips the
+  former and falls back past the latter, so the model context is covered, but member-facing
+  surfaces still show the stored text.
+- **FU-5.** Behavioural verification in a running app (the guest form refusing a filler
+  name, a 422 when an agent's name is only quotes, and an `Agent <id>` prefix in a
+  provider request) is a staging check. The local compose images predate the `regex`
+  dependency, and the gates rest on unit, component and db-tier tests.
+- **FU-6. Fullwidth brackets can spell the notice marker (security audit, MEDIUM,
+  plausible, pre-existing).** Fullwidth brackets (U+FF3B, U+FF3D) survive both
+  `LABEL_DELIMITERS` and `_NOTICE_MARKER_LIKE`, so `［Room notice］` can appear in a name or
+  a message body. Meanwhile the participant note claims that no participant's name can
+  carry the marker. This is homoglyph territory, which §9 puts out of scope. The fix is
+  either to fold NFKC (or match the fullwidth forms) at both sites, or to soften the note.
+- **FU-7.** Shipped example packs create agents through `AgentService.create`, which skips
+  the API name validator (`example_service.py:251`). The packs are repo-authored, so no
+  attacker can reach this path. A test asserting that every shipped pack name passes the
+  rule would keep it that way (security audit, hardening).
+- **FU-8.** The agent create and patch routes build `AgentService(db)` directly rather
+  than going through `AgentsFacade` (`app/api/v1/agents.py`, pre-existing, quality audit).
+  The agent-name rule lives in the request models. If agent names gain a non-HTTP writer,
+  it belongs in the agents application layer.
+- **FU-9.** The fallback `Agent <8 hex>` is plain text that another agent can take as
+  its name (`/code-review` finding 4), so the fallback does not fully guarantee Q-3's
+  "two unnamed agents apart" against a deliberate imitator. Labels are not authentication
+  ([R13.33]). Reserving the form at the source, by refusing names matching
+  `Agent [0-9a-f]{8}`, would close it.

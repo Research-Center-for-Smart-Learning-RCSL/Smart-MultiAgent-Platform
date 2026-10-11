@@ -43,6 +43,20 @@ _GRAPHEME: Final = regex.compile(r"\X")
 # differently, so no test, lint or type check would notice.
 _KEEP: Final = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
 
+# Code points that render as nothing by definition (the Hangul fillers among
+# them). Outside category C, so the strip above missed them, and a name of only
+# these read to everyone else as an author with no name.
+_IGNORABLE: Final = regex.compile(r"\p{Default_Ignorable_Code_Point}")
+
+# Draws an empty cell, but is a symbol rather than default-ignorable, so it is
+# kept inside a name and only does not count as the visible part of one.
+_BLANK_GLYPH: Final = "\u2800"  # BRAILLE PATTERN BLANK
+
+# Characters a model-facing label drops because the containers it is rendered
+# into use them: ``"`` quotes a name in the owner note and the activity legend,
+# ``[]`` spell the platform's room notice marker.
+_LABEL_DELIMITERS: Final = str.maketrans("", "", '"[]')
+
 #: Account display names (``users.display_name``).
 MAX_DISPLAY_NAME: Final = 50
 
@@ -52,7 +66,8 @@ MAX_GUEST_LABEL: Final = 100
 
 
 def normalise_label(raw: str | None, *, max_len: int) -> str | None:
-    """Trim and strip control/format characters; empty collapses to ``None``.
+    """Trim and strip control, format and default-ignorable characters; a name
+    with no visible character collapses to ``None``.
 
     Printable Unicode (incl. CJK and emoji) is preserved — this is user content,
     not project UI text. Length is capped defensively even where an API boundary
@@ -60,11 +75,42 @@ def normalise_label(raw: str | None, *, max_len: int) -> str | None:
     """
     if raw is None:
         return None
-    cleaned = "".join(
-        ch for ch in raw if ch in _KEEP or ch == " " or not unicodedata.category(ch).startswith("C")
-    )
+    cleaned = "".join(ch for ch in raw if ch == " " or not _is_hidden(ch))
     cleaned = _truncate_graphemes(cleaned.strip(), max_len).strip()
-    return cleaned or None
+    return cleaned if has_visible_character(cleaned) else None
+
+
+def one_line_label(label: str) -> str:
+    """``label`` as a model-facing render site shows it: on one line, without the
+    characters ``normalise_label`` strips, and without label delimiters (``"[]``).
+
+    The render-side guard for rows stored before the source rule existed, and the
+    measure the agent-name rule checks against, so the two cannot drift. Whitespace
+    collapses to a space here where ``normalise_label`` drops a line break.
+    """
+    visible = "".join(ch for ch in label if ch.isspace() or not _is_hidden(ch))
+    return " ".join(visible.translate(_LABEL_DELIMITERS).split())
+
+
+def _is_hidden(ch: str) -> bool:
+    """Control, format and default-ignorable, except the emoji joiners."""
+    if ch in _KEEP:
+        return False
+    return unicodedata.category(ch).startswith("C") or _IGNORABLE.match(ch) is not None
+
+
+def has_visible_character(text: str) -> bool:
+    """Whether some character draws on its own: joiners, selectors and combining
+    marks only modify a neighbour; whitespace, the blank cell and the characters
+    ``normalise_label`` strips draw nothing. Holds for raw text too."""
+    return any(
+        not ch.isspace()
+        and ch not in _KEEP
+        and ch != _BLANK_GLYPH
+        and not unicodedata.category(ch).startswith("M")
+        and not _is_hidden(ch)
+        for ch in text
+    )
 
 
 def _truncate_graphemes(text: str, max_len: int) -> str:
@@ -89,4 +135,10 @@ def _truncate_graphemes(text: str, max_len: int) -> str:
     return text[: kept or 1]
 
 
-__all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "normalise_label"]
+__all__ = [
+    "MAX_DISPLAY_NAME",
+    "MAX_GUEST_LABEL",
+    "has_visible_character",
+    "normalise_label",
+    "one_line_label",
+]

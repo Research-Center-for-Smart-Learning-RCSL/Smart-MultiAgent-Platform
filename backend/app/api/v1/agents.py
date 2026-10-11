@@ -49,6 +49,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.labels import has_visible_character, normalise_label, one_line_label
 from shared_kernel.type_guards import is_plain_int
 from shared_kernel.validation import BoundedConfig
 
@@ -265,14 +266,32 @@ def _validate_workflow_capabilities(value: dict[str, Any] | None) -> dict[str, A
     return value
 
 
+_MAX_AGENT_NAME = 200
+
+
+def _normalise_agent_name(value: str) -> str:
+    """An agent's name labels its turns in other agents' context, so it gets the
+    human label rule, and must still say something once the label's delimiters
+    are dropped: a name of only quotes reached the model as no speaker at all."""
+    name = normalise_label(value, max_len=_MAX_AGENT_NAME)
+    if name is None or not has_visible_character(one_line_label(name)):
+        raise ValueError("name must contain a visible character")
+    return name
+
+
 class AgentCreateIn(BaseModel):
     model_config = {"protected_namespaces": ()}
 
-    name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=_MAX_AGENT_NAME)
     model_hint: Literal["claude", "openai", "gemini", "openai_compat"]
     model_id: str | None = Field(default=None, max_length=200)
     effort: AgentEffort | None = None
     key_group_id: uuid.UUID
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v: str) -> str:
+        return _normalise_agent_name(v)
 
     @field_validator("model_id", mode="before")
     @classmethod
@@ -317,11 +336,16 @@ class AgentPatchIn(BaseModel):
     # explicitly to clear.
     model_config = {"extra": "forbid", "protected_namespaces": ()}
 
-    name: str | None = Field(default=None, min_length=1, max_length=200)
+    name: str | None = Field(default=None, min_length=1, max_length=_MAX_AGENT_NAME)
     model_hint: Literal["claude", "openai", "gemini", "openai_compat"] | None = None
     model_id: str | None = Field(default=None, max_length=200)
     effort: AgentEffort | None = None
     key_group_id: uuid.UUID | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v: str | None) -> str | None:
+        return None if v is None else _normalise_agent_name(v)
 
     @field_validator("model_id", mode="before")
     @classmethod

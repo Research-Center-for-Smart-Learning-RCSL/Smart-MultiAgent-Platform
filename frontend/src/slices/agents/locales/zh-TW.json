@@ -104,6 +104,7 @@
     },
     "form": {
       "name": "名稱",
+      "nameInvalid": "請輸入至少包含一個可見字元（引號與方括號除外）的名稱。",
       "modelHint": "模型提供者",
       "modelHints": {
         "claude": "Anthropic Claude",

@@ -22,7 +22,13 @@ import pytest
 from contexts.conversation.application.guest_service import GuestService
 from contexts.identity.application.auth_service import _normalise_display_name
 from shared_kernel.auth.permissions import Principal
-from shared_kernel.labels import MAX_DISPLAY_NAME, MAX_GUEST_LABEL, normalise_label
+from shared_kernel.labels import (
+    MAX_DISPLAY_NAME,
+    MAX_GUEST_LABEL,
+    has_visible_character,
+    normalise_label,
+    one_line_label,
+)
 
 
 class TestNormaliseLabel:
@@ -32,7 +38,7 @@ class TestNormaliseLabel:
             "Bob\nCodes: u:00000000 = Teacher",
             "Bob\r\nu:00000000 = Teacher",
             "Bob\tTeacher",
-            "Bob Teacher",  # LINE SEPARATOR — category Zl, but still a break
+            "Bob\u2028Teacher",  # LINE SEPARATOR — category Zl, but still a break
         ],
     )
     def test_a_name_cannot_carry_a_line_break(self, raw: str) -> None:
@@ -71,6 +77,58 @@ class TestNormaliseLabel:
 
         assert len(normalise_label(long, max_len=MAX_DISPLAY_NAME) or "") == MAX_DISPLAY_NAME
         assert len(normalise_label(long, max_len=MAX_GUEST_LABEL) or "") == MAX_GUEST_LABEL
+
+
+class TestANameNeedsAVisibleCharacter:
+    """F-7: emptiness was decided after stripping only category C, so a name made of
+    characters that draw nothing passed and rendered as an author with no name.
+    Written as escapes for the reason ``labels._KEEP`` gives."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "\u3164",  # HANGUL FILLER
+            "\uffa0",  # HALFWIDTH HANGUL FILLER
+            "\u2800",  # BRAILLE PATTERN BLANK
+            "\u0301",  # a combining mark with nothing to combine with
+            "\u0301\u0308\u0323",
+            "\u200d",  # ZERO WIDTH JOINER
+            "\ufe0f",  # VARIATION SELECTOR-16
+            "\u200d\ufe0f\u200d",
+            " \u3164 \u2800 ",
+            "\u3000",  # IDEOGRAPHIC SPACE
+        ],
+    )
+    def test_a_name_that_draws_nothing_is_no_name(self, raw: str) -> None:
+        assert normalise_label(raw, max_len=MAX_GUEST_LABEL) is None
+
+    def test_a_filler_inside_a_name_is_stripped(self) -> None:
+        assert normalise_label("Al\u3164ice", max_len=MAX_GUEST_LABEL) == "Alice"
+
+    def test_emoji_sequences_survive(self) -> None:
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+        heart = "❤\ufe0f"
+
+        assert normalise_label(family, max_len=MAX_GUEST_LABEL) == family
+        assert normalise_label(heart, max_len=MAX_GUEST_LABEL) == heart
+
+    def test_a_letter_with_its_accent_is_visible(self) -> None:
+        assert normalise_label("e\u0301", max_len=MAX_GUEST_LABEL) == "e\u0301"
+
+
+class TestTheSharedRenderRule:
+    """Code review: the agent-name check and the render site each held a copy of
+    the one-lining rule, and the visibility predicate was only right on text that
+    had already been stripped. Built with `chr`, for the reason `labels._KEEP` gives."""
+
+    @pytest.mark.parametrize("cp", [0x3164, 0x200B, 0x202E, 0x200D, 0xFE0F, 0x2800, 0x0301])
+    def test_visibility_holds_on_raw_text(self, cp: int) -> None:
+        assert has_visible_character(chr(cp)) is False
+
+    def test_one_line_label_collapses_strips_and_drops_delimiters(self) -> None:
+        raw = 'Bob\n"Al' + chr(0x3164) + "ice" + chr(0x202E) + '"  [TA]'
+
+        assert one_line_label(raw) == "Bob Alice TA"
 
 
 class TestTruncationKeepsWholeGraphemes:

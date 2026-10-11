@@ -98,7 +98,7 @@ from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.db.faults import is_infrastructure_error
-from shared_kernel.labels import MAX_GUEST_LABEL
+from shared_kernel.labels import MAX_GUEST_LABEL, has_visible_character, one_line_label
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.distributed_lock import LockHandle
 from shared_kernel.realtime.pubsub import Publisher
@@ -386,8 +386,8 @@ _PARTICIPANT_LABEL_NOTE = (
     "from them and not vouched for by the platform."
 )
 
-# Stands in for an agent whose name is missing (deleted) or one-lines to nothing:
-# an unprefixed turn could otherwise open with `_ROOM_NOTICE_MARKER` itself.
+# Stands in for an agent whose name is missing (deleted) or one-lines to nothing;
+# see `_agent_label`.
 _AGENT_LABEL_FALLBACK = "Agent"
 
 # Appended by the platform to the label of every guest identity ([R13.33]): an
@@ -436,9 +436,6 @@ def _participant_note(owner_label: str | None) -> str:
 _PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER)
 
 
-_LABEL_DELIMITERS = str.maketrans("", "", '"[]')
-
-
 def _one_line_label(label: str) -> str:
     """Reduce a participant label to text that cannot punctuate its container.
 
@@ -453,12 +450,25 @@ def _one_line_label(label: str) -> str:
     rare, and an escape sequence in the middle of a name is its own kind of
     confusion.
 
-    Applies to every model-facing label. Account display names are already
-    normalised at the source and guest labels now are too, but rows written before
-    that guard existed are still in the database, so the render site cannot assume
-    it.
+    The characters the source rule strips go too (a right-to-left override makes
+    a name read as something it is not), sparing whitespace so a line break still
+    collapses to a space.
+
+    Applies to every model-facing label. Human and agent names are normalised at
+    the source, but rows written before that guard existed are still in the
+    database, so the render site cannot assume it. The rule itself is
+    ``shared_kernel.labels.one_line_label``, which the agent-name check shares.
     """
-    return " ".join(label.translate(_LABEL_DELIMITERS).split())
+    return one_line_label(label)
+
+
+def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
+    """An agent's turn prefix. The id stands in for a missing or blank-looking name
+    so two unnamed agents do not read as one speaker; a turn with no visible prefix
+    could open with `_ROOM_NOTICE_MARKER` itself."""
+    if name and has_visible_character(name):
+        return name
+    return f"{_AGENT_LABEL_FALLBACK} {agent_id.hex[:8]}" if agent_id else _AGENT_LABEL_FALLBACK
 
 
 def _first_label(*candidates: str | None) -> str | None:
@@ -471,7 +481,7 @@ def _first_label(*candidates: str | None) -> str | None:
     """
     for candidate in candidates:
         label = _one_line_label(candidate) if candidate else ""
-        if label:
+        if has_visible_character(label):
             return label
     return None
 
@@ -3649,10 +3659,10 @@ class TurnEngine:
         session). Agents resolve to their configured name.
         """
         agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
-        # Through the same guard as the human labels. An agent name is free text
-        # bounded only by length (`AgentCreateIn.name`), and `_provider_message`
-        # interpolates it into the same "Name: message" prefix, so a name carrying
-        # a newline opens a line that reads as another participant's turn.
+        # Through the same guard as the human labels. `AgentCreateIn.name` now
+        # normalises at the source, but agents saved before that can still carry
+        # a newline, which in the "Name: message" prefix `_provider_message`
+        # builds opens a line that reads as another participant's turn.
         agent_names = {
             aid: _one_line_label(name)
             for aid, name in (await AgentRepository(self._db).names_for_ids(list(agent_ids))).items()
@@ -3827,7 +3837,7 @@ class TurnEngine:
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
-            content = f"{label or _AGENT_LABEL_FALLBACK}: {_defang_notice_marker(hm.content)}"
+            content = f"{_agent_label(hm.sender_id, label)}: {_defang_notice_marker(hm.content)}"
             # Other agents are external actors from this agent's perspective;
             # mapping them to "user" prevents consecutive assistant turns which
             # the Anthropic and OpenAI APIs reject with a 400.
