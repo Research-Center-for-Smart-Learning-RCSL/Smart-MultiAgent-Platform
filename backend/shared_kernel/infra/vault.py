@@ -9,6 +9,8 @@ Responsibilities (the ONLY things this module is allowed to do):
   * JWT RS256 sign/verify against `smap-jwt-sign`, with in-process public-key
     cache keyed by `kid` = Vault key version (R6.03).
   * KV v2 read/write on `secret/smap/config/*`.
+  * HMAC sign/verify with the KV seed for caller-domain-tagged tokens
+    (`shared_kernel.storage.file_tickets`).
   * AppRole login + silent re-login on 403.
 
 Out of scope:
@@ -273,6 +275,25 @@ class VaultClient:
             )
         self._hmac_keys[version] = key
         return key
+
+    # -------------------- HMAC for signed tokens --------------------
+    #
+    # The seed never leaves this class: callers get MACs, not key bytes. The
+    # seed also authenticates provider-secret envelopes, so a caller MUST prefix
+    # `data` with its own domain tag or a MAC from one use verifies in the other.
+
+    def hmac_sign(self, data: bytes) -> tuple[int, bytes]:
+        """MAC `data` with the current seed; returns ``(seed_version, mac)``."""
+        version, key = self._current_hmac()
+        return version, hmac.new(key, data, sha256).digest()
+
+    def hmac_verify(self, version: int, data: bytes, mac: bytes) -> bool:
+        """False for a mismatch or for a seed version KV can no longer produce."""
+        try:
+            key = self._hmac_for_version(version)
+        except VaultError:
+            return False
+        return hmac.compare_digest(hmac.new(key, data, sha256).digest(), mac)
 
     @staticmethod
     def _parse_hmac_kv(raw: dict[str, Any]) -> tuple[int, bytes]:
