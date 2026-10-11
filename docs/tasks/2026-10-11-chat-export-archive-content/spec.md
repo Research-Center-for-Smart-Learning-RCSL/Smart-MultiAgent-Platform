@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-11
 requirements: [R13.17]
 depends_on: [2026-10-11-browser-file-delivery, 2026-10-11-chat-export-modal-states]
@@ -238,22 +238,42 @@ Write these failing tests first:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The §8 tests fail before the fix and pass after.
-- [ ] AC-2: On the test stack, a JSON export of a room with a PNG and a TXT attachment downloads
+- [x] AC-1: The §8 tests fail before the fix and pass after. Before the fix, 23 of the new
+  backend tests failed and 2 passed. The two that passed only assert that a finished or
+  unqueued export frees the room, which holds trivially with no guard. The db-tier paging test
+  failed (no `iter_for_export`), and the frontend 409/PDF-size tests failed. After the fix
+  everything passes: the backend unit tier (11,477 passed before the review fixes), the export
+  db tests against Postgres, and the frontend suites.
+- [x] AC-2: On the test stack, a JSON export of a room with a PNG and a TXT attachment downloads
   a ZIP containing `manifest.json` (`schema_version: 2`) and both files byte-identical to the
-  uploads.
-- [ ] AC-3: An expired attachment and a quarantined attachment are absent from the ZIP, noted
-  in the transcript, and listed in `README.txt`.
-- [ ] AC-4: A Markdown export of a 50,010-message room contains all 50,010 messages, with the
-  worker's peak RSS below 300 MB (`docker stats`).
-- [ ] AC-5: A PDF request over 5,000 messages is refused before any job is queued, and the modal
-  shows the count with a suggestion.
-- [ ] AC-6: A job cancelled by its timeout reads `failed` on the next status poll, and the modal
-  shows the failed state.
-- [ ] AC-7: A second export request for the same room while one is running returns the running
-  job, and the modal follows it.
-- [ ] AC-8: An Org Member's narrowed export (row 19) contains only their own attachments plus
-  agent and system attachments.
+  uploads. Checked through nginx: both SHA-256 hashes matched the uploads, and the e2e spec now
+  asserts the ZIP and its attachment bytes.
+- [x] AC-3: An expired attachment and a quarantined attachment are absent from the ZIP, noted
+  in the transcript, and listed in `README.txt`. On the stack, the attachments were marked by
+  SQL, and both appear with `omitted_reason` (`expired`, `quarantined`) and in the README. The
+  quarantined object was never read (unit test).
+- [x] AC-4: A Markdown export of a 50,010-message room contains all 50,010 messages, with the
+  worker's peak RSS below 300 MB (`docker stats`). Seeded by SQL on the stack. The transcript
+  had 50,010 headings, including the newest message, and was 3.5 MB. Worker memory went from
+  162 MiB idle to a 177 MiB peak.
+- [x] AC-5: A PDF request over 5,000 messages is refused before any job is queued, and the modal
+  shows the count with a suggestion. The API returned 422 `export-too-large-for-pdf` with
+  `message_count=50010, limit=5000`, and no job record was written. In Chromium the modal showed
+  "This range has 50010 messages ... Choose a shorter date range or another format." with
+  submit still enabled.
+- [x] AC-6: A job cancelled by its timeout reads `failed` on the next status poll, and the modal
+  shows the failed state. On the stack, the worker ran with a 2-second export timeout and
+  exported the 50,010-message room. Status went `queued -> running -> failed` with "timed out"
+  4.2 s later, and the room's export slot was released. The modal's rendering of a failed job is
+  `chat-export-modal-states` AC-5.
+- [x] AC-7: A second export request for the same room while one is running returns the running
+  job, and the modal follows it. The API returned 409 `export-in-progress` with the first job's
+  id. In Chromium, a second submit after closing the modal received the 409, polled the first
+  job, and reached the download once the worker ran.
+- [x] AC-8: An Org Member's narrowed export (row 19) contains only their own attachments plus
+  agent and system attachments. On the stack, the admin's project had e2e-user invited as
+  Project Member. The member's ZIP held their own message and file plus a system message and
+  its file. The owner's message and file appeared nowhere in the archive.
 
 ## 11. SRS Delta
 
@@ -268,7 +288,60 @@ Write these failing tests first:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (spec drift, trivial).**
+  - The spec's `_safe_header_filename` (`attachment_service.py:78-82`) no longer exists. Entry
+    names use the shared `shared_kernel.storage.sanitize.safe_input_name`.
+  - The db-tier tests live in `tests/integration/` with `pytest.mark.db`, as the repo's other
+    db tests do, not in a `tests/db/` directory.
+- **D-2 (transaction split on one session).** §7.2 asks for reads in one transaction, no
+  connection held while packaging, and the audit row in a new transaction. The worker now opens
+  its session without an outer transaction, and `ChatExportService` runs `async with
+  session.begin()` twice: once for authorization and every page, once for the audit row. This
+  keeps the service's constructor (and the row-19 security tests built on it) unchanged.
+- **D-3 (packaging order).** The read phase writes each message as a JSON line to the work
+  directory and lists the attachments. Files are copied into the ZIP next. The transcript is
+  rendered only after that, so every format states which files actually went in. This ordering
+  is needed because a `missing` or `size_budget` omission is only known from the object's stat.
+- **D-4 (details the spec left open).**
+  - **Attachment order within a message.** Repository order, since attachments have no
+    creation time.
+  - **Expiry.** An attachment whose `expires_at` has passed counts as `expired` even while its
+    row still reads `active`, matching the interactive download (R13.11a).
+  - **Wrong bucket.** A `minio_path` outside the chat-uploads bucket is treated as `missing`.
+  - **Duplicate names.** Within one message they get a ` (2)` suffix.
+  - **Without attachments.** Each manifest entry has `"archived": false` and no
+    `omitted_reason`.
+  - **Worker-side PDF cap.** The worker also enforces the PDF cap, failing the job if messages
+    posted after the API check push the window past it, rather than truncating.
+- **D-5 (stale export slot).** Q-6's guard would otherwise hold a room for 24 hours behind a
+  job whose worker died. A holder still `queued`/`running` past `ACTIVE_EXPORT_STALE_AFTER`
+  (twice `CHAT_EXPORT_TIMEOUT_S`, so one hour) is marked failed ("abandoned") and replaced.
+  Other cases release the slot:
+  - **Failed enqueue.** It also releases the slot.
+  - **Concurrent creates.** The job record is written before the claim, and a takeover is an
+    atomic compare-and-set script. Exactly one create wins, and a refused create leaves no
+    orphan record. A test with interleaved Redis calls failed before that fix.
+- **D-6 (security gate).** `check-security` reported one CRITICAL, pre-existing in the touched
+  PDF path. WeasyPrint fetched any `http(s)`/`file` URL in the rendered HTML, so a Markdown
+  image in any message made the worker request internal URLs when the room was exported as
+  PDF (SSRF).
+  - **Reproduced in the backend image.** The render made one GET to a local listener.
+  - **Fix.** The render now uses `URLFetcher(allowed_protocols={"data"},
+    allow_redirects=False)`, and the same probe then made no requests, including for a
+    stylesheet link.
+  - **Hardening.** Attachment names in the Markdown and PDF transcripts are flattened with
+    `safe_input_name`, so a CR/LF filename cannot forge transcript structure.
+- **D-7 (quality gate).**
+  - **Shared scope helper.** One `export_own_user_id` helper now serves the API's PDF count and
+    the worker's read.
+  - **Error extras.** These moved from the domain errors into `error_mapping`, as the other
+    contexts do.
+  - **Timeouts.** `CHAT_EXPORT_TIMEOUT_S` now lives in `export_service`, with the stale
+    threshold derived from it.
+  - **Cleanup.** `all_for_chatroom` was deleted (its tests read `iter_for_export`), and the
+    frontend reuses `isProblemWithType`.
+  - **Poll window.** The modal's 12-minute window was kept as decided in Q-5. A longer export
+    shows "Still processing" with "Check again".
 
 ## 13. Follow-ups
 
@@ -279,3 +352,15 @@ Appended by /build.
   to time out at its 64 MiB bound but has the same shape.
 - **FU-3.** The WeasyPrint render thread cannot be cancelled. If PDF renders at the 5,000 cap
   prove slow on staging, move rendering to a subprocess so a timeout can stop it.
+- **FU-4 (security MEDIUM, plausible).** The export slot is per room, so a member of many rooms
+  can queue one attachment export per room. Each runs up to 30 minutes and up to 2 GiB of worker
+  disk, in the arq pool that agent turns share (`max_jobs = 50`). FU-1's per-user cap, or a
+  dedicated export queue with a low `max_jobs`, closes it.
+- **FU-5 (quality, pre-existing pattern).** `exports.py` calls application modules directly
+  rather than through a conversation facade, as most routes do. This change adds the
+  `ensure_pdf_fits` import.
+- **FU-6 (quality, Info).**
+  - `_add_attachments` checks the budget against `stat.size` before downloading. That is
+    correct while chat uploads are immutable; counting the bytes actually written would not
+    rely on it.
+  - `ExportSection` settings and the export constants could live together.
