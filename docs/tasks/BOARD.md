@@ -505,13 +505,13 @@ rows are added as each is written.
 `docs/audits/2026-10-11-chat-and-research-export/findings.md` spawned three bugfix dossiers;
 rows are added as each is written.
 
-- `2026-10-11-browser-file-delivery` (bugfix, **draft**) - `depends_on: []`. F-1, F-2 and F-7,
+- `2026-10-11-browser-file-delivery` (bugfix, **approved 2026-10-11**, SRS Delta applied:
+  [R19a.14] added, five presigned/24 h statements reworded) - `depends_on: []`. F-1, F-2 and F-7,
   plus the same root cause in every other browser file path: research export, admin audit
   CSV, skill bundles, attachments and canvas images. Every one of them returns a
   `http://minio:9000` presigned URL. The canvas `/minio-assets/` proxy returns 502, because
   nginx and MinIO share no network. Replaces presigned URLs with `GET /api/files/{ticket}`, a
-  backend-streamed endpoint behind an HMAC ticket. It carries an SRS Delta to apply at
-  approval. **Read its Q-6 before building**: files now come from the app origin, so PDF
+  backend-streamed endpoint behind an HMAC ticket. **Read its Q-6 before building**: files now come from the app origin, so PDF
   attachments switch from inline preview to download.
 
 ### From the 2026-10-07 missing-agent-reply analysis

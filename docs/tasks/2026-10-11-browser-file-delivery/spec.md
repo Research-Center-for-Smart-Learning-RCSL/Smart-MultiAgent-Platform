@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-11
 requirements: [R13.10, R13.11a, R13.17, R13.71, R31.21, R33.10]
 depends_on: []
@@ -459,13 +459,15 @@ Write these failing tests first:
   concurrent sessions behind one IP, each loading a room with 20 images, are not throttled.
 - [ ] AC-11: `grep -r presigned_get backend --include=*.py` finds no non-test caller, and
   `smap.conf` has no `minio-assets` location.
-- [ ] AC-12: The §11 SRS and UI-doc changes are applied, and `scripts/traceability.py --check`
+- [x] AC-12: The §11 SRS and UI-doc changes are applied, and `scripts/traceability.py --check`
   passes.
 
 ## 11. SRS Delta
 
 Bugfix dossiers usually carry none. This one changes the delivery mechanism the SRS names, so
-the following edits are applied at approval:
+the following edits were applied at approval on 2026-10-11. The new security requirement is [R19a.14], in a new §19a.7. One further edit made at the same time, for consistency: the `GET /api/attachments/{id}` row (`REQUIREMENTS.md:1696`) changed from "short-lived signed download URL" to "short-lived download link".
+
+The edits:
 
 - **`REQUIREMENTS.md:1694`.** Change the row to `| GET | /api/exports/{job_id} | Job status;
   when ready, a download link minted per request (valid 15 min). The archive is retained 24 h. |`

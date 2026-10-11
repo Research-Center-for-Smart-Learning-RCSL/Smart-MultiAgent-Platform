@@ -861,7 +861,7 @@ Export generates an offline archive of the chatroom's message history. The flow 
 │                                                  │
 │  [Download]                                      │
 │                                                  │
-│  Link expires in 24 hours.                       │
+│  The archive is available for 24 hours.          │
 │                                                  │
 └─────────────────────────────────────────────────┘
 ```
@@ -883,7 +883,7 @@ Export generates an offline archive of the chatroom's message history. The flow 
 └─────────────────────────────────────────────────┘
 ```
 
-**Download button**: `SButton` primary with `ArrowDownTrayIcon`, opens the signed URL in a new tab. URL has 24-hour TTL — the expiry notice is shown in 12px `--color-muted` below the button.
+**Download button**: `SButton` primary with `ArrowDownTrayIcon`. Fetches a fresh link and downloads the file; the chatroom stays open. The archive is retained for 24 hours, and the availability notice is shown in 12px `--color-muted` below the button.
 
 ### 3.10 Load-Earlier Pagination
 
