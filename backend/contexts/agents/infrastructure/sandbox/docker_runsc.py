@@ -46,6 +46,7 @@ from io import UnsupportedOperation
 from typing import IO, Any, Literal, cast
 
 from contexts.agents.domain.errors import (
+    ArtifactTooLarge,
     McpEgressDenied,
     McpTimeout,
     SandboxReconcileError,
@@ -366,7 +367,8 @@ def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
     path that turned out to be a directory -- costs the budget rather than the
     worker. A tar whose member is a symlink, a directory, or absent yields
     ``None``; the stream comes from a path the agent's own code controls, so its
-    shape is not a given.
+    shape is not a given. Raises ``ArtifactTooLarge`` when the stream or the
+    member exceeds the budget.
     """
     import tarfile
 
@@ -385,10 +387,13 @@ def _single_member_tar_bytes(stream: Any, max_bytes: int) -> bytes | None:
                 # One byte past the ceiling so an oversized member is detected
                 # rather than silently truncated into a corrupt artifact.
                 data = extracted.read(max_bytes + 1)
-                return None if len(data) > max_bytes else data
+                if len(data) > max_bytes:
+                    _log.warning("artifact fetch: member exceeds %d bytes", max_bytes)
+                    raise ArtifactTooLarge
+                return data
     except _ArchiveTooLarge:
         _log.warning("artifact fetch: archive stream exceeded %d bytes -- abandoned", max_bytes)
-        return None
+        raise ArtifactTooLarge from None
     except tarfile.TarError:
         _log.warning("artifact fetch: unreadable tar stream", exc_info=True)
         return None
@@ -627,6 +632,17 @@ class _KernelHandle:
 
 class _KernelGone(Exception):
     """The kernel container vanished between lookup and exec (crash/OOM/reap)."""
+
+
+class _KernelExecFailed(Exception):
+    """The daemon or the socket proxy refused the exec into a live kernel."""
+
+
+# Exec statuses that mean the container itself is gone or stopped. Anything
+# else (a 400 on the request, a 403 from the socket proxy, a 5xx) leaves the
+# kernel alive, so reading it as a dead kernel retries a deterministic failure
+# and hides its cause.
+_KERNEL_GONE_STATUSES = frozenset({404, 409})
 
 
 def _session_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
@@ -1231,8 +1247,10 @@ class DockerRunscSandbox:
                 client, agent_id=agent_id, chatroom_id=chatroom_id
             )
             # Only flag a restart when a kernel that previously held state had to
-            # be recreated — never on the first call of a session ("created").
-            if status == "recreated":
+            # be replaced: "recreated", or, after this call lost its kernel, any
+            # status but "reused" -- a retry that re-adopts the same live
+            # container by name kept its state.
+            if status == "recreated" or (attempt == 2 and status != "reused"):
                 restarted = True
             try:
                 async with handle.lock, _get_semaphore():
@@ -1264,9 +1282,20 @@ class DockerRunscSandbox:
                         duration_ms=_ms_since(start),
                         metadata={"session": session},
                     )
-                # The kernel we were using just died — its state is gone.
-                restarted = True
                 continue
+            except _KernelExecFailed as exc:
+                _log.warning("code_exec kernel exec refused for session %s: %s", session, exc.args[-1])
+                return ToolCallResult(
+                    ok=False,
+                    stdout="",
+                    stderr=(
+                        "code_exec is unavailable: the sandbox refused to run the call. This is a "
+                        "server fault, not a problem with your code."
+                    ),
+                    exit_code=1,
+                    duration_ms=_ms_since(start),
+                    metadata={"session": session},
+                )
             return self._reply_to_result(exec_out, restarted=restarted, start=start, session=session)
         # Loop always returns above; satisfy the type checker.
         raise AssertionError("unreachable")
@@ -1300,8 +1329,10 @@ class DockerRunscSandbox:
                 user=str(_SANDBOX_UID),
                 demux=True,
             )
-        except Exception as exc:  # NotFound/APIError → treat as a dead kernel
-            raise _KernelGone(container_id) from exc
+        except Exception as exc:
+            if getattr(exc, "status_code", None) in _KERNEL_GONE_STATUSES:
+                raise _KernelGone(container_id) from exc
+            raise _KernelExecFailed(container_id, exc) from exc
         stdout_b, stderr_b = result.output if result.output else (b"", b"")
         return int(result.exit_code or 0), stdout_b or b"", stderr_b or b""
 
@@ -1607,7 +1638,8 @@ class DockerRunscSandbox:
         kernel may have been evicted or idle-reaped between the exec reply and
         this call, and an artifact is one output of a turn whose text response is
         still worth delivering. The caller reports the loss; it must not become
-        a failed turn.
+        a failed turn. The one exception is ``ArtifactTooLarge``, raised so the
+        caller can tell the model to write a smaller file rather than retry.
         """
         # The descriptor carrying this path was produced inside a container that
         # executes agent-authored code, in the same process as the kernel — so
@@ -1666,7 +1698,7 @@ class DockerRunscSandbox:
                 return None
             if declared > max_bytes:
                 _log.warning("artifact %r is %d bytes, above the %d ceiling", safe, declared, max_bytes)
-                return None
+                raise ArtifactTooLarge
             return await asyncio.to_thread(_single_member_tar_bytes, stream, max_bytes)
         finally:
             close = getattr(stream, "close", None)

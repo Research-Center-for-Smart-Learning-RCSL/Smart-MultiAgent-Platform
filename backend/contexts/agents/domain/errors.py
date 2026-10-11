@@ -170,6 +170,17 @@ class SandboxReconcileError(AgentsError):
     code = "agents/sandbox-reconcile-failed"
 
 
+class ArtifactTooLarge(AgentsError):
+    """A code_exec artifact proved larger than the transport ceiling once read.
+
+    Distinct from "could not be read": the descriptor's size is agent-supplied
+    and can understate the file, and a model told only that the read failed
+    retries a file that can never be returned instead of writing a smaller one.
+    """
+
+    code = "agents/artifact-too-large"
+
+
 class CapabilityMismatch(AgentsError):
     """Tool invocation asked for a capability the key/group cannot serve."""
 

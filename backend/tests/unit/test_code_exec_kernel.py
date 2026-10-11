@@ -218,11 +218,14 @@ class TestSingleMemberTarExtraction:
         assert _single_member_tar_bytes(stream, 1024) == b"payload"
 
     def test_refuses_a_member_larger_than_the_ceiling(self) -> None:
-        """Truncating would hand back a corrupt artifact that looks fine."""
+        """Truncating would hand back a corrupt artifact that looks fine. Raised
+        rather than `None`, so the model hears "too large", not "unreadable"."""
+        from contexts.agents.domain.errors import ArtifactTooLarge
         from contexts.agents.infrastructure.sandbox.docker_runsc import _single_member_tar_bytes
 
         stream = self._tar("big.bin", b"x" * 100)
-        assert _single_member_tar_bytes(stream, 10) is None
+        with pytest.raises(ArtifactTooLarge):
+            _single_member_tar_bytes(stream, 10)
 
     def test_refuses_a_path_outside_the_session_mount(self) -> None:
         """The descriptor naming this path comes from a container that runs
@@ -277,6 +280,7 @@ class TestSingleMemberTarExtraction:
         would also be returned for a stream that was fully drained and merely
         turned out not to be a tar, which is exactly the OOM being prevented.
         """
+        from contexts.agents.domain.errors import ArtifactTooLarge
         from contexts.agents.infrastructure.sandbox.docker_runsc import _single_member_tar_bytes
 
         pulled = 0
@@ -287,7 +291,10 @@ class TestSingleMemberTarExtraction:
                 pulled += 1
                 yield b"x" * 65536
 
-        assert _single_member_tar_bytes(_endless(), 1024) is None
+        # Raised rather than `None`, so the model is told the file is too large
+        # instead of that it could not be read (and retrying it).
+        with pytest.raises(ArtifactTooLarge):
+            _single_member_tar_bytes(_endless(), 1024)
         assert pulled <= 2, f"drained {pulled} chunks instead of stopping at the budget"
 
     def test_survives_a_stream_that_is_not_a_tar(self) -> None:
@@ -390,11 +397,14 @@ class TestFetchKernelArtifact:
         assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
 
     async def test_refuses_a_file_over_the_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from contexts.agents.domain.errors import ArtifactTooLarge
+
         stat = {"size": 99_999, "mode": 0o644, "linkTarget": ""}
         sandbox, agent_id, room_id, _asked = self._wire(
             monkeypatch, stat=stat, payload=self._tar_bytes("big.bin", b"payload")
         )
-        assert await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin") is None
+        with pytest.raises(ArtifactTooLarge):
+            await self._fetch(sandbox, agent_id, room_id, "/session/outputs/big.bin")
 
     async def test_a_get_archive_failure_is_not_an_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The kernel can be evicted or reaped between the exec reply and this

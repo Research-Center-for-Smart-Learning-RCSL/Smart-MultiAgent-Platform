@@ -37,6 +37,7 @@ from contexts.agents.application.runtime.tool_registry import (
     artifact_size_bytes,
     clip_tool_output,
 )
+from contexts.agents.domain.errors import ArtifactTooLarge
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
 from shared_kernel.db.faults import is_infrastructure_error
@@ -361,6 +362,9 @@ async def _hydrate_oversized(
                 path=rel,
                 max_bytes=MAX_ARTIFACT_BYTES,
             )
+        except ArtifactTooLarge:
+            art[ARTIFACT_SKIP_KEY] = "too_large"
+            continue
         except Exception:
             logger.warning("artifact fetch raised for %s", rel, exc_info=True)
             data = None
@@ -397,8 +401,12 @@ def _artifact_note(produced: Any) -> str:
         name = safe_input_name(str(art.get("filename") or "artifact"))
         size = artifact_size_bytes(art)
         reason = art.get(ARTIFACT_SKIP_KEY)
-        if reason == "too_large" or size > MAX_ARTIFACT_BYTES:
+        if size > MAX_ARTIFACT_BYTES:
             too_large.append(f"{name} ({size} bytes)")
+        elif reason == "too_large":
+            # Found too large on read: the descriptor understated it, so its
+            # size would contradict the line it appears in.
+            too_large.append(name)
         elif reason == "budget":
             withheld.append(name)
         elif reason:
@@ -416,7 +424,7 @@ def _artifact_note(produced: Any) -> str:
     if unreadable:
         parts.append(
             f"[not returned, could not be read back from the sandbox: {', '.join(unreadable)}. "
-            "They remain in outputs/ inside the sandbox.]"
+            "Write the file again if the user needs it.]"
         )
     if too_large:
         parts.append(
