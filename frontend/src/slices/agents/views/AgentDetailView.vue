@@ -38,6 +38,7 @@ import {
   type WakeupConfig,
 } from '@shared/types/workflow'
 import { deepCloneJSON } from '@shared/utils/deepClone'
+import { isUsableModelLabel } from '@shared/utils/labels'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   useConfirmDialog,
@@ -199,7 +200,16 @@ const keyGroups = computed<KeyGroup[]>(() => keyGroupsQuery.data.value ?? [])
 const hasKeyGroups = computed(() => keyGroups.value.length > 0)
 
 // --- Form setup ---
-const schema = toTypedSchema(agentCreateSchema)
+// The name labels this agent's turns in other agents' context; a name the server
+// would refuse (nothing visible once its label delimiters are dropped) gets a
+// field message here, including a legacy one carried into every save.
+const schema = toTypedSchema(
+  agentCreateSchema.extend({
+    name: agentCreateSchema.shape.name.refine(isUsableModelLabel, {
+      message: t('agents.form.nameInvalid'),
+    }),
+  }),
+)
 const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
   useForm<AgentCreateInput>({
     validationSchema: schema,

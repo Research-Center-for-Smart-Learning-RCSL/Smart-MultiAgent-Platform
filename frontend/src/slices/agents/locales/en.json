@@ -104,6 +104,7 @@
     },
     "form": {
       "name": "Name",
+      "nameInvalid": "Enter a name with at least one visible character other than quotes or brackets.",
       "modelHint": "Model Provider",
       "modelHints": {
         "claude": "Anthropic Claude",

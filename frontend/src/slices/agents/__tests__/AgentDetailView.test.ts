@@ -236,6 +236,44 @@ describe('AgentDetailView', () => {
     expect(body.wakeup_config.soft_bounds).toEqual({ n_min: 5, n_max: 10 })
   })
 
+  // display-name-validation code review: the form sends the stored name on every
+  // save, so an agent named before the server rule (here only quotes around a
+  // blank Braille cell) answered a bare 422 to any edit. It is caught here, as a
+  // field message, before a request is made.
+  it('refuses a name that labels nothing with a field message, not a request', async () => {
+    const patched = vi.fn()
+    seed()
+    server.use(
+      http.get('/api/projects/proj_1/key-groups', () =>
+        HttpResponse.json([
+          { id: KEY_GROUP_ID, project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, name: '"\u2800"', key_group_id: KEY_GROUP_ID }),
+      ),
+      http.patch('/api/agents/agent_1', async ({ request }) => {
+        patched(await request.json())
+        return HttpResponse.json({ ...AGENT, version: 2 })
+      }),
+    )
+
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+
+    // An edit elsewhere, carrying the stored name with it.
+    await wrapper.find('textarea').setValue('You are brief.')
+    await settle(wrapper)
+    await wrapper.findAll('button.s-btn--primary')[0]!.trigger('click')
+    await settle(wrapper)
+
+    expect(patched).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('agents.form.nameInvalid')
+  })
+
   // T-11 (workflow-capability-enforcement spec §7.6, AC-9): the default was a
   // stale 5 (R15.20 / SUBAGENT_MAX_CONCURRENT_DEFAULT says 3).
   it('defaults max_alive_subagents to 3 when unset', async () => {
