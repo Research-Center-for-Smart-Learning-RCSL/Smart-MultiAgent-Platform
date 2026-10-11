@@ -59,23 +59,10 @@ ATTACHMENT_TTL = timedelta(days=3)  # §21.5 chat-uploads lifecycle
 # unbounded document.
 MAX_STORED_EXTRACTED_TEXT_CHARS = 20_000
 
-# MIME types we are willing to serve *inline*. Files are served from the app
-# origin (`/api/files/{ticket}`), so anything scriptable in a browser
-# (text/html, image/svg+xml, ...) is deliberately absent and forced to
-# download (SEC-M2). PDF is absent too: a sandboxed response cannot render it,
-# and a user-supplied PDF is the largest same-origin surface left
-# (browser-file-delivery Q-6). The uploader's declared `mime` is not trusted;
-# this allowlist is the gate.
-_INLINE_SAFE_MIME = frozenset(
-    {
-        "image/png",
-        "image/jpeg",
-        "image/gif",
-        "image/webp",
-        "image/bmp",
-        "text/plain",
-    }
-)
+# Which types render inline is decided centrally (SEC-M2, browser-file-delivery
+# Q-6): `file_tickets.SAFE_INLINE_TYPES`. The uploader's declared `mime` is not
+# trusted; that set is the gate.
+_INLINE_SAFE_MIME = file_tickets.SAFE_INLINE_TYPES
 
 
 def serves_inline(mime: str | None) -> bool:

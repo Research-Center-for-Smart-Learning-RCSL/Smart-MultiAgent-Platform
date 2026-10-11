@@ -45,7 +45,9 @@ async def _image_link(*, key: str, content_type: str) -> str:
         bucket=get_minio_client().chat_uploads_bucket,
         key=key,
         content_type=content_type,
-        disposition=file_tickets.content_disposition("inline", key.rsplit("/", 1)[-1]),
+        # The canvas fetches the bytes into a blob, so the disposition never
+        # renders; `attachment` also keeps an SVG from rendering if opened.
+        disposition=file_tickets.content_disposition("attachment", key.rsplit("/", 1)[-1]),
     )
 
 

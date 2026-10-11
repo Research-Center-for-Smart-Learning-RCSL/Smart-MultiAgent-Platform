@@ -31,6 +31,11 @@ PATH_PREFIX: Final = "/api/files/"
 # Domain separation from the provider-secret envelopes that share the seed.
 _DOMAIN: Final = b"smap-file-ticket:v1\x00"
 _FORMAT_VERSION: Final = 1
+# The only types a link may render inline. Files come from the app origin, so
+# anything scriptable (HTML, SVG) or plugin-rendered (PDF) must download.
+SAFE_INLINE_TYPES: Final = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "text/plain"}
+)
 
 
 class TicketInvalid(Exception):
@@ -94,6 +99,9 @@ async def issue(
     """Return the same-origin path ``/api/files/{ticket}`` for one object."""
     if bucket not in deliverable_buckets():
         raise ValueError(f"bucket {bucket!r} is not browser-deliverable")
+    base_type = content_type.split(";", 1)[0].strip().lower()
+    if disposition.lstrip().lower().startswith("inline") and base_type not in SAFE_INLINE_TYPES:
+        raise ValueError(f"{base_type!r} cannot be served inline from the app origin")
     expires = int((now() + ttl).timestamp())
     payload = json.dumps(
         {
@@ -163,6 +171,7 @@ def _unb64(data: str) -> bytes:
 
 __all__ = [
     "PATH_PREFIX",
+    "SAFE_INLINE_TYPES",
     "TICKET_TTL",
     "FileTicket",
     "TicketExpired",

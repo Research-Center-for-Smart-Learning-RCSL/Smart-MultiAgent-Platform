@@ -98,7 +98,9 @@ async def test_cjk_filename_is_a_valid_header_value() -> None:
     assert "filename*=UTF-8''" in disposition
 
 
-@pytest.mark.parametrize("mime", ["image/png", "text/plain; charset=utf-8", "application/pdf", "text/html", ""])
+@pytest.mark.parametrize(
+    "mime", ["image/png", "text/plain; charset=utf-8", "application/pdf", "text/html", ""]
+)
 async def test_inline_flag_matches_what_the_link_serves(mime: str) -> None:
     """Clients decide tab-vs-download from `AttachmentOut.inline`; it must agree
     with the disposition the link actually carries."""

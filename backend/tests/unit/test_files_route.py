@@ -117,7 +117,7 @@ async def test_streams_object_with_ticket_headers(env: tuple[TestClient, _Minio,
     assert r.headers["content-disposition"] == 'attachment; filename="room.md"'
     assert r.headers["content-length"] == str(len(_BODY))
     assert r.headers["etag"] == '"abc"'
-    assert r.headers["cache-control"] == f"private, max-age={15 * 60}"
+    assert r.headers["cache-control"] == "no-store"  # an attachment download
     assert r.headers["x-content-type-options"] == "nosniff"
     assert minio.chunks_served == 4
     assert minio.closed == 1
@@ -235,3 +235,15 @@ async def test_stream_never_started_is_released_by_the_caller() -> None:
     ObjectStream(resp, 4).release(aborted=True)
     assert resp.closed is True
     assert resp.released == 1
+
+
+async def test_attachment_downloads_are_not_cached_but_inline_images_are(
+    env: tuple[TestClient, _Minio, _Limiter],
+) -> None:
+    client, minio, _ = env
+    assert client.get(await _path()).headers["cache-control"] == "no-store"
+    minio.objects[("exports", "img.png")] = b"png"
+    inline = await file_tickets.issue(
+        bucket="exports", key="img.png", content_type="image/png", disposition='inline; filename="img.png"'
+    )
+    assert client.get(inline).headers["cache-control"].startswith("private, max-age=")

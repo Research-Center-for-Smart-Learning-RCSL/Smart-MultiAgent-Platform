@@ -41,6 +41,7 @@ def test_version_above_current_is_refused_without_a_kv_read(monkeypatch: pytest.
     """A forged ticket picks its own seed version; it must not cost a Vault read."""
     c = _client({1: b"a" * 32}, current=1)
     reads: list[int] = []
+
     def _read(path: str, version: int) -> dict[str, object]:
         reads.append(version)
         return {}
@@ -74,3 +75,22 @@ def test_outage_is_not_reported_as_a_bad_signature(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(c, "kv_get", _down)
     with pytest.raises(ConnectionError):
         c.hmac_verify(1, b"data", b"\x00" * 32)
+
+
+def test_failed_refresh_backs_off_instead_of_hitting_vault_per_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Vault outage plus a flood of forged tickets must not become one KV read
+    per request on the worker thread pool."""
+    c = _client({1: b"a" * 32}, current=1)
+    c._hmac_current_at = 1.0  # stale: the next call tries to refresh
+    reads: list[str] = []
+
+    def _down(path: str) -> dict[str, object]:
+        reads.append(path)
+        raise ConnectionError("vault unreachable")
+
+    monkeypatch.setattr(c, "kv_get", _down)
+    c.hmac_sign(b"a")
+    c.hmac_sign(b"b")
+    assert reads == ["smap/config/hmac-key"]

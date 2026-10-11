@@ -72,7 +72,11 @@ def _headers(ticket: FileTicket, stat: ObjectStat) -> dict[str, str]:
     headers = {
         "Content-Disposition": ticket.disposition,
         "Content-Length": str(stat.size),
-        "Cache-Control": f"private, max-age={remaining}",
+        # A download (export, audit CSV) must not linger in a shared machine's
+        # disk cache; inline images may, for as long as the link lives.
+        "Cache-Control": "no-store"
+        if ticket.disposition.startswith("attachment")
+        else f"private, max-age={remaining}",
         "Content-Security-Policy": _FILE_CSP,
         "X-Content-Type-Options": "nosniff",
     }

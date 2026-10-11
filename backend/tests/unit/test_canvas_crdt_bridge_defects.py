@@ -198,4 +198,5 @@ class TestCanvasImageLink:
         ticket = await decode(url)
         assert (ticket.bucket, ticket.key) == ("chat-uploads", "proj/room/obj.png")
         assert ticket.content_type == "image/png"
-        assert ticket.disposition.startswith("inline")
+        # Fetched into a blob, so never rendered; an SVG opened directly must not render.
+        assert ticket.disposition.startswith("attachment")

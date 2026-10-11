@@ -88,7 +88,9 @@ async def test_round_trip(signer: _Signer) -> None:
 
 async def test_path_is_url_safe(signer: _Signer) -> None:
     t = await _issue(
-        key="proj/room/att/名稱 with space.png", disposition="inline; filename*=UTF-8''%E5%90%8D"
+        key="proj/room/att/名稱 with space.png",
+        content_type="image/png",
+        disposition="inline; filename*=UTF-8''%E5%90%8D",
     )
     assert all(c.isalnum() or c in "-_." for c in t)
     assert (await file_tickets.verify(t)).key == "proj/room/att/名稱 with space.png"
@@ -201,3 +203,17 @@ async def test_rate_key_is_stable_and_not_the_ticket(signer: _Signer) -> None:
     b = await file_tickets.verify(t)
     assert a.rate_key == b.rate_key
     assert a.rate_key not in t
+
+
+@pytest.mark.parametrize(
+    "ctype", ["text/html", "image/svg+xml", "application/pdf", "application/octet-stream"]
+)
+async def test_issue_refuses_inline_for_types_that_are_not_safe_inline(signer: _Signer, ctype: str) -> None:
+    """Files come from the app origin; only a central safe set may render inline."""
+    with pytest.raises(ValueError, match="inline"):
+        await _issue(content_type=ctype, disposition='inline; filename="x"')
+
+
+async def test_issue_allows_inline_for_safe_types(signer: _Signer) -> None:
+    await _issue(content_type="image/png", disposition='inline; filename="x.png"')
+    await _issue(content_type="text/plain; charset=utf-8", disposition='inline; filename="x.txt"')

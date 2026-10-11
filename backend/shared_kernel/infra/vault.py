@@ -55,6 +55,8 @@ _HMAC_KEY_BYTES: Final = 32
 # re-reading from KV, so a long-running process picks up a rotation. Per-version
 # seeds used for verification are immutable and cached without expiry.
 _HMAC_CURRENT_TTL: Final = 300.0
+# After a failed KV read, how long before trying Vault again.
+_HMAC_RETRY_AFTER: Final = 30.0
 _DEK_BITS: Final = 256
 _GCM_NONCE_BYTES: Final = 12
 
@@ -236,6 +238,9 @@ class VaultClient:
             # current version (a rotation is picked up on a later successful
             # refresh). Only the very first load, with nothing cached, propagates.
             if self._hmac_current_version in self._hmac_keys:
+                # Back off: without this every request during the outage retries
+                # the KV read on a worker thread (a forged-ticket flood amplifies it).
+                self._hmac_current_at = now - _HMAC_CURRENT_TTL + _HMAC_RETRY_AFTER
                 return self._hmac_current_version, self._hmac_keys[self._hmac_current_version]
             raise
         self._hmac_keys[version] = key
@@ -297,8 +302,8 @@ class VaultClient:
 
         `version` comes from untrusted input, so it is bounded by the current
         version before any KV read, and an unreadable old version is remembered
-        for a while rather than re-read per request. A Vault outage is not a bad
-        signature and propagates.
+        briefly rather than re-read per request. With no seed cached at all, a
+        Vault outage propagates rather than reading as a bad signature.
         """
         current, _ = self._current_hmac()
         if not 1 <= version <= current:
@@ -309,7 +314,7 @@ class VaultClient:
         try:
             key = self._hmac_for_version(version)
         except VaultError as exc:
-            self._hmac_missing[version] = time.monotonic() + _HMAC_CURRENT_TTL
+            self._hmac_missing[version] = time.monotonic() + _HMAC_RETRY_AFTER
             _log.warning("HMAC seed version %s unavailable for verification: %s", version, exc)
             return False
         return hmac.compare_digest(hmac.new(key, data, sha256).digest(), mac)

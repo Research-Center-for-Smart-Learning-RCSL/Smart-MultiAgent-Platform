@@ -42,7 +42,9 @@ def install_otel(app: FastAPI, cfg: ObservabilitySection) -> None:
         BatchSpanProcessor(OTLPSpanExporter(endpoint=cfg.otel_exporter_otlp_endpoint))
     )
     trace.set_tracer_provider(provider)
-    FastAPIInstrumentor.instrument_app(app)
+    # /api/files/{ticket} carries a bearer credential in the path; a span would
+    # record it ([R19a.14]).
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="api/files/")
     HTTPXClientInstrumentor().instrument()
     SQLAlchemyInstrumentor().instrument()
 
