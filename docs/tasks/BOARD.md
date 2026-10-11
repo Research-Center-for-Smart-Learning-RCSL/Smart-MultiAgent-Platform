@@ -21,6 +21,14 @@ doesn't need a `depends_on` backfill).
   follow-up build for that revision then collides with the failed job's retained arq
   result, leaving a document uploaded mid-build out of the graph for up to an hour. Fix:
   arq `Retry` with a budget covering the build timeout.
+- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, draft, no SRS Delta) -
+  `depends_on: []`. Blueprint D-1, release A of three:
+  - Dual-write the Neo4j relation evidence as `evidence_refs` and `evidence_msg_ids`,
+    still reading the old key.
+  - Snapshots carry both keys.
+  - Retrieval stops naming the physical alias.
+  - New operator command `python -m smap.maintenance neo4j-evidence-refs`: a batched
+    backfill under each config's lock, dry-run until armed.
 
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
@@ -406,7 +414,8 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
     provider boundary stubbed (D-6). Phase 3 AC-2, AC-3 and AC-7 are ticked with the same
     evidence.
   - **Deviations.** D-1 and D-2 move the Neo4j `evidence_refs` rename and the [R11.22]
-    member filter to `2026-10-12-graphrag-phase5a-evidence-refs-rename` and
+    member filter to `2026-10-12-graphrag-phase5a-evidence-refs-expand` (with its sequel
+    `-phase5a2-evidence-refs-contract`) and
     `2026-10-12-graphrag-phase5b-member-filter`.
   - **Follow-ups.**
     - FU-10 is a live-observed defect: a document uploaded during a Knowledge Map build is
@@ -534,6 +543,14 @@ rows are added as each is written.
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-12 GraphRAG blueprint close-out
+
+- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, draft) - `depends_on:
+  [2026-10-12-graphrag-phase5a-evidence-refs-expand]`. Releases B (reads switch to
+  `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
+  gated on a recorded deploy state as well as the dependency, starting with the backfill
+  reporting 0 remaining.
 
 ### From the 2026-10-11 chat and research export audit
 

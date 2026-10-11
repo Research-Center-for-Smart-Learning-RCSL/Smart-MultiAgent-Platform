@@ -1106,7 +1106,9 @@ them; each phase dossier's own Deviation Log carries the detail.
   document-evidence phase". Phase 3 neither did it nor logged it, and Phase 0 FU-A and Phase
   2a FU-3 still carry it; the driver still writes `evidence_msg_ids`
   (`backend/contexts/knowledge/infrastructure/neo4j_driver.py`). The rename is a Neo4j data
-  migration and gets its own design: `2026-10-12-graphrag-phase5a-evidence-refs-rename`.
+  migration and gets its own design: `2026-10-12-graphrag-phase5a-evidence-refs-expand`
+  and `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (three releases under the
+  rolling-deploy rule).
 - **D-2. The agent_group member filter of [R11.22] was not built (requester's choice: own
   dossier).** Phase 2b records `source_member_ids` on entities and relations, and retrieval
   surfaces them (`graphrag_retrieve.py:173`), but nothing filters on them; Phase 2b D-2
