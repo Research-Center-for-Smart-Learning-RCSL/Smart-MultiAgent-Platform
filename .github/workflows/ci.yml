@@ -235,7 +235,7 @@ jobs:
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
-            up -d --wait --wait-timeout 120 postgres redis vault mailhog
+            up -d --wait --wait-timeout 120 postgres redis vault mailhog minio
       - name: Apply DB migrations
         run: |
           docker compose \
@@ -273,7 +273,7 @@ jobs:
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
-            logs --no-color postgres redis vault mailhog > wiring-stack.log || true
+            logs --no-color postgres redis vault mailhog minio > wiring-stack.log || true
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

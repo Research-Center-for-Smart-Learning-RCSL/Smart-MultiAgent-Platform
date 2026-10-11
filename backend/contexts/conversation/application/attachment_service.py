@@ -44,8 +44,10 @@ from shared_kernel.auth.clients import as_utc, now
 from shared_kernel.storage import (
     MinioClient,
     chat_upload_key,
+    file_tickets,
     get_minio_client,
 )
+from shared_kernel.storage.file_tickets import content_disposition
 
 _log = logging.getLogger(__name__)
 
@@ -57,35 +59,30 @@ ATTACHMENT_TTL = timedelta(days=3)  # §21.5 chat-uploads lifecycle
 # unbounded document.
 MAX_STORED_EXTRACTED_TEXT_CHARS = 20_000
 
-# MIME types we are willing to serve *inline* from the storage origin. Anything
-# scriptable in a browser (text/html, image/svg+xml, …) is deliberately absent,
-# so it is forced to download instead of rendering as attacker-controlled
-# markup in the storage origin (SEC-M2). The uploader's declared `mime` is not
-# trusted; this allowlist is the gate.
-_INLINE_SAFE_MIME = frozenset(
-    {
-        "image/png",
-        "image/jpeg",
-        "image/gif",
-        "image/webp",
-        "image/bmp",
-        "application/pdf",
-        "text/plain",
-    }
-)
+# Which types render inline is decided centrally (SEC-M2, browser-file-delivery
+# Q-6): `file_tickets.SAFE_INLINE_TYPES`. The uploader's declared `mime` is not
+# trusted; that set is the gate.
+_INLINE_SAFE_MIME = file_tickets.SAFE_INLINE_TYPES
 
 
-def _safe_header_filename(name: str) -> str:
-    """Strip control chars / quotes so the value can't break out of the
-    Content-Disposition header (defence-in-depth; the SDK also URL-encodes it)."""
-    cleaned = "".join(c for c in name if c.isprintable() and c not in '"\\\r\n')
-    return cleaned[:200] or "download"
+def serves_inline(mime: str | None) -> bool:
+    """Whether a download renders in the browser rather than saving a file.
+
+    Clients read this off the attachment (`AttachmentOut.inline`) to decide,
+    inside the click, whether to open a tab; it is the same rule the download
+    link applies, so the two cannot drift.
+    """
+    return _normalised_mime(mime) in _INLINE_SAFE_MIME
+
+
+def _normalised_mime(mime: str | None) -> str:
+    return (mime or "").split(";", 1)[0].strip().lower()
 
 
 @dataclass(frozen=True, slots=True)
 class AttachmentPointer:
-    """What the router returns when a download is requested — a signed URL
-    with a short TTL so the browser fetches directly from MinIO."""
+    """What the router returns when a download is requested: a short-lived
+    `/api/files/{ticket}` link the browser can fetch without a Bearer header."""
 
     attachment: MessageAttachment
     url: str
@@ -285,8 +282,8 @@ class AttachmentService:
         # `expires_at` is checked alongside the status, not instead of it. The
         # bucket lifecycle and the nightly sweep run on independent clocks, so
         # between MinIO deleting the object and the next sweep the row still
-        # reads ACTIVE; presigning inside that window hands the client a URL
-        # that resolves to a NoSuchKey body (R13.11a).
+        # reads ACTIVE; issuing a link inside that window hands the client a URL
+        # that resolves to a 404 (R13.11a).
         if row.status is AttachmentStatus.EXPIRED or (
             row.expires_at is not None and as_utc(row.expires_at) <= now()
         ):
@@ -295,21 +292,18 @@ class AttachmentService:
         # Override the served Content-Type/Disposition rather than trusting the
         # uploader-declared `mime` stored on the object (SEC-M2). Known-safe
         # types render inline; everything scriptable downloads as a neutral
-        # octet-stream so it can never execute in the storage origin.
-        normalised_mime = (row.mime or "").split(";", 1)[0].strip().lower()
-        filename = _safe_header_filename(row.filename)
-        if normalised_mime in _INLINE_SAFE_MIME:
-            content_type = normalised_mime
-            disposition = f'inline; filename="{filename}"'
+        # octet-stream so it can never execute in the app origin.
+        if serves_inline(row.mime):
+            content_type = _normalised_mime(row.mime)
+            disposition = content_disposition("inline", row.filename)
         else:
             content_type = "application/octet-stream"
-            disposition = f'attachment; filename="{filename}"'
-        url = await self._minio.presigned_get(
+            disposition = content_disposition("attachment", row.filename)
+        url = await file_tickets.issue(
             bucket=bucket,
             key=key,
-            expires=timedelta(minutes=15),
-            response_content_type=content_type,
-            response_content_disposition=disposition,
+            content_type=content_type,
+            disposition=disposition,
         )
         return AttachmentPointer(attachment=row, url=url)
 

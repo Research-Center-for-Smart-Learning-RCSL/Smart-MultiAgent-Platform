@@ -8,6 +8,7 @@
 // relocate assertions the previous `http.<verb><T>()` calls already made.
 
 import { AdminService, GraphragAdminService } from '@shared/api-client'
+import type { AuditExportOut } from '@shared/api-client'
 import type {
   ActivationLinks,
   ActivityPolicy,
@@ -135,10 +136,8 @@ export const adminApi = {
       ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
     }),
 
-  exportAudit: (filters: Partial<AuditFilter>): Promise<{ url: string; job_id: string }> =>
-    AdminService.exportAuditApiAdminAuditExportPost(auditFilterToOptions(filters)).then(
-      (r) => r as { url: string; job_id: string },
-    ),
+  exportAudit: (filters: Partial<AuditFilter>): Promise<AuditExportOut> =>
+    AdminService.exportAuditApiAdminAuditExportPost(auditFilterToOptions(filters)),
 
   restoreResource: (type: RestoreResourceType, id: string): Promise<{ restored: boolean }> =>
     AdminService.restoreResourceApiAdminRestoreResourceTypeResourceIdPost({

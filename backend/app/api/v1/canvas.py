@@ -6,7 +6,6 @@ import os
 import re
 import uuid
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
@@ -26,7 +25,7 @@ from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.auth.ratelimit import check_raw as rate_check_raw
 from shared_kernel.db.session import db_session
-from shared_kernel.storage import get_minio_client
+from shared_kernel.storage import file_tickets, get_minio_client
 from shared_kernel.storage.svg_sanitize import SvgSanitizeError, sanitize_svg
 
 router = APIRouter(prefix="/api/chatrooms/{chatroom_id}/canvas", tags=["canvas"])
@@ -36,15 +35,20 @@ _ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/svg+xml"
 _GUEST_RATE_LIMIT_PER_MINUTE = 60
 
 
-def _minio_url_to_proxy(presigned_url: str) -> str:
-    """Rewrite a MinIO presigned URL into a relative ``/minio-assets/`` path.
+async def _image_link(*, key: str, content_type: str) -> str:
+    """Browser link for an uploaded canvas image ([R13.71], [R19a.14]).
 
-    The presigned URL has the form ``http://minio:9000/{bucket}/{key}?sig...``.
-    The browser cannot reach the Docker-internal hostname, so we strip the
-    scheme+host and prepend ``/minio-assets`` -- nginx proxies that to MinIO.
+    `content_type` is one of `_ALLOWED_IMAGE_TYPES`, already validated (and an
+    SVG already sanitised) by the upload path.
     """
-    parsed = urlparse(presigned_url)
-    return f"/minio-assets{parsed.path}{'?' + parsed.query if parsed.query else ''}"
+    return await file_tickets.issue(
+        bucket=get_minio_client().chat_uploads_bucket,
+        key=key,
+        content_type=content_type,
+        # The canvas fetches the bytes into a blob, so the disposition never
+        # renders; `attachment` also keeps an SVG from rendering if opened.
+        disposition=file_tickets.content_disposition("attachment", key.rsplit("/", 1)[-1]),
+    )
 
 
 # ---- Request/Response models -----------------------------------------------
@@ -591,6 +595,9 @@ async def upload_image(
     )
 
     obj = await facade.create_object(
+        # The same id as the element's fileId, so a client holding only the
+        # broadcast can ask for its own link (`get_image_link`).
+        object_id=object_id,
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
         kind=CanvasObjectKind.IMAGE,
@@ -624,8 +631,7 @@ async def upload_image(
         [image_element],
     )
 
-    image_url = await minio.presigned_get(bucket=minio.chat_uploads_bucket, key=key)
-    proxied_url = _minio_url_to_proxy(image_url)
+    image_url = await _image_link(key=key, content_type=file.content_type or "application/octet-stream")
 
     await facade.persist_and_broadcast_crdt(
         canvas.id,
@@ -636,18 +642,48 @@ async def upload_image(
 
     await db.commit()
 
+    # No link in the broadcast: one bearer link shared by the whole room would
+    # hit its per-link limits in any busy room. Each client mints its own.
     await Publisher(room_channel(chatroom_id)).emit(
         "canvas.image_added",
         {
             "fileId": str(object_id),
-            "url": proxied_url,
             "mimeType": file.content_type or "application/octet-stream",
             "width": 400,
             "height": 300,
         },
     )
 
-    return CanvasObjectOut.from_domain(obj, image_url=proxied_url)
+    return CanvasObjectOut.from_domain(obj, image_url=image_url)
+
+
+class CanvasImageLinkOut(BaseModel):
+    url: str
+
+
+@router.get("/images/{object_id}/link")
+async def get_image_link(
+    chatroom_id: uuid.UUID,
+    object_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> CanvasImageLinkOut:
+    """A fresh link to one canvas image for the caller ([R13.71], [R19a.14])."""
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    image = None if canvas is None else await facade.get_image(canvas_id=canvas.id, object_id=object_id)
+    if image is None or image.minio_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    minio = get_minio_client()
+    stat = await minio.stat(bucket=minio.chat_uploads_bucket, key=image.minio_path)
+    if stat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    content_type = stat.content_type if stat.content_type in _ALLOWED_IMAGE_TYPES else None
+    return CanvasImageLinkOut(
+        url=await _image_link(key=image.minio_path, content_type=content_type or "application/octet-stream")
+    )
 
 
 # ---- Snapshots --------------------------------------------------------------

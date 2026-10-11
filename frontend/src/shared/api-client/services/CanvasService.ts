@@ -6,6 +6,7 @@ import type { app__api__v1__canvas_templates__TemplateOut } from '../models/app_
 import type { ApplyTemplateIn } from '../models/ApplyTemplateIn';
 import type { BatchOpIn } from '../models/BatchOpIn';
 import type { Body_upload_image_api_chatrooms__chatroom_id__canvas_images_post } from '../models/Body_upload_image_api_chatrooms__chatroom_id__canvas_images_post';
+import type { CanvasImageLinkOut } from '../models/CanvasImageLinkOut';
 import type { CanvasObjectIn } from '../models/CanvasObjectIn';
 import type { CanvasObjectOut } from '../models/CanvasObjectOut';
 import type { CanvasObjectPatch } from '../models/CanvasObjectPatch';
@@ -186,6 +187,31 @@ export class CanvasService {
             },
             formData: formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Image Link
+     * A fresh link to one canvas image for the caller ([R13.71], [R19a.14]).
+     * @returns CanvasImageLinkOut Successful Response
+     * @throws ApiError
+     */
+    public static getImageLinkApiChatroomsChatroomIdCanvasImagesObjectIdLinkGet({
+        chatroomId,
+        objectId,
+    }: {
+        chatroomId: string,
+        objectId: string,
+    }): CancelablePromise<CanvasImageLinkOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/canvas/images/{object_id}/link',
+            path: {
+                'chatroom_id': chatroomId,
+                'object_id': objectId,
+            },
             errors: {
                 422: `Request Validation Problem`,
             },

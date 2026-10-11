@@ -18,8 +18,8 @@
         </p>
         <SButton
           variant="primary"
-          :as="'a'"
-          :to="job.url ?? undefined"
+          data-testid="export-download"
+          @click="emit('download')"
         >
           <template #icon-left>
             <ArrowDownTrayIcon class="w-4 h-4" />
@@ -158,12 +158,13 @@ import type { ExportStatus } from '../types'
 
 defineProps<{
   open: boolean
-  job: { status: ExportStatus['status']; url: string | null } | null
+  job: { status: ExportStatus['status'] } | null
 }>()
 
 const emit = defineEmits<{
   close: []
   submit: [opts: ExportOptions]
+  download: []
 }>()
 
 const { t } = useI18n()

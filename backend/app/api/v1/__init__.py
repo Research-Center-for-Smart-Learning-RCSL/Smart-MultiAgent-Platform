@@ -75,6 +75,9 @@ def _build_registry() -> list[RouterEntry]:
         exports as export_routes,
     )
     from app.api.v1 import (
+        files as file_routes,
+    )
+    from app.api.v1 import (
         graphrag as graphrag_routes,
     )
     from app.api.v1 import (
@@ -194,6 +197,8 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(healthz.router),
         RouterEntry(readyz.router),
         RouterEntry(metrics.router, condition=_metrics_enabled),
+        # Browser file delivery ([R19a.14])
+        RouterEntry(file_routes.router),
         # Auth
         RouterEntry(auth_routes.router),
         # Tenancy

@@ -203,10 +203,14 @@ export interface Attachment {
   size_bytes: number
   status: 'active' | 'quarantined' | 'expired'
   scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
+  /** The server renders it in the browser rather than as a file download. */
+  inline: boolean
 }
 
 export interface AttachmentDownload extends Attachment {
   url: string
+  /** Seconds the link stays valid. */
+  expires_in: number
 }
 
 export interface SearchHit {

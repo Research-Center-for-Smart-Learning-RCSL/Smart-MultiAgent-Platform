@@ -1,7 +1,7 @@
 import { watch, onUnmounted, type Ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { wsManager } from '@shared/transport/ws-manager'
-import { http } from '@shared/transport'
+import { fetchImageBlob, getImageLink } from '../api'
 import { canvasKeys } from '../queries'
 
 /**
@@ -44,12 +44,13 @@ export function useCanvasSocket(chatroomId: Ref<string>, getExcalidrawApi?: () =
         if (!api) return
 
         const fileId = data.fileId as string
-        const url = data.url as string
         const mimeType = (data.mimeType as string) || 'image/png'
 
-        http
-          .get<Blob>(url, { responseType: 'blob' })
-          .then(({ data: blob }) => {
+        // The event carries no link: one link shared by a whole room would
+        // exceed its per-link limits, so each client mints its own.
+        getImageLink(roomId, fileId)
+          .then(fetchImageBlob)
+          .then((blob) => {
             const reader = new FileReader()
             reader.onload = () => {
               api.addFiles([

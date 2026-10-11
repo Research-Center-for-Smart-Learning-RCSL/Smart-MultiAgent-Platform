@@ -8,13 +8,14 @@ import { useI18n } from 'vue-i18n'
 import { usePolling } from '@shared/composables'
 import { createExport, getExport, type ExportOptions } from '../api'
 import type { ExportStatus } from '../types'
+import { downloadFresh } from '@shared/utils/download'
 
 export function useChatroomExport(chatroomId: string) {
   const { t } = useI18n()
   const toast = useToast()
 
   const EXPORT_TERMINAL = new Set<ExportStatus['status']>(['ready', 'failed'])
-  const exportJob = ref<Pick<ExportStatus, 'status' | 'url'> | null>(null)
+  const exportJob = ref<Pick<ExportStatus, 'status'> | null>(null)
   // The single-slot consumer: `exportJob` holds one job at a time, so the
   // poller must feed it from exactly one key. Track which key owns the slot and
   // ignore ticks from any superseded job.
@@ -25,7 +26,7 @@ export function useChatroomExport(chatroomId: string) {
     isTerminal: (s) => EXPORT_TERMINAL.has(s.status),
     onResult: (jobId, s) => {
       if (jobId !== activeJobId.value) return
-      exportJob.value = { status: s.status, url: s.url }
+      exportJob.value = { status: s.status }
     },
   })
 
@@ -36,15 +37,23 @@ export function useChatroomExport(chatroomId: string) {
     try {
       const { job_id, status } = await createExport(chatroomId, opts)
       activeJobId.value = job_id
-      exportJob.value = { status: status as ExportStatus['status'], url: null }
+      exportJob.value = { status: status as ExportStatus['status'] }
       exportPoll.start(job_id)
     } catch {
       activeJobId.value = null
-      exportJob.value = { status: 'failed', url: null }
+      exportJob.value = { status: 'failed' }
       toast.error(t('conversation.chatroom.exportFailed'))
     }
   }
 
+  // A link held since the job became ready may have expired; fetch one now.
+  async function download(): Promise<void> {
+    const jobId = activeJobId.value
+    if (!jobId) return
+    const result = await downloadFresh(() => getExport(jobId))
+    if (result === 'expired') toast.error(t('conversation.chatroom.exportExpired'))
+    else if (result === 'failed') toast.error(t('conversation.chatroom.exportDownloadFailed'))
+  }
   function reset(): void {
     if (activeJobId.value) exportPoll.cancel(activeJobId.value)
     activeJobId.value = null
@@ -54,6 +63,7 @@ export function useChatroomExport(chatroomId: string) {
   return {
     exportJob,
     runExport,
+    download,
     reset,
   }
 }

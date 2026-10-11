@@ -104,6 +104,9 @@ class CanvasFacade:
     ) -> Sequence[CanvasObject]:
         return await self._service.list_objects(canvas_id, limit=limit, offset=offset)
 
+    async def get_image(self, *, canvas_id: uuid.UUID, object_id: uuid.UUID) -> CanvasObject | None:
+        return await self._service.get_image(canvas_id=canvas_id, object_id=object_id)
+
     async def create_object(
         self,
         *,
@@ -124,8 +127,10 @@ class CanvasFacade:
         actor_user_id: uuid.UUID | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
+        object_id: uuid.UUID | None = None,
     ) -> CanvasObject:
         return await self._service.create_object(
+            object_id=object_id,
             canvas_id=canvas_id,
             chatroom_id=chatroom_id,
             kind=kind,

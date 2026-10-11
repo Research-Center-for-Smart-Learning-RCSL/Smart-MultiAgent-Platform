@@ -20,6 +20,9 @@ from contexts.conversation.application.research_export_service import (
     ResearchExportJobState,
     ResearchExportJobStatus,
 )
+from shared_kernel.auth.clients import now as _now
+from shared_kernel.storage import file_tickets
+from tests.unit.file_ticket_support import decode
 
 _WORKSPACE = uuid.uuid4()
 _PROJECT = uuid.uuid4()
@@ -134,6 +137,7 @@ class TestCreateResearchExport:
 
 class TestGetResearchExport:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("ticket_signer")
     async def test_returns_ready_with_url(self) -> None:
         state = ResearchExportJobState(
             job_id=_JOB,
@@ -146,24 +150,19 @@ class TestGetResearchExport:
         )
         principal = _make_principal()
 
-        with (
-            patch(
-                "contexts.conversation.application.research_export_service.get",
-                new_callable=AsyncMock,
-                return_value=state,
-            ),
-            patch(
-                "app.api.v1.research_export.get_minio_client",
-            ) as mock_minio,
+        with patch(
+            "contexts.conversation.application.research_export_service.get",
+            new_callable=AsyncMock,
+            return_value=state,
         ):
-            client = AsyncMock()
-            client.presigned_get.return_value = "https://minio.local/signed-url"
-            mock_minio.return_value = client
-
             result = await get_research_export(job_id=_JOB, principal=principal)
             assert isinstance(result, ResearchExportStatusOut)
             assert result.status == ResearchExportJobStatus.READY
-            assert result.url == "https://minio.local/signed-url"
+            ticket = await decode(result.url)
+            assert (ticket.bucket, ticket.key) == ("exports", "research/test/file.zip")
+            assert ticket.content_type == "application/zip"
+            assert ticket.disposition.startswith('attachment; filename="research-data-20260921.zip"')
+            assert ticket.expires_at - _now() <= file_tickets.TICKET_TTL
 
     @pytest.mark.asyncio
     async def test_returns_404_for_unknown_job(self) -> None:

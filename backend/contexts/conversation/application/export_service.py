@@ -60,6 +60,9 @@ class ExportJobState:
     # this as a description and the database as the authority.
     sender_scope: ExportSenderScope = ExportSenderScope.OWN_PLUS_NON_USER
     error: str | None = None
+    # Captured at request time for the download filename; the status endpoint
+    # has no database session to look it up later.
+    room_name: str | None = None
 
 
 async def create(
@@ -70,6 +73,7 @@ async def create(
     created_after: datetime | None = None,
     created_before: datetime | None = None,
     sender_scope: ExportSenderScope = ExportSenderScope.OWN_PLUS_NON_USER,
+    room_name: str | None = None,
 ) -> ExportJobState:
     job_id = uuid.uuid4()
     state = ExportJobState(
@@ -84,6 +88,7 @@ async def create(
         created_after=created_after,
         created_before=created_before,
         sender_scope=sender_scope,
+        room_name=room_name,
     )
     await _store(state)
     return state
@@ -139,6 +144,7 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
         # narrowed archive, both of which are safe outcomes.
         sender_scope=ExportSenderScope(data.get("sender_scope", ExportSenderScope.OWN_PLUS_NON_USER.value)),
         error=data.get("error"),
+        room_name=data.get("room_name"),
     )
 
 
@@ -156,6 +162,7 @@ async def _store(state: ExportJobState) -> None:
         "created_before": state.created_before.isoformat() if state.created_before else None,
         "sender_scope": state.sender_scope.value,
         "error": state.error,
+        "room_name": state.room_name,
     }
     await get_redis().set(
         _job_key(state.job_id),
@@ -178,6 +185,7 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
         created_before=state.created_before,
         sender_scope=state.sender_scope,
         error=kwargs.get("error", state.error),  # type: ignore[arg-type]
+        room_name=state.room_name,
     )
 
 

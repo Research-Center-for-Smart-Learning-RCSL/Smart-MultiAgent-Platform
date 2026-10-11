@@ -15,6 +15,7 @@ Auth: reads the runtime service-account creds Vault provisioned at bootstrap
 
 from __future__ import annotations
 
+from shared_kernel.storage import file_tickets
 from shared_kernel.storage.minio_client import (
     MinioClient,
     StorageError,
@@ -31,6 +32,7 @@ __all__ = [
     "agent_workspace_key",
     "chat_upload_key",
     "export_key",
+    "file_tickets",
     "get_minio_client",
     "rag_source_key",
 ]

@@ -6,8 +6,10 @@ import type { AttachmentStatus } from './AttachmentStatus';
 import type { ScanStatus } from './ScanStatus';
 export type AttachmentDownloadOut = {
     chatroom_id: (string | null);
+    expires_in: number;
     filename: string;
     id: string;
+    inline: boolean;
     message_id: (string | null);
     mime: string;
     scan_status: ScanStatus;

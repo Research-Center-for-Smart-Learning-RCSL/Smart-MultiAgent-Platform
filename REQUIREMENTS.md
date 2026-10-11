@@ -717,7 +717,7 @@ Five composable flags per chat room:
 - **[R13.09]** Single-upload size cap: 1 GB. Rejection at frontend and hard-enforced at gateway.
 - **[R13.10]** All attachments are stored in MinIO under `/chat-uploads/{project_id}/{chatroom_id}/{msg_id}/{filename}`. Lifecycle rule deletes objects after 3 days.
 - **[R13.11]** Messages keep a pointer to the object and, after expiry, surface the text `[attachment expired]` in the UI.
-- **[R13.11a]** The `[attachment expired]` state of R13.11 is reached by a nightly application-side expiry sweep that marks every attachment whose `expires_at` has passed as `EXPIRED` and emits one `attachment.expired` audit event per row. The sweep's horizon and the MinIO bucket lifecycle horizon of R13.10 are required to agree; independently of that agreement, the read path refuses to presign an attachment whose `expires_at` has passed, regardless of its recorded status.
+- **[R13.11a]** The `[attachment expired]` state of R13.11 is reached by a nightly application-side expiry sweep that marks every attachment whose `expires_at` has passed as `EXPIRED` and emits one `attachment.expired` audit event per row. The sweep's horizon and the MinIO bucket lifecycle horizon of R13.10 are required to agree; independently of that agreement, the read path refuses to issue a download link for an attachment whose `expires_at` has passed, regardless of its recorded status.
 
 ### 13.5 Output / rendering (Q45)
 
@@ -731,7 +731,7 @@ Five composable flags per chat room:
 
 - **[R13.15]** Messages are retained for **5 years** from creation by default, platform-wide.
 - **[R13.16]** Users (with their permission scope) can **manually delete** messages; deleted messages are removed immediately from both DB and search index.
-- **[R13.17]** Users can **export** a chat room's history as JSON + a folder of attachments (attachments are regenerated from MinIO if still alive; missing ones are noted).
+- **[R13.17]** Users can **export** a chat room's history as Markdown, JSON or PDF. By default the export is a ZIP containing the transcript and an `attachments/` folder. Attachments are regenerated from MinIO if still alive; expired, quarantined, missing or over-budget ones are omitted and noted. Markdown and JSON exports have no message cap. A PDF export is limited to 5,000 messages and is refused up front when the window exceeds it. A user may have one export in progress per room.
 - **[R13.18]** Search is **database-only** using PostgreSQL `tsvector` with GIN index on message content. No external search engine. Guest users can search only within rooms they belong to.
 
 ### 13.7 Realtime
@@ -829,7 +829,7 @@ Five composable flags per chat room:
 
 - **[R13.70]** Comment text is sanitized server-side before storage: control characters stripped, content capped at 2000 characters, validated at the Pydantic model boundary. No HTML or markdown rendering; comments display as plain text.
 
-- **[R13.71]** Image upload injects an Excalidraw image element into the CRDT document and broadcasts a `canvas.image_added` event with a presigned MinIO URL. The frontend registers the image binary via `excalidrawApi.addFiles()`. Image binary data is never stored in the CRDT document.
+- **[R13.71]** Image upload injects an Excalidraw image element into the CRDT document and broadcasts a `canvas.image_added` event carrying the element's `fileId` but no link; each client then requests a short-lived download link of its own for that `fileId`, so one link is never shared by a whole room. The frontend registers the image binary via `excalidrawApi.addFiles()`. Image binary data is never stored in the CRDT document.
 
 ### 13.12 Derived content and deletion
 
@@ -1068,6 +1068,10 @@ Emitted by Nginx for all HTML responses and echoed by the backend for all JSON r
 
 - **[R19a.12]** Registration (`POST /api/auth/register`) requires a CAPTCHA token verified server-side (R6.01). The CAPTCHA provider's public/private keys live in Vault KV (`secret/smap/config/captcha`).
 - **[R19a.13]** Admin may set an email-domain allowlist or denylist in runtime config to block disposable-mail signups.
+
+### 19a.7 Browser file delivery
+
+- **[R19a.14]** Browser-facing files are served only through `/api/files/{ticket}`. Tickets are HMAC-signed, expire within 15 minutes, and name a bucket on an allowlist. Every response carries `Content-Security-Policy: sandbox` and `nosniff`. A storage-plane URL is never returned to a client.
 
 ---
 
@@ -1691,9 +1695,10 @@ This section enumerates endpoints. Unless noted, all require a valid JWT and res
 | DELETE | `/api/messages/{id}` | Delete (self or owner). |
 | GET | `/api/chatrooms/{id}/search?q=` | FTS search. |
 | POST | `/api/chatrooms/{id}/export` | Queue export; returns job id. |
-| GET | `/api/exports/{job_id}` | Download link (MinIO signed URL, 24 h). |
+| GET | `/api/exports/{job_id}` | Job status; when ready, a download link minted per request (valid 15 min). The archive is retained 24 h. |
+| GET | `/api/files/{ticket}` | Streams a stored file for a short-lived signed ticket issued by another endpoint; 404 invalid, 410 expired. |
 | POST | `/api/chatrooms/{id}/attachments` (multipart) | Upload attachment ≤ 32 MB (single-shot). For larger files use the tus endpoint (§22.15). |
-| GET | `/api/attachments/{id}` | Read metadata + short-lived signed download URL. |
+| GET | `/api/attachments/{id}` | Read metadata + short-lived download link. |
 | GET | `/api/chatrooms/{id}/agents` | List agents bound to this room. |
 | POST | `/api/chatrooms/{id}/agents` | `{agent_id}` — bind. |
 | DELETE | `/api/chatrooms/{id}/agents/{agent_id}` | Unbind. |
@@ -1815,7 +1820,7 @@ All file uploads larger than the 32 MB single-shot cap (R22.10 attachments, R10.
 | `POST /api/skills/{skill_id}/restore` | Restore within the 60-day window ([R31.05]) |
 | `POST /api/skills/imports` | Import a `.zip` bundle → 202 + task id |
 | `GET /api/skills/imports/{task_id}` | Import status ([R31.28]) |
-| `POST /api/skills/{skill_id}/export` | Deterministic bundle → 202; `.zip` via presigned URL ([R31.21]) |
+| `POST /api/skills/{skill_id}/export` | Deterministic bundle → 202; `.zip` via a download link ([R31.21]) |
 
 ---
 
@@ -2379,7 +2384,7 @@ Added by the 2026-09-13 dossier `docs/tasks/2026-09-13-teacher-dashboard/`. Amen
 - **[R33.02]** A dashboard view presents project members with cross-room activity status within a workspace, time-series output charts, a student watchlist (truncated subject codes, never names or emails -- extending [R28.18]), and threshold alerts. The view is lazy-loaded and does not affect the initial bundle budget. The entry point is the workspace card in the workspace list, not a global sidebar link.
 - **[R33.03]** A project-level WebSocket channel (`ws:project:{project_id}`) delivers real-time activity events to authenticated project members. The channel never carries participant names, submission content, or payload values — only room identifiers, type keys, validity flags, and aggregate counts.
 - **[R33.04]** The project WebSocket endpoint verifies project membership at connection time and re-checks on the auth watchdog interval. A revoked member is disconnected.
-- **[R33.10]** Project Owners and Org Admins can export de-identified research data for a workspace. The export bundles activity submissions (payload, sub_scores, timestamps), observer observations (structured blocks), and chat transcripts into a single ZIP file. All participant identifiers are replaced by truncated subject codes (`activities/domain/subject_code.py`); no display name, login email, or full UUID appears in the output. The export is generated asynchronously via a background worker and delivered through a time-limited presigned URL.
+- **[R33.10]** Project Owners and Org Admins can export de-identified research data for a workspace. The export bundles activity submissions (payload, sub_scores, timestamps), observer observations (structured blocks), and chat transcripts into a single ZIP file. All participant identifiers are replaced by truncated subject codes (`activities/domain/subject_code.py`); no display name, login email, or full UUID appears in the output. The export is generated asynchronously via a background worker and delivered through a download link minted when the user downloads.
 
 ---
 

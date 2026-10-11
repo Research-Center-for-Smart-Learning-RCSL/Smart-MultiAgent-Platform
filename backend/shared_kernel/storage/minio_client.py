@@ -13,8 +13,8 @@ import asyncio
 import io
 import threading
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 from typing import Any, Final
 
@@ -36,6 +36,71 @@ class ObjectStat:
     size: int
     etag: str
     content_type: str | None
+
+
+class ObjectStream:
+    """An open object read: metadata, a chunk iterator, and its connection."""
+
+    def __init__(self, resp: Any, chunk_size: int) -> None:
+        self._resp = resp
+        self._chunk_size = chunk_size
+        # Reads run on worker threads while `release` may run on the event loop
+        # (or another thread) mid-read; a cancelled `to_thread` does not stop
+        # its thread, and urllib3 responses are not thread-safe.
+        self._lock = threading.Lock()
+        self._released = False
+        self._reading = False
+        self._close_after_read = False
+        self.stat = ObjectStat(
+            size=int(resp.headers.get("Content-Length") or 0),
+            etag=(resp.headers.get("ETag") or "").strip('"'),
+            content_type=resp.headers.get("Content-Type"),
+        )
+
+    async def chunks(self) -> AsyncIterator[bytes]:
+        try:
+            while data := await asyncio.to_thread(self._read):
+                yield data
+            self.release()
+        finally:
+            self.release(aborted=True)
+
+    def _read(self) -> bytes:
+        with self._lock:
+            if self._released:
+                return b""
+            self._reading = True
+        try:
+            data: bytes = self._resp.read(self._chunk_size)
+        finally:
+            with self._lock:
+                self._reading = False
+                close_now = self._close_after_read
+        if close_now:
+            self._close(aborted=True)
+            return b""
+        return data
+
+    def release(self, *, aborted: bool = False) -> None:
+        """Return the connection to the pool; a read cut short closes it instead,
+        since its unread body makes it unusable for the next request.
+
+        Idempotent and safe from any thread. During an in-flight read the close
+        is handed to the reading thread, so the response is never touched by
+        two threads at once."""
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+            if self._reading:
+                self._close_after_read = True
+                return
+        self._close(aborted=aborted)
+
+    def _close(self, *, aborted: bool) -> None:
+        if aborted:
+            self._resp.close()
+        self._resp.release_conn()
 
 
 class MinioClient:
@@ -160,6 +225,37 @@ class MinioClient:
 
         await asyncio.to_thread(_download)
 
+    async def open_stream(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        offset: int = 0,
+        length: int = 0,
+        chunk_size: int = 1 << 20,
+    ) -> ObjectStream | None:
+        """Open an object for chunked reading; ``None`` if it does not exist.
+
+        `offset`/`length` select a byte range (``length=0`` reads to the end).
+        The stream owns a pooled connection. Its iterator releases it at EOF, and
+        `ObjectStream.release` (idempotent) is for the caller to run however the
+        response ends, because Starlette never closes an iterator abandoned by a
+        disconnect or never started.
+        """
+
+        def _open() -> Any:
+            try:
+                return self._client.get_object(bucket, key, offset=offset, length=length)
+            except S3Error as exc:
+                if exc.code in ("NoSuchKey", "NoSuchBucket"):
+                    return None
+                raise StorageError(f"get_object failed: {exc}") from exc
+
+        resp = await asyncio.to_thread(_open)
+        if resp is None:
+            return None
+        return ObjectStream(resp, chunk_size)
+
     async def stat(self, *, bucket: str, key: str) -> ObjectStat | None:
         def _stat() -> ObjectStat | None:
             try:
@@ -210,42 +306,6 @@ class MinioClient:
         except S3Error as exc:
             if exc.code not in ("NoSuchKey",):
                 raise StorageError(f"remove_object failed: {exc}") from exc
-
-    async def presigned_get(
-        self,
-        *,
-        bucket: str,
-        key: str,
-        expires: timedelta = timedelta(minutes=15),
-        response_content_type: str | None = None,
-        response_content_disposition: str | None = None,
-    ) -> str:
-        # Response-header overrides ride in the presigned URL's signed query
-        # string, so the object's *stored* Content-Type (which is
-        # attacker-controlled for chat uploads) is overridden at serve time —
-        # the browser sees what we dictate, not what the uploader declared
-        # (SEC-M2). MinIO honours `response-content-type` /
-        # `response-content-disposition` exactly like S3.
-        # Widened to the minio stub's value type (str | list[str] | tuple[str]);
-        # we only ever store str values but the SDK signature is broader.
-        response_headers: dict[str, str | list[str] | tuple[str]] = {}
-        if response_content_type is not None:
-            response_headers["response-content-type"] = response_content_type
-        if response_content_disposition is not None:
-            response_headers["response-content-disposition"] = response_content_disposition
-
-        def _sign() -> str:
-            try:
-                return self._client.presigned_get_object(
-                    bucket,
-                    key,
-                    expires=expires,
-                    response_headers=response_headers or None,
-                )
-            except S3Error as exc:  # pragma: no cover
-                raise StorageError(f"presigned_get failed: {exc}") from exc
-
-        return await asyncio.to_thread(_sign)
 
 
 def get_minio_client() -> MinioClient:
@@ -317,8 +377,8 @@ def skill_import_staging_key(*, job_id: uuid.UUID) -> str:
 
 
 def skill_export_key(*, job_id: uuid.UUID) -> str:
-    # The finished export zip, in the `exports` bucket (§6), fetched by presigned URL. A
-    # fixed basename because the download's filename is dictated by the presigned URL's
+    # The finished export zip, in the `exports` bucket (§6), fetched through a file ticket.
+    # A fixed basename because the download's filename is dictated by the ticket's
     # response-content-disposition, not the object key.
     return f"skills/{job_id}/skill.zip"
 
@@ -334,6 +394,7 @@ def export_key(*, job_id: uuid.UUID, filename: str) -> str:
 __all__ = [
     "MinioClient",
     "ObjectStat",
+    "ObjectStream",
     "StorageError",
     "agent_workspace_key",
     "chat_upload_key",

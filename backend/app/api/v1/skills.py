@@ -25,7 +25,6 @@ endpoint, which has no scope in its path at all.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Path, UploadFile, status
@@ -66,7 +65,7 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
 from shared_kernel.queue import enqueue
-from shared_kernel.storage import get_minio_client
+from shared_kernel.storage import file_tickets, get_minio_client
 from shared_kernel.storage.minio_client import skill_import_staging_key
 
 # API-7: an unbounded body lets a single request drive memory and DB load. The body is
@@ -1742,11 +1741,11 @@ async def get_export_status(
     task_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
 ) -> BundleExportStatusOut:
-    """Poll a bundle export; once ready, carry the presigned download URL.
+    """Poll a bundle export; once ready, carry a fresh `/api/files/{ticket}` link.
 
     §6 names only the import status endpoint by path; export equally needs a status/fetch
-    (D-58 records this). The URL dictates the download's filename and content type via the
-    presigned response headers, so the object's stored metadata never reaches the browser.
+    (D-58 records this). The ticket dictates the download's filename and content type, so the
+    object's stored metadata never reaches the browser.
     """
     state = await SkillsFacade.get_export_job(task_id)
     if state is None:
@@ -1757,12 +1756,11 @@ async def get_export_status(
         _raise_forbidden("not the export initiator")
     url: str | None = None
     if state.status == BundleJobStatus.READY and state.bucket and state.object_key:
-        url = await get_minio_client().presigned_get(
+        url = await file_tickets.issue(
             bucket=state.bucket,
             key=state.object_key,
-            expires=timedelta(minutes=15),
-            response_content_type="application/zip",
-            response_content_disposition='attachment; filename="skill.zip"',
+            content_type="application/zip",
+            disposition=file_tickets.content_disposition("attachment", "skill.zip"),
         )
     return BundleExportStatusOut(job_id=state.job_id, status=state.status, url=url, error=state.error)
 

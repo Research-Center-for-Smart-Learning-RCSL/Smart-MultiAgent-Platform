@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope } from 'vue'
 
+import { ApiError } from '@shared/errors'
 import type { ExportStatus } from '../types'
 
 const mockToast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() }))
@@ -36,6 +37,7 @@ describe('useChatroomExport', () => {
     vi.useFakeTimers()
     api.createExport.mockReset()
     api.getExport.mockReset()
+    mockToast.error.mockReset()
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -61,7 +63,6 @@ describe('useChatroomExport', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     // A's completion (ready + its download URL) must not reach the slot B owns.
-    expect(exp.exportJob.value?.url).not.toBe('https://minio/A')
     expect(exp.exportJob.value?.status).not.toBe('ready')
 
     scope.stop()
@@ -124,5 +125,66 @@ describe('useChatroomExport', () => {
     expect(exp.exportJob.value).toBeNull()
 
     scope.stop()
+  })
+
+  describe('download()', () => {
+    let downloadSpy: ReturnType<typeof vi.fn>
+    beforeEach(() => {
+      downloadSpy = vi.fn()
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        downloadSpy(this.getAttribute('href'))
+      })
+    })
+    afterEach(() => vi.restoreAllMocks())
+
+    it('re-fetches the job at click time and downloads that fresh link', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/fresh.t'))
+      await exp.download()
+
+      expect(api.getExport).toHaveBeenLastCalledWith('A')
+      expect(downloadSpy).toHaveBeenCalledWith('/api/files/fresh.t')
+      scope.stop()
+    })
+
+    it('reports an expired archive instead of failing silently', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockRejectedValueOnce(
+        new ApiError({ type: 'https://smap.local/problems/not-found', title: 'Not Found', status: 404 }),
+      )
+      await exp.download()
+
+      expect(downloadSpy).not.toHaveBeenCalled()
+      expect(mockToast.error).toHaveBeenCalledWith('conversation.chatroom.exportExpired')
+      scope.stop()
+    })
+
+    it('reports a failed job as a failure, not as expired', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockResolvedValueOnce(status('A', 'failed'))
+      await exp.download()
+
+      expect(downloadSpy).not.toHaveBeenCalled()
+      expect(mockToast.error).toHaveBeenCalledWith('conversation.chatroom.exportDownloadFailed')
+      scope.stop()
+    })
   })
 })

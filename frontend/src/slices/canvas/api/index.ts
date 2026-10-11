@@ -84,6 +84,20 @@ export async function uploadImage(
   return data
 }
 
+/** A short-lived `/api/files/...` link to one canvas image, minted for this caller. */
+export async function getImageLink(chatroomId: string, objectId: string): Promise<string> {
+  const { data } = await http.get<{ url: string }>(`${base(chatroomId)}/images/${objectId}/link`)
+  return data.url
+}
+
+/** The image bytes behind a link from `getImageLink`. */
+export async function fetchImageBlob(url: string): Promise<Blob> {
+  // `url` is an absolute same-origin path; the shared instance's '/api'
+  // baseURL would otherwise be prefixed onto it.
+  const { data } = await http.get<Blob>(url, { baseURL: '', responseType: 'blob' })
+  return data
+}
+
 export async function listSnapshots(
   chatroomId: string,
   params?: { limit?: number; offset?: number },

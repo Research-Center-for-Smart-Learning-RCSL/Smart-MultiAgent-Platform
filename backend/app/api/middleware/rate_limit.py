@@ -47,6 +47,7 @@ _AUTH_PREFIX = "/api/auth/"
 _GUEST_SESSION_PREFIX = "/api/guest/"
 _CHATROOM_PREFIX = "/api/chatrooms/"
 _TUS_PREFIX = "/api/tus"
+_FILES_PREFIX = "/api/files/"
 _MESSAGE_SEGMENT = "/messages"
 _ATTACHMENT_SEGMENT = "/attachments"
 _DOCUMENT_SEGMENT = "/documents"
@@ -96,6 +97,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         #    operator dashboard, not a fix.
         path = request.url.path
         if path in ("/healthz", "/readyz", "/metrics", "/api/csp-report"):
+            return await call_next(request)
+        # Charged per ticket by the route itself, after the ticket verifies.
+        # Charging here would key anonymous browser loads by IP, so one class
+        # behind a NAT would throttle itself ([R19a.14]).
+        if path.startswith(_FILES_PREFIX):
             return await call_next(request)
 
         bucket = _bucket_for(path, request.method)

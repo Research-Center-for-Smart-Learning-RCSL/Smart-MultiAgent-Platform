@@ -188,6 +188,7 @@ class CanvasService:
         actor_user_id: uuid.UUID | None = None,
         actor_ip: str | None = None,
         request_id: uuid.UUID | None = None,
+        object_id: uuid.UUID | None = None,
     ) -> CanvasObject:
         vals: dict[str, Any] = {
             "canvas_id": canvas_id,
@@ -205,6 +206,8 @@ class CanvasService:
         }
         if created_by_agent_id is not None:
             vals["created_by_agent_id"] = created_by_agent_id
+        if object_id is not None:
+            vals["id"] = object_id
         obj = await self._repo.create_object(values=vals)
         await audit.emit(
             self._db,
@@ -317,6 +320,15 @@ class CanvasService:
         channel = self._room_channel_fn(chatroom_id)
         await Publisher(channel).emit("canvas.batch_updated", {"canvas_id": str(canvas_id)})
         return results
+
+    async def get_image(self, *, canvas_id: uuid.UUID, object_id: uuid.UUID) -> CanvasObject | None:
+        """An image object of this canvas with stored bytes, else ``None``."""
+        obj = await self._repo.get_object(object_id)
+        if obj is None or obj.canvas_id != canvas_id:
+            return None
+        if obj.kind != CanvasObjectKind.IMAGE or not obj.minio_path:
+            return None
+        return obj
 
     async def search_objects(
         self,

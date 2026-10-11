@@ -1,31 +1,8 @@
-<script lang="ts">
-// Module-scoped memo so the same artifact is presigned once across every bubble
-// that renders it, not on each re-render. Presigned URLs are short-lived (~15
-// min); on an image load error we drop the entry and refetch once.
-import { getAttachment } from '../api'
-
-const urlCache = new Map<string, Promise<string | null>>()
-
-function fetchUrl(id: string): Promise<string | null> {
-  let pending = urlCache.get(id)
-  if (!pending) {
-    pending = getAttachment(id)
-      .then((d) => d.url)
-      .catch(() => null)
-    urlCache.set(id, pending)
-  }
-  return pending
-}
-
-function invalidate(id: string): void {
-  urlCache.delete(id)
-}
-</script>
-
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PaperClipIcon } from '@heroicons/vue/24/outline'
+import { fetchAttachmentUrl as fetchUrl, invalidateAttachmentUrl as invalidate } from '../utils/attachmentUrl'
 
 const props = defineProps<{
   attachmentId: string
@@ -50,7 +27,7 @@ async function load(): Promise<void> {
 }
 
 function onError(): void {
-  // A presigned URL likely expired — drop the memo and try once more.
+  // The link likely expired — drop the memo and try once more.
   if (retried.value) {
     failed.value = true
     url.value = null

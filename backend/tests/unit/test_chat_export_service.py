@@ -460,7 +460,7 @@ class TestChatExportBuildAndUpload:
 
         assert key.endswith("export.md")
         put_call = minio.put_object.call_args
-        assert put_call.kwargs["content_type"] == "text/markdown"
+        assert put_call.kwargs["content_type"] == "text/markdown; charset=utf-8"
         text = put_call.kwargs["data"].decode("utf-8")
         assert "# general" in text
         assert "hello world" in text

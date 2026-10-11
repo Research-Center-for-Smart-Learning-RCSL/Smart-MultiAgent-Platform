@@ -500,11 +500,56 @@ rows are added as each is written.
   names. Its `down_revision` is `0100_normalise_account_display_names`, the head after
   `0100` landed; take it from `alembic heads`, not from the number.
 
+### From the 2026-10-11 chat and research export audit
+
+`docs/audits/2026-10-11-chat-and-research-export/findings.md` spawned three bugfix dossiers;
+rows are added as each is written.
+
+- (implemented 2026-10-11; see the note under In progress) `2026-10-11-browser-file-delivery` (bugfix, SRS Delta applied:
+  [R19a.14] added, five presigned/24 h statements reworded) - `depends_on: []`. F-1, F-2 and F-7,
+  plus the same root cause in every other browser file path: research export, admin audit
+  CSV, skill bundles, attachments and canvas images. Every one of them returns a
+  `http://minio:9000` presigned URL. The canvas `/minio-assets/` proxy returns 502, because
+  nginx and MinIO share no network. Replaces presigned URLs with `GET /api/files/{ticket}`, a
+  backend-streamed endpoint behind an HMAC ticket.
+- `2026-10-11-chat-export-modal-states` (bugfix, **approved 2026-10-11**) - ready: its only
+  dependency, `browser-file-delivery`, is implemented. **Rebase onto it rather than assuming
+  the code its spec cites**: `useChatroomExport` already has `download()` (via the shared
+  `downloadFresh`), `exportJob` no longer carries `url`, and the modal's Download button emits
+  `download`. F-3, F-8, F-9. **Read its Q-6 before building**: files now come from the app origin, so PDF
+  attachments switch from inline preview to download.
+
 ### From the 2026-10-07 missing-agent-reply analysis
 
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-11 chat and research export audit
+
+The audit's three dossiers form one overlap chain:
+`browser-file-delivery` -> `chat-export-modal-states` -> `chat-export-archive-content`. All
+three edit `useChatroomExport.ts` and `ChatroomExportModal.vue`, and the first and last both
+edit the export filename logic in `exports.py`.
+
+- (moved to Ready now on 2026-10-11, unblocked by the implemented
+  `2026-10-11-browser-file-delivery`) `2026-10-11-chat-export-modal-states`. F-3, F-8, F-9:
+  - a slow export no longer leaves the modal spinning: it polls for about 12 minutes, then
+    offers "Check again";
+  - 403/404/410 are fatal;
+  - input errors and job failures are distinct states;
+  - a request token discards superseded create responses.
+
+  `usePolling` gains optional `isFatal`, `onExhausted` and per-attempt interval hooks.
+- `2026-10-11-chat-export-archive-content` (bugfix, **approved 2026-10-11**) - waiting on
+  `2026-10-11-browser-file-delivery` and `2026-10-11-chat-export-modal-states`. F-4, F-5, F-6:
+  - an "Include attachments" ZIP with omissions noted;
+  - streamed Markdown/JSON with no message cap;
+  - PDF refused above 5,000 messages;
+  - a cancelled job marked failed.
+
+  Its [R13.17] rewording was applied at approval. **Read its Q-6**: removing the cap
+  widened the open export-quota finding, so it adds one active export per user per room (409).
 
 ### From the 2026-10-07 display-name audit
 
@@ -698,6 +743,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- (implemented 2026-10-11) `2026-10-11-browser-file-delivery`. All 12 ACs verified on the compose
+  test stack: through nginx, in Chromium (download, attachment image, canvas image) and against a
+  real MinIO (wiring test). Not yet run in CI. Deviations D-1..D-12 (notably D-3, a per-ticket
+  nonce found by the live rate-limit check, and D-6, the security-gate additions) and
+  FU-1..FU-15 are in the dossier; the two security MEDIUMs FU-4/FU-5 were resolved on the same
+  branch as D-13 (nginx `realip`; **recreate the nginx container on deploy**) and D-14 (per-ticket
+  stream cap). This moved
+  `2026-10-11-chat-export-modal-states` from Blocked to Ready.
 
 - (implemented 2026-10-07) `2026-10-07-google-display-name-normalisation`. AC-1..AC-6
   verified on PR #244 (CI green at `53767bf0`, after the D-4 review fixes; the

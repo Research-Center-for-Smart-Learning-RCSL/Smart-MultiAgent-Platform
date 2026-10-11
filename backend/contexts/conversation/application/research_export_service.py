@@ -16,7 +16,9 @@ from typing import Final
 
 from shared_kernel.auth.clients import get_redis, now
 
-_JOB_TTL_SECONDS: Final = 72 * 3600
+# Matches the exports bucket's 24 h lifecycle and retention sweep; a longer
+# record would report a purged archive as ready (browser-file-delivery Q-9).
+_JOB_TTL_SECONDS: Final = 24 * 3600
 
 
 class ResearchExportJobStatus:

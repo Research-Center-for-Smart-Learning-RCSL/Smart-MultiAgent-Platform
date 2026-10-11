@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures/auth'
 import { env } from './fixtures/seed'
@@ -27,24 +28,27 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     await expect(modal.getByTestId('export-status')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('export download link appears when ready', async ({ authedPage: page }) => {
+  test('a ready export downloads a non-empty file without leaving the room', async ({ authedPage: page }) => {
     test.setTimeout(120_000)
-    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom with completed export')
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
     const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const modal = await startExport(page)
 
-    // Poll until a terminal state. The failure branch renders
-    // conversation.chatroom.exportFailed ("Failed to start export."), not the
-    // exportState.failed label.
-    await expect(
-      modal
-        .getByTestId('export-status')
-        .filter({ hasText: /Download export|Failed to start export/i }),
-    ).toBeVisible({ timeout: 100_000 })
-  })
+    // Only the ready state counts: accepting the failure state here is what
+    // let an unreachable download link ship green
+    // (docs/audits/2026-10-11-chat-and-research-export F-1, FU-5).
+    const download = modal.getByTestId('export-download')
+    await expect(download).toBeVisible({ timeout: 100_000 })
 
+    const [file] = await Promise.all([page.waitForEvent('download'), download.click()])
+    expect(file.suggestedFilename()).toMatch(/\.md$/)
+    const path = await file.path()
+    expect(path).toBeTruthy()
+    expect(statSync(path).size).toBeGreaterThan(0)
+    await expect(page).toHaveURL(new RegExp(`/chatrooms/${chatroomId}`))
+  })
   test('message attachments render download or expired state', async ({ authedPage: page }) => {
     test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom with attachments')
     const chatroomId = env('E2E_CHATROOM_ID')!

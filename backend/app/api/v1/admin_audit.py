@@ -17,6 +17,8 @@ from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.storage import export_key, file_tickets, get_minio_client
+from shared_kernel.storage.file_tickets import content_disposition
 
 router = APIRouter(tags=["admin"])
 
@@ -42,6 +44,11 @@ class AuditEntryOut(BaseModel):
 class AuditPageOut(BaseModel):
     items: list[AuditEntryOut]
     next_cursor: int | None
+
+
+class AuditExportOut(BaseModel):
+    url: str
+    job_id: uuid.UUID
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +121,8 @@ async def export_audit(
     admin: Principal = Depends(require_admin),
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
-) -> dict:
-    """Kick off audit CSV export -> MinIO `exports/` bucket."""
+) -> AuditExportOut:
+    """Build the audit CSV into the `exports` bucket and return its download link."""
     # Require a date range to prevent full-table dumps.
     if from_ts is None or to_ts is None:
         raise HTTPException(
@@ -136,8 +143,6 @@ async def export_audit(
     facade = AuditFacade(db)
     csv_bytes = await facade.export_csv(filters, max_rows=_MAX_EXPORT_ROWS)
 
-    from shared_kernel.storage import export_key, get_minio_client
-
     client = get_minio_client()
     job_id = uuid.uuid4()
     key = export_key(job_id=job_id, filename="audit_export.csv")
@@ -147,12 +152,11 @@ async def export_audit(
         data=csv_bytes,
         content_type="text/csv",
     )
-    from datetime import timedelta as _td
-
-    signed_url = await client.presigned_get(
+    url = await file_tickets.issue(
         bucket=client.exports_bucket,
         key=key,
-        expires=_td(hours=1),
+        content_type="text/csv; charset=utf-8",
+        disposition=content_disposition("attachment", f"audit-{from_ts:%Y%m%d}-{to_ts:%Y%m%d}.csv"),
     )
     await audit.emit(
         db,
@@ -163,4 +167,4 @@ async def export_audit(
             request_id=ctx.request_id,
         ),
     )
-    return {"url": signed_url, "job_id": str(job_id)}
+    return AuditExportOut(url=url, job_id=job_id)

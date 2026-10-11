@@ -21,6 +21,7 @@ from contexts.conversation.application.access import (
 from contexts.conversation.application.attachment_service import (
     SINGLE_SHOT_MAX_BYTES,
     AttachmentService,
+    serves_inline,
 )
 from contexts.conversation.domain.errors import (
     AttachmentNotFound,
@@ -33,6 +34,7 @@ from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.storage.file_tickets import TICKET_TTL
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["attachments"])
 attachment_router = APIRouter(prefix="/api/attachments", tags=["attachments"])
@@ -47,10 +49,14 @@ class AttachmentOut(BaseModel):
     size_bytes: int
     status: AttachmentStatus
     scan_status: ScanStatus
+    # Renders in the browser (open a tab) rather than downloading a file.
+    inline: bool
 
 
 class AttachmentDownloadOut(AttachmentOut):
     url: str
+    # Seconds the link stays valid, so a client cache can evict before it dies.
+    expires_in: int
 
 
 @chatroom_router.post(
@@ -126,7 +132,7 @@ async def read_attachment(
 
     ptr = await service.get_for_download(attachment_id=attachment_id)
     base = to_attachment_out(ptr.attachment).model_dump()
-    return AttachmentDownloadOut(url=ptr.url, **base)
+    return AttachmentDownloadOut(url=ptr.url, expires_in=int(TICKET_TTL.total_seconds()), **base)
 
 
 def to_attachment_out(m: object) -> AttachmentOut:
@@ -143,6 +149,7 @@ def to_attachment_out(m: object) -> AttachmentOut:
         size_bytes=m.size_bytes,  # type: ignore[attr-defined]
         status=m.status,  # type: ignore[attr-defined]
         scan_status=m.scan_status,  # type: ignore[attr-defined]
+        inline=serves_inline(m.mime),  # type: ignore[attr-defined]
     )
 
 

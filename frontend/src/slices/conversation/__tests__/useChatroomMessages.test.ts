@@ -4,7 +4,7 @@
 // the composable's cache reconciliation in isolation; a real QueryClient backs
 // the message cache so optimistic setQueryData / rollback are exercised for real.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -752,5 +752,52 @@ describe('useChatroomMessages before-cursor 422 fallback (V-2)', () => {
     expect(toast.error).toHaveBeenCalledWith('conversation.chatroom.loadEarlierFailed')
     expect(composable.hasOlderMessages.value).toBe(true)
     expect(composable.messages.value.some((m) => m.id === 'm_dead')).toBe(true)
+  })
+})
+
+describe('downloadAttachment', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  function att(mime: string, inline: boolean) {
+    return {
+      id: 'a1',
+      chatroom_id: ROOM,
+      message_id: 'm1',
+      filename: 'f',
+      mime,
+      size_bytes: 1,
+      status: 'active' as const,
+      scan_status: 'clean' as const,
+      inline,
+    }
+  }
+
+  it('saves a download-only type without opening a window (no popup blocker)', async () => {
+    mountHost()
+    const open = vi.spyOn(window, 'open')
+    const clicked: string[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.getAttribute('href') ?? '')
+    })
+    api.getAttachment.mockResolvedValue({ url: '/api/files/pdf.t', expires_in: 900 })
+
+    composable.downloadAttachment(att('application/pdf', false))
+    await flushPromises()
+
+    expect(open).not.toHaveBeenCalled()
+    expect(clicked).toEqual(['/api/files/pdf.t'])
+  })
+
+  it('opens an inline-viewable type in a tab pre-opened inside the click', async () => {
+    mountHost()
+    const win = { location: { href: '' }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+    api.getAttachment.mockResolvedValue({ url: '/api/files/txt.t', expires_in: 900 })
+
+    composable.downloadAttachment(att('text/plain', true))
+    expect(open).toHaveBeenCalledOnce()
+    await flushPromises()
+
+    expect(win.location.href).toBe('/api/files/txt.t')
   })
 })

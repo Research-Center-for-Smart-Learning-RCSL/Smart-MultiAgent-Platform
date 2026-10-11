@@ -1627,11 +1627,11 @@ export class SkillsService {
     }
     /**
      * Get Export Status
-     * Poll a bundle export; once ready, carry the presigned download URL.
+     * Poll a bundle export; once ready, carry a fresh `/api/files/{ticket}` link.
      *
      * §6 names only the import status endpoint by path; export equally needs a status/fetch
-     * (D-58 records this). The URL dictates the download's filename and content type via the
-     * presigned response headers, so the object's stored metadata never reaches the browser.
+     * (D-58 records this). The ticket dictates the download's filename and content type, so the
+     * object's stored metadata never reaches the browser.
      * @returns BundleExportStatusOut Successful Response
      * @throws ApiError
      */

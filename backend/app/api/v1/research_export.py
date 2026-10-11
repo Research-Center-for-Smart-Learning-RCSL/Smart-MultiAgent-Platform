@@ -1,8 +1,8 @@
 """`/api/workspaces/{id}/export/research-data` + `/api/exports/research/{job_id}` (R33.10).
 
 The POST enqueues an Arq ``research_data_export`` job; the GET returns either
-a ``status: queued|running|failed`` payload or a short-lived presigned URL
-once the worker has written the ZIP to MinIO.
+a ``status: queued|running|failed`` payload or, once the worker has written the
+ZIP to MinIO, a short-lived ``/api/files/{ticket}`` link minted per request.
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
-from shared_kernel.storage import get_minio_client
+from shared_kernel.storage import file_tickets
+from shared_kernel.storage.file_tickets import content_disposition
 
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["research-export"])
 export_router = APIRouter(prefix="/api/exports/research", tags=["research-export"])
@@ -67,9 +68,6 @@ class ResearchExportStatusOut(BaseModel):
     status: str
     url: str | None
     error: str | None
-
-
-_PRESIGNED_URL_EXPIRY = timedelta(hours=72)
 
 
 @workspace_router.post("/{workspace_id}/export/research-data", status_code=202)
@@ -127,10 +125,12 @@ async def get_research_export(
 
     url: str | None = None
     if state.status == ResearchExportJobStatus.READY and state.bucket and state.object_key:
-        url = await get_minio_client().presigned_get(
+        # Minted per request so a click-time status fetch holds a live link.
+        url = await file_tickets.issue(
             bucket=state.bucket,
             key=state.object_key,
-            expires=_PRESIGNED_URL_EXPIRY,
+            content_type="application/zip",
+            disposition=content_disposition("attachment", f"research-data-{state.created_at:%Y%m%d}.zip"),
         )
     return ResearchExportStatusOut(
         job_id=state.job_id,

@@ -446,7 +446,7 @@ class TestExportAudit:
         mocks = _unpack(args)
         _wire_access(mocks, _access(roles=frozenset({Role.PROJECT_MEMBER})))
         mine = _message(sender_type=SenderType.USER, sender_id=_CALLER, content="top-secret-body")
-        harness = _Harness(mocks, messages=[mine])
+        _Harness(mocks, messages=[mine])
 
         await ChatExportService(AsyncMock()).build_and_upload_export(
             job_id=_JOB,
@@ -468,7 +468,8 @@ class TestExportAudit:
         serialized = json.dumps(event.metadata, default=str)
         assert "top-secret-body" not in serialized
         assert "http" not in serialized
-        harness.minio.presigned_get.assert_not_called()
+        # A download link is a bearer credential; the audit trail must not hold one.
+        assert "/api/files" not in serialized
 
     @_patched_service
     async def test_no_audit_when_upload_fails(self, *args: MagicMock) -> None:
