@@ -274,7 +274,8 @@ allow-lists, and `app/workers/main.py` (registration and `job_timeout` only).
 Triaged with the requester on 2026-10-11. Every finding will be fixed, grouped by root cause
 into three dossiers:
 
-- The delivery dossier carries F-1, F-2 and F-7. It also carries the same raw-URL defect on
+- The delivery dossier (named `browser-file-delivery` once spec analysis widened it to all six
+  file-delivery paths) carries F-1, F-2 and F-7. It also carries the same raw-URL defect on
   the research export path, and the shared URL-publishing helper that FU-6 calls for.
 - The F-2 intent conflict was decided in favor of re-minting the presigned URL when the user
   clicks Download. The signature stays short-lived. The UI copy and the 24-hour statements in
@@ -285,13 +286,13 @@ Dossier paths below are the planned slugs. Each becomes a link once `/spec` crea
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
-| F-2 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
+| F-1 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
+| F-2 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
 | F-3 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
 | F-4 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
 | F-5 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
 | F-6 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
-| F-7 | fix (2026-10-11) | `docs/tasks/2026-10-11-export-download-delivery/` |
+| F-7 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
 | F-8 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
 | F-9 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
 
