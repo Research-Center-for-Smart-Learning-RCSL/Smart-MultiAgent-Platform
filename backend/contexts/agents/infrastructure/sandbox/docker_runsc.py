@@ -1295,7 +1295,9 @@ class DockerRunscSandbox:
             result = container.exec_run(
                 ["python", "/opt/kernel/client.py"],
                 environment=env,
-                user=_SANDBOX_UID,
+                # The SDK stringifies `user` on container create but not on exec,
+                # and the daemon rejects a numeric exec User with a 400.
+                user=str(_SANDBOX_UID),
                 demux=True,
             )
         except Exception as exc:  # NotFound/APIError → treat as a dead kernel

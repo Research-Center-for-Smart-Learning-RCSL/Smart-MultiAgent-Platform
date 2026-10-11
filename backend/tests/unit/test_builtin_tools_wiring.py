@@ -565,6 +565,21 @@ async def test_the_budget_is_disclosed_when_it_is_reached_across_calls() -> None
     assert any("artifact budget is used up" in n for n in notes[2:]), notes[-1]
 
 
+async def test_an_unfetchable_artifact_is_not_blamed_on_the_budget() -> None:
+    """A fetch that fails (the kernel was evicted, the daemon refused) is a
+    different loss from the per-turn cap. Telling the model its budget is used
+    up would steer it away from a retry that could succeed."""
+    runner = AsyncMock()
+    runner.fetch_kernel_artifact.return_value = None
+    tool = _code_exec_tool(runner, sink=[])
+
+    note = (await _invoke_with(tool, runner, [_oversized("late.bin", size=1)])).content
+
+    assert "late.bin" in note
+    assert "budget" not in note
+    assert "could not be read back" in note
+
+
 async def test_a_budget_skipped_artifact_is_not_refetched_later() -> None:
     """The skip mark travels with the descriptor into `_persist_artifacts`, so
     the fallback there must not undo the budget decision made here."""

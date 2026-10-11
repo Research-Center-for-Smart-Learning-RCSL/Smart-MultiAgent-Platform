@@ -390,6 +390,7 @@ def _artifact_note(produced: Any) -> str:
     written: list[str] = []
     too_large: list[str] = []
     withheld: list[str] = []
+    unreadable: list[str] = []
     # Only the displayed slice is named; the count below covers the remainder,
     # so the model never reads a complete-looking list that is not complete.
     for art in arts[:MAX_ARTIFACTS_PER_TURN]:
@@ -398,8 +399,10 @@ def _artifact_note(produced: Any) -> str:
         reason = art.get(ARTIFACT_SKIP_KEY)
         if reason == "too_large" or size > MAX_ARTIFACT_BYTES:
             too_large.append(f"{name} ({size} bytes)")
-        elif reason:
+        elif reason == "budget":
             withheld.append(name)
+        elif reason:
+            unreadable.append(name)
         else:
             written.append(name)
     parts = []
@@ -408,6 +411,11 @@ def _artifact_note(produced: Any) -> str:
     if withheld:
         parts.append(
             f"[not returned, this turn's artifact budget is used up: {', '.join(withheld)}. "
+            "They remain in outputs/ inside the sandbox.]"
+        )
+    if unreadable:
+        parts.append(
+            f"[not returned, could not be read back from the sandbox: {', '.join(unreadable)}. "
             "They remain in outputs/ inside the sandbox.]"
         )
     if too_large:
