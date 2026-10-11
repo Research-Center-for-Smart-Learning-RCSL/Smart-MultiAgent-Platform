@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-12
 requirements: [R11.08, R11.22, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand, 2026-10-12-graph-build-busy-retry]
@@ -63,7 +63,8 @@ This feature therefore does three things:
 | Q-4 | Who sets the filter, and how is it evaluated? | Per member, by the Project Owner: `agent_group_members.read_member_ids` (`NULL` = the whole group). A relation is visible when its provenance intersects the list. A relation with no provenance is hidden under a filter. Entities appear only through a visible relation. | Requester's choice. Intersection, because a relation co-stated by A and B is genuinely A's too. Rejected: one setting per group, and a per-request parameter that the agent turn has no way to supply. |
 | Q-5 | How does existing data get the new provenance? | An operator command rebuilds every agent_group map in place, dry-run until armed. Until then, legacy relations keep their old single-member value. | Requester's choice. A delta build never rewrites old relations, and the delta union only adds members (`neo4j_driver.py:56-58`). Rejected: letting maps refresh naturally, which leaves misleading provenance indefinitely. |
 | Q-6 | Do entity nodes and Qdrant points get member tags? | No; entities are derived from visible relations. | Requester's choice. No re-embedding and no change to the shared vector payload; seed ranking stays unfiltered (FU-1). |
-| Q-7 | Does this depend on `2026-10-12-graph-build-busy-retry`? | Proposed yes; confirmed at approval. | Overlap prerequisite: both edit `graphrag_build` / `_run_build` in `app/workers/tasks/graphrag.py` (busy-retry at `:404-424`, this feature adds a full-rebuild path to the same call). |
+| Q-7 | Does this depend on `2026-10-12-graph-build-busy-retry`? | Yes. | Requester's choice. Overlap prerequisite: both edit `graphrag_build` / `_run_build` in `app/workers/tasks/graphrag.py` (busy-retry at `:404-424`; this feature adds a full-rebuild path to the same call), and the rebuild command relies on a busy build waiting. |
+| Q-8 | When removing a member empties another member's restriction list, what does that member read? | Nothing from the group map, until the owner sets the list again; the UI warns. | Requester's choice (was OQ-1). Fails closed: a restriction is never silently widened. Rejected: reverting to the whole group. |
 
 ## 4. Current State
 
@@ -126,7 +127,7 @@ unchanged in shape: `source_member_ids` is already a list. The wiring assertion 
 - **Removal:** removing a member from a group also removes its id from every other
   member's `read_member_ids` in the same transaction. A list left empty by that removal is
   kept empty, so that member reads nothing from the group map until the owner changes it
-  (OQ-1).
+  (Q-8).
 
 **5.3 Retrieval (G-3).** `list_layers_for_turn` returns, for a group layer, the reading
 member's `read_member_ids`. This is the querying agent's own row, resolved in the same
@@ -179,7 +180,7 @@ on every question.
   `docs/runbook-upgrade.md`.
 - **Frontend:**
   - `AgentGroupDetailView.vue` members table: a "Reads from" control per member (whole
-    group, or chosen members) and the empty-list warning (OQ-1);
+    group, or chosen members) and the empty-list warning (Q-8);
   - an `agentGroups` API wrapper method;
   - i18n keys in `en` and `zh-TW`;
   - `pnpm run gen:api`.
@@ -296,9 +297,7 @@ Replace [R11.22] with:
 
 ## 14. Open Questions
 
-- **OQ-1.** When removing a member empties another member's restriction list, should that
-  member read nothing (the design above, which fails closed) or revert to the whole group?
-  To confirm at approval.
+None. OQ-1 was resolved at approval as Q-8.
 
 ## 15. Deviation Log
 

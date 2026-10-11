@@ -551,7 +551,7 @@ rows are added as each is written.
   `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
   gated on a recorded deploy state as well as the dependency, starting with the backfill
   reporting 0 remaining.
-- `2026-10-12-graphrag-phase5b-member-filter` (feature, draft, SRS Delta amends [R11.22]) -
+- `2026-10-12-graphrag-phase5b-member-filter` (feature, **approved 2026-10-12**, SRS Delta applied: [R11.22] rewritten) -
   `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
   2026-10-12-graph-build-busy-retry]` (overlap: `neo4j_driver.py` relation Cypher, and
   `graphrag_build`).
