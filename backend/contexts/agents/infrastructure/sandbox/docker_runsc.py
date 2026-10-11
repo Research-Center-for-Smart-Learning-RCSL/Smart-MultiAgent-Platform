@@ -629,6 +629,17 @@ class _KernelGone(Exception):
     """The kernel container vanished between lookup and exec (crash/OOM/reap)."""
 
 
+class _KernelExecFailed(Exception):
+    """The daemon or the socket proxy refused the exec into a live kernel."""
+
+
+# Exec statuses that mean the container itself is gone or stopped. Anything
+# else (a 400 on the request, a 403 from the socket proxy, a 5xx) leaves the
+# kernel alive, so reading it as a dead kernel retries a deterministic failure
+# and hides its cause.
+_KERNEL_GONE_STATUSES = frozenset({404, 409})
+
+
 def _session_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"{agent_id}:{chatroom_id}"
 
@@ -1231,8 +1242,10 @@ class DockerRunscSandbox:
                 client, agent_id=agent_id, chatroom_id=chatroom_id
             )
             # Only flag a restart when a kernel that previously held state had to
-            # be recreated — never on the first call of a session ("created").
-            if status == "recreated":
+            # be replaced: "recreated", or, after this call lost its kernel, any
+            # status but "reused" -- a retry that re-adopts the same live
+            # container by name kept its state.
+            if status == "recreated" or (attempt == 2 and status != "reused"):
                 restarted = True
             try:
                 async with handle.lock, _get_semaphore():
@@ -1264,9 +1277,20 @@ class DockerRunscSandbox:
                         duration_ms=_ms_since(start),
                         metadata={"session": session},
                     )
-                # The kernel we were using just died — its state is gone.
-                restarted = True
                 continue
+            except _KernelExecFailed as exc:
+                _log.warning("code_exec kernel exec refused for session %s: %s", session, exc.args[-1])
+                return ToolCallResult(
+                    ok=False,
+                    stdout="",
+                    stderr=(
+                        "code_exec is unavailable: the sandbox refused to run the call. This is a "
+                        "server fault, not a problem with your code."
+                    ),
+                    exit_code=1,
+                    duration_ms=_ms_since(start),
+                    metadata={"session": session},
+                )
             return self._reply_to_result(exec_out, restarted=restarted, start=start, session=session)
         # Loop always returns above; satisfy the type checker.
         raise AssertionError("unreachable")
@@ -1300,8 +1324,10 @@ class DockerRunscSandbox:
                 user=str(_SANDBOX_UID),
                 demux=True,
             )
-        except Exception as exc:  # NotFound/APIError → treat as a dead kernel
-            raise _KernelGone(container_id) from exc
+        except Exception as exc:
+            if getattr(exc, "status_code", None) in _KERNEL_GONE_STATUSES:
+                raise _KernelGone(container_id) from exc
+            raise _KernelExecFailed(container_id, exc) from exc
         stdout_b, stderr_b = result.output if result.output else (b"", b"")
         return int(result.exit_code or 0), stdout_b or b"", stderr_b or b""
 
