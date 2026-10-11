@@ -829,7 +829,7 @@ Five composable flags per chat room:
 
 - **[R13.70]** Comment text is sanitized server-side before storage: control characters stripped, content capped at 2000 characters, validated at the Pydantic model boundary. No HTML or markdown rendering; comments display as plain text.
 
-- **[R13.71]** Image upload injects an Excalidraw image element into the CRDT document and broadcasts a `canvas.image_added` event with a short-lived download link. The frontend registers the image binary via `excalidrawApi.addFiles()`. Image binary data is never stored in the CRDT document.
+- **[R13.71]** Image upload injects an Excalidraw image element into the CRDT document and broadcasts a `canvas.image_added` event carrying the element's `fileId` but no link; each client then requests a short-lived download link of its own for that `fileId`, so one link is never shared by a whole room. The frontend registers the image binary via `excalidrawApi.addFiles()`. Image binary data is never stored in the CRDT document.
 
 ### 13.12 Derived content and deletion
 

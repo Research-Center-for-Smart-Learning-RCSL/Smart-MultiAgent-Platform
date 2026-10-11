@@ -565,15 +565,53 @@ The edits:
   a `set_real_ip_from`.
 - **D-14 (resolves FU-5, same date).** At most `SMAP_LIMIT_FILES_CONCURRENT_PER_TICKET` (default
   4) streams per ticket. The slots are a Redis sorted set with a 30-minute hold window
-  (`ratelimit.acquire_slot` / `release_slot`). A slot is released in the response's background
-  tasks. A slot whose release never runs (the FU-6 disconnect path) is reclaimed after the hold
-  window. HEAD takes no slot. Tested in the unit tier and against real Redis in the wiring tier
-  (cap, release, reclaim).
+  (`ratelimit.acquire_slot` / `release_slot`). A slot is released when the response ends (see
+  D-16). A slot whose release never runs is reclaimed after the hold window. HEAD takes no slot.
+  Tested in the unit tier and against real Redis in the wiring tier (cap, release, reclaim).
+
+The entries below come from a `/code-review` of the full branch diff after D-14. The user chose
+to fix all seven findings before opening the PR.
+
+- **D-15 (review finding 1, regression introduced by D-14).** `canvas.image_added` broadcast one
+  ticket to the whole room, so once D-14 capped a ticket at four streams, a busy room got 429s
+  and `useCanvasSocket` silently left a placeholder. The event now carries no link. Each client
+  calls the new `GET /api/chatrooms/{id}/canvas/images/{file_id}/link` (room read access, same
+  check as the object list) and gets a ticket of its own. The upload creates the object row with
+  the element's `fileId` as its id, so the event's `fileId` resolves. Verified on the compose
+  stack: 30 clients minting their own links loaded the image 30 x 200, while the control (one
+  shared link, 30 parallel loads) got 10 x 200 and 20 x 429.
+- **D-16 (resolves FU-6).** The object stream and the concurrency slot are released in the
+  `finally` of a `StreamingResponse` subclass, shielded from cancellation, instead of a
+  `background` task, which Starlette skips on ASGI spec 2.4's `ClientDisconnect` path and when
+  an enclosing `BaseHTTPMiddleware` cancels the app. Unit tests cover both paths. The leak did
+  not reproduce on the current uvicorn (it reports spec 2.3, where the background task runs):
+  four aborted slow downloads of one link left no slot in Redis either before or after the
+  change, so this is a correctness fix for the other paths rather than an observed failure.
+- **D-17 (review finding 5).** `ObjectStream` serialises access to the urllib3 response. A
+  release during an in-flight read (a cancelled `to_thread` keeps running) hands the close to
+  the reading thread instead of closing the response underneath it.
+- **D-18 (review finding 6, part of FU-1).** `GET /api/files/{ticket}` honours a single byte range
+  (`bytes=a-b`, `a-`, `-n`) with 206 and `Content-Range`, answers 416 for a range past the end,
+  and serves the whole object for multiple ranges, malformed headers or a stale `If-Range`.
+  Responses advertise `Accept-Ranges: bytes`. MinIO reads only the requested bytes. Verified
+  through nginx (last 100 bytes of an 8 MiB attachment, byte-identical) and in the wiring tier.
+- **D-19 (review finding 3).** `hmac_verify` re-reads the current seed version when a ticket
+  names a newer one, at most once per 30 s, so a ticket signed by a process that already picked
+  up a rotation does not 404 on one that has not. A forged high version costs at most one KV read
+  per window.
+- **D-20 (resolves FU-7; review finding 7).** `location /api/files/` logs errors at `crit` only,
+  since the error log cannot be redacted. The access-log format now exists once: `log_format json`
+  and the http-level `access_log` moved from `nginx.conf` to `conf.d/smap.conf` beside the
+  redaction map, and the per-server overrides are gone. The format keeps the name `json`, so a
+  stale `nginx.conf` mount alongside the new `conf.d` fails `nginx -t` on the duplicate rather
+  than logging tickets (checked). Probe of 1,500 forged-ticket requests past the edge zone:
+  before, 622 error-log lines quoted the ticket; after, none, with all 1,500 access entries
+  redacted. The nginx container must still be recreated on deploy (D-13).
 
 ## 13. Follow-ups
 
 - **FU-1.** Measure backend-web saturation under concurrent large downloads on staging. If
-  needed, move `/api/files` to a dedicated uvicorn process or add HTTP Range support.
+  needed, move `/api/files` to a dedicated uvicorn process. HTTP Range support landed in D-18.
 - **FU-2.** Research export F-12, F-13 and F-14 of the 2026-10-05 audit (notification failure
   marks ready jobs failed; authority checked only at request; a timeout leaves the job running).
   Their planned dossier `2026-10-05-research-export-delivery` was never created.
@@ -589,11 +627,11 @@ The edits:
   bytes: a leaked ticket can open about 900 streams in 15 minutes. Consider a per-ticket
   concurrency cap (Redis INCR/DECR released with the stream), a byte budget, and `limit_conn` on
   the location.
-- **FU-6 (security F5, plausible).** On Starlette's `ClientDisconnect` path the `BackgroundTask`
+- **FU-6 (security F5, plausible). Resolved by D-16.** On Starlette's `ClientDisconnect` path the `BackgroundTask`
   is skipped and the iterator is not `aclose()`d, so a connection can wait for GC. Add a
   disconnect test against a real uvicorn, or release in a `StreamingResponse` subclass's
   `finally`.
-- **FU-7 (security H3).** The nginx `error_log` prints the request line, ticket included, for
+- **FU-7 (security H3). Resolved by D-20.** The nginx `error_log` prints the request line, ticket included, for
   limit_req rejections and upstream errors. The access-log redaction does not cover it.
 - **FU-8 (security H1, hardening).**
   - Derive the ticket key with HKDF from the seed instead of prefixing messages with the raw
