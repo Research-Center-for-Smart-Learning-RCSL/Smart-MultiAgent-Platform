@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope } from 'vue'
 
+import { ApiError } from '@shared/errors'
 import type { ExportStatus } from '../types'
 
 const mockToast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() }))
@@ -15,6 +16,8 @@ vi.mock('vue-i18n', async (importOriginal) => {
   return { ...actual, useI18n: () => ({ t: (k: string) => k }) }
 })
 vi.mock('../api', () => api)
+const downloadSpy = vi.hoisted(() => vi.fn())
+vi.mock('@shared/utils/download', () => ({ triggerDownload: downloadSpy }))
 
 import { useChatroomExport } from '../composables/useChatroomExport'
 
@@ -36,6 +39,8 @@ describe('useChatroomExport', () => {
     vi.useFakeTimers()
     api.createExport.mockReset()
     api.getExport.mockReset()
+    downloadSpy.mockReset()
+    mockToast.error.mockReset()
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -124,5 +129,42 @@ describe('useChatroomExport', () => {
     expect(exp.exportJob.value).toBeNull()
 
     scope.stop()
+  })
+
+  describe('download()', () => {
+
+    it('re-fetches the job at click time and downloads that fresh link', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/fresh.t'))
+      await exp.download()
+
+      expect(api.getExport).toHaveBeenLastCalledWith('A')
+      expect(downloadSpy).toHaveBeenCalledWith('/api/files/fresh.t')
+      scope.stop()
+    })
+
+    it('reports an expired archive instead of failing silently', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      api.getExport.mockResolvedValueOnce(status('A', 'ready', '/api/files/old.t'))
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(0)
+
+      api.getExport.mockRejectedValueOnce(
+        new ApiError({ type: 'https://smap.local/problems/not-found', title: 'Not Found', status: 404 }),
+      )
+      await exp.download()
+
+      expect(downloadSpy).not.toHaveBeenCalled()
+      expect(mockToast.error).toHaveBeenCalledWith('conversation.chatroom.exportExpired')
+      scope.stop()
+    })
   })
 })

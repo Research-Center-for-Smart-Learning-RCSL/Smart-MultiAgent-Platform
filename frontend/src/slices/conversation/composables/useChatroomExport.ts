@@ -8,6 +8,8 @@ import { useI18n } from 'vue-i18n'
 import { usePolling } from '@shared/composables'
 import { createExport, getExport, type ExportOptions } from '../api'
 import type { ExportStatus } from '../types'
+import { ApiError } from '@shared/errors'
+import { triggerDownload } from '@shared/utils/download'
 
 export function useChatroomExport(chatroomId: string) {
   const { t } = useI18n()
@@ -45,6 +47,25 @@ export function useChatroomExport(chatroomId: string) {
     }
   }
 
+  // The link in `exportJob` was minted when the job became ready and expires
+  // minutes later; fetch a fresh one at click time. The archive itself lives
+  // 24 h, after which the job is gone (404) or its object is (410 on download).
+  async function download(): Promise<void> {
+    const jobId = activeJobId.value
+    if (!jobId) return
+    try {
+      const fresh = await getExport(jobId)
+      if (fresh.status === 'ready' && fresh.url) {
+        triggerDownload(fresh.url)
+        return
+      }
+      toast.error(t('conversation.chatroom.exportExpired'))
+    } catch (err) {
+      const gone = err instanceof ApiError && (err.status === 404 || err.status === 410)
+      toast.error(t(gone ? 'conversation.chatroom.exportExpired' : 'conversation.chatroom.exportDownloadFailed'))
+    }
+  }
+
   function reset(): void {
     if (activeJobId.value) exportPoll.cancel(activeJobId.value)
     activeJobId.value = null
@@ -54,6 +75,7 @@ export function useChatroomExport(chatroomId: string) {
   return {
     exportJob,
     runExport,
+    download,
     reset,
   }
 }

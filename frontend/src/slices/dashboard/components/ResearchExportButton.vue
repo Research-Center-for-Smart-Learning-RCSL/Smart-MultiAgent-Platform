@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import SCard from '@shared/ui/SCard.vue'
 import { useToast } from '@shared/composables'
+import { ApiError } from '@shared/errors'
+import { triggerDownload } from '@shared/utils/download'
 import {
   createResearchExport,
   getResearchExportStatus,
@@ -21,12 +23,14 @@ const isExporting = ref(false)
 const exportStatus = ref<string | null>(null)
 const dateAfter = ref<string>('')
 const dateBefore = ref<string>('')
+const readyJobId = ref<string | null>(null)
 
 const canExport = computed(() => !isExporting.value)
 let abortPoll = false
 onBeforeUnmount(() => { abortPoll = true })
 
 async function startExport() {
+  readyJobId.value = null
   isExporting.value = true
   exportStatus.value = 'queued'
 
@@ -56,10 +60,12 @@ async function pollForCompletion(jobId: string) {
       exportStatus.value = status.status
 
       if (status.status === 'ready' && status.url) {
-        window.open(status.url, '_blank')
+        // No window.open here: this runs seconds after the click, outside the
+        // user gesture, so a popup blocker would swallow it. The user downloads
+        // from the button below, which fetches a fresh link.
+        readyJobId.value = jobId
         toasts.success(t('dashboard.researchExport.ready'))
         isExporting.value = false
-        isOpen.value = false
         return
       }
       if (status.status === 'failed') {
@@ -73,6 +79,22 @@ async function pollForCompletion(jobId: string) {
   }
   toasts.error(t('dashboard.researchExport.timeout'))
   isExporting.value = false
+}
+
+async function downloadReady() {
+  const jobId = readyJobId.value
+  if (!jobId) return
+  try {
+    const status = await getResearchExportStatus(jobId)
+    if (status.status === 'ready' && status.url) {
+      triggerDownload(status.url)
+      return
+    }
+    toasts.error(t('dashboard.researchExport.expired'))
+  } catch (err) {
+    const gone = err instanceof ApiError && (err.status === 404 || err.status === 410)
+    toasts.error(t(gone ? 'dashboard.researchExport.expired' : 'dashboard.researchExport.error'))
+  }
 }
 
 function closeDialog() {
@@ -183,7 +205,26 @@ function closeDialog() {
             {{ t(`dashboard.researchExport.status.${exportStatus}`) }}
           </div>
 
+          <div
+            v-if="readyJobId"
+            class="mb-4 text-sm text-[var(--color-fg)]"
+          >
+            {{ t('dashboard.researchExport.status.ready') }}
+          </div>
+
           <div class="flex justify-end gap-2">
+            <button
+              v-if="readyJobId"
+              type="button"
+              data-testid="research-export-download"
+              class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium
+                     bg-[var(--color-accent)] text-white
+                     hover:opacity-90 transition-opacity"
+              @click="downloadReady"
+            >
+              <ArrowDownTrayIcon class="w-4 h-4" />
+              {{ t('dashboard.researchExport.download') }}
+            </button>
             <button
               type="button"
               class="rounded-md px-3 py-1.5 text-sm font-medium

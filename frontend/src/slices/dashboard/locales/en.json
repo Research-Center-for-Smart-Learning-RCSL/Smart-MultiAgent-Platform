@@ -34,6 +34,8 @@
       "dateBefore": "To date",
       "cancel": "Cancel",
       "export": "Export",
+      "download": "Download",
+      "expired": "This export has expired. Start a new export.",
       "ready": "Research data export is ready.",
       "error": "Research data export failed.",
       "timeout": "Export is taking longer than expected. You will be notified when it is ready.",

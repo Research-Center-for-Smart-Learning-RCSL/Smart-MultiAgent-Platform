@@ -136,6 +136,7 @@ import { ClipboardDocumentListIcon } from '@heroicons/vue/24/outline'
 import { SPageHeader, STable, SButton, SInput, SQueryError, SEmptyState } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
 import { formatDateTime } from '@shared/utils/datetime'
+import { triggerDownload } from '@shared/utils/download'
 import { useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -246,7 +247,9 @@ async function onExport(): Promise<void> {
   }
   try {
     const result = await adminApi.exportAudit(appliedFilters.value)
-    window.open(result.url, '_blank')
+    // A download, not window.open: this runs after an await, outside the click's
+    // user activation, where a popup blocker would swallow a new window.
+    triggerDownload(result.url)
   } catch {
     toast.error(t('admin.audit.exportFailed'))
   }

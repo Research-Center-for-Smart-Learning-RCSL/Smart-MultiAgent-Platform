@@ -10,6 +10,7 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
 import { guestSessionId, isGuestSession } from '@shared/transport'
 import { ApiError } from '@shared/errors'
+import { triggerDownload } from '@shared/utils/download'
 import {
   deleteMessage as apiDeleteMessage,
   getMessage,
@@ -21,6 +22,7 @@ import {
 import { renderMarkdown } from '../utils/renderMarkdown'
 import { resolveMentions, type MentionableAgent } from '../utils/mentions'
 import { mergeMessages } from '../utils/mergeMessages'
+import { INLINE_VIEWABLE_MIME } from '../utils/attachmentUrl'
 import { convKeys } from '../queries'
 import type { Attachment, DisplayMessage, Message } from '../types'
 
@@ -367,6 +369,16 @@ export function useChatroomMessages(
   // ---------- attachment download ------------------------------------------
 
   function downloadAttachment(att: Attachment): void {
+    // Types the server serves as attachments are saved in place; only viewable
+    // ones need a tab, which must be opened inside the click to dodge the
+    // popup blocker.
+    const baseMime = (att.mime.split(';', 1)[0] ?? '').trim().toLowerCase()
+    if (!INLINE_VIEWABLE_MIME.has(baseMime)) {
+      getAttachment(att.id)
+        .then((dl) => triggerDownload(dl.url))
+        .catch(() => toast.error(t('conversation.chatroom.attachmentFailed')))
+      return
+    }
     const win = window.open('about:blank', '_blank')
     getAttachment(att.id)
       .then((dl) => {

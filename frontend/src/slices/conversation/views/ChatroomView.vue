@@ -450,6 +450,7 @@
       :job="exportJob"
       @close="exportOpen = false"
       @submit="onExportSubmit"
+      @download="downloadExport"
     />
 
     <ObservationReleaseDialog
@@ -1113,7 +1114,7 @@ const {
 const { streamingEntries } = useAgentStreams(chatroomId)
 
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
-const { exportJob, runExport, reset: resetExport } = useChatroomExport(chatroomId)
+const { exportJob, runExport, download: downloadExport, reset: resetExport } = useChatroomExport(chatroomId)
 const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
 
 // One ordered feed. 07-conversation.md:988 places an approval card "at the

@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables/useToast'
+import { triggerDownload } from '@shared/utils/download'
 
 // Excalidraw API shape (React-in-Vue bridge has inherently weak typing)
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -21,17 +22,6 @@ function buildFilename(chatroomName: string, ext: string): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
   return `canvas-${safe}-${ts}.${ext}`
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 export function useCanvasExport(

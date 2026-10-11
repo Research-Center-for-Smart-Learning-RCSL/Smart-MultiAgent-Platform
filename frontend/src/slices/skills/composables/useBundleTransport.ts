@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 
 import { useToast } from '@shared/composables'
 import { isProblemWithType } from '@shared/transport'
+import { triggerDownload } from '@shared/utils/download'
 
 import {
   skillsKeys,
@@ -112,18 +113,6 @@ export function useBundleTransport(scope: SkillScopeRef) {
       }
     },
   )
-
-  function triggerDownload(url: string): void {
-    // The presigned URL carries a content-disposition attachment header, so navigating to
-    // it downloads the .zip rather than replacing the page. The anchor must be attached to
-    // the document before click() — Firefox ignores a click on a detached anchor.
-    const a = document.createElement('a')
-    a.href = url
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
 
   async function importFile(file: File): Promise<void> {
     try {

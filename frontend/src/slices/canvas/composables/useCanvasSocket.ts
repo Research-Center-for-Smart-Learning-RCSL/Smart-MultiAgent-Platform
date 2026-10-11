@@ -47,8 +47,10 @@ export function useCanvasSocket(chatroomId: Ref<string>, getExcalidrawApi?: () =
         const url = data.url as string
         const mimeType = (data.mimeType as string) || 'image/png'
 
+        // `url` is an absolute same-origin path (`/api/files/...`); the shared
+        // instance's '/api' baseURL would otherwise be prefixed onto it.
         http
-          .get<Blob>(url, { responseType: 'blob' })
+          .get<Blob>(url, { baseURL: '', responseType: 'blob' })
           .then(({ data: blob }) => {
             const reader = new FileReader()
             reader.onload = () => {

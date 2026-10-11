@@ -207,6 +207,8 @@ export interface Attachment {
 
 export interface AttachmentDownload extends Attachment {
   url: string
+  /** Seconds the link stays valid. */
+  expires_in: number
 }
 
 export interface SearchHit {
