@@ -1182,4 +1182,5 @@ running, so those messages do not count toward the next trigger. FU-8 is open.
   `corpus_revision` 2, `built_corpus_revision` 1, the `:2` result key at TTL 3455 s and
   falling, and the second document absent from the graph until a manual rebuild. Its
   docstring's premise ("the target revision was never built and its job id has never been
-  used") does not hold when the job ran and failed busy. Needs its own bugfix dossier.
+  used") does not hold when the job ran and failed busy. Specified as
+  `2026-10-12-graph-build-busy-retry`.
