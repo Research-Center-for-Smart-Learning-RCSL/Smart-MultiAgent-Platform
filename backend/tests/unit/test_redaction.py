@@ -67,3 +67,11 @@ def test_depth_cap() -> None:
         cur = cur["a"]
     out = redact(nested)
     assert out  # does not blow up
+
+
+def test_file_download_ticket_is_masked_in_access_lines() -> None:
+    """uvicorn's access line carries the path; the ticket in it is a bearer credential."""
+    line = '10.0.0.1:5 - "GET /api/files/eyJ2IjoxfQ.AAE_x-yz HTTP/1.1" 200'
+    out = redact({"msg": line})["msg"]
+    assert "eyJ2IjoxfQ" not in out
+    assert "/api/files/***" in out

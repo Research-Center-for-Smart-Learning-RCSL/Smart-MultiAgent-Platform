@@ -41,6 +41,9 @@ _SECRET_VALUE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"hvs\.[A-Za-z0-9._\-]{20,}"),  # Vault service token (1.10+)
     re.compile(r"\bs\.[A-Za-z0-9]{24,}"),  # Vault legacy token
     re.compile(r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]+?-----END [A-Z ]+ PRIVATE KEY-----"),
+    # A file-download ticket is a bearer credential carried in the path, so it
+    # reaches uvicorn's access log ([R19a.14]).
+    re.compile(r"(?<=/api/files/)[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"),
 )
 
 _MASK: Final = "***"
