@@ -21,7 +21,6 @@ import json
 import logging
 import re
 import time
-import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
@@ -99,7 +98,7 @@ from contexts.skills.domain.models import SkillRead
 from contexts.skills.interfaces.facade import BoundSet, DroppedSkill, SkillsFacade
 from shared_kernel import audit
 from shared_kernel.db.faults import is_infrastructure_error
-from shared_kernel.labels import MAX_GUEST_LABEL
+from shared_kernel.labels import LABEL_DELIMITERS, MAX_GUEST_LABEL, has_visible_character, strip_hidden
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.distributed_lock import LockHandle
 from shared_kernel.realtime.pubsub import Publisher
@@ -437,12 +436,6 @@ def _participant_note(owner_label: str | None) -> str:
 _PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER)
 
 
-_LABEL_DELIMITERS = str.maketrans("", "", '"[]')
-
-# As `shared_kernel.labels._KEEP`: format characters that live inside an emoji.
-_EMOJI_JOINERS = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
-
-
 def _one_line_label(label: str) -> str:
     """Reduce a participant label to text that cannot punctuate its container.
 
@@ -457,27 +450,22 @@ def _one_line_label(label: str) -> str:
     rare, and an escape sequence in the middle of a name is its own kind of
     confusion.
 
-    Control and format characters other than the emoji joiners go too (a
-    right-to-left override makes a name read as something it is not), after
-    whitespace is spared so a line break still collapses to a space.
+    The characters the source rule strips go too (a right-to-left override makes
+    a name read as something it is not), sparing whitespace so a line break still
+    collapses to a space.
 
     Applies to every model-facing label. Human and agent names are normalised at
     the source, but rows written before that guard existed are still in the
     database, so the render site cannot assume it.
     """
-    visible = "".join(
-        ch
-        for ch in label
-        if ch.isspace() or ch in _EMOJI_JOINERS or not unicodedata.category(ch).startswith("C")
-    )
-    return " ".join(visible.translate(_LABEL_DELIMITERS).split())
+    return " ".join(strip_hidden(label).translate(LABEL_DELIMITERS).split())
 
 
 def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
-    """An agent's turn prefix. The id stands in for a missing or blank name so two
-    unnamed agents do not read as one speaker; a turn with no prefix at all could
-    open with `_ROOM_NOTICE_MARKER` itself."""
-    if name:
+    """An agent's turn prefix. The id stands in for a missing or blank-looking name
+    so two unnamed agents do not read as one speaker; a turn with no visible prefix
+    could open with `_ROOM_NOTICE_MARKER` itself."""
+    if name and has_visible_character(name):
         return name
     return f"{_AGENT_LABEL_FALLBACK} {agent_id.hex[:8]}" if agent_id else _AGENT_LABEL_FALLBACK
 
@@ -492,7 +480,7 @@ def _first_label(*candidates: str | None) -> str | None:
     """
     for candidate in candidates:
         label = _one_line_label(candidate) if candidate else ""
-        if label:
+        if has_visible_character(label):
             return label
     return None
 
@@ -3670,10 +3658,10 @@ class TurnEngine:
         session). Agents resolve to their configured name.
         """
         agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
-        # Through the same guard as the human labels. An agent name is free text
-        # bounded only by length (`AgentCreateIn.name`), and `_provider_message`
-        # interpolates it into the same "Name: message" prefix, so a name carrying
-        # a newline opens a line that reads as another participant's turn.
+        # Through the same guard as the human labels. `AgentCreateIn.name` now
+        # normalises at the source, but agents saved before that can still carry
+        # a newline, which in the "Name: message" prefix `_provider_message`
+        # builds opens a line that reads as another participant's turn.
         agent_names = {
             aid: _one_line_label(name)
             for aid, name in (await AgentRepository(self._db).names_for_ids(list(agent_ids))).items()

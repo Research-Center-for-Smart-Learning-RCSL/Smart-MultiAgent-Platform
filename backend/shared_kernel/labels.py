@@ -52,6 +52,11 @@ _IGNORABLE: Final = regex.compile(r"\p{Default_Ignorable_Code_Point}")
 # kept inside a name and only does not count as the visible part of one.
 _BLANK_GLYPH: Final = "\u2800"  # BRAILLE PATTERN BLANK
 
+#: Characters a model-facing label drops because the containers it is rendered
+#: into use them: ``"`` quotes a name in the owner note and the activity legend,
+#: ``[]`` spell the platform's room notice marker. For ``str.translate``.
+LABEL_DELIMITERS: Final = str.maketrans("", "", '"[]')
+
 #: Account display names (``users.display_name``).
 MAX_DISPLAY_NAME: Final = 50
 
@@ -70,13 +75,26 @@ def normalise_label(raw: str | None, *, max_len: int) -> str | None:
     """
     if raw is None:
         return None
-    cleaned = "".join(
-        ch
-        for ch in raw
-        if ch in _KEEP or ch == " " or not (unicodedata.category(ch).startswith("C") or _IGNORABLE.match(ch))
-    )
+    cleaned = "".join(ch for ch in raw if ch == " " or not _is_hidden(ch))
     cleaned = _truncate_graphemes(cleaned.strip(), max_len).strip()
     return cleaned if has_visible_character(cleaned) else None
+
+
+def strip_hidden(text: str) -> str:
+    """``text`` without the characters ``normalise_label`` strips, whitespace aside.
+
+    For render sites that collapse whitespace themselves (a line break becomes a
+    space there, where ``normalise_label`` drops it), applied to rows stored
+    before the source rule existed.
+    """
+    return "".join(ch for ch in text if ch.isspace() or not _is_hidden(ch))
+
+
+def _is_hidden(ch: str) -> bool:
+    """Control, format and default-ignorable, except the emoji joiners."""
+    if ch in _KEEP:
+        return False
+    return unicodedata.category(ch).startswith("C") or _IGNORABLE.match(ch) is not None
 
 
 def has_visible_character(text: str) -> bool:
@@ -113,4 +131,11 @@ def _truncate_graphemes(text: str, max_len: int) -> str:
     return text[: kept or 1]
 
 
-__all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "has_visible_character", "normalise_label"]
+__all__ = [
+    "LABEL_DELIMITERS",
+    "MAX_DISPLAY_NAME",
+    "MAX_GUEST_LABEL",
+    "has_visible_character",
+    "normalise_label",
+    "strip_hidden",
+]

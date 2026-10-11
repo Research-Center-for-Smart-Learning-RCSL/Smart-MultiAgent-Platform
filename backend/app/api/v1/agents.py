@@ -49,7 +49,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
-from shared_kernel.labels import has_visible_character, normalise_label
+from shared_kernel.labels import LABEL_DELIMITERS, has_visible_character, normalise_label
 from shared_kernel.type_guards import is_plain_int
 from shared_kernel.validation import BoundedConfig
 
@@ -268,16 +268,13 @@ def _validate_workflow_capabilities(value: dict[str, Any] | None) -> dict[str, A
 
 _MAX_AGENT_NAME = 200
 
-# What the model-facing label drops besides whitespace (`turn_engine._one_line_label`).
-_LABEL_DELIMITERS = str.maketrans("", "", '"[]')
-
 
 def _normalise_agent_name(value: str) -> str:
     """An agent's name labels its turns in other agents' context, so it gets the
     human label rule, and must still say something once the label's delimiters
     are dropped: a name of only quotes reached the model as no speaker at all."""
     name = normalise_label(value, max_len=_MAX_AGENT_NAME)
-    if name is None or not has_visible_character(name.translate(_LABEL_DELIMITERS)):
+    if name is None or not has_visible_character(name.translate(LABEL_DELIMITERS)):
         raise ValueError("name must contain a visible character")
     return name
 
