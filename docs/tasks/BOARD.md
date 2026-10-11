@@ -13,6 +13,15 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### From the 2026-10-12 GraphRAG blueprint close-out
+
+- `2026-10-12-graph-build-busy-retry` (bugfix, draft, no SRS Delta) - `depends_on: []`.
+  Blueprint FU-10, observed live. A Knowledge Map or Concept Map build job that finds the
+  config's lock held fails `GraphRagBuildBusy` unretried. For a Knowledge Map, the
+  follow-up build for that revision then collides with the failed job's retained arq
+  result, leaving a document uploaded mid-build out of the graph for up to an hour. Fix:
+  arq `Retry` with a budget covering the build timeout.
+
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
