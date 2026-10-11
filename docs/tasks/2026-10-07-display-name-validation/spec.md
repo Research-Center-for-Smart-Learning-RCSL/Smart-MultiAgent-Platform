@@ -223,6 +223,31 @@ Appended by /build.
   - `test_a_human_label_that_draws_nothing_once_one_lined_falls_through`
 
   Both fail against the first build.
+- **D-6. `/code-review` fixes on PR #250 (requester's choice: findings 2+10, 6, 7, 9).**
+  - **Agent form (findings 2, 10).** The agent form sends the stored name on every save
+    (`AgentDetailView.vue`, `agentsApi.patch`), so an agent named before the server rule
+    answered a bare 422 to any edit. The form now refines its name with
+    `isUsableModelLabel` and shows `agents.form.nameInvalid` before any request is made.
+    The rule lives in `frontend/src/shared/utils/labels.ts`, and `guestName.ts` now
+    re-exports it. This resolves FU-3.
+  - **One rule definition (finding 6).** `shared_kernel.labels.one_line_label` is now the
+    only definition of the model-facing one-line rule. `_one_line_label` delegates to it,
+    and the agent-name check measures against it, so source and render cannot drift.
+    `strip_hidden` and the public `LABEL_DELIMITERS` from D-5 are folded into it.
+  - **Raw-text visibility (finding 7).** `has_visible_character` also discounts the
+    characters `normalise_label` strips, so it holds on raw text.
+  - **Migration pre-filter (finding 9).** Migration `0101` selects only rows with no ASCII
+    letter or digit, because those are the only ones that can be blank. PostgreSQL bracket
+    ranges compare code points; this was checked under `en_US.utf8`, where `é`, `Ａ` and `ß`
+    do not match. The db test seeds CJK and emoji names that pass the filter and must be
+    kept.
+  - **Dismissed:**
+    - 1: clearing on profile update is §7.1's design, as for whitespace before.
+    - 3: a removed line break matches the human rule pinned by
+      `test_label_normalisation.py::TestIdentityKeepsItsOwnCap`.
+    - 5: already FU-1.
+    - 8: a name of 50 blank cells and then text is an edge case.
+    - 4 is FU-9.
 
 ## 14. Follow-ups
 
@@ -231,7 +256,7 @@ Appended by /build.
   the visible-character rule; teacher-authored, so lower risk.
 - **FU-2.** Combining marks per base character are not limited (the audit's refuted Zalgo
   candidate); a cap would stop visual spill without affecting real scripts much.
-- **FU-3.** The agent form validates the name with `z.string().trim().min(1)`
+- **FU-3.** (Resolved by D-6.) The agent form validates the name with `z.string().trim().min(1)`
   (`frontend/src/slices/agents/types/schemas.ts:19, 82, 102, 114`). A name the server now
   refuses (D-2, or a name of only fillers) surfaces as the form's generic error instead of
   a field message. The fix is to mirror the rule there, as `guestName.ts` does for guests.
@@ -263,3 +288,8 @@ Appended by /build.
   than going through `AgentsFacade` (`app/api/v1/agents.py`, pre-existing, quality audit).
   The agent-name rule lives in the request models. If agent names gain a non-HTTP writer,
   it belongs in the agents application layer.
+- **FU-9.** The fallback `Agent <8 hex>` is plain text that another agent can take as
+  its name (`/code-review` finding 4), so the fallback does not fully guarantee Q-3's
+  "two unnamed agents apart" against a deliberate imitator. Labels are not authentication
+  ([R13.33]). Reserving the form at the source, by refusing names matching
+  `Agent [0-9a-f]{8}`, would close it.
