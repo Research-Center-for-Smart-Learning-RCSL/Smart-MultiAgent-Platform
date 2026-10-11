@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-11
 requirements: [R13.10, R13.11a, R13.17, R13.71, R31.21, R33.10]
 depends_on: []

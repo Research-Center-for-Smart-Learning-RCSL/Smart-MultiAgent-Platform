@@ -505,7 +505,7 @@ rows are added as each is written.
 `docs/audits/2026-10-11-chat-and-research-export/findings.md` spawned three bugfix dossiers;
 rows are added as each is written.
 
-- `2026-10-11-browser-file-delivery` (bugfix, **approved 2026-10-11**, SRS Delta applied:
+- (moved to In progress on 2026-10-11, base `35db940c`) `2026-10-11-browser-file-delivery` (bugfix, **approved 2026-10-11**, SRS Delta applied:
   [R19a.14] added, five presigned/24 h statements reworded) - `depends_on: []`. F-1, F-2 and F-7,
   plus the same root cause in every other browser file path: research export, admin audit
   CSV, skill bundles, attachments and canvas images. Every one of them returns a
@@ -739,6 +739,8 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-11-browser-file-delivery` (bugfix, in-progress since 2026-10-11 on branch `fix/browser-file-delivery`, base `35db940c`).
 
 - (implemented 2026-10-07) `2026-10-07-google-display-name-normalisation`. AC-1..AC-6
   verified on PR #244 (CI green at `53767bf0`, after the D-4 review fixes; the
