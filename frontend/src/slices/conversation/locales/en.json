@@ -198,6 +198,8 @@
       "exportJobFailedDetail": "Unable to generate the archive.",
       "exportRangeInvalid": "The end date cannot be before the start date.",
       "exportInvalid": "Check the export options and try again.",
+      "exportIncludeAttachments": "Include attachments",
+      "exportTooLargeForPdf": "This range has {count} messages, and a PDF export is limited to {limit}. Choose a shorter date range or another format.",
       "retry": "Retry",
       "copied": "Copied to clipboard.",
       "copyFailed": "Failed to copy.",

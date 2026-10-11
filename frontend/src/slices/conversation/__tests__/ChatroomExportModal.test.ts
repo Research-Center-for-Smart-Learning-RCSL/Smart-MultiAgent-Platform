@@ -41,7 +41,13 @@ describe('ChatroomExportModal', () => {
     expect(submitButton(w).attributes('disabled')).toBeUndefined()
     await submitButton(w).trigger('click')
     expect(w.emitted('submit')?.[0]).toEqual([
-      { format: 'markdown', date_range: 'custom', start: '2026-10-11', end: '2026-10-12' },
+      {
+        format: 'markdown',
+        date_range: 'custom',
+        start: '2026-10-11',
+        end: '2026-10-12',
+        include_attachments: true,
+      },
     ])
     w.unmount()
   })
@@ -56,7 +62,7 @@ describe('ChatroomExportModal', () => {
     const w = mountModal({ kind: 'idle' })
     await chooseCustomRange(w, '2026-10-01', '2026-10-05')
     await w.setProps({ phase: { kind: 'starting' } })
-    await w.setProps({ phase: { kind: 'invalid', field: null } })
+    await w.setProps({ phase: { kind: 'invalid', field: null, pdf: null } })
 
     const dates = w.findAll('input[type="date"]')
     expect((dates[0]!.element as HTMLInputElement).value).toBe('2026-10-01')
@@ -73,7 +79,7 @@ describe('ChatroomExportModal', () => {
   it('marks the date field a 422 names', async () => {
     const w = mountModal({ kind: 'idle' })
     await chooseCustomRange(w, '2026-10-01', '2026-10-05')
-    await w.setProps({ phase: { kind: 'invalid', field: 'end' } })
+    await w.setProps({ phase: { kind: 'invalid', field: 'end', pdf: null } })
     const end = w.findAll('input[type="date"]')[1]!
     expect(end.attributes('aria-invalid')).toBe('true')
     expect(submitButton(w).attributes('disabled')).toBeDefined()
@@ -139,6 +145,33 @@ describe('ChatroomExportModal', () => {
     const dates = w.findAll('input[type="date"]')
     expect((dates[0]!.element as HTMLInputElement).value).toBe('2026-09-01')
     expect((dates[1]!.element as HTMLInputElement).value).toBe('2026-09-30')
+    w.unmount()
+  })
+
+  it('includes attachments by default, and sends the choice', async () => {
+    const w = mountModal({ kind: 'idle' })
+    const box = w.get('[data-testid="export-include-attachments"] input[type="checkbox"]')
+    expect((box.element as HTMLInputElement).checked).toBe(true)
+    await submitButton(w).trigger('click')
+    await box.trigger('change')
+    expect((box.element as HTMLInputElement).checked).toBe(false)
+    await submitButton(w).trigger('click')
+    const sent = w.emitted('submit')!.map(([opts]) => (opts as { include_attachments: boolean }).include_attachments)
+    expect(sent).toEqual([true, false])
+    w.unmount()
+  })
+
+  it('shows the count when a PDF is too large, and suggests a way out', async () => {
+    const w = mountModal({ kind: 'idle' })
+    await w.get('#export-fmt-pdf').setValue(true)
+    await w.setProps({ phase: { kind: 'invalid', field: null, pdf: { count: 7200, limit: 5000 } } })
+    expect(w.text()).toContain('7200')
+    expect(w.text()).toContain('5000')
+    expect(w.text()).toContain('shorter date range or another format')
+    // Switching format is the fix, so it clears the message and submit stays usable.
+    expect(submitButton(w).attributes('disabled')).toBeUndefined()
+    await w.get('#export-fmt-markdown').setValue(true)
+    expect(w.text()).not.toContain('7200')
     w.unmount()
   })
 })

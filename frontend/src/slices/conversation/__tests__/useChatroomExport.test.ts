@@ -245,7 +245,7 @@ describe('useChatroomExport', () => {
       )
       await exp.runExport({ date_range: 'custom', start: '2026-10-11', end: '2026-10-01' })
 
-      expect(exp.phase.value).toEqual({ kind: 'invalid', field: null })
+      expect(exp.phase.value).toEqual({ kind: 'invalid', field: null, pdf: null })
       expect(mockToast.error).not.toHaveBeenCalled()
       scope.stop()
     })
@@ -298,7 +298,7 @@ describe('useChatroomExport', () => {
         }),
       )
       await exp.runExport()
-      expect(exp.phase.value).toEqual({ kind: 'invalid', field: null })
+      expect(exp.phase.value).toEqual({ kind: 'invalid', field: null, pdf: null })
       scope.stop()
     })
 
@@ -314,7 +314,50 @@ describe('useChatroomExport', () => {
         }),
       )
       await exp.runExport({ date_range: 'custom', start: '2026-10-01', end: 'x' })
-      expect(exp.phase.value).toEqual({ kind: 'invalid', field: 'end' })
+      expect(exp.phase.value).toEqual({ kind: 'invalid', field: 'end', pdf: null })
+      scope.stop()
+    })
+  })
+
+  describe('archive-content create errors (Q-4, Q-6)', () => {
+    it('a 409 for an export already in progress follows that job instead of failing', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockRejectedValueOnce(
+        new ApiError({
+          type: 'https://smap.local/problems/conversation/export-in-progress',
+          title: 'x',
+          status: 409,
+          job_id: 'RUNNING',
+        }),
+      )
+      api.getExport.mockResolvedValue(status('RUNNING', 'ready', '/api/files/r.t'))
+      await exp.runExport({ format: 'json' })
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(api.getExport).toHaveBeenCalledWith('RUNNING')
+      expect(exp.phase.value).toEqual({ kind: 'ready', jobId: 'RUNNING' })
+      scope.stop()
+    })
+
+    it('a PDF too large for the cap is an input error carrying the count', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockRejectedValueOnce(
+        new ValidationError({
+          type: 'https://smap.local/problems/conversation/export-too-large-for-pdf',
+          title: 'x',
+          status: 422,
+          message_count: 7200,
+          limit: 5000,
+        }),
+      )
+      await exp.runExport({ format: 'pdf' })
+      expect(exp.phase.value).toEqual({
+        kind: 'invalid',
+        field: null,
+        pdf: { count: 7200, limit: 5000 },
+      })
       scope.stop()
     })
   })

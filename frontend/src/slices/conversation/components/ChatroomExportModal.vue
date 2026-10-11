@@ -152,6 +152,14 @@
         </SFormField>
       </div>
 
+      <SCheckbox
+        v-model="includeAttachments"
+        class="export-form__attachments"
+        data-testid="export-include-attachments"
+      >
+        {{ t('conversation.chatroom.exportIncludeAttachments') }}
+      </SCheckbox>
+
       <p
         v-if="formError"
         class="export-form__error"
@@ -208,6 +216,7 @@ import {
   SFormField,
   SProgressBar,
   SLoadingSpinner,
+  SCheckbox,
 } from '@shared/ui'
 import type { ExportOptions } from '../api'
 import type { ExportPhase } from '../composables/useChatroomExport'
@@ -237,6 +246,8 @@ const format = ref<NonNullable<ExportOptions['format']>>('markdown')
 const dateRange = ref<NonNullable<ExportOptions['date_range']>>('all')
 const start = ref('')
 const end = ref('')
+// [R13.17]: the export carries its attachments unless the user opts out.
+const includeAttachments = ref(true)
 
 const formatOptions = computed(() => [
   { value: 'markdown', label: t('conversation.chatroom.formatMarkdown') },
@@ -263,15 +274,16 @@ const rangeReversed = computed(
 )
 
 // A server 422 stays on screen until the user changes the input.
-const serverInvalid = ref<{ field: 'start' | 'end' | null } | null>(null)
+type ServerInvalid = Extract<ExportPhase, { kind: 'invalid' }>
+const serverInvalid = ref<Pick<ServerInvalid, 'field' | 'pdf'> | null>(null)
 watch(
   () => props.phase,
   (p) => {
-    serverInvalid.value = p.kind === 'invalid' ? { field: p.field } : null
+    serverInvalid.value = p.kind === 'invalid' ? { field: p.field, pdf: p.pdf } : null
   },
   { immediate: true },
 )
-watch([format, dateRange, start, end], () => {
+watch([format, dateRange, start, end, includeAttachments], () => {
   serverInvalid.value = null
 })
 
@@ -283,11 +295,13 @@ const endError = computed(() => {
 const startError = computed(() =>
   serverInvalid.value?.field === 'start' ? t('conversation.chatroom.exportInvalid') : '',
 )
-const formError = computed(() =>
-  serverInvalid.value && serverInvalid.value.field === null
-    ? t('conversation.chatroom.exportInvalid')
-    : '',
-)
+const formError = computed(() => {
+  const invalid = serverInvalid.value
+  if (!invalid || invalid.field !== null) return ''
+  return invalid.pdf
+    ? t('conversation.chatroom.exportTooLargeForPdf', { count: invalid.pdf.count, limit: invalid.pdf.limit })
+    : t('conversation.chatroom.exportInvalid')
+})
 
 // A 422 that names a date blocks submit until that input changes. One that
 // names nothing the user can edit only explains itself; locking the button
@@ -302,7 +316,11 @@ const canSubmit = computed(
 
 function submit(): void {
   if (!canSubmit.value) return
-  const opts: ExportOptions = { format: format.value, date_range: dateRange.value }
+  const opts: ExportOptions = {
+    format: format.value,
+    date_range: dateRange.value,
+    include_attachments: includeAttachments.value,
+  }
   if (dateRange.value === 'custom') {
     opts.start = start.value
     opts.end = end.value
@@ -366,6 +384,10 @@ function submit(): void {
 .export-state__title {
   font-size: var(--font-size-sm);
   color: var(--color-fg);
+}
+
+.export-form__attachments {
+  margin-top: var(--space-3);
 }
 
 .export-form__error {

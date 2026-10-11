@@ -22,7 +22,8 @@ export type ExportPhase =
   | { kind: 'ready'; jobId: string }
   | { kind: 'start-failed'; opts: ExportOptions }
   | { kind: 'job-failed' }
-  | { kind: 'invalid'; field: 'start' | 'end' | null }
+  // `pdf`: the window holds more messages than a PDF export allows.
+  | { kind: 'invalid'; field: 'start' | 'end' | null; pdf: { count: number; limit: number } | null }
 
 // About 12 minutes, enough for the worker's 600-second timeout plus queue
 // wait: 3 s for the first minute, 6 s to minute 4, then 10 s.
@@ -35,6 +36,26 @@ function pollDelay(attempt: number): number {
 
 // Status responses that cannot change on retry: the job is gone or not ours.
 const FATAL_STATUS = new Set([403, 404, 410])
+
+function problemSlug(e: ApiError): string {
+  return e.type.split('/problems/').pop() ?? ''
+}
+
+function pdfLimit(e: ValidationError): { count: number; limit: number } | null {
+  const { message_count: count, limit } = e.extra
+  return problemSlug(e) === 'conversation/export-too-large-for-pdf' &&
+    typeof count === 'number' &&
+    typeof limit === 'number'
+    ? { count, limit }
+    : null
+}
+
+// The one active export this user already has in the room (409).
+function runningJob(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null
+  if (problemSlug(e) !== 'conversation/export-in-progress') return null
+  return typeof e.extra.job_id === 'string' ? e.extra.job_id : null
+}
 
 // Only body errors are about the form's inputs (see ValidationFieldError).
 function invalidField(error: ValidationError): 'start' | 'end' | null {
@@ -112,9 +133,17 @@ export function useChatroomExport(chatroomId: string) {
       poll(job_id)
     } catch (e) {
       if (token !== requestToken) return
+      const running = runningJob(e)
+      if (running) {
+        // The server allows one export per room at a time; follow that one.
+        activeJobId = running
+        phase.value = { kind: 'running', jobId: running }
+        poll(running)
+        return
+      }
       phase.value =
         e instanceof ValidationError
-          ? { kind: 'invalid', field: invalidField(e) }
+          ? { kind: 'invalid', field: invalidField(e), pdf: pdfLimit(e) }
           : { kind: 'start-failed', opts }
     }
   }

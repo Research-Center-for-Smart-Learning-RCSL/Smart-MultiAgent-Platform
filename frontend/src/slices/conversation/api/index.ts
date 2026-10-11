@@ -540,6 +540,8 @@ export interface ExportOptions {
   date_range?: 'all' | 'last_7_days' | 'last_30_days' | 'custom'
   start?: string
   end?: string
+  /** A ZIP with an `attachments/` folder; the server defaults to true. */
+  include_attachments?: boolean
 }
 
 export async function createExport(
