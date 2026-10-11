@@ -25,20 +25,28 @@ describe('useCanvasSocket canvas.image_added', () => {
     get.mockReset()
   })
 
-  it('fetches the image link as an absolute same-origin path, not under the /api base', async () => {
-    get.mockResolvedValue({ data: new Blob(['x'], { type: 'image/png' }) })
+  it('mints its own image link, then fetches it as an absolute same-origin path', async () => {
+    get.mockImplementation(async (url: string) =>
+      url.endsWith('/link')
+        ? { data: { url: '/api/files/abc.def' } }
+        : { data: new Blob(['x'], { type: 'image/png' }) },
+    )
     const addFiles = vi.fn()
     const scope = effectScope()
     scope.run(() => useCanvasSocket(ref('room-1'), () => ({ addFiles })))
 
-    handlers.get('canvas.image_added')?.({ fileId: 'f1', url: '/api/files/abc.def', mimeType: 'image/png' })
+    // A room-wide broadcast: a shared link would hit its per-link stream cap.
+    handlers.get('canvas.image_added')?.({ fileId: 'f1', mimeType: 'image/png' })
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
 
-    expect(get).toHaveBeenCalledOnce()
-    const [url, config] = get.mock.calls[0]
+    expect(get.mock.calls[0][0]).toBe('/chatrooms/room-1/canvas/images/f1/link')
+    const [url, config] = get.mock.calls[1]
     expect(url).toBe('/api/files/abc.def')
     // The shared instance's baseURL is '/api'; without this override axios
     // requests /api/api/files/... (browser-file-delivery §5).
     expect(config).toMatchObject({ baseURL: '', responseType: 'blob' })
+    await vi.waitFor(() => expect(addFiles).toHaveBeenCalledOnce())
+    expect(addFiles.mock.calls[0][0][0]).toMatchObject({ id: 'f1', mimeType: 'image/png' })
     scope.stop()
   })
 })

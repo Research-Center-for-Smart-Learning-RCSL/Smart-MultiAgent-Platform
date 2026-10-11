@@ -131,6 +131,7 @@ export type { BundleExportStatusOut } from './models/BundleExportStatusOut';
 export type { BundleImportStatusOut } from './models/BundleImportStatusOut';
 export type { BundleJobOut } from './models/BundleJobOut';
 export type { BundleJobStatus } from './models/BundleJobStatus';
+export type { CanvasImageLinkOut } from './models/CanvasImageLinkOut';
 export type { CanvasObjectIn } from './models/CanvasObjectIn';
 export type { CanvasObjectKind } from './models/CanvasObjectKind';
 export type { CanvasObjectOut } from './models/CanvasObjectOut';
