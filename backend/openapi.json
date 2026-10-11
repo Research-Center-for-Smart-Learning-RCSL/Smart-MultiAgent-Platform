@@ -4792,6 +4792,19 @@
         "title": "BundleJobStatus",
         "type": "string"
       },
+      "CanvasImageLinkOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "CanvasImageLinkOut",
+        "type": "object"
+      },
       "CanvasObjectIn": {
         "properties": {
           "content": {
@@ -21639,6 +21652,60 @@
           }
         },
         "summary": "Upload Image",
+        "tags": [
+          "canvas"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/canvas/images/{object_id}/link": {
+      "get": {
+        "description": "A fresh link to one canvas image for the caller ([R13.71], [R19a.14]).",
+        "operationId": "get_image_link_api_chatrooms__chatroom_id__canvas_images__object_id__link_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "object_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Object Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanvasImageLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Image Link",
         "tags": [
           "canvas"
         ]

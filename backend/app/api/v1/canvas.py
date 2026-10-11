@@ -595,6 +595,9 @@ async def upload_image(
     )
 
     obj = await facade.create_object(
+        # The same id as the element's fileId, so a client holding only the
+        # broadcast can ask for its own link (`get_image_link`).
+        object_id=object_id,
         canvas_id=canvas.id,
         chatroom_id=chatroom_id,
         kind=CanvasObjectKind.IMAGE,
@@ -639,11 +642,12 @@ async def upload_image(
 
     await db.commit()
 
+    # No link in the broadcast: one bearer link shared by the whole room would
+    # hit its per-link limits in any busy room. Each client mints its own.
     await Publisher(room_channel(chatroom_id)).emit(
         "canvas.image_added",
         {
             "fileId": str(object_id),
-            "url": image_url,
             "mimeType": file.content_type or "application/octet-stream",
             "width": 400,
             "height": 300,
@@ -651,6 +655,35 @@ async def upload_image(
     )
 
     return CanvasObjectOut.from_domain(obj, image_url=image_url)
+
+
+class CanvasImageLinkOut(BaseModel):
+    url: str
+
+
+@router.get("/images/{object_id}/link")
+async def get_image_link(
+    chatroom_id: uuid.UUID,
+    object_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> CanvasImageLinkOut:
+    """A fresh link to one canvas image for the caller ([R13.71], [R19a.14])."""
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = CanvasFacade(db, room_channel_fn=room_channel)
+    canvas = await facade.get_by_chatroom(chatroom_id)
+    image = None if canvas is None else await facade.get_image(canvas_id=canvas.id, object_id=object_id)
+    if image is None or image.minio_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    minio = get_minio_client()
+    stat = await minio.stat(bucket=minio.chat_uploads_bucket, key=image.minio_path)
+    if stat is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    content_type = stat.content_type if stat.content_type in _ALLOWED_IMAGE_TYPES else None
+    return CanvasImageLinkOut(
+        url=await _image_link(key=image.minio_path, content_type=content_type or "application/octet-stream")
+    )
 
 
 # ---- Snapshots --------------------------------------------------------------
