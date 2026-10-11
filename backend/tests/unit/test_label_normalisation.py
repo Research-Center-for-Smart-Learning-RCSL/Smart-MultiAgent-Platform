@@ -73,6 +73,43 @@ class TestNormaliseLabel:
         assert len(normalise_label(long, max_len=MAX_GUEST_LABEL) or "") == MAX_GUEST_LABEL
 
 
+class TestANameNeedsAVisibleCharacter:
+    """F-7: emptiness was decided after stripping only category C, so a name made of
+    characters that draw nothing passed and rendered as an author with no name.
+    Written as escapes for the reason ``labels._KEEP`` gives."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "ㅤ",  # HANGUL FILLER
+            "ﾠ",  # HALFWIDTH HANGUL FILLER
+            "⠀",  # BRAILLE PATTERN BLANK
+            "́",  # a combining mark with nothing to combine with
+            "̣́̈",
+            "‍",  # ZERO WIDTH JOINER
+            "️",  # VARIATION SELECTOR-16
+            "‍️‍",
+            " ㅤ ⠀ ",
+            "　",  # IDEOGRAPHIC SPACE
+        ],
+    )
+    def test_a_name_that_draws_nothing_is_no_name(self, raw: str) -> None:
+        assert normalise_label(raw, max_len=MAX_GUEST_LABEL) is None
+
+    def test_a_filler_inside_a_name_is_stripped(self) -> None:
+        assert normalise_label("Alㅤice", max_len=MAX_GUEST_LABEL) == "Alice"
+
+    def test_emoji_sequences_survive(self) -> None:
+        family = "\U0001f468‍\U0001f469‍\U0001f467"
+        heart = "❤️"
+
+        assert normalise_label(family, max_len=MAX_GUEST_LABEL) == family
+        assert normalise_label(heart, max_len=MAX_GUEST_LABEL) == heart
+
+    def test_a_letter_with_its_accent_is_visible(self) -> None:
+        assert normalise_label("é", max_len=MAX_GUEST_LABEL) == "é"
+
+
 class TestTruncationKeepsWholeGraphemes:
     """F-17: the cap sliced code points, so a cut could land inside a character a
     reader sees as one -- a dangling joiner, half a flag, a letter without its

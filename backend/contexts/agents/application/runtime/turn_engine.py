@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
@@ -386,8 +387,8 @@ _PARTICIPANT_LABEL_NOTE = (
     "from them and not vouched for by the platform."
 )
 
-# Stands in for an agent whose name is missing (deleted) or one-lines to nothing:
-# an unprefixed turn could otherwise open with `_ROOM_NOTICE_MARKER` itself.
+# Stands in for an agent whose name is missing (deleted) or one-lines to nothing;
+# see `_agent_label`.
 _AGENT_LABEL_FALLBACK = "Agent"
 
 # Appended by the platform to the label of every guest identity ([R13.33]): an
@@ -438,6 +439,9 @@ _PARTICIPANT_NOTE_MEASURE = _participant_note("王" * MAX_GUEST_LABEL + GUEST_LA
 
 _LABEL_DELIMITERS = str.maketrans("", "", '"[]')
 
+# As `shared_kernel.labels._KEEP`: format characters that live inside an emoji.
+_EMOJI_JOINERS = ("‍", "️")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
+
 
 def _one_line_label(label: str) -> str:
     """Reduce a participant label to text that cannot punctuate its container.
@@ -453,12 +457,29 @@ def _one_line_label(label: str) -> str:
     rare, and an escape sequence in the middle of a name is its own kind of
     confusion.
 
-    Applies to every model-facing label. Account display names are already
-    normalised at the source and guest labels now are too, but rows written before
-    that guard existed are still in the database, so the render site cannot assume
-    it.
+    Control and format characters other than the emoji joiners go too (a
+    right-to-left override makes a name read as something it is not), after
+    whitespace is spared so a line break still collapses to a space.
+
+    Applies to every model-facing label. Human and agent names are normalised at
+    the source, but rows written before that guard existed are still in the
+    database, so the render site cannot assume it.
     """
-    return " ".join(label.translate(_LABEL_DELIMITERS).split())
+    visible = "".join(
+        ch
+        for ch in label
+        if ch.isspace() or ch in _EMOJI_JOINERS or not unicodedata.category(ch).startswith("C")
+    )
+    return " ".join(visible.translate(_LABEL_DELIMITERS).split())
+
+
+def _agent_label(agent_id: uuid.UUID | None, name: str | None) -> str:
+    """An agent's turn prefix. The id stands in for a missing or blank name so two
+    unnamed agents do not read as one speaker; a turn with no prefix at all could
+    open with `_ROOM_NOTICE_MARKER` itself."""
+    if name:
+        return name
+    return f"{_AGENT_LABEL_FALLBACK} {agent_id.hex[:8]}" if agent_id else _AGENT_LABEL_FALLBACK
 
 
 def _first_label(*candidates: str | None) -> str | None:
@@ -3827,7 +3848,7 @@ class TurnEngine:
             if hm.sender_id == running_agent_id:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
-            content = f"{label or _AGENT_LABEL_FALLBACK}: {_defang_notice_marker(hm.content)}"
+            content = f"{_agent_label(hm.sender_id, label)}: {_defang_notice_marker(hm.content)}"
             # Other agents are external actors from this agent's perspective;
             # mapping them to "user" prevents consecutive assistant turns which
             # the Anthropic and OpenAI APIs reject with a 400.

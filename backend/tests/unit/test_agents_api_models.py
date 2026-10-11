@@ -206,3 +206,27 @@ def test_create_accepts_capable_agent_with_max_alive_subagents() -> None:
 def test_patch_rejects_a_non_bool_capability_flag(cap_key: str) -> None:
     with pytest.raises(ValidationError, match=cap_key):
         AgentPatchIn(workflow_capabilities={cap_key: "true"})
+
+
+# -- display-name-validation F-8: agent names at the source --------------------
+
+_RLO = chr(0x202E)  # RIGHT-TO-LEFT OVERRIDE; built with chr for ruff PLE2502
+
+
+@pytest.mark.parametrize("name", ['"  "', "ㅤ", "   ", "[ ]", "‍"])
+def test_a_name_that_labels_nothing_is_refused(name: str) -> None:
+    """The model-facing label drops whitespace and the delimiters `"[]`, so a name
+    made only of them reached the model as no speaker at all."""
+    with pytest.raises(ValidationError):
+        _create(name=name)
+    with pytest.raises(ValidationError):
+        AgentPatchIn(name=name)
+
+
+def test_a_name_is_stored_without_format_characters() -> None:
+    assert _create(name=f"  Bob{_RLO}Teacher ").name == "BobTeacher"
+    assert AgentPatchIn(name=f"Bob{_RLO}Teacher").name == "BobTeacher"
+
+
+def test_a_patch_without_a_name_is_still_valid() -> None:
+    assert AgentPatchIn(temperature=0.5).name is None

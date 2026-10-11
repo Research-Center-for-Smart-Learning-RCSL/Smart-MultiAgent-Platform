@@ -43,6 +43,15 @@ _GRAPHEME: Final = regex.compile(r"\X")
 # differently, so no test, lint or type check would notice.
 _KEEP: Final = ("\u200d", "\ufe0f")  # ZERO WIDTH JOINER, VARIATION SELECTOR-16
 
+# Code points that render as nothing by definition (the Hangul fillers among
+# them). Outside category C, so the strip above missed them, and a name of only
+# these read to everyone else as an author with no name.
+_IGNORABLE: Final = regex.compile(r"\p{Default_Ignorable_Code_Point}")
+
+# Draws an empty cell, but is a symbol rather than default-ignorable, so it is
+# kept inside a name and only does not count as the visible part of one.
+_BLANK_GLYPH: Final = "\u2800"  # BRAILLE PATTERN BLANK
+
 #: Account display names (``users.display_name``).
 MAX_DISPLAY_NAME: Final = 50
 
@@ -52,7 +61,8 @@ MAX_GUEST_LABEL: Final = 100
 
 
 def normalise_label(raw: str | None, *, max_len: int) -> str | None:
-    """Trim and strip control/format characters; empty collapses to ``None``.
+    """Trim and strip control, format and default-ignorable characters; a name
+    with no visible character collapses to ``None``.
 
     Printable Unicode (incl. CJK and emoji) is preserved — this is user content,
     not project UI text. Length is capped defensively even where an API boundary
@@ -61,10 +71,24 @@ def normalise_label(raw: str | None, *, max_len: int) -> str | None:
     if raw is None:
         return None
     cleaned = "".join(
-        ch for ch in raw if ch in _KEEP or ch == " " or not unicodedata.category(ch).startswith("C")
+        ch
+        for ch in raw
+        if ch in _KEEP or ch == " " or not (unicodedata.category(ch).startswith("C") or _IGNORABLE.match(ch))
     )
     cleaned = _truncate_graphemes(cleaned.strip(), max_len).strip()
-    return cleaned or None
+    return cleaned if has_visible_character(cleaned) else None
+
+
+def has_visible_character(text: str) -> bool:
+    """Whether some character draws on its own: joiners, selectors and combining
+    marks only modify a neighbour, and whitespace and the blank cell draw nothing."""
+    return any(
+        not ch.isspace()
+        and ch not in _KEEP
+        and ch != _BLANK_GLYPH
+        and not unicodedata.category(ch).startswith("M")
+        for ch in text
+    )
 
 
 def _truncate_graphemes(text: str, max_len: int) -> str:
@@ -89,4 +113,4 @@ def _truncate_graphemes(text: str, max_len: int) -> str:
     return text[: kept or 1]
 
 
-__all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "normalise_label"]
+__all__ = ["MAX_DISPLAY_NAME", "MAX_GUEST_LABEL", "has_visible_character", "normalise_label"]

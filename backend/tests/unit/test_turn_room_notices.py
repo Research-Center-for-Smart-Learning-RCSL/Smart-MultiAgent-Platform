@@ -242,14 +242,15 @@ class TestOnlyThePlatformWritesTheMarker:
 
     def test_an_agent_without_a_usable_name_still_wears_a_prefix(self) -> None:
         """Code review: an agent named "[ ]" one-lines to nothing, and a deleted
-        agent resolves to no name; an unprefixed turn could open with the marker."""
+        agent resolves to no name; an unprefixed turn could open with the marker.
+        The id tells two such agents apart (display-name-validation Q-3)."""
         nameless, deleted = uuid.uuid4(), uuid.uuid4()
         for sender, names in ((nameless, {nameless: te._one_line_label("[ ]")}), (deleted, {})):
             hm = tx.HistoryMessage(
                 id=uuid.uuid4(), sender_id=sender, role="agent", content="hello", metadata={}, token_count=1
             )
             msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), names, {})
-            assert msg == {"role": "user", "content": "Agent: hello"}
+            assert msg == {"role": "user", "content": f"Agent {sender.hex[:8]}: hello"}
 
     async def test_a_notice_alone_brings_the_note(self, monkeypatch) -> None:
         """Code review: the marker's explanation rode on the participant note, which
