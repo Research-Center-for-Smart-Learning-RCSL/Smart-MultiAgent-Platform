@@ -10,9 +10,7 @@ import pytest
 
 from app.api.v1 import skills as skill_routes
 from contexts.skills.application.bundle_jobs import BundleJobStatus
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import decode
 
 
 @pytest.mark.usefixtures("ticket_signer")

@@ -8,6 +8,7 @@ export type AttachmentOut = {
     chatroom_id: (string | null);
     filename: string;
     id: string;
+    inline: boolean;
     message_id: (string | null);
     mime: string;
     scan_status: ScanStatus;

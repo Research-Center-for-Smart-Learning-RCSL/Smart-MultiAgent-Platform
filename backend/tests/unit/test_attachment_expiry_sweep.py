@@ -33,9 +33,7 @@ from contexts.conversation.domain.models import (
 )
 from shared_kernel.auth.clients import now
 from shared_kernel.storage import file_tickets
-from tests.unit.file_ticket_support import assert_browser_url, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import assert_browser_url
 
 
 class _FakeMinio:

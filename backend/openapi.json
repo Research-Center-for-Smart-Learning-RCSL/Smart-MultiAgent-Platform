@@ -3905,6 +3905,10 @@
             "title": "Id",
             "type": "string"
           },
+          "inline": {
+            "title": "Inline",
+            "type": "boolean"
+          },
           "message_id": {
             "anyOf": [
               {
@@ -3945,6 +3949,7 @@
           "size_bytes",
           "status",
           "scan_status",
+          "inline",
           "url",
           "expires_in"
         ],
@@ -3973,6 +3978,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "inline": {
+            "title": "Inline",
+            "type": "boolean"
           },
           "message_id": {
             "anyOf": [
@@ -4009,7 +4018,8 @@
           "mime",
           "size_bytes",
           "status",
-          "scan_status"
+          "scan_status",
+          "inline"
         ],
         "title": "AttachmentOut",
         "type": "object"

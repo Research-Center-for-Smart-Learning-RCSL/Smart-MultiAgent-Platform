@@ -78,6 +78,20 @@ _INLINE_SAFE_MIME = frozenset(
 )
 
 
+def serves_inline(mime: str | None) -> bool:
+    """Whether a download renders in the browser rather than saving a file.
+
+    Clients read this off the attachment (`AttachmentOut.inline`) to decide,
+    inside the click, whether to open a tab; it is the same rule the download
+    link applies, so the two cannot drift.
+    """
+    return _normalised_mime(mime) in _INLINE_SAFE_MIME
+
+
+def _normalised_mime(mime: str | None) -> str:
+    return (mime or "").split(";", 1)[0].strip().lower()
+
+
 @dataclass(frozen=True, slots=True)
 class AttachmentPointer:
     """What the router returns when a download is requested: a short-lived
@@ -292,9 +306,8 @@ class AttachmentService:
         # uploader-declared `mime` stored on the object (SEC-M2). Known-safe
         # types render inline; everything scriptable downloads as a neutral
         # octet-stream so it can never execute in the app origin.
-        normalised_mime = (row.mime or "").split(";", 1)[0].strip().lower()
-        if normalised_mime in _INLINE_SAFE_MIME:
-            content_type = normalised_mime
+        if serves_inline(row.mime):
+            content_type = _normalised_mime(row.mime)
             disposition = content_disposition("inline", row.filename)
         else:
             content_type = "application/octet-stream"

@@ -21,6 +21,7 @@ from contexts.conversation.application.access import (
 from contexts.conversation.application.attachment_service import (
     SINGLE_SHOT_MAX_BYTES,
     AttachmentService,
+    serves_inline,
 )
 from contexts.conversation.domain.errors import (
     AttachmentNotFound,
@@ -48,6 +49,8 @@ class AttachmentOut(BaseModel):
     size_bytes: int
     status: AttachmentStatus
     scan_status: ScanStatus
+    # Renders in the browser (open a tab) rather than downloading a file.
+    inline: bool
 
 
 class AttachmentDownloadOut(AttachmentOut):
@@ -146,6 +149,7 @@ def to_attachment_out(m: object) -> AttachmentOut:
         size_bytes=m.size_bytes,  # type: ignore[attr-defined]
         status=m.status,  # type: ignore[attr-defined]
         scan_status=m.scan_status,  # type: ignore[attr-defined]
+        inline=serves_inline(m.mime),  # type: ignore[attr-defined]
     )
 
 

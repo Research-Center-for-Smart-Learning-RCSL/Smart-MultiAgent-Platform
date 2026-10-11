@@ -26,6 +26,7 @@ from contexts.conversation.application.access import (
 )
 from contexts.conversation.application.room_guests import load_room_guest_labels
 from contexts.conversation.domain.author_labels import prefer_guest_label
+from contexts.conversation.domain.export_formats import EXPORT_ARTIFACTS
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
@@ -240,17 +241,16 @@ class ChatExportService:
         export_format: str,
     ) -> tuple[str, str]:
         """Render the manifest into the requested artifact and upload it."""
+        artifact = EXPORT_ARTIFACTS.get(export_format, EXPORT_ARTIFACTS["markdown"])
         if export_format == "json":
             payload = json.dumps(manifest, separators=(",", ":"), default=str).encode("utf-8")
-            return await cls._upload(job_id, payload, "manifest.json", "application/json")
-        if export_format == "pdf":
+        elif export_format == "pdf":
             html = cls._build_pdf_html(manifest)
             # WeasyPrint is CPU-bound and blocking; render off the event loop.
             payload = await asyncio.to_thread(cls._html_to_pdf, html)
-            return await cls._upload(job_id, payload, "export.pdf", "application/pdf")
-        # default: markdown transcript
-        text = cls._build_markdown(manifest)
-        return await cls._upload(job_id, text.encode("utf-8"), "export.md", "text/markdown")
+        else:
+            payload = cls._build_markdown(manifest).encode("utf-8")
+        return await cls._upload(job_id, payload, artifact.object_name, artifact.content_type)
 
     @staticmethod
     def _sender_label(message: dict[str, Any]) -> str:

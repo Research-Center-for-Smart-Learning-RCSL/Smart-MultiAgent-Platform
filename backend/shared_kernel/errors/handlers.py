@@ -146,6 +146,8 @@ def _status_slug(code: int) -> str:
         return "not-found"
     if code == 409:
         return "conflict"
+    if code == 410:
+        return "gone"
     if code == 412:
         return "precondition-failed"
     if code == 422:
@@ -162,6 +164,7 @@ def _status_title(code: int) -> str:
         403: "Forbidden",
         404: "Not Found",
         409: "Conflict",
+        410: "Gone",
         412: "Precondition Failed",
         422: "Unprocessable Entity",
         429: "Too Many Requests",

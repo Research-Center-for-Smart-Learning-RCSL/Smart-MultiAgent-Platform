@@ -21,9 +21,7 @@ from contexts.conversation.domain.models import (
     MessageAttachment,
     ScanStatus,
 )
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import decode
 
 pytestmark = pytest.mark.usefixtures("ticket_signer")
 
@@ -98,3 +96,14 @@ async def test_cjk_filename_is_a_valid_header_value() -> None:
     _, disposition = await _served(_row(mime="image/png", filename="課堂照片.png"))
     disposition.encode("latin-1")
     assert "filename*=UTF-8''" in disposition
+
+
+@pytest.mark.parametrize("mime", ["image/png", "text/plain; charset=utf-8", "application/pdf", "text/html", ""])
+async def test_inline_flag_matches_what_the_link_serves(mime: str) -> None:
+    """Clients decide tab-vs-download from `AttachmentOut.inline`; it must agree
+    with the disposition the link actually carries."""
+    from app.api.v1.attachments import to_attachment_out
+
+    row = _row(mime=mime)
+    _, disposition = await _served(row)
+    assert to_attachment_out(row).inline is disposition.startswith("inline;")

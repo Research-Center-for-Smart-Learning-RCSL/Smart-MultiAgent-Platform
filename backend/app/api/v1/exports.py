@@ -24,6 +24,7 @@ from contexts.conversation.application.access import (
 )
 from contexts.conversation.application.export_service import ExportJobState, ExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
+from contexts.conversation.domain.export_formats import EXPORT_ARTIFACTS
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -74,13 +75,6 @@ def _resolve_window(body: ExportCreateIn) -> tuple[datetime | None, datetime | N
     if body.date_range == "last_30_days":
         return now() - timedelta(days=30), None
     return None, None
-
-
-_FORMAT_MEDIA: dict[str, tuple[str, str]] = {
-    "markdown": ("text/markdown; charset=utf-8", "md"),
-    "json": ("application/json", "json"),
-    "pdf": ("application/pdf", "pdf"),
-}
 
 
 def _download_name(state: ExportJobState, ext: str) -> str:
@@ -152,12 +146,12 @@ async def get_export(
     if state.status == "ready" and state.bucket and state.object_key:
         # Minted per request, so a client that re-fetches at click time always
         # holds a live link; the archive itself lives 24 h.
-        content_type, ext = _FORMAT_MEDIA.get(state.export_format, _FORMAT_MEDIA["markdown"])
+        artifact = EXPORT_ARTIFACTS[state.export_format]
         url = await file_tickets.issue(
             bucket=state.bucket,
             key=state.object_key,
-            content_type=content_type,
-            disposition=content_disposition("attachment", _download_name(state, ext)),
+            content_type=artifact.content_type,
+            disposition=content_disposition("attachment", _download_name(state, artifact.extension)),
         )
     return ExportStatusOut(
         job_id=state.job_id,

@@ -48,9 +48,7 @@ from contexts.conversation.domain.models import (
     SenderType,
 )
 from shared_kernel.auth.clients import now
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import decode
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
 _USER = uuid.uuid4()

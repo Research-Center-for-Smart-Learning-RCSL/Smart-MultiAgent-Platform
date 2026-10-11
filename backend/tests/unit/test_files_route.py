@@ -5,9 +5,7 @@ Dossier: docs/tasks/2026-10-11-browser-file-delivery/spec.md §7.3, §7.4, §8.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -19,20 +17,11 @@ from app.api.v1 import files as files_route
 from shared_kernel.auth import clients, ratelimit
 from shared_kernel.errors.handlers import register_exception_handlers
 from shared_kernel.storage import file_tickets
-from shared_kernel.storage.minio_client import ObjectStat
+from shared_kernel.storage.minio_client import ObjectStat, ObjectStream
+from tests.unit.file_ticket_support import FakeSigner
 
 _T0 = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
 _BODY = b"x" * (3 * 1024 * 1024 + 17)
-
-
-class _Signer:
-    key = b"k" * 32
-
-    def hmac_sign(self, data: bytes) -> tuple[int, bytes]:
-        return 1, hmac.new(self.key, data, hashlib.sha256).digest()
-
-    def hmac_verify(self, version: int, data: bytes, mac: bytes) -> bool:
-        return version == 1 and hmac.compare_digest(self.hmac_sign(data)[1], mac)
 
 
 class _Minio:
@@ -45,22 +34,39 @@ class _Minio:
         body = self.objects.get((bucket, key))
         return None if body is None else ObjectStat(size=len(body), etag="abc", content_type="x/stored")
 
-    async def open_stream(
-        self, *, bucket: str, key: str, chunk_size: int = 1 << 20
-    ) -> tuple[ObjectStat, AsyncIterator[bytes]] | None:
+    async def open_stream(self, *, bucket: str, key: str, chunk_size: int = 1 << 20) -> ObjectStream | None:
         body = self.objects.get((bucket, key))
         if body is None:
             return None
+        resp = _Resp(body, self)
+        return ObjectStream(resp, chunk_size)
 
-        async def _chunks() -> AsyncIterator[bytes]:
-            try:
-                for i in range(0, len(body), chunk_size):
-                    self.chunks_served += 1
-                    yield body[i : i + chunk_size]
-            finally:
-                self.closed += 1
 
-        return ObjectStat(size=len(body), etag="abc", content_type="x/stored"), _chunks()
+class _Resp:
+    """Stands in for the urllib3 response `Minio.get_object` returns."""
+
+    def __init__(self, body: bytes, owner: _Minio | None = None) -> None:
+        self._body = body
+        self._pos = 0
+        self._owner = owner
+        self.headers = {"Content-Length": str(len(body)), "ETag": '"abc"', "Content-Type": "x/stored"}
+        self.closed = False
+        self.released = 0
+
+    def read(self, amt: int) -> bytes:
+        chunk = self._body[self._pos : self._pos + amt]
+        self._pos += len(chunk)
+        if chunk and self._owner is not None:
+            self._owner.chunks_served += 1
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    def release_conn(self) -> None:
+        self.released += 1
+        if self._owner is not None:
+            self._owner.closed += 1
 
 
 class _Limiter:
@@ -83,7 +89,7 @@ class _Limiter:
 def env(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, _Minio, _Limiter]]:
     clock = {"now": _T0}
     clients.set_clock(lambda: clock["now"])
-    monkeypatch.setattr(file_tickets, "_signer", _Signer)
+    monkeypatch.setattr(file_tickets, "_signer", FakeSigner)
     minio = _Minio()
     limiter = _Limiter()
     monkeypatch.setattr(files_route, "get_minio_client", lambda: minio)
@@ -141,6 +147,7 @@ async def test_expired_ticket_is_410_not_401(env: tuple[TestClient, _Minio, _Lim
     r = client.get(path)
     assert r.status_code == 410
     assert r.headers["content-type"].startswith("application/problem+json")
+    assert r.json()["type"].endswith("/gone")
 
 
 @pytest.mark.parametrize("ticket", ["garbage", "a.b", "e30.AAAA"])
@@ -201,4 +208,30 @@ def test_rate_limit_middleware_does_not_charge_file_loads(monkeypatch: pytest.Mo
 
 async def test_overlong_ticket_rejected(env: tuple[TestClient, _Minio, _Limiter]) -> None:
     client, _, _ = env
-    assert client.get("/api/files/" + "a" * 5000).status_code in (404, 422)
+    assert client.get("/api/files/" + "a" * 5000).status_code == 404
+
+
+async def test_stream_released_to_pool_after_full_read() -> None:
+    resp = _Resp(b"x" * 10)
+    stream = ObjectStream(resp, 4)
+    assert b"".join([c async for c in stream.chunks()]) == b"x" * 10
+    stream.release(aborted=True)  # the route's background task, after the fact
+    assert resp.released == 1
+    assert resp.closed is False  # a fully read connection is reusable
+
+
+async def test_stream_abandoned_midway_closes_the_connection() -> None:
+    resp = _Resp(b"x" * 10)
+    stream = ObjectStream(resp, 4)
+    chunks = stream.chunks()
+    await anext(chunks)
+    await chunks.aclose()
+    assert resp.closed is True
+    assert resp.released == 1
+
+
+async def test_stream_never_started_is_released_by_the_caller() -> None:
+    resp = _Resp(b"x" * 10)
+    ObjectStream(resp, 4).release(aborted=True)
+    assert resp.closed is True
+    assert resp.released == 1

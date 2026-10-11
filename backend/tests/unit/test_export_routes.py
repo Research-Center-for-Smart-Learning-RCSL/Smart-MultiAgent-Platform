@@ -18,9 +18,7 @@ from app.api.v1 import exports as routes
 from contexts.conversation.application.export_service import ExportJobState, ExportJobStatus
 from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.permissions import Principal
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import decode
 
 pytestmark = pytest.mark.usefixtures("ticket_signer")
 

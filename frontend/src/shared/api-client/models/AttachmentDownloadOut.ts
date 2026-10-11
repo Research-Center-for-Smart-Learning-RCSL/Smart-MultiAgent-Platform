@@ -9,6 +9,7 @@ export type AttachmentDownloadOut = {
     expires_in: number;
     filename: string;
     id: string;
+    inline: boolean;
     message_id: (string | null);
     mime: string;
     scan_status: ScanStatus;

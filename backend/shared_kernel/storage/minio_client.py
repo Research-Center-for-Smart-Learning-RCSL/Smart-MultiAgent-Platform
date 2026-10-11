@@ -38,6 +38,41 @@ class ObjectStat:
     content_type: str | None
 
 
+class ObjectStream:
+    """An open object read: metadata, a chunk iterator, and its connection."""
+
+    def __init__(self, resp: Any, chunk_size: int) -> None:
+        self._resp = resp
+        self._chunk_size = chunk_size
+        self._released = False
+        self.stat = ObjectStat(
+            size=int(resp.headers.get("Content-Length") or 0),
+            etag=(resp.headers.get("ETag") or "").strip('"'),
+            content_type=resp.headers.get("Content-Type"),
+        )
+
+    async def chunks(self) -> AsyncIterator[bytes]:
+        try:
+            while True:
+                data = await asyncio.to_thread(self._resp.read, self._chunk_size)
+                if not data:
+                    self.release()
+                    return
+                yield data
+        finally:
+            self.release(aborted=True)
+
+    def release(self, *, aborted: bool = False) -> None:
+        """Return the connection to the pool; a read cut short closes it instead,
+        since its unread body makes it unusable for the next request."""
+        if self._released:
+            return
+        self._released = True
+        if aborted:
+            self._resp.close()
+        self._resp.release_conn()
+
+
 class MinioClient:
     def __init__(self, section: MinioSection) -> None:
         self._cfg = section
@@ -160,15 +195,13 @@ class MinioClient:
 
         await asyncio.to_thread(_download)
 
-    async def open_stream(
-        self, *, bucket: str, key: str, chunk_size: int = 1 << 20
-    ) -> tuple[ObjectStat, AsyncIterator[bytes]] | None:
+    async def open_stream(self, *, bucket: str, key: str, chunk_size: int = 1 << 20) -> ObjectStream | None:
         """Open an object for chunked reading; ``None`` if it does not exist.
 
-        The iterator must be consumed or closed: it owns a pooled connection,
-        released in its ``finally``. That release runs synchronously because it
-        is reached on cancellation (client disconnect), where awaiting a thread
-        hop would itself be cancelled and leak the connection.
+        The stream owns a pooled connection. Its iterator releases it at EOF, and
+        `ObjectStream.release` (idempotent) is for the caller to run however the
+        response ends, because Starlette never closes an iterator abandoned by a
+        disconnect or never started.
         """
 
         def _open() -> Any:
@@ -182,24 +215,7 @@ class MinioClient:
         resp = await asyncio.to_thread(_open)
         if resp is None:
             return None
-        stat = ObjectStat(
-            size=int(resp.headers.get("Content-Length") or 0),
-            etag=(resp.headers.get("ETag") or "").strip('"'),
-            content_type=resp.headers.get("Content-Type"),
-        )
-
-        async def _chunks() -> AsyncIterator[bytes]:
-            try:
-                while True:
-                    data = await asyncio.to_thread(resp.read, chunk_size)
-                    if not data:
-                        return
-                    yield data
-            finally:
-                resp.close()
-                resp.release_conn()
-
-        return stat, _chunks()
+        return ObjectStream(resp, chunk_size)
 
     async def stat(self, *, bucket: str, key: str) -> ObjectStat | None:
         def _stat() -> ObjectStat | None:
@@ -339,6 +355,7 @@ def export_key(*, job_id: uuid.UUID, filename: str) -> str:
 __all__ = [
     "MinioClient",
     "ObjectStat",
+    "ObjectStream",
     "StorageError",
     "agent_workspace_key",
     "chat_upload_key",

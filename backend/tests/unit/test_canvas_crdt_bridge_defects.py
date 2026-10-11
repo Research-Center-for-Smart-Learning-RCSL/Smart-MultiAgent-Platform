@@ -12,11 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
-
 from contexts.canvas.application.crdt_relay import CrdtRelay, build_element_dict
+from tests.unit.file_ticket_support import decode
 
 
 class TestBuildElementDict:

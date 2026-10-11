@@ -22,9 +22,7 @@ from contexts.conversation.application.research_export_service import (
 )
 from shared_kernel.auth.clients import now as _now
 from shared_kernel.storage import file_tickets
-from tests.unit.file_ticket_support import decode, ticket_signer
-
-__all__ = ["ticket_signer"]
+from tests.unit.file_ticket_support import decode
 
 _WORKSPACE = uuid.uuid4()
 _PROJECT = uuid.uuid4()

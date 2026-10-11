@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import hmac
+import logging
 import os
 import secrets
 import threading
@@ -45,6 +46,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.config.settings import VaultSection
+
+_log = logging.getLogger(__name__)
 
 _KV_HMAC_PATH: Final = "smap/config/hmac-key"
 _HMAC_KEY_BYTES: Final = 32
@@ -106,6 +109,8 @@ class VaultClient:
         self._hmac_keys: dict[int, bytes] = {}
         self._hmac_current_version: int = 1
         self._hmac_current_at: float = 0.0
+        # Old seed versions KV could not produce, until when (monotonic).
+        self._hmac_missing: dict[int, float] = {}
         self._last_login: float = 0.0
         self._login()
 
@@ -288,10 +293,24 @@ class VaultClient:
         return version, hmac.new(key, data, sha256).digest()
 
     def hmac_verify(self, version: int, data: bytes, mac: bytes) -> bool:
-        """False for a mismatch or for a seed version KV can no longer produce."""
+        """False for a mismatch or a seed version that cannot have signed `data`.
+
+        `version` comes from untrusted input, so it is bounded by the current
+        version before any KV read, and an unreadable old version is remembered
+        for a while rather than re-read per request. A Vault outage is not a bad
+        signature and propagates.
+        """
+        current, _ = self._current_hmac()
+        if not 1 <= version <= current:
+            return False
+        missing_until = self._hmac_missing.get(version)
+        if missing_until is not None and time.monotonic() < missing_until:
+            return False
         try:
             key = self._hmac_for_version(version)
-        except VaultError:
+        except VaultError as exc:
+            self._hmac_missing[version] = time.monotonic() + _HMAC_CURRENT_TTL
+            _log.warning("HMAC seed version %s unavailable for verification: %s", version, exc)
             return False
         return hmac.compare_digest(hmac.new(key, data, sha256).digest(), mac)
 

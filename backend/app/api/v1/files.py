@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import Response, StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.config.settings import get_settings
 from shared_kernel.auth import ratelimit
@@ -92,11 +93,17 @@ async def get_file(request: Request, ticket: str = Path(...)) -> Response:
     verified = await _verified_or_429(request, ticket)
     if isinstance(verified, Response):
         return verified
-    opened = await get_minio_client().open_stream(bucket=verified.bucket, key=verified.key)
-    if opened is None:
+    stream = await get_minio_client().open_stream(bucket=verified.bucket, key=verified.key)
+    if stream is None:
         raise HTTPException(status_code=404, detail="File not found")
-    stat, chunks = opened
-    return StreamingResponse(chunks, media_type=verified.content_type, headers=_headers(verified, stat))
+    return StreamingResponse(
+        stream.chunks(),
+        media_type=verified.content_type,
+        headers=_headers(verified, stream.stat),
+        # Runs however the response ends; the iterator alone is not closed on a
+        # disconnect or when it never starts.
+        background=BackgroundTask(stream.release, aborted=True),
+    )
 
 
 @router.head("/{ticket}", response_class=Response)

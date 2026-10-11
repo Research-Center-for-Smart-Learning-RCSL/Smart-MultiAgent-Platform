@@ -13,8 +13,6 @@ test is storage and HTTP, not the key store.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import os
 import uuid
 
@@ -26,22 +24,13 @@ from app.api.v1 import files as files_route
 from shared_kernel.errors.handlers import register_exception_handlers
 from shared_kernel.storage import file_tickets
 from shared_kernel.storage.minio_client import MinioClient, get_minio_client, reset_for_tests
+from tests.unit.file_ticket_support import FakeSigner
 
 pytestmark = pytest.mark.wiring
 
 
-class _Signer:
-    key = b"w" * 32
-
-    def hmac_sign(self, data: bytes) -> tuple[int, bytes]:
-        return 1, hmac.new(self.key, data, hashlib.sha256).digest()
-
-    def hmac_verify(self, version: int, data: bytes, mac: bytes) -> bool:
-        return version == 1 and hmac.compare_digest(self.hmac_sign(data)[1], mac)
-
-
 async def test_ticket_streams_the_stored_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(file_tickets, "_signer", _Signer)
+    monkeypatch.setattr(file_tickets, "_signer", FakeSigner)
     reset_for_tests()
     minio = get_minio_client()
     bucket = minio.exports_bucket
