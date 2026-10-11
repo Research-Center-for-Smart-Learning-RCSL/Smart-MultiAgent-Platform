@@ -511,7 +511,8 @@ rows are added as each is written.
   CSV, skill bundles, attachments and canvas images. Every one of them returns a
   `http://minio:9000` presigned URL. The canvas `/minio-assets/` proxy returns 502, because
   nginx and MinIO share no network. Replaces presigned URLs with `GET /api/files/{ticket}`, a
-  backend-streamed endpoint behind an HMAC ticket. **Read its Q-6 before building**: files now come from the app origin, so PDF
+  backend-streamed endpoint behind an HMAC ticket. Unblocks the two dossiers listed under
+  Blocked below. **Read its Q-6 before building**: files now come from the app origin, so PDF
   attachments switch from inline preview to download.
 
 ### From the 2026-10-07 missing-agent-reply analysis
@@ -519,6 +520,32 @@ rows are added as each is written.
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-11 chat and research export audit
+
+The audit's three dossiers form one overlap chain:
+`browser-file-delivery` -> `chat-export-modal-states` -> `chat-export-archive-content`. All
+three edit `useChatroomExport.ts` and `ChatroomExportModal.vue`, and the first and last both
+edit the export filename logic in `exports.py`.
+
+- `2026-10-11-chat-export-modal-states` (bugfix, **draft**) - waiting on
+  `2026-10-11-browser-file-delivery`. F-3, F-8, F-9:
+  - a slow export no longer leaves the modal spinning: it polls for about 12 minutes, then
+    offers "Check again";
+  - 403/404/410 are fatal;
+  - input errors and job failures are distinct states;
+  - a request token discards superseded create responses.
+
+  `usePolling` gains optional `isFatal`, `onExhausted` and per-attempt interval hooks.
+- `2026-10-11-chat-export-archive-content` (bugfix, **draft**) - waiting on
+  `2026-10-11-browser-file-delivery` and `2026-10-11-chat-export-modal-states`. F-4, F-5, F-6:
+  - an "Include attachments" ZIP with omissions noted;
+  - streamed Markdown/JSON with no message cap;
+  - PDF refused above 5,000 messages;
+  - a cancelled job marked failed.
+
+  It carries an [R13.17] rewording to apply at approval. **Read its Q-6**: removing the cap
+  widened the open export-quota finding, so it adds one active export per user per room (409).
 
 ### From the 2026-10-07 display-name audit
 

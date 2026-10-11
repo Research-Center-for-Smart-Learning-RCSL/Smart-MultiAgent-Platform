@@ -1,6 +1,6 @@
 ---
 type: audit
-status: reviewed
+status: closed
 created: 2026-10-11
 requirements: [R13.17, R33.10]
 ---
@@ -288,13 +288,13 @@ Dossier paths below are the planned slugs. Each becomes a link once `/spec` crea
 |---|---|---|
 | F-1 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
 | F-2 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
-| F-3 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
-| F-4 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
-| F-5 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
-| F-6 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-archive-content/` |
+| F-3 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-modal-states/`](../../tasks/2026-10-11-chat-export-modal-states/spec.md) |
+| F-4 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-archive-content/`](../../tasks/2026-10-11-chat-export-archive-content/spec.md) |
+| F-5 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-archive-content/`](../../tasks/2026-10-11-chat-export-archive-content/spec.md) |
+| F-6 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-archive-content/`](../../tasks/2026-10-11-chat-export-archive-content/spec.md) |
 | F-7 | fix (2026-10-11) | [`docs/tasks/2026-10-11-browser-file-delivery/`](../../tasks/2026-10-11-browser-file-delivery/spec.md) |
-| F-8 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
-| F-9 | fix (2026-10-11) | `docs/tasks/2026-10-11-chat-export-modal-states/` |
+| F-8 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-modal-states/`](../../tasks/2026-10-11-chat-export-modal-states/spec.md) |
+| F-9 | fix (2026-10-11) | [`docs/tasks/2026-10-11-chat-export-modal-states/`](../../tasks/2026-10-11-chat-export-modal-states/spec.md) |
 
 ## 6. Out-of-scope Observations
 
