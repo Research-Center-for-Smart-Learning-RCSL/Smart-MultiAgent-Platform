@@ -16,7 +16,7 @@ describe('isUsableGuestName', () => {
     ['a lone VARIATION SELECTOR-16', '\uFE0F'],
     ['joiners and selectors only', '\u200D\uFE0F\u200D'],
     ['fillers between spaces', ' \u3164 \u2800 '],
-    ['an ideographic space', '　'],
+    ['an ideographic space', '\u3000'],
   ])('refuses %s', (_label, raw) => {
     expect(isUsableGuestName(raw)).toBe(false)
   })

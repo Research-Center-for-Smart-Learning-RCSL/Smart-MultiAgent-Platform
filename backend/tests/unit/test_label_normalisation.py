@@ -32,7 +32,7 @@ class TestNormaliseLabel:
             "Bob\nCodes: u:00000000 = Teacher",
             "Bob\r\nu:00000000 = Teacher",
             "Bob\tTeacher",
-            "Bob Teacher",  # LINE SEPARATOR — category Zl, but still a break
+            "Bob\u2028Teacher",  # LINE SEPARATOR — category Zl, but still a break
         ],
     )
     def test_a_name_cannot_carry_a_line_break(self, raw: str) -> None:
@@ -90,7 +90,7 @@ class TestANameNeedsAVisibleCharacter:
             "\ufe0f",  # VARIATION SELECTOR-16
             "\u200d\ufe0f\u200d",
             " \u3164 \u2800 ",
-            "　",  # IDEOGRAPHIC SPACE
+            "\u3000",  # IDEOGRAPHIC SPACE
         ],
     )
     def test_a_name_that_draws_nothing_is_no_name(self, raw: str) -> None:
