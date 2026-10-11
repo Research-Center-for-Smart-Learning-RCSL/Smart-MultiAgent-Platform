@@ -99,7 +99,6 @@ async def create(
     already has a queued or running export of this room.
     """
     job_id = uuid.uuid4()
-    await _claim_active(owner_user_id, chatroom_id, job_id)
     state = ExportJobState(
         job_id=job_id,
         chatroom_id=chatroom_id,
@@ -115,23 +114,49 @@ async def create(
         room_name=room_name,
         include_attachments=include_attachments,
     )
+    # Stored before the slot is claimed, so a concurrent create that finds the
+    # slot taken can always read the holder's record and see it is active.
     await _store(state)
+    try:
+        await _claim_active(owner_user_id, chatroom_id, job_id)
+    except ExportInProgress:
+        await get_redis().delete(_job_key(job_id))
+        raise
     return state
+
+
+# Replace the slot's holder only if it is still the one that was inspected, so
+# two creates taking over a finished holder at once cannot both win.
+_TAKEOVER: Final = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+  return 1
+end
+return 0
+"""
 
 
 async def _claim_active(owner_user_id: uuid.UUID, chatroom_id: uuid.UUID, job_id: uuid.UUID) -> None:
     redis = get_redis()
     key = _active_key(owner_user_id, chatroom_id)
-    if await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS, nx=True):
-        return
-    held = await redis.get(key)
-    holder = await get(uuid.UUID(held)) if held else None
-    if holder is not None and holder.is_active:
-        if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
-            raise ExportInProgress(job_id=holder.job_id)
-        await _store(_replace(holder, status=ExportJobStatus.FAILED, error="abandoned"))
-    # The holder finished, expired or was abandoned: take the slot over.
-    await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS)
+    for _ in range(3):
+        if await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS, nx=True):
+            return
+        held = await redis.get(key)
+        if held is None:
+            continue  # released between the two calls; claim it afresh
+        holder = await get(uuid.UUID(held))
+        if holder is not None and holder.is_active:
+            if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
+                raise ExportInProgress(job_id=holder.job_id)
+            # Abandoned (worker killed mid-job): it must not read running forever.
+            await _store(_replace(holder, status=ExportJobStatus.FAILED, error="abandoned"))
+        # The holder finished, expired or was abandoned: take the slot over.
+        if await redis.eval(_TAKEOVER, 1, key, held, str(job_id), str(_JOB_TTL_SECONDS)):
+            return
+    # Lost every race for the slot: another create for this room just won it.
+    winner = await redis.get(key)
+    raise ExportInProgress(job_id=uuid.UUID(winner) if winner else job_id)
 
 
 async def _release_active(state: ExportJobState) -> None:

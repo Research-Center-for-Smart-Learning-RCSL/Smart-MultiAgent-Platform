@@ -7,6 +7,7 @@ time always gets a live one (Q-4).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -123,6 +124,13 @@ class _Redis:
     async def delete(self, key: str) -> int:
         return 1 if self.store.pop(key, None) is not None else 0
 
+    async def eval(self, script: str, numkeys: int, key: str, expected: str, new: str, ttl: str) -> int:
+        """The slot takeover's compare-and-set, as the Lua script does it."""
+        if self.store.get(key) != expected:
+            return 0
+        self.store[key] = new
+        return 1
+
 
 @pytest.fixture
 def redis(monkeypatch: pytest.MonkeyPatch) -> _Redis:
@@ -167,6 +175,53 @@ async def test_second_export_while_one_is_active_is_refused_with_its_id(redis: _
     # Another room, or another user in this room, is not blocked.
     await export_service.create(chatroom_id=uuid.uuid4(), owner_user_id=_OWNER)
     await export_service.create(chatroom_id=_ROOM, owner_user_id=uuid.uuid4())
+
+
+class _InterleavingRedis(_Redis):
+    """Yields to the event loop on every call, as a network round trip does, so
+    concurrent creates interleave between their reads and writes."""
+
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False) -> bool | None:
+        await asyncio.sleep(0)
+        return await super().set(key, value, ex=ex, nx=nx)
+
+    async def get(self, key: str) -> str | None:
+        await asyncio.sleep(0)
+        return await super().get(key)
+
+    async def eval(self, script: str, numkeys: int, key: str, expected: str, new: str, ttl: str) -> int:
+        await asyncio.sleep(0)
+        return await super().eval(script, numkeys, key, expected, new, ttl)
+
+
+@pytest.mark.parametrize("held_by_finished_job", [False, True])
+async def test_concurrent_creates_start_exactly_one_export(
+    monkeypatch: pytest.MonkeyPatch, held_by_finished_job: bool
+) -> None:
+    from contexts.conversation.application import export_service
+    from contexts.conversation.domain.errors import ExportInProgress
+
+    fake = _InterleavingRedis()
+    monkeypatch.setattr(export_service, "get_redis", lambda: fake)
+    if held_by_finished_job:
+        done = await export_service.create(chatroom_id=_ROOM, owner_user_id=_OWNER)
+        await export_service.mark_running(done.job_id)
+        # Ready, but its slot not yet released: both creates must take it over.
+        await export_service._store(export_service._replace(done, status=ExportJobStatus.READY))
+
+    results = await asyncio.gather(
+        *(export_service.create(chatroom_id=_ROOM, owner_user_id=_OWNER) for _ in range(4)),
+        return_exceptions=True,
+    )
+    started = [r for r in results if isinstance(r, ExportJobState)]
+    refused = [r for r in results if isinstance(r, ExportInProgress)]
+    assert len(started) == 1
+    assert len(refused) == 3
+    assert {r.job_id for r in refused} == {started[0].job_id}
+    # A refused create leaves no queued job record behind.
+    records = [k for k in fake.store if k.startswith("chat_export:") and ":active:" not in k]
+    expected_records = 2 if held_by_finished_job else 1
+    assert len(records) == expected_records
 
 
 @pytest.mark.parametrize("finish", ["ready", "failed"])
