@@ -447,10 +447,12 @@
 
     <ChatroomExportModal
       :open="exportOpen"
-      :job="exportJob"
+      :phase="exportPhase"
       @close="exportOpen = false"
       @submit="onExportSubmit"
       @download="downloadExport"
+      @retry="retryExport"
+      @check-again="checkExportAgain"
     />
 
     <ObservationReleaseDialog
@@ -1114,7 +1116,14 @@ const {
 const { streamingEntries } = useAgentStreams(chatroomId)
 
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
-const { exportJob, runExport, download: downloadExport, reset: resetExport } = useChatroomExport(chatroomId)
+const {
+  phase: exportPhase,
+  runExport,
+  download: downloadExport,
+  retry: retryExport,
+  checkAgain: checkExportAgain,
+  reset: resetExport,
+} = useChatroomExport(chatroomId)
 const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
 
 // One ordered feed. 07-conversation.md:988 places an approval card "at the
@@ -1700,8 +1709,8 @@ onBeforeUnmount(() => {
 })
 
 function openExport(): void {
-  // Cancel any earlier job's poller as well as clearing the slot, so its
-  // completion cannot render into the fresh configuration form (F-16).
+  // Supersede any earlier job and any create still in flight, so neither can
+  // render into the fresh configuration form (F-16, F-9).
   resetExport()
   exportOpen.value = true
 }
