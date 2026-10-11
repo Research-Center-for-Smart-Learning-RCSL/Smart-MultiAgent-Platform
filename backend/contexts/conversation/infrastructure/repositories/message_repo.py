@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -350,23 +350,19 @@ class MessageRepository:
             out.append((msg, float(r.rank or 0.0), str(r.snippet or "")))
         return out
 
-    async def all_for_chatroom(
-        self,
+    @staticmethod
+    def _export_conditions(
         chatroom_id: uuid.UUID,
         *,
-        limit: int | None = None,
-        created_after: datetime | None = None,
-        created_before: datetime | None = None,
-        own_user_id: uuid.UUID | None = None,
-    ) -> Sequence[Message]:
-        """Full dump of a room's live messages, ordered chronologically --
-        used by the export worker. Always streams from the primary index so
-        a 10k-message export stays sub-second.
+        created_after: datetime | None,
+        created_before: datetime | None,
+        own_user_id: uuid.UUID | None,
+    ) -> Sequence[sa.ColumnElement[bool]]:
+        """The export's WHERE clause, shared by every export read.
 
-        *limit* caps the result set to prevent unbounded memory usage in
-        large rooms. *created_after* / *created_before* bound the window for
-        date-ranged exports (inclusive lower, exclusive upper); ``None`` on
-        either side leaves that edge open.
+        *created_after* / *created_before* bound the window for date-ranged
+        exports (inclusive lower, exclusive upper); ``None`` on either side
+        leaves that edge open.
 
         *own_user_id* narrows the dump to that user's own messages plus every
         agent and system message, which is permission-matrix row 19's `∘` scope.
@@ -377,7 +373,7 @@ class MessageRepository:
         attachment object paths -- are never read into process memory. ``None``
         (the default) leaves the dump room-wide, which is the `✓` scope.
         """
-        conditions = [
+        conditions: list[sa.ColumnElement[bool]] = [
             t.messages.c.chatroom_id == chatroom_id,
             t.messages.c.deleted_at.is_(None),
         ]
@@ -392,11 +388,87 @@ class MessageRepository:
             conditions.append(t.messages.c.created_at >= created_after)
         if created_before is not None:
             conditions.append(t.messages.c.created_at < created_before)
+        return conditions
+
+    async def all_for_chatroom(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        own_user_id: uuid.UUID | None = None,
+    ) -> Sequence[Message]:
+        """A room's live messages in one read, chronologically, with the export
+        predicate (`_export_conditions`). Unbounded: the export itself pages
+        through `iter_for_export` instead."""
+        conditions = self._export_conditions(
+            chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
+        )
         q = t.messages.select().where(sa.and_(*conditions)).order_by(t.messages.c.created_at.asc())
-        if limit is not None:
-            q = q.limit(limit)
         rows = (await self._db.execute(q)).all()
         return [_row_to_message(r) for r in rows]
+
+    async def iter_for_export(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        own_user_id: uuid.UUID | None = None,
+        page_size: int = 1000,
+    ) -> AsyncIterator[Sequence[Message]]:
+        """Pages of a room's live messages, oldest first, for the export.
+
+        Keyset-paged on ``(created_at, id)`` rather than offset-paged, so each
+        page is an index range scan (``ix_messages_chatroom_created``) however
+        deep the room, and rows sharing a timestamp neither repeat nor vanish at
+        a page boundary. There is no cap: the caller streams each page out.
+        """
+        conditions = self._export_conditions(
+            chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
+        )
+        last: tuple[datetime, uuid.UUID] | None = None
+        while True:
+            page_conditions = list(conditions)
+            if last is not None:
+                at, mid = last
+                page_conditions.append(
+                    sa.or_(
+                        t.messages.c.created_at > at,
+                        sa.and_(t.messages.c.created_at == at, t.messages.c.id > mid),
+                    )
+                )
+            q = (
+                t.messages.select()
+                .where(sa.and_(*page_conditions))
+                .order_by(t.messages.c.created_at.asc(), t.messages.c.id.asc())
+                .limit(page_size)
+            )
+            page = [_row_to_message(r) for r in (await self._db.execute(q)).all()]
+            if not page:
+                return
+            yield page
+            if len(page) < page_size:
+                return
+            tail = page[-1]
+            if tail.created_at is None:  # NOT NULL in the schema
+                raise RuntimeError(f"message {tail.id} has no created_at; cannot page past it")
+            last = (tail.created_at, tail.id)
+
+    async def count_for_export(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        own_user_id: uuid.UUID | None = None,
+    ) -> int:
+        """How many messages `iter_for_export` would yield for the same arguments."""
+        conditions = self._export_conditions(
+            chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
+        )
+        q = sa.select(sa.func.count()).select_from(t.messages).where(sa.and_(*conditions))
+        return int((await self._db.execute(q)).scalar_one())
 
     async def list_for_rooms(
         self,
@@ -458,11 +530,20 @@ class MessageEditRepository:
         self,
         message_id: uuid.UUID,
     ) -> Sequence[MessageEdit]:
+        return await self.list_for_messages([message_id])
+
+    async def list_for_messages(
+        self,
+        message_ids: Sequence[uuid.UUID],
+    ) -> Sequence[MessageEdit]:
+        """Edits of a page of messages in one query, oldest first per message."""
+        if not message_ids:
+            return []
         rows = (
             await self._db.execute(
                 t.message_edits.select()
-                .where(t.message_edits.c.message_id == message_id)
-                .order_by(t.message_edits.c.edited_at)
+                .where(t.message_edits.c.message_id.in_(list(message_ids)))
+                .order_by(t.message_edits.c.message_id, t.message_edits.c.edited_at)
             )
         ).all()
         return [
