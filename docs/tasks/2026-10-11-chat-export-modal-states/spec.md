@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-11
 requirements: [R13.17]
 depends_on: [2026-10-11-browser-file-delivery]
@@ -214,20 +214,26 @@ Write these failing tests first:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The §8 tests fail before the fix and pass after.
-- [ ] AC-2: With the worker stopped, the modal reaches "Still processing" within about 12
+- [x] AC-1: The §8 tests fail before the fix and pass after. 29 of the 41 tests failed before
+  the change, and all pass after it (47 with the review additions, D-3).
+- [x] AC-2: With the worker stopped, the modal reaches "Still processing" within about 12
   minutes. After the worker is restarted and the job completes, "Check again" shows the ready
-  state and the download works.
-- [ ] AC-3: A status 404 (Redis record deleted) shows the failed state within one poll
-  interval.
-- [ ] AC-4: An end date before the start date cannot be submitted and shows an inline error. A
-  server 422 keeps the form open with its values.
-- [ ] AC-5: A worker failure shows "Export failed. Unable to generate the archive.", and Retry
-  returns to the form with the previous values.
-- [ ] AC-6: Submit, close, reopen: the form stays a form. A double click creates one job
-  (verified by the worker log or the audit rows).
-- [ ] AC-7: `pnpm lint`, `pnpm typecheck`, and the i18n gate pass. The new keys exist in both
-  locales.
+  state and the download works. Checked in Chromium against the compose stack, with the page
+  clock fast-forwarded. The modal stalled after 98 status polls, no further polls followed, and
+  after the worker was restarted "Check again" reached ready and downloaded a non-empty file.
+- [x] AC-3: A status 404 (Redis record deleted) shows the failed state within one poll
+  interval. Observed 2.9 s after deleting `chat_export:<job_id>`.
+- [x] AC-4: An end date before the start date cannot be submitted and shows an inline error. A
+  server 422 keeps the form open with its values. Checked in Chromium (the 422 forced at the
+  network layer), plus the modal tests.
+- [x] AC-5: A worker failure shows "Export failed. Unable to generate the archive.", and Retry
+  returns to the form with the previous values. Checked in Chromium, with the worker stopped and
+  the job record set to `failed`, as a failing worker leaves it.
+- [x] AC-6: Submit, close, reopen: the form stays a form. A double click creates one job.
+  Checked in Chromium with a 2.5 s create delay. One create request was counted on the network
+  rather than from the worker log, which observes the same thing earlier.
+- [x] AC-7: `pnpm lint`, `pnpm typecheck`, and the i18n gate pass. The new keys exist in both
+  locales. The full frontend suite passed locally: 2,081 tests before the review additions.
 
 ## 11. SRS Delta
 
@@ -238,10 +244,54 @@ again' action that resumes polling."
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (spec drift, trivial).** The spec cites `ChatroomView.test.ts:263-319` as a reader of
+  `exportJob`. No such test exists, so `ChatroomView.vue` is the only reader updated. The
+  composable's state is named `phase` rather than keeping `exportJob`.
+- **D-2 (one locale key added).** `exportInvalid` ("Check the export options and try again.")
+  is the copy for a server 422. The spec lists no key for it, and the range-specific
+  `exportRangeInvalid` does not fit a 422 that names some other cause. The UI doc's failure
+  copy is split into `exportJobFailed` and `exportJobFailedDetail`, as the spec's key list
+  implies.
+- **D-3 (branch review, user chose to fix every finding but one).** A `/code-review` of the task
+  diff produced ten findings.
+  - **`usePolling`.**
+    - A run counter per key replaces the active set, so `start(key)` during an in-flight fetch
+      no longer leaves two loops with an orphaned timer. This was pre-existing, and
+      `checkAgain` now depends on it.
+    - Only the fetch is inside `try`, so an exception from `onResult` is no longer retried as a
+      network blip.
+    - The duplicate `finish()` is folded into `cancel()`.
+    - A new optional `retryAfterMs(error)` hook sets a minimum wait after a transient error.
+      The export uses it for a 429's `Retry-After`.
+  - **Composable.**
+    - `stalled` carries `reason: 'slow' | 'unreachable'`. When no status request succeeded in
+      the window (5xx or network down throughout), the modal says the server could not be
+      reached, with the same "Check again" action (`exportUnreachable`).
+    - A 422 maps only `location: body` errors to a field.
+    - The union drops `job-failed.opts` and `running.status`, which nothing read. This
+      deviates from §7.2's union, removing state rather than behaviour. The modal's own refs
+      are what keep the form values (Q-4).
+  - **Modal.** A 422 that names no field shows its message without disabling submit, since
+    nothing the user can edit was named. One that names a date keeps submit disabled until that
+    input changes.
+  - **View.** Closing the modal now resets the export, cancelling its poller and any pending
+    create. Reopening already reset it, so a job left behind could only poll unseen for up to
+    12 minutes. This also covers the review's point that a start failure after close went
+    unreported: the request is abandoned instead. `docs/UI/07-conversation.md` §3.9 step 4 now
+    says so.
+  - **Not adopted.** The finding that the date check should use vee-validate + Zod
+    (`frontend/CLAUDE.md` Patterns). The approved spec (Q-3, §7.3) specifies the form's
+    computed validity. The modal has never used vee-validate, and one cross-field comparison
+    does not justify adding it.
 
 ## 13. Follow-ups
 
 - **FU-1.** The skill bundle export polls with `refetchInterval` and has its own exhaustion
   semantics (`skills/queries/index.ts:101-111`). Check whether it can strand the bundle dialog
   the same way.
+- **FU-2.** `ResearchExportButton.vue` still polls by hand with a fixed 60-attempt budget
+  (browser-file-delivery FU-13). It could move onto `usePolling` and its new terminal hooks.
+- **FU-3 (quality, Info).**
+  - `usePolling` accepts `isFatal` without `onError`, which would stop a key silently. A
+    union of option types could require the pair.
+  - `useChatroomExport` returns `phase` as a writable ref; `readonly()` would close that.
