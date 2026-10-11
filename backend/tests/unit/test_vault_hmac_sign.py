@@ -102,7 +102,9 @@ def test_failed_refresh_backs_off_instead_of_hitting_vault_per_request(
     """A Vault outage plus a flood of forged tickets must not become one KV read
     per request on the worker thread pool."""
     c = _client({1: b"a" * 32}, current=1)
-    c._hmac_current_at = 1.0  # stale: the next call tries to refresh
+    # Stale relative to now: monotonic time is host uptime, which on a fresh CI
+    # runner can be under the TTL, so an absolute small value is not stale.
+    c._hmac_current_at = time.monotonic() - 2 * 300.0
     reads: list[str] = []
 
     def _down(path: str) -> dict[str, object]:
