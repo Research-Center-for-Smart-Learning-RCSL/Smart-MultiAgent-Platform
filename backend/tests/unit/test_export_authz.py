@@ -41,6 +41,7 @@ from contexts.conversation.domain.models import (
 )
 from contexts.conversation.infrastructure.repositories.message_repo import MessageRepository
 from shared_kernel.auth.permissions import Principal, Role
+from tests.unit.chat_export_fakes import FakeDb, FakeMessages, FakeStore, attachments_repo, edits_repo
 
 _NOW = datetime(2026, 7, 24, 12, 0, 0)
 _ROOM = uuid.uuid4()
@@ -118,25 +119,10 @@ class TestExportSenderScope:
 class TestRepositoryPredicate:
     """AC-3: the narrowing is in the WHERE clause, not a post-filter."""
 
-    @staticmethod
-    async def _where_clause(**kwargs: object) -> str:
-        db = AsyncMock()
-        result = MagicMock()
-        result.all.return_value = []
-        db.execute.return_value = result
-
-        await MessageRepository(db).all_for_chatroom(_ROOM, **kwargs)  # type: ignore[arg-type]
-
-        sql = str(
-            db.execute.await_args_list[0]
-            .args[0]
-            .compile(
-                dialect=postgresql.dialect(),
-                compile_kwargs={"literal_binds": True},
-            )
-        )
-        # Assert on the predicate only: the SELECT list always names every column.
-        return sql.split(" \nWHERE ", 1)[1]
+    @classmethod
+    async def _where_clause(cls, **kwargs: object) -> str:
+        """The paged export read's predicate (the SELECT list always names every column)."""
+        return (await cls._export_reads_where(**kwargs))[0]
 
     async def test_own_user_id_narrows_the_where_clause(self) -> None:
         where = await self._where_clause(own_user_id=_CALLER)
@@ -148,6 +134,32 @@ class TestRepositoryPredicate:
         where = await self._where_clause()
         assert "sender_type" not in where
         assert "sender_id" not in where
+
+    @staticmethod
+    async def _export_reads_where(**kwargs: object) -> list[str]:
+        """The WHERE clauses of the two reads the export actually runs."""
+        db = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = []
+        result.scalar_one.return_value = 0
+        db.execute.return_value = result
+        repo = MessageRepository(db)
+        [_ async for _ in repo.iter_for_export(_ROOM, **kwargs)]  # type: ignore[arg-type]
+        await repo.count_for_export(_ROOM, **kwargs)  # type: ignore[arg-type]
+        return [
+            str(
+                call.args[0].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+            ).split(" \nWHERE ", 1)[1]
+            for call in db.execute.await_args_list
+        ]
+
+    async def test_paged_and_counted_reads_narrow_the_same_way(self) -> None:
+        for where in await self._export_reads_where(own_user_id=_CALLER):
+            assert "sender_type IN ('agent', 'system')" in where
+            assert str(_CALLER) in where
+        for where in await self._export_reads_where():
+            assert "sender_type" not in where
+            assert "sender_id" not in where
 
 
 @pytest.fixture(autouse=True)
@@ -195,42 +207,25 @@ class _Harness:
         edits: dict[uuid.UUID, list[MessageEdit]] | None = None,
         attachments: dict[uuid.UUID, list[MessageAttachment]] | None = None,
     ) -> None:
-        self._all = messages
-        self.msgs_repo = AsyncMock()
-        self.msgs_repo.all_for_chatroom.side_effect = self._filter
+        # FakeMessages applies row 19's documented predicate, as the SQL does.
+        self.msgs_repo = FakeMessages(messages)
         mocks["MockMsgs"].return_value = self.msgs_repo
-
-        edits = edits or {}
-        attachments = attachments or {}
-        mocks["MockEdits"].return_value = AsyncMock(
-            list_for_message=AsyncMock(side_effect=lambda mid: edits.get(mid, []))
-        )
-        mocks["MockAtts"].return_value = AsyncMock(
-            list_for_message=AsyncMock(side_effect=lambda mid: attachments.get(mid, []))
-        )
+        mocks["MockEdits"].return_value = edits_repo(edits)
+        mocks["MockAtts"].return_value = attachments_repo(attachments)
 
         room = MagicMock()
         room.name = "general"
         mocks["MockRooms"].return_value = AsyncMock(get=AsyncMock(return_value=room))
 
-        self.minio = AsyncMock()
-        self.minio.exports_bucket = "exports"
-        mocks["mock_minio_fn"].return_value = self.minio
-
-    async def _filter(self, chatroom_id: uuid.UUID, **kwargs: object) -> list[Message]:
-        """Apply row 19's documented predicate, as the SQL does."""
-        own = kwargs.get("own_user_id")
-        if own is None:
-            return list(self._all)
-        kept = {SenderType.AGENT, SenderType.SYSTEM}
-        return [m for m in self._all if m.sender_type in kept or m.sender_id == own]
+        self.store = FakeStore()
+        mocks["mock_minio_fn"].return_value = self.store
 
     @property
     def own_user_id(self) -> object:
-        return self.msgs_repo.all_for_chatroom.await_args.kwargs.get("own_user_id")
+        return self.msgs_repo.calls[-1].get("own_user_id")
 
-    def manifest(self) -> dict[str, object]:
-        return json.loads(self.minio.put_object.call_args.kwargs["data"])
+    def manifest(self) -> dict[str, Any]:
+        return self.store.manifest()
 
 
 def _unpack(args: tuple[MagicMock, ...]) -> dict[str, MagicMock]:
@@ -262,7 +257,7 @@ class TestNarrowingReachesTheQuery:
         _wire_access(mocks, _access(roles=frozenset({Role.PROJECT_MEMBER})))
         harness = _Harness(mocks, messages=[])
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -278,7 +273,7 @@ class TestNarrowingReachesTheQuery:
         _wire_access(mocks, _access(roles=frozenset({Role.PROJECT_OWNER})))
         harness = _Harness(mocks, messages=[])
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -295,7 +290,7 @@ class TestNarrowingReachesTheQuery:
         _Harness(mocks, messages=[])
 
         with pytest.raises(ForbiddenInRoom):
-            await ChatExportService(AsyncMock()).build_and_upload_export(
+            await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
                 job_id=_JOB,
                 chatroom_id=_ROOM,
                 owner_user_id=_CALLER,
@@ -321,7 +316,7 @@ class TestManifestExcludesOtherSenders:
         mine, theirs, agent, system = self._room()
         harness = _Harness(mocks, messages=[mine, theirs, agent, system])
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -356,7 +351,7 @@ class TestManifestExcludesOtherSenders:
             },
         )
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -392,7 +387,7 @@ class TestManifestExcludesOtherSenders:
             },
         )
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -414,7 +409,7 @@ class TestWorkerRefusesToWiden:
         _Harness(mocks, messages=[])
 
         with pytest.raises(PermissionError, match="wider"):
-            await ChatExportService(AsyncMock()).build_and_upload_export(
+            await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
                 job_id=_JOB,
                 chatroom_id=_ROOM,
                 owner_user_id=_CALLER,
@@ -429,7 +424,7 @@ class TestWorkerRefusesToWiden:
         _wire_access(mocks, _access(roles=frozenset({Role.PROJECT_MEMBER})))
         harness = _Harness(mocks, messages=[])
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -448,7 +443,7 @@ class TestExportAudit:
         mine = _message(sender_type=SenderType.USER, sender_id=_CALLER, content="top-secret-body")
         _Harness(mocks, messages=[mine])
 
-        await ChatExportService(AsyncMock()).build_and_upload_export(
+        await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_CALLER,
@@ -477,10 +472,10 @@ class TestExportAudit:
         mocks = _unpack(args)
         _wire_access(mocks, _access(roles=frozenset({Role.PROJECT_OWNER})))
         harness = _Harness(mocks, messages=[])
-        harness.minio.put_object.side_effect = RuntimeError("minio down")
+        harness.store.fail_upload = RuntimeError("minio down")
 
         with pytest.raises(RuntimeError):
-            await ChatExportService(AsyncMock()).build_and_upload_export(
+            await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
                 job_id=_JOB,
                 chatroom_id=_ROOM,
                 owner_user_id=_CALLER,

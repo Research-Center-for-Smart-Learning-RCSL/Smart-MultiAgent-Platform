@@ -8,6 +8,7 @@ import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { usePolling } from '@shared/composables'
 import { ApiError, RateLimitError, ValidationError } from '@shared/errors'
+import { isProblemWithType } from '@shared/transport'
 import { createExport, getExport, type ExportOptions } from '../api'
 import type { ExportStatus } from '../types'
 import { downloadFresh } from '@shared/utils/download'
@@ -22,10 +23,13 @@ export type ExportPhase =
   | { kind: 'ready'; jobId: string }
   | { kind: 'start-failed'; opts: ExportOptions }
   | { kind: 'job-failed' }
-  | { kind: 'invalid'; field: 'start' | 'end' | null }
+  // `pdf`: the window holds more messages than a PDF export allows.
+  | { kind: 'invalid'; field: 'start' | 'end' | null; pdf: { count: number; limit: number } | null }
 
-// About 12 minutes, enough for the worker's 600-second timeout plus queue
-// wait: 3 s for the first minute, 6 s to minute 4, then 10 s.
+// About 12 minutes: 3 s for the first minute, 6 s to minute 4, then 10 s. An
+// export with attachments may run up to 30 minutes on the worker; one that
+// outlives this window shows "Still processing" with "Check again", which
+// resumes polling the same job (chat-export-archive-content Q-5).
 const POLL_ATTEMPTS = 98
 function pollDelay(attempt: number): number {
   if (attempt <= 20) return 3000
@@ -35,6 +39,21 @@ function pollDelay(attempt: number): number {
 
 // Status responses that cannot change on retry: the job is gone or not ours.
 const FATAL_STATUS = new Set([403, 404, 410])
+
+function pdfLimit(e: ValidationError): { count: number; limit: number } | null {
+  const { message_count: count, limit } = e.extra
+  return isProblemWithType(e, '/conversation/export-too-large-for-pdf') &&
+    typeof count === 'number' &&
+    typeof limit === 'number'
+    ? { count, limit }
+    : null
+}
+
+// The one active export this user already has in the room (409).
+function runningJob(e: unknown): string | null {
+  if (!(e instanceof ApiError) || !isProblemWithType(e, '/conversation/export-in-progress')) return null
+  return typeof e.extra.job_id === 'string' ? e.extra.job_id : null
+}
 
 // Only body errors are about the form's inputs (see ValidationFieldError).
 function invalidField(error: ValidationError): 'start' | 'end' | null {
@@ -112,9 +131,17 @@ export function useChatroomExport(chatroomId: string) {
       poll(job_id)
     } catch (e) {
       if (token !== requestToken) return
+      const running = runningJob(e)
+      if (running) {
+        // The server allows one export per room at a time; follow that one.
+        activeJobId = running
+        phase.value = { kind: 'running', jobId: running }
+        poll(running)
+        return
+      }
       phase.value =
         e instanceof ValidationError
-          ? { kind: 'invalid', field: invalidField(e) }
+          ? { kind: 'invalid', field: invalidField(e), pdf: pdfLimit(e) }
           : { kind: 'start-failed', opts }
     }
   }

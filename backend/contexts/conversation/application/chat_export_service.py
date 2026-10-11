@@ -4,29 +4,46 @@ Encapsulates the export serialization, ACL checks, and MinIO upload that
 were previously embedded in the ``chat_export`` worker task. The task
 becomes a thin orchestrator that calls :meth:`build_and_upload_export` and
 handles job state transitions.
+
+The build streams: messages are read in keyset pages and written to a work
+directory, so a room has no message cap and memory stays flat. Attachment
+files, rendering and upload run after the read transaction ends, so a
+multi-gigabyte archive never holds a database connection. Packaging lives in
+``chat_export_archive``; the design is in
+docs/tasks/2026-10-11-chat-export-archive-content/spec.md §7.2.
 """
 
 from __future__ import annotations
 
 import asyncio
-import html as _html
 import json
+import shutil
+import tempfile
 import uuid
+import zipfile
+from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.application import chat_export_archive as archive
 from contexts.conversation.application.access import (
     ensure_can_read,
+    export_own_user_id,
     export_sender_scope,
     resolve_room_access,
 )
+from contexts.conversation.application.chat_export_archive import AttachmentRef, Outcome, Packing
 from contexts.conversation.application.room_guests import load_room_guest_labels
 from contexts.conversation.domain.author_labels import prefer_guest_label
-from contexts.conversation.domain.export_formats import EXPORT_ARTIFACTS
+from contexts.conversation.domain.errors import ExportTooLargeForPdf
+from contexts.conversation.domain.export_formats import EXPORT_ARTIFACTS, export_artifact
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
@@ -40,15 +57,69 @@ from shared_kernel.auth.permissions import Principal
 from shared_kernel.markdown import render_safe_html
 from shared_kernel.storage import export_key, get_minio_client
 
-# Cap messages per export to bound memory; 50 000 messages at ~2 KB each ~ 100 MB.
-_EXPORT_MAX_MESSAGES = 50_000
-# Manifest writes to MinIO are bounded so a hung S3 connection cannot pin
-# an Arq worker indefinitely (R22.15 / I.4).
+# Uploads are bounded so a hung S3 connection cannot pin an Arq worker for the
+# whole job timeout (R22.15 / I.4): a base allowance plus a floor rate.
 _EXPORT_PUT_TIMEOUT_SECONDS = 60
+_EXPORT_PUT_MIN_BYTES_PER_SECOND = 1024 * 1024
+
+
+def _max_attachment_bytes() -> int:
+    return get_settings().export.max_attachment_bytes
+
+
+def pdf_max_messages() -> int:
+    return get_settings().export.pdf_max_messages
+
+
+async def count_export_messages(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    *,
+    created_after: datetime | None,
+    created_before: datetime | None,
+    own_user_id: uuid.UUID | None,
+) -> int:
+    """How many messages an export of this window would hold for this caller."""
+    return await MessageRepository(db).count_for_export(
+        chatroom_id, created_after=created_after, created_before=created_before, own_user_id=own_user_id
+    )
+
+
+async def ensure_pdf_fits(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    *,
+    created_after: datetime | None,
+    created_before: datetime | None,
+    sender_scope: ExportSenderScope,
+    owner_user_id: uuid.UUID,
+) -> None:
+    """Refuse a PDF export whose window exceeds the cap, before any job exists (Q-4).
+
+    Counted under the caller's own row-19 scope, since that is what the export
+    would hold. Raises ``ExportTooLargeForPdf``.
+    """
+    count = await count_export_messages(
+        db,
+        chatroom_id,
+        created_after=created_after,
+        created_before=created_before,
+        own_user_id=export_own_user_id(sender_scope, owner_user_id),
+    )
+    if count > pdf_max_messages():
+        raise ExportTooLargeForPdf(message_count=count, limit=pdf_max_messages())
+
+
+@dataclass(frozen=True, slots=True)
+class _Collected:
+    header: dict[str, Any]
+    sender_scope: ExportSenderScope
+    message_count: int
+    attachments: list[AttachmentRef]
 
 
 class ChatExportService:
-    """Builds a chat export manifest and uploads it to MinIO."""
+    """Builds a chat export and uploads it to MinIO."""
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -64,13 +135,16 @@ class ChatExportService:
         export_format: str = "markdown",
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        include_attachments: bool = False,
     ) -> tuple[str, str]:
-        """Verify ACL, serialise messages, render and upload the archive.
+        """Verify ACL, serialise messages, package and upload the export.
 
-        *export_format* selects the rendered artifact: ``json`` (the raw
-        manifest), ``markdown`` (a readable transcript), or ``pdf`` (the
-        sanitised HTML rendered via WeasyPrint). *created_after* /
-        *created_before* bound the message window for date-ranged exports.
+        *export_format* selects the transcript: ``json`` (the manifest),
+        ``markdown`` (a readable transcript), or ``pdf`` (the sanitised HTML
+        rendered via WeasyPrint). With *include_attachments* the upload is a
+        ZIP of that transcript, an ``attachments/`` folder and a README naming
+        what was left out. *created_after* / *created_before* bound the
+        message window for date-ranged exports.
 
         *recorded_sender_scope* is what the API authorized at request time, read
         back from the job record. It is a *description*, never an authority: the
@@ -81,24 +155,84 @@ class ChatExportService:
         already applies to its enqueued arguments. A *narrower* re-derivation is
         honoured: it means the caller lost a role between enqueue and execution.
 
+        The session must have no transaction open: reads run in one transaction
+        and the audit row in another, and nothing in between holds a connection.
+
         Returns ``(bucket, object_key)`` on success.
         Raises ``PermissionError`` if the owner lacks read access or the job
         record describes a narrower export than the caller now qualifies for;
-        ``ForbiddenInRoom`` if row 19 grants the caller no export at all.
+        ``ForbiddenInRoom`` if row 19 grants the caller no export at all;
+        ``ExportTooLargeForPdf`` if a PDF window grew past its cap after the
+        request was accepted.
         """
+        work = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="chat-export-"))
+        try:
+            async with self._db.begin():
+                collected = await self._collect(
+                    work,
+                    job_id=job_id,
+                    chatroom_id=chatroom_id,
+                    owner_user_id=owner_user_id,
+                    recorded_sender_scope=recorded_sender_scope,
+                    exported_at=exported_at,
+                    export_format=export_format,
+                    created_after=created_after,
+                    created_before=created_before,
+                )
+            artifact = export_artifact(export_format, include_attachments=include_attachments)
+            packing = Packing() if include_attachments else None
+            output = await self._package(work, collected, export_format, packing)
+            bucket, key = await self._upload(job_id, output, artifact.object_name, artifact.content_type)
+
+            # R17 / REQUIREMENTS.md "Chat audit actions": emit only after the
+            # artifact exists, so the trail never describes an export that was
+            # not delivered. Records what was taken and under which scope --
+            # never message content, filenames, or the download link (a bearer
+            # credential for the archive).
+            async with self._db.begin():
+                await audit.emit(
+                    self._db,
+                    audit.AuditEvent(
+                        action="message.exported",
+                        actor_user_id=owner_user_id,
+                        resource_type="chatroom",
+                        resource_id=chatroom_id,
+                        metadata={
+                            "job_id": str(job_id),
+                            "export_format": export_format,
+                            "sender_scope": collected.sender_scope.value,
+                            "created_after": created_after.isoformat() if created_after else None,
+                            "created_before": created_before.isoformat() if created_before else None,
+                            "message_count": collected.message_count,
+                            "include_attachments": include_attachments,
+                            "attachments_archived": packing.archived if packing else 0,
+                            "attachments_omitted": packing.omitted if packing else 0,
+                        },
+                    ),
+                )
+            return bucket, key
+        finally:
+            await asyncio.to_thread(shutil.rmtree, work, True)
+
+    async def _collect(
+        self,
+        work: Path,
+        *,
+        job_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        owner_user_id: uuid.UUID,
+        recorded_sender_scope: ExportSenderScope,
+        exported_at: str | None,
+        export_format: str,
+        created_after: datetime | None,
+        created_before: datetime | None,
+    ) -> _Collected:
+        """Authorise, then write every message in the window to the work directory."""
         # Re-fetch admin status from DB so legitimate admin exports of
         # rooms they aren't a member of still succeed.
         is_admin = await IdentityFacade(self._db).is_admin(owner_user_id)
-        principal = Principal(
-            user_id=owner_user_id,
-            is_admin=is_admin,
-            email_verified=True,
-        )
-        access = await resolve_room_access(
-            self._db,
-            principal=principal,
-            chatroom_id=chatroom_id,
-        )
+        principal = Principal(user_id=owner_user_id, is_admin=is_admin, email_verified=True)
+        access = await resolve_room_access(self._db, principal=principal, chatroom_id=chatroom_id)
         ensure_can_read(access, is_admin=is_admin)
 
         sender_scope = export_sender_scope(access, principal=principal)
@@ -109,98 +243,105 @@ class ChatExportService:
                 f"({recorded_sender_scope.value})"
             )
 
-        rooms = ChatroomRepository(self._db)
+        room = await ChatroomRepository(self._db).get(chatroom_id)
         messages = MessageRepository(self._db)
         edits = MessageEditRepository(self._db)
         attachments = MessageAttachmentRepository(self._db)
+        pdf_cap = pdf_max_messages() if export_format == "pdf" else None
 
-        room = await rooms.get(chatroom_id)
-        rows = await messages.all_for_chatroom(
-            chatroom_id,
-            limit=_EXPORT_MAX_MESSAGES,
-            created_after=created_after,
-            created_before=created_before,
-            own_user_id=(owner_user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None),
-        )
-        sender_names = await self._sender_names(chatroom_id, rows)
-        serialized: list[dict[str, Any]] = []
-        for m in rows:
-            msg_edits = await edits.list_for_message(m.id)
-            msg_atts = await attachments.list_for_message(m.id)
-            serialized.append(
-                {
-                    "id": str(m.id),
-                    "sender_type": m.sender_type.value,
-                    "sender_id": str(m.sender_id) if m.sender_id else None,
-                    "sender_name": sender_names.get(m.sender_id) if m.sender_id else None,
-                    "content_md": m.content_md,
-                    "content_html": render_safe_html(m.content_md),
-                    "metadata": m.metadata,
-                    "version": m.version,
-                    "created_at": m.created_at.isoformat() if m.created_at else None,
-                    "edited_at": m.edited_at.isoformat() if m.edited_at else None,
-                    "edits": [
-                        {
-                            "old_content_md": e.old_content_md,
-                            "edited_by_user_id": str(e.edited_by_user_id),
-                            "edited_at": e.edited_at.isoformat(),
-                        }
-                        for e in msg_edits
-                    ],
-                    "attachments": [
-                        {
-                            "id": str(a.id),
-                            "filename": a.filename,
-                            "mime": a.mime,
-                            "size_bytes": a.size_bytes,
-                            "minio_path": a.minio_path,
-                            "status": a.status.value,
-                        }
-                        for a in msg_atts
-                    ],
-                }
-            )
+        count = 0
+        refs: list[AttachmentRef] = []
+        with (work / archive.MESSAGES_FILE).open("w", encoding="utf-8") as out:
+            # Row 19 narrows in the WHERE clause, and attachments and edits are
+            # fetched only for the messages it returned, so another
+            # participant's content is never read.
+            async for page in messages.iter_for_export(
+                chatroom_id,
+                created_after=created_after,
+                created_before=created_before,
+                own_user_id=export_own_user_id(sender_scope, owner_user_id),
+            ):
+                count += len(page)
+                if pdf_cap is not None and count > pdf_cap:
+                    raise ExportTooLargeForPdf(message_count=count, limit=pdf_cap)
+                lines = await self._serialise_page(chatroom_id, page, edits, attachments, refs)
+                await asyncio.to_thread(out.write, "".join(lines))
 
-        manifest: dict[str, Any] = {
-            "schema_version": 1,
-            "chatroom": {
-                "id": str(chatroom_id),
-                "name": room.name if room else None,
-            },
+        header = {
+            "chatroom": {"id": str(chatroom_id), "name": room.name if room else None},
             "exported_at": exported_at,
-            "messages": serialized,
         }
+        return _Collected(header=header, sender_scope=sender_scope, message_count=count, attachments=refs)
 
-        # Release the DB connection before the (potentially slow) render +
-        # MinIO upload so we don't hold a pool slot for up to
-        # _EXPORT_PUT_TIMEOUT_SECONDS.
-        await self._db.flush()
+    async def _serialise_page(
+        self,
+        chatroom_id: uuid.UUID,
+        page: Sequence[Message],
+        edits: MessageEditRepository,
+        attachments: MessageAttachmentRepository,
+        refs: list[AttachmentRef],
+    ) -> list[str]:
+        ids = [m.id for m in page]
+        edits_by: dict[uuid.UUID, list[Any]] = defaultdict(list)
+        for e in await edits.list_for_messages(ids):
+            edits_by[e.message_id].append(e)
+        atts_by: dict[uuid.UUID, list[Any]] = defaultdict(list)
+        for a in await attachments.list_for_messages(ids):
+            if a.message_id is not None:
+                atts_by[a.message_id].append(a)
+        names = await self._sender_names(chatroom_id, page)
 
-        bucket, key = await self._render_and_upload(job_id, manifest, export_format)
-
-        # R17 / REQUIREMENTS.md "Chat audit actions": emit only after the
-        # artifact exists, so the trail never describes an export that was not
-        # delivered. Records what was taken and under which scope -- never the
-        # message content, and never the presigned URL (which is a bearer
-        # credential for the archive).
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="message.exported",
-                actor_user_id=owner_user_id,
-                resource_type="chatroom",
-                resource_id=chatroom_id,
-                metadata={
-                    "job_id": str(job_id),
-                    "export_format": export_format,
-                    "sender_scope": sender_scope.value,
-                    "created_after": created_after.isoformat() if created_after else None,
-                    "created_before": created_before.isoformat() if created_before else None,
-                    "message_count": len(serialized),
-                },
-            ),
-        )
-        return bucket, key
+        lines: list[str] = []
+        for m in page:
+            msg_atts = atts_by[m.id]
+            for a in msg_atts:
+                refs.append(
+                    AttachmentRef(
+                        id=str(a.id),
+                        message_id=str(m.id),
+                        filename=a.filename,
+                        mime=a.mime,
+                        size_bytes=a.size_bytes,
+                        status=a.status.value,
+                        scan_status=a.scan_status.value,
+                        minio_path=a.minio_path,
+                        expires_at=a.expires_at,
+                    )
+                )
+            record = {
+                "id": str(m.id),
+                "sender_type": m.sender_type.value,
+                "sender_id": str(m.sender_id) if m.sender_id else None,
+                "sender_name": names.get(m.sender_id) if m.sender_id else None,
+                "content_md": m.content_md,
+                "content_html": render_safe_html(m.content_md),
+                "metadata": m.metadata,
+                "version": m.version,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "edited_at": m.edited_at.isoformat() if m.edited_at else None,
+                "edits": [
+                    {
+                        "old_content_md": e.old_content_md,
+                        "edited_by_user_id": str(e.edited_by_user_id),
+                        "edited_at": e.edited_at.isoformat(),
+                    }
+                    for e in edits_by[m.id]
+                ],
+                # The storage path stays out: it is useless to a reader and
+                # discloses the bucket layout (Q-2).
+                "attachments": [
+                    {
+                        "id": str(a.id),
+                        "filename": a.filename,
+                        "mime": a.mime,
+                        "size_bytes": a.size_bytes,
+                        "status": a.status.value,
+                    }
+                    for a in msg_atts
+                ],
+            }
+            lines.append(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        return lines
 
     async def _sender_names(self, chatroom_id: uuid.UUID, rows: Sequence[Message]) -> dict[uuid.UUID, str]:
         """Sender id -> the name the room shows for it ([R13.17], [R13.33]).
@@ -234,122 +375,125 @@ class ChatExportService:
         return names
 
     @classmethod
-    async def _render_and_upload(
+    async def _package(
         cls,
-        job_id: uuid.UUID,
-        manifest: dict[str, Any],
+        work: Path,
+        collected: _Collected,
         export_format: str,
-    ) -> tuple[str, str]:
-        """Render the manifest into the requested artifact and upload it."""
-        artifact = EXPORT_ARTIFACTS.get(export_format, EXPORT_ARTIFACTS["markdown"])
-        if export_format == "json":
-            payload = json.dumps(manifest, separators=(",", ":"), default=str).encode("utf-8")
-        elif export_format == "pdf":
-            html = cls._build_pdf_html(manifest)
-            # WeasyPrint is CPU-bound and blocking; render off the event loop.
-            payload = await asyncio.to_thread(cls._html_to_pdf, html)
-        else:
-            payload = cls._build_markdown(manifest).encode("utf-8")
-        return await cls._upload(job_id, payload, artifact.object_name, artifact.content_type)
+        packing: Packing | None,
+    ) -> Path:
+        """The file to upload: the transcript alone, or the ZIP around it."""
+        transcript_name = EXPORT_ARTIFACTS[export_format].object_name
+        transcript = work / f"transcript-{transcript_name}"
+        if packing is None:
+            await asyncio.to_thread(
+                archive.write_transcript,
+                export_format,
+                transcript,
+                work,
+                collected.header,
+                None,
+                cls._html_to_pdf,
+            )
+            return transcript
+
+        zip_path = work / "export.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            await cls._add_attachments(zf, work, collected.attachments, packing)
+            # Rendered only now, so it says which files actually made it in.
+            await asyncio.to_thread(
+                archive.write_transcript,
+                export_format,
+                transcript,
+                work,
+                collected.header,
+                packing,
+                cls._html_to_pdf,
+            )
+            await asyncio.to_thread(zf.write, transcript, transcript_name)
+            notes = archive.readme(transcript_name, collected.attachments, packing)
+            await asyncio.to_thread(zf.writestr, archive.README_NAME, notes)
+        return zip_path
 
     @staticmethod
-    def _sender_label(message: dict[str, Any]) -> str:
-        sender_id = message.get("sender_id")
-        if message.get("sender_name"):
-            label = str(message["sender_name"])
-        else:
-            label = str(message.get("sender_type") or "")
-            if sender_id:
-                label += f" ({str(sender_id)[:8]})"
-        if message.get("created_at"):
-            label += f" — {message['created_at']}"
-        if message.get("edited_at"):
-            label += " (edited)"
-        return label
+    async def _add_attachments(
+        zf: zipfile.ZipFile, work: Path, refs: list[AttachmentRef], packing: Packing
+    ) -> None:
+        """Copy attachment files into the archive in transcript order (Q-2, Q-3).
 
-    @classmethod
-    def _build_markdown(cls, manifest: dict[str, Any]) -> str:
-        room = manifest.get("chatroom", {})
-        lines: list[str] = [f"# {room.get('name') or room.get('id') or ''}", ""]
-        if manifest.get("exported_at"):
-            lines += [f"_Exported {manifest['exported_at']}_", ""]
-        for m in manifest.get("messages", []):
-            lines += [f"## {cls._sender_label(m)}", "", m.get("content_md") or ""]
-            attachments = m.get("attachments") or []
-            if attachments:
-                names = ", ".join(a["filename"] for a in attachments)
-                lines += ["", f"_Attachments: {names}_"]
-            lines += ["", "---", ""]
-        return "\n".join(lines)
-
-    @classmethod
-    def _build_pdf_html(cls, manifest: dict[str, Any]) -> str:
-        room = manifest.get("chatroom", {})
-        title = _html.escape(str(room.get("name") or room.get("id") or ""))
-        parts: list[str] = [
-            '<!DOCTYPE html><html><head><meta charset="utf-8"><style>',
-            "body{font-family:sans-serif;font-size:12px;color:#1f2328;}",
-            "h1{font-size:20px;}",
-            ".meta{color:#6b7280;font-size:11px;}",
-            ".msg{margin:12px 0;padding:8px 12px;border:1px solid #e5e7eb;border-radius:6px;}",
-            ".msg--agent{border-left:3px solid #2563eb;background:#f8fafc;}",
-            ".msg--system{border:none;color:#6b7280;font-style:italic;text-align:center;}",
-            ".msg-head{font-weight:600;font-size:11px;margin-bottom:4px;}",
-            "pre{background:#f8fafc;padding:8px;border-radius:4px;}",
-            "table{border-collapse:collapse;}td,th{border:1px solid #e5e7eb;padding:4px;}",
-            f"</style></head><body><h1>{title}</h1>",
-        ]
-        if manifest.get("exported_at"):
-            parts.append(f'<p class="meta">Exported {_html.escape(str(manifest["exported_at"]))}</p>')
-        for m in manifest.get("messages", []):
-            sender_type = _html.escape(str(m.get("sender_type") or ""))
-            # content_html is already sanitised (render_safe_html / bleach), so
-            # embedding it carries the same XSS contract as the chat UI.
-            body = m.get("content_html") or ""
-            parts.append(f'<div class="msg msg--{sender_type}">')
-            parts.append(f'<div class="msg-head">{_html.escape(cls._sender_label(m))}</div>')
-            parts.append(f'<div class="msg-body">{body}</div>')
-            attachments = m.get("attachments") or []
-            if attachments:
-                names = _html.escape(", ".join(a["filename"] for a in attachments))
-                parts.append(f'<div class="meta">Attachments: {names}</div>')
-            parts.append("</div>")
-        parts.append("</body></html>")
-        return "".join(parts)
+        Files are added until the next one would exceed the byte budget; every
+        later file is then omitted too, so the earliest context stays whole.
+        """
+        client = get_minio_client()
+        budget, used, exhausted = _max_attachment_bytes(), 0, False
+        names = archive.EntryNames()
+        staging = work / "attachment.part"
+        for ref in refs:
+            reason = archive.status_reason(ref)
+            if reason is None and exhausted:
+                reason = "size_budget"
+            if reason is not None:
+                packing.outcomes[ref.id] = Outcome(omitted_reason=reason)
+                continue
+            bucket, _, key = ref.minio_path.partition("/")
+            # Only chat uploads belong in a chat export, whatever a row says.
+            stat = await client.stat(bucket=bucket, key=key) if bucket == client.chat_uploads_bucket else None
+            if stat is None:
+                packing.outcomes[ref.id] = Outcome(omitted_reason="missing")
+                continue
+            if used + stat.size > budget:
+                exhausted = True
+                packing.outcomes[ref.id] = Outcome(omitted_reason="size_budget")
+                continue
+            await client.download_to_path(bucket=bucket, key=key, path=staging)
+            entry = names.allocate(ref.message_id, ref.filename)
+            await asyncio.to_thread(zf.write, staging, entry, archive.compression_for(ref.mime))
+            await asyncio.to_thread(staging.unlink)
+            used += stat.size
+            packing.outcomes[ref.id] = Outcome(archive_path=entry)
 
     @staticmethod
     def _html_to_pdf(html: str) -> bytes:
         # Lazy import: WeasyPrint pulls in cairo/pango via cffi at import time,
         # so it is only loaded on the PDF path (and stubbed in tests).
         from weasyprint import HTML
+        from weasyprint.urls import URLFetcher
 
-        return bytes(HTML(string=html).write_pdf())
+        # Message markdown may carry `<img src="http://...">`, and the worker
+        # sits on internal networks: fetching it would let any room member
+        # make the worker request internal URLs (SSRF), and `file:` would read
+        # its disk. Only inline `data:` resources render; anything else is an
+        # image that does not load.
+        fetcher = URLFetcher(allowed_protocols={"data"}, allow_redirects=False)
+        return bytes(HTML(string=html, url_fetcher=fetcher).write_pdf())
 
     @staticmethod
     async def _upload(
         job_id: uuid.UUID,
-        payload: bytes,
+        path: Path,
         filename: str,
         content_type: str,
     ) -> tuple[str, str]:
         client = get_minio_client()
         key = export_key(job_id=job_id, filename=filename)
+        size = (await asyncio.to_thread(path.stat)).st_size
+        timeout = _EXPORT_PUT_TIMEOUT_SECONDS + size / _EXPORT_PUT_MIN_BYTES_PER_SECOND
         try:
             await asyncio.wait_for(
-                client.put_object(
+                client.put_file(
                     bucket=client.exports_bucket,
                     key=key,
-                    data=payload,
+                    file_path=str(path),
                     content_type=content_type,
                 ),
-                timeout=_EXPORT_PUT_TIMEOUT_SECONDS,
+                timeout=timeout,
             )
         except TimeoutError as exc:
             raise TimeoutError(
-                f"chat export MinIO put timed out after {_EXPORT_PUT_TIMEOUT_SECONDS}s (job {job_id})"
+                f"chat export MinIO put timed out after {timeout:.0f}s (job {job_id})"
             ) from exc
 
         return client.exports_bucket, key
 
 
-__all__ = ["ChatExportService"]
+__all__ = ["ChatExportService", "count_export_messages", "ensure_pdf_fits", "pdf_max_messages"]

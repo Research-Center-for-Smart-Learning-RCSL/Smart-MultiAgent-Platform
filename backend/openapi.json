@@ -6349,6 +6349,11 @@
             "title": "Format",
             "type": "string"
           },
+          "include_attachments": {
+            "default": true,
+            "title": "Include Attachments",
+            "type": "boolean"
+          },
           "start": {
             "anyOf": [
               {

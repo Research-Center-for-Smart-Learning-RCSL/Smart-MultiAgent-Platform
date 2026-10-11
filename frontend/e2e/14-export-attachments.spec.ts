@@ -1,7 +1,13 @@
-import { statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect } from './fixtures/auth'
+import { bearerFor, test, expect } from './fixtures/auth'
 import { env } from './fixtures/seed'
+
+// A 1x1 PNG.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
 
 // The header's export control (data-testid="open-export", aria-label "Export")
 // only opens ChatroomExportModal — the job is created by the modal's own
@@ -28,12 +34,33 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     await expect(modal.getByTestId('export-status')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('a ready export downloads a non-empty file without leaving the room', async ({ authedPage: page }) => {
+  test('a ready export downloads a ZIP holding the transcript and the attachment', async ({
+    authedPage: page,
+    request: api,
+  }) => {
     test.setTimeout(120_000)
     test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
     const chatroomId = env('E2E_CHATROOM_ID')!
-    await page.goto(`/chatrooms/${chatroomId}`)
 
+    // A message with a PNG attachment. PNG is stored, not deflated, in the
+    // archive, so its bytes can be found verbatim in the download.
+    const auth = await bearerFor(api)
+    const upload = await api.post(`/api/chatrooms/${chatroomId}/attachments`, {
+      headers: auth,
+      multipart: {
+        file: { name: 'e2e-export.png', mimeType: 'image/png', buffer: PNG },
+        mime: 'image/png',
+      },
+    })
+    expect(upload.ok(), `upload -> ${upload.status()}`).toBe(true)
+    const { id: attachmentId } = (await upload.json()) as { id: string }
+    const sent = await api.post(`/api/chatrooms/${chatroomId}/messages`, {
+      headers: auth,
+      data: { content_md: 'export me', attachment_ids: [attachmentId] },
+    })
+    expect(sent.ok(), `send -> ${sent.status()}`).toBe(true)
+
+    await page.goto(`/chatrooms/${chatroomId}`)
     const modal = await startExport(page)
 
     // Only the ready state counts: accepting the failure state here is what
@@ -43,10 +70,17 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     await expect(download).toBeVisible({ timeout: 100_000 })
 
     const [file] = await Promise.all([page.waitForEvent('download'), download.click()])
-    expect(file.suggestedFilename()).toMatch(/\.md$/)
+    // [R13.17]: attachments are included by default, so the export is a ZIP.
+    expect(file.suggestedFilename()).toMatch(/\.zip$/)
     const path = await file.path()
     expect(path).toBeTruthy()
-    expect(statSync(path).size).toBeGreaterThan(0)
+    const zip = readFileSync(path)
+    expect(zip.subarray(0, 2).toString('latin1')).toBe('PK')
+    // Entry names sit uncompressed in the ZIP's directory.
+    for (const entry of ['export.md', 'README.txt', 'e2e-export.png']) {
+      expect(zip.includes(Buffer.from(entry)), `entry ${entry}`).toBe(true)
+    }
+    expect(zip.includes(PNG), 'the attachment bytes, unaltered').toBe(true)
     await expect(page).toHaveURL(new RegExp(`/chatrooms/${chatroomId}`))
   })
   test('message attachments render download or expired state', async ({ authedPage: page }) => {

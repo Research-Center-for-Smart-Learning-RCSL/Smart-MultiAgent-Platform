@@ -825,6 +825,7 @@ Export generates an offline archive of the chatroom's message history. The flow 
 | Date Range | `SSelect` | All Messages, Last 7 Days, Last 30 Days, Custom Range |
 | Custom Start | `SInput type="date"` | Only visible when "Custom Range" selected |
 | Custom End | `SInput type="date"` | Only visible when "Custom Range" selected |
+| Include attachments | `SCheckbox` | Checked by default; the download is then a ZIP of the transcript, an `attachments/` folder and a README naming any file left out |
 
 **Export flow**:
 

@@ -11,6 +11,7 @@ that calls the service and handles job state transitions.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from io import BytesIO
 from typing import Any
@@ -213,13 +214,19 @@ async def extract_attachment_text(ctx: dict[str, Any], attachment_id: str) -> st
 extract_attachment_text.max_tries = 3  # type: ignore[attr-defined]
 
 
+# Registered with `max_tries=1` (`app.workers.main`) because a re-run would
+# deliver a second archive and a second `message.exported` audit row. The
+# export slot's staleness is derived from the same constant.
+CHAT_EXPORT_TIMEOUT_S = export_service.CHAT_EXPORT_TIMEOUT_S
+
+
 async def chat_export(
     ctx: dict[str, Any],
     job_id: str,
     chatroom_id: str,
     owner_user_id: str,
 ) -> str:
-    """Write the manifest + sanitised HTML to the `exports` bucket.
+    """Write the export (transcript, or a ZIP with attachments) to the `exports` bucket.
 
     Job state transitions are managed here; the actual export build and
     upload is delegated to ``ChatExportService.build_and_upload_export``.
@@ -247,7 +254,9 @@ async def chat_export(
     await export_service.mark_running(jid)
     try:
         sm = get_sessionmaker()
-        async with sm() as session, session.begin():
+        # No outer transaction: the service runs its reads and its audit row in
+        # separate transactions, and holds no connection while it packages.
+        async with sm() as session:
             enqueued = ctx.get("enqueue_time")
             if hasattr(enqueued, "isoformat"):
                 exported_at = enqueued.isoformat()  # type: ignore[union-attr]
@@ -263,12 +272,21 @@ async def chat_export(
                 created_after=state.created_after,
                 created_before=state.created_before,
                 recorded_sender_scope=state.sender_scope,
+                include_attachments=state.include_attachments,
             )
         await export_service.mark_ready(
             job_id=jid,
             bucket=bucket,
             object_key=key,
         )
+    except asyncio.CancelledError:
+        # arq enforces the job timeout by cancelling, and CancelledError is not
+        # an Exception: without this the job read `running` until its record
+        # expired. Shielded so the write lands; re-raised to keep arq's
+        # cancellation contract.
+        logger.bind(event="chat_export_cancelled", job_id=str(jid)).warning("export timed out")
+        await asyncio.shield(export_service.mark_failed(job_id=jid, error="timed out"))
+        raise
     except Exception as exc:  # pragma: no cover — operator-visible
         logger.bind(event="chat_export_failed", job_id=str(jid)).exception(
             "export failed",

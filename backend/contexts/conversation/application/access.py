@@ -515,6 +515,13 @@ def export_sender_scope(access: RoomAccess, *, principal: Principal) -> ExportSe
     raise ForbiddenInRoom("caller cannot export this chatroom")
 
 
+def export_own_user_id(scope: ExportSenderScope, user_id: uuid.UUID) -> uuid.UUID | None:
+    """The `own_user_id` the export reads take for *scope*: the caller for a
+    narrowed export, ``None`` (room-wide) otherwise. One derivation, so the
+    API's PDF count and the worker's export read the same rows."""
+    return user_id if scope is ExportSenderScope.OWN_PLUS_NON_USER else None
+
+
 def ensure_can_manage_guest_link(access: RoomAccess, *, principal: Principal) -> None:
     """Matrix row 18 (guest_link.manage): rotating the link and removing, banning
     and unbanning a room's anonymous guests ([R13.07a]).

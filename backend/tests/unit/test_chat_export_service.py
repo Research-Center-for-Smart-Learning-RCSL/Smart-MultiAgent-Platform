@@ -2,24 +2,24 @@
 
 Covers: ACL check (admin pass, non-admin with access, non-admin denied),
 message serialization (messages + edits + attachments), manifest schema
-version, message cap, MinIO upload with timeout, upload timeout error.
+version, no message cap, MinIO upload with timeout, upload timeout error.
+Archive contents (attachment files, omissions) are in test_chat_export_archive.py.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from contexts.conversation.application import chat_export_service as export_mod
 from contexts.conversation.application.access import RoomAccess
-from contexts.conversation.application.chat_export_service import (
-    _EXPORT_MAX_MESSAGES,
-    ChatExportService,
-)
+from contexts.conversation.application.chat_export_service import ChatExportService
 from contexts.conversation.domain.models import (
     AttachmentStatus,
     ExportSenderScope,
@@ -30,6 +30,7 @@ from contexts.conversation.domain.models import (
     SenderType,
 )
 from shared_kernel.auth.permissions import Role
+from tests.unit.chat_export_fakes import FakeDb, FakeMessages, FakeStore, wire
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
 _USER = uuid.uuid4()
@@ -51,10 +52,9 @@ def _no_sender_names(monkeypatch: pytest.MonkeyPatch) -> None:
 def _moderator_access() -> RoomAccess:
     """The unnarrowed path these tests have always exercised.
 
-    Previously a bare MagicMock, which stood in for a room access of no
-    particular role. Row 19 now reads `roles`, so the moderator assumption these
-    cases were relying on is stated rather than implied. See test_export_authz.py
-    for the narrowed (member) and denied (guest) paths.
+    Row 19 reads `roles`, so the moderator assumption these cases rely on is
+    stated rather than implied. See test_export_authz.py for the narrowed
+    (member) and denied (guest) paths.
     """
     room = MagicMock()
     room.name = "general"
@@ -66,11 +66,7 @@ def _moderator_access() -> RoomAccess:
     )
 
 
-def _message(
-    *,
-    msg_id: uuid.UUID | None = None,
-    content: str = "hello",
-) -> Message:
+def _message(*, msg_id: uuid.UUID | None = None, content: str = "hello") -> Message:
     return Message(
         id=msg_id or _MSG,
         chatroom_id=_ROOM,
@@ -105,117 +101,72 @@ def _attachment(*, msg_id: uuid.UUID | None = None) -> MessageAttachment:
         status=AttachmentStatus.ACTIVE,
         scan_status=ScanStatus.CLEAN,
         scan_at=_NOW,
-        expires_at=_NOW + timedelta(days=3),
+        expires_at=None,
     )
 
 
-def _make_chat_export_service(
-    *,
-    is_admin: bool = False,
-    can_read: bool = True,
-    room_name: str = "general",
-    messages: list[Message] | None = None,
-    edits: list[MessageEdit] | None = None,
-    attachments: list[MessageAttachment] | None = None,
-) -> tuple[ChatExportService, dict[str, AsyncMock | MagicMock]]:
-    db = AsyncMock()
-    svc = ChatExportService(db)
+class _Env:
+    """Wires the service module to fakes; access is a moderator unless changed."""
 
-    identity = AsyncMock()
-    identity.is_admin.return_value = is_admin
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.monkeypatch = monkeypatch
+        self.is_admin = False
+        self.access = _moderator_access()
+        self.ensure = MagicMock()
+        self.store = FakeStore()
+        self.db = FakeDb()
+        self.messages = FakeMessages([])
 
-    access = MagicMock()
-    access.can_read = can_read
+        async def _resolve(db: object, **_: object) -> RoomAccess:
+            return self.access
 
-    room = MagicMock()
-    room.name = room_name
+        monkeypatch.setattr(export_mod, "resolve_room_access", _resolve)
+        monkeypatch.setattr(export_mod, "ensure_can_read", self.ensure)
+        monkeypatch.setattr(
+            export_mod,
+            "IdentityFacade",
+            MagicMock(side_effect=lambda db: AsyncMock(is_admin=AsyncMock(return_value=self.is_admin))),
+        )
+        monkeypatch.setattr("shared_kernel.audit.emit", AsyncMock())
 
-    rooms_repo = AsyncMock()
-    rooms_repo.get.return_value = room
+    async def export(
+        self,
+        *,
+        messages: list[Message] | None = None,
+        edits: dict[uuid.UUID, list[MessageEdit]] | None = None,
+        attachments: dict[uuid.UUID, list[MessageAttachment]] | None = None,
+        room_name: str = "general",
+        **kwargs: Any,
+    ) -> tuple[str, str]:
+        self.messages = FakeMessages(messages or [])
+        wire(
+            self.monkeypatch,
+            export_mod,
+            messages=self.messages,
+            store=self.store,
+            db=self.db,
+            room_name=room_name,
+            edits=edits,
+            attachments=attachments,
+        )
+        kwargs.setdefault("recorded_sender_scope", ExportSenderScope.ALL)
+        return await ChatExportService(self.db).build_and_upload_export(  # type: ignore[arg-type]
+            job_id=_JOB, chatroom_id=_ROOM, owner_user_id=_USER, **kwargs
+        )
 
-    msgs_repo = AsyncMock()
-    msgs_repo.all_for_chatroom.return_value = messages or []
 
-    edits_repo = AsyncMock()
-    edits_repo.list_for_message.return_value = edits or []
-
-    atts_repo = AsyncMock()
-    atts_repo.list_for_message.return_value = attachments or []
-
-    minio = AsyncMock()
-    minio.exports_bucket = "exports"
-
-    patches = {
-        "identity": identity,
-        "access": access,
-        "rooms_repo": rooms_repo,
-        "msgs_repo": msgs_repo,
-        "edits_repo": edits_repo,
-        "atts_repo": atts_repo,
-        "minio": minio,
-    }
-    return svc, patches
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch) -> _Env:
+    return _Env(monkeypatch)
 
 
 class TestChatExportBuildAndUpload:
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_builds_manifest_with_messages(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        identity = AsyncMock()
-        identity.is_admin.return_value = False
-        MockIdentity.return_value = identity
-
-        mock_resolve.return_value = _moderator_access()
-
-        room = MagicMock()
-        room.name = "general"
-        rooms = AsyncMock()
-        rooms.get.return_value = room
-        MockRooms.return_value = rooms
-
+    async def test_builds_manifest_with_messages(self, env: _Env) -> None:
         msg = _message()
-        msgs = AsyncMock()
-        msgs.all_for_chatroom.return_value = [msg]
-        MockMsgs.return_value = msgs
-
-        edit = _edit()
-        edits = AsyncMock()
-        edits.list_for_message.return_value = [edit]
-        MockEdits.return_value = edits
-
-        att = _attachment()
-        atts = AsyncMock()
-        atts.list_for_message.return_value = [att]
-        MockAtts.return_value = atts
-
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
-        db = AsyncMock()
-        svc = ChatExportService(db)
-
-        bucket, key = await svc.build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
+        bucket, key = await env.export(
+            messages=[msg],
+            edits={msg.id: [_edit()]},
+            attachments={msg.id: [_attachment()]},
             exported_at=_NOW.isoformat(),
             export_format="json",
         )
@@ -223,9 +174,8 @@ class TestChatExportBuildAndUpload:
         assert bucket == "exports"
         assert "manifest.json" in key
 
-        put_call = minio.put_object.call_args
-        payload = json.loads(put_call.kwargs["data"])
-        assert payload["schema_version"] == 1
+        payload = env.store.manifest()
+        assert payload["schema_version"] == 2
         assert payload["chatroom"]["name"] == "general"
         assert len(payload["messages"]) == 1
 
@@ -238,343 +188,144 @@ class TestChatExportBuildAndUpload:
         assert len(m["attachments"]) == 1
         assert m["attachments"][0]["filename"] == "file.png"
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_admin_can_export(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        identity = AsyncMock()
-        identity.is_admin.return_value = True
-        MockIdentity.return_value = identity
-
-        mock_resolve.return_value = _moderator_access()
-
-        room = MagicMock()
-        room.name = "admin-room"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-        MockMsgs.return_value = AsyncMock(all_for_chatroom=AsyncMock(return_value=[]))
-        MockEdits.return_value = AsyncMock()
-        MockAtts.return_value = AsyncMock()
-
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
-        db = AsyncMock()
-        svc = ChatExportService(db)
-
-        bucket, _key = await svc.build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
-        )
+    async def test_admin_can_export(self, env: _Env) -> None:
+        env.is_admin = True
+        bucket, _key = await env.export(room_name="admin-room")
 
         assert bucket == "exports"
-        mock_ensure.assert_called_once()
-        ensure_kwargs = mock_ensure.call_args
-        assert ensure_kwargs[1]["is_admin"] is True
+        env.ensure.assert_called_once()
+        assert env.ensure.call_args[1]["is_admin"] is True
 
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_acl_denied_raises(self, MockIdentity, mock_resolve, mock_ensure) -> None:
-        identity = AsyncMock()
-        identity.is_admin.return_value = False
-        MockIdentity.return_value = identity
-
-        mock_resolve.return_value = _moderator_access()
-        mock_ensure.side_effect = PermissionError("no read access")
-
-        db = AsyncMock()
-        svc = ChatExportService(db)
-
+    async def test_acl_denied_raises(self, env: _Env) -> None:
+        env.ensure.side_effect = PermissionError("no read access")
         with pytest.raises(PermissionError):
-            await svc.build_and_upload_export(
-                job_id=_JOB,
-                chatroom_id=_ROOM,
-                owner_user_id=_USER,
-                recorded_sender_scope=ExportSenderScope.ALL,
-            )
+            await env.export()
+        assert env.store.uploads == {}
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_empty_export(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        identity = AsyncMock()
-        identity.is_admin.return_value = False
-        MockIdentity.return_value = identity
+    async def test_empty_export(self, env: _Env) -> None:
+        await env.export(room_name="empty-room", export_format="json")
 
-        mock_resolve.return_value = _moderator_access()
-
-        room = MagicMock()
-        room.name = "empty-room"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-        MockMsgs.return_value = AsyncMock(all_for_chatroom=AsyncMock(return_value=[]))
-        MockEdits.return_value = AsyncMock()
-        MockAtts.return_value = AsyncMock()
-
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
-        db = AsyncMock()
-        svc = ChatExportService(db)
-
-        _bucket, _key = await svc.build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
-            export_format="json",
-        )
-
-        put_call = minio.put_object.call_args
-        payload = json.loads(put_call.kwargs["data"])
+        payload = env.store.manifest()
         assert payload["messages"] == []
         assert payload["chatroom"]["name"] == "empty-room"
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_message_cap_applied(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        identity = AsyncMock()
-        identity.is_admin.return_value = False
-        MockIdentity.return_value = identity
-        mock_resolve.return_value = _moderator_access()
+    async def test_no_message_cap(self, env: _Env) -> None:
+        """F-6: the newest messages were dropped past 50,000. The export now
+        pages through every row; the repository is asked for no limit."""
+        await env.export(messages=[_message(msg_id=uuid.uuid4(), content=f"m{i}") for i in range(7)])
 
-        room = MagicMock()
-        room.name = "big-room"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-
-        msgs_repo = AsyncMock()
-        msgs_repo.all_for_chatroom.return_value = []
-        MockMsgs.return_value = msgs_repo
-        MockEdits.return_value = AsyncMock()
-        MockAtts.return_value = AsyncMock()
-
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
-        db = AsyncMock()
-        svc = ChatExportService(db)
-
-        await svc.build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
-        )
-
-        call_kwargs = msgs_repo.all_for_chatroom.call_args
-        assert call_kwargs[1]["limit"] == _EXPORT_MAX_MESSAGES
+        call = env.messages.calls[0]
+        assert "limit" not in call
         # The `✓` cells stay room-wide: the additive sender predicate must not
         # change the moderator path's default.
-        assert call_kwargs[1]["own_user_id"] is None
+        assert call["own_user_id"] is None
+        assert env.store.text().count("## ") == 7
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_markdown_format(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = _moderator_access()
-        room = MagicMock()
-        room.name = "general"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-        MockMsgs.return_value = AsyncMock(
-            all_for_chatroom=AsyncMock(return_value=[_message(content="hello world")])
-        )
-        MockEdits.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
-        MockAtts.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
-        _bucket, key = await ChatExportService(AsyncMock()).build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
-            export_format="markdown",
-        )
+    async def test_markdown_format(self, env: _Env) -> None:
+        _bucket, key = await env.export(messages=[_message(content="hello world")], export_format="markdown")
 
         assert key.endswith("export.md")
-        put_call = minio.put_object.call_args
-        assert put_call.kwargs["content_type"] == "text/markdown; charset=utf-8"
-        text = put_call.kwargs["data"].decode("utf-8")
+        _, _, content_type = env.store.only_upload()
+        assert content_type == "text/markdown; charset=utf-8"
+        text = env.store.text()
         assert "# general" in text
         assert "hello world" in text
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_pdf_format_renders_via_weasyprint(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = _moderator_access()
-        room = MagicMock()
-        room.name = "general"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-        MockMsgs.return_value = AsyncMock(
-            all_for_chatroom=AsyncMock(return_value=[_message(content="hello")])
-        )
-        MockEdits.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
-        MockAtts.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
-
+    async def test_pdf_format_renders_via_weasyprint(self, env: _Env) -> None:
         # Stub the WeasyPrint render so the test needs no system libraries.
         with patch.object(ChatExportService, "_html_to_pdf", return_value=b"%PDF-1.4 stub") as mock_pdf:
-            _bucket, key = await ChatExportService(AsyncMock()).build_and_upload_export(
-                job_id=_JOB,
-                chatroom_id=_ROOM,
-                owner_user_id=_USER,
-                recorded_sender_scope=ExportSenderScope.ALL,
-                export_format="pdf",
-            )
+            _bucket, key = await env.export(messages=[_message(content="hello")], export_format="pdf")
 
         assert key.endswith("export.pdf")
         mock_pdf.assert_called_once()
         # The rendered HTML carries the sanitised message body.
         assert "hello" in mock_pdf.call_args.args[0]
-        put_call = minio.put_object.call_args
-        assert put_call.kwargs["content_type"] == "application/pdf"
-        assert put_call.kwargs["data"] == b"%PDF-1.4 stub"
+        _, body, content_type = env.store.only_upload()
+        assert content_type == "application/pdf"
+        assert body == b"%PDF-1.4 stub"
 
-    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
-    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
-    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
-    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
-    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
-    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
-    async def test_date_range_window_passed_to_repo(
-        self,
-        MockIdentity,
-        mock_resolve,
-        mock_ensure,
-        MockMsgs,
-        MockEdits,
-        MockAtts,
-        MockRooms,
-        mock_minio_fn,
-    ) -> None:
-        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
-        mock_resolve.return_value = _moderator_access()
-        room = MagicMock()
-        room.name = "general"
-        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
-        msgs_repo = AsyncMock()
-        msgs_repo.all_for_chatroom.return_value = []
-        MockMsgs.return_value = msgs_repo
-        MockEdits.return_value = AsyncMock()
-        MockAtts.return_value = AsyncMock()
-        minio = AsyncMock()
-        minio.exports_bucket = "exports"
-        mock_minio_fn.return_value = minio
+    async def test_pdf_window_that_grew_past_the_cap_fails(self, env: _Env) -> None:
+        """The API refuses an oversized PDF up front; messages posted after the
+        request was accepted still cannot push the render past the cap."""
+        from contexts.conversation.domain.errors import ExportTooLargeForPdf
 
+        env.monkeypatch.setattr(export_mod, "pdf_max_messages", lambda: 3)
+        with pytest.raises(ExportTooLargeForPdf):
+            await env.export(messages=[_message(msg_id=uuid.uuid4()) for _ in range(4)], export_format="pdf")
+        assert env.store.uploads == {}
+
+    async def test_date_range_window_passed_to_repo(self, env: _Env) -> None:
         after = datetime(2026, 6, 1, 0, 0, 0)
         before = datetime(2026, 6, 23, 0, 0, 0)
-        await ChatExportService(AsyncMock()).build_and_upload_export(
-            job_id=_JOB,
-            chatroom_id=_ROOM,
-            owner_user_id=_USER,
-            recorded_sender_scope=ExportSenderScope.ALL,
-            export_format="json",
-            created_after=after,
-            created_before=before,
-        )
+        await env.export(export_format="json", created_after=after, created_before=before)
 
-        call_kwargs = msgs_repo.all_for_chatroom.call_args.kwargs
-        assert call_kwargs["created_after"] == after
-        assert call_kwargs["created_before"] == before
-        assert call_kwargs["own_user_id"] is None
+        call = env.messages.calls[0]
+        assert call["created_after"] == after
+        assert call["created_before"] == before
+        assert call["own_user_id"] is None
+
+    async def test_work_directory_is_removed(self, env: _Env, monkeypatch: pytest.MonkeyPatch) -> None:
+        made: list[Path] = []
+        real = export_mod.tempfile.mkdtemp
+
+        def _mkdtemp(**kwargs: Any) -> str:
+            path = real(**kwargs)
+            made.append(Path(path))
+            return path
+
+        monkeypatch.setattr(export_mod.tempfile, "mkdtemp", _mkdtemp)
+        await env.export(messages=[_message()])
+        env.store.fail_upload = RuntimeError("minio down")
+        with pytest.raises(RuntimeError):
+            await env.export(messages=[_message()])
+        assert len(made) == 2
+        assert not any(p.exists() for p in made)
 
 
-class TestUploadManifest:
-    async def test_upload_timeout_raises(self) -> None:
+class TestPdfRender:
+    def test_render_fetches_nothing_but_inline_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Message markdown can embed `<img src="http://internal/...">`. A
+        default WeasyPrint render requests it from the worker's networks
+        (SSRF), and `file:` would read its disk. Verified live against
+        WeasyPrint 70 in the backend image; this pins the configuration."""
+        import sys
+        import types
+
+        seen: dict[str, Any] = {}
+
+        class _Fetcher:
+            def __init__(self, **kwargs: Any) -> None:
+                seen["fetcher"] = kwargs
+
+        class _HTML:
+            def __init__(self, **kwargs: Any) -> None:
+                seen["html"] = kwargs
+
+            def write_pdf(self) -> bytes:
+                return b"%PDF"
+
+        weasy = types.ModuleType("weasyprint")
+        weasy.HTML = _HTML  # type: ignore[attr-defined]
+        urls = types.ModuleType("weasyprint.urls")
+        urls.URLFetcher = _Fetcher  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "weasyprint", weasy)
+        monkeypatch.setitem(sys.modules, "weasyprint.urls", urls)
+
+        assert ChatExportService._html_to_pdf("<img src='http://10.0.0.1/'>") == b"%PDF"
+        assert seen["fetcher"] == {"allowed_protocols": {"data"}, "allow_redirects": False}
+        assert isinstance(seen["html"]["url_fetcher"], _Fetcher)
+
+
+class TestUpload:
+    async def test_upload_timeout_raises(self, tmp_path: Path) -> None:
         minio = AsyncMock()
 
-        async def slow_put(**kwargs):
+        async def slow_put(**kwargs: object) -> None:
             await asyncio.sleep(10)
 
-        minio.put_object = slow_put
+        minio.put_file = slow_put
+        payload = tmp_path / "manifest.json"
+        payload.write_bytes(b'{"test": true}')
 
         with (
             patch(
@@ -587,4 +338,4 @@ class TestUploadManifest:
             ),
             pytest.raises(TimeoutError, match="timed out"),
         ):
-            await ChatExportService._upload(_JOB, b'{"test": true}', "manifest.json", "application/json")
+            await ChatExportService._upload(_JOB, payload, "manifest.json", "application/json")

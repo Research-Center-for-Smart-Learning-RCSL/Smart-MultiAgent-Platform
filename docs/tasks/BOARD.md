@@ -513,19 +513,7 @@ rows are added as each is written.
   nginx and MinIO share no network. Replaces presigned URLs with `GET /api/files/{ticket}`, a
   backend-streamed endpoint behind an HMAC ticket.
 - (moved to In progress on 2026-10-11) `2026-10-11-chat-export-modal-states`.
-- `2026-10-11-chat-export-archive-content` (bugfix, **approved 2026-10-11**) - ready: both
-  dependencies, `browser-file-delivery` and `chat-export-modal-states`, are implemented. Build
-  it on a branch stacked on `fix/chat-export-modal-states` until PR #245 merges. The modal's
-  state is now the `ExportPhase` union and `phase` replaces `exportJob`; the 409 for a second
-  active export is a create failure, so map it in `runExport` (today it would show
-  "Could not start the export."). F-4, F-5, F-6:
-  - an "Include attachments" ZIP with omissions noted;
-  - streamed Markdown/JSON with no message cap;
-  - PDF refused above 5,000 messages;
-  - a cancelled job marked failed.
-
-  Its [R13.17] rewording was applied at approval. **Read its Q-6**: removing the cap
-  widened the open export-quota finding, so it adds one active export per user per room (409).
+- (implemented 2026-10-11; see In progress) `2026-10-11-chat-export-archive-content`.
 
 ### From the 2026-10-07 missing-agent-reply analysis
 
@@ -745,9 +733,25 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
+- (implemented 2026-10-11) `2026-10-11-chat-export-archive-content`, on branch
+  `fix/chat-export-archive-content` from `main`.
+  - **Verification.** AC-1..AC-8 were checked on the compose stack:
+    - the ZIP's files were byte-identical to the uploads, and expired and quarantined files
+      were noted;
+    - all 50,010 messages were exported at a 177 MiB worker peak;
+    - the PDF 422 and the 409 behave correctly in the API and in Chromium;
+    - a 2-second timeout made the job fail with "timed out";
+    - a Project Member's export held only their own and system files.
+  - **Security gate.** It found a pre-existing CRITICAL: the PDF render fetched remote URLs
+    (SSRF). It was fixed and the fix verified live (D-6).
+  - **Deploy notes.**
+    - The chat export now runs up to 30 minutes and uses worker disk, up to 2 GiB of
+      attachments plus the archive.
+    - A new `SMAP_EXPORT_*` settings section has defaults.
+    - The per-user cap is FU-1/FU-4.
 - (implemented 2026-10-11) `2026-10-11-chat-export-modal-states`, on branch
-  `fix/chat-export-modal-states`, stacked on `fix/browser-file-delivery` (PR #245, not yet
-  merged). AC-1..AC-7 verified: the unit tests, plus Chromium against the compose stack for
+  `fix/chat-export-modal-states`, stacked on `fix/browser-file-delivery`. Both merged to `main`
+  (PR #245, #246). AC-1..AC-7 verified: the unit tests, plus Chromium against the compose stack for
   stalled/Check again, 404, worker failure, 422 and the close/reopen and double-click races.
   Deviations D-1..D-3 (D-3: branch review fixes, among them one polling loop per key, an
   "unreachable" variant of the stalled state, and closing the modal abandons the job) and

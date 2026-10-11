@@ -175,6 +175,16 @@ _MAP: ErrorMap = {
         404,
         "Export job not found",
     ),
+    errors.ExportTooLargeForPdf: (
+        "conversation/export-too-large-for-pdf",
+        422,
+        "Too many messages for a PDF export",
+    ),
+    errors.ExportInProgress: (
+        "conversation/export-in-progress",
+        409,
+        "An export of this room is already in progress",
+    ),
     errors.ExportJobNotReady: (
         "conversation/export-not-ready",
         409,
@@ -184,7 +194,16 @@ _MAP: ErrorMap = {
 
 
 def register(app: FastAPI) -> None:
-    register_context_handler(app, errors.ConversationError, _MAP)
+    register_context_handler(app, errors.ConversationError, _MAP, _extras)
+
+
+def _extras(exc: Exception) -> dict[str, object]:
+    """Problem members the client acts on: the count it shows, the job it follows."""
+    if isinstance(exc, errors.ExportTooLargeForPdf):
+        return {"message_count": exc.message_count, "limit": exc.limit}
+    if isinstance(exc, errors.ExportInProgress):
+        return {"job_id": str(exc.job_id)}
+    return {}
 
 
 __all__ = ["register"]

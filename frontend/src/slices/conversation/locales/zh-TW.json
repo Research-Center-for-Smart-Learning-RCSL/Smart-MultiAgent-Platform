@@ -198,6 +198,8 @@
       "exportJobFailedDetail": "無法產生封存檔。",
       "exportRangeInvalid": "結束日期不能早於開始日期。",
       "exportInvalid": "請檢查匯出選項後再試一次。",
+      "exportIncludeAttachments": "包含附件",
+      "exportTooLargeForPdf": "此範圍有 {count} 則訊息，PDF 匯出上限為 {limit} 則。請縮短日期範圍或改用其他格式。",
       "retry": "重試",
       "copied": "已複製到剪貼簿。",
       "copyFailed": "複製失敗。",

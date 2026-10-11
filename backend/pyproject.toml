@@ -442,6 +442,9 @@ module = [
   # both single `Redis.eval` scripts, because a pipeline cannot give the
   # three-key snapshot the classification depends on.
   "contexts.identity.infrastructure.email_domain_legacy",
+  # Same stub lag: the chat export's one-slot-per-room takeover is a single
+  # compare-and-set script, so two creates cannot both win the slot.
+  "contexts.conversation.application.export_service",
 ]
 disable_error_code = ["no-untyped-call"]
 

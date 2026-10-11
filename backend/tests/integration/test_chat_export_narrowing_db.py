@@ -2,7 +2,7 @@
 
 Dossier ``docs/tasks/2026-10-05-chat-export-guest-narrowing``: matrix row 19 keeps
 the caller's own messages plus agent and system messages. Exercises
-``MessageRepository.all_for_chatroom``, the query the export service calls.
+``MessageRepository.iter_for_export``, the query the export service calls.
 """
 
 from __future__ import annotations
@@ -55,8 +55,8 @@ async def test_narrowed_export_keeps_only_own_agent_and_system_messages(
         await session.commit()
 
         repo = MessageRepository(session)
-        narrowed = {m.id for m in await repo.all_for_chatroom(room_id, own_user_id=caller)}
-        full = {m.id for m in await repo.all_for_chatroom(room_id)}
+        narrowed = {m.id async for page in repo.iter_for_export(room_id, own_user_id=caller) for m in page}
+        full = {m.id async for page in repo.iter_for_export(room_id) for m in page}
 
     assert narrowed == {ids["own"], ids["agent"], ids["system"]}
     assert full == set(ids.values())
