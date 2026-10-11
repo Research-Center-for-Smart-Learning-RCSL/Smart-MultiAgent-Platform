@@ -1051,8 +1051,11 @@ class TestExportService:
         mock_redis_fn.return_value = mock_redis
         store: dict[str, str] = {}
 
-        async def fake_set(key, val, ex=None):
+        async def fake_set(key, val, ex=None, nx=False):
+            if nx and key in store:
+                return None
             store[key] = val
+            return True
 
         async def fake_get(key):
             return store.get(key)
@@ -1083,8 +1086,11 @@ class TestExportService:
         mock_redis_fn.return_value = mock_redis
         store: dict[str, str] = {}
 
-        async def fake_set(key, val, ex=None):
+        async def fake_set(key, val, ex=None, nx=False):
+            if nx and key in store:
+                return None
             store[key] = val
+            return True
 
         async def fake_get(key):
             return store.get(key)
@@ -1116,8 +1122,11 @@ class TestExportService:
         mock_redis_fn.return_value = mock_redis
         store: dict[str, str] = {}
 
-        async def fake_set(key, val, ex=None):
+        async def fake_set(key, val, ex=None, nx=False):
+            if nx and key in store:
+                return None
             store[key] = val
+            return True
 
         async def fake_get(key):
             return store.get(key)

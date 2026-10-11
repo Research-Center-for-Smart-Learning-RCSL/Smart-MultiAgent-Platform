@@ -1,10 +1,10 @@
 """Chat export (R13.17, F.10).
 
 A user submits an export job; the router enqueues an Arq task and returns
-`{job_id}`. The worker writes a JSON manifest (raw markdown + sanitised
-HTML, per R13.14) plus an attachments folder into the `exports` bucket
-and updates the Redis-tracked job state. `GET /api/exports/{job_id}` then
-resolves to a presigned URL.
+`{job_id}`. The worker writes the transcript (and, when asked, a ZIP with an
+`attachments/` folder) into the `exports` bucket and updates the
+Redis-tracked job state. `GET /api/exports/{job_id}` then mints a download
+link. A user may have one export in progress per room (`create`).
 
 Job state is kept in Redis (not Postgres) because:
   - the payload is ephemeral (24h bucket lifecycle),
@@ -23,10 +23,16 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
+from contexts.conversation.domain.errors import ExportInProgress
 from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import get_redis, now
 
 _JOB_TTL_SECONDS: Final = 24 * 3600
+# A job older than this can no longer be queued or running in earnest: the
+# worker allows a chat export 30 minutes (CHAT_EXPORT_TIMEOUT_S), so this
+# leaves as long again for queue wait. Past it, a job still reading queued or
+# running was abandoned (worker killed mid-job), and must not hold the room.
+ACTIVE_EXPORT_STALE_AFTER: Final = timedelta(hours=1)
 
 
 class ExportJobStatus(StrEnum):
@@ -38,6 +44,10 @@ class ExportJobStatus(StrEnum):
 
 def _job_key(job_id: uuid.UUID) -> str:
     return f"chat_export:{job_id}"
+
+
+def _active_key(owner_user_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"chat_export:active:{owner_user_id}:{chatroom_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +73,13 @@ class ExportJobState:
     # Captured at request time for the download filename; the status endpoint
     # has no database session to look it up later.
     room_name: str | None = None
+    # A ZIP with the attachment files; a record from before the option existed
+    # reads False, the single-transcript export it was.
+    include_attachments: bool = False
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in (ExportJobStatus.QUEUED, ExportJobStatus.RUNNING)
 
 
 async def create(
@@ -74,8 +91,15 @@ async def create(
     created_before: datetime | None = None,
     sender_scope: ExportSenderScope = ExportSenderScope.OWN_PLUS_NON_USER,
     room_name: str | None = None,
+    include_attachments: bool = False,
 ) -> ExportJobState:
+    """Record a queued job, claiming the owner's one active export slot for the room.
+
+    Raises ``ExportInProgress`` (carrying the running job's id) while the owner
+    already has a queued or running export of this room.
+    """
     job_id = uuid.uuid4()
+    await _claim_active(owner_user_id, chatroom_id, job_id)
     state = ExportJobState(
         job_id=job_id,
         chatroom_id=chatroom_id,
@@ -89,9 +113,34 @@ async def create(
         created_before=created_before,
         sender_scope=sender_scope,
         room_name=room_name,
+        include_attachments=include_attachments,
     )
     await _store(state)
     return state
+
+
+async def _claim_active(owner_user_id: uuid.UUID, chatroom_id: uuid.UUID, job_id: uuid.UUID) -> None:
+    redis = get_redis()
+    key = _active_key(owner_user_id, chatroom_id)
+    if await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS, nx=True):
+        return
+    held = await redis.get(key)
+    holder = await get(uuid.UUID(held)) if held else None
+    if holder is not None and holder.is_active:
+        if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
+            raise ExportInProgress(job_id=holder.job_id)
+        await _store(_replace(holder, status=ExportJobStatus.FAILED, error="abandoned"))
+    # The holder finished, expired or was abandoned: take the slot over.
+    await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS)
+
+
+async def _release_active(state: ExportJobState) -> None:
+    redis = get_redis()
+    key = _active_key(state.owner_user_id, state.chatroom_id)
+    # Only the job holding the slot releases it, so a stale job finishing late
+    # cannot free the slot of the export that replaced it.
+    if await redis.get(key) == str(state.job_id):
+        await redis.delete(key)
 
 
 async def mark_running(job_id: uuid.UUID) -> None:
@@ -111,6 +160,7 @@ async def mark_ready(
     if state is None:
         return
     await _store(_replace(state, status=ExportJobStatus.READY, bucket=bucket, object_key=object_key))
+    await _release_active(state)
 
 
 async def mark_failed(*, job_id: uuid.UUID, error: str) -> None:
@@ -118,6 +168,7 @@ async def mark_failed(*, job_id: uuid.UUID, error: str) -> None:
     if state is None:
         return
     await _store(_replace(state, status=ExportJobStatus.FAILED, error=error))
+    await _release_active(state)
 
 
 async def get(job_id: uuid.UUID) -> ExportJobState | None:
@@ -145,6 +196,7 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
         sender_scope=ExportSenderScope(data.get("sender_scope", ExportSenderScope.OWN_PLUS_NON_USER.value)),
         error=data.get("error"),
         room_name=data.get("room_name"),
+        include_attachments=bool(data.get("include_attachments", False)),
     )
 
 
@@ -163,6 +215,7 @@ async def _store(state: ExportJobState) -> None:
         "sender_scope": state.sender_scope.value,
         "error": state.error,
         "room_name": state.room_name,
+        "include_attachments": state.include_attachments,
     }
     await get_redis().set(
         _job_key(state.job_id),
@@ -186,13 +239,12 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
         sender_scope=state.sender_scope,
         error=kwargs.get("error", state.error),  # type: ignore[arg-type]
         room_name=state.room_name,
+        include_attachments=state.include_attachments,
     )
 
 
-_ = timedelta  # imported for future-TTL tuning; keep in surface
-
-
 __all__ = [
+    "ACTIVE_EXPORT_STALE_AFTER",
     "ExportJobState",
     "ExportJobStatus",
     "create",

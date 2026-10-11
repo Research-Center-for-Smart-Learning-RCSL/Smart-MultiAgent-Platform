@@ -22,9 +22,11 @@ from contexts.conversation.application.access import (
     export_sender_scope,
     resolve_room_access,
 )
+from contexts.conversation.application.chat_export_service import ensure_pdf_fits
 from contexts.conversation.application.export_service import ExportJobState, ExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
-from contexts.conversation.domain.export_formats import EXPORT_ARTIFACTS
+from contexts.conversation.domain.export_formats import export_artifact
+from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -50,6 +52,8 @@ class ExportCreateIn(BaseModel):
     date_range: DateRange = "all"
     start: date | None = None
     end: date | None = None
+    # [R13.17]: a ZIP of the transcript plus an `attachments/` folder.
+    include_attachments: bool = True
 
     @model_validator(mode="after")
     def _require_custom_bounds(self) -> ExportCreateIn:
@@ -115,6 +119,15 @@ async def create_export(
 
     body = body or ExportCreateIn()
     created_after, created_before = _resolve_window(body)
+    if body.format == "pdf":
+        await ensure_pdf_fits(
+            db,
+            chatroom_id,
+            created_after=created_after,
+            created_before=created_before,
+            own_user_id=principal.user_id if sender_scope is ExportSenderScope.OWN_PLUS_NON_USER else None,
+        )
+    # Raises ExportInProgress (409, with the running job's id) while one is active.
     state = await export_service.create(
         chatroom_id=chatroom_id,
         owner_user_id=principal.user_id,
@@ -123,10 +136,16 @@ async def create_export(
         created_before=created_before,
         sender_scope=sender_scope,
         room_name=access.chatroom.name,
+        include_attachments=body.include_attachments,
     )
     from shared_kernel.queue import enqueue
 
-    await enqueue("chat_export", str(state.job_id), str(chatroom_id), str(principal.user_id))
+    try:
+        await enqueue("chat_export", str(state.job_id), str(chatroom_id), str(principal.user_id))
+    except Exception:
+        # A job that never runs must not hold the room's one export slot.
+        await export_service.mark_failed(job_id=state.job_id, error="could not be queued")
+        raise
     EXPORT_JOBS.inc()
     _ = ctx
     return ExportCreateOut(job_id=state.job_id, status=state.status)
@@ -146,7 +165,7 @@ async def get_export(
     if state.status == "ready" and state.bucket and state.object_key:
         # Minted per request, so a client that re-fetches at click time always
         # holds a live link; the archive itself lives 24 h.
-        artifact = EXPORT_ARTIFACTS[state.export_format]
+        artifact = export_artifact(state.export_format, include_attachments=state.include_attachments)
         url = await file_tickets.issue(
             bucket=state.bucket,
             key=state.object_key,
