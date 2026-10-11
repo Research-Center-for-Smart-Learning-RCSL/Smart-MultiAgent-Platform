@@ -5,9 +5,9 @@ same semantics the MinIO presigned URLs it replaces had, but it points at the
 backend instead of the storage plane, which no browser can reach. Design and
 the trade-offs behind it: docs/tasks/2026-10-11-browser-file-delivery/spec.md.
 
-Format: ``b64url(payload_json) "." b64url(mac)``, where the MAC is the Vault
-KV HMAC seed over ``_DOMAIN + payload_json``. The payload names the seed
-version, so tickets minted just before a rotation still verify.
+Format: ``b64url(payload_json) "." b64url(seed_version[2 bytes] + mac)``, where
+the MAC is HMAC-SHA256 with the Vault KV seed over ``_DOMAIN + payload_json``.
+Carrying the seed version lets tickets minted just before a rotation verify.
 """
 
 from __future__ import annotations

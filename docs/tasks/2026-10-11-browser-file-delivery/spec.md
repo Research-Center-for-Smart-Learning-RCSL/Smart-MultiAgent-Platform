@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-11
 requirements: [R13.10, R13.11a, R13.17, R13.71, R31.21, R33.10]
 depends_on: []
@@ -437,29 +437,46 @@ Write these failing tests first:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The §8 backend tests (`test_file_tickets.py`, `test_files_route.py`, and the six
-  call-site URL assertions) fail before the fix and pass after.
-- [ ] AC-2: On the compose test stack with nginx, a chat export in each of markdown, json and
+- [x] AC-1: The §8 backend tests (`test_file_tickets.py`, `test_files_route.py`, and the six
+  call-site URL assertions) fail before the fix and pass after. Each was run red first: module
+  absent, route absent, or `http://minio:9000` / `/minio-assets/` URLs.
+- [x] AC-2: On the compose test stack with nginx, a chat export in each of markdown, json and
   pdf downloads through `https://localhost:10443/api/files/...` with HTTP 200. The bytes match
   the object in MinIO, and the `Content-Disposition` carries a `filename*` with the room name.
-- [ ] AC-3: With 16 minutes between the job reaching `ready` and the click, the Download button
-  still downloads the archive (the link is minted at click time).
-- [ ] AC-4: Clicking Download leaves the chatroom loaded, with no navigation and no new tab, and
-  saves a file (e2e `waitForEvent('download')`).
-- [ ] AC-5: A research export downloads via its Download button with no popup-blocker prompt. A
-  research job older than 24 hours reports not-found instead of `ready`.
-- [ ] AC-6: The admin audit CSV and a skill bundle each download through `/api/files/`.
-- [ ] AC-7: An attachment PNG renders inline in the bubble. An attachment `text/plain` opens in
-  a tab. An attachment PDF downloads. Each response carries the sandbox CSP and `nosniff`.
-- [ ] AC-8: A canvas image uploaded in one browser renders in a second browser. The request goes
-  to `/api/files/...`, not `/api/api/...` or `/minio-assets/...`.
-- [ ] AC-9: An expired ticket returns 410 and a tampered ticket returns 404, and neither logs the
-  user out of the SPA.
-- [ ] AC-10: Sixty-one requests for one ticket within a minute yield a 429 on the 61st. Thirty
+  Verified 2026-10-11: sizes 152, 517 and 81,282 bytes equal the MinIO objects;
+  `filename*=UTF-8''%E8%AE%80%E6%9B%B8%E6%9C%83-...`.
+- [x] AC-3: With 16 minutes between the job reaching `ready` and the click, the Download button
+  still downloads the archive (the link is minted at click time). Verified live: after 16 minutes
+  the old link returned 410, and a fresh status call returned a link that served 200.
+- [x] AC-4: Clicking Download leaves the chatroom loaded, with no navigation and no new tab, and
+  saves a file (e2e `waitForEvent('download')`). The updated `14-export-attachments` spec passed in
+  Chromium against the stack with a full 11-key seed.
+- [x] AC-5: A research export downloads via its Download button with no popup-blocker prompt. A
+  research job older than 24 hours reports not-found instead of `ready`. Live download returned
+  200 `application/zip`, with no `window.open` (unit test). The job record TTL was observed at
+  86,398 s; the 24-hour expiry itself was not waited out.
+- [x] AC-6: The admin audit CSV and a skill bundle each download through `/api/files/`. Both
+  were verified live with 200 and `attachment` disposition.
+- [x] AC-7: An attachment PNG renders inline in the bubble. An attachment `text/plain` opens in
+  a tab. An attachment PDF downloads. Each response carries the sandbox CSP and `nosniff`. The
+  PNG decoded in Chromium (`naturalWidth > 0`). Headers were checked live: text `inline`, PDF
+  `octet-stream` + `attachment`, sandbox CSP on all three. The text-in-tab behavior is pinned by
+  a unit test.
+- [x] AC-8: A canvas image uploaded in one browser renders in a second browser. The request goes
+  to `/api/files/...`, not `/api/api/...` or `/minio-assets/...`. Verified in Chromium: an
+  upload by a second client reached the open canvas over the socket, and the browser fetched
+  `/api/files/...` with 200 and the exact bytes, with no request to either old path. The pixel
+  rendering inside Excalidraw was not inspected.
+- [x] AC-9: An expired ticket returns 410 and a tampered ticket returns 404, and neither logs the
+  user out of the SPA. Both statuses were observed live through nginx. No path answers 401
+  (`files.py`), which is unit-tested.
+- [x] AC-10: Sixty-one requests for one ticket within a minute yield a 429 on the 61st. Thirty
   concurrent sessions behind one IP, each loading a room with 20 images, are not throttled.
-- [ ] AC-11: `grep -r presigned_get backend --include=*.py` finds no non-test caller, and
-  `smap.conf` has no `minio-assets` location.
-- [x] AC-12: The §11 SRS and UI-doc changes are applied, and `scripts/traceability.py --check`
+  Verified live: requests 1-60 returned 200 and the 61st returned 429. 600 image loads from one
+  IP (60 sessions × 10 images, 100 in parallel) all returned 200. The first burst attempt
+  exposed D-3.
+- [x] AC-11: `grep -r presigned_get backend --include=*.py` finds no non-test caller, and
+  `smap.conf` has no `minio-assets` location. `MinioClient.presigned_get` itself is deleted.- [x] AC-12: The §11 SRS and UI-doc changes are applied, and `scripts/traceability.py --check`
   passes.
 
 ## 11. SRS Delta
@@ -490,8 +507,48 @@ The edits:
 
 ## 12. Deviation Log
 
-Appended by /build.
-
+- **D-1.** Vault exposes `hmac_sign` / `hmac_verify`, which return and check MACs, in place of
+  §7.1's `hmac_current` / `hmac_for_version`, which returned key bytes. The seed never leaves
+  `VaultClient`. `hmac_verify` also bounds the caller-chosen seed version to `1..current` and
+  negatively caches an unreadable old version for 30 s. A failed seed refresh backs off 30 s
+  instead of retrying per request (quality W2/W3, security F2).
+- **D-2.** The per-ticket limit uses `ratelimit.check_raw` with key `rl:files:t:<hash>` and the
+  setting `SMAP_LIMIT_FILES_PER_MIN_TICKET` (default 60), not a new `Bucket.FILES`. Reason:
+  `rate_limit_policies.scope` is CHECK-constrained to user/ip/user_and_ip, so a ticket scope
+  would need a migration. Consequence: the limit is not tunable through
+  `/api/admin/rate-limits`.
+- **D-3.** Each ticket carries a random nonce (`"n"`). Found by AC-10: tickets for one object
+  minted in the same second were byte-identical and shared one 60/min budget (540 of 600 loads
+  got 429).
+- **D-4.** Filenames go through one RFC 6266 helper, `file_tickets.content_disposition`, which
+  writes an ASCII `filename` plus a UTF-8 `filename*`. A raw CJK filename is not latin-1 and
+  would have failed the response as a header value. It replaces `_safe_header_filename`.
+- **D-5.** `AttachmentOut` gains `inline: bool`, computed by
+  `attachment_service.serves_inline`, which is the same rule the link applies. The frontend
+  reads it instead of mirroring the MIME allowlist (quality W2).
+- **D-6.** Security-gate additions beyond §7:
+  - `SAFE_INLINE_TYPES` in `file_tickets` is the single inline allowlist, and `issue()` refuses
+    `inline` for anything else (H5). The attachment allowlist now aliases it.
+  - Canvas images are served `attachment`, because the canvas fetches them into a blob, so an
+    SVG never renders when opened directly.
+  - Downloads served `attachment` are `no-store`; inline ones are `private, max-age` (H4).
+  - OTel excludes `/api/files/` (H2).
+  - The redacting nginx access-log format applies to both servers, not only the location (F3).
+- **D-7.** Export artifact names and types live in one domain table,
+  `contexts/conversation/domain/export_formats.py`, used by the worker and the route (quality
+  W5). As a result the stored markdown object's content type is now
+  `text/markdown; charset=utf-8`.
+- **D-8.** An expired chat export shows a toast suggesting a new export. The ready state does not
+  gain a "New export" button (§7.6 said "offering a new export"). The user closes and reopens the
+  modal, which resets it.
+- **D-9.** The research dialog stays open on ready with a Download button, and clears that state
+  when closed. Its 72-hour presigned URL is replaced by a link minted per click.
+- **D-10.** The route returns its 429 through `problem_response`, because the shared
+  `HTTPException` handler drops `headers` (`Retry-After`). The handler bug itself is FU-10.
+- **D-11.** The nginx `files` zone is 100 r/s with burst 600 per client key (§7.4 gave no
+  numbers). The wiring CI job now starts `minio` for `tests/wiring/test_file_delivery.py`.
+- **D-12.** `ObjectStream` (`open_stream`) returns the connection to the pool at EOF and closes
+  it on abort. The route also releases it in a `BackgroundTask` (quality W1).
 ## 13. Follow-ups
 
 - **FU-1.** Measure backend-web saturation under concurrent large downloads on staging. If
@@ -503,3 +560,41 @@ Appended by /build.
   be refreshed once the minting endpoints are renamed or unchanged. The middleware's segment list
   (`app/api/middleware/impersonation.py:26-39`) does not need `files`, because issuance is
   already blocked.
+- **FU-4 (security F1, MEDIUM, pre-existing class).** Every nginx zone keys on the first
+  `X-Forwarded-For` hop (`nginx.conf:39-42`), which a client controls even behind NPM. For
+  `/api/files/` that zone is the only per-client limit on unverified tickets, because the backend
+  limits per verified ticket. Fix with the `realip` module and `$binary_remote_addr`.
+- **FU-5 (security F4, MEDIUM).** The per-ticket limit counts request starts, not concurrency or
+  bytes: a leaked ticket can open about 900 streams in 15 minutes. Consider a per-ticket
+  concurrency cap (Redis INCR/DECR released with the stream), a byte budget, and `limit_conn` on
+  the location.
+- **FU-6 (security F5, plausible).** On Starlette's `ClientDisconnect` path the `BackgroundTask`
+  is skipped and the iterator is not `aclose()`d, so a connection can wait for GC. Add a
+  disconnect test against a real uvicorn, or release in a `StreamingResponse` subclass's
+  `finally`.
+- **FU-7 (security H3).** The nginx `error_log` prints the request line, ticket included, for
+  limit_req rejections and upstream errors. The access-log redaction does not cover it.
+- **FU-8 (security H1, hardening).**
+  - Derive the ticket key with HKDF from the seed instead of prefixing messages with the raw
+    seed.
+  - Consider `img-src 'none'` in the file CSP.
+- **FU-9.** A ticket for a 200-character CJK filename can approach the 4,096-character path cap
+  (`files.py`) and would 404. Raise the cap or shorten what the payload repeats.
+- **FU-10 (pre-existing).** `shared_kernel/errors/handlers.py:115-137` drops
+  `HTTPException.headers`, so for example `canvas.py`'s guest 429 loses `Retry-After`.
+- **FU-11 (local environment).** The local venv lacked `regex` and still lacks its type stubs.
+  `test_provider_adapters.py::test_gemini_percent_encodes_the_model_id_in_the_url_path` fails
+  locally (respx route matching), with no file of this task involved. The full backend unit
+  tier was otherwise green locally: 11,415 passed. CI is authoritative.
+- **FU-12 (pre-existing).** `exports.py` and `research_export.py` import application modules
+  rather than a facade. This task adds the `ExportJobState` import.
+- **FU-13 (pre-existing frontend).**
+  - `useChatroomMessages.downloadAttachment` navigates the current tab when `window.open` is
+    blocked.
+  - `AttachmentImage` does not watch `attachmentId`.
+  - `ResearchExportButton` polls by hand rather than through `usePolling`.
+  - The hand-written `AttachmentDownload` type duplicates the generated one.
+- **FU-14 (accepted parity).** A ticket outlives the authorization that minted it by up to 15
+  minutes, as the presigned URLs did.
+- **FU-15.** `AgentToolsView.test.ts` (CodeMirror) failed once under full-suite load and passed
+  in isolation, matching its known intermittency.
