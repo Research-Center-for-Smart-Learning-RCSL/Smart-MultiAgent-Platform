@@ -726,11 +726,21 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-07-display-name-validation` (bugfix, no SRS Delta), on branch
-  `fix/display-name-validation` from `main`. F-7, F-8: names need a visible character and
-  lose default-ignorables, agent names are normalised at source with an `Agent <id>` render
-  fallback, and migration `0101` repairs stored blank names (`down_revision`
-  `0100_normalise_account_display_names`).
+- (implemented 2026-10-11) `2026-10-07-display-name-validation`, PR #250 from
+  `fix/display-name-validation`.
+  - **Verification.** AC-1..AC-6 are verified. CI is green at `45e2ec3c`, including the
+    db tier. The `0101` db tests passed against Postgres 16 on a scratch database.
+  - **Deviations.** D-1..D-6 are in the dossier:
+    - D-2 and D-3 are the requester's choices: agent names made only of delimiters are
+      refused, and guest ban snapshots are repaired.
+    - D-5 and D-6 are the audit and `/code-review` fixes: one shared label rule, and an
+      agent form that mirrors it.
+  - **Follow-ups.** FU-1..FU-9 are in the dossier. FU-6, a pre-existing MEDIUM from the
+    security gate, is that fullwidth brackets can spell the room notice marker.
+  - **Deploy.** **Migration `0101`** clears blank names, and the change cannot be undone.
+    The chain is now `0099 -> 0102 -> 0100 -> 0101`.
+  - **Unblocking.** Nothing lists this slug in `depends_on`, so no row moves out of
+    Blocked.
 
 - (implemented 2026-10-11) `2026-10-11-chat-export-archive-content`, on branch
   `fix/chat-export-archive-content` from `main`.

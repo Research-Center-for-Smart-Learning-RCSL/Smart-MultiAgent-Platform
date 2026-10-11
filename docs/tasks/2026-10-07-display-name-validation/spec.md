@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-07
 requirements: [R6.11, R13.33, R13.34]
 depends_on: [2026-10-07-google-display-name-normalisation, 2026-10-07-system-rows-in-agent-context]
@@ -165,8 +165,9 @@ Written first; each fails against current code for the stated reason.
   name lacks a visible character. Verified by the db-tier tests against Postgres 16 on a
   scratch database: 4/4 passed, not skipped. `alembic upgrade head`, `downgrade -1` and a
   second upgrade were also run.
-- [ ] AC-6: backend and frontend lint, typecheck, tests (db tier included) and build pass in
-  CI.
+- [x] AC-6: backend and frontend lint, typecheck, tests (db tier included) and build pass in
+  CI. PR #250 at `45e2ec3c`: 24 checks passed, including backend-db, backend-wiring and
+  frontend-e2e; compose-boot-prod was skipped.
 
 ## 12. SRS Delta
 
