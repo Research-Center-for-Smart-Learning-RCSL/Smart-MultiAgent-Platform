@@ -549,6 +549,27 @@ The edits:
   numbers). The wiring CI job now starts `minio` for `tests/wiring/test_file_delivery.py`.
 - **D-12.** `ObjectStream` (`open_stream`) returns the connection to the pool at EOF and closes
   it on abort. The route also releases it in a `BackgroundTask` (quality W1).
+- **D-13 (resolves FU-4, done on 2026-10-11 at the requester's choice before opening the PR).**
+  `nginx.conf` uses the `realip` module and keys every zone on `$binary_remote_addr`, replacing
+  the left-most-hop `$limit_key` map:
+  - only 127.0.0.0/8 and the Docker 172.16.0.0/12 may vouch for `X-Forwarded-For`;
+  - `real_ip_recursive on`, so the right-most hop the trusted proxy added wins.
+
+  Probe (simulated NPM: rotating client-sent first hop, fixed appended peer, 1,200 forged-ticket
+  requests):
+  - before the fix, 0 limited;
+  - after it, 84 × 503, matching the constant-key control (87 × 503).
+
+  **Deploy note:** `nginx.conf` is a single-file bind mount, so the nginx container must be
+  recreated, not reloaded. An operator whose front proxy reaches nginx from another range adds
+  a `set_real_ip_from`.
+- **D-14 (resolves FU-5, same date).** At most `SMAP_LIMIT_FILES_CONCURRENT_PER_TICKET` (default
+  4) streams per ticket. The slots are a Redis sorted set with a 30-minute hold window
+  (`ratelimit.acquire_slot` / `release_slot`). A slot is released in the response's background
+  tasks. A slot whose release never runs (the FU-6 disconnect path) is reclaimed after the hold
+  window. HEAD takes no slot. Tested in the unit tier and against real Redis in the wiring tier
+  (cap, release, reclaim).
+
 ## 13. Follow-ups
 
 - **FU-1.** Measure backend-web saturation under concurrent large downloads on staging. If
@@ -560,11 +581,11 @@ The edits:
   be refreshed once the minting endpoints are renamed or unchanged. The middleware's segment list
   (`app/api/middleware/impersonation.py:26-39`) does not need `files`, because issuance is
   already blocked.
-- **FU-4 (security F1, MEDIUM, pre-existing class).** Every nginx zone keys on the first
+- **FU-4 (security F1, MEDIUM, pre-existing class). Resolved by D-13.** Every nginx zone keys on the first
   `X-Forwarded-For` hop (`nginx.conf:39-42`), which a client controls even behind NPM. For
   `/api/files/` that zone is the only per-client limit on unverified tickets, because the backend
   limits per verified ticket. Fix with the `realip` module and `$binary_remote_addr`.
-- **FU-5 (security F4, MEDIUM).** The per-ticket limit counts request starts, not concurrency or
+- **FU-5 (security F4, MEDIUM). Resolved by D-14 (concurrency cap; no byte budget).** The per-ticket limit counts request starts, not concurrency or
   bytes: a leaked ticket can open about 900 streams in 15 minutes. Consider a per-ticket
   concurrency cap (Redis INCR/DECR released with the stream), a byte budget, and `limit_conn` on
   the location.

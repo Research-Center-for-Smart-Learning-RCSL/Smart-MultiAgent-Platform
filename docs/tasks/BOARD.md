@@ -748,8 +748,9 @@ each row for its own list — the frontmatter wins over this preamble.
   test stack: through nginx, in Chromium (download, attachment image, canvas image) and against a
   real MinIO (wiring test). Not yet run in CI. Deviations D-1..D-12 (notably D-3, a per-ticket
   nonce found by the live rate-limit check, and D-6, the security-gate additions) and
-  FU-1..FU-15 are in the dossier. FU-4/FU-5 (spoofable edge key, no per-ticket concurrency cap)
-  are the MEDIUMs to schedule before heavy unauthenticated traffic. This moved
+  FU-1..FU-15 are in the dossier; the two security MEDIUMs FU-4/FU-5 were resolved on the same
+  branch as D-13 (nginx `realip`; **recreate the nginx container on deploy**) and D-14 (per-ticket
+  stream cap). This moved
   `2026-10-11-chat-export-modal-states` from Blocked to Ready.
 
 - (implemented 2026-10-07) `2026-10-07-google-display-name-normalisation`. AC-1..AC-6
