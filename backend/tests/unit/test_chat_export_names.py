@@ -11,10 +11,8 @@ guests through the room's guest labels, accounts through ``get_display_names``
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,6 +23,7 @@ from contexts.conversation.application.chat_export_service import ChatExportServ
 from contexts.conversation.application.room_guests import RoomGuestLabels
 from contexts.conversation.domain.models import ExportSenderScope, Message, SenderType
 from shared_kernel.auth.permissions import Role
+from tests.unit.chat_export_fakes import FakeDb, FakeMessages, FakeStore, wire
 
 _NOW = datetime(2026, 10, 7, 12, 0, 0)
 _OWNER = uuid.uuid4()
@@ -60,7 +59,7 @@ _MESSAGES = [
 
 
 @pytest.fixture
-def minio(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+def minio(monkeypatch: pytest.MonkeyPatch) -> FakeStore:
     room = MagicMock()
     room.name = "general"
     access = RoomAccess(
@@ -98,32 +97,20 @@ def minio(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     async def _guests(db: object, chatroom_id: uuid.UUID) -> RoomGuestLabels:
         return RoomGuestLabels(sessions={_SESSION: "Sam"}, registered={_REGISTERED: "Olive"})
 
-    def _repo(**methods: Any) -> MagicMock:
-        return MagicMock(return_value=AsyncMock(**methods))
-
-    store = AsyncMock()
-    store.exports_bucket = "exports"
+    store = FakeStore()
     monkeypatch.setattr(export_mod, "resolve_room_access", _resolve)
     monkeypatch.setattr(export_mod, "ensure_can_read", MagicMock())
     monkeypatch.setattr(export_mod, "IdentityFacade", _Identity)
     monkeypatch.setattr(export_mod, "AgentsFacade", _Agents)
     monkeypatch.setattr(export_mod, "load_room_guest_labels", _guests)
-    monkeypatch.setattr(export_mod, "ChatroomRepository", _repo(get=AsyncMock(return_value=room)))
-    monkeypatch.setattr(
-        export_mod, "MessageRepository", _repo(all_for_chatroom=AsyncMock(return_value=_MESSAGES))
-    )
-    monkeypatch.setattr(
-        export_mod, "MessageEditRepository", _repo(list_for_message=AsyncMock(return_value=[]))
-    )
-    monkeypatch.setattr(
-        export_mod, "MessageAttachmentRepository", _repo(list_for_message=AsyncMock(return_value=[]))
-    )
-    monkeypatch.setattr(export_mod, "get_minio_client", lambda: store)
+    monkeypatch.setattr("shared_kernel.audit.emit", AsyncMock())
+    # Paged two at a time, so names are resolved per page, as the export does.
+    wire(monkeypatch, export_mod, messages=FakeMessages(_MESSAGES), store=store, db=FakeDb())
     return store
 
 
 async def _export(export_format: str) -> None:
-    await ChatExportService(AsyncMock()).build_and_upload_export(
+    await ChatExportService(FakeDb()).build_and_upload_export(  # type: ignore[arg-type]
         job_id=_JOB,
         chatroom_id=_ROOM,
         owner_user_id=_OWNER,
@@ -132,10 +119,10 @@ async def _export(export_format: str) -> None:
     )
 
 
-async def test_manifest_carries_each_senders_name(minio: AsyncMock) -> None:
+async def test_manifest_carries_each_senders_name(minio: FakeStore) -> None:
     await _export("json")
 
-    payload = json.loads(minio.put_object.call_args.kwargs["data"])
+    payload = minio.manifest()
     names = {m["content_md"]: m["sender_name"] for m in payload["messages"]}
     assert names == {
         "from-teacher": "Teacher",
@@ -148,10 +135,10 @@ async def test_manifest_carries_each_senders_name(minio: AsyncMock) -> None:
     }
 
 
-async def test_markdown_labels_by_name_and_keeps_the_short_id_otherwise(minio: AsyncMock) -> None:
+async def test_markdown_labels_by_name_and_keeps_the_short_id_otherwise(minio: FakeStore) -> None:
     await _export("markdown")
 
-    text = minio.put_object.call_args.kwargs["data"].decode("utf-8")
+    text = minio.text()
     headings = [line for line in text.splitlines() if line.startswith("## ")]
     assert [h.split(" — ")[0] for h in headings] == [
         "## Teacher",
@@ -165,7 +152,7 @@ async def test_markdown_labels_by_name_and_keeps_the_short_id_otherwise(minio: A
     assert "@" not in text
 
 
-async def test_pdf_labels_by_name(minio: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_pdf_labels_by_name(minio: FakeStore, monkeypatch: pytest.MonkeyPatch) -> None:
     rendered: list[str] = []
 
     def _to_pdf(html: str) -> bytes:

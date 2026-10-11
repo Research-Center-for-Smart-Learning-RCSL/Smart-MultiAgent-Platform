@@ -23,4 +23,13 @@ EXPORT_ARTIFACTS: Final[dict[str, ExportArtifact]] = {
     "pdf": ExportArtifact("export.pdf", "application/pdf", "pdf"),
 }
 
-__all__ = ["EXPORT_ARTIFACTS", "ExportArtifact"]
+# With attachments the download is a ZIP holding the transcript (named as
+# above), an `attachments/` folder and a README.
+ARCHIVE_ARTIFACT: Final = ExportArtifact("export.zip", "application/zip", "zip")
+
+
+def export_artifact(export_format: str, *, include_attachments: bool) -> ExportArtifact:
+    return ARCHIVE_ARTIFACT if include_attachments else EXPORT_ARTIFACTS[export_format]
+
+
+__all__ = ["ARCHIVE_ARTIFACT", "EXPORT_ARTIFACTS", "ExportArtifact", "export_artifact"]

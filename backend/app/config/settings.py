@@ -434,6 +434,17 @@ class LimitsSection(BaseSettings):
     workflow_trigger_window_seconds: int = 60
 
 
+class ExportSection(BaseSettings):
+    """Chat export bounds ([R13.17]; chat-export-archive-content Q-3, Q-4)."""
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_EXPORT_", extra="ignore")
+
+    # Attachment bytes one archive may carry; files past it are omitted and noted.
+    max_attachment_bytes: int = 2 * 1024**3
+    # WeasyPrint lays the whole document out in memory, so PDF keeps a cap.
+    pdf_max_messages: int = 5000
+
+
 # ---------- Root ----------
 
 
@@ -462,6 +473,7 @@ class Settings(BaseSettings):
     security: SecuritySection = Field(default_factory=SecuritySection)
     logging: LoggingSection = Field(default_factory=LoggingSection)
     limits: LimitsSection = Field(default_factory=LimitsSection)
+    export: ExportSection = Field(default_factory=ExportSection)
     egress: EgressSection = Field(default_factory=EgressSection)
     sandbox: SandboxSection = Field(default_factory=SandboxSection)
     knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)

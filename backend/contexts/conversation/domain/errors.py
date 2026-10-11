@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
+
 
 class ConversationError(Exception):
     code: str = "conversation.generic"
+
+    def problem_extras(self) -> dict[str, object]:
+        """Extra RFC 7807 members a client acts on; none by default."""
+        return {}
 
 
 class WorkspaceNotFound(ConversationError):
@@ -208,6 +214,35 @@ class ExportJobNotReady(ConversationError):
     code = "conversation/export-not-ready"
 
 
+class ExportTooLargeForPdf(ConversationError):
+    """[R13.17]: a PDF is refused up front rather than truncated."""
+
+    code = "conversation/export-too-large-for-pdf"
+
+    def __init__(self, *, message_count: int, limit: int) -> None:
+        super().__init__(
+            f"The selected range has {message_count} messages; a PDF export is limited to {limit}."
+        )
+        self.message_count = message_count
+        self.limit = limit
+
+    def problem_extras(self) -> dict[str, object]:
+        return {"message_count": self.message_count, "limit": self.limit}
+
+
+class ExportInProgress(ConversationError):
+    """[R13.17]: one export in progress per user per room."""
+
+    code = "conversation/export-in-progress"
+
+    def __init__(self, *, job_id: uuid.UUID) -> None:
+        super().__init__("An export of this room is already in progress.")
+        self.job_id = job_id
+
+    def problem_extras(self) -> dict[str, object]:
+        return {"job_id": str(self.job_id)}
+
+
 __all__ = [
     "AttachmentBindingFailed",
     "AttachmentExpired",
@@ -216,8 +251,10 @@ __all__ = [
     "AttachmentTooLarge",
     "ChatroomNotFound",
     "ConversationError",
+    "ExportInProgress",
     "ExportJobNotFound",
     "ExportJobNotReady",
+    "ExportTooLargeForPdf",
     "ForbiddenInRoom",
     "GuestBanNotFound",
     "GuestCapReached",
