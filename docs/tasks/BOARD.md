@@ -892,7 +892,14 @@ each row for its own list — the frontmatter wins over this preamble.
   session expiry and guest-disabled banners, display name update, logged-in user choice card.
   Nothing lists this slug in `depends_on`, so no row moves out of Blocked.
 
-- `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`.
+- `2026-07-19-large-artifacts-silently-dropped` (bugfix) — `depends_on: []`. Only AC-2 is open.
+  Its transport half was verified on 2026-10-11 against a real kernel and through the production
+  socket proxy, which found that `code_exec` in a chat room had never worked: the kernel exec
+  sent its user as an int (a 400 from the daemon), and the prod and staging socket proxies denied
+  `/exec` (`EXEC: 0`). Both are fixed on `fix/code-exec-kernel-exec-user` (D-11, D-13).
+  Remaining: `/verify` on the gVisor staging host per its §17 runbook, which needs the socket
+  proxy recreated so `EXEC: 1` applies.
+
 Removed on 2026-09-03 after implementation: `2026-09-03-observer-ui-defect-sweep` (all sixteen
 findings of `docs/audits/2026-09-03-observer-ui-visualization/findings.md`, in three phases).
 Nothing lists it in `depends_on`, so no row moved out of Blocked. No migration, no API contract

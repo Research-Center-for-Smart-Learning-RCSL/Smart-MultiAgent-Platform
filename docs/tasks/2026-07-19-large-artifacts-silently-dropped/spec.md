@@ -200,7 +200,9 @@ to the room and a >32 MB variant to produce a warning and a model-visible note.
       `test_persist_artifacts_dedupes_skips_and_binds`, which **asserted the drop as correct**
       (`count == 1`) and now asserts retrieval (`count == 2`).
 - [ ] AC-2: An artifact between 8 MiB and 32 MB is delivered to the room. **Outstanding - needs
-      `/verify`**, since only a live container exercises `get_archive`.
+      `/verify`**, since only a live container exercises `get_archive`. The transport half was
+      verified on 2026-10-11 against a real kernel and a real daemon, and through the production
+      socket proxy (§17); room delivery under gVisor remains, per the §17 runbook.
 - [x] AC-3: An artifact above 32 MB is **not** silently dropped - warning log naming file and size,
       plus a model-visible note. (`test_an_artifact_above_the_ceiling_is_never_fetched`,
       `test_artifact_note_names_what_came_back_and_what_did_not`.)
@@ -309,6 +311,24 @@ drafted speculatively.
   They were recorded as follow-ups because they are not required by any AC; that is still true, so
   they are logged here rather than retro-fitted into the spec's Fix Design. See §15.
 
+- **D-11.** Not in §7, found by the first run against a real daemon (§17): the session kernel's
+  `exec_run` passed `user=_SANDBOX_UID` as an int. The Docker SDK stringifies `user` on container
+  create but not on exec create, and the daemon decodes the exec `User` into a Go string, so every
+  call was a 400 that the kernel path reported as "kernel unavailable". `code_exec` in a chat room
+  had therefore never run since `9e3bdcaa` (2026-06-27), which also means no artifact could reach
+  the room at any size. Fixed here because it blocks AC-2; the regression test asserts the SDK's
+  real request body, since every fake `exec_run` in the suite accepted any type.
+- **D-12.** `_artifact_note` reported every skip reason other than `too_large` as "this turn's
+  artifact budget is used up", including a fetch that failed because the kernel was evicted. The
+  §17 eviction scenario showed it. A failed fetch now has its own line, so the model is not
+  steered away from a retry that could succeed.
+- **D-13.** Not in §7: the prod and staging socket proxies set `EXEC: 0`, added on 2026-06-18,
+  nine days before the exec-based kernel. tecnativa's final `http-request deny` then answers the
+  kernel's `POST /exec/{id}/start` with 403, so even with D-11 fixed every `code_exec` in a room
+  would have failed on staging and production. Set to `EXEC: 1` on the user's decision; the
+  proxy already allows `CONTAINERS` with `POST`, which can create a privileged container with host
+  mounts, so exec widens nothing in practice. Verified with the real proxy image (§17).
+
 **Build state (2026-07-19).** Gates: `pytest tests/unit` 5370 passed / 6 skipped, `ruff check`,
 `ruff format --check`, `mypy .` (792 files) clean. Integration and wiring tiers not run (no local
 Postgres/Redis) and untouched.
@@ -412,6 +432,59 @@ therefore cover the §4 reproduction *and* a second room forcing an eviction mid
 **Deploy note.** `kernel.py` changes are comment-only, so the backend half works against the
 current image; the image rebuild only keeps the comment honest. No lockstep requirement.
 
+## 17. Local transport verification (2026-10-11)
+
+gVisor is not available on the development host (Docker Desktop on WSL2 registers only `runc`),
+so AC-2 was split. The transport half was run against the real `code-exec` kernel image built
+from `main` at `3e25a1a1`, under `runc`, through the real `DockerRunscSandbox` with only the
+runtime assertion and `runtime` key overridden. Everything from `run_code_exec` through the kernel
+descriptor, `_hydrate_oversized`, `fetch_kernel_artifact` and `get_archive` is production code.
+
+The first run failed before reaching any artifact code, which is how D-11 was found. With D-11
+fixed, 19 checks passed:
+
+| Check | Result |
+|---|---|
+| 7 MiB file | Inline `b64`, bytes match the kernel's sha256 |
+| 9 MiB file | `b64: None` descriptor; fetched via `get_archive`, 9,437,184 bytes, sha256 match |
+| 40 MB file | Marked `too_large`, never fetched; the model note names it with its size |
+| Symlink leaf to `/etc/passwd` | Refused on `linkTarget` from the real archive header |
+| Directory leaf | Refused on the real header's Go mode type bits (`2147484141`) |
+| Nested path, `..` traversal | Refused before any daemon call |
+| Exactly 33,554,432 bytes | Fetched |
+| 33,554,433 bytes | Refused on the header |
+| Missing file | Daemon 404, degrades to `None` |
+| Kernel removed between exec reply and fetch | Marked unavailable, no exception (D-12 fixed the note's wording) |
+
+A second run went through `tecnativa/docker-socket-proxy:0.3.0` configured as in the prod overlay,
+on an internal Docker network, which is the production transport (TCP to the proxy, not the
+socket). With `EXEC=0` the kernel's exec start was refused with 403 (D-13); with `EXEC=1` it ran,
+and a 9 MiB artifact was fetched through the proxy in 0.35 s.
+
+That run also settled a question about §16's stream close. Closing a `get_archive` generator that
+was never started does not close its HTTP connection: a local server saw the socket stay open for
+as long as the generator object was referenced, and a probe that held the generator while making
+its next call on the same container hit the client read timeout (10 s, every time, through the
+proxy).
+`fetch_kernel_artifact` is not affected in practice, because it drops its references on return:
+after rejecting a 40 MB file and a 20 MB directory through the proxy, the next exec into the same
+kernel succeeded each time. What closes the connection is that reference drop, not the
+`finally: close()` the code comment credits (FU-8).
+
+**Remaining for AC-2: `/verify` on the Linux staging host with gVisor.** Preconditions: `main` with
+this task's fixes deployed, the code-exec sandbox image built (`--profile sandbox-build build`),
+the socket proxy recreated so `EXEC: 1` applies, and an agent with `HOSTED_CODE_INTERPRETER` in a
+chatroom.
+
+1. Ask the agent to run `open('outputs/big.bin','wb').write(b'x' * (9 * 1024 * 1024))`. Expected:
+   the reply carries `big.bin` as an attachment of 9,437,184 bytes, and the tool result lists it
+   under "wrote to outputs/".
+2. Repeat with 40 MiB. Expected: no attachment, a warning log naming the file and its size, and
+   the tool result says it is too large to return.
+3. Eviction under load: with a second room forcing new kernels until `_MAX_LIVE_KERNELS` (16) is
+   exceeded during the first room's turn, the first room's artifact is either delivered or the
+   tool result says it could not be read back. Never a silent loss and never a failed turn.
+
 ## 13. Follow-ups
 
 - **FU-1: the SRS says nothing about `code_exec` artifacts.** No requirement covers capture,
@@ -464,6 +537,14 @@ with their resolutions, because the reasoning for each is what justifies the fix
   fallback fetch) and returns `None` for "cannot be delivered"; the loop keeps only accounting and
   persistence. The fallback's failure latch moved to an explicit `_Acquisition` so the per-artifact
   helper carries no batch state.
+- **FU-8: `fetch_kernel_artifact` closes the archive stream by accident.** The `finally` calls
+  `close()` on the generator `get_archive` returns, and the comment credits that call with
+  releasing the connection. For a generator that was never started, which is every rejection
+  path, the call does nothing; the socket closes only when the method returns and CPython drops
+  the last reference (§17). Behaviour is correct today, but anything that keeps the frame alive
+  (a traceback held by a caller, a refactor that returns the stream) would leave the next call
+  on that container waiting for its read timeout. Fix by owning the HTTP response and closing it, and correct the
+  comment. Type: `bugfix` (hardening).
 - **FU-3: `_OUTPUTS` is never cleaned.** `_collect_artifacts` diffs on mtime (`kernel.py:88-89`), so
   a file untouched by a later call is simply not re-reported - but it stays on the session volume
   forever, against a volume with no enforced quota (`2026-07-19-session-dir-room-isolation` FU-1).
