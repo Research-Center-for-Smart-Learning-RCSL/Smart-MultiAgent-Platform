@@ -448,7 +448,7 @@
     <ChatroomExportModal
       :open="exportOpen"
       :phase="exportPhase"
-      @close="exportOpen = false"
+      @close="closeExport"
       @submit="onExportSubmit"
       @download="downloadExport"
       @retry="retryExport"
@@ -1713,6 +1713,13 @@ function openExport(): void {
   // render into the fresh configuration form (F-16, F-9).
   resetExport()
   exportOpen.value = true
+}
+
+// Reopening starts from a fresh form anyway, so a job left behind by closing
+// would only keep polling unseen for up to the whole window.
+function closeExport(): void {
+  resetExport()
+  exportOpen.value = false
 }
 
 function onExportSubmit(opts: ExportOptions): void {

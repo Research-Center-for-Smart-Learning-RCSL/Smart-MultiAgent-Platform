@@ -52,7 +52,7 @@ describe('ChatroomExportModal', () => {
     w.unmount()
   })
 
-  it('keeps the form open with its values on a server 422, until the input changes', async () => {
+  it('keeps the form open with its values on a server 422 that names no field, without locking submit', async () => {
     const w = mountModal({ kind: 'idle' })
     await chooseCustomRange(w, '2026-10-01', '2026-10-05')
     await w.setProps({ phase: { kind: 'starting' } })
@@ -62,10 +62,11 @@ describe('ChatroomExportModal', () => {
     expect((dates[0]!.element as HTMLInputElement).value).toBe('2026-10-01')
     expect((dates[1]!.element as HTMLInputElement).value).toBe('2026-10-05')
     expect(w.text()).toContain('Check the export options and try again.')
-    expect(submitButton(w).attributes('disabled')).toBeDefined()
+    // Nothing the user can edit was named, so locking would leave no way forward.
+    expect(submitButton(w).attributes('disabled')).toBeUndefined()
 
     await dates[1]!.setValue('2026-10-06')
-    expect(submitButton(w).attributes('disabled')).toBeUndefined()
+    expect(w.text()).not.toContain('Check the export options and try again.')
     w.unmount()
   })
 
@@ -75,14 +76,22 @@ describe('ChatroomExportModal', () => {
     await w.setProps({ phase: { kind: 'invalid', field: 'end' } })
     const end = w.findAll('input[type="date"]')[1]!
     expect(end.attributes('aria-invalid')).toBe('true')
+    expect(submitButton(w).attributes('disabled')).toBeDefined()
+    await end.setValue('2026-10-06')
+    expect(submitButton(w).attributes('disabled')).toBeUndefined()
     w.unmount()
   })
 
   it.each<[ExportPhase, string | string[], string[]]>([
-    [{ kind: 'running', jobId: 'A', status: 'running' }, 'Exporting chatroom history', []],
+    [{ kind: 'running', jobId: 'A' }, 'Exporting chatroom history', []],
     [
-      { kind: 'stalled', jobId: 'A' },
+      { kind: 'stalled', jobId: 'A', reason: 'slow' },
       'Still processing. Large rooms can take several minutes.',
+      ['export-check-again'],
+    ],
+    [
+      { kind: 'stalled', jobId: 'A', reason: 'unreachable' },
+      'Could not reach the server to check this export.',
       ['export-check-again'],
     ],
     [{ kind: 'ready', jobId: 'A' }, 'Export ready!', ['export-download']],
@@ -92,7 +101,7 @@ describe('ChatroomExportModal', () => {
       ['export-cancel', 'export-retry'],
     ],
     [
-      { kind: 'job-failed', opts: { format: 'json' } },
+      { kind: 'job-failed' },
       ['Export failed.', 'Unable to generate the archive.'],
       ['export-cancel', 'export-retry'],
     ],
@@ -105,11 +114,11 @@ describe('ChatroomExportModal', () => {
   })
 
   it('emits the intent for each action', async () => {
-    const w = mountModal({ kind: 'stalled', jobId: 'A' })
+    const w = mountModal({ kind: 'stalled', jobId: 'A', reason: 'slow' })
     await w.get('[data-testid="export-check-again"]').trigger('click')
     expect(w.emitted('checkAgain')).toHaveLength(1)
 
-    await w.setProps({ phase: { kind: 'job-failed', opts: {} } })
+    await w.setProps({ phase: { kind: 'job-failed' } })
     await w.get('[data-testid="export-retry"]').trigger('click')
     expect(w.emitted('retry')).toHaveLength(1)
     await w.get('[data-testid="export-cancel"]').trigger('click')
@@ -121,8 +130,8 @@ describe('ChatroomExportModal', () => {
     const w = mountModal({ kind: 'idle' })
     await w.get('#export-fmt-pdf').setValue(true)
     await chooseCustomRange(w, '2026-09-01', '2026-09-30')
-    await w.setProps({ phase: { kind: 'running', jobId: 'A', status: 'queued' } })
-    await w.setProps({ phase: { kind: 'job-failed', opts: {} } })
+    await w.setProps({ phase: { kind: 'running', jobId: 'A' } })
+    await w.setProps({ phase: { kind: 'job-failed' } })
     // The composable's retry() for a job failure returns to idle.
     await w.setProps({ phase: { kind: 'idle' } })
 

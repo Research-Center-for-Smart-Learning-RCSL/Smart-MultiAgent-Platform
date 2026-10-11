@@ -191,6 +191,7 @@
       "exportExpired": "此匯出已過期，請重新匯出。",
       "exportDownloadFailed": "無法下載匯出檔，請再試一次。",
       "exportStalled": "仍在處理中。大型聊天室可能需要幾分鐘。",
+      "exportUnreachable": "無法連線到伺服器以確認匯出狀態。請檢查網路連線後再次檢查。",
       "exportCheckAgain": "再次檢查",
       "exportStartFailed": "無法開始匯出。",
       "exportJobFailed": "匯出失敗。",

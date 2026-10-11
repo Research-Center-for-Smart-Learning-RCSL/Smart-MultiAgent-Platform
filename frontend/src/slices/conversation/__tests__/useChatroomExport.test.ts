@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope } from 'vue'
 
-import { ApiError, ValidationError } from '@shared/errors'
+import { ApiError, RateLimitError, ValidationError } from '@shared/errors'
 import type { ExportStatus } from '../types'
 
 const mockToast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() }))
@@ -139,7 +139,7 @@ describe('useChatroomExport', () => {
       await vi.advanceTimersByTimeAsync(11 * 60_000)
       expect(exp.phase.value.kind).toBe('running')
       await vi.advanceTimersByTimeAsync(2 * 60_000)
-      expect(exp.phase.value).toEqual({ kind: 'stalled', jobId: 'A' })
+      expect(exp.phase.value).toEqual({ kind: 'stalled', jobId: 'A', reason: 'slow' })
 
       // The worker finishes; "Check again" picks the same job back up.
       api.getExport.mockResolvedValue(status('A', 'ready', '/api/files/a.t'))
@@ -178,7 +178,7 @@ describe('useChatroomExport', () => {
       await vi.advanceTimersByTimeAsync(30_000)
 
       expect(api.getExport).toHaveBeenCalledOnce()
-      expect(exp.phase.value).toEqual({ kind: 'job-failed', opts: { format: 'pdf' } })
+      expect(exp.phase.value).toEqual({ kind: 'job-failed' })
       scope.stop()
     })
 
@@ -197,7 +197,7 @@ describe('useChatroomExport', () => {
       scope.stop()
     })
 
-    it('a job that fails in the worker is job-failed with the options it ran with', async () => {
+    it('a job that fails in the worker is job-failed, and retry() returns to the form', async () => {
       const scope = effectScope()
       const exp = scope.run(() => useChatroomExport('cr_1'))!
       const opts = { format: 'json', date_range: 'last_7_days' } as const
@@ -206,7 +206,7 @@ describe('useChatroomExport', () => {
       await exp.runExport(opts)
       await vi.advanceTimersByTimeAsync(0)
 
-      expect(exp.phase.value).toEqual({ kind: 'job-failed', opts })
+      expect(exp.phase.value).toEqual({ kind: 'job-failed' })
       // Retry goes back to the form rather than re-submitting blindly (Q-4).
       exp.retry()
       expect(exp.phase.value).toEqual({ kind: 'idle' })
@@ -247,6 +247,58 @@ describe('useChatroomExport', () => {
 
       expect(exp.phase.value).toEqual({ kind: 'invalid', field: null })
       expect(mockToast.error).not.toHaveBeenCalled()
+      scope.stop()
+    })
+
+    it('a window in which no status request succeeded is unreachable, not slow', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.getExport.mockRejectedValue(
+        new ApiError({ type: 'https://smap.local/problems/internal', title: 'x', status: 502 }),
+      )
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(13 * 60_000)
+      expect(exp.phase.value).toEqual({ kind: 'stalled', jobId: 'A', reason: 'unreachable' })
+
+      // The next window answers but the job is still going: slow, not unreachable.
+      api.getExport.mockResolvedValue(status('A', 'running'))
+      exp.checkAgain()
+      await vi.advanceTimersByTimeAsync(13 * 60_000)
+      expect(exp.phase.value).toEqual({ kind: 'stalled', jobId: 'A', reason: 'slow' })
+      scope.stop()
+    })
+
+    it('a 429 while polling waits for its Retry-After', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.getExport
+        .mockRejectedValueOnce(
+          new RateLimitError({ type: 'https://smap.local/problems/rate-limited', title: 'x', status: 429 }, 20_000),
+        )
+        .mockResolvedValue(status('A', 'ready', '/api/files/a.t'))
+      api.createExport.mockResolvedValueOnce({ job_id: 'A', status: 'queued' })
+      await exp.runExport()
+      await vi.advanceTimersByTimeAsync(19_000)
+      expect(api.getExport).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(exp.phase.value).toEqual({ kind: 'ready', jobId: 'A' })
+      scope.stop()
+    })
+
+    it('a 422 outside the request body names no field', async () => {
+      const scope = effectScope()
+      const exp = scope.run(() => useChatroomExport('cr_1'))!
+      api.createExport.mockRejectedValueOnce(
+        new ValidationError({
+          type: 'https://smap.local/problems/validation',
+          title: 'Unprocessable Entity',
+          status: 422,
+          field_errors: [{ location: 'query', path: 'end', message: 'x' }],
+        }),
+      )
+      await exp.runExport()
+      expect(exp.phase.value).toEqual({ kind: 'invalid', field: null })
       scope.stop()
     })
 

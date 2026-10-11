@@ -67,7 +67,11 @@
       <template v-else-if="phase.kind === 'stalled'">
         <ClockIcon class="export-state__icon" />
         <p class="export-state__title">
-          {{ t('conversation.chatroom.exportStalled') }}
+          {{
+            phase.reason === 'unreachable'
+              ? t('conversation.chatroom.exportUnreachable')
+              : t('conversation.chatroom.exportStalled')
+          }}
         </p>
         <SButton
           variant="primary"
@@ -258,7 +262,7 @@ const rangeReversed = computed(
   () => dateRange.value === 'custom' && !!start.value && !!end.value && end.value < start.value,
 )
 
-// A server 422 stays on screen until the user changes the input it judged.
+// A server 422 stays on screen until the user changes the input.
 const serverInvalid = ref<{ field: 'start' | 'end' | null } | null>(null)
 watch(
   () => props.phase,
@@ -285,10 +289,13 @@ const formError = computed(() =>
     : '',
 )
 
+// A 422 that names a date blocks submit until that input changes. One that
+// names nothing the user can edit only explains itself; locking the button
+// then would leave no way forward.
 const canSubmit = computed(
   () =>
     props.phase.kind !== 'starting' &&
-    serverInvalid.value === null &&
+    !serverInvalid.value?.field &&
     !rangeReversed.value &&
     !(dateRange.value === 'custom' && (!start.value || !end.value)),
 )

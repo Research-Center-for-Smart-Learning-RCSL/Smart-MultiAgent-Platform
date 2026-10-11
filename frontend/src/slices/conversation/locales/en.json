@@ -191,6 +191,7 @@
       "exportExpired": "This export has expired. Start a new export.",
       "exportDownloadFailed": "Could not download the export. Try again.",
       "exportStalled": "Still processing. Large rooms can take several minutes.",
+      "exportUnreachable": "Could not reach the server to check this export. Check your connection, then check again.",
       "exportCheckAgain": "Check again",
       "exportStartFailed": "Could not start the export.",
       "exportJobFailed": "Export failed.",
