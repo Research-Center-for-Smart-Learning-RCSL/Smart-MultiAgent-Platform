@@ -422,6 +422,8 @@ class LimitsSection(BaseSettings):
     # Per download ticket, not per IP: a classroom behind one NAT shares an IP
     # and must not throttle itself on an image-heavy room ([R19a.14]).
     files_per_min_ticket: int = 60
+    # Parallel streams one ticket may hold: bounds a leaked link's fan-out.
+    files_concurrent_per_ticket: int = 4
     max_guests_per_chatroom: int = 50
     ws_concurrent_per_user: int = 5
     # F-4 (R14.07a): per-workflow ceiling on event-triggered runs within a

@@ -79,3 +79,25 @@ async def _ensure_bucket(minio: MinioClient, bucket: str) -> None:
             client.make_bucket(bucket)
 
     await asyncio.to_thread(_make)
+
+
+async def test_stream_slots_cap_release_and_reclaim() -> None:
+    """The per-ticket concurrency cap against real Redis (FU-5)."""
+    from shared_kernel.auth import ratelimit
+
+    key = f"files:streams:wiring-{uuid.uuid4()}"
+    a = await ratelimit.acquire_slot(key=key, max_count=2, hold_sec=60)
+    b = await ratelimit.acquire_slot(key=key, max_count=2, hold_sec=60)
+    assert a is not None
+    assert b is not None
+    assert await ratelimit.acquire_slot(key=key, max_count=2, hold_sec=60) is None
+
+    await ratelimit.release_slot(key=key, token=a)
+    assert await ratelimit.acquire_slot(key=key, max_count=2, hold_sec=60) is not None
+
+    # A holder whose release never ran is reclaimed once its hold window passes.
+    leaked = f"{key}:leak"
+    assert await ratelimit.acquire_slot(key=leaked, max_count=1, hold_sec=1) is not None
+    assert await ratelimit.acquire_slot(key=leaked, max_count=1, hold_sec=1) is None
+    await asyncio.sleep(1.2)
+    assert await ratelimit.acquire_slot(key=leaked, max_count=1, hold_sec=1) is not None

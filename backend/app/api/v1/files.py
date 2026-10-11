@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import Response, StreamingResponse
-from starlette.background import BackgroundTask
+from starlette.background import BackgroundTasks
 
 from app.config.settings import get_settings
 from shared_kernel.auth import ratelimit
@@ -30,6 +30,10 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 _FILE_CSP = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 _MAX_TICKET_CHARS = 4096
 _RATE_WINDOW_SECONDS = 60
+# Longest a stream may hold a concurrency slot before it is presumed leaked;
+# 1 GiB at ~1 MB/s fits.
+_STREAM_HOLD_SECONDS = 30 * 60
+_STREAM_RETRY_SECONDS = 30
 
 
 async def _authorise(ticket: str) -> FileTicket:
@@ -97,16 +101,33 @@ async def get_file(request: Request, ticket: str = Path(...)) -> Response:
     verified = await _verified_or_429(request, ticket)
     if isinstance(verified, Response):
         return verified
-    stream = await get_minio_client().open_stream(bucket=verified.bucket, key=verified.key)
+    slot_key = f"files:streams:{verified.rate_key}"
+    slot = await ratelimit.acquire_slot(
+        key=slot_key,
+        max_count=get_settings().limits.files_concurrent_per_ticket,
+        hold_sec=_STREAM_HOLD_SECONDS,
+    )
+    if slot is None:
+        return _rate_limited_response(request, _STREAM_RETRY_SECONDS)
+    try:
+        stream = await get_minio_client().open_stream(bucket=verified.bucket, key=verified.key)
+    except BaseException:
+        await ratelimit.release_slot(key=slot_key, token=slot)
+        raise
     if stream is None:
+        await ratelimit.release_slot(key=slot_key, token=slot)
         raise HTTPException(status_code=404, detail="File not found")
+    # Runs however the response ends; the iterator alone is not closed on a
+    # disconnect or when it never starts. A release that still never runs is
+    # reclaimed by the slot's hold window.
+    after = BackgroundTasks()
+    after.add_task(stream.release, aborted=True)
+    after.add_task(ratelimit.release_slot, key=slot_key, token=slot)
     return StreamingResponse(
         stream.chunks(),
         media_type=verified.content_type,
         headers=_headers(verified, stream.stat),
-        # Runs however the response ends; the iterator alone is not closed on a
-        # disconnect or when it never starts.
-        background=BackgroundTask(stream.release, aborted=True),
+        background=after,
     )
 
 

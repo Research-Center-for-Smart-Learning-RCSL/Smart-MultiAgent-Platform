@@ -73,6 +73,19 @@ class _Limiter:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.allow = True
+        self.slots: dict[str, set[str]] = {}
+        self.max_slots = 2
+
+    async def acquire_slot(self, *, key: str, max_count: int, hold_sec: int) -> str | None:
+        held = self.slots.setdefault(key, set())
+        if len(held) >= min(max_count, self.max_slots):
+            return None
+        token = f"t{len(held)}-{key}"
+        held.add(token)
+        return token
+
+    async def release_slot(self, *, key: str, token: str) -> None:
+        self.slots.get(key, set()).discard(token)
 
     async def __call__(self, *, key: str, window_sec: int, max_count: int) -> ratelimit.Decision:
         self.calls.append(key)
@@ -94,6 +107,8 @@ def env(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, _Minio, _
     limiter = _Limiter()
     monkeypatch.setattr(files_route, "get_minio_client", lambda: minio)
     monkeypatch.setattr(files_route.ratelimit, "check_raw", limiter)
+    monkeypatch.setattr(files_route.ratelimit, "acquire_slot", limiter.acquire_slot)
+    monkeypatch.setattr(files_route.ratelimit, "release_slot", limiter.release_slot)
     app = FastAPI()
     register_exception_handlers(app)
     app.add_middleware(SecurityHeadersMiddleware)
@@ -247,3 +262,32 @@ async def test_attachment_downloads_are_not_cached_but_inline_images_are(
         bucket="exports", key="img.png", content_type="image/png", disposition='inline; filename="img.png"'
     )
     assert client.get(inline).headers["cache-control"].startswith("private, max-age=")
+
+
+async def test_concurrent_streams_per_ticket_are_capped(env: tuple[TestClient, _Minio, _Limiter]) -> None:
+    """A leaked ticket cannot fan out into unbounded parallel streams (FU-5)."""
+    client, _, limiter = env
+    path = await _path()
+    key = next(iter(limiter.slots), None)
+    assert key is None
+    # Two streams held open elsewhere fill the ticket's slots.
+    limiter.max_slots = 0
+    r = client.get(path)
+    assert r.status_code == 429
+    assert r.headers["retry-after"]
+
+
+async def test_stream_slot_is_released_when_the_response_ends(
+    env: tuple[TestClient, _Minio, _Limiter],
+) -> None:
+    client, _, limiter = env
+    path = await _path()
+    for _ in range(3):  # more sequential downloads than slots: each one frees its slot
+        assert client.get(path).status_code == 200
+    assert all(not held for held in limiter.slots.values())
+
+
+async def test_head_takes_no_stream_slot(env: tuple[TestClient, _Minio, _Limiter]) -> None:
+    client, _, limiter = env
+    limiter.max_slots = 0
+    assert client.head(await _path()).status_code == 200

@@ -18,6 +18,7 @@ back to compile-time defaults.
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Final
@@ -256,4 +257,57 @@ async def check_raw(*, key: str, window_sec: int, max_count: int) -> Decision:
     )
 
 
-__all__ = ["Bucket", "Decision", "Policy", "Scope", "check", "check_raw", "default_policies"]
+# Concurrency slots: a sorted set of holders scored by acquisition time. Holders
+# older than the hold window are presumed leaked (a release that never ran) and
+# reclaimed, so a lost release costs one slot for at most `hold_ms`.
+_SLOT_SCRIPT: Final = """
+local key = KEYS[1]
+local now_ms = tonumber(ARGV[1])
+local hold_ms = tonumber(ARGV[2])
+local max_count = tonumber(ARGV[3])
+local token = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, 0, now_ms - hold_ms)
+if redis.call('ZCARD', key) >= max_count then
+  return 0
+end
+redis.call('ZADD', key, now_ms, token)
+redis.call('PEXPIRE', key, hold_ms)
+return 1
+"""
+
+
+async def acquire_slot(*, key: str, max_count: int, hold_sec: int) -> str | None:
+    """Take one of `max_count` concurrent slots under `key`; ``None`` when full.
+
+    The returned token must be passed to `release_slot`.
+    """
+    token = uuid.uuid4().hex
+    try:
+        got = await get_redis().eval(
+            _SLOT_SCRIPT, 1, key, str(int(time.time() * 1000)), str(hold_sec * 1000), str(max_count), token
+        )
+    except Exception:
+        REDIS_COMMAND_ERRORS.labels(command="eval").inc()
+        raise
+    return token if int(got) == 1 else None
+
+
+async def release_slot(*, key: str, token: str) -> None:
+    try:
+        await get_redis().zrem(key, token)
+    except Exception:
+        REDIS_COMMAND_ERRORS.labels(command="zrem").inc()
+        raise
+
+
+__all__ = [
+    "Bucket",
+    "Decision",
+    "Policy",
+    "Scope",
+    "acquire_slot",
+    "check",
+    "check_raw",
+    "default_policies",
+    "release_slot",
+]
