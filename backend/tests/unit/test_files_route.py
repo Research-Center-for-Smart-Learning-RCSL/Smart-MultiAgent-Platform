@@ -5,12 +5,16 @@ Dossier: docs/tasks/2026-10-11-browser-file-delivery/spec.md §7.3, §7.4, §8.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import threading
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
+from starlette.types import Message
 
 from app.api.middleware.security_headers import SecurityHeadersMiddleware
 from app.api.v1 import files as files_route
@@ -34,11 +38,13 @@ class _Minio:
         body = self.objects.get((bucket, key))
         return None if body is None else ObjectStat(size=len(body), etag="abc", content_type="x/stored")
 
-    async def open_stream(self, *, bucket: str, key: str, chunk_size: int = 1 << 20) -> ObjectStream | None:
+    async def open_stream(
+        self, *, bucket: str, key: str, offset: int = 0, length: int = 0, chunk_size: int = 1 << 20
+    ) -> ObjectStream | None:
         body = self.objects.get((bucket, key))
         if body is None:
             return None
-        resp = _Resp(body, self)
+        resp = _Resp(body[offset : offset + length] if length else body[offset:], self)
         return ObjectStream(resp, chunk_size)
 
 
@@ -230,7 +236,7 @@ async def test_stream_released_to_pool_after_full_read() -> None:
     resp = _Resp(b"x" * 10)
     stream = ObjectStream(resp, 4)
     assert b"".join([c async for c in stream.chunks()]) == b"x" * 10
-    stream.release(aborted=True)  # the route's background task, after the fact
+    stream.release(aborted=True)  # the response's own cleanup, after the fact
     assert resp.released == 1
     assert resp.closed is False  # a fully read connection is reusable
 
@@ -291,3 +297,147 @@ async def test_head_takes_no_stream_slot(env: tuple[TestClient, _Minio, _Limiter
     client, _, limiter = env
     limiter.max_slots = 0
     assert client.head(await _path()).status_code == 200
+
+
+def _disconnecting_send() -> Callable[[Message], Awaitable[None]]:
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.body":
+            raise OSError("peer went away")
+
+    return send
+
+
+async def _no_receive() -> Message:
+    raise AssertionError("not consulted on ASGI spec 2.4")
+
+
+async def test_slot_and_connection_are_released_when_the_client_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Starlette skips `background` on a disconnect; a held slot would make the
+    ticket answer 429 for the rest of its life (FU-6)."""
+    released: list[str] = []
+
+    async def _release(*, key: str, token: str) -> None:
+        released.append(token)
+
+    monkeypatch.setattr(files_route.ratelimit, "release_slot", _release)
+    resp = _Resp(b"x" * 10)
+    response = files_route._ObjectResponse(ObjectStream(resp, 4), "k", "tok", media_type="x/y")
+    with pytest.raises(ClientDisconnect):
+        await response({"type": "http", "asgi": {"spec_version": "2.4"}}, _no_receive, _disconnecting_send())
+    assert released == ["tok"]
+    assert resp.closed is True
+    assert resp.released == 1
+
+
+async def test_slot_is_released_when_the_app_is_cancelled_mid_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An enclosing BaseHTTPMiddleware cancels the app on disconnect."""
+    released: list[str] = []
+
+    async def _release(*, key: str, token: str) -> None:
+        await asyncio.sleep(0)  # must survive the cancellation it runs under
+        released.append(token)
+
+    monkeypatch.setattr(files_route.ratelimit, "release_slot", _release)
+    blocked = asyncio.Event()
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.body":
+            blocked.set()
+            await asyncio.Event().wait()
+
+    response = files_route._ObjectResponse(ObjectStream(_Resp(b"x" * 10), 4), "k", "tok", media_type="x/y")
+    task = asyncio.create_task(response({"type": "http", "asgi": {"spec_version": "2.4"}}, _no_receive, send))
+    await blocked.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert released == ["tok"]
+
+
+async def test_release_during_an_in_flight_read_defers_the_close_to_the_reader() -> None:
+    """urllib3 responses are not thread-safe: `release` must not close the
+    response while a cancelled `to_thread` read is still running on it."""
+    gate = threading.Event()
+    reading = threading.Event()
+
+    class _SlowResp(_Resp):
+        def read(self, amt: int) -> bytes:
+            reading.set()
+            gate.wait(5)
+            assert not self.closed, "closed underneath a running read"
+            return super().read(amt)
+
+    resp = _SlowResp(b"x" * 10)
+    stream = ObjectStream(resp, 4)
+    pending: asyncio.Task[bytes] = asyncio.create_task(anext(stream.chunks()))
+    await asyncio.to_thread(reading.wait, 5)
+    stream.release(aborted=True)
+    assert resp.closed is False
+    gate.set()
+    with pytest.raises(StopAsyncIteration):
+        await pending
+    assert resp.closed is True
+    assert resp.released == 1
+
+
+@pytest.mark.parametrize(
+    ("header", "start", "end"),
+    [
+        ("bytes=0-9", 0, 9),
+        ("bytes=3145728-", 3145728, len(_BODY) - 1),
+        ("bytes=-17", len(_BODY) - 17, len(_BODY) - 1),
+        ("bytes=10-999999999", 10, len(_BODY) - 1),
+    ],
+)
+async def test_range_request_resumes_a_download(
+    env: tuple[TestClient, _Minio, _Limiter], header: str, start: int, end: int
+) -> None:
+    client, _, limiter = env
+    r = client.get(await _path(), headers={"Range": header})
+    assert r.status_code == 206
+    assert r.content == _BODY[start : end + 1]
+    assert r.headers["content-range"] == f"bytes {start}-{end}/{len(_BODY)}"
+    assert r.headers["content-length"] == str(end - start + 1)
+    assert all(not held for held in limiter.slots.values())
+
+
+async def test_full_response_advertises_ranges(env: tuple[TestClient, _Minio, _Limiter]) -> None:
+    client, _, _ = env
+    assert client.get(await _path()).headers["accept-ranges"] == "bytes"
+    assert client.head(await _path()).headers["accept-ranges"] == "bytes"
+
+
+async def test_range_past_the_end_is_416(env: tuple[TestClient, _Minio, _Limiter]) -> None:
+    client, minio, _ = env
+    r = client.get(await _path(), headers={"Range": f"bytes={len(_BODY)}-"})
+    assert r.status_code == 416
+    assert r.headers["content-range"] == f"bytes */{len(_BODY)}"
+    assert minio.chunks_served == 0
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Range": "bytes=0-9", "If-Range": '"changed"'},
+        {"Range": "bytes=0-9,20-29"},
+        {"Range": "bytes=9-3"},
+        {"Range": "items=0-9"},
+    ],
+)
+async def test_unusable_range_serves_the_whole_object(
+    env: tuple[TestClient, _Minio, _Limiter], headers: dict[str, str]
+) -> None:
+    client, _, _ = env
+    r = client.get(await _path(), headers=headers)
+    assert r.status_code == 200
+    assert r.content == _BODY
+
+
+async def test_matching_if_range_honours_the_range(env: tuple[TestClient, _Minio, _Limiter]) -> None:
+    client, _, _ = env
+    r = client.get(await _path(), headers={"Range": "bytes=0-9", "If-Range": '"abc"'})
+    assert r.status_code == 206

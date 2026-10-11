@@ -52,6 +52,8 @@ async def test_ticket_streams_the_stored_bytes(monkeypatch: pytest.MonkeyPatch) 
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             got = await client.get(path)
             head = await client.head(path)
+            # A resumed download: MinIO must honour the offset, not just the route.
+            resumed = await client.get(path, headers={"Range": f"bytes={len(body) - 1000}-"})
             missing = await client.get(
                 await file_tickets.issue(
                     bucket=bucket, key=f"{key}.gone", content_type="application/zip", disposition="attachment"
@@ -67,6 +69,8 @@ async def test_ticket_streams_the_stored_bytes(monkeypatch: pytest.MonkeyPatch) 
     assert got.headers["content-security-policy"].startswith("sandbox")
     assert head.status_code == 200
     assert head.headers["content-length"] == str(len(body))
+    assert resumed.status_code == 206
+    assert resumed.content == body[-1000:]
     assert missing.status_code == 404
 
 

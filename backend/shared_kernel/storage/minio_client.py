@@ -44,7 +44,13 @@ class ObjectStream:
     def __init__(self, resp: Any, chunk_size: int) -> None:
         self._resp = resp
         self._chunk_size = chunk_size
+        # Reads run on worker threads while `release` may run on the event loop
+        # (or another thread) mid-read; a cancelled `to_thread` does not stop
+        # its thread, and urllib3 responses are not thread-safe.
+        self._lock = threading.Lock()
         self._released = False
+        self._reading = False
+        self._close_after_read = False
         self.stat = ObjectStat(
             size=int(resp.headers.get("Content-Length") or 0),
             etag=(resp.headers.get("ETag") or "").strip('"'),
@@ -53,21 +59,45 @@ class ObjectStream:
 
     async def chunks(self) -> AsyncIterator[bytes]:
         try:
-            while True:
-                data = await asyncio.to_thread(self._resp.read, self._chunk_size)
-                if not data:
-                    self.release()
-                    return
+            while data := await asyncio.to_thread(self._read):
                 yield data
+            self.release()
         finally:
             self.release(aborted=True)
 
+    def _read(self) -> bytes:
+        with self._lock:
+            if self._released:
+                return b""
+            self._reading = True
+        try:
+            data: bytes = self._resp.read(self._chunk_size)
+        finally:
+            with self._lock:
+                self._reading = False
+                close_now = self._close_after_read
+        if close_now:
+            self._close(aborted=True)
+            return b""
+        return data
+
     def release(self, *, aborted: bool = False) -> None:
         """Return the connection to the pool; a read cut short closes it instead,
-        since its unread body makes it unusable for the next request."""
-        if self._released:
-            return
-        self._released = True
+        since its unread body makes it unusable for the next request.
+
+        Idempotent and safe from any thread. During an in-flight read the close
+        is handed to the reading thread, so the response is never touched by
+        two threads at once."""
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+            if self._reading:
+                self._close_after_read = True
+                return
+        self._close(aborted=aborted)
+
+    def _close(self, *, aborted: bool) -> None:
         if aborted:
             self._resp.close()
         self._resp.release_conn()
@@ -195,9 +225,18 @@ class MinioClient:
 
         await asyncio.to_thread(_download)
 
-    async def open_stream(self, *, bucket: str, key: str, chunk_size: int = 1 << 20) -> ObjectStream | None:
+    async def open_stream(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        offset: int = 0,
+        length: int = 0,
+        chunk_size: int = 1 << 20,
+    ) -> ObjectStream | None:
         """Open an object for chunked reading; ``None`` if it does not exist.
 
+        `offset`/`length` select a byte range (``length=0`` reads to the end).
         The stream owns a pooled connection. Its iterator releases it at EOF, and
         `ObjectStream.release` (idempotent) is for the caller to run however the
         response ends, because Starlette never closes an iterator abandoned by a
@@ -206,7 +245,7 @@ class MinioClient:
 
         def _open() -> Any:
             try:
-                return self._client.get_object(bucket, key)
+                return self._client.get_object(bucket, key, offset=offset, length=length)
             except S3Error as exc:
                 if exc.code in ("NoSuchKey", "NoSuchBucket"):
                     return None
