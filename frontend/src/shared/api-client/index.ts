@@ -57,6 +57,7 @@ export type { AgentDraftAccessIn } from './models/AgentDraftAccessIn';
 export type { AgentEffort } from './models/AgentEffort';
 export type { AgentGroupCreateIn } from './models/AgentGroupCreateIn';
 export type { AgentGroupMemberIn } from './models/AgentGroupMemberIn';
+export type { AgentGroupMemberReadOut } from './models/AgentGroupMemberReadOut';
 export type { AgentGroupMembersOut } from './models/AgentGroupMembersOut';
 export type { AgentGroupOut } from './models/AgentGroupOut';
 export type { AgentGroupUpdateIn } from './models/AgentGroupUpdateIn';
@@ -280,6 +281,7 @@ export type { RagDocumentAgentsPatchIn } from './models/RagDocumentAgentsPatchIn
 export type { RagDocumentOut } from './models/RagDocumentOut';
 export type { RateLimitPatchIn } from './models/RateLimitPatchIn';
 export type { RateLimitPolicyOut } from './models/RateLimitPolicyOut';
+export type { ReadMembersIn } from './models/ReadMembersIn';
 export type { RefreshIn } from './models/RefreshIn';
 export type { RegisterIn } from './models/RegisterIn';
 export type { ReleaseIn } from './models/ReleaseIn';

@@ -6,7 +6,7 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { TrashIcon } from '@heroicons/vue/24/outline'
+import { PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
   SCard,
@@ -17,6 +17,10 @@ import {
   SEmptyState,
   SAlert,
   SLoadingSpinner,
+  SModal,
+  SRadio,
+  SCheckbox,
+  SBadge,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useProjectRole } from '@slices/tenancy'
@@ -59,9 +63,13 @@ const breadcrumbs = computed(() => [
 
 const membersQuery = useQuery({
   queryKey: computed(() => agentGroupKeys.members(groupId)),
-  queryFn: async () => (await agentGroupsApi.listMembers(groupId)).members,
+  queryFn: () => agentGroupsApi.listMembers(groupId),
 })
-const memberIds = computed<string[]>(() => membersQuery.data.value ?? [])
+const memberIds = computed<string[]>(() => membersQuery.data.value?.members ?? [])
+// What each member reads from the group map (R11.22): null = whole group.
+const readsByAgent = computed(
+  () => new Map((membersQuery.data.value?.read_members ?? []).map((r) => [r.agent_id, r.read_member_ids ?? null])),
+)
 
 const agentsQuery = useQuery({
   queryKey: computed(() => ['agents', 'list', projectId.value]),
@@ -71,8 +79,11 @@ const agentsQuery = useQuery({
 const agentById = computed(
   () => new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),
 )
+function agentName(id: string): string {
+  return agentById.value.get(id)?.name ?? id
+}
 const memberRows = computed(() =>
-  memberIds.value.map((id) => ({ id, name: agentById.value.get(id)?.name ?? id })),
+  memberIds.value.map((id) => ({ id, name: agentName(id), reads: readsByAgent.value.get(id) ?? null })),
 )
 const addableAgents = computed<Agent[]>(() =>
   (agentsQuery.data.value ?? []).filter((a) => !memberIds.value.includes(a.id)),
@@ -99,12 +110,59 @@ const removeMutation = useMutation({
   onError: () => toast.error(t('agentGroups.detail.removeFailed')),
 })
 async function confirmRemove(agentId: string): Promise<void> {
+  // Members that read only this agent read nothing once it is removed (Q-8):
+  // the backend keeps their list empty rather than widening it, so say so.
+  const emptied = memberRows.value.filter(
+    (row) => row.id !== agentId && row.reads?.length === 1 && row.reads[0] === agentId,
+  )
   const ok = await confirm({
     title: t('agentGroups.detail.removeConfirmTitle'),
-    message: t('agentGroups.detail.removeConfirm'),
+    message: emptied.length
+      ? t('agentGroups.detail.removeConfirmEmpties', { names: emptied.map((row) => row.name).join(', ') })
+      : t('agentGroups.detail.removeConfirm'),
     variant: 'warning',
   })
   if (ok) removeMutation.mutate(agentId)
+}
+
+// --- What each member reads (R11.22) ---
+function readsLabel(reads: string[] | null): string {
+  if (reads === null) return t('agentGroups.detail.readsWholeGroup')
+  return reads.map(agentName).join(', ')
+}
+
+const editing = ref<{ agentId: string; mode: 'all' | 'some'; chosen: string[] } | null>(null)
+const editingName = computed(() => (editing.value ? agentName(editing.value.agentId) : ''))
+function openReads(agentId: string): void {
+  const reads = readsByAgent.value.get(agentId) ?? null
+  editing.value = { agentId, mode: reads === null ? 'all' : 'some', chosen: reads ?? [] }
+}
+function setMode(mode: string): void {
+  if (editing.value) editing.value = { ...editing.value, mode: mode === 'some' ? 'some' : 'all' }
+}
+function toggleChosen(memberId: string, on: boolean): void {
+  if (!editing.value) return
+  const rest = editing.value.chosen.filter((id) => id !== memberId)
+  editing.value = { ...editing.value, chosen: on ? [...rest, memberId] : rest }
+}
+const readsInvalid = computed(() => editing.value?.mode === 'some' && editing.value.chosen.length === 0)
+
+const readsMutation = useMutation({
+  mutationFn: (payload: { agentId: string; memberIds: string[] | null }) =>
+    agentGroupsApi.setReadMembers(groupId, payload.agentId, payload.memberIds),
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentGroupKeys.members(groupId) })
+    editing.value = null
+    toast.success(t('agentGroups.detail.readsSaved'))
+  },
+  onError: () => toast.error(t('agentGroups.detail.readsFailed')),
+})
+function saveReads(): void {
+  if (!editing.value || readsInvalid.value) return
+  readsMutation.mutate({
+    agentId: editing.value.agentId,
+    memberIds: editing.value.mode === 'all' ? null : [...editing.value.chosen],
+  })
 }
 
 // --- Privacy opt-in (R11.10) ---
@@ -116,6 +174,7 @@ const privacyMutation = useMutation({
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('agentGroups.detail.colAgent') },
+  { key: 'reads', label: t('agentGroups.detail.colReadsFrom') },
   { key: 'actions', label: '', width: '120px', align: 'right' },
 ])
 
@@ -127,7 +186,7 @@ function typedSTable<T extends object>() {
     $slots: { [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown }
   }
 }
-const MemberTable = typedSTable<{ id: string; name: string }>()
+const MemberTable = typedSTable<{ id: string; name: string; reads: string[] | null }>()
 </script>
 
 <template>
@@ -196,7 +255,37 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
             <template #cell-name="{ row }">
               <span class="font-medium">{{ row.name }}</span>
             </template>
+            <template #cell-reads="{ row }">
+              <div
+                v-if="row.reads !== null && row.reads.length === 0"
+                class="space-y-1"
+              >
+                <SBadge
+                  variant="warning"
+                  size="sm"
+                >
+                  {{ t('agentGroups.detail.readsNothing') }}
+                </SBadge>
+                <p class="text-xs text-[var(--color-muted)]">
+                  {{ t('agentGroups.detail.readsNothingHelp') }}
+                </p>
+              </div>
+              <span
+                v-else
+                class="text-sm"
+              >{{ readsLabel(row.reads) }}</span>
+            </template>
             <template #actions="{ row }">
+              <SButton
+                variant="ghost"
+                size="sm"
+                icon-only
+                :disabled="!isAuthorized"
+                :aria-label="t('agentGroups.detail.editReads')"
+                @click="openReads(row.id)"
+              >
+                <PencilSquareIcon class="w-4 h-4" />
+              </SButton>
               <SButton
                 variant="ghost"
                 size="sm"
@@ -250,6 +339,74 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
           :owner-id="groupId"
         />
       </div>
+
+      <SModal
+        :open="editing !== null"
+        :title="t('agentGroups.detail.readsTitle', { name: editingName })"
+        @close="editing = null"
+      >
+        <template v-if="editing">
+          <p class="text-sm text-[var(--color-muted)] mb-4">
+            {{ t('agentGroups.detail.readsHelp') }}
+          </p>
+          <div
+            class="space-y-2"
+            role="radiogroup"
+          >
+            <SRadio
+              :model-value="editing.mode"
+              value="all"
+              name="reads-mode"
+              @update:model-value="setMode"
+            >
+              {{ t('agentGroups.detail.readsModeAll') }}
+            </SRadio>
+            <SRadio
+              :model-value="editing.mode"
+              value="some"
+              name="reads-mode"
+              @update:model-value="setMode"
+            >
+              {{ t('agentGroups.detail.readsModeSome') }}
+            </SRadio>
+          </div>
+          <div
+            v-if="editing.mode === 'some'"
+            class="mt-3 ml-6 space-y-2"
+          >
+            <SCheckbox
+              v-for="row in memberRows"
+              :key="row.id"
+              :model-value="editing.chosen.includes(row.id)"
+              @update:model-value="(on: boolean) => toggleChosen(row.id, on)"
+            >
+              {{ row.name }}
+            </SCheckbox>
+            <p
+              v-if="readsInvalid"
+              class="text-sm text-[var(--color-danger)]"
+            >
+              {{ t('agentGroups.detail.readsChooseOne') }}
+            </p>
+          </div>
+        </template>
+        <template #footer>
+          <SButton
+            variant="secondary"
+            @click="editing = null"
+          >
+            {{ t('agentGroups.detail.cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :disabled="readsInvalid || !isAuthorized"
+            :loading="readsMutation.isPending.value"
+            @click="saveReads"
+          >
+            {{ t('agentGroups.detail.save') }}
+          </SButton>
+        </template>
+      </SModal>
     </template>
   </div>
 </template>
