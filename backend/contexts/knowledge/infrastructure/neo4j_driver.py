@@ -43,16 +43,25 @@ def _collapse_config_rows(
 # Audit M3: accumulate evidence and keep the highest confidence rather than
 # last-write-wins. Two rows for the same (subject, relation, object) in one
 # UNWIND — or a restatement across delta builds — previously clobbered prior
-# evidence_msg_ids, which undercut the evidence-excerpt feature. We union
+# evidence, which undercut the evidence-excerpt feature. We union
 # evidence (dedup) and take max confidence.
 #
 # Phase 2b (R11.22): source_member_ids accumulates the same way, so a relation
 # restated by a second member gains that member without losing the first and a
 # member-scoped retrieval filter stays correct across delta builds.
+#
+# Evidence is stored under two keys during the rename to `evidence_refs`
+# (docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand). The old key
+# `evidence_msg_ids` stays authoritative while an N-1 replica may write only it, so
+# both are computed from it; a SET reads pre-clause values, so the two
+# right-hand sides yield the same list.
+_EVIDENCE_UNION = (
+    "coalesce(r.evidence_msg_ids, []) + "
+    "[x IN row.evidence_refs WHERE NOT x IN coalesce(r.evidence_msg_ids, [])]"
+)
 _EVIDENCE_SET_DELTA = (
-    "    r.evidence_msg_ids = coalesce(r.evidence_msg_ids, []) + "
-    "      [x IN row.evidence_msg_ids "
-    "         WHERE NOT x IN coalesce(r.evidence_msg_ids, [])], "
+    f"    r.evidence_msg_ids = {_EVIDENCE_UNION}, "
+    f"    r.evidence_refs = {_EVIDENCE_UNION}, "
     "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
     "      [x IN row.source_member_ids "
     "         WHERE NOT x IN coalesce(r.source_member_ids, [])], "
@@ -70,11 +79,10 @@ _EVIDENCE_SET_DELTA = (
 # live refs. This relies on UNWIND applying earlier rows' writes before later rows
 # and on the SET right-hand sides reading pre-clause property values — both hold
 # in Neo4j and are asserted by the F-6 regression tests.
+_EVIDENCE_REPLACE = f"CASE WHEN r.build_id = $bid THEN {_EVIDENCE_UNION} ELSE row.evidence_refs END"
 _EVIDENCE_SET_REPLACE = (
-    "    r.evidence_msg_ids = CASE WHEN r.build_id = $bid THEN "
-    "        coalesce(r.evidence_msg_ids, []) + "
-    "        [x IN row.evidence_msg_ids WHERE NOT x IN coalesce(r.evidence_msg_ids, [])] "
-    "      ELSE row.evidence_msg_ids END, "
+    f"    r.evidence_msg_ids = {_EVIDENCE_REPLACE}, "
+    f"    r.evidence_refs = {_EVIDENCE_REPLACE}, "
     "    r.source_member_ids = CASE WHEN r.build_id = $bid THEN "
     "        coalesce(r.source_member_ids, []) + "
     "        [x IN row.source_member_ids WHERE NOT x IN coalesce(r.source_member_ids, [])] "
@@ -184,7 +192,10 @@ _RESTORE_EDGES_CYPHER = (
     "                  relation: row.relation}]->(o) "
     "SET r.build_id = row.build_id, "
     "    r.confidence = row.confidence, "
-    "    r.evidence_msg_ids = row.evidence_msg_ids, "
+    # Either key: an N-1 snapshot carries only evidence_msg_ids, and a snapshot
+    # from a release past the rename may carry only evidence_refs.
+    "    r.evidence_msg_ids = coalesce(row.evidence_msg_ids, row.evidence_refs), "
+    "    r.evidence_refs = coalesce(row.evidence_msg_ids, row.evidence_refs), "
     # coalesce so an older snapshot (taken before member provenance existed)
     # restores to [] rather than nulling the property.
     "    r.source_member_ids = coalesce(row.source_member_ids, []), "
@@ -200,6 +211,11 @@ _UPSERT_CYPHER_DELTA = _build_upsert_cypher(replace=False)
 _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 
 
+# Every read surfaces evidence under the domain name, preferring the old key while
+# it is authoritative, so the physical spelling stops at this module.
+_EVIDENCE_READ = "coalesce({r}.evidence_msg_ids, {r}.evidence_refs)"
+
+
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
     """Flatten domain triples into the UNWIND row payload."""
     return [
@@ -208,7 +224,7 @@ def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
             "relation": tr.relation,
             "object": tr.object,
             "confidence": tr.confidence,
-            "evidence_msg_ids": list(tr.evidence_refs),
+            "evidence_refs": list(tr.evidence_refs),
             "subject_type": tr.subject_type,
             "object_type": tr.object_type,
             "source_member_ids": list(tr.source_member_ids),
@@ -246,12 +262,15 @@ class Neo4jAsyncDriver:
         build_id: uuid.UUID | None,
     ) -> dict[str, Any]:
         driver = await self._ensure()
+        evidence = _EVIDENCE_READ.format(r="r")
         cypher = (
             "MATCH (s:Entity {graphrag_config_id: $cid})"
             "-[r:REL]->(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, "
             "o.name AS object, r.confidence AS confidence, "
-            "r.evidence_msg_ids AS evidence_msg_ids, "
+            # The snapshot is data that crosses versions (Redis, 24 h): an N-1
+            # restore reads evidence_msg_ids from it, so it carries both keys.
+            f"{evidence} AS evidence_refs, {evidence} AS evidence_msg_ids, "
             "r.source_member_ids AS source_member_ids, "
             "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at, "
             "r.build_id AS build_id"
@@ -372,7 +391,7 @@ class Neo4jAsyncDriver:
             "-[r:REL {graphrag_config_id: $cid, build_id: $bid}]->"
             "(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, o.name AS object, "
-            "r.confidence AS confidence, r.evidence_msg_ids AS evidence_msg_ids, "
+            f"r.confidence AS confidence, {_EVIDENCE_READ.format(r='r')} AS evidence_refs, "
             "r.source_member_ids AS source_member_ids, "
             "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at"
         )
@@ -454,7 +473,7 @@ class Neo4jAsyncDriver:
             "                edge.relation AS relation, "
             "                endNode(edge).name AS object, "
             "                edge.confidence AS confidence, "
-            "                edge.evidence_msg_ids AS evidence_msg_ids, "
+            f"                {_EVIDENCE_READ.format(r='edge')} AS evidence_refs, "
             "                edge.source_member_ids AS source_member_ids, "
             "                edge.first_seen_at AS first_seen_at, "
             "                edge.last_seen_at AS last_seen_at "

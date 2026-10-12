@@ -67,7 +67,7 @@ async def test_replacement_removes_absent_and_recomputes_evidence(driver: Neo4jA
         ],
     )
     edges = _edges_by_key(await driver.snapshot_subgraph(config_id=config_id, build_id=None))
-    assert set(edges[("alice", "knows", "bob")]["evidence_msg_ids"]) == {"docA", "docB"}
+    assert set(edges[("alice", "knows", "bob")]["evidence_refs"]) == {"docA", "docB"}
     assert ("xthing", "mentions", "ything") in edges
 
     # Build 2 — doc A removed. The full-corpus rebuild re-reads only B's triples.
@@ -76,7 +76,7 @@ async def test_replacement_removes_absent_and_recomputes_evidence(driver: Neo4jA
     edges2 = _edges_by_key(snap2)
     # R survives; its evidence is recomputed to the live corpus (docA dropped), so
     # the retrieval allowlist no longer hides it for an agent allowed only B.
-    assert set(edges2[("alice", "knows", "bob")]["evidence_msg_ids"]) == {"docB"}
+    assert set(edges2[("alice", "knows", "bob")]["evidence_refs"]) == {"docB"}
     # X and its now-isolated nodes are gone.
     assert ("xthing", "mentions", "ything") not in edges2
     names = {n["name"] for n in snap2["nodes"]}
@@ -96,7 +96,7 @@ async def test_replacement_removes_absent_and_recomputes_evidence(driver: Neo4jA
         ],
     )
     edges3 = _edges_by_key(await driver.snapshot_subgraph(config_id=config_id, build_id=None))
-    assert set(edges3[("alice", "knows", "bob")]["evidence_msg_ids"]) == {"docB", "docC"}
+    assert set(edges3[("alice", "knows", "bob")]["evidence_refs"]) == {"docB", "docC"}
 
     await driver.delete_all(config_id=config_id)
 

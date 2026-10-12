@@ -156,7 +156,7 @@ class GraphRagRetrieveService:
         relations: list[RelationEdge] = []
         evidence_refs: list[str] = []
         for row in raw_edges:
-            refs = normalize_evidence_refs(row.get("evidence_msg_ids"))
+            refs = normalize_evidence_refs(row.get("evidence_refs"))
             evidence_refs.extend(refs)
             confidence = float(row.get("confidence") or 0.0)
             last_seen_at = _as_epoch(row.get("last_seen_at"))

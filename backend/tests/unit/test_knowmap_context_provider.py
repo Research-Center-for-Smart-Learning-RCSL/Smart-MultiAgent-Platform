@@ -149,7 +149,7 @@ class _GateNeo4j:
                 "relation": "rel",
                 "object": "bob",
                 "confidence": 0.9,
-                "evidence_msg_ids": [self._ref],
+                "evidence_refs": [self._ref],
             }
         ]
 
