@@ -17,6 +17,7 @@ unit-tested in ``test_context_compaction.py`` / ``test_graphrag_retrieve.py`` /
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -187,6 +188,45 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
     # compaction even when stored history is well under the cap.
     assert seen["projected"] == 1300
     assert out is history
+
+
+@pytest.mark.asyncio
+async def test_assemble_history_counts_the_gap_notices_it_will_render(monkeypatch) -> None:
+    """[R13.73] / time-context AC-5: a gap notice is real request text, so the
+    compaction decision has to see it before the request is built."""
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+
+    start = datetime(2026, 10, 12, 14, 0, tzinfo=UTC)
+    history = [
+        SimpleNamespace(
+            role="user", content="x", token_count=10, id=uuid.uuid4(), sender_id=uuid.uuid4(), created_at=at
+        )
+        for at in (start, start + timedelta(minutes=5), start + timedelta(minutes=5, seconds=10))
+    ]
+    monkeypatch.setattr(te.tx, "load_model_history", _async_return(history))
+
+    async def _no_flag(_cid, _agent):
+        return False
+
+    engine._consume_compact_flag = _no_flag  # type: ignore[attr-defined]
+    seen: dict = {}
+
+    def _spy_should(*, mode, projected_tokens, context_token_cap, provider_context_limit):
+        seen["projected"] = projected_tokens
+        return False
+
+    monkeypatch.setattr(te.ctxmod, "should_compact", _spy_should)
+    agent = SimpleNamespace(
+        id=uuid.uuid4(), context_mode=SimpleNamespace(value="compact"), context_token_cap=1000
+    )
+
+    await engine._assemble_history(
+        agent, uuid.uuid4(), 128_000, ApiKeyProvider.CLAUDE, "claude-opus-4-8", extra_projected_tokens=0
+    )
+
+    # Three rows, one gap of five minutes; the ten-second pause is not a gap.
+    assert seen["projected"] == 30 + te._GAP_NOTICE_TOKENS
 
 
 # --------------------------------------------------------------------------- #
