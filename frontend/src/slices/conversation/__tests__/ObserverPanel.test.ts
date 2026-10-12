@@ -86,6 +86,17 @@ describe('ObserverPanel roster status (W-4)', () => {
     expect(status.classes()).toContain('obs-panel__roster-status--skipped')
     expect(status.classes()).not.toContain('obs-panel__roster-status--error')
   })
+
+  // [R28.13] / stale-reply-recheck AC-7: `withdrawn` is a benign kind like the
+  // other two, and the hint is looked up by key, so a missing key renders nothing.
+  it.each(['en', 'zh-TW'])('labels every benign skip kind in %s', async (locale) => {
+    const messages = (await import(`../locales/${locale}.json`)).default
+    const skip = messages.conversation.observers.skip
+
+    for (const kind of ['no_input', 'empty_reply', 'withdrawn']) {
+      expect(skip[kind], `${locale} lacks observers.skip.${kind}`).toBeTruthy()
+    }
+  })
 })
 
 describe('ObserverPanel roster-empty note (observation-binding-cleanup T-4)', () => {

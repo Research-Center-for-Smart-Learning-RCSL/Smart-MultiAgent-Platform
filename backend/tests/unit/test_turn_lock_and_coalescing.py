@@ -43,6 +43,7 @@ class _FakeRedis:
         drop_marks: bool = False,
     ) -> None:
         self.store: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self._fail_pop = fail_pop
         self._fail_mark = fail_mark
@@ -61,13 +62,46 @@ class _FakeRedis:
         if script == te._MARK_QUEUED_LUA:
             if self._fail_mark:
                 raise RuntimeError("redis unreachable")
+            if argv[1] and argv[1] in self.sets.get(keys[2], set()):
+                return 2  # covered by a re-check: answered already, not parked
             self.store.setdefault(keys[0], argv[0])  # NX — first trigger wins
             if argv[1]:
                 self.store[keys[1]] = argv[1]  # plain SET — last id wins
             if self._drop_marks:
                 self.store.clear()
             return 1
+        if script == te._COVER_LUA:
+            self.sets.setdefault(keys[0], set()).update(argv[1:])
+            return 1
+        if script == te._REPARK_QUEUED_LUA:
+            if keys[0] not in self.store:  # absent-only: never displaces a newer mark
+                self.store[keys[0]] = argv[0]
+                if argv[1]:
+                    self.store[keys[1]] = argv[1]
+            return 1
         raise AssertionError(f"unexpected script: {script!r}")
+
+    async def exists(self, key: str) -> int:
+        self.calls.append(("exists", (key,)))
+        return int(key in self.store)
+
+    async def sadd(self, key: str, *members: str) -> int:
+        self.calls.append(("sadd", (key,)))
+        self.sets.setdefault(key, set()).update(members)
+        return len(members)
+
+    async def srem(self, key: str, *members: str) -> int:
+        self.calls.append(("srem", (key,)))
+        self.sets.get(key, set()).difference_update(members)
+        return len(members)
+
+    async def sismember(self, key: str, member: str) -> int:
+        self.calls.append(("sismember", (key,)))
+        return int(member in self.sets.get(key, set()))
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        self.calls.append(("expire", (key,)))
+        return True
 
     async def getdel(self, key: str) -> None:
         self.calls.append(("getdel", (key,)))
@@ -281,3 +315,114 @@ class TestRunTurnStopsReportingLockedForADroppedMessage:
 
         assert result.status == "completed"
         assert ran == ["mention"]
+
+
+# ---------------------------------------------------------------------------
+# The re-check's half of the protocol ([R13.72], stale-reply-recheck)
+# ---------------------------------------------------------------------------
+
+
+class TestTheRecheckReadsAndReturnsMarks:
+    async def test_queued_state_does_not_consume_the_mark(self, redis: _FakeRedis) -> None:
+        """AC-8: the `finally` drain still has to find the mark."""
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", mid)
+
+        assert await te._queued_trigger_state(agent_id, room) is te.TriggerPopState.PARKED
+        popped = await te._pop_queued_trigger(agent_id, room)
+        assert (popped.state, popped.message_id) == (te.TriggerPopState.PARKED, mid)
+
+    async def test_queued_state_reports_absent_and_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _use(monkeypatch, _FakeRedis())
+        assert await te._queued_trigger_state(uuid.uuid4(), uuid.uuid4()) is te.TriggerPopState.ABSENT
+
+        class _Broken(_FakeRedis):
+            async def exists(self, key: str) -> int:
+                raise RuntimeError("redis unreachable")
+
+        _use(monkeypatch, _Broken())
+        assert await te._queued_trigger_state(uuid.uuid4(), uuid.uuid4()) is te.TriggerPopState.UNKNOWN
+
+    async def test_repark_restores_a_popped_trigger(self, redis: _FakeRedis) -> None:
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        popped = te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention", message_id=mid)
+
+        await te._repark_queued_trigger(agent_id, room, popped)
+
+        again = await te._pop_queued_trigger(agent_id, room)
+        assert (again.trigger, again.message_id) == ("mention", mid)
+
+    async def test_repark_leaves_a_newer_mark_untouched(self, redis: _FakeRedis) -> None:
+        """AC-6: `_MARK_QUEUED_LUA` would keep the trigger but overwrite the newer
+        message id with the older one, misanchoring the follow-up's attachments."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        older, newer = uuid.uuid4(), uuid.uuid4()
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", newer)
+
+        popped = te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention", message_id=older)
+        await te._repark_queued_trigger(agent_id, room, popped)
+
+        kept = await te._pop_queued_trigger(agent_id, room)
+        assert (kept.trigger, kept.message_id) == ("every_n_messages", newer)
+
+
+class TestCoveredMessagesSkipTheirWakeUps:
+    async def test_a_covered_message_is_skipped_before_the_lock(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC-4: the late job for a message the re-check showed would post a second reply."""
+        fake = _FakeRedis()
+        engine, ran = _wire_run_turn(monkeypatch, acquires=[True], fake=fake)
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        await te._record_covered(agent_id, room, [mid])
+
+        result = await engine.run_turn(
+            agent_id=agent_id, chatroom_id=room, trigger="every_n_messages", trigger_message_id=mid
+        )
+
+        assert (result.status, result.reason) == ("skipped", "already_covered")
+        assert ran == []
+
+    async def test_an_uncovered_or_message_less_wake_still_runs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeRedis()
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        _use(monkeypatch, fake)
+        await te._record_covered(agent_id, room, [uuid.uuid4()])
+
+        engine, ran = _wire_run_turn(monkeypatch, acquires=[True, True], fake=fake)
+        other = await engine.run_turn(
+            agent_id=agent_id, chatroom_id=room, trigger="every_n_messages", trigger_message_id=uuid.uuid4()
+        )
+        silence = await engine.run_turn(agent_id=agent_id, chatroom_id=room, trigger="silence_minutes")
+
+        assert other.status == silence.status == "completed"
+        assert ran == ["every_n_messages", "silence_minutes"]
+
+    async def test_a_covered_message_is_never_parked(self, redis: _FakeRedis) -> None:
+        """The check-then-mark race: a covered job that passed the pre-lock check
+        must not overwrite an uncovered message's id in the mark."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        covered, uncovered = uuid.uuid4(), uuid.uuid4()
+        await te._record_covered(agent_id, room, [covered])
+
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", uncovered)
+        assert await te._mark_trigger_queued(agent_id, room, "every_n_messages", covered) is True
+
+        popped = await te._pop_queued_trigger(agent_id, room)
+        assert popped.message_id == uncovered
+
+    async def test_covering_writes_set_and_ttl_in_one_command(self, redis: _FakeRedis) -> None:
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+
+        await te._record_covered(agent_id, room, [uuid.uuid4(), uuid.uuid4()])
+
+        assert redis.commands == ["eval"]
+
+    async def test_forgetting_uncovers(self, redis: _FakeRedis) -> None:
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        await te._record_covered(agent_id, room, [mid])
+        await te._forget_covered(agent_id, room, [mid])
+
+        assert await te._is_covered(agent_id, room, mid) is False

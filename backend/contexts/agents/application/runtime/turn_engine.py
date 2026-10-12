@@ -44,6 +44,7 @@ from contexts.agents.application.runtime.tool_registry import (
     MAX_ARTIFACT_BYTES,
     MAX_ARTIFACT_TOTAL_BYTES,
     MAX_ARTIFACTS_PER_TURN,
+    READ_ONLY_TOOL_NAMES,
     Tool,
     artifact_size_bytes,
     build_cast_approval_vote_tool,
@@ -372,6 +373,14 @@ _ROOM_NOTICE_MARKER = "[Room notice]"
 # Case and spacing variants too: a model reads "[room  notice]" as the same thing.
 _NOTICE_MARKER_LIKE = re.compile(r"\[\s*(room\s+notice)\s*\]", re.IGNORECASE)
 
+# The platform's half of the re-check ([R13.72]): fixed text only. The new
+# messages it refers to are separate turns rendered like any transcript row.
+_RECHECK_NOTICE = (
+    f"{_ROOM_NOTICE_MARKER} Your last reply above has not been posted. The messages after it "
+    "arrived while you were writing it. Reply with the message to post now: the same text, a "
+    "revision, or nothing to stay silent."
+)
+
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
 # the model tends to mirror the convention and prefix its own reply with its name.
@@ -672,11 +681,21 @@ _POP_QUEUED_LUA = (
     "return {t or '', m or ''}"
 )
 
+# KEYS[3] is the re-check's covered set ([R13.72]). Checked here, inside the same
+# script as the park, because a check-then-mark pair in `run_turn` loses a race:
+# a covered message's job checks first, an uncovered one parks, then the covered
+# job overwrites the message id and the follow-up skips as covered, dropping the
+# uncovered message. A covered message is answered already, so it is not parked.
 _MARK_QUEUED_LUA = (
+    "if ARGV[2] ~= '' and redis.call('sismember', KEYS[3], ARGV[2]) == 1 then return 2 end "
     "redis.call('set', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[3]) "
     "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
     "return 1"
 )
+
+# One script so the set never outlives its TTL: a SADD that lands and an EXPIRE
+# that fails would leave a covered key nothing expires.
+_COVER_LUA = "redis.call('sadd', KEYS[1], unpack(ARGV, 2)) redis.call('expire', KEYS[1], ARGV[1]) return 1"
 
 
 class TriggerPopState(enum.Enum):
@@ -729,11 +748,14 @@ async def _mark_trigger_queued(
     try:
         from shared_kernel.auth.clients import get_redis
 
+        # A covered message (the script returns 2) is not parked and counts as
+        # handed off: a re-check already showed it to this agent.
         await get_redis().eval(
             _MARK_QUEUED_LUA,
-            2,
+            3,
             _queued_trigger_key(agent_id, chatroom_id),
             _queued_trigger_message_key(agent_id, chatroom_id),
+            _covered_key(agent_id, chatroom_id),
             trigger,
             str(trigger_message_id) if trigger_message_id is not None else "",
             str(_QUEUED_TRIGGER_TTL_S),
@@ -784,6 +806,135 @@ async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> Qu
         except ValueError:
             message_id = None
     return QueuedTrigger(state=TriggerPopState.PARKED, trigger=trigger, message_id=message_id)
+
+
+# Re-parks a trigger the re-check popped but could not serve ([R13.72]). Writes
+# both keys only when no trigger is parked: a mark that landed during the
+# re-check is newer, and `_MARK_QUEUED_LUA` would keep its trigger (NX) but
+# overwrite its message id with the older one.
+_REPARK_QUEUED_LUA = (
+    "if redis.call('exists', KEYS[1]) == 0 then "
+    "redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[3]) "
+    "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
+    "end "
+    "return 1"
+)
+
+
+def _covered_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"turn:covered:{agent_id}:{chatroom_id}"
+
+
+async def _queued_trigger_state(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> TriggerPopState:
+    """Whether a coalesced trigger is parked, without consuming it.
+
+    Non-destructive on purpose: the `finally` drain in `run_turn` is what turns a
+    parked mark into a follow-up, and this check runs before it.
+    """
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        exists = await get_redis().exists(_queued_trigger_key(agent_id, chatroom_id))
+    except Exception:
+        _log.warning(
+            "failed to check coalesced trigger agent=%s room=%s", agent_id, chatroom_id, exc_info=True
+        )
+        return TriggerPopState.UNKNOWN
+    return TriggerPopState.PARKED if exists else TriggerPopState.ABSENT
+
+
+async def _repark_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID, queued: QueuedTrigger) -> None:
+    """Hand a popped trigger back to the drain, unless a newer one is already parked."""
+    if queued.trigger is None:
+        return
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        await get_redis().eval(
+            _REPARK_QUEUED_LUA,
+            2,
+            _queued_trigger_key(agent_id, chatroom_id),
+            _queued_trigger_message_key(agent_id, chatroom_id),
+            queued.trigger,
+            str(queued.message_id) if queued.message_id is not None else "",
+            str(_QUEUED_TRIGGER_TTL_S),
+        )
+    except Exception:
+        _log.warning(
+            "failed to re-park coalesced trigger agent=%s room=%s", agent_id, chatroom_id, exc_info=True
+        )
+
+
+async def _record_covered(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID, message_ids: Sequence[uuid.UUID]
+) -> None:
+    """Remember which messages a re-check showed, so their own wake-ups skip ([R13.72])."""
+    if not message_ids:
+        return
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        await get_redis().eval(
+            _COVER_LUA,
+            1,
+            _covered_key(agent_id, chatroom_id),
+            str(_QUEUED_TRIGGER_TTL_S),
+            *(str(mid) for mid in message_ids),
+        )
+    except Exception:
+        # Losing the record costs a second reply, which is today's behaviour.
+        _log.warning(
+            "failed to record covered messages agent=%s room=%s", agent_id, chatroom_id, exc_info=True
+        )
+
+
+async def _forget_covered(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID, message_ids: Sequence[uuid.UUID]
+) -> None:
+    """Undo `_record_covered` when the re-check that showed them did not run."""
+    if not message_ids:
+        return
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        await get_redis().srem(_covered_key(agent_id, chatroom_id), *(str(mid) for mid in message_ids))
+    except Exception:
+        _log.warning(
+            "failed to forget covered messages agent=%s room=%s", agent_id, chatroom_id, exc_info=True
+        )
+
+
+async def _is_covered(agent_id: uuid.UUID, chatroom_id: uuid.UUID, message_id: uuid.UUID) -> bool:
+    """Whether a re-check already showed this message to this agent. A read failure
+    answers False, so the turn runs as it would have before the re-check existed."""
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        return bool(await get_redis().sismember(_covered_key(agent_id, chatroom_id), str(message_id)))
+    except Exception:
+        _log.warning("failed to read covered messages agent=%s room=%s", agent_id, chatroom_id, exc_info=True)
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class _RecheckClaim:
+    """What a re-check took from the queue: the popped trigger and the messages it
+    marked covered. Released, by forgetting and re-parking, if the turn does not
+    commit, so the messages it stood for are still answered."""
+
+    parked: QueuedTrigger
+    shown: tuple[uuid.UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Recheck:
+    outcome: ToolLoopOutcome
+    claim: _RecheckClaim
+
+
+async def _release_recheck_claim(agent_id: uuid.UUID, chatroom_id: uuid.UUID, claim: _RecheckClaim) -> None:
+    await _forget_covered(agent_id, chatroom_id, claim.shown)
+    await _repark_queued_trigger(agent_id, chatroom_id, claim.parked)
 
 
 async def drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
@@ -1325,6 +1476,12 @@ class TurnEngine:
         # Whether the mark this call parked is durable. Only meaningful when the
         # lock was never acquired; `True` until we actually try to park one.
         marked = True
+        # [R13.72]: a re-check already showed this message to the agent and its
+        # reply accounted for it, so this wake-up would only post a second reply.
+        # Checked before the lock, which is where a late job would otherwise park.
+        if trigger_message_id is not None and await _is_covered(agent_id, chatroom_id, trigger_message_id):
+            AGENT_TURNS_TOTAL.labels(result="skipped").inc()
+            return TurnResult(status="skipped", reason="already_covered")
         try:
             for attempt in range(2):
                 async with turn_lock(agent_id, chatroom_id) as acquired:
@@ -2840,6 +2997,10 @@ class TurnEngine:
         # already succeeded/skipped, a cleanup step was merely interrupted"
         # apart from "the turn itself never reached a decided outcome".
         outcome_committed = False
+        # Held from a successful re-check until the reply (or skip) commits; a
+        # turn that fails before then releases it, so the messages it covered
+        # still get a follow-up ([R13.72]).
+        recheck_claim: _RecheckClaim | None = None
 
         try:
             # Emitted inside the try so any failure still routes to the
@@ -3244,6 +3405,7 @@ class TurnEngine:
             # transaction committed below — reply persistence stays atomic.
             await self._db.commit()
 
+            dispatched_tools: set[str] = set()
             outcome = await self._stream_with_tools(
                 agent=agent,
                 chatroom_id=chatroom_id,
@@ -3259,6 +3421,7 @@ class TurnEngine:
                 # the cost of one more round on a lock we no longer hold is far
                 # below the cost of a half-written reply.
                 cancel_check=_lock_liveness_check(lock),
+                dispatched_names=dispatched_tools,
             )
             final_text, rounds = outcome.text, outcome.rounds
             synthesis_meta = _synthesis_meta(outcome)
@@ -3269,6 +3432,56 @@ class TurnEngine:
             # renders to nothing is not that. Empty for every normal-role turn,
             # where the sink is never filled.
             observation_md = serialise_blocks(observation_blocks) if observation_blocks else ""
+
+            # [R13.72]: messages that arrived while this reply was being written
+            # are shown to the agent with its unposted draft, and it decides what
+            # to post. Only for a draft whose turn changed nothing a room can see,
+            # so withdrawing or rewriting it cannot orphan a side effect.
+            recheck: str | None = None
+            draft_out = observation_md or final_text
+            if (
+                (final_text.strip() or observation_md.strip())
+                and not outcome.synthesis_failed
+                and dispatched_tools <= READ_ONLY_TOOL_NAMES
+                and not artifact_sink
+                and await _queued_trigger_state(agent.id, chatroom_id) is TriggerPopState.PARKED
+            ):
+                rechecked = await self._recheck_reply(
+                    agent=agent,
+                    chatroom_id=chatroom_id,
+                    parent_agent_id=parent_agent_id,
+                    room=room,
+                    history=history,
+                    guests=guests,
+                    system_text=system_text,
+                    messages=messages,
+                    # An observer's draft is its note, not the chatter after it.
+                    draft=draft_out,
+                    provider=provider,
+                    model=model,
+                    registry=registry,
+                    lock=lock,
+                    rounds_used=rounds,
+                    dispatched_tools=dispatched_tools,
+                    observation_blocks=observation_blocks,
+                )
+                if rechecked is not None:
+                    recheck_claim = rechecked.claim
+                    outcome = rechecked.outcome
+                    final_text = outcome.text
+                    rounds += outcome.rounds
+                    synthesis_meta = _synthesis_meta(outcome)
+                    observation_md = serialise_blocks(observation_blocks) if observation_blocks else ""
+                    posted_out = (observation_md or final_text).strip()
+                    if outcome.synthesis_failed:
+                        recheck = "failed"
+                    elif not posted_out:
+                        recheck = "withdrawn"
+                    elif posted_out == draft_out.strip():
+                        recheck = "unchanged"
+                    else:
+                        recheck = "revised"
+                    synthesis_meta = {**synthesis_meta, "recheck": recheck}
 
             if not final_text.strip() and not observation_md.strip():
                 # Nothing to say — never persist an empty agent message. When the
@@ -3290,9 +3503,12 @@ class TurnEngine:
                 # its own, and this is what makes "never persist an empty message"
                 # true here regardless. The sink is only ever filled on an observer
                 # turn, so a normal-role turn's behaviour is unchanged.
-                skip_reason = (
-                    (outcome.error_kind or _SYNTHESIS_FAILED) if outcome.synthesis_failed else "empty_reply"
-                )
+                if outcome.synthesis_failed:
+                    skip_reason = outcome.error_kind or _SYNTHESIS_FAILED
+                elif recheck == "withdrawn":
+                    skip_reason = "withdrawn"
+                else:
+                    skip_reason = "empty_reply"
                 await self._audit(
                     agent,
                     chatroom_id,
@@ -3503,6 +3719,8 @@ class TurnEngine:
                 chatroom_id,
                 lock.lost_reason if lock is not None else None,
             )
+            if recheck_claim is not None and not outcome_committed:
+                await _release_recheck_claim(agent_id, chatroom_id, recheck_claim)
             await self._finalize_failed_turn(
                 agent=agent,
                 chatroom_id=chatroom_id,
@@ -3514,6 +3732,8 @@ class TurnEngine:
             return TurnResult(status="failed", reason=_LOCK_LOST_ERR_KIND)
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
+            if recheck_claim is not None and not outcome_committed:
+                await _release_recheck_claim(agent_id, chatroom_id, recheck_claim)
             await self._finalize_failed_turn(
                 agent=agent,
                 chatroom_id=chatroom_id,
@@ -3552,6 +3772,11 @@ class TurnEngine:
                 )
                 raise
             _log.warning("agent turn cancelled agent=%s room=%s", agent_id, chatroom_id)
+            if recheck_claim is not None:
+                await _run_uncancellable(
+                    _release_recheck_claim(agent_id, chatroom_id, recheck_claim),
+                    what="re-check claim release",
+                )
             await _run_uncancellable(
                 self._finalize_failed_turn(
                     agent=agent,
@@ -4233,6 +4458,132 @@ class TurnEngine:
         except Exception:
             _log.warning("failed to restore compact flag for room %s", chatroom_id, exc_info=True)
 
+    async def _recheck_reply(
+        self,
+        *,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        parent_agent_id: uuid.UUID | None,
+        room: str | None,
+        history: Sequence[tx.HistoryMessage],
+        guests: RoomGuests,
+        system_text: str,
+        messages: list[dict[str, Any]],
+        draft: str,
+        provider: ApiKeyProvider,
+        model: str,
+        registry: Any,
+        lock: LockHandle | None,
+        rounds_used: int,
+        dispatched_tools: set[str],
+        observation_blocks: list[dict[str, Any]],
+    ) -> _Recheck | None:
+        """Show the agent its unposted draft and what arrived since, once ([R13.72]).
+
+        Returns the re-check's outcome and the claim it holds, or None when the
+        draft should be posted as it is. The parked trigger is consumed because the
+        re-check sees everything it stood for. Until the turn commits, the caller
+        holds the claim and releases it on any failure; everything that can fail
+        here releases it itself, so a message is never left both covered and
+        unqueued.
+        """
+        parked = await _pop_queued_trigger(agent.id, chatroom_id)
+        if parked.state is not TriggerPopState.PARKED:
+            return None
+        claim = _RecheckClaim(parked=parked, shown=())
+        kept_blocks = list(observation_blocks)
+        read_only_before = dispatched_tools <= READ_ONLY_TOOL_NAMES
+        snapshot = _stream_rows(history)
+        seen = {h.id for h in snapshot}
+        try:
+            reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id, for_agent_id=agent.id)
+            fresh = [h for h in _stream_rows(reloaded) if h.id not in seen and h.sender_id != agent.id]
+            if not fresh:
+                # The mark stands for a message this reload cannot see yet (or for
+                # a message-less trigger); hand it back rather than drop it.
+                await _release_recheck_claim(agent.id, chatroom_id, claim)
+                return None
+            claim = _RecheckClaim(parked=parked, shown=tuple(h.id for h in fresh))
+
+            # The same renderer as the transcript, so labels are one-lined and
+            # bodies cannot spell the notice marker; nothing a participant wrote
+            # reaches `_RECHECK_NOTICE`.
+            agent_names, user_names = await self._participant_labels(
+                agent, chatroom_id, reloaded, guests=guests
+            )
+            rendered: list[dict[str, Any]] = []
+            previous: Any = snapshot[-1] if snapshot else None
+            for row in fresh:
+                notice = _gap_notice(previous, row) if previous is not None else None
+                if notice is not None:
+                    rendered.append(notice)
+                rendered.append(self._provider_message(row, agent.id, agent_names, user_names))
+                previous = row
+            messages.append({"role": "assistant", "content": draft})
+            messages.extend(rendered)
+            messages.append({"role": "user", "content": _RECHECK_NOTICE})
+
+            observation_blocks.clear()
+            await _record_covered(agent.id, chatroom_id, claim.shown)
+            await _emit_progress(room, agent.id, _PROGRESS_TOOL_ROUND)
+            outcome = await self._stream_with_tools(
+                agent=agent,
+                chatroom_id=chatroom_id,
+                parent_agent_id=parent_agent_id,
+                system_text=system_text,
+                messages=messages,
+                provider=provider,
+                model=model,
+                registry=registry,
+                room=room,
+                cancel_check=_lock_liveness_check(lock),
+                # At least one round: a turn that spent its budget on read-only
+                # lookups still gets to act on a request it is only now shown.
+                round_budget=max(1, MAX_TOOL_ROUNDS - rounds_used),
+                dispatched_names=dispatched_tools,
+            )
+        except BaseException as exc:
+            # BaseException: an arq `job_timeout` arrives as `CancelledError`, and
+            # without this the shown messages stayed covered with no mark left.
+            observation_blocks[:] = kept_blocks
+            await _run_uncancellable(
+                _release_recheck_claim(agent.id, chatroom_id, claim), what="re-check claim release"
+            )
+            # A lost lock, a broken session or a cancellation cannot post anything,
+            # and a re-check that already changed something cannot fall back to a
+            # draft that knows nothing about it; the turn's own handler decides
+            # those. Any other provider failure posts the draft, which was a
+            # complete answer to what the agent had seen.
+            recoverable = (
+                isinstance(exc, Exception)
+                and not isinstance(exc, _TurnCancelled)
+                and not _is_infrastructure_error(exc)
+                and dispatched_tools <= READ_ONLY_TOOL_NAMES
+            )
+            if not recoverable:
+                raise
+            _log.warning("re-check failed agent=%s; posting the draft", agent.id, exc_info=True)
+            return None
+
+        if outcome.synthesis_failed and read_only_before and dispatched_tools <= READ_ONLY_TOOL_NAMES:
+            # A failed synthesis returns the last round's filler, not an answer;
+            # the draft is the better reply, and nothing changed that it ignores.
+            observation_blocks[:] = kept_blocks
+            await _release_recheck_claim(agent.id, chatroom_id, claim)
+            return None
+        if not observation_blocks and kept_blocks and outcome.text.strip() == draft.strip():
+            # An observer that keeps its note answers with the note's text and does
+            # not re-present it; the note is still its blocks.
+            observation_blocks[:] = kept_blocks
+        if (
+            parked.message_id is not None
+            and parked.message_id not in claim.shown
+            and parked.message_id not in seen
+        ):
+            # The mark stood for a message neither the draft nor the re-check saw.
+            await _repark_queued_trigger(agent.id, chatroom_id, parked)
+        return _Recheck(outcome=outcome, claim=claim)
+
     async def _stream_with_tools(
         self,
         *,
@@ -4246,7 +4597,12 @@ class TurnEngine:
         registry: Any,
         room: str | None,
         cancel_check: CancelCheck | None = None,
+        round_budget: int = MAX_TOOL_ROUNDS,
+        dispatched_names: set[str] | None = None,
     ) -> ToolLoopOutcome:
+        """``round_budget`` lets the re-check ([R13.72]) continue a turn on what is
+        left of its rounds; ``dispatched_names`` collects every tool name that
+        actually ran, which is what decides whether a turn may be re-checked."""
         tool_specs = registry.specs()
         last_text = ""
         tool_rounds = 0
@@ -4263,7 +4619,7 @@ class TurnEngine:
         # charges a round, so there can be at most this many provider calls.
         # The `+ 1` is the single replay-free retry below, which likewise does
         # not charge a round.
-        for _attempt in range(MAX_TOOL_ROUNDS + _MAX_ARG_REJECTIONS + 1):
+        for _attempt in range(round_budget + _MAX_ARG_REJECTIONS + 1):
             if cancel_check is not None and await cancel_check():
                 raise _TurnCancelled(tool_rounds)
             request = _chat_request(
@@ -4380,6 +4736,8 @@ class TurnEngine:
                     result = await registry.call(tc.get("name"), args)
                     content, is_error = result.content, result.is_error
                     dispatched += 1
+                    if dispatched_names is not None:
+                        dispatched_names.add(str(tc.get("name")))
                 messages.append(
                     {
                         "role": "tool",
@@ -4402,7 +4760,7 @@ class TurnEngine:
                     # is unusable advice if the retry has no budget to run in.
                     continue
             tool_rounds += 1
-            if tool_rounds >= MAX_TOOL_ROUNDS:
+            if tool_rounds >= round_budget:
                 break
         # Tool-round budget exhausted — give the model one final turn WITHOUT
         # tools so it can formulate a coherent reply from the accumulated tool

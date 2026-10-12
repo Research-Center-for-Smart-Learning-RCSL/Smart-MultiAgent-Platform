@@ -147,6 +147,15 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# Built-in tools that change nothing a room can see, so a turn that called only
+# these may still be re-checked and withdrawn before its reply posts ([R13.72]).
+# An allowlist rather than a denylist: every other name, including every MCP and
+# local-function tool, is assumed to have side effects. `present_observation` is
+# here because its blocks are only recorded after the re-check decides.
+READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    {"read_skill", "web_search", "file_search", "read_drafts", "present_observation"}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:

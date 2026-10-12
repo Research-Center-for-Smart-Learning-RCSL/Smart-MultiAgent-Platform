@@ -184,6 +184,15 @@ def test_assembles_singletons_plus_mcp_tools() -> None:
     assert any(n.endswith("__alpha") for n in mcp_names)
 
 
+def test_read_only_names_are_reserved_built_ins() -> None:
+    # [R13.72]: a turn that called only these may be withdrawn by the re-check, so
+    # a renamed built-in must fail here rather than silently drop out of the set
+    # (which only costs a re-check) or, worse, a user function borrow a name in it.
+    from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES, READ_ONLY_TOOL_NAMES
+
+    assert READ_ONLY_TOOL_NAMES <= BUILTIN_TOOL_NAMES
+
+
 def test_hosted_builtin_names_are_all_reserved() -> None:
     # Drift guard: every hosted built-in tool actually built must carry a name in
     # the canonical reserved set, so a new built-in cannot be shadowed by a user

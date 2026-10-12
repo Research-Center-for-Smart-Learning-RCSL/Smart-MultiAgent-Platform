@@ -220,7 +220,8 @@
       "alreadyGone": "該觀察紀錄已不存在，清單已重新整理。",
       "skip": {
         "no_input": "沒有新內容可分析",
-        "empty_reply": "沒有可補充的內容"
+        "empty_reply": "沒有可補充的內容",
+        "withdrawn": "看到新訊息後撤回了這份筆記"
       },
       "badgeAria": "觀察者分頁，{n} 則未讀觀察",
       "trigger": {
