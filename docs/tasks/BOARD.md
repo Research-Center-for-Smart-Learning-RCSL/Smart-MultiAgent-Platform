@@ -33,10 +33,15 @@ on the time-context one and is under Blocked. The re-check and wake-up dossiers 
   toggles limited to a designer-set `self_toggle` list, and typing within the last 60 s counts
   as room activity for the silence clock. SRS delta: [R15.01] and [R15.06] replaced, [R15.02]
   amended, [R15.01a] and [R15.06a] added.
-- `2026-10-12-agent-message-time-context` (feature, **approved 2026-10-12**) - room and observer turns get a
-  platform notice wherever 60 s or more passed between messages, and a system line with the
-  current UTC time, the last message's age and the wake reason. **Build first**: it unblocks the
-  pack dossier. SRS delta: [R13.73] added.
+- (implemented 2026-10-12) `2026-10-12-agent-message-time-context`. AC-1..AC-8 ticked; the
+  manual provider-request check was not run (D-6, no stack). Deviations D-1..D-6 and FU-1..FU-5
+  are in the dossier. It unblocked `2026-10-12-crat-pack-prompt-platform-alignment`, now below.
+- `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **approved 2026-10-12**) - moved
+  from Blocked on 2026-10-12: its only dependency, `2026-10-12-agent-message-time-context`, is
+  implemented. Rewrites the CRAT room pack: both wake-up triggers on with a fixed `n = 2`,
+  integer minutes, no `instruct`, the empty-reply rule, a one-message three-part turn shape, a
+  silence chain read from the time line, no answer key in any agent, and an analyst that also
+  wakes every 20 messages. Pack JSON and tests only.
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
@@ -564,7 +569,9 @@ rows are added as each is written.
 
 ### From the 2026-10-12 CRAT facilitation audit
 
-- `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **approved 2026-10-12**) - waiting on
+- (moved to Ready now on 2026-10-12, unblocked by the implemented
+  `2026-10-12-agent-message-time-context`) The original entry, kept here for its detail:
+  `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **approved 2026-10-12**) - waiting on
   `2026-10-12-agent-message-time-context`. **Logical prerequisite** (its Q-11): the teacher
   tells a lull from a message wake, and picks its hint level, from the time line that dossier
   adds; the wake reason reaches the model nowhere today. Rewrites the CRAT room pack: both
