@@ -17,16 +17,8 @@ doesn't need a `depends_on` backfill).
 
 Unblocked 2026-10-12, when `2026-10-12-graph-build-busy-retry` and
 `2026-10-12-graphrag-phase5a-evidence-refs-expand` were both implemented.
+`2026-10-12-graphrag-phase5b-member-filter`, unblocked at the same time, is In progress.
 
-- `2026-10-12-graphrag-phase5b-member-filter` (feature, **approved 2026-10-12**, SRS Delta applied: [R11.22] rewritten) -
-  `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
-  2026-10-12-graph-build-busy-retry]`, both implemented (overlap: `neo4j_driver.py`
-  relation Cypher, and `graphrag_build`).
-  - **Provenance fix:** agent_group provenance becomes the authoring member, or the
-    co-present members for other messages, not the room's smallest member id.
-  - **Filter:** a Project-Owner-set per-member read filter (`read_member_ids`, matched by
-    intersection, entities derived from visible relations).
-  - **Rebuild:** an armed operator command rebuilds existing agent_group maps in place.
 - `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
   [2026-10-12-graphrag-phase5a-evidence-refs-expand]`, implemented. Releases B (reads
   switch to `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed
@@ -756,6 +748,20 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta [R11.22] applied at
+  approval), on branch `feat/graphrag-member-filter`.
+  - **Change.** agent_group provenance is now the author for a member's message and the
+    co-present members otherwise. A Project-Owner-set per-member read filter
+    (`agent_group_members.read_member_ids`, migration `0103`) scopes Concept Map
+    retrieval. `rebuild-agent-group-concept-maps` rewrites existing maps (runbook §3.2).
+  - **Verification.** AC-1..AC-6 are verified, including live turns on the compose stack
+    (D-6). AC-7 waits on CI.
+  - **Deploy.** Migration `0103` adds a nullable column. Run the rebuild command once
+    the release is on every worker, before announcing the filter.
+  - **Follow-ups.** FU-1..FU-10. FU-5 (security Medium, plausible) is that the filter
+    scopes relevance, not confidentiality against a content author steering the
+    extractor.
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor),
   PR #254 from `refactor/graphrag-evidence-refs-expand`. Release A of the Neo4j evidence

@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R11.08, R11.22, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand, 2026-10-12-graph-build-busy-retry]
@@ -242,25 +242,34 @@ on every question.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: in an agent_group map, a relation evidenced by a member agent's message carries
+- [x] AC-1: in an agent_group map, a relation evidenced by a member agent's message carries
   exactly that member; one evidenced by a person's message carries every group member bound
   to that room; neither is decided by the smallest id (wiring test, real Postgres).
-- [ ] AC-2: the Project Owner can set and clear a member's `read_member_ids`; a non-owner
+  `tests/wiring/test_graphrag_delta_union.py`: a member's own message in a shared room, a
+  person's message, a message from an agent outside the group, and member removal.
+- [x] AC-2: the Project Owner can set and clear a member's `read_member_ids`; a non-owner
   gets 403; ids outside the group or an empty list get 422; removing a member strips its id
   from every list in the group (route and service tests).
-- [ ] AC-3: a member with `read_member_ids = [B]` receives only relations whose provenance
+  `tests/unit/test_agent_group_read_members.py`, `tests/wiring/test_agent_group_read_members.py`.
+- [x] AC-3: a member with `read_member_ids = [B]` receives only relations whose provenance
   includes B, only entities reachable through them, and no relation with empty provenance;
   a member with `NULL` receives the full union as today (retrieval tests; one real-Neo4j
-  test for the traversal predicate).
-- [ ] AC-4: `rebuild-agent-group-concept-maps` lists without arming, enqueues one full
+  test for the traversal predicate). `tests/unit/test_graphrag_member_filter.py`,
+  `tests/integration/test_graphrag_member_filter_traverse.py` (a hidden first hop does
+  not lead to a visible second one), `tests/wiring/test_graphrag_owner_resolution.py`.
+- [x] AC-4: `rebuild-agent-group-concept-maps` lists without arming, enqueues one full
   replace rebuild per agent_group map when armed, and after it the maps' relations carry
   the new provenance (CLI test plus the compose-stack check below).
-- [ ] AC-5: on the compose test stack with the provider stub of
+  `tests/unit/test_rebuild_agent_group_concept_maps.py`,
+  `tests/wiring/test_rebuild_agent_group_concept_maps.py`; live in D-6.
+- [x] AC-5: on the compose test stack with the provider stub of
   `2026-07-07-graphrag-two-axis-redesign` D-6, a two-member group map built from both
   members' rooms shows each restricted member only its selected contributions in the turn's
-  system prompt, observed live.
-- [ ] AC-6: the group detail page lets the owner set "Reads from" per member, shows the
+  system prompt, observed live. See D-6.
+- [x] AC-6: the group detail page lets the owner set "Reads from" per member, shows the
   empty-list state, and every new string is in `en` and `zh-TW` (component test).
+  `frontend/src/slices/agent-groups/__tests__/AgentGroupDetailView.test.ts`; the two
+  locale files hold the same 63 keys.
 - [ ] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in
   CI; `gen:api` regenerated; the migration upgrades and downgrades.
 
@@ -301,7 +310,58 @@ None. OQ-1 was resolved at approval as Q-8.
 
 ## 15. Deviation Log
 
-Appended by /build.
+Plan approved by the requester before implementation (migration, API contract, cross-context).
+D-1 to D-4 are the implementation choices named in that plan.
+
+- **D-1. The provenance seam carries a list.** `DeltaMessage.source_member_id` (one id)
+  became `source_member_ids` (a tuple) in `graphrag_ports.py`. The Knowledge Map loader
+  and extractor share the port and now send an empty tuple. The delta query computes the
+  list per message in SQL (`CASE` over `m.sender_type` / `m.sender_id`, else an `ARRAY`
+  subquery over `chatroom_agents`). Which row `DISTINCT ON` keeps therefore no longer
+  matters, and the `ca.agent_id` tiebreak was removed.
+- **D-2. The read filter travels as a layer object.** `list_layers_for_turn` returns
+  `ConceptMapLayer(config, read_member_ids)` (new, in `knowledge/domain/graphrag.py`)
+  instead of bare configs. The turn engine (`agents` context, `_graphrag_context`) passes
+  the group layers' filters to `query_layers` as a `member_filters` mapping, and the
+  provider hands each layer its own filter. `_has_knowledge_source` only tests for any
+  layer and is unchanged.
+- **D-3. The members response is extended, not replaced.** `GET` and `POST
+  .../members` keep `members: [uuid]` and gain `read_members: [{agent_id,
+  read_member_ids}]`, so an older client is unaffected.
+- **D-4. The rebuild is a worker keyword plus a command-owned job id.**
+  `graphrag_build(full_rebuild=True)` runs `mode="full", replace=True`. The command
+  enqueues it as `graphrag:rebuild:{config}:{run timestamp}` with
+  `triggered_by="provenance_rebuild"`, so it is never deduplicated against an ordinary
+  build. A busy retry keeps the keyword, because arq `Retry` re-runs the same job.
+- **D-5. The delta scope's unused fragments were removed** (after the quality audit).
+  `_DeltaScope.order_extra` and `expanding` lost their last use with D-1, and the member
+  set is bound once, as `uuid[]` (`ca.agent_id = ANY(...)`).
+- **D-6. Live verification (AC-4, AC-5).** It ran on the compose stack: branch code in
+  `backend-web`, a real arq worker with the OpenAI boundary stubbed (blueprint D-6), and
+  migration 0103 applied (and round-tripped down and up).
+  - **Setup:** a project with members Ann and Ben in separate rooms, and an enabled
+    agent_group map built from one person message in each room.
+  - **Provenance:** Neo4j held `Photosynthesis -relates_to-> Plants` as `[Ann]` and
+    `Mitochondria -relates_to-> Cells` as `[Ben]`.
+  - **Turns** (the agent's system block):
+    1. Both unrestricted: Ann's turn listed both relations.
+    2. Ann restricted to `[Ben]`: only the Mitochondria relation, with entities
+       `Mitochondria, Cells`.
+    3. Ben restricted to `[Ann]`: only the Photosynthesis relation.
+    4. Ann reset to `null`: both again.
+  - **Rebuild:** I overwrote every relation's provenance with `['legacy-member']`. The
+    dry run listed the map (10 messages) and enqueued nothing. The armed run enqueued it,
+    and after the build the provenance was `[Ann]` and `[Ben]` again. A third relation,
+    stated in a person's message in each room, carried `[Ann, Ben]`.
+  - **Side effect:** the armed run enqueued 22 maps, because the wiring tests run against
+    the same database had left group maps there.
+- **D-7. Audit outcomes.**
+  - **Quality:** no Critical or Warning. Of the Info findings, the dead `order_extra` and
+    `expanding` fields (D-5), the duplicated response mapping and an unpointed cost
+    estimate were fixed in `96fde3d2`. The view's size goes to FU-8.
+  - **Security:** no Critical or High. The one Medium (plausible) is FU-5, and the
+    builder docstring that claimed provenance is "never from LLM output" was corrected.
+    The three Hardening items are FU-4, FU-6 and FU-7.
 
 ## 16. Follow-ups
 
@@ -310,3 +370,32 @@ Appended by /build.
 - **FU-2.** Room membership history: "co-present" uses the binding at build time, not at
   message time.
 - **FU-3.** A member-provenance column in the human-facing graph view.
+- **FU-4.** `set_read_members` validates the member set, then writes. A concurrent
+  `remove_member` committing in between leaves a filter naming the removed agent. This
+  only narrows, never widens beyond the group. Lock the group's member rows or
+  re-validate inside the `UPDATE` (security audit, Hardening).
+- **FU-5.** Which messages count as a relation's evidence is the extraction model's
+  output, checked only against the build's own messages
+  (`graphrag_builder.attach_member_provenance`). A content author who steers the
+  extractor can therefore tag a relation with another member's provenance and get it
+  past a read filter inside the same group. This cannot cross a group, project or tenant
+  boundary (security audit, Medium, plausible). The options are to cross-check a cited
+  message against the triple, or to say in [R11.22] and the UI that the filter scopes
+  relevance, not confidentiality against content authors.
+- **FU-6.** `rebuild-agent-group-concept-maps` has no per-project or per-config scope, and
+  no guard against a second armed run re-extracting every map again on the tenants'
+  keys (security audit, Hardening).
+- **FU-7.** The read filter is validated only when written. Intersecting it with the live
+  member set at read time would also clean out ids of soft-deleted agents, which removal
+  cleanup does not touch (security audit, Hardening).
+- **FU-8.** `AgentGroupDetailView.vue` now holds the members table, add flow, privacy
+  toggle and the read-filter editor. Extract the editor as a `MemberReadsModal`
+  component (quality audit).
+- **FU-9.** Pre-existing in touched code (quality audit):
+  - the agent_groups service imports infrastructure directly;
+  - the knowledge repository joins agent_groups and agents tables directly;
+  - `is_armed()` with the private `agent_fs_gc._TRUTHY` now has five copies across
+    `smap.maintenance`;
+  - `graphrag_repositories.py` is about 950 lines.
+- **FU-10.** `AgentGroupFacade.list_members` has no production caller left; both routes
+  use `list_members_with_reads`.
