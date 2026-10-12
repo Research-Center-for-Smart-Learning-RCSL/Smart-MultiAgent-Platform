@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.application.group_service import AgentGroupService
-from contexts.agent_groups.domain.models import AgentGroup
+from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 
 
 class AgentGroupFacade:
@@ -123,6 +123,28 @@ class AgentGroupFacade:
 
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._service.list_members(group_id)
+
+    async def list_members_with_reads(self, group_id: uuid.UUID) -> Sequence[AgentGroupMember]:
+        return await self._service.list_members_with_reads(group_id)
+
+    async def set_read_members(
+        self,
+        *,
+        group_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        member_ids: Sequence[uuid.UUID] | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> AgentGroupMember:
+        return await self._service.set_read_members(
+            group_id=group_id,
+            agent_id=agent_id,
+            member_ids=member_ids,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def group_project_id(self, group_id: uuid.UUID) -> uuid.UUID | None:
         return await self._service.group_project_id(group_id)

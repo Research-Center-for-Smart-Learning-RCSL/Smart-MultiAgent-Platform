@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.domain.errors import AgentGroupNameConflict
-from contexts.agent_groups.domain.models import AgentGroup
+from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 from contexts.agent_groups.infrastructure import tables as t
 from contexts.agents.infrastructure import tables as agents_t
 from shared_kernel.auth.clients import now
@@ -221,6 +221,65 @@ class AgentGroupRepository:
             )
         )
         return bool(rowcount(result))
+
+    async def list_members_with_reads(self, group_id: uuid.UUID) -> Sequence[AgentGroupMember]:
+        """Live members with their Concept Map read filter, in member-id order.
+
+        The same live-member rule as :meth:`list_member_agent_ids`. Ids inside a
+        read filter are returned as stored: a soft-deleted agent named there
+        still matches the relations it contributed.
+        """
+        m = t.agent_group_members
+        rows = (
+            await self._db.execute(
+                sa.select(m.c.agent_id, m.c.read_member_ids)
+                .select_from(m.join(agents_t.agents, agents_t.agents.c.id == m.c.agent_id))
+                .where(sa.and_(m.c.agent_group_id == group_id, agents_t.agents.c.deleted_at.is_(None)))
+                .order_by(m.c.agent_id)
+            )
+        ).all()
+        return [
+            AgentGroupMember(
+                agent_id=r.agent_id,
+                read_member_ids=None if r.read_member_ids is None else tuple(r.read_member_ids),
+            )
+            for r in rows
+        ]
+
+    async def set_read_member_ids(
+        self,
+        *,
+        group_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        read_member_ids: Sequence[uuid.UUID] | None,
+    ) -> bool:
+        """Set one member's read filter; returns whether the membership row exists."""
+        m = t.agent_group_members
+        result = await self._db.execute(
+            m.update()
+            .where(sa.and_(m.c.agent_group_id == group_id, m.c.agent_id == agent_id))
+            .values(read_member_ids=None if read_member_ids is None else list(read_member_ids))
+        )
+        return bool(rowcount(result))
+
+    async def strip_read_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> int:
+        """Remove ``agent_id`` from every read filter in the group; returns rows changed.
+
+        A filter that named only ``agent_id`` is left as an empty array, not NULL:
+        widening a restriction to the whole group is the owner's decision (Q-8).
+        """
+        m = t.agent_group_members
+        result = await self._db.execute(
+            m.update()
+            .where(
+                sa.and_(
+                    m.c.agent_group_id == group_id,
+                    m.c.read_member_ids.contains([agent_id]),
+                )
+            )
+            .values(read_member_ids=sa.func.array_remove(m.c.read_member_ids, agent_id))
+        )
+        return rowcount(result)
 
     async def list_member_agent_ids(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         """Live member agent ids for a group, ordered for deterministic feeds.

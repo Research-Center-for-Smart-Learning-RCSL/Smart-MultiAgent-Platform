@@ -17,10 +17,12 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.domain.errors import (
+    AgentGroupMemberNotFound,
     AgentGroupMemberProjectMismatch,
     AgentGroupNotFound,
+    AgentGroupReadMembersInvalid,
 )
-from contexts.agent_groups.domain.models import AgentGroup
+from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
 from contexts.agents.infrastructure import tables as agents_t
 from shared_kernel import audit
@@ -158,6 +160,10 @@ class AgentGroupService:
     ) -> bool:
         project_id = await self._require_group_project(group_id)
         removed = await self._repo.remove_member(group_id=group_id, agent_id=agent_id)
+        if removed:
+            # Same transaction as the delete: no member may go on reading the
+            # removed agent's contributions through a stale filter entry (R11.22).
+            await self._repo.strip_read_member(group_id=group_id, agent_id=agent_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -240,6 +246,63 @@ class AgentGroupService:
 
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._repo.list_member_agent_ids(group_id)
+
+    async def list_members_with_reads(self, group_id: uuid.UUID) -> Sequence[AgentGroupMember]:
+        return await self._repo.list_members_with_reads(group_id)
+
+    async def set_read_members(
+        self,
+        *,
+        group_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        member_ids: Sequence[uuid.UUID] | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> AgentGroupMember:
+        """Set what ``agent_id`` reads from the group's Concept Map (R11.22).
+
+        ``None`` reads the whole group. Otherwise every id must be a live member
+        of this group, which also keeps the list inside the project's tenant
+        boundary; an empty list is refused, since "nothing" is only ever the
+        result of removing the last member a filter named.
+        """
+        project_id = await self._require_group_project(group_id)
+        live = set(await self._repo.list_member_agent_ids(group_id))
+        if agent_id not in live:
+            raise AgentGroupMemberNotFound(f"agent {agent_id} is not a member of group {group_id}")
+        chosen: tuple[uuid.UUID, ...] | None = None
+        if member_ids is not None:
+            chosen = tuple(sorted(set(member_ids)))
+            if not chosen:
+                raise AgentGroupReadMembersInvalid("an empty read filter reads nothing; use null")
+            outside = [m for m in chosen if m not in live]
+            if outside:
+                raise AgentGroupReadMembersInvalid(
+                    f"not members of group {group_id}: {', '.join(str(m) for m in outside)}"
+                )
+        if not await self._repo.set_read_member_ids(
+            group_id=group_id, agent_id=agent_id, read_member_ids=chosen
+        ):
+            # Removed concurrently between the membership read and the write.
+            raise AgentGroupMemberNotFound(f"agent {agent_id} is not a member of group {group_id}")
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.read_members_set",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={
+                    "project_id": str(project_id),
+                    "agent_id": str(agent_id),
+                    "read_member_ids": None if chosen is None else [str(m) for m in chosen],
+                },
+                request_id=request_id,
+            ),
+        )
+        return AgentGroupMember(agent_id=agent_id, read_member_ids=chosen)
 
     async def group_project_id(self, group_id: uuid.UUID) -> uuid.UUID | None:
         """The group's project id, for the route's Project-Owner authz gate."""

@@ -21,4 +21,16 @@ class AgentGroup:
     created_at: dt.datetime
 
 
-__all__ = ["AgentGroup"]
+@dataclass(frozen=True, slots=True)
+class AgentGroupMember:
+    """A live member and what it reads from the group's Concept Map (R11.22).
+
+    ``read_member_ids`` is ``None`` for the whole group; otherwise the members
+    whose contributions it reads, possibly empty (reads nothing).
+    """
+
+    agent_id: uuid.UUID
+    read_member_ids: tuple[uuid.UUID, ...] | None
+
+
+__all__ = ["AgentGroup", "AgentGroupMember"]

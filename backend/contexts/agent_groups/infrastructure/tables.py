@@ -56,6 +56,10 @@ agent_group_members = sa.Table(
         sa.ForeignKey("agents.id", ondelete="CASCADE"),
         nullable=False,
     ),
+    # R11.22 (migration 0103): the members whose contributions this member reads
+    # from the group's Concept Map. NULL = the whole group; an empty array reads
+    # nothing (left by removing the last member it named).
+    sa.Column("read_member_ids", pg.ARRAY(pg.UUID(as_uuid=True)), nullable=True),
     sa.PrimaryKeyConstraint("agent_group_id", "agent_id"),
 )
 
