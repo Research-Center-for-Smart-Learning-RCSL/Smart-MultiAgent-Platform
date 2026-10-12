@@ -358,8 +358,14 @@ async def graphrag_build(
     *,
     config_id: str,
     triggered_by: str = "manual",
+    full_rebuild: bool = False,
 ) -> str:
-    """Run a full GraphRAG build for one config (2PC, R11.04).
+    """Run a GraphRAG build for one config (2PC, R11.04).
+
+    ``full_rebuild`` re-extracts the whole history and replaces the map's
+    relations, evidence and provenance instead of adding a delta; the
+    ``rebuild-agent-group-concept-maps`` command uses it to rewrite provenance
+    in place (R11.22). The old graph stays readable until the new one commits.
 
     D8: bounded by a per-worker semaphore so a burst of builds cannot starve the
     other worker lanes.
@@ -369,12 +375,12 @@ async def graphrag_build(
         raise BuildCrashLoopError(f"graphrag_build config={config_id} crashed on every attempt")
     try:
         async with _get_build_semaphore():
-            return await _run_build(config_id=config_id, triggered_by=triggered_by)
+            return await _run_build(config_id=config_id, triggered_by=triggered_by, full_rebuild=full_rebuild)
     except GraphRagBuildBusy:
         await retry_busy_build(ctx, job_name="graphrag_build", config_id=config_id)
 
 
-async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
+async def _run_build(*, config_id: str, triggered_by: str = "manual", full_rebuild: bool = False) -> str:
     cfg_id = uuid.UUID(config_id)
     settings = get_settings()
 
@@ -428,7 +434,12 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
 
             _set_state("running")
             try:
-                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
+                result = await builder.run(
+                    config_id=cfg_id,
+                    triggered_by=triggered_by,
+                    mode="full" if full_rebuild else "delta",
+                    replace=full_rebuild,
+                )
                 await db.commit()
                 _set_state(build_state_metric_label(result.state.value))
                 _log.info(

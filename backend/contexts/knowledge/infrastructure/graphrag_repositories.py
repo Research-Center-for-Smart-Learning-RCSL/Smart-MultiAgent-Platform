@@ -776,6 +776,28 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         return out
 
+    async def list_live_agent_group_configs(self) -> Sequence[GraphRagConfig]:
+        """Every live agent_group-owned Concept Map whose group is live, oldest first.
+
+        For the ``rebuild-agent-group-concept-maps`` maintenance command (R11.22).
+        """
+        gc = t.graphrag_configs
+        rows = (
+            await self._db.execute(
+                _config_select()
+                .select_from(gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id))
+                .where(
+                    sa.and_(
+                        gc.c.owner_kind == "agent_group",
+                        gc.c.deleted_at.is_(None),
+                        ag.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(gc.c.created_at, gc.c.id)
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
     async def list_in_state(
         self,
         state: BuildState,

@@ -212,6 +212,33 @@ An armed run ends with `remaining=0` and exit status 0 once every relation carri
 switches reads to the new property, must not be deployed before a run has reported
 `remaining=0` with release A on every replica.
 
+### 3.2 Agent-group Concept Map provenance rebuild
+
+From the release of `docs/tasks/2026-10-12-graphrag-phase5b-member-filter`, an
+agent_group Concept Map records on each relation the members it came from: the author
+for a member agent's message, every member bound to the room for any other message.
+Relations built before that name a single member per room, chosen by the smallest id,
+and an ordinary build never rewrites them. Project Owners can now restrict what one
+member reads to chosen members' contributions, and on old relations that restriction
+would act on the old, misleading value.
+
+Run the rebuild once the release is on every backend-worker replica, and before
+announcing the per-member read filter. Each listed map re-extracts its whole history
+with its project's builder key, so read the dry run's message counts first.
+
+```bash
+# Dry run: lists every agent_group map and the messages a rebuild reads
+docker compose exec backend-worker python -m smap.maintenance rebuild-agent-group-concept-maps
+
+# Enqueue one full rebuild per map
+docker compose exec -e SMAP_REBUILD_AGENT_GROUP_CONCEPT_MAPS_ARMED=1 backend-worker \
+  python -m smap.maintenance rebuild-agent-group-concept-maps
+```
+
+A map stays readable on its old graph until its rebuild commits. A rebuild that meets a
+running build waits for it. The rebuilt map is extracted with the current model, so
+its content can differ from the old one as well as its provenance.
+
 ---
 
 ## 4. Sandbox image upgrades

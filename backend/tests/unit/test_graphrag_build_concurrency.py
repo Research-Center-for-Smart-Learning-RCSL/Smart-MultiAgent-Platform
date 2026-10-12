@@ -25,7 +25,7 @@ async def test_graphrag_build_concurrency_is_bounded(monkeypatch: Any) -> None:
     active = 0
     peak = 0
 
-    async def fake_run(*, config_id: str, triggered_by: str = "manual") -> str:
+    async def fake_run(*, config_id: str, triggered_by: str = "manual", full_rebuild: bool = False) -> str:
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
