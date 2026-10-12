@@ -289,15 +289,22 @@ context assembly — a Security Considerations section is required.
   *Ingest-reuse core unit-verified (`test_knowmap_ingest.py`: shared parser/chunker, no-Qdrant,
   SHA dedup, build trigger). tus finalize + ClamAV quarantine-gate + MinIO blob execution await
   the live stack — see D-6.*
-- [ ] AC-2: a build over a documents-only corpus (no conversation) produces a Neo4j subgraph +
+- [x] AC-2: a build over a documents-only corpus (no conversation) produces a Neo4j subgraph +
   `knowmap_{project_id}` Qdrant points scoped by config id, through the shared 2PC builder with
   the forked `DocTripleExtractor`/`DocDeltaLoader`, windowed for a large corpus.
   *Code-complete; extractor render/parse unit-verified (`test_knowmap_extractor.py`). Documents-only
-  build execution needs Neo4j+Qdrant+MinIO — see D-6.*
-- [ ] AC-3: an agent with `knowmap_config_id` set receives the Knowledge Map as a third Axis-1
+  build execution needs Neo4j+Qdrant+MinIO — see D-6.* *Verified 2026-10-12 on the compose test
+  stack with real stores and a stubbed provider boundary (blueprint
+  `2026-07-07-graphrag-two-axis-redesign` D-6, AC-10): a documents-only build produced the
+  subgraph and `knowmap_{project_id}` points scoped by config id. Windowing for a large corpus
+  was not exercised live.*
+- [x] AC-3: an agent with `knowmap_config_id` set receives the Knowledge Map as a third Axis-1
   system block beside file-RAG, independent of any Concept Map, with `type:"graphrag"` retained.
   *Code-complete (`turn_engine._knowmap_context` wired after the graphrag block; exercised via the
   observer-engine unit harness). Three-block live turn assembly needs the stack — see D-6.*
+  *Verified 2026-10-12 on the same run: the agent turn's system prompt carried the Knowledge
+  Map block, with evidence resolved to the document chunk text. The agent had no file-RAG
+  config, so the block was observed beside the Concept Map slot, not beside file RAG.*
 - [x] AC-4: retrieval returns a relation only when **every** source `knowmap_document` is in the
   agent's allowlist; an entity appears only via a visible relation; empty allowlist returns
   nothing. *Unit-verified: `test_knowmap_edge_filter.py` + `test_knowmap_context_provider.py`.*
@@ -307,10 +314,14 @@ context assembly — a Security Considerations section is required.
 - [x] AC-6: a build is enqueued on document upload/delete/reprocess and on explicit rebuild;
   never on a conversation message; duplicate triggers dedup via the Phase 2a `_job_id`.
   *Unit-verified: `test_knowmap_triggers.py` (dedup nonce = state + `last_build_at`; best-effort enqueue).*
-- [ ] AC-7: deleting a Knowledge Map config or document purges its Neo4j subgraph, `knowmap`
+- [x] AC-7: deleting a Knowledge Map config or document purges its Neo4j subgraph, `knowmap`
   Qdrant points, and MinIO blobs (audit-logged); the reconciler finds no orphan.
   *Purge cascade self-audited; the consumer-aware reconciler fix retains the existing 4 reconciler
-  unit tests. Cross-store purge execution needs the stack — see D-6.*
+  unit tests. Cross-store purge execution needs the stack — see D-6.* *Verified 2026-10-12 on
+  the same run: a document delete removed the relation and entities only it evidenced, their
+  points and its blob; the config delete then emptied Neo4j, dropped the collection and
+  removed every blob, each delete audit-logged. "No orphan" was read directly from the
+  stores, not from a reconciler pass.*
 - [x] AC-8: setting the document allowlist is Project-Owner-gated and rejects ids not bound to
   the config. *Unit-verified: `test_knowmap_authz.py` (`_require_owner` + `validate_knowmap_agent_allowlist`).*
 - [~] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass; `gen:api`

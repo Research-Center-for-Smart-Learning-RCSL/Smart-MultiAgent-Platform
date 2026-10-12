@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-07
 requirements: [R09.17, R10.06, R10.10, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11.16, R11.17, R11.18, R11.19, R11.20, R11.21, R11a.01]
 depends_on: []
@@ -820,83 +820,127 @@ Touches tenant boundaries, provider keys, user-input processing — required.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `graphrag_configs` loses `agent_id`; gains `owner_kind` + three typed nullable
+This blueprint was built as the phase dossiers named under "Phasing", plus audit-driven
+bugfix dossiers that followed. Each box below is checked against the dossier whose own AC
+or test verifies it; the evidence follows the criterion. Deviations from the wording here
+are D-1 to D-7 in §15.
+
+- [x] AC-1: `graphrag_configs` loses `agent_id`; gains `owner_kind` + three typed nullable
   owner FK columns + a CHECK (exactly one non-null, matching `owner_kind`) + three per-kind
   partial unique indexes; migration mutates rows in place (id stable); deferred reverse FK
-  handled. (migration test) [P1]
-- [ ] AC-2: Delta-feed strategy per `owner_kind` uses `SELECT DISTINCT m.id`; agent_group
+  handled. (migration test) [P1] *Phase 1 AC-1.*
+- [x] AC-2: Delta-feed strategy per `owner_kind` uses `SELECT DISTINCT m.id`; agent_group
   variant is set-identical to the legacy query for a singleton member. (loader tests) [P1/P2]
-- [ ] AC-3: `agent_groups` + `agent_group_members` (composite PK, CASCADE both legs) exist; a
-  group owns a Concept Map; membership CRUD verifies project membership. [P1]
-- [ ] AC-4: Existing configs migrate to singleton agent_groups; Neo4j/Qdrant data unchanged
+  *Phase 1 AC-4 (resolver equivalence); the DISTINCT union is exercised against a real
+  Postgres by `tests/wiring/test_graphrag_delta_union.py`, green in CI (`backend-wiring`). Phase
+  2b AC-1 was left unticked pending that CI wiring and was never revisited.*
+- [x] AC-3: `agent_groups` + `agent_group_members` (composite PK, CASCADE both legs) exist; a
+  group owns a Concept Map; membership CRUD verifies project membership. [P1] *Phase 1 AC-2;
+  membership CRUD in Phase 2b (D-3, D-4) and Phase 4a (D-1, AC-1); the project check is
+  `contexts/agent_groups/application/group_service.py:113-128`.*
+- [x] AC-4: Existing configs migrate to singleton agent_groups; Neo4j/Qdrant data unchanged
   (same config id); build scope identical to pre-migration. (behavior-preservation test) [P1]
-- [ ] AC-5: Key-group validation is owner-conditional — the builder-vs-consumer distinctness
+  *Phase 1 AC-3, AC-4.*
+- [x] AC-5: Key-group validation is owner-conditional — the builder-vs-consumer distinctness
   check is skipped for Concept Map owners; the in-project `builder_key_group_id` check
-  remains. [P1]
-- [ ] AC-6: Trigger resolution is reshaped from `agent_ids` to an owner set; one message fans
-  out a build to every covering config. [P1/P2]
-- [ ] AC-7: At turn time, retrieval merges every covering Concept Map (room + enabled groups +
+  remains. [P1] *Phase 1 AC-6.*
+- [x] AC-6: Trigger resolution is reshaped from `agent_ids` to an owner set; one message fans
+  out a build to every covering config. [P1/P2] *Phase 1 AC-4, completed for chatroom,
+  workspace and multi-member owners by `2026-07-14-concept-map-message-trigger-coverage` and
+  for agentless rooms by `2026-07-17-concept-map-agentless-triggers` (D-3).*
+- [x] AC-7: At turn time, retrieval merges every covering Concept Map (room + enabled groups +
   enabled workspace) via `_merge_bundles` pre-cap, scope-precedence render order (chatroom >
-  agent_group > workspace), entity dedup, single final 2KB cap. [P2]
-- [ ] AC-8: Per-layer fail-soft — one map erroring drops only that layer; a single
-  Neo4j+Qdrant client is reused across all layers in a turn. [P2]
-- [ ] AC-9: agent_group and workspace layers are absent from retrieval unless
+  agent_group > workspace), entity dedup, single final 2KB cap. [P2] *Phase 2b AC-4; the merge
+  mechanism differs (D-4).*
+- [x] AC-8: Per-layer fail-soft — one map erroring drops only that layer; a single
+  Neo4j+Qdrant client is reused across all layers in a turn. [P2] *Phase 2b AC-4, AC-5
+  (fail-soft); per-turn client reuse landed in commit `0623e437` after Phase 2b D-9 had
+  deferred it (`graphrag_context_provider.py:130-212`).*
+- [x] AC-9: agent_group and workspace layers are absent from retrieval unless
   `concept_map_enabled` (checked at query time); chatroom layer default on; a user in room A
   never receives concepts sourced solely from room B via an unauthorized wide layer;
-  enablement + membership + admin reset are audit-logged. [P2]
-- [ ] AC-9a: An `_assert_owner_in_project` invariant rejects any config whose `owner_id`
-  entity is outside the config's project, at create and update. (§4b-V-7) [P1/P2]
-- [ ] AC-9b: A chatroom-owned Concept Map's `/graph` read and build-status channel enforce
+  enablement + membership + admin reset are audit-logged. [P2] *Phase 2b AC-6, AC-7, AC-11.*
+- [x] AC-9a: An `_assert_owner_in_project` invariant rejects any config whose `owner_id`
+  entity is outside the config's project, at create and update. (§4b-V-7) [P1/P2] *Phase 2a
+  AC-9.*
+- [x] AC-9b: A chatroom-owned Concept Map's `/graph` read and build-status channel enforce
   the room ACL (`resolve_room_access`/`ensure_can_read`); a project member barred from the
   room cannot read its graph. workspace/agent_group maps use project membership + owner
   opt-in; `concept_map_enabled` uses the strict `is_project_owner`. (§4b-V-8, V-10) [P2]
-- [ ] AC-10: A Knowledge Map config (its own table) builds from uploaded files via shared
+  *Not in Phase 2b; closed by `2026-07-14-concept-map-room-acl` AC-2, AC-3, AC-5 (D-3).*
+- [x] AC-10: A Knowledge Map config (its own table) builds from uploaded files via shared
   `MIME_TO_PARSER` + a document `TripleExtractor`, and is queried at turn time as an Axis-1
-  block independent of any Concept Map. [P3]
-- [ ] AC-11: Evidence identity is an opaque string (message UUID string for conversation,
+  block independent of any Concept Map. [P3] *Verified end to end on 2026-10-12 against real
+  Postgres, Neo4j, Qdrant and MinIO, with only the provider HTTP boundary stubbed (D-6): two
+  uploaded documents built into a 5-entity, 3-relation subgraph with 5 points in
+  `knowmap_{project_id}` (after a manual rebuild for the second document, FU-10), and an
+  agent turn carried the Knowledge Map block in its system prompt. Phase 3 AC-2 and AC-3, unticked until then for want of a stack, are ticked with the
+  same evidence.*
+- [x] AC-11: Evidence identity is an opaque string (message UUID string for conversation,
   `doc:{doc_id}:{chunk_idx}` for files); conversation evidence still resolves; file evidence
-  is not silently dropped. (evidence round-trip test) [P3]
-- [ ] AC-12: Knowledge Map uses `knowmap_{project_id}` via a parameterized collection prefix
+  is not silently dropped. (evidence round-trip test) [P3] *Conversation: Phase 0 AC-5. Files:
+  the token is `{document_id}#{chunk_idx}` (D-5); on 2026-10-12 a built relation carried
+  `<document id>#0` and the agent turn's block quoted that chunk's text, the round trip.*
+- [x] AC-12: Knowledge Map uses `knowmap_{project_id}` via a parameterized collection prefix
   and shares the Neo4j driver + 2PC runner with no duplicated adapter code. (structure
-  review) [P3]
-- [ ] AC-13: `ruff/mypy/pytest` and `pnpm typecheck/lint/build` pass; `gen:api` regenerated;
-  no hardcoded user-facing strings. [all]
-- [ ] AC-14: Concept Map builds extract triples over a bounded message window; an initial
+  review) [P3] *Phase 0 AC-3; Phase 3 design and D-3. The collection observed on 2026-10-12
+  is `knowmap_<project id with underscores>`.*
+- [x] AC-13: `ruff/mypy/pytest` and `pnpm typecheck/lint/build` pass; `gen:api` regenerated;
+  no hardcoded user-facing strings. [all] *Phase 4a AC-7, Phase 4b AC-6, AC-7; the `gen:api`
+  regeneration each phase deferred was done by `2026-07-10-openapi-resync-generated-client-auth`,
+  and CI's `frontend-gate-openapi-drift` now holds it.*
+- [x] AC-14: Concept Map builds extract triples over a bounded message window; an initial
   build over a large scope (workspace/multi-member group) completes in bounded batches and
   never sends an over-limit prompt/embed batch nor silently yields zero triples. (§4b-V-1)
-  [P2 prerequisite]
-- [ ] AC-15: All Concept Maps sharing a project's `graphrag_{project_id}` collection use one
+  [P2 prerequisite] *Phase 2a AC-5.*
+- [x] AC-15: All Concept Maps sharing a project's `graphrag_{project_id}` collection use one
   embedding dimension; a config selecting a divergent embedding is rejected (or collections
-  are sharded per config). (§4b-V-2) [P2 prerequisite]
-- [ ] AC-16: Duplicate build enqueues are coalesced (`_job_id`) and `job_timeout` exceeds the
+  are sharded per config). (§4b-V-2) [P2 prerequisite] *Phase 2a AC-2, AC-3, AC-4, AC-10: the
+  per-project pin was chosen, not sharding (D-7).*
+- [x] AC-16: Duplicate build enqueues are coalesced (`_job_id`) and `job_timeout` exceeds the
   largest windowed build; a busy config does not emit a false `failed` metric or a retry
-  storm. (§4b-V-3, V-5) [P2 prerequisite]
-- [ ] AC-17: The covering-config trigger set is DISTINCT — one message increments each
-  covering config's counter exactly once. (§4b-V-4) [P1/P2]
-- [ ] AC-18: A turn carrying multiple knowledge blocks (File-RAG + Knowledge-Map + N
+  storm. (§4b-V-3, V-5) [P2 prerequisite] *Phase 2a AC-6, AC-8.*
+- [x] AC-17: The covering-config trigger set is DISTINCT — one message increments each
+  covering config's counter exactly once. (§4b-V-4) [P1/P2] *Phase 2a AC-7 (already true
+  after Phase 1, pinned by a guard test).*
+- [x] AC-18: A turn carrying multiple knowledge blocks (File-RAG + Knowledge-Map + N
   Concept-Map layers) stays within a combined system-prompt budget with narrow-scope
-  precedence. (§4b-V-13) [P2]
-- [ ] AC-19: `agents.graphrag_config_id` is **removed** in Phase 1 (column + DTO fields +
+  precedence. (§4b-V-13) [P2] *Not in Phase 2b; closed by
+  `2026-07-14-knowledge-context-token-budget` AC-3, AC-4 and
+  `2026-07-17-headless-knowledge-token-budget` AC-4 (D-3).*
+- [x] AC-19: `agents.graphrag_config_id` is **removed** in Phase 1 (column + DTO fields +
   form control + `isBound` badge + stale 1:1 comments/tests); orchestration/A2A/subagent/
   workflow remain untouched (already excluded); `gen:api` regenerated. (§4b-V-11, V-12,
-  §4b-2-D, Q-13) [P1]
-- [ ] AC-20: The graph engine is de-concreted — `GraphRagBuilder`/`RetrieveService`/
+  §4b-2-D, Q-13) [P1] *Phase 1 AC-7; a derived compatibility `agent_id` stays on the output
+  DTO (Phase 1 D-1, D-2).*
+- [x] AC-20: The graph engine is de-concreted — `GraphRagBuilder`/`RetrieveService`/
   `ReconciliationLoop` depend on repo + `ConfigLike` Protocols, the Qdrant collection prefix
   is a constructor param, and one `embed_resolution` helper is the single source (FU-1 drift
   retired). Knowledge Map adds no duplicated engine code. (structure review, Q-11) [P0/P3]
-- [ ] AC-21: Graph evidence is a neutral opaque `evidence_refs` (Python) on the shared graph
+  *Phase 0 AC-2, AC-3, AC-4.*
+- [x] AC-21: Graph evidence is a neutral opaque `evidence_refs` (Python) on the shared graph
   domain; the **physical Neo4j property key stays `evidence_msg_ids` until the document-evidence
   phase** (driver maps `evidence_refs <-> evidence_msg_ids`, zero data migration — verified,
   see Phase-0 dossier Q-2); Concept Map and Knowledge Map each decode refs via their own
-  fetcher without a shared two-master type. (§5.7) [P0 Python / P3 physical rename]
-- [ ] AC-22: Deleting a config OR any owner (agent, chatroom, workspace, agent_group) purges
+  fetcher without a shared two-master type. (§5.7) [P0 Python / P3 physical rename] *Python
+  half: Phase 0 AC-5. The physical rename did not happen in Phase 3; it moves to its own
+  dossier (D-1).*
+- [x] AC-22: Deleting a config OR any owner (agent, chatroom, workspace, agent_group) purges
   its Neo4j subgraph + Qdrant points inline (best-effort + audit), never relying on a DB
   cascade alone; the reconciler sweeps configs absent from Postgres. The pre-existing
-  agent-delete leak is fixed. (§5.9, Q-13) [P0]
-- [ ] AC-23: Concept Map edges/entities carry `first_seen`/`last_seen` timestamps derived from
+  agent-delete leak is fixed. (§5.9, Q-13) [P0] *Phase 0 AC-6, AC-7 (agent and sweep); Phase
+  2b AC-10 (chatroom, workspace, agent_group); `2026-07-14-graphrag-orphan-sweep-multistore`.
+  Knowledge Map, verified on 2026-10-12: deleting a document whose chunk alone evidenced a
+  relation removed that relation and its two entities (Neo4j 5 entities and 3 relations to 3
+  and 2, Qdrant 5 points to 3) and its MinIO object, while relations evidenced by the other
+  document stayed; deleting the config then left 0 entities and 0 relations, dropped the now
+  configless `knowmap_` collection and removed every MinIO object. Each delete is
+  audit-logged as `*_deleted` plus `*_infra_purged`. Phase 3 AC-7 is ticked with this.*
+- [x] AC-23: Concept Map edges/entities carry `first_seen`/`last_seen` timestamps derived from
   message `created_at`; the conversation timeline is recoverable via `evidence_refs`; the
   Concept Map retrieval strategy exposes a recency-weighting hook (Knowledge Map unaffected).
-  (§5.8, Q-12) [P2]
+  (§5.8, Q-12) [P2] *Phase 2b AC-8, AC-9 (float epoch fields `first_seen_at`/`last_seen_at`,
+  Phase 2b D-10, D-11).*
 
 ## 12. Test Plan
 
@@ -1054,6 +1098,46 @@ future spec, not a phase here.
 
 Appended by /build. Empty means the implementation matches this spec exactly.
 
+Written at close-out on 2026-10-12, from the phase dossiers and a traceability pass over
+them; each phase dossier's own Deviation Log carries the detail.
+
+- **D-1. The physical Neo4j evidence rename moves to its own dossier (requester's
+  choice).** AC-21 put the `evidence_msg_ids` to `evidence_refs` property rename in "the
+  document-evidence phase". Phase 3 neither did it nor logged it, and Phase 0 FU-A and Phase
+  2a FU-3 still carry it; the driver still writes `evidence_msg_ids`
+  (`backend/contexts/knowledge/infrastructure/neo4j_driver.py`). The rename is a Neo4j data
+  migration and gets its own design: `2026-10-12-graphrag-phase5a-evidence-refs-expand`
+  and `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (three releases under the
+  rolling-deploy rule).
+- **D-2. The agent_group member filter of [R11.22] was not built (requester's choice: own
+  dossier).** Phase 2b records `source_member_ids` on entities and relations, and retrieval
+  surfaces them (`graphrag_retrieve.py:173`), but nothing filters on them; Phase 2b D-2
+  deferred the Qdrant and node member tags to a workstream that never took them up. It
+  moves to `2026-10-12-graphrag-phase5b-member-filter`.
+- **D-3. Three criteria were closed by audit-driven bugfix dossiers, not by their phase.**
+  AC-9b and AC-18 were assigned to Phase 2b, which has no AC for either. AC-6's fan-out held
+  only for agent-owned configs until later fixes. The closing dossiers are named on each
+  criterion in §11.
+- **D-4. Layered retrieval appends narrow-first and relies on the existing tail cap**
+  instead of `_merge_bundles` byte accounting (Phase 2b D-8). The outcome AC-7 asks for
+  (precedence, dedup, one final cap) holds.
+- **D-5. The file evidence token is `{document_id}#{chunk_idx}`**, not
+  `doc:{doc_id}:{chunk_idx}` (`knowmap_context_provider.py:49, 58`; Phase 3 §6). Phase 3
+  did not log it. Both are opaque strings, which is all AC-11 relies on, and the round trip
+  was observed (§11 AC-11).
+- **D-6. AC-10 and the Knowledge Map half of AC-22 were verified with the provider stubbed.**
+  Phase 3 had no stack (its D-6), so these were unobserved until 2026-10-12. On the local
+  compose test stack, the real arq worker ran with only `api.openai.com` intercepted by
+  `respx`: deterministic bag-of-words embeddings of the catalogue dimension, a fixed triple
+  array for extraction prompts, and a canned chat reply that logged the request it was
+  sent. Postgres, Neo4j, Qdrant, MinIO and the HTTP API were the real services, driven as a
+  user would drive them. What a real model extracts is therefore not covered; the shared
+  engine's store, build, retrieval and purge paths are. The run also surfaced FU-10: the
+  second of two quick uploads was not built until a manual rebuild.
+- **D-7. AC-15 chose the per-project embedding pin, not per-config sharding** (Phase 2a
+  AC-2 to AC-4, AC-10, migration 0045). [R11.19] still offered sharding as an alternative
+  and now names the pin only.
+
 ## 16. Follow-ups
 
 - FU-1: De-duplicate the embed-model map / `_resolve_embed_key` — **pulled into Phase 0**
@@ -1076,3 +1160,29 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-8: Temporal time-travel / bitemporal Concept Map queries ("what did we know as of date
   X") — a dedicated future spec (§5.8, R11.21), building on the timestamps + per-build
   provenance laid down here.
+
+Status at close-out (2026-10-12): FU-1, FU-2, FU-3 and FU-5 were resolved by Phase 0 and
+Phase 2a; FU-4 by `2026-07-14-graphrag-idempotent-phase2-points`; FU-6 by Phase 2a D-7
+(a failed create re-checks existence and dimension). FU-7 is only partly resolved: Phase 2a
+AC-13 makes the next build pick up messages that arrived mid-build, but
+`graphrag_triggers.py:144` still skips the `every_n_messages` increment while a build is
+running, so those messages do not count toward the next trigger. FU-8 is open.
+
+- FU-9: A Knowledge Map build is audit-logged as `graphrag.build_started` /
+  `graphrag.build_finished` with `resource_type` `graphrag_config`, observed on 2026-10-12
+  for a `knowmap_config` id. The shared builder's audit labels do not follow the consumer, so
+  an audit reader filtering by resource type misses Knowledge Map builds.
+- FU-10: A document uploaded while a Knowledge Map build runs is left out of the graph for
+  up to an hour (observed 2026-10-12, a defect in the shipped F-12 fix of
+  `2026-07-14-knowmap-build-dedup-revision`). The upload enqueues
+  `knowmap:build:{config}:{revision}`; that job starts while the first build holds the lock
+  and fails with `GraphRagBuildBusy`, unretried. When the first build finishes,
+  `_finalize_build_revision` (`app/workers/tasks/knowmap.py:963-964`) enqueues the follow-up
+  for that same revision, and arq drops it as a duplicate of the failed job, whose result it
+  keeps for `keep_result` (3600 s). `knowmap_revision_sweep` re-offers the same job id every
+  minute and is dropped the same way, so recovery waits for the result to expire. Observed:
+  `corpus_revision` 2, `built_corpus_revision` 1, the `:2` result key at TTL 3455 s and
+  falling, and the second document absent from the graph until a manual rebuild. Its
+  docstring's premise ("the target revision was never built and its job id has never been
+  used") does not hold when the job ran and failed busy. Specified as
+  `2026-10-12-graph-build-busy-retry`.

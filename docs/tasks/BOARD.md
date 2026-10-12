@@ -13,6 +13,23 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### From the 2026-10-12 GraphRAG blueprint close-out
+
+- `2026-10-12-graph-build-busy-retry` (bugfix, **approved 2026-10-12**, no SRS Delta) - `depends_on: []`.
+  Blueprint FU-10, observed live. A Knowledge Map or Concept Map build job that finds the
+  config's lock held fails `GraphRagBuildBusy` unretried. For a Knowledge Map, the
+  follow-up build for that revision then collides with the failed job's retained arq
+  result, leaving a document uploaded mid-build out of the graph for up to an hour. Fix:
+  arq `Retry` with a budget covering the build timeout.
+- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, **approved 2026-10-12**, no SRS Delta) -
+  `depends_on: []`. Blueprint D-1, release A of three:
+  - Dual-write the Neo4j relation evidence as `evidence_refs` and `evidence_msg_ids`,
+    still reading the old key.
+  - Snapshots carry both keys.
+  - Retrieval stops naming the physical alias.
+  - New operator command `python -m smap.maintenance neo4j-evidence-refs`: a batched
+    backfill under each config's lock, dry-run until armed.
+
 Nothing blocking; these can start in any order relative to each other, including in
 parallel.
 
@@ -388,12 +405,25 @@ Seven approved dossiers for the canvas feature's follow-up items. All depend on
   it could remove a panel from ordinary members. AC-8 is the regression this change is most
   likely to cause and no unit test can see it.
 
-- `2026-07-07-graphrag-two-axis-redesign` (feature, approved) — `depends_on: []`. This is
-  a blueprint dossier: approval authorizes the target design, and its phases are meant to
-  become separate `/build` dossiers (see its own §1). Open question: `docs/tasks/2026-07-07-graphrag-phase0..4b-*`
-  already exist and are all `status: implemented` with overlapping `[Rxx.yy]` coverage —
-  worth confirming with the user whether this blueprint's remaining scope is still live or
-  its status is simply stale, before treating it as unblocked work.
+- (implemented 2026-10-12) `2026-07-07-graphrag-two-axis-redesign`. This was a blueprint
+  built as phases 0 to 4b and the bugfix dossiers that followed them.
+  - **Traceability.** The close-out wrote that traceability into its §11: every AC is ticked
+    with the dossier that verifies it.
+  - **Live verification.** AC-10 and the Knowledge Map half of AC-22 had never been observed.
+    They were verified on the compose test stack against real stores, with only the
+    provider boundary stubbed (D-6). Phase 3 AC-2, AC-3 and AC-7 are ticked with the same
+    evidence.
+  - **Deviations.** D-1 and D-2 move the Neo4j `evidence_refs` rename and the [R11.22]
+    member filter to `2026-10-12-graphrag-phase5a-evidence-refs-expand` (with its sequel
+    `-phase5a2-evidence-refs-contract`) and
+    `2026-10-12-graphrag-phase5b-member-filter`.
+  - **Follow-ups.**
+    - FU-10 is a live-observed defect: a document uploaded during a Knowledge Map build is
+      left out for up to an hour.
+    - FU-9 is the Knowledge Map build audit labels.
+    - FU-7 is only partly resolved; FU-8 (time travel) stays open.
+  - **SRS.** [R11.19] no longer offers sharding.
+  - **Unblocking.** Nothing lists this slug in `depends_on`.
 
 - (moved to In progress on 2026-09-04) `2026-09-04-guest-anonymous-session`. The original
   entry, kept here for the record:
@@ -513,6 +543,23 @@ rows are added as each is written.
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-12 GraphRAG blueprint close-out
+
+- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
+  [2026-10-12-graphrag-phase5a-evidence-refs-expand]`. Releases B (reads switch to
+  `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
+  gated on a recorded deploy state as well as the dependency, starting with the backfill
+  reporting 0 remaining.
+- `2026-10-12-graphrag-phase5b-member-filter` (feature, **approved 2026-10-12**, SRS Delta applied: [R11.22] rewritten) -
+  `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
+  2026-10-12-graph-build-busy-retry]` (overlap: `neo4j_driver.py` relation Cypher, and
+  `graphrag_build`).
+  - **Provenance fix:** agent_group provenance becomes the authoring member, or the
+    co-present members for other messages, not the room's smallest member id.
+  - **Filter:** a Project-Owner-set per-member read filter (`read_member_ids`, matched by
+    intersection, entities derived from visible relations).
+  - **Rebuild:** an armed operator command rebuilds existing agent_group maps in place.
 
 ### From the 2026-10-11 chat and research export audit
 
