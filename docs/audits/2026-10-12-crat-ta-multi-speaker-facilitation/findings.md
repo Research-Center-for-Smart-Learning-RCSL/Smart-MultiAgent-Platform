@@ -41,8 +41,11 @@ and the `update_wakeup` tool (`tool_registry.py:359-398`). Traced but not read i
 `turn_engine.py` (lock, coalescing, history assembly, reply posting), `transcript.py`,
 `activity_context_provider.py`, the canvas tools and canvas context provider.
 
-Not covered: the SA and AA agents' own behavior under load, beyond what the teacher's findings
-imply; the other two courses' packs (`character-building-room`, `object-reinterpretation-room`),
+A second pass on the same day covered the peer (SA) and analyst (AA) agents' wake-up
+configuration and prompts against parallel discussion (F-14 to F-16), the silence clock's
+re-arm sites, and who can read agent configuration (F-13).
+
+Not covered: the other two courses' packs (`character-building-room`, `object-reinterpretation-room`),
 which share the prompt skeleton and may share F-3, F-4, F-10 and F-11 (recorded as FU-1);
 frontend rendering of agent replies; provider-specific behavior.
 
@@ -170,12 +173,17 @@ frontend rendering of agent replies; provider-specific behavior.
 
 ## F-9: `update_wakeup` writes agent-wide state, so rooms sharing one agent interfere
 
-- **Severity**: minor
+- **Severity**: major
 - **Verdict**: confirmed
 - **Evidence**: `update_wakeup` persists through `patch_agent` on the agent row
-  (`wakeup_service.py:376-379`); there is no per-binding override.
+  (`wakeup_service.py:376-379`); there is no per-binding override. Installing a pack is
+  idempotent by agent name within a project (`contexts/agents/application/example_service.py:236-245`),
+  so a project that installs `crat-word-puzzle-room` has exactly one teacher agent, which every
+  group room binds.
 - **Failure scenario**: one teacher agent bound to three group rooms; group A enters free
-  discussion and sets `n = 3`; group B, still at the reveal step, inherits `n = 3`.
+  discussion and sets `n = 3`; group B, still at the reveal step, inherits `n = 3`. This is the
+  normal shape of a multi-group CRAT class, not an edge case, which is why the severity was
+  raised from minor after the first draft of this audit.
 - **Blast radius**: any agent bound to several rooms that self-tunes its cadence.
 - **Intent source**: [R15.06] does not state the scope of the change.
 
@@ -223,9 +231,65 @@ frontend rendering of agent replies; provider-specific behavior.
   not to generate clues and to confirm the answer (B1, E1); the pack names no channel for the
   teacher's answer key other than the room.
 - **Failure scenario**: a teacher pastes the answer key into the room and every student sees it,
-  or provides none and the agent cannot confirm the answer.
-- **Blast radius**: CRAT rounds.
+  or provides none and the agent cannot confirm the answer. Putting it in the teacher agent's
+  settings instead also leaks it: any project member can list every agent with its full
+  `system_prompt` (`backend/app/api/v1/agents.py:446-459`, membership-only gate at
+  `shared_kernel/auth/dependencies.py:168-170`), and every CRAT student is a project member,
+  because the activity is a group submission, groups are project Member Groups, and a guest
+  cannot join one (`docs/tasks/2026-08-24-group-activity-submissions/spec.md`, OQ-1).
+- **Blast radius**: CRAT rounds; more generally, any agent prompt holding material students
+  should not read (FU-9).
 - **Intent source**: the pack prompt itself.
+
+## F-14: Silence triggers fire while participants are still composing
+
+- **Severity**: major
+- **Verdict**: confirmed
+- **Evidence**: [R15.02] defines room activity as a message, a join or an activity submission;
+  the silence clock is touched only on those (`wakeup_service.py:111,287`,
+  `contexts/conversation/application/triggers.py:138-162`) and after a firing
+  (`app/workers/tasks/orchestration.py:303-305`). `typing.start` updates presence and emits the
+  indicator but never touches the clock (`app/api/ws/chatroom.py:231-248`).
+- **Failure scenario**: at step B1 four students each spend two minutes writing their first
+  association. No message is sent, so the room reads as silent; the peer agent (`t = 2`) fires
+  and posts its own association path while every student is mid-sentence, which is the
+  opposite of B1's "give quiet thinking space". Any shorter teacher silence timer fires
+  earlier.
+- **Blast radius**: every silence-triggered agent in a room where participants compose long
+  messages; worst in individual-thinking steps.
+- **Intent source**: the pack's B1 step (quiet individual thinking first) and the peer agent's
+  role (speak first only in a genuine lull).
+
+## F-15: The analyst agent produces nothing during an active lesson
+
+- **Severity**: major
+- **Verdict**: confirmed
+- **Evidence**: `aa-crat-analyst` has `every_n_messages` disabled and `silence_minutes` at
+  `t = 10` (`crat-word-puzzle-room.json:55-63`), so it wakes only after ten minutes with no
+  message, join or submission. There is no on-demand route for the teacher: the observation API
+  offers listing and release only (`app/api/v1/observations.py:145,161`).
+- **Failure scenario**: a 40-minute lesson with steady discussion never has a ten-minute lull;
+  the teacher receives the first observation after the class ends, when it can no longer
+  inform teaching decisions, which is the stated purpose of the analyst ("你的觀察是給教學決策用的").
+- **Blast radius**: the CRAT analyst; the creative-thinking analyst shares the silence-only
+  pattern (`test_agent_example_packs.py:131-134`).
+- **Intent source**: the analyst prompt's own purpose statement.
+
+## F-16: The analyst must write codes, but chat-only participants have none
+
+- **Severity**: minor
+- **Verdict**: confirmed
+- **Evidence**: the analyst prompt requires codes, never names, in every note
+  (`crat-word-puzzle-room.json:68`, 觀察注意事項 1). An observer reads the room transcript
+  ([R28.05]), which labels participants by display name (`turn_engine.py:3845-3854`); the code
+  legend maps codes to names only for participants who appear in the recent activity rows
+  (`activities/application/activity_context_provider.py:234-275`).
+- **Failure scenario**: in a multi-speaker discussion the most informative participation signal
+  is in the chat, but a student who spoke and has not submitted has no code. The analyst either
+  writes the name, breaking its rule, or leaves that student out of the participation
+  description.
+- **Blast radius**: every analyst prompt with a codes-only rule.
+- **Intent source**: the analyst prompt itself.
 
 ## 4. Refuted Candidates
 
@@ -245,22 +309,24 @@ frontend rendering of agent replies; provider-specific behavior.
 | F-2 | fix (platform behavior change, SRS delta) | `docs/tasks/2026-10-12-wakeup-human-count-and-trigger-toggle/` |
 | F-3 | fix in the pack now; platform toggle in the feature | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, `docs/tasks/2026-10-12-wakeup-human-count-and-trigger-toggle/` |
 | F-4 | fix | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |
-| F-5 | defer (product decision) | FU-2 |
+| F-5 | fix | `docs/tasks/2026-10-12-agent-message-time-context/` |
 | F-6 | defer (product decision) | FU-3 |
 | F-7 | defer (product decision) | FU-4 |
 | F-8 | fix the prompt; defer the tool | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, FU-5 |
-| F-9 | defer (product decision) | FU-6 |
+| F-9 | avoid in the pack (the teacher never tunes its own cadence); defer per-binding state | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, FU-6 |
 | F-10 | fix | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |
 | F-11 | fix | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |
 | F-12 | fix | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |
-| F-13 | fix the prompt's instruction to the teacher; defer a private channel | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, FU-7 |
+| F-13 | fix: no agent holds the answer key, the teacher confirms answers; defer a private channel and agent-config visibility | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, FU-7, FU-9 |
+| F-14 | mitigate in the pack now; fix in the platform | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, `docs/tasks/2026-10-12-wakeup-human-count-and-trigger-toggle/` |
+| F-15 | fix in the pack | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |
+| F-16 | fix in the pack; platform fix deferred | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, FU-11 |
 
 ## 6. Out-of-scope Observations
 
 - **FU-1** — `character-building-room` and `object-reinterpretation-room` share the CRAT prompt
   skeleton; F-3, F-4, F-10 and F-11 are likely present there and were not checked.
-- **FU-2** — expose message time to the model (relative age per message, current time in the
-  system prompt) so pacing rules have an input (F-5).
+- **FU-2** — closed: taken into scope as `2026-10-12-agent-message-time-context` (F-5).
 - **FU-3** — a room member block listing members by label or code with a "has spoken" flag
   (F-6). Privacy review needed: it discloses presence of non-speakers to the model.
 - **FU-4** — per-room working memory for normal bindings, or a canvas digest that carries
@@ -270,3 +336,10 @@ frontend rendering of agent replies; provider-specific behavior.
 - **FU-7** — a private teacher-to-agent instruction channel for answer keys and steering (F-13).
 - **FU-8** — the canvas `create` path does not catch `CrdtUpdateError`
   (`canvas_tools.py:143`), unlike update and delete (`:239`, `:301`); route to `check-quality`.
+- **FU-9** — restrict who can read an agent's configuration, so that a project member who is a
+  student sees agent names (already served separately by `GET /agents/names`,
+  `agents.py:476-495`) but not system prompts (F-13). Wider than CRAT: every teaching prompt is
+  readable by the students it is written about.
+- **FU-10** — closed: taken into `2026-10-12-wakeup-human-count-and-trigger-toggle` (F-14).
+- **FU-11** — give observer transcripts the same participant codes the activity legend uses,
+  so a codes-only analyst can refer to chat-only participants (F-16).

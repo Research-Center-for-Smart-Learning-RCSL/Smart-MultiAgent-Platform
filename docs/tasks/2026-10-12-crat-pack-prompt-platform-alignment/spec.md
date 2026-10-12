@@ -22,7 +22,9 @@ platform as it stands today, the teacher speaks once per wave of discussion, cov
 proposal, follows up one individual per turn, and actually handles silence.
 
 Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md`, findings F-3,
-F-4, F-8, F-10, F-11, F-12 and F-13 (the prompt half of each).
+F-4, F-8, F-10, F-11, F-12 and F-13 (the prompt half of each); F-9, which the pack avoids by
+never tuning its own cadence (Q-3a); F-14, mitigated in prompts until the platform fix lands;
+and the analyst findings F-15 and F-16.
 
 ## 2. Observed vs Expected
 
@@ -55,11 +57,16 @@ F-4, F-8, F-10, F-11, F-12 and F-13 (the prompt half of each).
 |---|---|---|---|
 | Q-1 | Split the audit's work into one dossier or several? | Three: this pack fix, `2026-10-12-stale-reply-recheck`, and `2026-10-12-wakeup-human-count-and-trigger-toggle`. | User's choice. This dossier must work on today's platform so it can be tested in class before either platform change lands. |
 | Q-2 | Should this depend on `2026-07-19-large-artifacts-silently-dropped` (in progress, edits `turn_engine.py`)? | No. | This dossier edits pack JSON and tests only. |
-| Q-3 | How does the teacher handle silence when `update_wakeup` cannot toggle triggers? | Ship both triggers enabled. `every_n_messages` stays at `n = 1`; `silence_minutes` is enabled with `t_minutes = 1` and `autostop_rounds = 2`. Stage changes adjust only `n`. | The only configuration under which every silence branch is reachable on today's platform ([R15.06]). See §7.2 for the timing chain this produces with the peer agent. |
+| Q-3 | How does the teacher handle silence when `update_wakeup` cannot toggle triggers? | Ship both triggers enabled: `every_n_messages` at `n = 1`, `silence_minutes` at `t_minutes = 1`, `autostop_rounds = 2`. | The only configuration under which every silence branch is reachable on today's platform ([R15.06]). See §7.2 for the timing chain this produces with the peer agent. |
+| Q-3a | Should the teacher still change `n` per step at runtime? | No. The teacher never calls `update_wakeup`; `n` stays 1 in every step, and pacing comes from the empty-reply rule (Q-4). | Installing a pack is idempotent by agent name within a project (`example_service.py:236-245`), so a project has one teacher agent, which every group room shares; `update_wakeup` writes the agent row (`wakeup_service.py:376-379`), so one group entering free discussion would change the cadence of every other group (audit F-9). Cost: the teacher is woken by every room message, including the peer agent's, and decides each time whether to speak. |
 | Q-4 | How does the prompt keep the teacher from replying to every message with `n = 1`? | State explicitly that an empty reply posts nothing, and make "output nothing" the default outcome of a wake in steps B1 and C1 unless a listed condition holds. | `turn_engine.py:3140-3207` already treats an empty reply as a skip. |
 | Q-5 | What replaces the instruct-based escalation? | Remove `instruct` from both prompts. The peer agent's own silence timer takes over the "speak first" move (§7.2). | No agent-facing instruct tool exists (F-8); the timing chain gives the same escalation order without one. |
 | Q-6 | How does the teacher follow up individuals without flooding? | One message per turn with a fixed shape: a summary of group state, at most one targeted follow-up of one person, then one question that moves the group forward. Rotate the person across turns. | Satisfies both "no per-message replies" and "do not pressure by name" while covering the reported symptom. |
-| Q-7 | Where does the answer key go? | In the teacher's own system prompt, in a marked section the teacher edits per lesson; the design agent's deliverable says to paste it there. | The only private channel today. A dedicated channel is the audit's FU-7. |
+| Q-7 | Where does the answer key go? | Nowhere the agents can read. The teacher posts the three clues in the room; the teacher agent leads the group through verifying each word and says so when it is unsure a word exists; whether the answer is right is announced by the teacher at the end of the round, and the agent never claims it. | User's choice. An earlier draft put the key in the teacher's system prompt. That leaks it: CRAT is a group submission, groups are project Member Groups and guests cannot join one (`docs/tasks/2026-08-24-group-activity-submissions/spec.md`, OQ-1), so every CRAT student is a project member, and any project member can list every agent with its full `system_prompt` (`backend/app/api/v1/agents.py:446-459`, membership-only gate at `shared_kernel/auth/dependencies.py:168-170`). Restricting who can read agent configuration is recorded in the audit as FU-9. |
+
+| Q-8 | How does the pack handle silence wakes that fire while students are still composing (audit F-14)? | Prompt mitigation now: in B1 the teacher's first silence wake ends in an empty reply, and the teacher and peer each call `read_drafts` first when granted and stay silent if anyone is drafting. The platform fix is in `2026-10-12-wakeup-human-count-and-trigger-toggle`. | User's choice. The prompt cannot see typing without `read_drafts`; the first B1 lull is the one most likely to be composition rather than a stall. |
+| Q-9 | Should the analyst observe during the lesson (audit F-15)? | Yes: enable `every_n_messages` at `n = 20` alongside the existing ten-minute silence trigger. | User's choice. An observer is exempt from the presence gate (`wakeup_service.py:130-134`), and its output reaches only the room creator ([R28.13]); one call per twenty room messages. |
+| Q-10 | How does the analyst refer to a participant who has no code (audit F-16)? | It describes the behavior without identifying the participant and says that it did so; it never writes a name. | The codes-only rule stands; the platform fix (codes in the observer transcript) is the audit's FU-11. |
 
 ## 4. Reproduction
 
@@ -120,10 +127,11 @@ All edits are in `crat-word-puzzle-room.json`, `crat-word-puzzle-design.json` an
 | `every_n_messages` | `{"enabled": true, "n": 1}` |
 | `silence_minutes` | `{"enabled": true, "t_minutes": 1, "autostop_rounds": 2}` |
 
-The prompt's per-step cadence table is rewritten to change only `n`: `n = 1` in guidance steps
-(A1, A2, C2, D1, E1, E2) and B1, `n = 3` in C1. The prompt states in one sentence that `n`
-counts every room message including its own and the peer agent's ([R15.01]), so `n = 3` means
-about two student messages.
+The prompt's 動態調頻規則 section and every per-step `[喚醒策略: ...]` tag are deleted, and the
+prompt says not to call `update_wakeup` (Q-3a). In their place, each step states when a wake
+should end in an empty reply: in B1 until at least two participants have proposed a character,
+in C1 unless one of the C1 conditions holds, and in every step when the latest messages are the
+peer agent's or the teacher's own.
 
 ### 7.2 Silence escalation without `instruct`
 
@@ -163,28 +171,46 @@ consuming an escalation level.
   message; one message per turn covers the group"; keep "do not pressure by name" but
   distinguish it from inviting one participant to expand on what they already said; add an
   individual-level off-topic condition to C1.
-- **Integer minutes** (F-4): remove every fractional or seconds-based duration; the cadence
-  table uses only `n`.
+- **Integer minutes** (F-4): remove every fractional or seconds-based duration; with the cadence
+  table gone (§7.1), no duration remains in the prompt at all.
 - **instruct** (F-8): delete the A2A 指令規則 section and every "if you have instruct" branch.
 - **D1** (F-12): name all required fields, including 推理歷程.
-- **Answer key** (F-13, Q-7): add a marked 本課題組（教師填寫） section at the end of the prompt
-  with an empty template (round, three clues, target character, three words). B1 reads clues
-  from it; when it is empty the teacher tells the room the teacher must prepare the set, as it
-  does today.
+- **Answer key** (F-13, Q-7): B1 takes the clues from the teacher's message in the room and,
+  if none has been posted, asks the teacher to post them, without generating any. C2 verifies
+  each of the three words with the group and names any word the agent is unsure exists as
+  uncertain rather than judging it. E1 asks the teacher to confirm the answer and no longer
+  states that it is correct; the 界線 rule against revealing the answer stays, since the agent
+  no longer has one.
 - **Group-state scope**: no change to the quoting, draft and activity-control sections, which
   the audit found consistent with the platform.
+
+- **Composing is not a stall** (Q-8): the first silence wake of B1 ends in an empty reply; on
+  every silence wake, when `read_drafts` is available, call it first and reply with nothing if
+  any participant is drafting.
 
 ### 7.4 Peer prompt
 
 Delete the A2A 規則 section and the "when instructed by TA" strategy. Keep its silence-driven
-role; add that it speaks at most once per silence and replies with nothing when the room is
-already active.
+role; add that it speaks at most once per silence, replies with nothing when the room is
+already active, and, when `read_drafts` is available, checks it first and replies with nothing
+if any participant is drafting (Q-8).
+
+### 7.4a Analyst configuration and prompt
+
+- `aa-crat-analyst.wakeup_config.triggers.every_n_messages` becomes
+  `{"enabled": true, "n": 20}`; `silence_minutes` is unchanged (Q-9).
+- 觀察注意事項 gains a rule for participants who appear in the chat but have no code in the
+  legend: describe what happened without identifying them, say that the participant is
+  unidentified because they have no code, and never write a name (Q-10).
+- 回報維度 3 (參與分布) is rewritten to draw on both the chat transcript and the activity events,
+  under the same identification rule.
 
 ### 7.5 Design agent
 
 In `crat-word-puzzle-design.json`, add to 提示詞規範 that drafted prompts must use integer minutes,
-must not reference `instruct`, and must state the empty-reply rule; and that the answer key goes
-in the teacher's 本課題組 section.
+must not reference `instruct` or `update_wakeup`, and must state the empty-reply rule; and that
+the teacher version of a question set, with its answers, stays with the teacher and is never
+pasted into any agent's settings, because every project member can read them (Q-7).
 
 ## 8. Regression Test Plan
 
@@ -202,6 +228,15 @@ current pack:
   than hard-coding the titles keeps the test honest if the course changes.
 - `test_crat_teacher_carries_the_turn_shape` asserts the three-part turn shape and the
   one-participant limit are stated.
+- `test_crat_prompts_do_not_tune_their_own_cadence` asserts `update_wakeup` appears in the
+  teacher prompt only in the sentence forbidding it, and that no `[喚醒策略` tag remains.
+- `test_crat_teacher_never_claims_the_answer` asserts the E1 step asks the teacher to confirm
+  the answer and that the prompt carries no answer-key section.
+- `test_crat_analyst_observes_during_the_lesson` asserts §7.4a's `every_n_messages` value and
+  that silence stays enabled.
+- `test_crat_room_agents_check_drafts_before_breaking_silence` asserts the teacher and peer
+  prompts carry the `read_drafts` check and the B1 first-silence rule.
+- `test_crat_analyst_never_names_an_uncoded_participant` asserts the uncoded-participant rule.
 
 ## 9. Risks and Rollback
 
@@ -209,6 +244,13 @@ current pack:
   autostop bounds completed replies to two per silence, but empty replies do not count, so a
   model that keeps declining keeps being woken. Accepted: one call per minute per room, and it
   ends when a student speaks.
+- **Message wakes cost model calls.** With `n = 1` fixed (Q-3a) the teacher is woken by every
+  room message and usually answers with nothing. `2026-10-12-stale-reply-recheck` collapses a
+  burst into one turn plus one re-check; the per-(agent, room) rate limit
+  (`turn_engine.py:276-277`, 30 turns per 300 s) is the hard ceiling.
+- **The teacher must close each round.** With no answer key the agent cannot confirm the
+  target character (Q-7); a teacher who is not watching the room leaves the round open at E1.
+  The pack's guidance says so.
 - **Existing installs are unchanged** (§6). The pack's README-level guidance and the release
   note say to reinstall or edit by hand.
 - **Prompt length** stays far under `_MAX_SYSTEM_PROMPT` (`catalogue.py:66`).
@@ -217,17 +259,24 @@ current pack:
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: the §8 tests fail against the current pack and pass after the change.
-- [ ] AC-2: the teacher ships with both triggers enabled as in §7.1, and the prompt's cadence
-  table changes only `n`.
+- [ ] AC-2: the teacher ships with both triggers enabled as in §7.1, the cadence section and
+  step tags are gone, and the prompt forbids calling `update_wakeup`.
 - [ ] AC-3: no CRAT prompt references `instruct` or a non-integer or seconds-based duration.
 - [ ] AC-4: the teacher prompt states that an empty reply posts nothing, and makes it the
   default outcome of B1 and C1 wakes.
 - [ ] AC-5: the teacher prompt specifies the three-part turn shape with at most one targeted
   participant per turn, and an individual-level off-topic condition in C1.
 - [ ] AC-6: step D1 names every required field of `crat-word-puzzle`.
-- [ ] AC-7: the teacher prompt carries an empty 本課題組 section and B1 reads clues from it.
-- [ ] AC-8: the design agent's 提示詞規範 carries the integer-minute, no-instruct, empty-reply and
-  answer-key rules.
+- [ ] AC-7: no agent in either CRAT pack is told to hold an answer key; B1 takes clues from the
+  teacher's room message, C2 marks uncertain words as uncertain, and E1 asks the teacher to
+  confirm the answer.
+- [ ] AC-8: the design agent's 提示詞規範 carries the integer-minute, no-instruct,
+  no-update_wakeup and empty-reply rules, and says the answer key never goes into agent
+  settings.
+- [ ] AC-8a: the teacher's first B1 silence wake and any silence wake with a drafting
+  participant (when `read_drafts` is granted) end in an empty reply, for teacher and peer.
+- [ ] AC-8b: the analyst ships with `every_n_messages` at `n = 20` and its silence trigger
+  unchanged, and its prompt carries the uncoded-participant rule.
 - [ ] AC-9: the two sibling room packs are checked for F-3, F-4, F-8 and F-10 and each result is
   recorded in §12 as confirmed or cleared.
 - [ ] AC-10: manual check on a running stack with four participants: a burst of parallel

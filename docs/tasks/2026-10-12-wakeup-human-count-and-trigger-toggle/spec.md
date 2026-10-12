@@ -2,7 +2,7 @@
 type: feature
 status: draft
 created: 2026-10-12
-requirements: [R15.01, R15.05a, R15.06, R15.07, R15.09]
+requirements: [R15.01, R15.02, R15.05a, R15.06, R15.07, R15.09]
 depends_on: []
 ---
 
@@ -19,8 +19,10 @@ disabled. This feature adds an opt-in human-only counting mode, stops losing fir
 on the agent's own message, and lets an agent enable or disable its own `every_n_messages` and
 `silence_minutes` triggers, but only those the designer explicitly allowed.
 
-Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md`, F-2 and the
-platform half of F-3.
+It also stops silence triggers firing while participants are still composing a message.
+
+Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md`, F-2, F-14 and
+the platform half of F-3.
 
 ## 2. Goals and Non-goals
 
@@ -34,6 +36,8 @@ platform half of F-3.
 - Every toggle is audit-logged; the tool never touches `call_only` and never leaves the agent
   inert.
 - The tool's description matches the counting semantics.
+- A participant who is composing a message keeps the room from reading as silent, so a silence
+  trigger no longer fires while students are mid-sentence (audit F-14).
 - The agent editor exposes both new settings in both locales.
 
 **Non-goals**
@@ -57,6 +61,8 @@ platform half of F-3.
 | Q-3 | Who may the agent toggle? | Only triggers listed in a designer-set `self_toggle`, default empty; never `call_only`; never into an inert config; every toggle audited. | User's choice. A prompt-injected message could otherwise switch on autonomous turns paid from the project's key, and `every_n_messages` has no round cap ([R15.03] bounds only silence). |
 | Q-4 | Is a released observation a human message in `human` mode? | No. | It is agent-authored; `observations.py:248` passes `sender_is_user=True` only to reset autostop ([R28.06]). |
 | Q-5 | Does a toggle survive the [R15.09] refresh? | No; the refresh restores the snapshot, toggles included. | Same contract as the numeric fields; the refresh exists to undo runtime drift. |
+| Q-7 | Fix F-14 (silence fires while participants compose) here? | Yes: a live typing assertion in the room counts as room activity for the silence clock. | User's choice. It is a wake-up behavior change with an [R15.02] amendment, the same kind as the rest of this dossier. The CRAT pack mitigates it in prompts meanwhile. |
+| Q-8 | Re-arm on the `typing.start` frame, or check typing state at the sweep? | At the sweep: `evaluate_silence_trigger` treats a room with any live typing assertion as active and re-arms the clock. | The client sends `typing.start` once per burst, not per keystroke (`backend/app/api/ws/chatroom.py:130-131`), so an edge re-arm misses a burst longer than `t_minutes`. The typing assertion is level state with a TTL refreshed while the connection lives (`contexts/conversation/infrastructure/presence.py:53,175-241`), so a dead connection cannot pin the room as active. |
 | Q-6 | Dependencies on `2026-10-12-stale-reply-recheck` or `2026-10-12-crat-pack-prompt-platform-alignment`? | None. | The re-check dossier edits `tool_registry.py:119-147` (a new frozenset beside `BUILTIN_TOOL_NAMES`) and this one edits `:359-398` (the tool); disjoint regions, whoever builds second rebases. The pack dossier edits no platform code. |
 
 ## 4. Current State
@@ -136,6 +142,14 @@ the agent's own messages never count, so the case cannot arise.
     and audited as `agent.wakeup_toggled {trigger, enabled, actor_agent_id}`.
 - **Backend, orchestration infrastructure** (`wakeup_state.py`): due-flag get/set/clear with the
   counter's TTL.
+- **Backend, composing as activity** (Q-7, Q-8): `evaluate_silence_trigger`
+  (`wakeup_service.py:219-267`) asks presence whether the room has any live typing assertion,
+  after the `t_minutes` comparison and before the autostop check; if it has, it touches the
+  silence timestamp and returns False. Presence gains a room-level "anyone typing" read beside
+  `list_room` (`presence.py:243-248`), reconciled against connection liveness the way
+  `list_room` is, and reached through `WakeupService._presence` (`wakeup_service.py:135,262`),
+  which already holds the presence port. Observer bindings are included: an analyst should not
+  report a lull that is not one.
 - **Backend, orchestration interfaces** (`facade.py`): pass the new parameters through
   `on_message_created` (`:135-142`) and `update_wakeup` (`:176-189`).
 - **Backend, conversation** (`contexts/conversation/application/triggers.py:48-81`) and callers:
@@ -225,6 +239,9 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
   round-trips valid values.
 - [ ] AC-9: the editor shows and saves both settings, in both locales.
 - [ ] AC-10: the tool descriptions state the counting semantics and the toggle restriction.
+- [ ] AC-10a: with a live typing assertion in the room, `evaluate_silence_trigger` does not fire
+  and re-arms the clock, for normal and observer bindings; once the assertion expires or is
+  retracted, the trigger fires `t_minutes` after the last activity.
 - [ ] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
 
@@ -235,6 +252,8 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
 - Unit, `backend/tests/unit/test_wakeup_self_modification.py`: AC-4, AC-5, AC-6 and the audit
   event.
 - Unit, `backend/tests/unit/test_wakeup_refresh_interval.py`: AC-7.
+- Unit, `backend/tests/unit/test_wakeup_service.py` with a presence fake reporting a typist:
+  AC-10a, including a stale assertion that has expired.
 - Unit, `backend/tests/unit/test_agent_runtime_tools.py`: update the fake facade at `:50` for
   the new kwargs; AC-10 asserts the description text.
 - API unit tests for `_validate_wakeup_config`: AC-8.
@@ -253,6 +272,11 @@ Replace [R15.01] (`REQUIREMENTS.md:882`):
 >   observations do not.
 > - **[R15.01a]** In `count: "all"` mode, when the N-th message is the agent's own, the firing
 >   is deferred to the next message sent by anyone else rather than dropped.
+
+Amend [R15.02] (`REQUIREMENTS.md:883`), third sentence:
+
+> Room activity means a user or agent message, a participant joining, an activity submission
+> ([R30.17]), or a participant composing a message (a live typing indicator in the room).
 
 Add `"count": "all"` to the `every_n_messages` object and `"self_toggle": []` to the top level of
 the JSON example at `REQUIREMENTS.md:870-880`.
