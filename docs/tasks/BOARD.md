@@ -17,7 +17,7 @@ doesn't need a `depends_on` backfill).
 
 Unblocked 2026-10-12, when `2026-10-12-graph-build-busy-retry` and
 `2026-10-12-graphrag-phase5a-evidence-refs-expand` were both implemented.
-`2026-10-12-graphrag-phase5b-member-filter`, unblocked at the same time, is In progress.
+`2026-10-12-graphrag-phase5b-member-filter`, unblocked at the same time, is implemented.
 
 - `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
   [2026-10-12-graphrag-phase5a-evidence-refs-expand]`, implemented. Releases B (reads
@@ -749,17 +749,18 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta [R11.22] applied at
-  approval), on branch `feat/graphrag-member-filter`.
+- (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
+  [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.
   - **Change.** agent_group provenance is now the author for a member's message and the
     co-present members otherwise. A Project-Owner-set per-member read filter
     (`agent_group_members.read_member_ids`, migration `0103`) scopes Concept Map
     retrieval. `rebuild-agent-group-concept-maps` rewrites existing maps (runbook §3.2).
   - **Verification.** AC-1..AC-6 are verified, including live turns on the compose stack
-    (D-6). AC-7 waits on CI.
+    (D-6). AC-7: CI green at `97ab75c7`.
+  - **Unblocking.** No dossier lists this slug in `depends_on`.
   - **Deploy.** Migration `0103` adds a nullable column. Run the rebuild command once
     the release is on every worker, before announcing the filter.
-  - **Follow-ups.** FU-1..FU-10. FU-5 (security Medium, plausible) is that the filter
+  - **Follow-ups.** FU-1..FU-12. FU-5 (security Medium, plausible) is that the filter
     scopes relevance, not confidentiality against a content author steering the
     extractor.
 

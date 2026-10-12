@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-12
 requirements: [R11.08, R11.22, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand, 2026-10-12-graph-build-busy-retry]
@@ -269,9 +269,10 @@ on every question.
 - [x] AC-6: the group detail page lets the owner set "Reads from" per member, shows the
   empty-list state, and every new string is in `en` and `zh-TW` (component test).
   `frontend/src/slices/agent-groups/__tests__/AgentGroupDetailView.test.ts`; the two
-  locale files hold the same 63 keys.
-- [ ] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in
-  CI; `gen:api` regenerated; the migration upgrades and downgrades.
+  locale files hold the same 64 keys.
+- [x] AC-7: backend and frontend lint, typecheck, tests (db tier included) and build pass in
+  CI; `gen:api` regenerated; the migration upgrades and downgrades. CI run 38211945379
+  green at `97ab75c7`. The migration was round-tripped down and up on the compose stack.
 
 ## 12. Test Plan
 
