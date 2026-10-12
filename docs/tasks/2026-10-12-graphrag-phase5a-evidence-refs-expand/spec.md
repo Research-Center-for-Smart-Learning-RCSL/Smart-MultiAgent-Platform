@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R11.03, R11.15, R11.23, R11a.01]
 depends_on: []
@@ -156,19 +156,30 @@ Written before the code moves; each pins today's behavior or the cross-version c
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every Neo4j write of relation evidence sets `evidence_refs` and
+- [x] AC-1: every Neo4j write of relation evidence sets `evidence_refs` and
   `evidence_msg_ids` to the same list (characterization test, real Neo4j).
-- [ ] AC-2: every driver read returns the evidence as `evidence_refs`, preferring the old
+  `test_a_delta_write_sets_both_keys_from_the_old_one`,
+  `test_a_replace_write_sets_both_keys`; both red before `52bf3f86`.
+- [x] AC-2: every driver read returns the evidence as `evidence_refs`, preferring the old
   property, and no code outside `neo4j_driver.py` names `evidence_msg_ids` as a Neo4j
   property or alias. The model-facing prompt and parser keys stay (grep check; the
   retrieval and context-provider tests pass on the new alias).
-- [ ] AC-3: a snapshot written by release A restores intact with N-1's restore Cypher, and
+  `test_a_legacy_edge_reads_with_its_evidence`, `test_the_old_key_wins_while_both_exist`.
+  Outside the driver the name remains in the two extractors' model-facing keys (Q-4) and
+  in operator prose (D-4).
+- [x] AC-3: a snapshot written by release A restores intact with N-1's restore Cypher, and
   an N-1 snapshot restores intact with release A's (real Neo4j).
-- [ ] AC-4: `python -m smap.maintenance neo4j-evidence-refs` counts without arming, copies
+  `test_a_release_a_snapshot_restores_with_the_n_minus_1_cypher` (green before and after:
+  it pins the cross-version contract), `test_an_n_minus_1_snapshot_restores_with_release_a`
+  (red before).
+- [x] AC-4: `python -m smap.maintenance neo4j-evidence-refs` counts without arming, copies
   when armed, is idempotent, skips and reports a busy config with a non-zero exit, and
   reports 0 remaining after a full armed run (real Neo4j and Redis).
-- [ ] AC-5: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
-  as before on the compose stack, observed live.
+  `test_the_backfill_counts_copies_and_is_idempotent`,
+  `test_the_backfill_skips_a_busy_config`, `test_neo4j_evidence_refs_cli.py`; also run on
+  the compose stack (D-3).
+- [x] AC-5: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
+  as before on the compose stack, observed live. See D-3.
 - [ ] AC-6: backend lint, typecheck and tests (db tier included) pass in CI;
   `docs/runbook-upgrade.md` documents the command and its precondition.
 
@@ -179,7 +190,42 @@ extracted triple's field, which is the model-facing key and stays (Q-4).
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1. The UNWIND row key is `evidence_refs`.** §5 lists the row key in `_triple_rows`
+  among the writes. It is a query parameter built and consumed inside one statement, not
+  stored data, so it takes the domain name outright; both properties are computed from it
+  and from the stored old key.
+- **D-2. Two additions to the command's contract.** `run()` takes an optional
+  `config_ids` scope, used by the db-tier tests so they never touch other data in a
+  shared Neo4j; the CLI has no such option and always covers every config. The CLI also
+  exits non-zero when an armed run ends with anything remaining, not only when a config
+  was busy: edges changed by an N-1 writer during the run leave the gate equally unmet.
+- **D-3. Live verification (AC-5) on the compose stack**, branch code in `backend-web` and
+  a real arq worker with the OpenAI boundary stubbed (as the blueprint's D-6):
+  - A Knowledge Map with two uploaded documents built, and both builds (one on the
+    busy retry of `2026-10-12-graph-build-busy-retry`) wrote every relation with
+    `evidence_msg_ids = evidence_refs`. An agent turn's system block carried the chunk
+    text resolved from that evidence.
+  - A chatroom-owned Concept Map built from two messages. Both relations were stored
+    with equal keys, `GET /api/graphrag/{id}/graph` returned them, and the next agent turn's
+    system block listed them with `evidence: user: Photosynthesis feeds Plants every
+    day.`, i.e. message evidence resolved through the new read alias.
+  - Admin reset (`POST /api/admin/graphrag/{id}/reset`) on that Concept Map restored a
+    snapshot in N-1's shape (old key only), placed in Redis with a current-build
+    pointer. This drives `plan_discard`'s compensate path on a settled config
+    (`graph_admin_reset.py:240-272`) rather than a build that really crashed. The
+    restored edge carried both keys, and the pointer and snapshot were cleared.
+  - The command, before any of the above, found 3 legacy edges written by the previous
+    code on the stack (dry run: `pending=3`). Armed: `copied=3 remaining=0`, exit 0. A
+    re-run: `pending=0`. A legacy edge on a config whose lock was held: `busy=1`,
+    exit 1, and the lock still held by its owner. Once the lock was released, `copied=1`
+    and exit 0.
+- **D-4. The AC-2 grep allows operator prose.** `smap/maintenance/neo4j_evidence_refs.py`,
+  the CLI help and `docs/runbook-upgrade.md` name `evidence_msg_ids`, because the command
+  exists to migrate that property. None of them holds Cypher; the property is read and
+  written only in `neo4j_driver.py`.
+- **D-5. The runbook entry also says to run the command in a quiet period on a large
+  graph.** Its count scans every `REL` relationship (no index covers the property
+  comparison), once before and once after the copy.
 
 ## 12. Follow-ups
 

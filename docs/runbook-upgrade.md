@@ -193,7 +193,8 @@ replica. Before that, an N-1 replica can rewrite the old property after the copy
 command is idempotent, so running it again repairs any relation that was copied too
 early. Each Knowledge Map or Concept Map is copied while holding its build lock, in
 batches, so it never writes concurrently with a build. A map that is building at that
-moment is skipped and reported, and the command then exits non-zero.
+moment is skipped and reported, and the command then exits non-zero. Counting scans every
+relation in Neo4j twice per run, so on a large graph run it in a quiet period.
 
 ```bash
 # Dry run: counts the relations still to copy, changes nothing

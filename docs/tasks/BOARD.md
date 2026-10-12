@@ -15,17 +15,8 @@ doesn't need a `depends_on` backfill).
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
-- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, **approved 2026-10-12**, no SRS Delta) -
-  `depends_on: []`. Blueprint D-1, release A of three:
-  - Dual-write the Neo4j relation evidence as `evidence_refs` and `evidence_msg_ids`,
-    still reading the old key.
-  - Snapshots carry both keys.
-  - Retrieval stops naming the physical alias.
-  - New operator command `python -m smap.maintenance neo4j-evidence-refs`: a batched
-    backfill under each config's lock, dry-run until armed.
-
-Nothing blocking. `2026-10-12-graph-build-busy-retry` from the same close-out is
-implemented.
+Nothing from this close-out is Ready: `2026-10-12-graph-build-busy-retry` is implemented
+and `2026-10-12-graphrag-phase5a-evidence-refs-expand` is In progress.
 
 ### From the 2026-08-30 FU consolidation
 
@@ -766,6 +757,16 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor), on branch
+  `refactor/graphrag-evidence-refs-expand`. Release A of the Neo4j evidence rename.
+  - **Change.** Relation evidence is dual-written as `evidence_refs` and `evidence_msg_ids`
+    with the old key authoritative. Reads return `evidence_refs`, and snapshots carry both
+    keys. New command `python -m smap.maintenance neo4j-evidence-refs` (runbook §3.1).
+  - **Verification.** AC-1..AC-5 are verified on real Neo4j and live on the compose stack
+    (D-3), including the backfill on edges written by the old code. AC-6 waits on CI.
+  - **Unblocking (on close).** `-phase5a2-evidence-refs-contract` and
+    `-phase5b-member-filter` list this slug.
 
 - (implemented 2026-10-12) `2026-10-12-graph-build-busy-retry` (bugfix), PR #253 from
   `fix/graph-build-busy-retry`.
