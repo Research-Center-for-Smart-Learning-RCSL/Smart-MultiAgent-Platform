@@ -102,7 +102,7 @@ async def test_hybrid_query_returns_bundle() -> None:
                 "relation": "knows",
                 "object": "bob",
                 "confidence": 0.9,
-                "evidence_msg_ids": [str(msg_id)],
+                "evidence_refs": [str(msg_id)],
             },
         ],
     )
@@ -273,7 +273,7 @@ async def test_retrieve_reranks_recent_over_stale() -> None:
                 "relation": "knew",
                 "object": "x",
                 "confidence": 0.9,  # strong but 100 days stale
-                "evidence_msg_ids": [],
+                "evidence_refs": [],
                 "last_seen_at": now_epoch - 100 * day,
             },
             {
@@ -281,7 +281,7 @@ async def test_retrieve_reranks_recent_over_stale() -> None:
                 "relation": "knows",
                 "object": "y",
                 "confidence": 0.4,  # weak but 1 day fresh
-                "evidence_msg_ids": [],
+                "evidence_refs": [],
                 "last_seen_at": now_epoch - 1 * day,
             },
         ],
