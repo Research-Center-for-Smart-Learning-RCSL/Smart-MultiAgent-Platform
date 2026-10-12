@@ -25,8 +25,9 @@ Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md
 **Goals**
 - Wherever at least 60 seconds separate two consecutive messages in a room turn's history, the
   model sees a notice stating how long passed.
-- Every room and observer turn's system prompt states the current time (UTC) and the time since
-  the last room message.
+- Every room and observer turn's system prompt states the current time (UTC), the time since
+  the last room message, and why the agent was woken (a new message, a silence, a mention, or a
+  released observation).
 - The added text is counted in the history and request budgets, so compaction decisions stay
   correct.
 - Nothing a participant writes can produce or imitate a time notice.
@@ -49,6 +50,8 @@ Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md
 | Q-2 | All agents, or opt-in per agent? | All room and observer turns. | User's choice. The cost is a few tokens per gap, and every room agent's pacing judgment benefits. Existing agents see new notices; §10 covers it. |
 | Q-3 | Which clock? | UTC, labelled as UTC. | No time zone setting exists anywhere (§4). The relative values carry the information the prompts need; the absolute time is there for orientation. |
 | Q-4 | How are gaps rendered? | As a `[Room notice]` user turn, e.g. `[Room notice] 3 minutes passed with no messages.` | Reuses the existing notice convention, which is unforgeable because labels drop square brackets and bodies are defanged (`turn_engine.py:366-371,439,489`). |
+| Q-4a | Should the model also be told why it was woken? | Yes, in the same block. | A code review of the CRAT pack found that the wake reason never reaches the model (`trigger` is used only in audits and reply metadata, `turn_engine.py:2720,3212`), so a prompt cannot tell a lull from a message wake. `2026-10-12-crat-pack-prompt-platform-alignment` depends on this dossier for that reason. |
+| Q-4b | Where is it said that time notices come from the platform? | In the time block itself, which every room and observer turn carries. | Gap notices are synthesized provider messages, not history rows, and `_shows_participant_note` decides from history rows (`turn_engine.py:506-516`), so a sentence in the participant note would be missing exactly when gap notices are the only notices. An earlier draft put it there. |
 | Q-5 | Dependencies on the sibling dossiers? | None. | `2026-10-12-stale-reply-recheck` edits the posting path (`turn_engine.py:3207-3223`) and `2026-10-12-wakeup-human-count-and-trigger-toggle` edits wake-up evaluation; this edits history loading and request assembly (`transcript.py:145-176`, `turn_engine.py:1023-1046,2859-2977`). Whoever builds second rebases. If the re-check lands first, its new-message rendering should insert gap notices through the same helper (§6). |
 
 ## 4. Current State
@@ -81,14 +84,14 @@ Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md
 
 ### Options considered
 
-**Option A — gap notices plus a current-time line.** A notice between rows separated by at least
+**Option A: gap notices plus a current-time line.** A notice between rows separated by at least
 60 s, and one system line with the current UTC time and the last message's age.
 
-**Option B — relative age on every row.** `[2 min ago] Label: body`. Most direct, but it adds a
+**Option B: relative age on every row.** `[2 min ago] Label: body`. Most direct, but it adds a
 prefix to every row, changes every row on every turn, and puts the time into a position where
 participant labels are rendered.
 
-**Option C — absolute timestamp on every row.** Stable across turns, which a future prompt cache
+**Option C: absolute timestamp on every row.** Stable across turns, which a future prompt cache
 would prefer, but the model has to subtract timestamps to judge a gap, and the cost per row is
 the same as B.
 
@@ -117,14 +120,16 @@ line changes every turn).
   (`turn_engine.py:3912-3919`) accounts for them. The estimate is a constant upper bound on the
   rendered notice measured with `estimate_tokens`.
 - **Backend, agents runtime, system block**: a new MEASURED block `time`, placed immediately
-  before the participant note (`turn_engine.py:1023-1046`): `Current time: 2026-10-12 14:03 UTC.
-  The last room message was sent 2 minutes ago.` When the room has no message the second
-  sentence is omitted. The block's measure is a fixed worst-case string, like
-  `_PARTICIPANT_NOTE_MEASURE` (`turn_engine.py:436`).
-- **Backend, participant note**: one sentence added to `_PARTICIPANT_LABEL_NOTE`
-  (`turn_engine.py:376-387`) saying that time notices are written by the platform. Because gap
-  notices are notices, a room whose history has a gap now shows the participant note; that is
-  intended.
+  before the participant note (`turn_engine.py:1023-1046`), built from the turn's `trigger`
+  (`turn_engine.py:2583`) and the loaded history:
+  `Current time: 2026-10-12 14:03 UTC. The last room message was sent 2 minutes ago. You were
+  woken by a period of silence. Notices saying how much time passed are written by the
+  platform.` The wake reason maps `every_n_messages` to "new messages", `silence_minutes` to "a
+  period of silence", `mention` to "a mention", `release` to "a released observation", and any
+  other value to no sentence. With no room message, the second sentence is omitted. The block's
+  measure is a fixed worst-case string, like `_PARTICIPANT_NOTE_MEASURE`
+  (`turn_engine.py:436`).
+- **Backend, participant note**: unchanged (Q-4b).
 - **Observer turns** use the same assembly path (`turn_engine.py:2602-2607,2694`) and get both.
 - **API contract**: none. `gen:api`: not required.
 - **Frontend**: none.
@@ -171,9 +176,8 @@ This changes what the model is shown (check-security's LLM/agent dimension).
   risk: the notices are factual and short. The CRAT pack's prompts become able to use them
   (FU-2).
 - **Pinned rendering tests.** Tests that build rows without `created_at` are unaffected; tests
-  that pin the system text (`backend/tests/unit/test_turn_system_blocks.py:181,189`) and the
-  participant note (`backend/tests/unit/test_turn_participant_note.py:44,58`) change by design
-  and are updated with the new block and sentence.
+  that pin the system text (`backend/tests/unit/test_turn_system_blocks.py:181,189`) change by
+  design and are updated with the new block. The participant note is unchanged.
 - **Future prompt caching.** The time line changes every turn; placed after the stable blocks,
   it invalidates only the tail of a cached prefix. Recorded for whoever adds caching.
 - **Rollback**: revert; nothing persisted.
@@ -187,7 +191,8 @@ This changes what the model is shown (check-security's LLM/agent dimension).
 - [ ] AC-3: rows without `created_at` never produce a notice, and existing rendering tests that
   build such rows pass unchanged.
 - [ ] AC-4: every room and observer turn's system prompt carries the time block with the current
-  UTC time and the last message's age; with no messages, only the current time.
+  UTC time, the last message's age, the wake reason for each of the four trigger kinds, and the
+  sentence that time notices come from the platform; with no messages, the age is omitted.
 - [ ] AC-5: the history projection used for the compact-mode decision includes the gap notices'
   estimate, and the time block is measured.
 - [ ] AC-6: a participant body imitating a time notice reaches the provider defanged.
@@ -202,7 +207,7 @@ This changes what the model is shown (check-security's LLM/agent dimension).
   helper and on assembled requests built with `turn_engine_fakes.py`; AC-4 on the rendered
   system text with a frozen clock; AC-7 on `run_input_turn`.
 - Unit, `backend/tests/unit/test_turn_context_budget.py`: AC-5.
-- Unit, `test_turn_system_blocks.py` and `test_turn_participant_note.py`: updated expectations.
+- Unit, `test_turn_system_blocks.py`: updated expectations.
 - Manual via the `run` skill: a room with a three-minute pause; inspect the provider request in
   the fake provider's log.
 
@@ -213,9 +218,11 @@ Add after [R13.34] (`REQUIREMENTS.md:727`):
 > - **[R13.73]** **Time in the agent transcript.** In a room or observer turn, wherever at least
 >   60 seconds separate two consecutive messages in the agent's history, the history carries a
 >   platform notice stating how long passed (in whole minutes, or hours and minutes from one
->   hour). The turn's system prompt states the current time in UTC and how long ago the last room
->   message was sent. Both are computed from server timestamps and use the room-notice channel's
->   protections, so no participant can produce or imitate them. Headless turns are unaffected.
+>   hour). The turn's system prompt states the current time in UTC, how long ago the last room
+>   message was sent, why the agent was woken (new messages, a period of silence, a mention, or
+>   a released observation), and that time notices come from the platform. All of it is computed
+>   from server state, and the notices use the room-notice channel's protections, so no
+>   participant can produce or imitate them. Headless turns are unaffected.
 
 `docs/traceability.csv` is regenerated with `python scripts/traceability.py`.
 
@@ -229,7 +236,7 @@ Appended by /build.
 
 ## 16. Follow-ups
 
-- **FU-1** — compaction summaries lose all timing; a summary could state the time range it
+- **FU-1**: compaction summaries lose all timing; a summary could state the time range it
   covers.
-- **FU-2** — once this lands, the CRAT pack's stall rules can refer to elapsed time instead of
+- **FU-2**: once this lands, the CRAT pack's stall rules can refer to elapsed time instead of
   counting silence wakes (`2026-10-12-crat-pack-prompt-platform-alignment` §7.2).

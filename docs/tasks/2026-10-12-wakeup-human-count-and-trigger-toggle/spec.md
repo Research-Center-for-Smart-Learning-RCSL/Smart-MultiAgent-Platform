@@ -62,7 +62,7 @@ the platform half of F-3.
 | Q-4 | Is a released observation a human message in `human` mode? | No. | It is agent-authored; `observations.py:248` passes `sender_is_user=True` only to reset autostop ([R28.06]). |
 | Q-5 | Does a toggle survive the [R15.09] refresh? | No; the refresh restores the snapshot, toggles included. | Same contract as the numeric fields; the refresh exists to undo runtime drift. |
 | Q-7 | Fix F-14 (silence fires while participants compose) here? | Yes: a live typing assertion in the room counts as room activity for the silence clock. | User's choice. It is a wake-up behavior change with an [R15.02] amendment, the same kind as the rest of this dossier. The CRAT pack mitigates it in prompts meanwhile. |
-| Q-8 | Re-arm on the `typing.start` frame, or check typing state at the sweep? | At the sweep: `evaluate_silence_trigger` treats a room with any live typing assertion as active and re-arms the clock. | The client sends `typing.start` once per burst, not per keystroke (`backend/app/api/ws/chatroom.py:130-131`), so an edge re-arm misses a burst longer than `t_minutes`. The typing assertion is level state with a TTL refreshed while the connection lives (`contexts/conversation/infrastructure/presence.py:53,175-241`), so a dead connection cannot pin the room as active. |
+| Q-8 | What signal says a participant is composing? | Recent typing: each accepted `typing.start` records the room's last typing time in Redis, and `evaluate_silence_trigger` treats the room as active, and re-arms the clock, while that time is less than 60 s old. | A code review found that the live typing assertion is not level state over a composition: the client sends `typing.stop` 3 s after the last keystroke (`frontend/src/slices/conversation/views/ChatroomView.vue:1226,1330`), which ends the server's heartbeat refresh (`backend/app/api/ws/chatroom.py:249-263`), so a student pausing to think reads as not typing at the 30 s sweep. A pause ends a burst and the next keystroke sends a new `typing.start` (`chatroom.py:130-131`), so a 60 s recency window holds through ordinary pauses. Draft state ([R32]) was rejected: it is stored only in rooms whose bindings hold the drafts grant. |
 | Q-6 | Dependencies on `2026-10-12-stale-reply-recheck` or `2026-10-12-crat-pack-prompt-platform-alignment`? | None. | The re-check dossier edits `tool_registry.py:119-147` (a new frozenset beside `BUILTIN_TOOL_NAMES`) and this one edits `:359-398` (the tool); disjoint regions, whoever builds second rebases. The pack dossier edits no platform code. |
 
 ## 4. Current State
@@ -142,14 +142,15 @@ the agent's own messages never count, so the case cannot arise.
     and audited as `agent.wakeup_toggled {trigger, enabled, actor_agent_id}`.
 - **Backend, orchestration infrastructure** (`wakeup_state.py`): due-flag get/set/clear with the
   counter's TTL.
-- **Backend, composing as activity** (Q-7, Q-8): `evaluate_silence_trigger`
-  (`wakeup_service.py:219-267`) asks presence whether the room has any live typing assertion,
-  after the `t_minutes` comparison and before the autostop check; if it has, it touches the
-  silence timestamp and returns False. Presence gains a room-level "anyone typing" read beside
-  `list_room` (`presence.py:243-248`), reconciled against connection liveness the way
-  `list_room` is, and reached through `WakeupService._presence` (`wakeup_service.py:135,262`),
-  which already holds the presence port. Observer bindings are included: an analyst should not
-  report a lull that is not one.
+- **Backend, composing as activity** (Q-7, Q-8): the `typing.start` handler
+  (`backend/app/api/ws/chatroom.py:231-248`), after its throttle, sets a room key
+  `ws:typing:last:{room}` to the current time with a short TTL, through a presence method beside
+  `typing_start` (`contexts/conversation/infrastructure/presence.py:175-200`).
+  `evaluate_silence_trigger` (`wakeup_service.py:219-267`), after the `t_minutes` comparison and
+  before the autostop check, reads it through `WakeupService._presence`
+  (`wakeup_service.py:135,262`); when it is less than 60 s old, it touches the silence timestamp
+  and returns False. Observer bindings are included: an analyst should not report a lull that is
+  not one.
 - **Backend, orchestration interfaces** (`facade.py`): pass the new parameters through
   `on_message_created` (`:135-142`) and `update_wakeup` (`:176-189`).
 - **Backend, conversation** (`contexts/conversation/application/triggers.py:48-81`) and callers:
@@ -239,9 +240,10 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
   round-trips valid values.
 - [ ] AC-9: the editor shows and saves both settings, in both locales.
 - [ ] AC-10: the tool descriptions state the counting semantics and the toggle restriction.
-- [ ] AC-10a: with a live typing assertion in the room, `evaluate_silence_trigger` does not fire
-  and re-arms the clock, for normal and observer bindings; once the assertion expires or is
-  retracted, the trigger fires `t_minutes` after the last activity.
+- [ ] AC-10a: when a `typing.start` was accepted in the room less than 60 s ago,
+  `evaluate_silence_trigger` does not fire and re-arms the clock, for normal and observer
+  bindings, even if `typing.stop` has since been sent; 60 s after the last `typing.start`, the
+  trigger fires `t_minutes` after the last activity.
 - [ ] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
 
@@ -252,8 +254,9 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
 - Unit, `backend/tests/unit/test_wakeup_self_modification.py`: AC-4, AC-5, AC-6 and the audit
   event.
 - Unit, `backend/tests/unit/test_wakeup_refresh_interval.py`: AC-7.
-- Unit, `backend/tests/unit/test_wakeup_service.py` with a presence fake reporting a typist:
-  AC-10a, including a stale assertion that has expired.
+- Unit, `backend/tests/unit/test_wakeup_service.py` with a presence fake reporting a last
+  typing time: AC-10a at 10 s, 59 s and 61 s, and after a `typing.stop`.
+- Unit, the WebSocket handler: a throttled `typing.start` does not refresh the last typing time.
 - Unit, `backend/tests/unit/test_agent_runtime_tools.py`: update the fake facade at `:50` for
   the new kwargs; AC-10 asserts the description text.
 - API unit tests for `_validate_wakeup_config`: AC-8.
@@ -276,7 +279,8 @@ Replace [R15.01] (`REQUIREMENTS.md:882`):
 Amend [R15.02] (`REQUIREMENTS.md:883`), third sentence:
 
 > Room activity means a user or agent message, a participant joining, an activity submission
-> ([R30.17]), or a participant composing a message (a live typing indicator in the room).
+> ([R30.17]), or a participant composing a message (a typing indicator started in the room
+> within the last 60 seconds).
 
 Add `"count": "all"` to the `every_n_messages` object and `"self_toggle": []` to the top level of
 the JSON example at `REQUIREMENTS.md:870-880`.
@@ -305,7 +309,7 @@ Appended by /build.
 
 ## 16. Follow-ups
 
-- **FU-1** — the editor describes call-only mode as "responds only when @mentioned"
+- **FU-1**: the editor describes call-only mode as "responds only when @mentioned"
   (`SWakeupEditor.vue:38-42`, `en.json:24-25`), while [R15.05a] defines it as A2A call or
   instruct only.
-- **FU-2** — per-binding wake-up state (audit F-9).
+- **FU-2**: per-binding wake-up state (audit F-9).

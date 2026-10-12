@@ -17,30 +17,26 @@ doesn't need a `depends_on` backfill).
 
 `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md` (16 findings from a
 classroom test in which the CRAT teacher agent lost control of a parallel discussion) spawned
-four dossiers. All are `draft` and `depends_on: []`. The re-check and wake-up dossiers both edit
+four dossiers, all `draft`. Three are `depends_on: []` and listed here; the pack dossier waits
+on the time-context one and is under Blocked. The re-check and wake-up dossiers both edit
 `tool_registry.py` in disjoint regions (a new frozenset beside `BUILTIN_TOOL_NAMES` vs the
 `update_wakeup` tool); not sequenced, whoever builds second rebases.
 
-- `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **draft**) - rewrites the CRAT room
-  pack for the platform as it is: both wake-up triggers on with a fixed `n` (one teacher agent
-  is shared by every group room), integer minutes, no `instruct`, the empty-reply rule, a
-  one-message three-part turn shape, a silence escalation chain built from the teacher's and
-  peer's timers, no answer key in any agent (every CRAT student can read agent settings), and an
-  analyst that also wakes every 20 messages. Pack JSON and tests only. Existing installs are not
-  updated by reinstalling.
 - `2026-10-12-stale-reply-recheck` (bugfix, **draft**) - when a coalesced follow-up is already
-  queued and the turn ran no state-changing tool, the agent is shown its unposted draft and the
-  messages that arrived meanwhile, and decides once to post it, revise it or stay silent; the
-  re-check consumes the follow-up. Covers observer turns. SRS delta: [R13.27] and [R28.13]
-  amended, [R13.72] added.
+  queued and the turn's first pass ran no state-changing tool, the agent is shown its unposted
+  draft and the messages that arrived meanwhile, and continues the same turn, with its tools, to
+  post it, revise it or stay silent. The re-check consumes the follow-up, and wake-ups for the
+  messages it showed are skipped as covered. Covers observer turns. SRS delta: [R13.27] and
+  [R28.13] amended, [R13.72] added.
 - `2026-10-12-wakeup-human-count-and-trigger-toggle` (feature, **draft**) - opt-in human-only
-  `every_n_messages` counting, deferred instead of dropped own-message firings, and
-  `update_wakeup` toggles limited to a designer-set `self_toggle` list, and a live typing
-  indicator counts as room activity for the silence clock. SRS delta: [R15.01] and [R15.06]
-  replaced, [R15.02] amended, [R15.01a] and [R15.06a] added.
+  `every_n_messages` counting, deferred instead of dropped own-message firings, `update_wakeup`
+  toggles limited to a designer-set `self_toggle` list, and typing within the last 60 s counts
+  as room activity for the silence clock. SRS delta: [R15.01] and [R15.06] replaced, [R15.02]
+  amended, [R15.01a] and [R15.06a] added.
 - `2026-10-12-agent-message-time-context` (feature, **draft**) - room and observer turns get a
   platform notice wherever 60 s or more passed between messages, and a system line with the
-  current UTC time and the last message's age. SRS delta: [R13.73] added.
+  current UTC time, the last message's age and the wake reason. **Build first**: it unblocks the
+  pack dossier. SRS delta: [R13.73] added.
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
@@ -565,6 +561,19 @@ rows are added as each is written.
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-12 CRAT facilitation audit
+
+- `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **draft**) - waiting on
+  `2026-10-12-agent-message-time-context`. **Logical prerequisite** (its Q-11): the teacher
+  tells a lull from a message wake, and picks its hint level, from the time line that dossier
+  adds; the wake reason reaches the model nowhere today. Rewrites the CRAT room pack: both
+  wake-up triggers on with a fixed `n = 2` (one teacher agent is shared by every group room, and
+  `n = 1` risks the visible turn rate limit), integer minutes, no `instruct`, the empty-reply
+  rule, a one-message three-part turn shape, a silence chain of teacher at about 2 and 4 minutes
+  and peer at about 7, no answer key in any agent (every CRAT student can read agent settings),
+  and an analyst that also wakes every 20 messages. Pack JSON and tests only. Existing installs
+  are not updated by reinstalling.
 
 ### From the 2026-10-11 chat and research export audit
 

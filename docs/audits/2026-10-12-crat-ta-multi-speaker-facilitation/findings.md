@@ -9,23 +9,23 @@ requirements: [R15.01, R15.06, R15.07, R28.16, R32.03]
 
 ## 1. Scope
 
-- **Area** — the `crat-word-puzzle-room` agent pack
+- **Area**: the `crat-word-puzzle-room` agent pack
   (`backend/contexts/agents/infrastructure/examples/packs/crat-word-puzzle-room.json`), chiefly
   its teacher agent `ta-crat-teacher`, and the platform paths that agent depends on: wake-up
   evaluation (`contexts/orchestration/application/wakeup_service.py`), turn coalescing and reply
   posting (`contexts/agents/application/runtime/turn_engine.py`), the `update_wakeup` tool
   (`contexts/agents/application/runtime/tool_registry.py`), and the context the model receives
   (transcript, system prompt blocks, canvas digest).
-- **Trigger** — a classroom test by the user in which several students posted in parallel and
+- **Trigger**: a classroom test by the user in which several students posted in parallel and
   the teacher agent failed to hold the discussion together. Three symptoms were reported:
   per-message replies flooding the room, some students' ideas being dropped, and no follow-up
   for a student who fell behind or went off topic.
-- **Intent sources** — two kinds. The platform's documented behavior in `REQUIREMENTS.md` §15
+- **Intent sources**: two kinds. The platform's documented behavior in `REQUIREMENTS.md` §15
   ([R15.01], [R15.06], [R15.07]) and the tool contracts; and the pack's own prompt, which
   states what the teacher agent is supposed to do (staged flow A to E, stall handling, A2A
   instruction). Several findings are mismatches between the two: the prompt assumes platform
   behavior that the SRS does not provide.
-- **Depth** — thorough static read of the pack, the wake-up and turn paths, and the context
+- **Depth**: thorough static read of the pack, the wake-up and turn paths, and the context
   assembly, with five investigation passes (pack and tests, wake-up evaluation, burst behavior,
   roster/timestamps/memory, canvas). No live classroom run was repeated for this audit; the
   symptom reports come from the user's test.
@@ -324,22 +324,22 @@ frontend rendering of agent replies; provider-specific behavior.
 
 ## 6. Out-of-scope Observations
 
-- **FU-1** — `character-building-room` and `object-reinterpretation-room` share the CRAT prompt
+- **FU-1**: `character-building-room` and `object-reinterpretation-room` share the CRAT prompt
   skeleton; F-3, F-4, F-10 and F-11 are likely present there and were not checked.
-- **FU-2** — closed: taken into scope as `2026-10-12-agent-message-time-context` (F-5).
-- **FU-3** — a room member block listing members by label or code with a "has spoken" flag
+- **FU-2**: closed, taken into scope as `2026-10-12-agent-message-time-context` (F-5).
+- **FU-3**: a room member block listing members by label or code with a "has spoken" flag
   (F-6). Privacy review needed: it discloses presence of non-speakers to the model.
-- **FU-4** — per-room working memory for normal bindings, or a canvas digest that carries
+- **FU-4**: per-room working memory for normal bindings, or a canvas digest that carries
   stable element ids so an agent can maintain a shared candidate board (F-7).
-- **FU-5** — an agent-facing `instruct` tool for room agents (F-8).
-- **FU-6** — per-binding wake-up state so `update_wakeup` does not leak across rooms (F-9).
-- **FU-7** — a private teacher-to-agent instruction channel for answer keys and steering (F-13).
-- **FU-8** — the canvas `create` path does not catch `CrdtUpdateError`
+- **FU-5**: an agent-facing `instruct` tool for room agents (F-8).
+- **FU-6**: per-binding wake-up state so `update_wakeup` does not leak across rooms (F-9).
+- **FU-7**: a private teacher-to-agent instruction channel for answer keys and steering (F-13).
+- **FU-8**: the canvas `create` path does not catch `CrdtUpdateError`
   (`canvas_tools.py:143`), unlike update and delete (`:239`, `:301`); route to `check-quality`.
-- **FU-9** — restrict who can read an agent's configuration, so that a project member who is a
+- **FU-9**: restrict who can read an agent's configuration, so that a project member who is a
   student sees agent names (already served separately by `GET /agents/names`,
   `agents.py:476-495`) but not system prompts (F-13). Wider than CRAT: every teaching prompt is
   readable by the students it is written about.
-- **FU-10** — closed: taken into `2026-10-12-wakeup-human-count-and-trigger-toggle` (F-14).
-- **FU-11** — give observer transcripts the same participant codes the activity legend uses,
+- **FU-10**: closed, taken into `2026-10-12-wakeup-human-count-and-trigger-toggle` (F-14).
+- **FU-11**: give observer transcripts the same participant codes the activity legend uses,
   so a codes-only analyst can refer to chat-only participants (F-16).

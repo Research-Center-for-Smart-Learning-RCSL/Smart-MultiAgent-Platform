@@ -35,7 +35,7 @@ Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md
     nothing checks whether such a mark exists. The stale reply is persisted, broadcast, and
     dispatched to other agents' wake-ups (`turn_engine.py:3322-3347`), and then the follow-up
     turn replies again.
-- **Expected** — no SRS requirement covers this; the expected behavior was agreed with the user
+- **Expected**: no SRS requirement covers this; the expected behavior was agreed with the user
   (Q-1 to Q-7): whether a reply is still worth posting after the room moved on is the agent's
   judgment, and the platform's job is to give it the information to make that judgment, then
   enforce the limits the agent cannot see.
@@ -49,8 +49,9 @@ Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md
 | Q-3 | Apply to observer turns? | Yes. | User's choice. Observer turns share the lock and coalescing ([R28.12]). |
 | Q-4 | Re-check a turn that already ran a state-changing tool? | No: post it as today, and let the queued follow-up run. | User's choice. Activity start/end, canvas writes, `update_wakeup` and code execution are committed by the turn's own transaction (`turn_engine.py:3107-3111`) regardless of the reply, and code-exec artifacts are persisted against the reply's `message_id` (`turn_engine.py:3310-3311`). Letting the agent withdraw that reply would leave a visible state change with no explanation. |
 | Q-5 | How many re-checks per turn? | One. Messages that arrive during the re-check park a fresh mark and get a normal follow-up turn. | Each turn still ends with the agent's own decision, so no room can starve the agent, and the cost is bounded to one extra call per turn. |
-| Q-6 | Does the re-check offer tools? | Room turns: none. Observer turns: `present_observation` only, with the first pass's blocks cleared. | The re-check is a decision about what to say, not a new tool loop; a tool call there would reopen Q-4. An observer delivers its output through `present_observation`, so it needs that one tool to revise. |
-| Q-7 | What happens to the queued follow-up? | The re-check consumes it: the mark is popped before the re-check, because the re-check has seen everything that mark stood for. On a re-check failure the popped trigger is parked again and the draft is posted. | Without consuming it the room would still get a second reply, which is the symptom. Re-parking on failure keeps today's guarantee that a parked message is answered. |
+| Q-6 | Does the re-check offer tools? | Yes: the re-check is a continuation of the same tool loop, with the turn's full registry and whatever remains of its tool-round budget (`MAX_TOOL_ROUNDS`, `turn_engine.py:4271`). An observer's first-pass blocks are cleared first. | A code review found that a tool-less re-check loses a request that arrived mid-generation ("start the activity now"): the re-check consumes the follow-up that would have run with tools. The side-effect boundary (Q-4) protects the platform from discarding a reply after effects; in the re-check the agent itself decides, after seeing everything. An earlier draft offered no tools. |
+| Q-7 | What happens to the queued follow-up? | The re-check consumes the parked mark, records the ids of every message it showed the agent, and any wake-up whose triggering message is one of those ids is skipped as already covered. A popped mark whose message the re-check did not show is parked again. | A code review found two windows in the earlier "pop, then reload" order: a message landing between pop and reload, and a message whose `wakeup_agent` job is still queued when the mark is popped, both produce a second reply. Keying "covered" on message ids rather than timestamps is exact: `created_at` is set at insert (`contexts/conversation/infrastructure/tables.py:270`), not at commit, so a timestamp watermark could cover a row the reload did not see. |
+| Q-7a | How is a trigger parked again without losing a newer one? | With a new script that writes both keys only when the trigger key is absent. | `_MARK_QUEUED_LUA` applies NX to the trigger key only and overwrites the message-id key (`turn_engine.py:563-567`), so re-parking an older trigger after a newer one parked would point the follow-up's attachment resolution at the older message. |
 | Q-8 | Should this depend on `2026-07-19-large-artifacts-silently-dropped` (in progress, edits `turn_engine.py`)? | No. | User's choice. That dossier edits artifact persistence (`turn_engine.py:1124-1171`); this one inserts a branch between `:3207` and `:3212`. Whoever builds second rebases. |
 
 ## 4. Reproduction
@@ -83,7 +84,7 @@ the first-pass text and a follow-up is enqueued.
 
 ## 6. Blast Radius and Sibling Suspects
 
-- **Blast radius** — every room turn: `every_n_messages`, `silence_minutes`, `mention`,
+- **Blast radius**: every room turn: `every_n_messages`, `silence_minutes`, `mention`,
   `release` and coalesced follow-ups all reach `run_turn` through `wakeup_agent`
   (`backend/app/workers/tasks/orchestration.py:38,151`). Headless A2A and approver turns use
   `run_input_turn` (`turn_engine.py:1275`), take no lock and park no mark, so they are
@@ -94,7 +95,8 @@ the first-pass text and a follow-up is enqueued.
   - Retry-acquire path that serves its own mark (`turn_engine.py:1206-1222`): **cleared**, it
     pops its mark before running, so the new check sees only marks parked during this turn.
   - Mention turns: **confirmed in scope**. A mention that arrives during generation is shown in
-    the re-check, so the agent can answer it in the same reply.
+    the re-check, which keeps the full tool set (Q-6), so a mention that asks for an action can
+    be acted on in the same turn; its own wake-up is then skipped as covered (Q-7).
 
 ## 7. Fix Design
 
@@ -126,6 +128,10 @@ eligible:
 2. Load the messages newer than the snapshot: reload with `tx.load_model_history`
    (`transcript.py:179-224`) and keep the rows after the last `HistoryMessage.id`
    (`transcript.py:91`) of the snapshot from step 2 of §5.
+2a. Record the ids of those rows in a Redis set `turn:covered:{agent}:{room}` with the queued
+   mark's TTL (`_QUEUED_TRIGGER_TTL_S`, `turn_engine.py:534`). If the popped message id is not
+   among them, the mark stood for a message the re-check will not show; it is parked again after
+   the re-check with the absent-only script (Q-7a).
 3. Append to the turn's provider messages, in order: the draft as an assistant turn; each new
    message rendered by `_provider_message` (`turn_engine.py:3797`), exactly as the transcript
    renders it, so labels pass through `_one_line_label` (`:439`) and bodies through
@@ -135,19 +141,28 @@ eligible:
    Reply with the message to post now: the same text, a revision, or nothing to stay silent."
    No participant text is ever interpolated into the notice (§8a).
 4. Emit the tool-round progress beacon (`turn_engine.py:4198`) so the client clears the streamed
-   draft, then run one more streaming round with no tools for a room turn, or with only
-   `present_observation` for an observer turn after clearing `observation_blocks`
-   (`turn_engine.py:2754`).
-5. The re-check's output replaces `final_text` (and, for an observer, the blocks), and the turn
-   continues on its normal path: a non-empty result is posted as the reply; an empty result
+   draft, clear `observation_blocks` (`turn_engine.py:2754`) for an observer turn, then continue
+   the tool loop with the same registry and the remaining tool-round budget (Q-6). Tools
+   dispatched here are added to `dispatched_tools` and their artifacts to the sink, and persist
+   as they would in any turn.
+5. The re-check's final text replaces `final_text` (and, for an observer, the blocks), and the
+   turn continues on its normal path: a non-empty result is posted as the reply; an empty result
    commits a skip with reason `withdrawn`, mirroring the empty-reply branch
    (`turn_engine.py:3140-3207`).
-6. If the re-check fails (provider error, cancellation, a tool call on a room turn), post the
-   draft and re-park the popped trigger with `_mark_trigger_queued` (`turn_engine.py:598-637`)
-   so the follow-up still runs.
+6. If the re-check fails (provider error, cancellation), post the draft, drop the covered set,
+   and park the popped trigger again with the absent-only script (Q-7a).
 
 Messages arriving during the re-check park a fresh mark (`SET NX` succeeds because step 1
 deleted the key), which the `finally` drain turns into a normal follow-up turn (Q-5).
+
+### 7.3a Skipping covered wake-ups
+
+`run_turn` (`turn_engine.py:1183-1240`), before it tries the lock, checks whether its
+`trigger_message_id` is a member of `turn:covered:{agent}:{room}`. If it is, the job returns
+`skipped` with reason `already_covered`, which the worker audits as `wakeup.skipped`
+(`app/workers/tasks/orchestration.py:161-178`) and counts no autostop round
+(`orchestration.py:181-183`). Wake-ups without a message id (silence) are never skipped this way.
+A Redis error on the check runs the turn, as today.
 
 ### 7.4 Bookkeeping
 
@@ -181,13 +196,20 @@ Written first, failing against current code:
   - parked mark plus a dispatched `start_activity`: no re-check, draft posted, follow-up
     enqueued;
   - parked mark plus a non-empty artifact sink: same as above;
-  - re-check provider failure: draft posted and the trigger re-parked;
+  - re-check provider failure: draft posted, covered set dropped, trigger re-parked;
   - a message arriving during the re-check: a fresh mark is drained into one follow-up;
-  - observer turn: the re-check offers only `present_observation` and the first-pass blocks are
-    not recorded;
+  - the re-check calls `start_activity` for a mention it was shown: the tool runs and the
+    reply is posted;
+  - a popped mark whose message id is not among the shown rows: re-parked after the re-check;
+  - re-parking while a newer mark exists leaves the newer trigger and message id untouched;
+  - observer turn: the re-check clears the first-pass blocks and records only the blocks of the
+    re-check;
   - Redis error on the check: draft posted, no re-check;
   - a new message whose body imitates the notice reaches the provider defanged and outside the
     notice turn, and the notice turn contains no participant text.
+- `backend/tests/unit/test_turn_lock_and_coalescing.py`: a `wakeup_agent` run whose
+  `trigger_message_id` is in the covered set returns `skipped/already_covered` without taking
+  the lock; one without a message id is not skipped.
 - `backend/tests/unit/test_builtin_tools_wiring.py`: `READ_ONLY_TOOL_NAMES <= BUILTIN_TOOL_NAMES`.
 - Frontend: a `useObservations` case that renders the `withdrawn` skip label.
 
@@ -206,9 +228,11 @@ dimension).
 - **Withdrawal as a lever.** A participant can try to talk the agent into staying silent, but
   that is already possible on any turn; the re-check adds no new capability, and the
   withdrawal is audited (§7.4).
-- **Side effects.** The re-check offers no tool to a room turn and only `present_observation`
-  to an observer, and it runs only for turns that dispatched nothing outside
-  `READ_ONLY_TOOL_NAMES`, so it cannot cause a state change (Q-4, Q-6).
+- **Side effects.** The re-check runs only for turns whose first pass dispatched nothing
+  outside `READ_ONLY_TOOL_NAMES` (Q-4). It keeps the full tool set (Q-6), so it can cause the
+  same state changes any turn can, under the same grants and the same tool-round budget; the
+  newly shown messages are participant content and carry the same prompt-injection exposure as
+  any transcript row, no more.
 - **Cost.** One re-check per turn (Q-5), replacing the follow-up turn it consumes; a hostile
   room cannot multiply calls beyond today's per-(agent, room) rate limit
   (`turn_engine.py:276-277`).
@@ -225,7 +249,9 @@ dimension).
   that would otherwise have run, so the total is about the same.
 - **Latency**: the reply lands one generation later than today's first reply, and about when
   today's follow-up reply lands.
-- **Rollback**: revert; no data or key schema change beyond the read-only `EXISTS`.
+- **Longer turns**: a re-check that calls tools makes the turn longer, within the existing
+  tool-round budget and lock heartbeat (`app/workers/tasks/orchestration.py:27-35`).
+- **Rollback**: revert; the covered-set keys expire on their TTL.
 
 ## 10. Acceptance Criteria
 
@@ -234,13 +260,16 @@ dimension).
   contains its draft and every message newer than its snapshot, and posts exactly what the
   re-check returns.
 - [ ] AC-3: an empty re-check result persists no message and returns `skipped/withdrawn`.
-- [ ] AC-4: a re-checked turn consumes the parked mark; no follow-up runs unless a message
-  arrived during the re-check.
-- [ ] AC-5: a turn that dispatched any tool outside `READ_ONLY_TOOL_NAMES`, or produced
-  artifacts, is not re-checked, posts its draft, and the follow-up runs.
-- [ ] AC-6: a re-check failure posts the draft and re-parks the trigger.
-- [ ] AC-7: an observer turn is re-checked with only `present_observation` available, and a
-  withdrawn observation emits `observation.skipped {kind: withdrawn}`, labeled in both locales.
+- [ ] AC-4: a re-checked turn consumes the parked mark; a wake-up for any message it showed is
+  skipped as `already_covered`, including a job still queued when the mark was popped; a
+  follow-up runs only for a message it did not show.
+- [ ] AC-5: a turn whose first pass dispatched any tool outside `READ_ONLY_TOOL_NAMES`, or
+  produced artifacts, is not re-checked, posts its draft, and the follow-up runs.
+- [ ] AC-5a: the re-check keeps the turn's full tool set and remaining tool-round budget.
+- [ ] AC-6: a re-check failure posts the draft and re-parks the trigger without overwriting a
+  newer parked trigger or message id.
+- [ ] AC-7: an observer turn's re-check clears the first-pass blocks, and a withdrawn
+  observation emits `observation.skipped {kind: withdrawn}`, labeled in both locales.
 - [ ] AC-8: the mark check never consumes the mark, and a Redis failure on it posts the draft.
 - [ ] AC-8a: new messages reach the re-check through the transcript renderer (labels
   normalized, notice marker defanged), and the re-check notice carries only fixed platform
@@ -264,10 +293,12 @@ Add after [R13.27]:
 >   is, and the turn dispatched no tool outside the read-only set (`read_skill`, `web_search`,
 >   `file_search`, `read_drafts`, `present_observation`) and produced no artifacts, the agent is
 >   shown its unposted draft together with every message that arrived after its snapshot, and
->   decides once whether to post the draft, post a revision, or post nothing (`withdrawn`). The
->   re-check consumes the queued trigger; messages arriving during the re-check get a normal
->   follow-up turn. A turn with side effects posts its draft and the follow-up runs. If the
->   re-check cannot run, the draft is posted and the trigger stays queued.
+>   continues the same turn, with its tools, to decide once whether to post the draft, post a
+>   revision, or post nothing (`withdrawn`). The re-check consumes the queued trigger, and a
+>   wake-up for any message it showed is skipped as `already_covered`; a message it did not
+>   show gets a normal follow-up turn. A turn whose first pass had side effects posts its draft
+>   and the follow-up runs. If the re-check cannot run, the draft is posted and the trigger is
+>   queued again without displacing a newer one.
 
 Amend [R28.13] (`REQUIREMENTS.md:2208`): `observation.skipped` carries benign kinds
 (`no_input`, `empty_reply`, `withdrawn`).
@@ -280,5 +311,5 @@ Appended by /build.
 
 ## 13. Follow-ups
 
-- **FU-1** — streaming could be held back for a turn that already sees a parked mark early,
+- **FU-1**: streaming could be held back for a turn that already sees a parked mark early,
   removing the visible retyping in §9.
