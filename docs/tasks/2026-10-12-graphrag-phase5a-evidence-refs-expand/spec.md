@@ -226,6 +226,23 @@ extracted triple's field, which is the model-facing key and stays (Q-4).
 - **D-5. The runbook entry also says to run the command in a quiet period on a large
   graph.** Its count scans every `REL` relationship (no index covers the property
   comparison), once before and once after the copy.
+- **D-6. `/code-review` fixes (`f7a789fb`).**
+  - The per-config copy scanned every relationship once per batch while holding the
+    build lock: the composite `rel_config_relation` index needs a predicate on both
+    properties. An `r.relation IS NOT NULL` predicate (true of every `REL`, a MERGE key)
+    makes it a `DirectedRelationshipIndexSeek`, confirmed with `EXPLAIN` on the stack.
+  - The command now records a config whose copy raises as `failed` and continues, reports
+    a lock lost mid-copy as `lost_lock` apart from `busy`, and counts edges whose
+    `graphrag_config_id` is missing or not a UUID as `unattributed` within `remaining`
+    instead of aborting or dropping them from the gate. Each makes an armed run exit
+    non-zero (`test_neo4j_evidence_refs_run.py`).
+  - The CLI closes the process-wide Redis client its lock store used, and the lock
+    parameter is typed by the existing `BuildLockStore` port.
+  - Writes compute the evidence from `coalesce(evidence_msg_ids, evidence_refs, [])`
+    rather than the old key alone, so an edge holding only the new key (a rollback from
+    release C) keeps its evidence on the next delta write
+    (`test_a_delta_write_keeps_evidence_held_only_under_the_new_key`). While both keys
+    exist the old one still wins, as §5 requires.
 
 ## 12. Follow-ups
 
