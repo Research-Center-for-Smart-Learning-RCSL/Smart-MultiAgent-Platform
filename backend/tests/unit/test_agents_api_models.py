@@ -129,6 +129,31 @@ def test_patch_rejects_a_non_bool_enabled_flag(trigger_key: str) -> None:
         AgentPatchIn(wakeup_config={"triggers": {trigger_key: {"enabled": "false"}}})
 
 
+@pytest.mark.parametrize("bad", ["robots", 1, None, ""])
+def test_patch_rejects_an_unknown_count_mode(bad: object) -> None:
+    """C AC-8 ([R15.01])."""
+    with pytest.raises(ValidationError, match="count"):
+        AgentPatchIn(wakeup_config={"triggers": {"every_n_messages": {"count": bad}}})
+
+
+@pytest.mark.parametrize("bad", ["silence_minutes", ["call_only"], ["silence_minutes", 3], {"a": 1}])
+def test_patch_rejects_a_bad_self_toggle(bad: object) -> None:
+    """C AC-8 ([R15.06]): `call_only` is never toggleable, and the grant is a list."""
+    with pytest.raises(ValidationError, match="self_toggle"):
+        AgentPatchIn(wakeup_config={"self_toggle": bad})
+
+
+def test_patch_round_trips_the_new_keys() -> None:
+    config = {
+        "triggers": {"every_n_messages": {"enabled": True, "n": 3, "count": "human"}},
+        "self_toggle": ["every_n_messages", "silence_minutes"],
+    }
+
+    patch = AgentPatchIn(wakeup_config=config)
+
+    assert patch.wakeup_config == config
+
+
 def test_patch_rejects_a_non_bool_allow_self_open() -> None:
     with pytest.raises(ValidationError, match="allow_self_open"):
         AgentPatchIn(wakeup_config={"allow_self_open": "false"})

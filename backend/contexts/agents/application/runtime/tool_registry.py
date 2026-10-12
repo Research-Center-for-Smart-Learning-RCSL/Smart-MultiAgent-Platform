@@ -370,11 +370,29 @@ _UPDATE_WAKEUP_SCHEMA: dict[str, Any] = {
     "properties": {
         "every_n_messages": {
             "type": "integer",
-            "description": "Fire a wake-up after every N user messages (clamped to 1..1000).",
+            "description": (
+                "Fire a wake-up after every N room messages (clamped to 1..1000). By default "
+                "every message counts, including yours and other agents'; if your configuration "
+                "counts only human messages, only those do."
+            ),
         },
         "silence_minutes": {
             "type": "integer",
             "description": "Fire after T minutes of silence (clamped to 1..1440).",
+        },
+        "every_n_messages_enabled": {
+            "type": "boolean",
+            "description": (
+                "Turn the message trigger on or off. Refused unless your designer allowed you "
+                "to switch it, and refused if it would leave every trigger off."
+            ),
+        },
+        "silence_minutes_enabled": {
+            "type": "boolean",
+            "description": (
+                "Turn the silence trigger on or off. Refused unless your designer allowed you "
+                "to switch it, and refused if it would leave every trigger off."
+            ),
         },
     },
     "additionalProperties": False,
@@ -387,20 +405,28 @@ def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID) -> Tool:
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
+        # Toggles are passed only when asked for: the schema has already rejected a
+        # non-boolean, and an absent key must mean "leave it as it is".
+        toggles = {
+            key: args[key]
+            for key in ("every_n_messages_enabled", "silence_minutes_enabled")
+            if isinstance(args.get(key), bool)
+        }
         cfg = await OrchestrationFacade(db).update_wakeup(
             agent_id=agent_id,
             every_n_messages=_opt_int(args.get("every_n_messages")),
             silence_minutes=_opt_int(args.get("silence_minutes")),
             actor_agent_id=agent_id,
+            **toggles,
         )
         return ToolResult(content=json.dumps(cfg.to_dict()))
 
     return Tool(
         name="update_wakeup",
         description=(
-            "Adjust your own wake-up triggers: how many user messages or how many "
-            "minutes of silence should fire your next turn. Values are clamped to "
-            "safe bounds."
+            "Adjust your own wake-up triggers: after how many room messages, or how many "
+            "minutes of silence, your next turn fires, and, where your designer allowed it, "
+            "whether each trigger is on. Values are clamped to safe bounds."
         ),
         input_schema=_UPDATE_WAKEUP_SCHEMA,
         invoke=_invoke,

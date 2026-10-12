@@ -51,9 +51,13 @@ class _SiblingConnectionPresence:
     """
 
     sibling_typing: ClassVar[bool] = False
+    composing_notes: ClassVar[int] = 0
 
     def __init__(self, *_a: object, **_k: object) -> None:
         pass
+
+    async def note_composing(self, **_k: object) -> None:
+        _SiblingConnectionPresence.composing_notes += 1
 
     async def join(self, **_k: object) -> tuple[bool, int]:
         return (False, 1)
@@ -113,6 +117,7 @@ def callbacks(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Drive the route far enough to capture the callbacks it registers."""
     _RecordingPublisher.emitted = []
     _SiblingConnectionPresence.sibling_typing = False
+    _SiblingConnectionPresence.composing_notes = 0
     captured: dict[str, Any] = {}
 
     auth = _FakeAuth()
@@ -218,4 +223,18 @@ async def test_explicit_stop_does_not_retract_while_a_sibling_is_typing(
     await callbacks["on_client_message"](conn, {"type": "typing.start"})
     await callbacks["on_client_message"](conn, {"type": "typing.stop"})
 
+    assert _emitted_types() == ["typing.start"]
+
+
+async def test_an_accepted_typing_start_marks_the_room_as_composing(
+    callbacks: dict[str, Any],
+) -> None:
+    """[R15.02] / wake-up C AC-10a: composing re-arms the silence clock. A
+    throttled start publishes nothing and stamps nothing either."""
+    conn = await _drive(callbacks)
+
+    await callbacks["on_client_message"](conn, {"type": "typing.start"})
+    await callbacks["on_client_message"](conn, {"type": "typing.start"})
+
+    assert _SiblingConnectionPresence.composing_notes == 1
     assert _emitted_types() == ["typing.start"]

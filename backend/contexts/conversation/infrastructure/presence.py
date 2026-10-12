@@ -71,6 +71,16 @@ def _typing_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     return f"ws:typing:{room_id}:{user_id}"
 
 
+def _last_typing_key(room_id: uuid.UUID) -> str:
+    return f"ws:typing_last:{room_id}"
+
+
+# [R15.02]: how long after the last `typing.start` the room still counts as
+# composing. The client ends a burst after 3 s without a keystroke, so a typist
+# pausing to think sends a fresh start on resuming; this window spans the pause.
+COMPOSING_WINDOW_SECONDS: Final = 60
+
+
 # Per-user conns SET: add/remove a connection and report cardinality atomically.
 _CONN_JOIN_LUA = (
     "redis.call('SADD', KEYS[1], ARGV[1]) "
@@ -198,6 +208,21 @@ class PresenceTracker:
             str(_TYPING_TTL_SECONDS),
         )
         return int(size) == 1
+
+    async def note_composing(self, *, room_id: uuid.UUID) -> None:
+        """Record that someone in the room just started typing ([R15.02]).
+
+        Room-level rather than read off the per-connection typing sets, because
+        those are retracted 3 s after the last keystroke; the silence clock needs
+        "typed recently", not "typing this instant". The window is the key's TTL,
+        so it runs on Redis's clock: the WS process that writes it and the worker
+        that reads it may disagree about the time.
+        """
+        await get_redis().set(_last_typing_key(room_id), "1", ex=COMPOSING_WINDOW_SECONDS)
+
+    async def composing_recently(self, room_id: uuid.UUID) -> bool:
+        """Whether a `typing.start` landed in the room within the composing window."""
+        return bool(await get_redis().exists(_last_typing_key(room_id)))
 
     async def typing_stop(
         self,

@@ -44,9 +44,16 @@ export interface WakeupTriggerConfig {
   [k: string]: unknown
 }
 
+export type WakeupCountMode = 'all' | 'human'
+export type WakeupToggleableTrigger = 'every_n_messages' | 'silence_minutes'
+
+const COUNT_MODES: readonly WakeupCountMode[] = ['all', 'human']
+const TOGGLEABLE: readonly WakeupToggleableTrigger[] = ['every_n_messages', 'silence_minutes']
+
 export interface WakeupConfig {
   triggers: {
-    every_n_messages: WakeupTriggerConfig & { n: number }
+    /** `count` (R15.01): "all" counts agents' messages too; "human" only users and guests. */
+    every_n_messages: WakeupTriggerConfig & { n: number; count: WakeupCountMode }
     silence_minutes: WakeupTriggerConfig & {
       t_minutes: number
       autostop_rounds: number
@@ -57,6 +64,8 @@ export interface WakeupConfig {
   }
   allow_self_open: boolean
   refresh_every_hours: number
+  /** Triggers the agent may switch on or off itself through `update_wakeup` (R15.06). */
+  self_toggle: WakeupToggleableTrigger[]
   /**
    * Designer-set per-agent bounds (R15.08). Admin-set through the API; there is
    * no editor control, so this module only carries it through.
@@ -78,7 +87,7 @@ export interface WakeupConfig {
 // is the editor's deliberate UX default.
 const DEFAULT_WAKEUP: WakeupConfig = {
   triggers: {
-    every_n_messages: { enabled: false, n: 3 },
+    every_n_messages: { enabled: false, n: 3, count: 'all' },
     silence_minutes: {
       enabled: false,
       t_minutes: 30,
@@ -90,6 +99,7 @@ const DEFAULT_WAKEUP: WakeupConfig = {
   },
   allow_self_open: false,
   refresh_every_hours: 24,
+  self_toggle: [],
 }
 
 /** A fresh, fully-populated default config (safe to mutate). */
@@ -163,6 +173,14 @@ export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
     triggers.every_n_messages.enabled = false
     triggers.silence_minutes.enabled = false
   }
+  // Same tolerance as the server parser: an unknown mode reads as today's "all",
+  // and only known trigger names survive in the grant.
+  if (!COUNT_MODES.includes(triggers.every_n_messages.count)) {
+    triggers.every_n_messages.count = 'all'
+  }
+  const selfToggle = Array.isArray(r.self_toggle)
+    ? TOGGLEABLE.filter((name) => (r.self_toggle as unknown[]).includes(name))
+    : []
 
   // Everything this module does not model is a designer-written key (`soft_bounds`,
   // R15.08) that the editor cannot show and must not drop: this result is what the
@@ -181,5 +199,6 @@ export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
     triggers,
     allow_self_open: (r.allow_self_open as boolean) ?? DEFAULT_WAKEUP.allow_self_open,
     refresh_every_hours: (r.refresh_every_hours as number) ?? DEFAULT_WAKEUP.refresh_every_hours,
+    self_toggle: selfToggle,
   }
 }

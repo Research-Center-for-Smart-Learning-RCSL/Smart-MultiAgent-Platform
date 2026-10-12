@@ -10,7 +10,7 @@ import enum
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from shared_kernel.type_guards import is_plain_int
 
@@ -178,10 +178,37 @@ def _tolerant_bool(value: Any) -> bool:
     return value if isinstance(value, bool) else False
 
 
+# [R15.01]: "all" counts every room message, agents' included; "human" counts only
+# users and guests, so `n` means what a facilitator designer usually intends.
+CountMode = Literal["all", "human"]
+ToggleableTrigger = Literal["every_n_messages", "silence_minutes"]
+EVERY_N_COUNT_MODES: Final[frozenset[str]] = frozenset({"all", "human"})
+
+# [R15.06]: the two triggers an agent may switch itself, when its designer lists
+# them in `self_toggle`. `call_only` is never one: it decides who may call the
+# agent, not when it speaks.
+SELF_TOGGLEABLE_TRIGGERS: Final[frozenset[str]] = frozenset({"every_n_messages", "silence_minutes"})
+
+
+def _tolerant_count(value: Any) -> CountMode:
+    """An unknown counting mode resolves to "all", today's behaviour, never to a
+    mode the designer did not choose."""
+    return "human" if value == "human" else "all"
+
+
+def _tolerant_toggles(value: Any) -> frozenset[ToggleableTrigger]:
+    """Only known toggleable trigger names survive; anything else grants nothing."""
+    if not isinstance(value, list):
+        return frozenset()
+    known: tuple[ToggleableTrigger, ...] = ("every_n_messages", "silence_minutes")
+    return frozenset(name for name in known if name in value)
+
+
 @dataclass(frozen=True, slots=True)
 class EveryNMessagesTrigger:
     enabled: bool = False
     n: int = 3
+    count: CountMode = "all"
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +256,7 @@ class WakeupConfig:
     allow_self_open: bool = False
     refresh_every_hours: int = 24
     soft_bounds: WakeupSoftBounds | None = None
+    self_toggle: frozenset[ToggleableTrigger] = frozenset()
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> WakeupConfig:
@@ -258,6 +286,7 @@ class WakeupConfig:
                 every_n_messages=EveryNMessagesTrigger(
                     enabled=_tolerant_bool(enm.get("enabled", False)),
                     n=clamp(_tolerant_int(enm.get("n", 3)), N_MIN, N_MAX),
+                    count=_tolerant_count(enm.get("count", "all")),
                 ),
                 silence_minutes=SilenceMinutesTrigger(
                     enabled=_tolerant_bool(sm.get("enabled", False)),
@@ -292,6 +321,7 @@ class WakeupConfig:
                 default=24,
             ),
             soft_bounds=soft_bounds,
+            self_toggle=_tolerant_toggles(raw.get("self_toggle")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -300,6 +330,7 @@ class WakeupConfig:
                 "every_n_messages": {
                     "enabled": self.triggers.every_n_messages.enabled,
                     "n": self.triggers.every_n_messages.n,
+                    "count": self.triggers.every_n_messages.count,
                 },
                 "silence_minutes": {
                     "enabled": self.triggers.silence_minutes.enabled,
@@ -314,6 +345,8 @@ class WakeupConfig:
             },
             "allow_self_open": self.allow_self_open,
             "refresh_every_hours": self.refresh_every_hours,
+            # Sorted so the stored JSON does not churn between writes.
+            "self_toggle": sorted(self.self_toggle),
         }
         if self.soft_bounds is not None:
             value["soft_bounds"] = {

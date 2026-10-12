@@ -136,6 +136,7 @@ class OrchestrationFacade:
         sender_agent_id: uuid.UUID | None = None,
         agent_ids: list[uuid.UUID],
         observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
+        sender_is_human: bool | None = None,
     ) -> list[uuid.UUID]:
         return await self._wakeup.on_message_created(
             room_id=room_id,
@@ -143,6 +144,7 @@ class OrchestrationFacade:
             sender_agent_id=sender_agent_id,
             agent_ids=agent_ids,
             observer_agent_ids=observer_agent_ids,
+            sender_is_human=sender_is_human,
         )
 
     async def on_users_present(
@@ -179,12 +181,16 @@ class OrchestrationFacade:
         agent_id: uuid.UUID,
         every_n_messages: int | None = None,
         silence_minutes: int | None = None,
+        every_n_messages_enabled: bool | None = None,
+        silence_minutes_enabled: bool | None = None,
         actor_agent_id: uuid.UUID | None = None,
     ) -> WakeupConfig:
         return await self._wakeup.update_wakeup(
             agent_id=agent_id,
             every_n_messages=every_n_messages,
             silence_minutes=silence_minutes,
+            every_n_messages_enabled=every_n_messages_enabled,
+            silence_minutes_enabled=silence_minutes_enabled,
             actor_agent_id=actor_agent_id,
         )
 

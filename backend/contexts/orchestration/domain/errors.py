@@ -63,6 +63,14 @@ class WakeupFieldReadonly(OrchestrationError):
     code = "orchestration/wakeup-field-readonly"
 
 
+class WakeupToggleNotAllowed(OrchestrationError):
+    """Agent tried to switch a trigger its designer did not allow it to (R15.06a):
+    one not in `self_toggle`, any toggle while `call_only` is on, or one that
+    would leave every trigger off."""
+
+    code = "orchestration/wakeup-toggle-not-allowed"
+
+
 class InstructLoopDetected(OrchestrationError):
     """Instruct chain contains a cycle (R15.16 rule 1)."""
 
@@ -124,4 +132,5 @@ __all__ = [
     "SubagentDepthExceeded",
     "WakeupClampApplied",
     "WakeupFieldReadonly",
+    "WakeupToggleNotAllowed",
 ]

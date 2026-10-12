@@ -245,7 +245,11 @@ async def _dispatch_release(
         except Exception:
             _log.error("realtime publish failed for released observation %s", msg.id, exc_info=True)
         try:
-            fired = await evaluate_message_wakeups(db, chatroom_id=chatroom_id, sender_is_user=True)
+            # Resets autostop like a user message, but an agent wrote it: it does
+            # not count for agents configured to count human messages ([R15.01]).
+            fired = await evaluate_message_wakeups(
+                db, chatroom_id=chatroom_id, sender_is_user=True, sender_is_human=False
+            )
             for agent_id in fired:
                 await enqueue(
                     "wakeup_agent", str(agent_id), str(chatroom_id), "every_n_messages", str(msg.id)

@@ -323,3 +323,33 @@ async def test_typing_keys_are_not_swept_by_the_stale_presence_scrub(fake_redis:
 
     assert (removed, emptied) == (0, set())
     assert f"ws:typing:{room}:{user}" in fake_redis.sets
+
+
+async def test_composing_lasts_for_the_stamps_lifetime(monkeypatch) -> None:
+    """[R15.02]: the window is the stamp's TTL, on Redis's clock rather than either host's."""
+    import contexts.conversation.infrastructure.presence as presence_mod
+
+    class _KV:
+        def __init__(self) -> None:
+            self.ttl: dict[str, int | None] = {}
+
+        async def set(self, key: str, value: str, ex: int | None = None) -> None:
+            self.ttl[key] = ex
+
+        async def exists(self, key: str) -> int:
+            return int(key in self.ttl)
+
+        def expire_all(self) -> None:
+            self.ttl.clear()
+
+    kv = _KV()
+    monkeypatch.setattr(presence_mod, "get_redis", lambda: kv)
+    tracker = presence_mod.PresenceTracker()
+    room = uuid.uuid4()
+
+    assert await tracker.composing_recently(room) is False
+    await tracker.note_composing(room_id=room)
+    assert await tracker.composing_recently(room) is True
+    assert list(kv.ttl.values()) == [presence_mod.COMPOSING_WINDOW_SECONDS]
+    kv.expire_all()
+    assert await tracker.composing_recently(room) is False

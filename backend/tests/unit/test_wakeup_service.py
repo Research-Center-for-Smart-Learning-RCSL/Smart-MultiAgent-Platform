@@ -34,11 +34,15 @@ def _silence_config(*, allow_self_open: bool) -> dict:
     }
 
 
-def _make_service(*, agent: SimpleNamespace, room_members: list[uuid.UUID]) -> WakeupService:
+def _make_service(
+    *, agent: SimpleNamespace, room_members: list[uuid.UUID], composing: bool = False
+) -> WakeupService:
     svc = WakeupService.__new__(WakeupService)
     svc._db = None  # type: ignore[attr-defined]
     svc._agents_facade = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
-    svc._presence = SimpleNamespace(list_room=_async_return(room_members))  # type: ignore[attr-defined]
+    svc._presence = SimpleNamespace(  # type: ignore[attr-defined]
+        list_room=_async_return(room_members), composing_recently=_async_return(composing)
+    )
     return svc
 
 
@@ -437,6 +441,10 @@ def _stub_every_n_state(monkeypatch) -> None:
         "contexts.orchestration.application.wakeup_service.wakeup_state.increment_message_count",
         _async_return(1),
     )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.pop_fire_due",
+        _async_return(False),
+    )
 
 
 async def test_observer_every_n_fires_with_empty_presence_and_no_gated_bell(monkeypatch) -> None:
@@ -486,3 +494,188 @@ async def test_normal_every_n_still_gated_with_bell_when_room_empty(monkeypatch)
 
     assert woken == []
     assert bells == [agent.id]
+
+
+# ---------------------------------------------------------------------------
+# Counting mode and deferred firings ([R15.01], [R15.01a])
+# ---------------------------------------------------------------------------
+
+
+def _counting_state(monkeypatch) -> dict:
+    """An in-memory stand-in for the counter and the due flag."""
+    state: dict = {"count": 0, "due": False}
+
+    async def _incr(*_a, **_k):
+        state["count"] += 1
+        return state["count"]
+
+    async def _set_due(*_a, **_k):
+        state["due"] = True
+
+    async def _pop_due(*_a, **_k):
+        was, state["due"] = state["due"], False
+        return was
+
+    prefix = "contexts.orchestration.application.wakeup_service.wakeup_state."
+    monkeypatch.setattr(prefix + "touch_silence_timestamp", _async_return(None))
+    monkeypatch.setattr(prefix + "reset_autostop", _async_return(None))
+    monkeypatch.setattr(prefix + "increment_message_count", _incr)
+    monkeypatch.setattr(prefix + "set_fire_due", _set_due)
+    monkeypatch.setattr(prefix + "pop_fire_due", _pop_due)
+    return state
+
+
+def _counting_agent(*, n: int, count: str | None) -> SimpleNamespace:
+    trigger: dict = {"enabled": True, "n": n}
+    if count is not None:
+        trigger["count"] = count
+    return _agent(wakeup_config={"triggers": {"every_n_messages": trigger}, "allow_self_open": True})
+
+
+async def _send(svc, agent, *, human: bool | None = None, user: bool = True, author=None) -> bool:
+    kwargs = {} if human is None else {"sender_is_human": human}
+    woken = await svc.on_message_created(
+        room_id=uuid.uuid4(),
+        sender_is_user=user,
+        sender_agent_id=author,
+        agent_ids=[agent.id],
+        **kwargs,
+    )
+    return agent.id in woken
+
+
+async def test_human_count_ignores_agent_messages(monkeypatch) -> None:
+    """C AC-1: three human messages fire, however many agent messages fall between."""
+    agent = _counting_agent(n=3, count="human")
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    _counting_state(monkeypatch)
+    peer = uuid.uuid4()
+
+    fired = [
+        await _send(svc, agent),
+        await _send(svc, agent, user=False, author=peer),
+        await _send(svc, agent, user=False, author=peer),
+        await _send(svc, agent),
+        await _send(svc, agent, user=False, author=agent.id),
+        await _send(svc, agent),
+    ]
+
+    assert fired == [False, False, False, False, False, True]
+
+
+async def test_human_count_ignores_a_released_observation(monkeypatch) -> None:
+    """C AC-2: it resets autostop like a user message but an agent wrote it."""
+    agent = _counting_agent(n=1, count="human")
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    state = _counting_state(monkeypatch)
+
+    assert await _send(svc, agent, user=True, human=False) is False
+    assert state["count"] == 0
+
+
+async def test_all_count_is_unchanged_when_the_key_is_absent(monkeypatch) -> None:
+    """C AC-3: agents written before the option keep counting every message."""
+    agent = _counting_agent(n=2, count=None)
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    _counting_state(monkeypatch)
+
+    fired = [await _send(svc, agent), await _send(svc, agent, user=False, author=uuid.uuid4())]
+
+    assert fired == [False, True]
+
+
+async def test_a_firing_on_the_agents_own_message_is_deferred_not_dropped(monkeypatch) -> None:
+    """C AC-3 / [R15.01a]: before, this firing was silently lost."""
+    agent = _counting_agent(n=2, count="all")
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    state = _counting_state(monkeypatch)
+
+    first = await _send(svc, agent)
+    own = await _send(svc, agent, user=False, author=agent.id)
+    assert (first, own, state["due"]) == (False, False, True)
+
+    assert await _send(svc, agent) is True
+    assert state["due"] is False
+
+
+# ---------------------------------------------------------------------------
+# Composing is room activity ([R15.02])
+# ---------------------------------------------------------------------------
+
+
+async def test_recent_typing_rearms_instead_of_firing(monkeypatch) -> None:
+    """C AC-10a: a student pausing mid-sentence is not a lull."""
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()], composing=True)
+    _stub_stale_but_ready_silence_state(monkeypatch)
+    touched: list[bool] = []
+
+    async def _touch(*_a, **_k):
+        touched.append(True)
+
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp", _touch
+    )
+
+    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4()) is False
+    assert touched == [True]
+
+
+async def test_an_observer_also_waits_for_composing(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
+    svc = _make_service(agent=agent, room_members=[], composing=True)
+    _stub_stale_but_ready_silence_state(monkeypatch)
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
+        _async_return(None),
+    )
+
+    assert (
+        await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True) is False
+    )
+
+
+async def test_without_recent_typing_the_lull_fires(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()], composing=False)
+    _stub_stale_but_ready_silence_state(monkeypatch)
+
+    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4()) is True
+
+
+# ---------------------------------------------------------------------------
+# Parsing the new keys
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_count_and_toggle_values_resolve_to_the_safe_default() -> None:
+    cfg = WakeupConfig.from_dict(
+        {
+            "triggers": {"every_n_messages": {"enabled": True, "n": 2, "count": "robots"}},
+            "self_toggle": ["silence_minutes", "call_only", 7],
+        }
+    )
+
+    assert cfg.triggers.every_n_messages.count == "all"
+    assert cfg.self_toggle == frozenset({"silence_minutes"})
+    assert cfg.to_dict()["self_toggle"] == ["silence_minutes"]
+    assert cfg.to_dict()["triggers"]["every_n_messages"]["count"] == "all"
+
+
+async def test_a_deferred_firing_never_fires_twice(monkeypatch) -> None:
+    """A message that is due anyway also consumes a pending deferral; before, the
+    flag survived it and the next message fired a second time."""
+    agent = _counting_agent(n=2, count="all")
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    state = _counting_state(monkeypatch)
+
+    fired = [
+        await _send(svc, agent),  # 1
+        await _send(svc, agent, user=False, author=agent.id),  # 2: own, deferred
+        await _send(svc, agent, user=False, author=agent.id),  # 3: own
+        await _send(svc, agent),  # 4: due anyway, and takes the deferral with it
+        await _send(svc, agent),  # 5
+    ]
+
+    assert fired == [False, False, False, True, False]
+    assert state["due"] is False

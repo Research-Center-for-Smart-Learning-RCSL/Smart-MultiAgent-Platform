@@ -9,9 +9,9 @@ import {
   ClockIcon,
   Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
-import { SInput, SToggle } from '@shared/ui'
+import { SInput, SSelect, SToggle } from '@shared/ui'
 import { useCloneModel } from '@shared/composables'
-import type { WakeupConfig } from '@shared/types/workflow'
+import type { WakeupConfig, WakeupToggleableTrigger } from '@shared/types/workflow'
 
 const { t } = useI18n()
 
@@ -120,6 +120,27 @@ function onRefreshHours(v: string | number): void {
   local.refresh_every_hours = clampRange(v, 1, REFRESH_HOURS_MAX)
   emitUpdate()
 }
+
+const countOptions = computed(() => [
+  { value: 'all', label: t('app.wakeup.countAll') },
+  { value: 'human', label: t('app.wakeup.countHuman') },
+])
+function onCount(v: string | number): void {
+  local.triggers.every_n_messages.count = v === 'human' ? 'human' : 'all'
+  emitUpdate()
+}
+
+// R15.06: the designer's grant, not the trigger's state, so it is shown whether
+// or not the trigger is on. Meaningless in call mode, where the server refuses
+// every toggle.
+function allowsSelfToggle(name: WakeupToggleableTrigger): boolean {
+  return local.self_toggle.includes(name)
+}
+function onSelfToggle(name: WakeupToggleableTrigger, allowed: boolean): void {
+  const rest = local.self_toggle.filter((n) => n !== name)
+  local.self_toggle = allowed ? [...rest, name] : rest
+  emitUpdate()
+}
 </script>
 
 <template>
@@ -224,6 +245,24 @@ function onRefreshHours(v: string | number): void {
               <span class="wakeup-field__suffix">{{ t('app.wakeup.suffixMessages') }}</span>
             </div>
           </div>
+          <div class="wakeup-field">
+            <label
+              :for="fid('everyn-count')"
+              class="wakeup-field__label"
+            >{{ t('app.wakeup.countLabel') }}</label>
+            <div class="wakeup-field__control wakeup-field__control--wide">
+              <SSelect
+                :id="fid('everyn-count')"
+                :options="countOptions"
+                :model-value="local.triggers.every_n_messages.count"
+                :disabled="disabled"
+                @update:model-value="onCount"
+              />
+            </div>
+          </div>
+          <p class="wakeup-field__help">
+            {{ t('app.wakeup.countHelp') }}
+          </p>
         </div>
       </section>
 
@@ -356,6 +395,33 @@ function onRefreshHours(v: string | number): void {
              suppressed in an empty room. -->
         <p class="wakeup-field__help">
           {{ t('app.wakeup.allowSelfOpenHelp') }}
+        </p>
+        <div class="wakeup-inline-toggle">
+          <SToggle
+            :id="fid('selftoggle-everyn')"
+            :model-value="allowsSelfToggle('every_n_messages')"
+            :disabled="disabled || mode === 'call'"
+            @update:model-value="(v: boolean) => onSelfToggle('every_n_messages', v)"
+          />
+          <label
+            :for="fid('selftoggle-everyn')"
+            class="wakeup-inline-toggle__label"
+          >{{ t('app.wakeup.selfToggleEveryNLabel') }}</label>
+        </div>
+        <div class="wakeup-inline-toggle">
+          <SToggle
+            :id="fid('selftoggle-silence')"
+            :model-value="allowsSelfToggle('silence_minutes')"
+            :disabled="disabled || mode === 'call'"
+            @update:model-value="(v: boolean) => onSelfToggle('silence_minutes', v)"
+          />
+          <label
+            :for="fid('selftoggle-silence')"
+            class="wakeup-inline-toggle__label"
+          >{{ t('app.wakeup.selfToggleSilenceLabel') }}</label>
+        </div>
+        <p class="wakeup-field__help">
+          {{ t('app.wakeup.selfToggleHelp') }}
         </p>
         <div class="wakeup-field">
           <label
@@ -541,6 +607,10 @@ function onRefreshHours(v: string | number): void {
 
 .wakeup-field__control :deep(.s-input) {
   width: 80px;
+}
+
+.wakeup-field__control--wide :deep(.s-select) {
+  min-width: 11rem;
 }
 
 .wakeup-field__suffix {
