@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R11.12, R11.15, R11a.01]
 depends_on: []
@@ -170,17 +170,23 @@ Written first; each fails against current code for the stated reason.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the regression tests from §8 fail before the fix and pass after.
-- [ ] AC-2: a `knowmap_build` or `graphrag_build` job that finds the config busy is retried
+- [x] AC-1: the regression tests from §8 fail before the fix and pass after.
+  Before `3388bd80`, the unit busy tests failed with `GraphRagBuildBusy` propagating and
+  the registration test could not import the retry budget; the db-tier test failed with
+  arq `FailedJobs: 1 job failed GraphRagBuildBusy` (arq 0.28.0, the image version, in
+  `backend-web` on the compose stack). All pass after.
+- [x] AC-2: a `knowmap_build` or `graphrag_build` job that finds the config busy is retried
   by arq after a defer instead of recorded as failed, and a different exception is still
-  recorded as a failure.
-- [ ] AC-3: while a busy Knowledge Map job waits, the follow-up enqueue for the same
+  recorded as a failure. `test_knowmap_build_busy.py`, `test_graphrag_build_busy.py`.
+- [x] AC-3: while a busy Knowledge Map job waits, the follow-up enqueue for the same
   revision collapses onto it, and the second document of two back-to-back uploads is in
   the graph after both builds finish, with no manual rebuild (db-tier test, plus the §4
-  reproduction re-run on the compose stack).
-- [ ] AC-4: the retry budget covers the build timeout for both functions (registration
-  test).
-- [ ] AC-5: a busy Concept Map job does not set the `failed` build-state metric.
+  reproduction re-run on the compose stack). `test_knowmap_build_busy_retry.py`; live
+  re-run in D-3.
+- [x] AC-4: the retry budget covers the build timeout for both functions (registration
+  test). `test_busy_retry_budget_outlasts_the_build_timeout`; see D-1.
+- [x] AC-5: a busy Concept Map job does not set the `failed` build-state metric.
+  `test_busy_concept_map_build_does_not_report_failed`.
 - [ ] AC-6: backend lint, typecheck and tests (db tier included) pass in CI.
 
 ## 11. SRS Delta
@@ -190,7 +196,26 @@ per config at a time.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1. The registration test asserts `(max_tries - 1) * defer >= timeout`, not
+  `max_tries * defer`.** arq runs a try only while its number is at most `max_tries`
+  (arq 0.26.3 `worker.py:544-545`), so a job waits through `max_tries - 1` defers. The stricter
+  form is what §7 step 2's `ceil(timeout / defer) + 1` was chosen to satisfy:
+  61 tries, 60 defers of 30 s, 1800 s, equal to both build timeouts.
+- **D-2. The db-tier test skips the remaining defer by re-scoring the queued job.** It
+  sets the job's score in the queue's sorted set to now after the lock is released,
+  rather than waiting 30 s or patching the defer constant. The length of the defer plays
+  no part in what the test checks, and patching the constant would have made the test
+  error with `AttributeError` before the fix instead of failing for the documented reason.
+- **D-3. The §4 re-run's graph check does not discriminate on its own.** On the compose
+  stack (branch code, real arq worker, OpenAI boundary stubbed as in the blueprint's D-6),
+  two back-to-back uploads produced: job `knowmap:build:<cfg>:2` logged `busy, retrying
+  in 30s` and arq `retrying job in 30.00s`; build 1 finished and its follow-up for
+  revision 2 collapsed onto the waiting job (job `:2` ran exactly twice, `try=2` the
+  second time); `built_corpus_revision` reached 2 with no manual rebuild, and Redis held
+  only success results for both ids. In that run build 1's delta read already included
+  the second document, so the graph held its relation after build 1 as well. The evidence
+  for AC-3 is therefore the revision and arq-key trace plus the db-tier test, not the
+  graph contents.
 
 ## 13. Follow-ups
 
@@ -202,3 +227,9 @@ Appended by /build.
 - **FU-3.** `2026-07-14-knowmap-build-dedup-revision` D-7 states builds are "serialized by
   the per-config Redis lock"; that becomes true with this fix, and its AC-2 gains the live
   coverage its FU-3 deferred.
+- **FU-4.** `_run_build` sets the Concept Map gauge to `running` before the builder
+  reports busy (`app/workers/tasks/graphrag.py:411`), so a waiting job writes `running`
+  over the label. That is right while another build holds the lock, but when the busy
+  cause is a non-resumable state with no holder (`graphrag_builder.py:228-233`), the
+  gauge reads `running` instead of the state the config is stuck in until a build
+  settles it. Before this fix it read `failed`, which was equally wrong.

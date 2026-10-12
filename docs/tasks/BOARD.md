@@ -15,12 +15,6 @@ doesn't need a `depends_on` backfill).
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
-- `2026-10-12-graph-build-busy-retry` (bugfix, **approved 2026-10-12**, no SRS Delta) - `depends_on: []`.
-  Blueprint FU-10, observed live. A Knowledge Map or Concept Map build job that finds the
-  config's lock held fails `GraphRagBuildBusy` unretried. For a Knowledge Map, the
-  follow-up build for that revision then collides with the failed job's retained arq
-  result, leaving a document uploaded mid-build out of the graph for up to an hour. Fix:
-  arq `Retry` with a budget covering the build timeout.
 - `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor, **approved 2026-10-12**, no SRS Delta) -
   `depends_on: []`. Blueprint D-1, release A of three:
   - Dual-write the Neo4j relation evidence as `evidence_refs` and `evidence_msg_ids`,
@@ -30,8 +24,8 @@ doesn't need a `depends_on` backfill).
   - New operator command `python -m smap.maintenance neo4j-evidence-refs`: a batched
     backfill under each config's lock, dry-run until armed.
 
-Nothing blocking; these can start in any order relative to each other, including in
-parallel.
+Nothing blocking. `2026-10-12-graph-build-busy-retry` from the same close-out is In
+progress.
 
 ### From the 2026-08-30 FU consolidation
 
@@ -772,6 +766,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-12-graph-build-busy-retry` (bugfix), on branch `fix/graph-build-busy-retry`.
+  - **Fix.** A `knowmap_build` or `graphrag_build` job that finds the config lock held
+    raises arq `Retry(defer=30 s)` instead of failing, within a budget of 61 tries that
+    outlasts the 1800 s build timeout.
+  - **Verification.** AC-1..AC-5 are verified, including a db-tier test on a real arq
+    worker and the §4 reproduction re-run on the compose stack (D-3). AC-6 waits on CI.
+  - **Unblocking.** `2026-10-12-graphrag-phase5b-member-filter` lists this slug but also
+    needs `2026-10-12-graphrag-phase5a-evidence-refs-expand`, so it stays Blocked.
 
 - (implemented 2026-10-11) `2026-10-07-display-name-validation`, PR #250 from
   `fix/display-name-validation`.
