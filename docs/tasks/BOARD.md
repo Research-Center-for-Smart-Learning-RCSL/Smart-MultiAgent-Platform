@@ -24,8 +24,8 @@ doesn't need a `depends_on` backfill).
   - New operator command `python -m smap.maintenance neo4j-evidence-refs`: a batched
     backfill under each config's lock, dry-run until armed.
 
-Nothing blocking. `2026-10-12-graph-build-busy-retry` from the same close-out is In
-progress.
+Nothing blocking. `2026-10-12-graph-build-busy-retry` from the same close-out is
+implemented.
 
 ### From the 2026-08-30 FU consolidation
 
@@ -767,13 +767,16 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-12-graph-build-busy-retry` (bugfix), on branch `fix/graph-build-busy-retry`.
+- (implemented 2026-10-12) `2026-10-12-graph-build-busy-retry` (bugfix), PR #253 from
+  `fix/graph-build-busy-retry`.
   - **Fix.** A `knowmap_build` or `graphrag_build` job that finds the config lock held
     raises arq `Retry(defer=30 s)` instead of failing, within a budget that outlasts the
     1800 s build timeout. Busy tries are counted apart, so crash re-runs stay at 5 (D-4,
     from `/code-review`).
   - **Verification.** AC-1..AC-5 are verified, including a db-tier test on a real arq
-    worker and the §4 reproduction re-run on the compose stack (D-3). AC-6 waits on CI.
+    worker and the §4 reproduction re-run on the compose stack (D-3). AC-6: CI green at
+    `99568e22`.
+  - **Follow-ups.** FU-1..FU-6 are in the dossier.
   - **Unblocking.** `2026-10-12-graphrag-phase5b-member-filter` lists this slug but also
     needs `2026-10-12-graphrag-phase5a-evidence-refs-expand`, so it stays Blocked.
 

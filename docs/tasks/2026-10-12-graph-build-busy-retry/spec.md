@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-10-12
 requirements: [R11.12, R11.15, R11a.01]
 depends_on: []
@@ -187,7 +187,10 @@ Written first; each fails against current code for the stated reason.
   test). `test_busy_retry_budget_outlasts_the_build_timeout`; see D-1.
 - [x] AC-5: a busy Concept Map job does not set the `failed` build-state metric.
   `test_busy_concept_map_build_does_not_report_failed`.
-- [ ] AC-6: backend lint, typecheck and tests (db tier included) pass in CI.
+- [x] AC-6: backend lint, typecheck and tests (db tier included) pass in CI. Run
+  38192988071 at `99568e22`. `frontend-csp-font` timed out waiting for the login form
+  on the first attempt; this diff touches no frontend or nginx file, and the job passed
+  on rerun.
 
 ## 11. SRS Delta
 
