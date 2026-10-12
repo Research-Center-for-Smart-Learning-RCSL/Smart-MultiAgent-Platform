@@ -60,7 +60,12 @@ def rebuild_job_id(config_id: uuid.UUID, run_stamp: int) -> str:
 
 
 async def _count_messages(db: Any, member_ids: list[uuid.UUID]) -> int:
-    """Messages a full build of the group would read: its live members' rooms."""
+    """Messages a full build of the group would read: its live members' rooms.
+
+    Mirrors the agent_group scope of ``_resolve_delta_scope`` in
+    ``app/workers/tasks/graphrag.py``, the source of truth; a change there
+    changes what this estimate should count.
+    """
     if not member_ids:
         return 0
     from contexts.conversation.infrastructure import tables as conv

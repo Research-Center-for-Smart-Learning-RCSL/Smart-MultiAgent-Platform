@@ -130,17 +130,15 @@ class _DeltaScope:
 
     Every fragment is a compile-time constant chosen by :func:`_resolve_delta_scope`
     per ``owner_kind`` — never a data value — so interpolating them into the query
-    text carries no injection surface (the only bound values are ``params`` /
-    ``expanding``). ``empty`` short-circuits a scope that can match nothing (an
-    agent_group with no live members), so the loader yields no windows.
+    text carries no injection surface (the only bound values are ``params``).
+    ``empty`` short-circuits a scope that can match nothing (an agent_group with
+    no live members), so the loader yields no windows.
     """
 
     select_source: str  # SQL for the source_member_ids uuid[] column, or "NULL"
     extra_join: str  # extra JOIN after chatrooms, or ""
     owner_where: str  # owner predicate on the joined rows
-    order_extra: str  # ORDER BY tiebreak suffix, or ""
     params: dict[str, Any]
-    expanding: tuple[str, ...] = ()
     empty: bool = False
 
 
@@ -214,11 +212,9 @@ class _DbDeltaLoader:
                 "  AND cr.deleted_at IS NULL "
                 "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
                 f"{cursor_clause}"
-                f"ORDER BY m.created_at, m.id{scope.order_extra} "
+                "ORDER BY m.created_at, m.id "
                 "LIMIT :batch_size"
             )
-            if scope.expanding:
-                stmt = stmt.bindparams(*[sa.bindparam(n, expanding=True) for n in scope.expanding])
             async with sm() as db:
                 rows = (await db.execute(stmt, params)).all()
             for r in rows:
@@ -280,10 +276,8 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
                 "           ORDER BY cam.agent_id) END"
             ),
             extra_join="JOIN chatroom_agents ca ON ca.chatroom_id = cr.id",
-            owner_where="ca.agent_id IN :member_ids",
-            order_extra="",
-            params={"member_ids": [str(a) for a in members], "member_arr": members},
-            expanding=("member_ids",),
+            owner_where="ca.agent_id = ANY(CAST(:member_arr AS uuid[]))",
+            params={"member_arr": members},
             empty=not members,
         )
     if cfg.owner_kind == "chatroom" and cfg.owner_chatroom_id is not None:
@@ -291,7 +285,6 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
             select_source="NULL",
             extra_join="",
             owner_where="cr.id = :chatroom_id",
-            order_extra="",
             params={"chatroom_id": str(cfg.owner_chatroom_id)},
         )
     if cfg.owner_kind == "workspace" and cfg.owner_workspace_id is not None:
@@ -299,12 +292,9 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
             select_source="NULL",
             extra_join="",
             owner_where="cr.workspace_id = :workspace_id",
-            order_extra="",
             params={"workspace_id": str(cfg.owner_workspace_id)},
         )
-    return _DeltaScope(
-        select_source="NULL", extra_join="", owner_where="false", order_extra="", params={}, empty=True
-    )
+    return _DeltaScope(select_source="NULL", extra_join="", owner_where="false", params={}, empty=True)
 
 
 def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:

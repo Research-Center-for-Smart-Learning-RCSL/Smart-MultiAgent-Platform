@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
-from contexts.agent_groups.domain.models import AgentGroup
+from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
@@ -77,17 +77,17 @@ class ReadMembersIn(BaseModel):
     member_ids: list[uuid.UUID] | None = Field(..., min_length=1, max_length=500)
 
 
+def _read_out(member: AgentGroupMember) -> AgentGroupMemberReadOut:
+    reads = member.read_member_ids
+    return AgentGroupMemberReadOut(
+        agent_id=member.agent_id, read_member_ids=None if reads is None else list(reads)
+    )
+
+
 async def _members_out(facade: AgentGroupFacade, group_id: uuid.UUID) -> AgentGroupMembersOut:
     members = await facade.list_members_with_reads(group_id)
     return AgentGroupMembersOut(
-        members=[m.agent_id for m in members],
-        read_members=[
-            AgentGroupMemberReadOut(
-                agent_id=m.agent_id,
-                read_member_ids=None if m.read_member_ids is None else list(m.read_member_ids),
-            )
-            for m in members
-        ],
+        members=[m.agent_id for m in members], read_members=[_read_out(m) for m in members]
     )
 
 
@@ -330,10 +330,7 @@ async def set_read_members(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return AgentGroupMemberReadOut(
-        agent_id=member.agent_id,
-        read_member_ids=None if member.read_member_ids is None else list(member.read_member_ids),
-    )
+    return _read_out(member)
 
 
 @group_router.delete(

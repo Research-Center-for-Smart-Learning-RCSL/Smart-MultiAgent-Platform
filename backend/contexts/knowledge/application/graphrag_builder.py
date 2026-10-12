@@ -100,9 +100,13 @@ def attach_member_provenance(triple: Triple, msg_members: Mapping[str, Iterable[
     attributed to (all strings), built from the delta feed. A relation's
     provenance is the union over its evidence messages: a relation two members
     stated carries both, so a member-scoped retrieval filter returns each
-    member's true contributions. Derived only from message provenance — never
-    from LLM output. Returns the triple unchanged when no evidence resolves to a
-    member (a single-owner build, or a relation the extractor left evidence-less).
+    member's contributions. The member list per message comes from the delta
+    feed, but which messages count as a triple's evidence is the extractor's
+    output, checked only against the build's own messages; the read filter is
+    therefore a relevance boundary inside a group, not a confidentiality control
+    against a content author steering the extractor (dossier FU-5). Returns the
+    triple unchanged when no evidence resolves to a member (a single-owner
+    build, or a relation the extractor left evidence-less).
     """
     members = sorted(
         {member for ref in triple.evidence_refs if ref in msg_members for member in msg_members[ref]}
