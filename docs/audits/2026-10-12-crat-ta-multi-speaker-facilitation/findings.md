@@ -241,7 +241,7 @@ frontend rendering of agent replies; provider-specific behavior.
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | fix | `docs/tasks/2026-10-12-stale-reply-discard/` |
+| F-1 | fix (the agent re-checks its draft against new messages; the platform only detects and bounds) | `docs/tasks/2026-10-12-stale-reply-recheck/` |
 | F-2 | fix (platform behavior change, SRS delta) | `docs/tasks/2026-10-12-wakeup-human-count-and-trigger-toggle/` |
 | F-3 | fix in the pack now; platform toggle in the feature | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/`, `docs/tasks/2026-10-12-wakeup-human-count-and-trigger-toggle/` |
 | F-4 | fix | `docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/` |

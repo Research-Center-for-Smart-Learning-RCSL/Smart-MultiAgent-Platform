@@ -17,7 +17,7 @@ doesn't need a `depends_on` backfill).
 
 `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md` (13 findings from a
 classroom test in which the CRAT teacher agent lost control of a parallel discussion) spawned
-three dossiers. All are `draft` and `depends_on: []`. The discard and wake-up dossiers both edit
+three dossiers. All are `draft` and `depends_on: []`. The re-check and wake-up dossiers both edit
 `tool_registry.py` in disjoint regions (a new frozenset beside `BUILTIN_TOOL_NAMES` vs the
 `update_wakeup` tool); not sequenced, whoever builds second rebases.
 
@@ -26,10 +26,11 @@ three dossiers. All are `draft` and `depends_on: []`. The discard and wake-up do
   empty-reply rule, a one-message three-part turn shape, and a silence escalation chain built
   from the teacher's and peer's timers. Pack JSON and tests only. Existing installs are not
   updated by reinstalling.
-- `2026-10-12-stale-reply-discard` (bugfix, **draft**) - a turn discards its reply when a
-  coalesced follow-up is already queued and the turn ran no state-changing tool; at most one
-  consecutive discard. Covers observer turns. SRS delta: [R13.27] and [R28.13] amended,
-  [R13.72] added.
+- `2026-10-12-stale-reply-recheck` (bugfix, **draft**) - when a coalesced follow-up is already
+  queued and the turn ran no state-changing tool, the agent is shown its unposted draft and the
+  messages that arrived meanwhile, and decides once to post it, revise it or stay silent; the
+  re-check consumes the follow-up. Covers observer turns. SRS delta: [R13.27] and [R28.13]
+  amended, [R13.72] added.
 - `2026-10-12-wakeup-human-count-and-trigger-toggle` (feature, **draft**) - opt-in human-only
   `every_n_messages` counting, deferred instead of dropped own-message firings, and
   `update_wakeup` toggles limited to a designer-set `self_toggle` list. SRS delta: [R15.01] and

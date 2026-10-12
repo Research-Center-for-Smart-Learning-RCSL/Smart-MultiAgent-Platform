@@ -57,7 +57,7 @@ platform half of F-3.
 | Q-3 | Who may the agent toggle? | Only triggers listed in a designer-set `self_toggle`, default empty; never `call_only`; never into an inert config; every toggle audited. | User's choice. A prompt-injected message could otherwise switch on autonomous turns paid from the project's key, and `every_n_messages` has no round cap ([R15.03] bounds only silence). |
 | Q-4 | Is a released observation a human message in `human` mode? | No. | It is agent-authored; `observations.py:248` passes `sender_is_user=True` only to reset autostop ([R28.06]). |
 | Q-5 | Does a toggle survive the [R15.09] refresh? | No; the refresh restores the snapshot, toggles included. | Same contract as the numeric fields; the refresh exists to undo runtime drift. |
-| Q-6 | Dependencies on `2026-10-12-stale-reply-discard` or `2026-10-12-crat-pack-prompt-platform-alignment`? | None. | The discard dossier edits `tool_registry.py:119-147` (a new frozenset beside `BUILTIN_TOOL_NAMES`) and this one edits `:359-398` (the tool); disjoint regions, whoever builds second rebases. The pack dossier edits no platform code. |
+| Q-6 | Dependencies on `2026-10-12-stale-reply-recheck` or `2026-10-12-crat-pack-prompt-platform-alignment`? | None. | The re-check dossier edits `tool_registry.py:119-147` (a new frozenset beside `BUILTIN_TOOL_NAMES`) and this one edits `:359-398` (the tool); disjoint regions, whoever builds second rebases. The pack dossier edits no platform code. |
 
 ## 4. Current State
 

@@ -53,7 +53,7 @@ F-4, F-8, F-10, F-11, F-12 and F-13 (the prompt half of each).
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | Split the audit's work into one dossier or several? | Three: this pack fix, `2026-10-12-stale-reply-discard`, and `2026-10-12-wakeup-human-count-and-trigger-toggle`. | User's choice. This dossier must work on today's platform so it can be tested in class before either platform change lands. |
+| Q-1 | Split the audit's work into one dossier or several? | Three: this pack fix, `2026-10-12-stale-reply-recheck`, and `2026-10-12-wakeup-human-count-and-trigger-toggle`. | User's choice. This dossier must work on today's platform so it can be tested in class before either platform change lands. |
 | Q-2 | Should this depend on `2026-07-19-large-artifacts-silently-dropped` (in progress, edits `turn_engine.py`)? | No. | This dossier edits pack JSON and tests only. |
 | Q-3 | How does the teacher handle silence when `update_wakeup` cannot toggle triggers? | Ship both triggers enabled. `every_n_messages` stays at `n = 1`; `silence_minutes` is enabled with `t_minutes = 1` and `autostop_rounds = 2`. Stage changes adjust only `n`. | The only configuration under which every silence branch is reachable on today's platform ([R15.06]). See §7.2 for the timing chain this produces with the peer agent. |
 | Q-4 | How does the prompt keep the teacher from replying to every message with `n = 1`? | State explicitly that an empty reply posts nothing, and make "output nothing" the default outcome of a wake in steps B1 and C1 unless a listed condition holds. | `turn_engine.py:3140-3207` already treats an empty reply as a skip. |
@@ -70,7 +70,7 @@ human participants.
 1. Run step A to B1 (reveal three clues).
 2. All four participants post a candidate character within ten seconds.
 3. Observe: the teacher replies to the first message, then replies again (F-1 in the audit,
-   fixed by `2026-10-12-stale-reply-discard`), and the replies address individuals in turn.
+   fixed by `2026-10-12-stale-reply-recheck`), and the replies address individuals in turn.
 4. All participants stop posting for three minutes. Observe: the teacher never speaks (F-3).
 
 ## 5. Root Cause Analysis
