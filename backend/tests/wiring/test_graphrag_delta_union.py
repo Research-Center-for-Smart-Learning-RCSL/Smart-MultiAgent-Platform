@@ -3,8 +3,9 @@
 
 Exercises ``_resolve_delta_scope`` + ``_DbDeltaLoader`` against **real** Postgres:
 - agent_group — DISTINCT union of every member agent's room messages (AC-1), a
-  message co-present to two members ingested exactly once, each tagged with a
-  deterministic ``source_member_id`` (smallest member id sharing it, R11.22);
+  message co-present to two members ingested exactly once, each tagged with its
+  ``source_member_ids``: the author for a member agent's message, otherwise every
+  member bound to the room (Phase 5b, R11.22);
 - chatroom — that room's messages only, no member provenance;
 - workspace — every room in the workspace, no member provenance (WS2 scoping).
 """
@@ -135,24 +136,43 @@ async def test_agent_group_delta_is_distinct_union_with_provenance() -> None:
         m_shared = await msgs.create(
             chatroom_id=shared.id, sender_type=SenderType.USER, sender_id=env.user.id, content_md="shared"
         )
+        # Phase 5b (R11.22): a member agent's own message is attributed to its
+        # author alone, even in a room both members share.
+        by_a2 = await msgs.create(
+            chatroom_id=shared.id, sender_type=SenderType.AGENT, sender_id=a2, content_md="said by a2"
+        )
+        # An agent outside the group counts as "any other message": it goes to
+        # the members bound to the room, never to the outsider.
+        outsider = await _seed_agent(db, env.project.id, kg.id)
+        await agents_in_room.add(chatroom_id=shared.id, agent_id=outsider)
+        by_outsider = await msgs.create(
+            chatroom_id=shared.id, sender_type=SenderType.AGENT, sender_id=outsider, content_md="outsider"
+        )
         await db.commit()
 
         owner = _owner("agent_group", agent_group=gid)
         collected = await _collect(db, owner)
         by_id = {m.id: m for m in collected}
 
-        # AC-1: the co-present message is ingested exactly once.
-        assert len(collected) == 3
-        assert set(by_id) == {m1.id, m2.id, m_shared.id}
-        assert by_id[m1.id].source_member_id == a1
-        assert by_id[m2.id].source_member_id == a2
-        assert by_id[m_shared.id].source_member_id == min(a1, a2)
+        # AC-1 (Phase 2b): a co-present message is ingested exactly once.
+        assert len(collected) == 5
+        assert set(by_id) == {m1.id, m2.id, m_shared.id, by_a2.id, by_outsider.id}
+        # Phase 5b AC-1: provenance is the author for a member's message and every
+        # co-present member otherwise -- never the smallest id alone.
+        assert by_id[m1.id].source_member_ids == (a1,)
+        assert by_id[m2.id].source_member_ids == (a2,)
+        assert by_id[m_shared.id].source_member_ids == tuple(sorted((a1, a2)))
+        assert by_id[by_a2.id].source_member_ids == (a2,)
+        assert by_id[by_outsider.id].source_member_ids == tuple(sorted((a1, a2)))
 
-        # Removing a2 revokes its room feed on the next resolve (live membership).
+        # Removing a2 revokes its room feed on the next resolve (live membership),
+        # and it is no longer named as co-present or as an author.
         await ag.remove_member(group_id=gid, agent_id=a2)
         await db.commit()
-        remaining = await _collect(db, owner)
-        assert {m.id for m in remaining} == {m1.id, m_shared.id}
+        remaining = {m.id: m for m in await _collect(db, owner)}
+        assert set(remaining) == {m1.id, m_shared.id, by_a2.id, by_outsider.id}
+        assert remaining[m_shared.id].source_member_ids == (a1,)
+        assert remaining[by_a2.id].source_member_ids == (a1,)
 
 
 async def test_chatroom_and_workspace_scopes() -> None:
@@ -173,9 +193,9 @@ async def test_chatroom_and_workspace_scopes() -> None:
         # A chatroom owner ingests only its own room, with no member provenance.
         chat = await _collect(db, _owner("chatroom", chatroom=room_a.id))
         assert {m.id for m in chat} == {ma.id}
-        assert chat[0].source_member_id is None
+        assert chat[0].source_member_ids == ()
 
         # A workspace owner ingests every room in the workspace.
         ws = await _collect(db, _owner("workspace", workspace=env.workspace.id))
         assert {m.id for m in ws} == {ma.id, mb.id}
-        assert all(m.source_member_id is None for m in ws)
+        assert all(m.source_member_ids == () for m in ws)

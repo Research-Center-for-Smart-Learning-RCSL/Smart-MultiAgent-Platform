@@ -118,9 +118,10 @@ class _DbMsg:
     # Phase 2b WS5 (R11.21) — the message's creation time, the source of the
     # relation's first_seen_at/last_seen_at (from messages, not LLM output).
     created_at: datetime
-    # Phase 2b (R11.22) — the agent_group member whose room feed surfaced this
-    # message; ``None`` for a single-owner / non-agent_group build.
-    source_member_id: uuid.UUID | None = None
+    # R11.22 — the agent_group members this message is attributed to: its author
+    # for a member agent's message, otherwise every member bound to its room.
+    # Empty for a chatroom- or workspace-owned build.
+    source_member_ids: tuple[uuid.UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,7 @@ class _DeltaScope:
     agent_group with no live members), so the loader yields no windows.
     """
 
-    select_source: str  # SQL for the source_member_id column ("ca.agent_id" | "NULL")
+    select_source: str  # SQL for the source_member_ids uuid[] column, or "NULL"
     extra_join: str  # extra JOIN after chatrooms, or ""
     owner_where: str  # owner predicate on the joined rows
     order_extra: str  # ORDER BY tiebreak suffix, or ""
@@ -151,9 +152,9 @@ class _DbDeltaLoader:
     :class:`_DeltaScope`: a ``chatroom`` owner ingests that room's messages, a
     ``workspace`` owner every room in the workspace, and an ``agent_group`` owner
     the DISTINCT union of its member agents' room messages — a message co-present
-    to two members ingested exactly once (AC-1) and tagged with a deterministic
-    ``source_member_id`` (the smallest member id sharing it) for relation
-    provenance (R11.22). Wide owners carry no member provenance (NULL).
+    to two members ingested exactly once (AC-1) and tagged with its
+    ``source_member_ids`` for relation provenance (R11.22, see
+    :func:`_resolve_delta_scope`). Wide owners carry no member provenance.
     """
 
     def __init__(self, *, scope: _DeltaScope) -> None:
@@ -197,15 +198,14 @@ class _DbDeltaLoader:
                 params["last_created_at"] = last_created_at
                 params["last_id"] = last_id
             # DISTINCT ON (m.created_at, m.id) collapses a message reachable via
-            # several members (a shared room) to one row; the agent_group scope's
-            # ORDER BY tiebreak on ca.agent_id makes the surviving row — and thus
-            # source_member_id — deterministically the smallest member id. All
-            # interpolated fragments come from the static _DeltaScope, so only
-            # bound params carry data.
+            # several members (a shared room) to one row. Its provenance is
+            # computed per message, not taken from the join row, so which row
+            # survives does not matter. All interpolated fragments come from the
+            # static _DeltaScope, so only bound params carry data.
             stmt = sa.text(
                 "SELECT DISTINCT ON (m.created_at, m.id) "  # noqa: S608
                 "m.id, m.sender_type AS role, m.content_md AS content, "
-                f"m.created_at, {scope.select_source} AS source_member_id "
+                f"m.created_at, {scope.select_source} AS source_member_ids "
                 "FROM messages m "
                 "JOIN chatrooms cr ON cr.id = m.chatroom_id "
                 f"{scope.extra_join} "
@@ -239,7 +239,7 @@ class _DbDeltaLoader:
                         role=r.role,
                         content=content,
                         created_at=r.created_at,
-                        source_member_id=r.source_member_id,
+                        source_member_ids=tuple(r.source_member_ids or ()),
                     )
                 )
                 window_tokens += tokens
@@ -257,7 +257,10 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
 
     - ``agent_group`` — the DISTINCT union of the group's **live** members' room
       messages (read fresh so a removed member drops out of the next build),
-      tagged with member provenance.
+      tagged with member provenance: ``[sender]`` when a live member agent wrote
+      the message, otherwise every live member bound to the message's room
+      (R11.22). A person's message is attributed to the members present for it,
+      and so is a message from an agent outside the group.
     - ``chatroom`` — that room's messages, no member provenance.
     - ``workspace`` — every (non-deleted) room in the workspace, no provenance.
 
@@ -267,11 +270,19 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
     if cfg.owner_kind == "agent_group" and cfg.owner_agent_group_id is not None:
         members = list(await AgentGroupRepository(db).list_member_agent_ids(cfg.owner_agent_group_id))
         return _DeltaScope(
-            select_source="ca.agent_id",
+            select_source=(
+                "CASE WHEN m.sender_type = 'agent' "
+                "      AND m.sender_id = ANY(CAST(:member_arr AS uuid[])) "
+                "THEN ARRAY[m.sender_id] "
+                "ELSE ARRAY(SELECT cam.agent_id FROM chatroom_agents cam "
+                "           WHERE cam.chatroom_id = m.chatroom_id "
+                "             AND cam.agent_id = ANY(CAST(:member_arr AS uuid[])) "
+                "           ORDER BY cam.agent_id) END"
+            ),
             extra_join="JOIN chatroom_agents ca ON ca.chatroom_id = cr.id",
             owner_where="ca.agent_id IN :member_ids",
-            order_extra=", ca.agent_id",
-            params={"member_ids": [str(a) for a in members]},
+            order_extra="",
+            params={"member_ids": [str(a) for a in members], "member_arr": members},
             expanding=("member_ids",),
             empty=not members,
         )

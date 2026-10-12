@@ -42,7 +42,7 @@ class _Msg:
     role: str
     content: str
     created_at: datetime = field(default_factory=lambda: datetime(2026, 1, 1, tzinfo=UTC))
-    source_member_id: uuid.UUID | None = None
+    source_member_ids: tuple[uuid.UUID, ...] = ()
 
 
 class FakeConfigStore:
@@ -678,7 +678,7 @@ async def test_build_tags_relations_with_source_member() -> None:
     member_id, msg_id = uuid.uuid4(), uuid.uuid4()
     neo4j = FakeNeo4j()
     # The extractor cites the member's message as evidence; provenance is derived
-    # from that message's source_member_id, never from the extractor output.
+    # from that message's source_member_ids, never from the extractor output.
     triples = [
         Triple(
             subject="alice",
@@ -688,7 +688,7 @@ async def test_build_tags_relations_with_source_member() -> None:
             evidence_refs=(str(msg_id),),
         )
     ]
-    window = [_Msg(id=msg_id, role="user", content="hi", source_member_id=member_id)]
+    window = [_Msg(id=msg_id, role="user", content="hi", source_member_ids=(member_id,))]
     builder = _provenance_builder(cfg=cfg, neo4j=neo4j, window=window, triples=triples)
 
     await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
@@ -698,7 +698,7 @@ async def test_build_tags_relations_with_source_member() -> None:
 
 @pytest.mark.asyncio
 async def test_build_leaves_relations_untagged_without_member_provenance() -> None:
-    # A single-owner feed (messages carry no source_member_id) must not invent
+    # A single-owner feed (messages carry no source_member_ids) must not invent
     # provenance — the relation stays untagged so nothing is mis-partitioned.
     cfg = _make_cfg()
     msg_id = uuid.uuid4()
@@ -712,7 +712,7 @@ async def test_build_leaves_relations_untagged_without_member_provenance() -> No
             evidence_refs=(str(msg_id),),
         )
     ]
-    window = [_Msg(id=msg_id, role="user", content="hi")]  # source_member_id=None
+    window = [_Msg(id=msg_id, role="user", content="hi")]  # source_member_ids=()
     builder = _provenance_builder(cfg=cfg, neo4j=neo4j, window=window, triples=triples)
 
     await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
