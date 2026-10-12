@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-12
 requirements: [R15.01, R15.02, R15.05a, R15.06, R15.07, R15.09]
 depends_on: []
@@ -244,10 +244,11 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
   `evaluate_silence_trigger` does not fire and re-arms the clock, for normal and observer
   bindings, even if `typing.stop` has since been sent; 60 s after the last `typing.start`, the
   trigger fires `t_minutes` after the last activity.
-- [ ] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
+- [x] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
 
-  (Open. The last complete backend unit run, before the audit fixes, was 11683 passed and 2
+  (Closed on PR #256 at `6473a237`: CI green, backend unit, db, integration and wiring tiers,
+  lint and typecheck, and the frontend test, lint, typecheck and e2e jobs. Before that: the last complete backend unit run, before the audit fixes, was 11683 passed and 2
   failed; both were exact-dict expectations in `test_agent_service.py` that now include the
   new `count` default, and pass. The run after the audit fixes was stopped by the host for low
   memory, not by a failure. Every module the change touches, 431 tests, passes; `ruff check .`,
