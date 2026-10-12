@@ -65,6 +65,7 @@
       "readsModeAll": "The whole group",
       "readsModeSome": "Only these members",
       "readsChooseOne": "Choose at least one member.",
+      "readsRemovedAgent": "a removed agent",
       "readsSaved": "Read setting saved.",
       "readsFailed": "Failed to save the read setting.",
       "removeConfirmEmpties": "Remove this agent from the group? {names} read only this agent's contributions and will read nothing from the group's Concept Map until you choose again."

@@ -362,6 +362,22 @@ D-1 to D-4 are the implementation choices named in that plan.
   - **Security:** no Critical or High. The one Medium (plausible) is FU-5, and the
     builder docstring that claimed provenance is "never from LLM output" was corrected.
     The three Hardening items are FU-4, FU-6 and FU-7.
+- **D-8. `/code-review` fixes.**
+  - **Deleted agents in a filter.** A filter naming a since-deleted agent made the
+    "Reads from" dialog unsaveable, since the backend refuses non-members. The dialog now
+    keeps only current members, and the row labels a deleted agent "a removed agent"
+    instead of its id. Covered by a component test.
+  - **Pruning on rebuild.** A full replace rebuild keeps only what it re-derives from
+    the rooms of the group's current live members, so it removes relations that came
+    only from other rooms. For a group with no live member it would have emptied the
+    map. The rebuild command now lists such maps and skips them, and runbook §3.2 states
+    the pruning.
+  - **Not changed:**
+    - Co-presence at build time is a non-goal (§2, FU-2).
+    - Replace builds keep the old confidence and timestamps (FU-11).
+    - The provenance subquery's per-row cost is FU-12.
+    - The cost estimate's duplicate scope and its N+1 are covered by D-7.
+    - Filters naming soft-deleted agents are FU-7.
 
 ## 16. Follow-ups
 
@@ -399,3 +415,12 @@ D-1 to D-4 are the implementation choices named in that plan.
   - `graphrag_repositories.py` is about 950 lines.
 - **FU-10.** `AgentGroupFacade.list_members` has no production caller left; both routes
   use `list_members_with_reads`.
+- **FU-11.** A replace build resets evidence and provenance per build, but the upsert
+  still keeps the higher of the old and new confidence and the earliest and latest
+  seen-at stamps (`neo4j_driver._build_upsert_cypher`). A full rebuild therefore keeps
+  ranking signals from evidence it no longer holds. This predates this dossier: the
+  Knowledge Map replace path behaves the same.
+- **FU-12.** The per-message provenance subquery is evaluated for every joined
+  `chatroom_agents` row before `DISTINCT ON` collapses them: O(messages x members in the
+  room) on a full rebuild of a large group. Distinct first, or compute room membership
+  once per room.

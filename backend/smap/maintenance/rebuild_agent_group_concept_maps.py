@@ -8,6 +8,11 @@ rewrites them, so a member read filter would act on misleading provenance. This
 command enqueues one full replace build per live agent_group map, which
 re-extracts its whole history.
 
+A replace build keeps only what it re-derives from the rooms of the group's
+current live members. Relations that came only from rooms no live member is
+bound to any more are removed, and a group with no live member would lose its
+whole map, so such maps are listed and skipped.
+
 Cost: every listed map re-extracts its history on the project's builder key. A
 dry run lists the maps with their message counts and enqueues nothing; it is
 armed by ``SMAP_REBUILD_AGENT_GROUP_CONCEPT_MAPS_ARMED`` (see
@@ -39,6 +44,7 @@ class GroupMap:
     config_id: uuid.UUID
     project_id: uuid.UUID
     agent_group_id: uuid.UUID
+    members: int
     messages: int
 
 
@@ -49,6 +55,9 @@ class RebuildReport:
     enqueued: int = 0
     deduped: int = 0
     failed: tuple[uuid.UUID, ...] = ()
+    # Maps whose group has no live member: a replace build would read no
+    # message and so prune the whole map, so they are never enqueued.
+    skipped_empty: tuple[uuid.UUID, ...] = ()
 
 
 def is_armed() -> bool:
@@ -103,6 +112,7 @@ async def list_group_maps() -> tuple[GroupMap, ...]:
                     config_id=cfg.id,
                     project_id=cfg.project_id,
                     agent_group_id=cfg.owner_agent_group_id,
+                    members=len(members),
                     messages=await _count_messages(db, members),
                 )
             )
@@ -111,8 +121,9 @@ async def list_group_maps() -> tuple[GroupMap, ...]:
 
 async def run(*, pool: Any = None) -> RebuildReport:
     maps = await list_group_maps()
+    skipped = tuple(gm.config_id for gm in maps if gm.members == 0)
     if not is_armed():
-        return RebuildReport(dry_run=True, maps=maps)
+        return RebuildReport(dry_run=True, maps=maps, skipped_empty=skipped)
 
     owned = pool is None
     if pool is None:
@@ -126,6 +137,8 @@ async def run(*, pool: Any = None) -> RebuildReport:
     failed: list[uuid.UUID] = []
     try:
         for gm in maps:
+            if gm.members == 0:
+                continue
             try:
                 job = await pool.enqueue_job(
                     "graphrag_build",
@@ -145,7 +158,14 @@ async def run(*, pool: Any = None) -> RebuildReport:
     finally:
         if owned:
             await pool.close(close_connection_pool=True)
-    return RebuildReport(dry_run=False, maps=maps, enqueued=enqueued, deduped=deduped, failed=tuple(failed))
+    return RebuildReport(
+        dry_run=False,
+        maps=maps,
+        enqueued=enqueued,
+        deduped=deduped,
+        failed=tuple(failed),
+        skipped_empty=skipped,
+    )
 
 
 __all__ = ["ARMED_ENV", "GroupMap", "RebuildReport", "is_armed", "rebuild_job_id", "run"]

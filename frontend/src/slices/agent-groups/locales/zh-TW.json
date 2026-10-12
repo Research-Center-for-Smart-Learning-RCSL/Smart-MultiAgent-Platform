@@ -65,6 +65,7 @@
       "readsModeAll": "整個群組",
       "readsModeSome": "只讀取以下成員",
       "readsChooseOne": "請至少選擇一位成員。",
+      "readsRemovedAgent": "已刪除的 Agent",
       "readsSaved": "已更新讀取範圍。",
       "readsFailed": "更新讀取範圍失敗。",
       "removeConfirmEmpties": "將此 AI Agent 從群組移除？{names} 只讀取此 Agent 的內容，移除後在你重新選擇之前將不會從群組概念圖讀取任何內容。"

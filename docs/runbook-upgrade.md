@@ -239,6 +239,11 @@ A map stays readable on its old graph until its rebuild commits. A rebuild that 
 running build waits for it. The rebuilt map is extracted with the current model, so
 its content can differ from the old one as well as its provenance.
 
+A rebuild keeps only what it re-derives from the rooms of the group's current live
+members. Relations that came only from a removed or deleted member's rooms, or from
+rooms a member has since left, are removed. A map whose group has no live member is
+listed and skipped, since a rebuild would empty it.
+
 ---
 
 ## 4. Sandbox image upgrades

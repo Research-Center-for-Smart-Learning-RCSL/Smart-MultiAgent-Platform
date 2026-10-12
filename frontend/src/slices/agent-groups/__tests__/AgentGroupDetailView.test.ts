@@ -163,6 +163,30 @@ describe('AgentGroupDetailView', () => {
       expect(bodies[1]).toEqual({ member_ids: null })
     })
 
+    it('can still save a filter that names a since-deleted agent', async () => {
+      // a_9 was soft-deleted after Alice's filter was set: still stored, not a member.
+      const bodies: unknown[] = []
+      seed('owner', ['a_1', 'a_2'], { a_1: ['a_2', 'a_9'] })
+      server.use(
+        http.put('/api/agent-groups/g_1/members/:agentId/read-members', async ({ request, params }) => {
+          const body = (await request.json()) as { member_ids: string[] | null }
+          bodies.push(body)
+          return HttpResponse.json({ agent_id: params.agentId, read_member_ids: body.member_ids })
+        }),
+      )
+      const wrapper = await renderView(AgentGroupDetailView, { routes, initialRoute: '/agent-groups/g_1' })
+      signInAs('u_1')
+      await settle(wrapper)
+      expect(wrapper.findAll('tbody tr')[0]?.text()).toContain('agentGroups.detail.readsRemovedAgent')
+      expect(wrapper.findAll('tbody tr')[0]?.text()).not.toContain('a_9')
+
+      await wrapper.findAll('[aria-label="agentGroups.detail.editReads"]')[0]!.trigger('click')
+      await wrapper.findAll('button').find((b) => b.text() === 'agentGroups.detail.save')!.trigger('click')
+      await settle(wrapper)
+      // The deleted id is not sent back, so the backend's member check passes.
+      expect(bodies).toEqual([{ member_ids: ['a_2'] }])
+    })
+
     it('warns before a removal that leaves another member reading nothing', async () => {
       confirmMock.mockClear()
       seed('owner', ['a_1', 'a_2'], { a_1: ['a_2'] })

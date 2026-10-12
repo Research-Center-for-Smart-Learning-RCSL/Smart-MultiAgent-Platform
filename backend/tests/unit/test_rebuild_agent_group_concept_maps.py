@@ -19,7 +19,13 @@ from smap.maintenance import rebuild_agent_group_concept_maps as cmd
 
 def _maps(n: int) -> tuple[cmd.GroupMap, ...]:
     return tuple(
-        cmd.GroupMap(config_id=uuid.uuid4(), project_id=uuid.uuid4(), agent_group_id=uuid.uuid4(), messages=i)
+        cmd.GroupMap(
+            config_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            agent_group_id=uuid.uuid4(),
+            members=2,
+            messages=i,
+        )
         for i in range(n)
     )
 
@@ -60,6 +66,27 @@ async def test_an_armed_run_enqueues_one_full_rebuild_per_map(monkeypatch: pytes
     # against a regular build of the same map.
     job_ids = [c["_job_id"] for c in pool.calls]
     assert all(j.startswith(f"graphrag:rebuild:{gm.config_id}:") for j, gm in zip(job_ids, maps, strict=True))
+
+
+@pytest.mark.asyncio
+async def test_a_map_whose_group_has_no_live_member_is_never_enqueued(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A replace build reads no message for it and would prune the whole map.
+    monkeypatch.setenv(cmd.ARMED_ENV, "1")
+    live, empty = _maps(2)
+    empty = cmd.GroupMap(
+        config_id=empty.config_id,
+        project_id=empty.project_id,
+        agent_group_id=empty.agent_group_id,
+        members=0,
+        messages=0,
+    )
+    pool = _Pool()
+    with patch.object(cmd, "list_group_maps", AsyncMock(return_value=(live, empty))):
+        report = await cmd.run(pool=pool)
+    assert [c["config_id"] for c in pool.calls] == [str(live.config_id)]
+    assert report.skipped_empty == (empty.config_id,)
 
 
 def test_a_failed_enqueue_exits_non_zero() -> None:

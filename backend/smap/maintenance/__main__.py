@@ -270,11 +270,17 @@ def rebuild_agent_group_concept_maps_cmd() -> None:
     report = asyncio.run(_rebuild_group_maps.run())
     for gm in report.maps:
         logger.info(
-            "agent_group map config={} project={} group={} messages={}",
+            "agent_group map config={} project={} group={} members={} messages={}",
             gm.config_id,
             gm.project_id,
             gm.agent_group_id,
+            gm.members,
             gm.messages,
+        )
+    if report.skipped_empty:
+        logger.warning(
+            "skipped, no live member (a rebuild would empty the map): {}",
+            ", ".join(str(c) for c in report.skipped_empty),
         )
     logger.info(
         "rebuild-agent-group-concept-maps complete dry_run={} maps={} messages={} "

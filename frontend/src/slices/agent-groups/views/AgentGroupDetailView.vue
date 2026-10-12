@@ -128,14 +128,21 @@ async function confirmRemove(agentId: string): Promise<void> {
 // --- What each member reads (R11.22) ---
 function readsLabel(reads: string[] | null): string {
   if (reads === null) return t('agentGroups.detail.readsWholeGroup')
-  return reads.map(agentName).join(', ')
+  // A filter can still name an agent deleted since it was set; the backend
+  // keeps the id (its past contributions stay readable) but it has no name.
+  return reads
+    .map((id) => (agentById.value.has(id) ? agentName(id) : t('agentGroups.detail.readsRemovedAgent')))
+    .join(', ')
 }
 
 const editing = ref<{ agentId: string; mode: 'all' | 'some'; chosen: string[] } | null>(null)
 const editingName = computed(() => (editing.value ? agentName(editing.value.agentId) : ''))
 function openReads(agentId: string): void {
   const reads = readsByAgent.value.get(agentId) ?? null
-  editing.value = { agentId, mode: reads === null ? 'all' : 'some', chosen: reads ?? [] }
+  // Only current members can be chosen (or saved: the backend refuses any
+  // other id), so a deleted agent still named by the filter is dropped here.
+  const chosen = (reads ?? []).filter((id) => memberIds.value.includes(id))
+  editing.value = { agentId, mode: reads === null ? 'all' : 'some', chosen }
 }
 function setMode(mode: string): void {
   if (editing.value) editing.value = { ...editing.value, mode: mode === 'some' ? 'some' : 'all' }
