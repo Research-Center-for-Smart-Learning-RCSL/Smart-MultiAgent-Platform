@@ -15,8 +15,24 @@ doesn't need a `depends_on` backfill).
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
-Nothing from this close-out is Ready: `2026-10-12-graph-build-busy-retry` is implemented
-and `2026-10-12-graphrag-phase5a-evidence-refs-expand` is In progress.
+Unblocked 2026-10-12, when `2026-10-12-graph-build-busy-retry` and
+`2026-10-12-graphrag-phase5a-evidence-refs-expand` were both implemented.
+
+- `2026-10-12-graphrag-phase5b-member-filter` (feature, **approved 2026-10-12**, SRS Delta applied: [R11.22] rewritten) -
+  `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
+  2026-10-12-graph-build-busy-retry]`, both implemented (overlap: `neo4j_driver.py`
+  relation Cypher, and `graphrag_build`).
+  - **Provenance fix:** agent_group provenance becomes the authoring member, or the
+    co-present members for other messages, not the room's smallest member id.
+  - **Filter:** a Project-Owner-set per-member read filter (`read_member_ids`, matched by
+    intersection, entities derived from visible relations).
+  - **Rebuild:** an armed operator command rebuilds existing agent_group maps in place.
+- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
+  [2026-10-12-graphrag-phase5a-evidence-refs-expand]`, implemented. Releases B (reads
+  switch to `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed
+  clean-up). **Ready by dependency but deploy-gated:** release B may not ship until the
+  expand release is on every replica and `neo4j-evidence-refs` has reported
+  `remaining=0` there (runbook §3.1). Release C needs B deployed everywhere.
 
 ### From the 2026-08-30 FU consolidation
 
@@ -529,23 +545,6 @@ rows are added as each is written.
 
 ## Blocked
 
-### From the 2026-10-12 GraphRAG blueprint close-out
-
-- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
-  [2026-10-12-graphrag-phase5a-evidence-refs-expand]`. Releases B (reads switch to
-  `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up). Each is
-  gated on a recorded deploy state as well as the dependency, starting with the backfill
-  reporting 0 remaining.
-- `2026-10-12-graphrag-phase5b-member-filter` (feature, **approved 2026-10-12**, SRS Delta applied: [R11.22] rewritten) -
-  `depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand,
-  2026-10-12-graph-build-busy-retry]` (overlap: `neo4j_driver.py` relation Cypher, and
-  `graphrag_build`).
-  - **Provenance fix:** agent_group provenance becomes the authoring member, or the
-    co-present members for other messages, not the room's smallest member id.
-  - **Filter:** a Project-Owner-set per-member read filter (`read_member_ids`, matched by
-    intersection, entities derived from visible relations).
-  - **Rebuild:** an armed operator command rebuilds existing agent_group maps in place.
-
 ### From the 2026-10-11 chat and research export audit
 
 The audit's three dossiers form one overlap chain:
@@ -758,15 +757,19 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor), on branch
-  `refactor/graphrag-evidence-refs-expand`. Release A of the Neo4j evidence rename.
+- (implemented 2026-10-12) `2026-10-12-graphrag-phase5a-evidence-refs-expand` (refactor),
+  PR #254 from `refactor/graphrag-evidence-refs-expand`. Release A of the Neo4j evidence
+  rename.
   - **Change.** Relation evidence is dual-written as `evidence_refs` and `evidence_msg_ids`
     with the old key authoritative. Reads return `evidence_refs`, and snapshots carry both
     keys. New command `python -m smap.maintenance neo4j-evidence-refs` (runbook §3.1).
   - **Verification.** AC-1..AC-5 are verified on real Neo4j and live on the compose stack
-    (D-3), including the backfill on edges written by the old code. AC-6 waits on CI.
-  - **Unblocking (on close).** `-phase5a2-evidence-refs-contract` and
-    `-phase5b-member-filter` list this slug.
+    (D-3), including the backfill on edges written by the old code. AC-6: CI green at
+    `c2c768ce`. `/code-review` fixes are D-6.
+  - **Deploy.** After rollout, run `neo4j-evidence-refs` armed until `remaining=0`
+    (runbook §3.1).
+  - **Unblocking.** `-phase5b-member-filter` and `-phase5a2-evidence-refs-contract` moved
+    to Ready; the latter stays deploy-gated.
 
 - (implemented 2026-10-12) `2026-10-12-graph-build-busy-retry` (bugfix), PR #253 from
   `fix/graph-build-busy-retry`.

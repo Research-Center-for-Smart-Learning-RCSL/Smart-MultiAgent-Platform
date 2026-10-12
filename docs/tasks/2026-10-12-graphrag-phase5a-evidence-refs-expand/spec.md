@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-10-12
 requirements: [R11.03, R11.15, R11.23, R11a.01]
 depends_on: []
@@ -180,8 +180,9 @@ Written before the code moves; each pins today's behavior or the cross-version c
   the compose stack (D-3).
 - [x] AC-5: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
   as before on the compose stack, observed live. See D-3.
-- [ ] AC-6: backend lint, typecheck and tests (db tier included) pass in CI;
-  `docs/runbook-upgrade.md` documents the command and its precondition.
+- [x] AC-6: backend lint, typecheck and tests (db tier included) pass in CI;
+  `docs/runbook-upgrade.md` documents the command and its precondition. CI run
+  38196083531 green at `c2c768ce`; runbook §3.1.
 
 ## 10. SRS Delta
 
