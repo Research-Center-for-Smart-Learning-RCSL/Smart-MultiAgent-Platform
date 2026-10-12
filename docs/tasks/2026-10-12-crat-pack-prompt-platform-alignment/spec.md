@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-12
 requirements: [R15.01, R15.02, R15.03, R15.06, R15.07]
 depends_on: [2026-10-12-agent-message-time-context]
@@ -272,27 +272,27 @@ current pack:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the §8 tests fail against the current pack and pass after the change.
-- [ ] AC-2: the teacher ships with both triggers enabled as in §7.1, the cadence section and
+- [x] AC-1: the §8 tests fail against the current pack and pass after the change.
+- [x] AC-2: the teacher ships with both triggers enabled as in §7.1, the cadence section and
   step tags are gone, and the prompt forbids calling `update_wakeup`.
-- [ ] AC-3: no CRAT prompt references `instruct` or a non-integer or seconds-based duration.
-- [ ] AC-4: the teacher prompt states that an empty reply posts nothing, and makes it the
+- [x] AC-3: no CRAT prompt references `instruct` or a non-integer or seconds-based duration.
+- [x] AC-4: the teacher prompt states that an empty reply posts nothing, and makes it the
   default outcome of B1 and C1 wakes.
-- [ ] AC-5: the teacher prompt specifies the three-part turn shape with at most one targeted
+- [x] AC-5: the teacher prompt specifies the three-part turn shape with at most one targeted
   participant per turn, and an individual-level off-topic condition in C1.
-- [ ] AC-6: step D1 names every required field of `crat-word-puzzle`.
-- [ ] AC-7: no agent in either CRAT pack is told to hold an answer key; B1 takes clues from the
+- [x] AC-6: step D1 names every required field of `crat-word-puzzle`.
+- [x] AC-7: no agent in either CRAT pack is told to hold an answer key; B1 takes clues from the
   teacher's room message, C2 marks uncertain words as uncertain, and E1 asks the teacher to
   confirm the answer.
-- [ ] AC-8: the design agent's 提示詞規範 carries the integer-minute, no-instruct,
+- [x] AC-8: the design agent's 提示詞規範 carries the integer-minute, no-instruct,
   no-update_wakeup and empty-reply rules, and says the answer key never goes into agent
   settings.
-- [ ] AC-8a: the teacher prompt tells a lull from other wakes by the time line, sets the hint
+- [x] AC-8a: the teacher prompt tells a lull from other wakes by the time line, sets the hint
   level from its own messages since the last participant message, and both teacher and peer
   reply with nothing on a lull when `read_drafts` shows a participant drafting.
-- [ ] AC-8b: the analyst ships with `every_n_messages` at `n = 20` and its silence trigger
+- [x] AC-8b: the analyst ships with `every_n_messages` at `n = 20` and its silence trigger
   unchanged, and its prompt carries the uncoded-participant rule.
-- [ ] AC-9: the two sibling room packs are checked for F-3, F-4, F-8 and F-10 and each result is
+- [x] AC-9: the two sibling room packs are checked for F-3, F-4, F-8 and F-10 and each result is
   recorded in §12 as confirmed or cleared.
 - [ ] AC-10: manual check on a running stack with four participants: a burst of parallel
   candidates produces one teacher message per wave that mentions every candidate, and eight
@@ -300,7 +300,8 @@ current pack:
 - [ ] AC-10a: the same session, run as a 30-minute lesson with steady discussion, never shows a
   rate-limit error from the teacher; the audit log's `agent.turn_started` count per five-minute
   window is recorded.
-- [ ] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass.
+- [x] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .` and `mypy .` pass.
+  (The change is pack JSON plus one test module: `test_agent_example_packs.py` and`n  `test_agent_example_service.py` 319 passed; ruff, format and mypy clean on the test module.)
 
 ## 11. SRS Delta
 
@@ -308,12 +309,43 @@ None. This change conforms the pack to the existing §15 behavior.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **AC-9 sibling sweep** (2026-10-12). `character-building-room` and
+  `object-reinterpretation-room` were read against F-3, F-4, F-8 and F-10:
+  - F-3 **confirmed** in both: the teachers ship `silence_minutes.enabled: false` and switch
+    cadence through `update_wakeup` (5 and 4 calls, 8 and 11 `[喚醒策略` tags).
+  - F-4 **confirmed** in both teachers: `1.5 分鐘`.
+  - F-8 **confirmed** in both: `instruct` appears 9 and 10 times in the teachers, twice in each
+    peer.
+  - F-10 **confirmed** in both teachers: "可以選擇不回應" with no empty-reply rule.
+  - The analysts carry none of the four.
+- **D-1**: AC-9's sibling defects are not fixed here, although §6 said a defect identical in shape
+  would be. The F-3 fix is not mechanical: each course needs its own silence chain and step
+  conditions, which this dossier never analysed, and the user chose a separate dossier once the
+  CRAT approach has been tried in class (FU-1).
+- **D-2**: the design agent's new rules avoid the words "instruct" and "秒" so that the
+  pack-wide checks of §8 hold for the designer too; the rules are stated as "no tool that lets
+  the teacher agent direct the peer agent" and "no time shorter than a minute".
+- **D-4**: from the security audit (three MEDIUM, all introduced by the rewrite, all fixed):
+  the teacher accepts clues, answer confirmations and the end of the last round only from the
+  room creator the platform names, never from a look-alike name; the second-level hints no
+  longer point at the target character's radical or stroke count, which the teacher cannot know
+  without an answer key, and offer an answer-free angle or ask the teacher for a hint instead
+  (§7.2's "radical or stroke-count hint" row is superseded); and the analyst treats chat
+  messages as data rather than instructions, with "never write names, never invent codes"
+  moved into its boundaries. The teacher also declines requests to post its working notes
+  (hardening).
+- **D-3**: the analyst prompt also tells it to reply with nothing when nothing changed since its
+  last note, because the new `n = 20` wake would otherwise ask it for a note every twenty
+  messages regardless of content. Not in §7.4a; same intent as Q-9.
 
 ## 13. Follow-ups
 
-- **FU-1**: fix the sibling room packs if AC-9 finds defects that differ in shape from the CRAT
-  ones.
+- **FU-1**: rewrite `character-building-room` and `object-reinterpretation-room` the same way
+  (D-1 lists what was confirmed), each with its own silence chain; to be opened as its own
+  dossier after the CRAT pack has been observed in class (AC-10).
+- **FU-3**: `update_wakeup` is registered for every agent (`tool_registry.py:819`); only the
+  prompt keeps the shared teacher from calling it. A pack-level way to leave the tool out would
+  make Q-3a structural. From the security audit (hardening).
 - **FU-2**: once `2026-10-12-wakeup-human-count-and-trigger-toggle` lands, revisit §7.1 and
   §7.2: human-only counting makes `n` mean student messages, a runtime toggle lets the teacher
   disable silence wakes in steps that do not need them, and composing-as-activity makes the

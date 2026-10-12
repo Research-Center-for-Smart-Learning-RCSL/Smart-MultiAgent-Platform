@@ -36,12 +36,7 @@ on the time-context one and is under Blocked. The re-check and wake-up dossiers 
 - (implemented 2026-10-12) `2026-10-12-agent-message-time-context`. AC-1..AC-8 ticked; the
   manual provider-request check was not run (D-6, no stack). Deviations D-1..D-6 and FU-1..FU-5
   are in the dossier. It unblocked `2026-10-12-crat-pack-prompt-platform-alignment`, now below.
-- `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **approved 2026-10-12**) - moved
-  from Blocked on 2026-10-12: its only dependency, `2026-10-12-agent-message-time-context`, is
-  implemented. Rewrites the CRAT room pack: both wake-up triggers on with a fixed `n = 2`,
-  integer minutes, no `instruct`, the empty-reply rule, a one-message three-part turn shape, a
-  silence chain read from the time line, no answer key in any agent, and an analyst that also
-  wakes every 20 messages. Pack JSON and tests only.
+- (implemented 2026-10-12) `2026-10-12-crat-pack-prompt-platform-alignment`. AC-1..AC-9 and AC-11 ticked; AC-10 and AC-10a (the classroom run with four participants and the 30-minute rate-limit check) are unticked until the pack is observed in class. D-1..D-4 and FU-1..FU-3 are in the dossier; FU-1 (the two sibling course packs share all four defects) is to become its own dossier after that classroom run. Nothing lists this slug in `depends_on`.
 
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
