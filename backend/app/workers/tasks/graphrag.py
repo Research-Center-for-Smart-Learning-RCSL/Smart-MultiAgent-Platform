@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -12,16 +11,20 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
-from arq.worker import Retry
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from app.workers.tasks.build_retry import (
+    BuildCrashLoopError,
+    build_max_tries,
+    crash_retries_exhausted,
+    retry_busy_build,
+)
 from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
-    BUILD_BUSY_RETRY_DEFER_S,
     LOCK_TTL_S,
     EmbedderFactory,
     GraphRagBuilder,
@@ -90,9 +93,7 @@ def build_state_metric_label(state_value: str) -> str:
 # lock. Scoped to graphrag_build via arq's per-function timeout so other lanes
 # keep the default worker job_timeout.
 GRAPHRAG_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
-# A busy job keeps waiting until the holder could have run to its own timeout;
-# arq allows (max_tries - 1) retries, hence the + 1.
-GRAPHRAG_BUILD_MAX_TRIES = math.ceil(GRAPHRAG_BUILD_TIMEOUT_S / BUILD_BUSY_RETRY_DEFER_S) + 1
+GRAPHRAG_BUILD_MAX_TRIES = build_max_tries(GRAPHRAG_BUILD_TIMEOUT_S)
 
 # D1: build-window bounds. A window is flushed at whichever limit trips first —
 # the token budget caps the per-call LLM extraction payload (the real
@@ -352,8 +353,14 @@ async def graphrag_build(
     D8: bounded by a per-worker semaphore so a burst of builds cannot starve the
     other worker lanes.
     """
-    async with _get_build_semaphore():
-        return await _run_build(config_id=config_id, triggered_by=triggered_by)
+    if await crash_retries_exhausted(ctx):
+        _log.error("graphrag_build config=%s: giving up after repeated crashed attempts", config_id)
+        raise BuildCrashLoopError(f"graphrag_build config={config_id} crashed on every attempt")
+    try:
+        async with _get_build_semaphore():
+            return await _run_build(config_id=config_id, triggered_by=triggered_by)
+    except GraphRagBuildBusy:
+        await retry_busy_build(ctx, job_name="graphrag_build", config_id=config_id)
 
 
 async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
@@ -425,13 +432,10 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                     f"triples={result.triples_written} "
                     f"entities={result.entities_written}"
                 )
-            except GraphRagBuildBusy as exc:
+            except GraphRagBuildBusy:
                 # Not a failure: the gauge belongs to the build holding the config
                 # (or to whatever settles its unfinished state), not to a waiter.
-                _log.info(
-                    "graphrag_build config=%s busy, retrying in %ds", config_id, BUILD_BUSY_RETRY_DEFER_S
-                )
-                raise Retry(defer=BUILD_BUSY_RETRY_DEFER_S) from exc
+                raise
             except Exception:
                 _set_state("failed")
                 _log.exception("graphrag_build failed config=%s", config_id)

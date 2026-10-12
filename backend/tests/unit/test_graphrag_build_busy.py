@@ -67,6 +67,7 @@ async def _run_graphrag_build(exc: Exception, gauge: _Gauge | None = None) -> No
     settings = SimpleNamespace(
         neo4j=SimpleNamespace(url="bolt://x", user="u", password="p"),
         qdrant=SimpleNamespace(url="http://x", api_key=""),
+        graphrag=SimpleNamespace(build_concurrency=1),
     )
     with (
         patch.object(graphrag, "get_settings", return_value=settings),
@@ -80,7 +81,7 @@ async def _run_graphrag_build(exc: Exception, gauge: _Gauge | None = None) -> No
         patch.object(graphrag, "GraphRagBuilder", _Builder),
         patch.object(graphrag, "GRAPHRAG_BUILD_STATE", gauge or _Gauge()),
     ):
-        await graphrag._run_build(config_id=str(uuid.uuid4()))
+        await graphrag.graphrag_build({}, config_id=str(uuid.uuid4()))
 
 
 @pytest.mark.asyncio

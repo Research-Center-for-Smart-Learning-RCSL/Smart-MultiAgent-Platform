@@ -15,22 +15,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import tempfile
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from arq.worker import Retry
 from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wiring.knowledge_ingest import KnowledgeIngestWiring
+from app.workers.tasks.build_retry import (
+    BuildCrashLoopError,
+    build_max_tries,
+    crash_retries_exhausted,
+    retry_busy_build,
+)
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
-    BUILD_BUSY_RETRY_DEFER_S,
     LOCK_TTL_S,
     EmbedderFactory,
     GraphRagBuilder,
@@ -63,9 +66,7 @@ _log = logging.getLogger(__name__)
 # The build lock (LOCK_TTL_S), refreshed per window, is the single-writer guard;
 # the job timeout is only a runaway backstop and must have headroom over the TTL.
 KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
-# A busy job keeps waiting until the holder could have run to its own timeout;
-# arq allows (max_tries - 1) retries, hence the + 1.
-KNOWMAP_BUILD_MAX_TRIES = math.ceil(KNOWMAP_BUILD_TIMEOUT_S / BUILD_BUSY_RETRY_DEFER_S) + 1
+KNOWMAP_BUILD_MAX_TRIES = build_max_tries(KNOWMAP_BUILD_TIMEOUT_S)
 
 # F-27: the scan task's arq retry budget. Named so the ClamAV-error SKIPPED path
 # can enqueue a rebuild only once retries are exhausted (a document mid-retry might
@@ -871,7 +872,9 @@ async def knowmap_build(
     committed change is ever left unbuilt. ``None`` for a legacy in-flight job
     enqueued before this deploy — those skip the re-check and complete normally.
     """
-    _ = ctx
+    if await crash_retries_exhausted(ctx):
+        _log.error("knowmap_build config=%s: giving up after repeated crashed attempts", config_id)
+        raise BuildCrashLoopError(f"knowmap_build config={config_id} crashed on every attempt")
     from qdrant_client import AsyncQdrantClient
 
     from app.config.settings import get_settings
@@ -918,13 +921,10 @@ async def knowmap_build(
                 # live corpus. Concept Map delta builds pass replace=False.
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by, replace=True)
                 await db.commit()
-            except GraphRagBuildBusy as exc:
+            except GraphRagBuildBusy:
                 # Wait under the same job id, so the holder's follow-up enqueue
                 # for this revision collapses onto this job.
-                _log.info(
-                    "knowmap_build config=%s busy, retrying in %ds", config_id, BUILD_BUSY_RETRY_DEFER_S
-                )
-                raise Retry(defer=BUILD_BUSY_RETRY_DEFER_S) from exc
+                await retry_busy_build(ctx, job_name="knowmap_build", config_id=config_id)
             except Exception:
                 _log.exception("knowmap_build failed config=%s", config_id)
                 raise

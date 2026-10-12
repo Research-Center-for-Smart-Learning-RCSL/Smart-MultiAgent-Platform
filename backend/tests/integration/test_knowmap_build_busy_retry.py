@@ -93,8 +93,9 @@ class _Closable:
         return None
 
 
-def _worker(queue: str) -> Worker:
-    return Worker(
+async def _run_worker(queue: str, *, max_burst_jobs: int | None = None) -> None:
+    """One burst of a real arq worker; raises if arq recorded a failed job."""
+    worker = Worker(
         functions=[_knowmap_build_registration()],
         queue_name=queue,
         redis_settings=_redis_settings(),
@@ -103,6 +104,10 @@ def _worker(queue: str) -> Worker:
         handle_signals=False,
         keep_result=3600,
     )
+    try:
+        await worker.run_check(max_burst_jobs=max_burst_jobs)
+    finally:
+        await worker.close()
 
 
 @pytest.mark.asyncio
@@ -113,6 +118,7 @@ async def test_follow_up_for_a_busy_revision_collapses_onto_the_waiting_job(
     queue = f"test:knowmap-busy:{uuid.uuid4().hex}"
     job_id = knowmap_build_job_id(cfg_id, target_revision=2)
     lock_key = f"graphrag:lock:{cfg_id}"
+    busy_key = f"graphrag:busy_tries:{job_id}"
     builds: list[int | None] = []
 
     class _Builder:
@@ -151,8 +157,8 @@ async def test_follow_up_for_a_busy_revision_collapses_onto_the_waiting_job(
             assert outcome is EnqueueOutcome.QUEUED
 
             # One try of job B: it must stay queued under its id, not be stored
-            # as a failed result. run_check raises if arq recorded a failure.
-            await _worker(queue).run_check(max_burst_jobs=1)
+            # as a failed result.
+            await _run_worker(queue, max_burst_jobs=1)
             assert await pool.zscore(queue, job_id) is not None
             assert not await redis.exists(result_key_prefix + job_id)
 
@@ -165,16 +171,19 @@ async def test_follow_up_for_a_busy_revision_collapses_onto_the_waiting_job(
 
             # Skip the rest of the busy defer; how long it is plays no part here.
             await pool.zadd(queue, {job_id: timestamp_ms()}, xx=True)
-            await _worker(queue).run_check()
+            await _run_worker(queue)
 
         assert builds == [2]
         info = await Job(job_id, pool, _queue_name=queue).result_info()
         assert info is not None
         assert info.success is True
         assert info.job_try == 2
+        # The busy try was counted apart from the crash allowance.
+        assert await redis.get(busy_key) == b"1"
     finally:
         await redis.delete(
             lock_key,
+            busy_key,
             queue,
             job_key_prefix + job_id,
             result_key_prefix + job_id,
