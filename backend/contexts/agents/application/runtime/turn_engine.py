@@ -4389,7 +4389,13 @@ class TurnEngine:
         if not layers:
             return None
         return await self._graphrag_provider.query_layers(
-            graphrag_config_ids=[cfg.id for cfg in layers],
+            graphrag_config_ids=[layer.config.id for layer in layers],
+            # R11.22: what this agent may read of each group map it belongs to.
+            member_filters={
+                layer.config.id: layer.read_member_ids
+                for layer in layers
+                if layer.read_member_ids is not None
+            },
             query_texts=queries,
             querying_agent_id=agent.id,
             token_budget=token_budget,

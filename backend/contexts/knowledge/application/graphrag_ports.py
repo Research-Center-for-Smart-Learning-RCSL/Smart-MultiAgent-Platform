@@ -190,8 +190,13 @@ class Neo4jDriver(Protocol):
         config_id: uuid.UUID,
         seed_entities: list[str],
         hops: int,
+        member_ids: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return 1–2 hop edges from ``seed_entities`` as raw dict rows."""
+        """Return 1–2 hop edges from ``seed_entities`` as raw dict rows.
+
+        With ``member_ids``, only paths whose every edge names one of them in its
+        ``source_member_ids`` (R11.22); an edge with no provenance never matches.
+        """
 
 
 class DeltaMessage(Protocol):

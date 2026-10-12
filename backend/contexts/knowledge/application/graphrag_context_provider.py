@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +113,7 @@ class GraphRagContextProvider:
         self,
         *,
         graphrag_config_ids: Sequence[uuid.UUID],
+        member_filters: Mapping[uuid.UUID, Sequence[str]] | None = None,
         query_text: str | None = None,
         query_texts: Sequence[str] | None = None,
         querying_agent_id: uuid.UUID | None = None,
@@ -122,7 +123,9 @@ class GraphRagContextProvider:
 
         ``graphrag_config_ids`` are the covering configs ordered narrow -> wide
         (chatroom, then each enabled agent_group layer, then the enabled
-        workspace). Each layer retrieves independently; a tiered merge fills the
+        workspace). ``member_filters`` maps a group layer to the members whose
+        contributions the querying agent may read of it (R11.22); a layer absent
+        from it is read whole. Each layer retrieves independently; a tiered merge fills the
         2 KB budget narrowest-first with entity/relation dedup keeping the
         narrowest occurrence, so a shared wide layer never dilutes the agent's
         own room memory. A single-layer call is byte-identical to :meth:`query`.
@@ -147,7 +150,12 @@ class GraphRagContextProvider:
                 # count is bounded (chatroom + <=N groups + workspace) and each
                 # layer still needs its own config load + embedder.
                 try:
-                    per_query = await self._graphrag_query(config_id, queries, querying_agent_id)
+                    per_query = await self._graphrag_query(
+                        config_id,
+                        queries,
+                        querying_agent_id,
+                        member_ids=(member_filters or {}).get(config_id),
+                    )
                 except Exception:
                     _log.warning(
                         "GraphRAG layer retrieval failed config=%s",
@@ -229,6 +237,7 @@ class GraphRagContextProvider:
         config_id: uuid.UUID,
         queries: Sequence[str],
         querying_agent_id: uuid.UUID | None = None,
+        member_ids: Sequence[str] | None = None,
     ) -> list[Any]:
         """Production GraphRAG retrieval wiring (E.8).
 
@@ -301,6 +310,7 @@ class GraphRagContextProvider:
                 config_id=config_id,
                 text=query,
                 querying_agent_id=querying_agent_id,
+                member_ids=member_ids,
             )
             if bundle is not None:
                 bundles.append(bundle)

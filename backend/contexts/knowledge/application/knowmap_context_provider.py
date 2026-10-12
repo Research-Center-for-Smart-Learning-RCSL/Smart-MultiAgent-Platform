@@ -30,7 +30,12 @@ from contexts.knowledge.application.context_provider_text import (
     normalise_queries,
 )
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
-from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge, edge_rank
+from contexts.knowledge.domain.graphrag import (
+    GraphRagBundle,
+    RelationEdge,
+    edge_rank,
+    entities_from_relations,
+)
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapChunkRepository,
     KnowmapDocumentRepository,
@@ -94,19 +99,6 @@ def filter_relations_by_allowlist(
         if docs <= allowed_document_ids:
             kept.append(rel)
     return kept
-
-
-def entities_from_relations(relations: Sequence[RelationEdge]) -> list[str]:
-    """Distinct entity names surfaced by the kept relations, in first-seen order.
-
-    An entity appears only via a visible relation (Q-2): never from the raw Qdrant
-    seed set, which could include a name derived solely from a denied document."""
-    seen: list[str] = []
-    for rel in relations:
-        for name in (rel.subject, rel.object):
-            if name and name not in seen:
-                seen.append(name)
-    return seen
 
 
 def _dedup_relations(relations: Sequence[RelationEdge]) -> list[RelationEdge]:

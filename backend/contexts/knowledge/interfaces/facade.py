@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.domain.embedding_pin import PinKind, TeardownOutcome
 from contexts.knowledge.domain.graphrag import (
     AgentConceptMapCoverage,
+    ConceptMapLayer,
     ConceptMapOwnerOption,
     GraphRagConfig,
 )
@@ -136,12 +137,13 @@ class KnowledgeFacade:
         *,
         agent_id: uuid.UUID,
         chatroom_id: uuid.UUID,
-    ) -> Sequence[GraphRagConfig]:
+    ) -> Sequence[ConceptMapLayer]:
         """Covering Concept Map layers for an agent's turn, narrow -> wide (WS4).
 
         The chatroom map, each enabled agent_group map the agent is a live member
         of, and the enabled workspace map — ordered for the tiered retrieval
-        assembler. Disabled wide layers and non-member groups are excluded.
+        assembler. Disabled wide layers and non-member groups are excluded. A
+        group layer carries what this agent may read of it (R11.22).
         """
         return await self._graphrag.list_layers_for_turn(agent_id=agent_id, chatroom_id=chatroom_id)
 

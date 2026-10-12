@@ -19,7 +19,7 @@ through :meth:`GraphRagRetrieveService.query`, so the one gate covers both.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,7 @@ from contexts.knowledge.domain.graphrag import (
     GraphRagBundle,
     RelationEdge,
     edge_rank,
+    entities_from_relations,
     normalize_evidence_refs,
     recency_weighted_score,
 )
@@ -100,7 +101,16 @@ class GraphRagRetrieveService:
         top_k: int = 5,
         hops: int = 2,
         querying_agent_id: uuid.UUID | None = None,
+        member_ids: Sequence[str] | None = None,
     ) -> GraphRagBundle:
+        """Retrieve a bundle for ``text``.
+
+        ``member_ids`` is an agent_group reader's filter (R11.22): only relations
+        naming one of these members are kept, and entities come from those
+        relations rather than the vector seeds. An empty filter reads nothing.
+        """
+        if member_ids is not None and not member_ids:
+            return GraphRagBundle(entities=(), relations=(), evidence_excerpts=())
         cfg = await self._load(config_id)
 
         # F-10: never read a graph mid-2PC. While the config is in an in-flight build
@@ -145,6 +155,7 @@ class GraphRagRetrieveService:
             config_id=cfg.id,
             seed_entities=seed_entities,
             hops=max(1, min(hops, 2)),
+            member_ids=member_ids,
         )
 
         # WS5 (R11.21): the config's half-life, or the platform default when NULL.
@@ -199,8 +210,11 @@ class GraphRagRetrieveService:
         # edges, and recent edges float up under temporal decay.
         relations.sort(key=edge_rank, reverse=True)
 
+        # Under a member filter a seed may be supported only by hidden relations,
+        # so the entity list must come from what the reader can see.
+        entities = seed_entities if member_ids is None else entities_from_relations(relations)
         return GraphRagBundle(
-            entities=tuple(seed_entities),
+            entities=tuple(entities),
             relations=tuple(relations),
             evidence_excerpts=excerpts,
         )

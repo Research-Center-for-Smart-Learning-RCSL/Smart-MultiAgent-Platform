@@ -337,7 +337,7 @@ async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
         # Wide layers are disabled by default (concept_map_enabled=false) — only
         # the chatroom map covers the turn.
         layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
-        assert [c.id for c in layers] == [room_cfg.id]
+        assert [layer.config.id for layer in layers] == [room_cfg.id]
 
         # Enable both wide layers — they now appear, ordered narrow->wide.
         await AgentGroupService(db).set_concept_map_enabled(
@@ -349,8 +349,19 @@ async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
         await db.commit()
 
         layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
-        assert [c.id for c in layers] == [room_cfg.id, group_cfg.id, ws_cfg.id]
-        assert [c.owner_kind for c in layers] == ["chatroom", "agent_group", "workspace"]
+        assert [layer.config.id for layer in layers] == [room_cfg.id, group_cfg.id, ws_cfg.id]
+        assert [layer.config.owner_kind for layer in layers] == ["chatroom", "agent_group", "workspace"]
+        # R11.22: an unrestricted member reads the whole group map; only the
+        # group layer can carry a read filter.
+        assert [layer.read_member_ids for layer in layers] == [None, None, None]
+
+        # The agent's own read filter rides on its group layer, read fresh.
+        await AgentGroupService(db).set_read_members(
+            group_id=gid, agent_id=agent_id, member_ids=[agent_id], actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+        layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
+        assert [layer.read_member_ids for layer in layers] == [None, (str(agent_id),), None]
 
         # AC-11: removing the agent from the group revokes the group layer on the
         # very next resolve (live membership, not a cached set).
@@ -360,7 +371,7 @@ async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
         await db.commit()
 
         layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
-        assert [c.id for c in layers] == [room_cfg.id, ws_cfg.id]
+        assert [layer.config.id for layer in layers] == [room_cfg.id, ws_cfg.id]
 
 
 async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None:
@@ -440,7 +451,10 @@ async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None
         # room's bound agents (build coverage == retrieval coverage).
         retrieval: set[uuid.UUID] = set()
         for aid in (agent_a, agent_b):
-            retrieval |= {c.id for c in await repo.list_layers_for_turn(agent_id=aid, chatroom_id=room.id)}
+            retrieval |= {
+                layer.config.id
+                for layer in await repo.list_layers_for_turn(agent_id=aid, chatroom_id=room.id)
+            }
         assert {c.id for c in covered} == retrieval
 
 

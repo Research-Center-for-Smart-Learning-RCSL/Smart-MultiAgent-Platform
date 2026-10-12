@@ -141,7 +141,9 @@ class _GateNeo4j:
         self.traversed = False
         self._ref = ref
 
-    async def traverse(self, *, config_id: Any, seed_entities: Any, hops: Any) -> list[dict[str, Any]]:
+    async def traverse(
+        self, *, config_id: Any, seed_entities: Any, hops: Any, member_ids: Any = None
+    ) -> list[dict[str, Any]]:
         self.traversed = True
         return [
             {

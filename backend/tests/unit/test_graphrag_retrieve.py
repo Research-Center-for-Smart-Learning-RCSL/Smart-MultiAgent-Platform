@@ -37,7 +37,7 @@ class FakeNeo4j:
         self.edges = edges
         self.traverse_calls: list[tuple[list[str], int]] = []
 
-    async def traverse(self, *, config_id, seed_entities, hops):
+    async def traverse(self, *, config_id, seed_entities, hops, member_ids=None):
         self.traverse_calls.append((list(seed_entities), hops))
         return list(self.edges)
 
@@ -452,7 +452,9 @@ async def test_context_provider_merges_multi_query_bundles() -> None:
         def __init__(self) -> None:
             self.queries: list[str] = []
 
-        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
+        async def _graphrag_query(
+            self, config_id: uuid.UUID, queries, querying_agent_id=None, member_ids=None
+        ):
             self.queries.extend(queries)
             return [_bundle_for(q) for q in queries]
 
@@ -473,7 +475,9 @@ def _layer_provider(bundles_by_config):
         def __init__(self) -> None:
             self.order: list[uuid.UUID] = []
 
-        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
+        async def _graphrag_query(
+            self, config_id: uuid.UUID, queries, querying_agent_id=None, member_ids=None
+        ):
             self.order.append(config_id)
             bundle = bundles_by_config.get(config_id)
             return [bundle] if bundle is not None else []
@@ -560,7 +564,9 @@ async def test_query_layers_isolates_a_failing_layer() -> None:
         def __init__(self) -> None:
             pass
 
-        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
+        async def _graphrag_query(
+            self, config_id: uuid.UUID, queries, querying_agent_id=None, member_ids=None
+        ):
             if config_id == bad_id:
                 raise RuntimeError("neo4j down")
             return [

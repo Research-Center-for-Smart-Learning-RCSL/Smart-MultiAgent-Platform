@@ -14,6 +14,7 @@ import enum
 import json
 import math
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -202,6 +203,20 @@ class AgentConceptMapCoverage:
 
 
 @dataclass(frozen=True, slots=True)
+class ConceptMapLayer:
+    """One Concept Map an agent's turn reads, with what that agent may read of it.
+
+    ``read_member_ids`` applies to an agent_group layer only (R11.22): ``None``
+    reads the whole map; otherwise only relations whose ``source_member_ids``
+    include one of these (possibly none, when the list is empty). Chatroom and
+    workspace layers are always ``None``.
+    """
+
+    config: GraphRagConfig
+    read_member_ids: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ConceptMapOwnerOption:
     """A selectable owner for creating a Concept Map (Phase 4α overview picker).
 
@@ -322,6 +337,21 @@ def edge_rank(edge: RelationEdge) -> float:
     return float(edge.score if edge.score is not None else edge.confidence)
 
 
+def entities_from_relations(relations: Sequence[RelationEdge]) -> list[str]:
+    """Distinct entity names surfaced by the kept relations, in first-seen order.
+
+    Used wherever retrieval narrows the relations it may show (the Knowledge Map
+    document allowlist, the Concept Map member filter): an entity then appears
+    only via a visible relation, never from the raw Qdrant seed set, which could
+    include a name that only a hidden relation supports."""
+    seen: list[str] = []
+    for rel in relations:
+        for name in (rel.subject, rel.object):
+            if name and name not in seen:
+                seen.append(name)
+    return seen
+
+
 @dataclass(frozen=True, slots=True)
 class GraphRagBundle:
     """Result of hybrid retrieval (R11.06) — serialisable under the 2 KB cap."""
@@ -409,6 +439,7 @@ __all__ = [
     "MAX_EVIDENCE_REF_LEN",
     "BuildResult",
     "BuildState",
+    "ConceptMapLayer",
     "EntityHit",
     "GraphRagBundle",
     "GraphRagConfig",
@@ -417,6 +448,7 @@ __all__ = [
     "Triple",
     "deterministic_point_id",
     "edge_rank",
+    "entities_from_relations",
     "normalize_evidence_refs",
     "recency_weighted_score",
 ]

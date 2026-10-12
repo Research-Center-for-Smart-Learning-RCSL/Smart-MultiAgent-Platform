@@ -291,7 +291,7 @@ class FakeNeo4j:
             raise self.raise_on_restore
         self.restored.append(snapshot)
 
-    async def traverse(self, *, config_id, seed_entities, hops):
+    async def traverse(self, *, config_id, seed_entities, hops, member_ids=None):
         return []
 
     async def list_config_ids(self) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
