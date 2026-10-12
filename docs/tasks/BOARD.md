@@ -22,12 +22,7 @@ on the time-context one and is under Blocked. The re-check and wake-up dossiers 
 `tool_registry.py` in disjoint regions (a new frozenset beside `BUILTIN_TOOL_NAMES` vs the
 `update_wakeup` tool); not sequenced, whoever builds second rebases.
 
-- `2026-10-12-stale-reply-recheck` (bugfix, **approved 2026-10-12**) - when a coalesced follow-up is already
-  queued and the turn's first pass ran no state-changing tool, the agent is shown its unposted
-  draft and the messages that arrived meanwhile, and continues the same turn, with its tools, to
-  post it, revise it or stay silent. The re-check consumes the follow-up, and wake-ups for the
-  messages it showed are skipped as covered. Covers observer turns. SRS delta: [R13.27] and
-  [R28.13] amended, [R13.72] added.
+- (implemented 2026-10-13) `2026-10-12-stale-reply-recheck`. AC-1..AC-8a and AC-10 ticked; AC-9 (four participants on a running stack) unticked. The quality audit's six warnings were fixed before commit (D-3..D-8), including releasing the claim on every failure path and an atomic covered check in the mark script; [R13.72]'s failure sentence was corrected to match. FU-1..FU-4 are in the dossier. Nothing lists this slug in `depends_on`.
 - `2026-10-12-wakeup-human-count-and-trigger-toggle` (feature, **approved 2026-10-12**) - opt-in human-only
   `every_n_messages` counting, deferred instead of dropped own-message firings, `update_wakeup`
   toggles limited to a designer-set `self_toggle` list, and typing within the last 60 s counts

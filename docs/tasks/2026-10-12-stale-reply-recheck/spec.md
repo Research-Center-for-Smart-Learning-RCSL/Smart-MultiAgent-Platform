@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-10-12
 requirements: [R13.27, R28.12, R28.13]
 depends_on: []
@@ -255,29 +255,31 @@ dimension).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the §8 regression tests fail before the fix and pass after.
-- [ ] AC-2: with a parked mark, an eligible room turn makes exactly one re-check call that
+- [x] AC-1: the §8 regression tests fail before the fix and pass after.
+- [x] AC-2: with a parked mark, an eligible room turn makes exactly one re-check call that
   contains its draft and every message newer than its snapshot, and posts exactly what the
   re-check returns.
-- [ ] AC-3: an empty re-check result persists no message and returns `skipped/withdrawn`.
-- [ ] AC-4: a re-checked turn consumes the parked mark; a wake-up for any message it showed is
+- [x] AC-3: an empty re-check result persists no message and returns `skipped/withdrawn`.
+- [x] AC-4: a re-checked turn consumes the parked mark; a wake-up for any message it showed is
   skipped as `already_covered`, including a job still queued when the mark was popped; a
   follow-up runs only for a message it did not show.
-- [ ] AC-5: a turn whose first pass dispatched any tool outside `READ_ONLY_TOOL_NAMES`, or
+- [x] AC-5: a turn whose first pass dispatched any tool outside `READ_ONLY_TOOL_NAMES`, or
   produced artifacts, is not re-checked, posts its draft, and the follow-up runs.
-- [ ] AC-5a: the re-check keeps the turn's full tool set and remaining tool-round budget.
-- [ ] AC-6: a re-check failure posts the draft and re-parks the trigger without overwriting a
+- [x] AC-5a: the re-check keeps the turn's full tool set and remaining tool-round budget.
+- [x] AC-6: a re-check failure posts the draft and re-parks the trigger without overwriting a
   newer parked trigger or message id.
-- [ ] AC-7: an observer turn's re-check clears the first-pass blocks, and a withdrawn
+- [x] AC-7: an observer turn's re-check clears the first-pass blocks, and a withdrawn
   observation emits `observation.skipped {kind: withdrawn}`, labeled in both locales.
-- [ ] AC-8: the mark check never consumes the mark, and a Redis failure on it posts the draft.
-- [ ] AC-8a: new messages reach the re-check through the transcript renderer (labels
+- [x] AC-8: the mark check never consumes the mark, and a Redis failure on it posts the draft.
+- [x] AC-8a: new messages reach the re-check through the transcript renderer (labels
   normalized, notice marker defanged), and the re-check notice carries only fixed platform
   text.
 - [ ] AC-9: manual check on a running stack: four participants posting within one generation
   produce exactly one agent reply that reflects all four messages.
-- [ ] AC-10: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
+- [x] AC-10: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck` pass.
+  (Backend unit tier 11658 passed; whole-repo ruff, format and mypy (1155 files) clean. Frontend:
+  `pnpm test` 2118 passed in 681 files; `pnpm typecheck` and `pnpm lint` clean. AC-6 also covers D-3's failure cases.)
 
 ## 11. SRS Delta
 
@@ -307,9 +309,46 @@ Amend [R28.13] (`REQUIREMENTS.md:2208`): `observation.skipped` carries benign ki
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: the dispatched tool names are collected through a `dispatched_names` set passed to
+  `_stream_with_tools`, like the other sinks, rather than a `ToolLoopOutcome` field (§7.2); the
+  loop has five return points and the set is also what the re-check extends.
+- **D-2**: the re-check runs with `max(1, MAX_TOOL_ROUNDS - rounds_used)` rounds, so a turn that
+  spent its whole budget on read-only lookups can still act on a request it is only now shown;
+  that bounds it at one round plus one synthesis call beyond the first pass's budget.
+- **D-3**: a failed re-check does not always post the draft (§7.3 step 6). It posts it only when
+  the re-check changed nothing (a provider error, or a failed final synthesis whose output is
+  filler). A lost lock, a cancellation, an infrastructure error, or a failure after the re-check
+  ran a state-changing tool posts nothing and fails the turn as today. In every case the claim is
+  released: the shown messages are uncovered and the trigger is re-parked. [R13.72]'s last
+  sentence in `REQUIREMENTS.md` was corrected to say so.
+- **D-4**: from the quality audit, the claim (popped trigger plus covered ids) is held until the
+  reply or skip commits, and `_run_locked`'s three failure branches release it, the cancelled
+  one uncancellably. Without this a turn that failed after a successful re-check left its shown
+  messages covered and unqueued.
+- **D-5**: from the quality audit, the covered check also runs atomically inside
+  `_MARK_QUEUED_LUA` (a third key), and a covered message is not parked. The pre-lock check alone
+  lost a race in which a covered job overwrote an uncovered message's id in the mark. A job
+  refused there reports `skipped/locked`, not `already_covered`.
+- **D-6**: the covered set is written by one script (`_COVER_LUA`) so it cannot be left without a
+  TTL.
+- **D-7**: for an observer the draft shown is the serialised note, not the text after it; when
+  the re-check answers with that note without re-presenting it, the first-pass blocks are kept;
+  the `unchanged`/`revised`/`withdrawn` label compares the serialised output, and a failed
+  synthesis is labelled `failed`, never `withdrawn`.
+- **D-8**: a popped trigger whose message was already in the snapshot is not re-parked: the
+  draft answered it.
+- **D-9**: AC-7's frontend half is a test that both locales label every benign skip kind; the
+  panel looks the label up by key, so a missing key would render nothing.
 
 ## 13. Follow-ups
 
 - **FU-1**: streaming could be held back for a turn that already sees a parked mark early,
   removing the visible retyping in §9.
+- **FU-2**: new messages are shown to the re-check without their attachment blocks, so a file
+  posted mid-generation is invisible to it.
+- **FU-3**: the request grows across the re-check (draft plus new messages) with no context-limit
+  guard, the same pre-existing gap as the tool loop (the room path's FU-4 noted at
+  `turn_engine.py` before the initial dispatch).
+- **FU-4**: `_recheck_reply` takes sixteen parameters, and the five covered/queued Redis helpers
+  repeat the same import/try/log shape; a small turn-context object and one best-effort helper
+  would shorten both. From the quality audit.
