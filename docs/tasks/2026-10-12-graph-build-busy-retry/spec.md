@@ -200,7 +200,8 @@ per config at a time.
   `max_tries * defer`.** arq runs a try only while its number is at most `max_tries`
   (arq 0.26.3 `worker.py:544-545`), so a job waits through `max_tries - 1` defers. The stricter
   form is what §7 step 2's `ceil(timeout / defer) + 1` was chosen to satisfy:
-  61 tries, 60 defers of 30 s, 1800 s, equal to both build timeouts.
+  61 tries, 60 defers of 30 s, 1800 s, equal to both build timeouts. D-4 later raised
+  the budget to 65 tries to hold the crash allowance.
 - **D-2. The db-tier test skips the remaining defer by re-scoring the queued job.** It
   sets the job's score in the queue's sorted set to now after the lock is released,
   rather than waiting 30 s or patching the defer constant. The length of the defer plays
@@ -216,6 +217,28 @@ per config at a time.
   the second document, so the graph held its relation after build 1 as well. The evidence
   for AC-3 is therefore the revision and arq-key trace plus the db-tier test, not the
   graph contents.
+- **D-4. Busy tries are counted apart from crash re-runs (requester's choice after
+  `/code-review`).** arq applies one `max_tries` to `Retry`, to a job cancelled at
+  shutdown, and to a job whose worker died so its in-progress key expired (arq 0.26.3
+  `worker.py:445-458, 608-620`). §7 step 2's budget of 61 would have let a build that
+  kills its worker (an OOM, for example) re-run 61 times instead of the worker default
+  of 5, each run spending the tenant's provider key. `app/workers/tasks/build_retry.py`
+  now counts busy tries per job id in Redis (`graphrag:busy_tries:<job_id>`, 48 h TTL),
+  and a job that has run more than `BUILD_CRASH_MAX_TRIES` (5) times without being busy
+  fails with `BuildCrashLoopError` before building. `max_tries` is
+  `ceil(timeout / defer) + 5` (65), defined once in that module rather than in each
+  worker. A Redis error while counting fails open to the busy budget, the pre-fix bound.
+  For `graphrag_build`, `_run_build` now re-raises the busy error and the job entry
+  point turns it into `Retry`, since only the entry point has arq's `ctx`. Tests:
+  `test_build_retry.py`, and the db-tier test asserts the counter on real Redis.
+- **D-5. Other `/code-review` findings.** Three went into follow-ups: the gauge on a
+  waiter's replica (FU-4, extended), budget exhaustion with several waiters or a
+  crash-held lock (FU-5), and the per-retry setup cost (FU-6). The db-tier test now
+  closes its arq workers. One finding proposed fixing the dedup at the job id rather
+  than retrying; that reopens Q-1 and was not taken. Another noted that busy exhaustion
+  has no WARNING. arq already logs `max retries ... exceeded` at warning level
+  (0.26.3 `worker.py:547`), so that note is covered by FU-5. The test fakes shared by
+  the three new test files were left duplicated, since each file is self-contained.
 
 ## 13. Follow-ups
 
@@ -228,8 +251,23 @@ per config at a time.
   the per-config Redis lock"; that becomes true with this fix, and its AC-2 gains the live
   coverage its FU-3 deferred.
 - **FU-4.** `_run_build` sets the Concept Map gauge to `running` before the builder
-  reports busy (`app/workers/tasks/graphrag.py:411`), so a waiting job writes `running`
+  reports busy (`app/workers/tasks/graphrag.py:418`), so a waiting job writes `running`
   over the label. That is right while another build holds the lock, but when the busy
   cause is a non-resumable state with no holder (`graphrag_builder.py:228-233`), the
   gauge reads `running` instead of the state the config is stuck in until a build
-  settles it. Before this fix it read `failed`, which was equally wrong.
+  settles it. Before this fix it read `failed`, which was equally wrong. The gauge is
+  per process, so with several worker replicas a waiter on a replica other than the
+  holder's leaves that replica's series at `running` until a later build runs there
+  (pre-fix: `failed`). Setting `running` only after the lock is acquired, which needs a
+  hook from the builder, would fix both.
+- **FU-5.** The busy budget covers one holder's timeout, counted from the waiter's first
+  try. Several waiters on one config, or a lock that outlives a crashed holder by up to
+  `LOCK_TTL_S`, can exhaust it, and the job then stores a failed result as before
+  (Knowledge Map: harmless when a newer revision's job builds the corpus, as the
+  replacement build covers it; otherwise recovered when `keep_result` lapses, FU-2).
+  arq logs the exhaustion as `max retries exceeded` at warning level, but no metric
+  records it.
+- **FU-6.** Each busy try builds the Neo4j driver, the Qdrant client and a DB session,
+  and for a Concept Map runs the delta-scope query, before the builder finds the lock
+  held: up to 64 times per waiting job. A cheap lock probe before that setup would
+  avoid it, but the builder's own acquire stays the authority.

@@ -769,8 +769,9 @@ each row for its own list — the frontmatter wins over this preamble.
 
 - `2026-10-12-graph-build-busy-retry` (bugfix), on branch `fix/graph-build-busy-retry`.
   - **Fix.** A `knowmap_build` or `graphrag_build` job that finds the config lock held
-    raises arq `Retry(defer=30 s)` instead of failing, within a budget of 61 tries that
-    outlasts the 1800 s build timeout.
+    raises arq `Retry(defer=30 s)` instead of failing, within a budget that outlasts the
+    1800 s build timeout. Busy tries are counted apart, so crash re-runs stay at 5 (D-4,
+    from `/code-review`).
   - **Verification.** AC-1..AC-5 are verified, including a db-tier test on a real arq
     worker and the §4 reproduction re-run on the compose stack (D-3). AC-6 waits on CI.
   - **Unblocking.** `2026-10-12-graphrag-phase5b-member-filter` lists this slug but also
