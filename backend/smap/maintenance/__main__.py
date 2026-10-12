@@ -219,12 +219,16 @@ def neo4j_evidence_refs_cmd() -> None:
     """
     report = asyncio.run(_neo4j_evidence_refs.run())
     logger.info(
-        "neo4j-evidence-refs complete dry_run={} pending={} copied={} remaining={} busy={}",
+        "neo4j-evidence-refs complete dry_run={} pending={} copied={} remaining={} "
+        "busy={} lost_lock={} failed={} unattributed={}",
         report.dry_run,
         report.pending,
         report.copied,
         report.remaining,
         len(report.busy),
+        len(report.lost_lock),
+        len(report.failed),
+        report.unattributed,
     )
     if report.dry_run and report.pending:
         logger.warning(
@@ -232,11 +236,20 @@ def neo4j_evidence_refs_cmd() -> None:
             report.pending,
             _neo4j_evidence_refs.ARMED_ENV,
         )
-    if report.busy:
-        logger.warning("skipped busy config(s): {}", ", ".join(str(c) for c in report.busy))
+    for label, ids in (
+        ("skipped, building", report.busy),
+        ("stopped, lock lost mid-copy (a build may have run alongside)", report.lost_lock),
+        ("failed, see the error above", report.failed),
+    ):
+        if ids:
+            logger.warning("{}: {}", label, ", ".join(str(c) for c in ids))
+    if report.unattributed:
+        logger.warning(
+            "{} edge(s) have no usable graphrag_config_id; inspect them by hand", report.unattributed
+        )
     if not report.dry_run and report.remaining:
-        # Busy configs, or edges an N-1 writer changed during the run: either way
-        # the gate is not met, and a scripted run must see that.
+        # Busy, lost, failed or unattributed configs, or edges an N-1 writer
+        # changed during the run: the gate is not met, and a scripted run must see it.
         raise typer.Exit(code=1)
 
 

@@ -53,12 +53,11 @@ def _collapse_config_rows(
 # Evidence is stored under two keys during the rename to `evidence_refs`
 # (docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand). The old key
 # `evidence_msg_ids` stays authoritative while an N-1 replica may write only it, so
-# both are computed from it; a SET reads pre-clause values, so the two
-# right-hand sides yield the same list.
-_EVIDENCE_UNION = (
-    "coalesce(r.evidence_msg_ids, []) + "
-    "[x IN row.evidence_refs WHERE NOT x IN coalesce(r.evidence_msg_ids, [])]"
-)
+# both are computed from it, falling back to `evidence_refs` for an edge that has
+# only the new key (a rollback from a release past the rename); a SET reads
+# pre-clause values, so the two right-hand sides yield the same list.
+_EVIDENCE_STORED = "coalesce(r.evidence_msg_ids, r.evidence_refs, [])"
+_EVIDENCE_UNION = f"{_EVIDENCE_STORED} + [x IN row.evidence_refs WHERE NOT x IN {_EVIDENCE_STORED}]"
 _EVIDENCE_SET_DELTA = (
     f"    r.evidence_msg_ids = {_EVIDENCE_UNION}, "
     f"    r.evidence_refs = {_EVIDENCE_UNION}, "
@@ -425,11 +424,13 @@ class Neo4jAsyncDriver:
             rows = [(rec["cid"], rec["pid"]) async for rec in result]
         return _collapse_config_rows(rows)
 
-    async def count_unmigrated_evidence(self) -> dict[uuid.UUID, int]:
-        """Edges per config whose ``evidence_refs`` does not yet mirror the old key.
+    async def count_unmigrated_evidence(self) -> dict[str, int]:
+        """Edges per raw config id whose ``evidence_refs`` does not yet mirror the old key.
 
-        For the ``neo4j-evidence-refs`` maintenance command only. A REL is always
-        MERGEd with its config id, so every edge has one.
+        For the ``neo4j-evidence-refs`` maintenance command only. Keys are left
+        unparsed (``""`` for a missing id) so the caller can count an edge it
+        cannot attribute instead of losing it from the remaining total. A full
+        relationship scan: no index covers the property comparison.
         """
         driver = await self._ensure()
         cypher = (
@@ -438,7 +439,11 @@ class Neo4jAsyncDriver:
         )
         async with driver.session() as session:
             result = await session.run(cypher)
-            return {uuid.UUID(str(rec["cid"])): int(rec["n"]) async for rec in result if rec["cid"]}
+            counts: dict[str, int] = {}
+            async for rec in result:
+                key = "" if rec["cid"] is None else str(rec["cid"])
+                counts[key] = counts.get(key, 0) + int(rec["n"])
+            return counts
 
     async def copy_evidence_refs(self, *, config_id: uuid.UUID, batch: int) -> int:
         """Copy the old key to ``evidence_refs`` on up to ``batch`` edges of one config.
@@ -447,9 +452,12 @@ class Neo4jAsyncDriver:
         config's build lock so no build writes the same edges meanwhile.
         """
         driver = await self._ensure()
+        # `r.relation IS NOT NULL` holds for every REL (it is a MERGE key); it is
+        # here so the planner seeks the (graphrag_config_id, relation) index
+        # instead of scanning every relationship once per batch.
         cypher = (
             "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
-            f"WHERE {_EVIDENCE_UNMIGRATED} "
+            f"WHERE r.relation IS NOT NULL AND {_EVIDENCE_UNMIGRATED} "
             "WITH r LIMIT $batch "
             "SET r.evidence_refs = r.evidence_msg_ids "
             "RETURN count(r) AS n"

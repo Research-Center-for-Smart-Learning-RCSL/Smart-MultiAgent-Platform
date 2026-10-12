@@ -168,6 +168,27 @@ async def test_a_delta_write_sets_both_keys_from_the_old_one(
     assert stored["likes"][0] == stored["likes"][1] == ["m3"]
 
 
+async def test_a_delta_write_keeps_evidence_held_only_under_the_new_key(
+    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
+) -> None:
+    # What a rollback from a release that stopped writing the old key leaves.
+    await _legacy_edge(raw, config_id, ["m1"])
+    async with raw.session() as session:
+        await session.run(
+            "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
+            "SET r.evidence_refs = r.evidence_msg_ids REMOVE r.evidence_msg_ids",
+            cid=str(config_id),
+        )
+    await driver.apply_triples(
+        config_id=config_id,
+        project_id=_PROJECT_ID,
+        build_id=uuid.uuid4(),
+        triples=[Triple("alice", "knows", "bob", 0.8, ("m2",))],
+    )
+    stored = await _raw_evidence(raw, config_id)
+    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
+
+
 async def test_a_replace_write_sets_both_keys(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
