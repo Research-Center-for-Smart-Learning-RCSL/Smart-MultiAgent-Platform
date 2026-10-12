@@ -62,6 +62,10 @@ from shared_kernel.auth.clients import now
 _log = logging.getLogger(__name__)
 
 LOCK_TTL_S = 10 * 60  # R11a.01
+# A build job that finds the lock held is re-queued after this many seconds rather
+# than failed: a failed result would hold its job id for keep_result and swallow
+# the follow-up enqueue for the same revision (2026-10-12-graph-build-busy-retry).
+BUILD_BUSY_RETRY_DEFER_S = 30
 SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 
 # Audit M7: cap how many relation fragments contribute to one entity's

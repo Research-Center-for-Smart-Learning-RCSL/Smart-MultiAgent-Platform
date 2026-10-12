@@ -64,7 +64,11 @@ async def enqueue_knowmap_build(
     the revision sweep, and must never fail the triggering upload/delete request.
     A ``None`` return from arq (an already-queued job for the same revision) is a
     *legitimate* same-revision dedup, logged at debug so it is observable and not
-    confused with the pre-F-12 silent-suppression bug.
+    confused with the pre-F-12 silent-suppression bug. The queued job may already
+    have run once and be waiting on a busy-lock retry, in which case it builds this
+    revision when the lock frees. arq also returns ``None`` while a retained result
+    holds the id; for a job that exhausted its busy retries that suppresses the
+    revision until ``keep_result`` lapses, and the revision sweep then re-offers it.
 
     Trigger callers ignore the return; the sweep uses it to count honestly.
     """

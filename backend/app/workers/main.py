@@ -52,6 +52,7 @@ from app.workers.tasks.conversation import (
     research_data_export,
 )
 from app.workers.tasks.graphrag import (
+    GRAPHRAG_BUILD_MAX_TRIES,
     GRAPHRAG_BUILD_TIMEOUT_S,
     graphrag_build,
     graphrag_reconcile,
@@ -60,6 +61,7 @@ from app.workers.tasks.graphrag import (
 from app.workers.tasks.guest_cleanup import guest_session_cleanup
 from app.workers.tasks.knowledge_ingest import knowledge_ingest_reconcile
 from app.workers.tasks.knowmap import (
+    KNOWMAP_BUILD_MAX_TRIES,
     KNOWMAP_BUILD_TIMEOUT_S,
     knowmap_build,
     knowmap_ingest_document,
@@ -341,8 +343,13 @@ class WorkerSettings:
         key_usage_threshold_sample,
         # D3: graphrag_build gets a longer, scoped job timeout so the lock (not
         # the timeout) is the single-writer authority; other lanes keep the
-        # default worker job_timeout.
-        func(graphrag_build, name="graphrag_build", timeout=GRAPHRAG_BUILD_TIMEOUT_S),
+        # default worker job_timeout. max_tries is the busy-lock retry budget.
+        func(
+            graphrag_build,
+            name="graphrag_build",
+            timeout=GRAPHRAG_BUILD_TIMEOUT_S,
+            max_tries=GRAPHRAG_BUILD_MAX_TRIES,
+        ),
         graphrag_reconcile,
         graphrag_silence_sweep,
         knowmap_revision_sweep,
@@ -352,7 +359,12 @@ class WorkerSettings:
         skill_export_bundle,
         # knowmap_build mirrors graphrag_build's scoped timeout: the build lock is
         # the single-writer authority, so the job timeout has TTL headroom.
-        func(knowmap_build, name="knowmap_build", timeout=KNOWMAP_BUILD_TIMEOUT_S),
+        func(
+            knowmap_build,
+            name="knowmap_build",
+            timeout=KNOWMAP_BUILD_TIMEOUT_S,
+            max_tries=KNOWMAP_BUILD_MAX_TRIES,
+        ),
         # Scoped timeout, mirroring graphrag_build: the first armed sweep can
         # reclaim years of leaked artifacts and must not be killed part-way
         # through by the default job_timeout.

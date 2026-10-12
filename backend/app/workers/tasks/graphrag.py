@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
+from arq.worker import Retry
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,12 +21,14 @@ from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepo
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
+    BUILD_BUSY_RETRY_DEFER_S,
     LOCK_TTL_S,
     EmbedderFactory,
     GraphRagBuilder,
     ResolvedEmbedder,
 )
 from contexts.knowledge.application.graphrag_ports import ConfigLike, DeltaMessage
+from contexts.knowledge.domain.errors import GraphRagBuildBusy
 from contexts.knowledge.infrastructure.channels import graphrag_channel
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
@@ -86,6 +90,9 @@ def build_state_metric_label(state_value: str) -> str:
 # lock. Scoped to graphrag_build via arq's per-function timeout so other lanes
 # keep the default worker job_timeout.
 GRAPHRAG_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
+# A busy job keeps waiting until the holder could have run to its own timeout;
+# arq allows (max_tries - 1) retries, hence the + 1.
+GRAPHRAG_BUILD_MAX_TRIES = math.ceil(GRAPHRAG_BUILD_TIMEOUT_S / BUILD_BUSY_RETRY_DEFER_S) + 1
 
 # D1: build-window bounds. A window is flushed at whichever limit trips first —
 # the token budget caps the per-call LLM extraction payload (the real
@@ -418,6 +425,13 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                     f"triples={result.triples_written} "
                     f"entities={result.entities_written}"
                 )
+            except GraphRagBuildBusy as exc:
+                # Not a failure: the gauge belongs to the build holding the config
+                # (or to whatever settles its unfinished state), not to a waiter.
+                _log.info(
+                    "graphrag_build config=%s busy, retrying in %ds", config_id, BUILD_BUSY_RETRY_DEFER_S
+                )
+                raise Retry(defer=BUILD_BUSY_RETRY_DEFER_S) from exc
             except Exception:
                 _set_state("failed")
                 _log.exception("graphrag_build failed config=%s", config_id)
