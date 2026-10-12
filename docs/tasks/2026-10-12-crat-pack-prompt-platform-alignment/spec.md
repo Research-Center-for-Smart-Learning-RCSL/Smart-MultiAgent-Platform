@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-10-12
 requirements: [R15.01, R15.02, R15.03, R15.06, R15.07]
 depends_on: [2026-10-12-agent-message-time-context]
