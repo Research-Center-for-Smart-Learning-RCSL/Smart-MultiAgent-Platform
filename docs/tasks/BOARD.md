@@ -23,11 +23,7 @@ on the time-context one and is under Blocked. The re-check and wake-up dossiers 
 `update_wakeup` tool); not sequenced, whoever builds second rebases.
 
 - (implemented 2026-10-13) `2026-10-12-stale-reply-recheck`. AC-1..AC-8a and AC-10 ticked; AC-9 (four participants on a running stack) unticked. The quality audit's six warnings were fixed before commit (D-3..D-8), including releasing the claim on every failure path and an atomic covered check in the mark script; [R13.72]'s failure sentence was corrected to match. FU-1..FU-4 are in the dossier. Nothing lists this slug in `depends_on`.
-- `2026-10-12-wakeup-human-count-and-trigger-toggle` (feature, **approved 2026-10-12**) - opt-in human-only
-  `every_n_messages` counting, deferred instead of dropped own-message firings, `update_wakeup`
-  toggles limited to a designer-set `self_toggle` list, and typing within the last 60 s counts
-  as room activity for the silence clock. SRS delta: [R15.01] and [R15.06] replaced, [R15.02]
-  amended, [R15.01a] and [R15.06a] added.
+- (in progress since 2026-10-13, code committed) `2026-10-12-wakeup-human-count-and-trigger-toggle`. AC-1..AC-10a ticked. AC-11 is open only because the last whole backend unit run after the audit fixes was stopped by the host for low memory; the run before them had two exact-dict failures, since fixed, and every touched module passes. Re-run the unit tier (or CI) and tick AC-11 to close it. D-1..D-7 and FU-2..FU-7 are in the dossier.
 - (implemented 2026-10-12) `2026-10-12-agent-message-time-context`. AC-1..AC-8 ticked; the
   manual provider-request check was not run (D-6, no stack). Deviations D-1..D-6 and FU-1..FU-5
   are in the dossier. It unblocked `2026-10-12-crat-pack-prompt-platform-alignment`, now below.

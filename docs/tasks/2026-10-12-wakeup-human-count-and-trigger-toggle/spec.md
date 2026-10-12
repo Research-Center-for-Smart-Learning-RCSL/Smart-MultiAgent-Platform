@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R15.01, R15.02, R15.05a, R15.06, R15.07, R15.09]
 depends_on: []
@@ -224,28 +224,35 @@ This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: with `count: "human"` and `n = 3`, two user messages and any number of agent
+- [x] AC-1: with `count: "human"` and `n = 3`, two user messages and any number of agent
   messages do not fire the agent; the third user or guest message does.
-- [ ] AC-2: with `count: "human"`, a released observation does not advance the counter.
-- [ ] AC-3: with `count: "all"` (and with the key absent), the counter behaves as today except
+- [x] AC-2: with `count: "human"`, a released observation does not advance the counter.
+- [x] AC-3: with `count: "all"` (and with the key absent), the counter behaves as today except
   that a firing landing on the agent's own message fires on the next message from another
   sender.
-- [ ] AC-4: `update_wakeup` with `silence_minutes_enabled: true` succeeds and is audited when
+- [x] AC-4: `update_wakeup` with `silence_minutes_enabled: true` succeeds and is audited when
   `silence_minutes` is in `self_toggle`, and is refused with a tool error when it is not.
-- [ ] AC-5: any toggle is refused while `call_only.enabled`, and a toggle that would leave every
+- [x] AC-5: any toggle is refused while `call_only.enabled`, and a toggle that would leave every
   trigger disabled is refused.
-- [ ] AC-6: the tool cannot change `self_toggle`, `count`, `autostop_rounds` or `call_only`.
-- [ ] AC-7: an [R15.09] refresh restores toggled triggers to the designer's values.
-- [ ] AC-8: the API rejects an invalid `count` or `self_toggle` with a validation error, and
+- [x] AC-6: the tool cannot change `self_toggle`, `count`, `autostop_rounds` or `call_only`.
+- [x] AC-7: an [R15.09] refresh restores toggled triggers to the designer's values.
+- [x] AC-8: the API rejects an invalid `count` or `self_toggle` with a validation error, and
   round-trips valid values.
-- [ ] AC-9: the editor shows and saves both settings, in both locales.
-- [ ] AC-10: the tool descriptions state the counting semantics and the toggle restriction.
-- [ ] AC-10a: when a `typing.start` was accepted in the room less than 60 s ago,
+- [x] AC-9: the editor shows and saves both settings, in both locales.
+- [x] AC-10: the tool descriptions state the counting semantics and the toggle restriction.
+- [x] AC-10a: when a `typing.start` was accepted in the room less than 60 s ago,
   `evaluate_silence_trigger` does not fire and re-arms the clock, for normal and observer
   bindings, even if `typing.stop` has since been sent; 60 s after the last `typing.start`, the
   trigger fires `t_minutes` after the last activity.
 - [ ] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
+
+  (Open. The last complete backend unit run, before the audit fixes, was 11683 passed and 2
+  failed; both were exact-dict expectations in `test_agent_service.py` that now include the
+  new `count` default, and pass. The run after the audit fixes was stopped by the host for low
+  memory, not by a failure. Every module the change touches, 431 tests, passes; `ruff check .`,
+  `ruff format --check .` and `mypy` on the touched packages are clean; frontend
+  `pnpm typecheck`, `pnpm lint` and `pnpm test` (2125 tests) pass.)
 
 ## 12. Test Plan
 
@@ -305,11 +312,56 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1**: the deferred-firing flag is consumed on every counted message from another sender,
+  not only when that message would not fire anyway. The quality audit found that a flag left
+  behind by a firing that happened anyway made the next message fire a second time, and that
+  with `n = 1` the flag was never cleared. The cost is one Redis GETDEL per counted message per
+  bound agent with the trigger on, more than §7's "at most one extra GET" estimate.
+- **D-2**: the composing signal is a room key whose TTL is the 60 s window, read with `EXISTS`
+  (`presence.py`, `note_composing` / `composing_recently`), rather than a stored timestamp
+  compared on the reader's clock. The writer (the WS process) and the reader (the worker) may
+  run on hosts whose clocks differ; the TTL runs on Redis's.
+- **D-3**: a pending deferral is not cleared when the counting mode is switched or the trigger
+  is toggled, so the first counted message afterwards can fire early. Same class as §10's
+  "early first firing after a mode switch"; accepted.
+- **D-4**: behaviour change for deployed agents beyond §10's note: two agents taking turns in
+  `all` mode with an even `n` used to never fire each other (each N-th message was the other's
+  own and was dropped). With [R15.01a] they now do, until the autostop cap stops them. Bounded,
+  but these are new provider calls; to be stated in the release notes.
+- **D-5**: `WakeupToggleNotAllowed` is exported but not mapped to an HTTP problem type in
+  `contexts/orchestration/interfaces/error_mapping.py`; only the tool path raises it, and there
+  it reaches the model as a tool error (FU-3).
+- **D-6**: the editor now writes `count` and `self_toggle` on every save of a wake-up config.
+  Harmless (the server's `to_dict` writes the same defaults), but every existing agent's stored
+  config gains the two keys the first time it is saved.
+- **D-7**: API validation checks `isinstance(..., str)` before the membership tests, from the
+  security audit: an unhashable `count` or `self_toggle` entry raised `TypeError`, which Pydantic
+  does not convert, and the request ended as a 500.
 
 ## 16. Follow-ups
 
 - **FU-1**: the editor describes call-only mode as "responds only when @mentioned"
   (`SWakeupEditor.vue:38-42`, `en.json:24-25`), while [R15.05a] defines it as A2A call or
   instruct only.
-- **FU-2**: per-binding wake-up state (audit F-9).
+- **FU-2**: per-binding wake-up state (audit F-9). The security audit notes the cost side: a
+  toggle applies in every room the agent is bound to until the next refresh, so an injection in
+  one room changes the agent's cadence in all of them. Stated in the editor's help text.
+- **FU-3**: map `WakeupToggleNotAllowed` to an HTTP problem type if any HTTP path ever raises
+  it (D-5).
+- **FU-4**: the editor shows and saves the runtime config, so a designer saving any unrelated
+  field writes an agent-made toggle into `wakeup_authored_snapshot`, after which the [R15.09]
+  refresh no longer undoes it. Pre-existing for `n` and `t_minutes`; this feature extends it to
+  `enabled`. A drift badge against the snapshot, or saving only the fields the designer touched,
+  would close it.
+- **FU-5**: nothing rate-limits toggles; an injected loop of `update_wakeup` calls bumps the
+  agent version each time (the designer's editor then meets 409s) and fills the audit log. A
+  toggle that changes nothing could skip the write and the audit. From the security audit
+  (hardening).
+- **FU-6**: any connected participant, guests included, can keep a room "composing" with a
+  `typing.start` every 2 s and so suppress silence triggers without posting. No worse than
+  posting; stamping only for principals allowed to post would close it. From the security audit
+  (hardening).
+- **FU-7**: two pre-existing gaps the audits passed through: a released observation passes no
+  `sender_agent_id`, so in `all` mode the authoring observer counts its own released message;
+  and an exception from `presence.typing_start` escapes the WS handler, unlike the new composing
+  stamp beneath it.
