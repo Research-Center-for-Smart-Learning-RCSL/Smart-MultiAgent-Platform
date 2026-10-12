@@ -25,6 +25,12 @@ from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.wiring.knowledge_ingest import KnowledgeIngestWiring
+from app.workers.tasks.build_retry import (
+    BuildCrashLoopError,
+    build_max_tries,
+    crash_retries_exhausted,
+    retry_busy_build,
+)
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
@@ -39,6 +45,7 @@ from contexts.knowledge.application.knowmap_triggers import (
     EnqueueOutcome,
     enqueue_knowmap_build,
 )
+from contexts.knowledge.domain.errors import GraphRagBuildBusy
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.models import DocumentStatus, IngestClaim, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
@@ -59,6 +66,7 @@ _log = logging.getLogger(__name__)
 # The build lock (LOCK_TTL_S), refreshed per window, is the single-writer guard;
 # the job timeout is only a runaway backstop and must have headroom over the TTL.
 KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
+KNOWMAP_BUILD_MAX_TRIES = build_max_tries(KNOWMAP_BUILD_TIMEOUT_S)
 
 # F-27: the scan task's arq retry budget. Named so the ClamAV-error SKIPPED path
 # can enqueue a rebuild only once retries are exhausted (a document mid-retry might
@@ -314,14 +322,19 @@ async def knowmap_revision_sweep(ctx: dict[str, Any]) -> str:
     Repeated ticks are idempotent: the revision-keyed job id means re-offering the
     same gap collapses onto the job already queued or running.
 
-    Recovery latency depends on which hop dropped, and the two are worth keeping
+    Recovery latency depends on which hop dropped, and the cases are worth keeping
     apart. If the *follow-up enqueue* was lost, the target revision was never
-    built and its job id has never been used, so the next tick queues it within a
-    minute. If instead a build finished and only the ``built_corpus_revision``
-    stamp failed, the graph already holds that revision -- the divergence is
-    stale bookkeeping, not missing content -- and the re-offer collapses onto the
-    completed job's retained result until ``keep_result`` lapses. That shows up
-    as ``deduped`` in the tick summary rather than silence.
+    built and its job id has usually never been used, so the next tick queues it
+    within a minute. The id may also belong to a job that found the config busy
+    and is waiting on an arq retry; the re-offer then collapses onto that queued
+    job, which builds the revision once the holder releases the lock. A job that
+    exhausted its busy retries left a failed result, and is re-offered only once
+    ``keep_result`` lapses. If instead a build finished and only the
+    ``built_corpus_revision`` stamp failed, the graph already holds that revision
+    -- the divergence is stale bookkeeping, not missing content -- and the
+    re-offer collapses onto the completed job's retained result until
+    ``keep_result`` lapses. The collapsing cases show up as ``deduped`` in the
+    tick summary rather than silence.
     """
     # The worker already holds an ArqRedis; the shared enqueue helper would open
     # and close one pool per config, up to _SWEEP_MAX_PER_TICK of them per tick.
@@ -859,7 +872,9 @@ async def knowmap_build(
     committed change is ever left unbuilt. ``None`` for a legacy in-flight job
     enqueued before this deploy — those skip the re-check and complete normally.
     """
-    _ = ctx
+    if await crash_retries_exhausted(ctx):
+        _log.error("knowmap_build config=%s: giving up after repeated crashed attempts", config_id)
+        raise BuildCrashLoopError(f"knowmap_build config={config_id} crashed on every attempt")
     from qdrant_client import AsyncQdrantClient
 
     from app.config.settings import get_settings
@@ -906,6 +921,10 @@ async def knowmap_build(
                 # live corpus. Concept Map delta builds pass replace=False.
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by, replace=True)
                 await db.commit()
+            except GraphRagBuildBusy:
+                # Wait under the same job id, so the holder's follow-up enqueue
+                # for this revision collapses onto this job.
+                await retry_busy_build(ctx, job_name="knowmap_build", config_id=config_id)
             except Exception:
                 _log.exception("knowmap_build failed config=%s", config_id)
                 raise
