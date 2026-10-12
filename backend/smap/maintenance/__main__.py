@@ -12,6 +12,7 @@ from contexts.identity.domain.errors import IdentityError
 
 from . import email_domain_policy as _email_domain_policy
 from . import encrypt_proxy_headers as _encrypt_proxy_headers
+from . import neo4j_evidence_refs as _neo4j_evidence_refs
 from . import purge_session_dirs as _purge_session_dirs
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
 from . import reconcile_model_catalog as _reconcile_model_catalog
@@ -201,6 +202,41 @@ def encrypt_proxy_headers_cmd() -> None:
             _encrypt_proxy_headers._ARMED_ENV,
         )
     if report.failed:
+        raise typer.Exit(code=1)
+
+
+@app.command("neo4j-evidence-refs")
+def neo4j_evidence_refs_cmd() -> None:
+    """Copy Neo4j relation evidence onto `evidence_refs` (rename release A).
+
+    **Run only once release A is on every web and worker replica**; see
+    docs/runbook-upgrade.md. Each config is copied under its build lock, in
+    batches; a config that is building is skipped, which exits non-zero so the
+    run is repeated. "remaining=0" is the gate for the rename's next release.
+
+    Dry-run unless SMAP_NEO4J_EVIDENCE_REFS_ARMED is set to a truthy value.
+    Idempotent.
+    """
+    report = asyncio.run(_neo4j_evidence_refs.run())
+    logger.info(
+        "neo4j-evidence-refs complete dry_run={} pending={} copied={} remaining={} busy={}",
+        report.dry_run,
+        report.pending,
+        report.copied,
+        report.remaining,
+        len(report.busy),
+    )
+    if report.dry_run and report.pending:
+        logger.warning(
+            "{} edge(s) need copying. Re-run with {}=1 to copy.",
+            report.pending,
+            _neo4j_evidence_refs.ARMED_ENV,
+        )
+    if report.busy:
+        logger.warning("skipped busy config(s): {}", ", ".join(str(c) for c in report.busy))
+    if not report.dry_run and report.remaining:
+        # Busy configs, or edges an N-1 writer changed during the run: either way
+        # the gate is not met, and a scripted run must see that.
         raise typer.Exit(code=1)
 
 

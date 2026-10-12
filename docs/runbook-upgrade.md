@@ -178,6 +178,37 @@ alembic downgrade -1    # revert
 alembic upgrade head    # re-apply (must be idempotent)
 ```
 
+### 3.1 Neo4j relation evidence: `evidence_msg_ids` to `evidence_refs`
+
+Neo4j has no migration harness, so the GraphRAG relation property
+`evidence_msg_ids` is renamed to `evidence_refs` over three releases under the same
+N-1 rule (`docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand` and its
+contract dossier). Release A writes both properties on every relation it touches and
+still treats the old one as authoritative. Relations it never touches, such as older
+Concept Map edges that a delta build leaves alone, keep only the old property until the
+backfill command copies it.
+
+Run the backfill only after release A is on every backend-web and backend-worker
+replica. Before that, an N-1 replica can rewrite the old property after the copy. The
+command is idempotent, so running it again repairs any relation that was copied too
+early. Each Knowledge Map or Concept Map is copied while holding its build lock, in
+batches, so it never writes concurrently with a build. A map that is building at that
+moment is skipped and reported, and the command then exits non-zero.
+
+```bash
+# Dry run: counts the relations still to copy, changes nothing
+docker compose exec backend-worker python -m smap.maintenance neo4j-evidence-refs
+
+# Copy
+docker compose exec -e SMAP_NEO4J_EVIDENCE_REFS_ARMED=1 backend-worker \
+  python -m smap.maintenance neo4j-evidence-refs
+```
+
+An armed run ends with `remaining=0` and exit status 0 once every relation carries
+`evidence_refs` equal to `evidence_msg_ids`. Repeat it until it does. Release B, which
+switches reads to the new property, must not be deployed before a run has reported
+`remaining=0` with release A on every replica.
+
 ---
 
 ## 4. Sandbox image upgrades

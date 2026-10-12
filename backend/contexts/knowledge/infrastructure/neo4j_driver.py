@@ -215,6 +215,12 @@ _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 # it is authoritative, so the physical spelling stops at this module.
 _EVIDENCE_READ = "coalesce({r}.evidence_msg_ids, {r}.evidence_refs)"
 
+# An edge the backfill still has to copy: written by N-1 (no new key) or touched
+# by an N-1 writer after a copy (new key stale).
+_EVIDENCE_UNMIGRATED = (
+    "r.evidence_msg_ids IS NOT NULL AND (r.evidence_refs IS NULL OR r.evidence_refs <> r.evidence_msg_ids)"
+)
+
 
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
     """Flatten domain triples into the UNWIND row payload."""
@@ -418,6 +424,40 @@ class Neo4jAsyncDriver:
             result = await session.run(cypher)
             rows = [(rec["cid"], rec["pid"]) async for rec in result]
         return _collapse_config_rows(rows)
+
+    async def count_unmigrated_evidence(self) -> dict[uuid.UUID, int]:
+        """Edges per config whose ``evidence_refs`` does not yet mirror the old key.
+
+        For the ``neo4j-evidence-refs`` maintenance command only. A REL is always
+        MERGEd with its config id, so every edge has one.
+        """
+        driver = await self._ensure()
+        cypher = (
+            f"MATCH ()-[r:REL]->() WHERE {_EVIDENCE_UNMIGRATED} "
+            "RETURN r.graphrag_config_id AS cid, count(r) AS n"
+        )
+        async with driver.session() as session:
+            result = await session.run(cypher)
+            return {uuid.UUID(str(rec["cid"])): int(rec["n"]) async for rec in result if rec["cid"]}
+
+    async def copy_evidence_refs(self, *, config_id: uuid.UUID, batch: int) -> int:
+        """Copy the old key to ``evidence_refs`` on up to ``batch`` edges of one config.
+
+        Returns how many edges it copied; the caller loops until 0, holding the
+        config's build lock so no build writes the same edges meanwhile.
+        """
+        driver = await self._ensure()
+        cypher = (
+            "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
+            f"WHERE {_EVIDENCE_UNMIGRATED} "
+            "WITH r LIMIT $batch "
+            "SET r.evidence_refs = r.evidence_msg_ids "
+            "RETURN count(r) AS n"
+        )
+        async with driver.session() as session:
+            result = await session.run(cypher, cid=str(config_id), batch=batch)
+            record = await result.single()
+        return int(record["n"]) if record is not None else 0
 
     async def restore_from_snapshot(
         self,

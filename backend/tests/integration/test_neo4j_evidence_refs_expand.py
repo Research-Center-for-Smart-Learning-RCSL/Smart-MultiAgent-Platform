@@ -304,9 +304,7 @@ async def test_the_backfill_skips_a_busy_config(
     await redis.set(lock_key, "a-build", ex=60)
     monkeypatch.setenv(cmd.ARMED_ENV, "1")
     try:
-        report = await cmd.run(
-            driver=driver, lock_store=RedisBuildLockStore(redis), config_ids=[config_id]
-        )
+        report = await cmd.run(driver=driver, lock_store=RedisBuildLockStore(redis), config_ids=[config_id])
     finally:
         held_by = await redis.get(lock_key)
         await redis.delete(lock_key)
