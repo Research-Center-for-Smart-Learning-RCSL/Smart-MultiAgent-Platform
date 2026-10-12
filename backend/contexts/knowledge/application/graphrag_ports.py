@@ -190,8 +190,13 @@ class Neo4jDriver(Protocol):
         config_id: uuid.UUID,
         seed_entities: list[str],
         hops: int,
+        member_ids: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Return 1–2 hop edges from ``seed_entities`` as raw dict rows."""
+        """Return 1–2 hop edges from ``seed_entities`` as raw dict rows.
+
+        With ``member_ids``, only paths whose every edge names one of them in its
+        ``source_member_ids`` (R11.22); an edge with no provenance never matches.
+        """
 
 
 class DeltaMessage(Protocol):
@@ -200,11 +205,11 @@ class DeltaMessage(Protocol):
     id: uuid.UUID
     role: str
     content: str
-    # Phase 2b (R11.22) — the agent_group member agent whose room feed surfaced
-    # this message, used to tag extracted relations with member provenance.
-    # ``None`` for a non-agent_group owner (chatroom/workspace feed) or a
-    # single-owner build where provenance is not partitioned.
-    source_member_id: uuid.UUID | None
+    # R11.22 — the agent_group members this message is attributed to (its
+    # author, or the members present for it), used to tag extracted relations
+    # with member provenance. Empty for a non-agent_group owner (chatroom,
+    # workspace, Knowledge Map), where provenance is not partitioned.
+    source_member_ids: tuple[uuid.UUID, ...]
     # Phase 2b WS5 (R11.21) — the message's creation time, the source of the
     # relation's first_seen_at/last_seen_at (derived from messages, not the LLM).
     created_at: datetime

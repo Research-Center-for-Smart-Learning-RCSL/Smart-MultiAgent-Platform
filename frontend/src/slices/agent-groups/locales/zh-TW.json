@@ -54,7 +54,21 @@
       "privacyToggleFailed": "更新隱私設定失敗。",
       "cancel": "取消",
       "save": "儲存",
-      "notFound": "找不到此 Agent 群組。"
+      "notFound": "找不到此 Agent 群組。",
+      "colReadsFrom": "讀取範圍",
+      "readsWholeGroup": "整個群組",
+      "readsNothing": "不讀取任何內容",
+      "readsNothingHelp": "它選定的成員都已被移除，在你重新選擇之前，它不會從群組概念圖讀取任何內容。",
+      "editReads": "變更此成員的讀取範圍",
+      "readsTitle": "{name} 的讀取範圍",
+      "readsHelp": "選擇此成員從群組概念圖讀取哪些成員貢獻的內容。",
+      "readsModeAll": "整個群組",
+      "readsModeSome": "只讀取以下成員",
+      "readsChooseOne": "請至少選擇一位成員。",
+      "readsRemovedAgent": "已刪除的 Agent",
+      "readsSaved": "已更新讀取範圍。",
+      "readsFailed": "更新讀取範圍失敗。",
+      "removeConfirmEmpties": "將此 AI Agent 從群組移除？{names} 只讀取此 Agent 的內容，移除後在你重新選擇之前將不會從群組概念圖讀取任何內容。"
     }
   }
 }

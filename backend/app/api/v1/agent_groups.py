@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
-from contexts.agent_groups.domain.models import AgentGroup
+from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
@@ -58,8 +58,37 @@ class AgentGroupMemberIn(BaseModel):
     agent_id: uuid.UUID
 
 
+class AgentGroupMemberReadOut(BaseModel):
+    agent_id: uuid.UUID
+    # R11.22: whose contributions this member reads from the group's Concept
+    # Map. ``null`` = the whole group; ``[]`` = nothing, left when the last
+    # member it named was removed.
+    read_member_ids: list[uuid.UUID] | None
+
+
 class AgentGroupMembersOut(BaseModel):
     members: list[uuid.UUID]
+    read_members: list[AgentGroupMemberReadOut]
+
+
+class ReadMembersIn(BaseModel):
+    # Required, so a body that omits it is refused instead of read as "whole
+    # group". An empty list is refused too: use null for the whole group.
+    member_ids: list[uuid.UUID] | None = Field(..., min_length=1, max_length=500)
+
+
+def _read_out(member: AgentGroupMember) -> AgentGroupMemberReadOut:
+    reads = member.read_member_ids
+    return AgentGroupMemberReadOut(
+        agent_id=member.agent_id, read_member_ids=None if reads is None else list(reads)
+    )
+
+
+async def _members_out(facade: AgentGroupFacade, group_id: uuid.UUID) -> AgentGroupMembersOut:
+    members = await facade.list_members_with_reads(group_id)
+    return AgentGroupMembersOut(
+        members=[m.agent_id for m in members], read_members=[_read_out(m) for m in members]
+    )
 
 
 class ConceptMapEnabledIn(BaseModel):
@@ -257,8 +286,7 @@ async def list_members(
 ) -> AgentGroupMembersOut:
     project_id = await _group_project_id(db, group_id)
     await assert_project_membership(db=db, principal=principal, project_id=project_id)
-    members = await AgentGroupFacade(db).list_members(group_id)
-    return AgentGroupMembersOut(members=list(members))
+    return await _members_out(AgentGroupFacade(db), group_id)
 
 
 @group_router.post("/{group_id}/members", status_code=status.HTTP_201_CREATED)
@@ -279,8 +307,30 @@ async def add_member(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    members = await facade.list_members(group_id)
-    return AgentGroupMembersOut(members=list(members))
+    return await _members_out(facade, group_id)
+
+
+@group_router.put("/{group_id}/members/{agent_id}/read-members")
+async def set_read_members(
+    body: ReadMembersIn,
+    group_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentGroupMemberReadOut:
+    """Set whose contributions a member reads from the group map (R11.22) — Project Owner only."""
+    project_id = await _group_project_id(db, group_id)
+    await _assert_project_owner(db=db, principal=principal, project_id=project_id)
+    member = await AgentGroupFacade(db).set_read_members(
+        group_id=group_id,
+        agent_id=agent_id,
+        member_ids=body.member_ids,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _read_out(member)
 
 
 @group_router.delete(

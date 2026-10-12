@@ -2,6 +2,7 @@ import { AgentGroupsService } from '@shared/api-client'
 import type {
   AgentGroupOut,
   AgentGroupMembersOut,
+  AgentGroupMemberReadOut,
   app__api__v1__agent_groups__ConceptMapStatusOut,
 } from '@shared/api-client'
 import type { AgentGroupCreateInput, AgentGroupUpdateInput } from '../types/schemas'
@@ -12,6 +13,9 @@ import type { AgentGroupCreateInput, AgentGroupUpdateInput } from '../types/sche
 // privacy opt-in (R11.10), toggled via its own endpoint.
 export type AgentGroup = AgentGroupOut
 export type AgentGroupMembers = AgentGroupMembersOut
+// What one member reads from the group's Concept Map (R11.22): `null` is the
+// whole group, `[]` reads nothing (left when its last chosen member is removed).
+export type AgentGroupMemberRead = AgentGroupMemberReadOut
 export type ConceptMapStatus = app__api__v1__agent_groups__ConceptMapStatusOut
 
 // Thin use-case-shaped wrappers over the generated AgentGroupsService (R24.13).
@@ -46,6 +50,19 @@ export const agentGroupsApi = {
 
   removeMember: (groupId: string, agentId: string): Promise<void> =>
     AgentGroupsService.removeMemberApiAgentGroupsGroupIdMembersAgentIdDelete({ groupId, agentId }),
+
+  // Project-Owner-gated: `null` reads the whole group, otherwise a non-empty
+  // list of current members (R11.22).
+  setReadMembers: (
+    groupId: string,
+    agentId: string,
+    memberIds: string[] | null,
+  ): Promise<AgentGroupMemberRead> =>
+    AgentGroupsService.setReadMembersApiAgentGroupsGroupIdMembersAgentIdReadMembersPut({
+      groupId,
+      agentId,
+      requestBody: { member_ids: memberIds },
+    }),
 
   // Project-Owner-gated privacy opt-in for the group's Concept Map (R11.10).
   setConceptMapEnabled: (groupId: string, enabled: boolean): Promise<ConceptMapStatus> =>

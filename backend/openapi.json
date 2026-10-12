@@ -2243,6 +2243,36 @@
         "title": "AgentGroupMemberIn",
         "type": "object"
       },
+      "AgentGroupMemberReadOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "read_member_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read Member Ids"
+          }
+        },
+        "required": [
+          "agent_id",
+          "read_member_ids"
+        ],
+        "title": "AgentGroupMemberReadOut",
+        "type": "object"
+      },
       "AgentGroupMembersOut": {
         "properties": {
           "members": {
@@ -2252,10 +2282,18 @@
             },
             "title": "Members",
             "type": "array"
+          },
+          "read_members": {
+            "items": {
+              "$ref": "#/components/schemas/AgentGroupMemberReadOut"
+            },
+            "title": "Read Members",
+            "type": "array"
           }
         },
         "required": [
-          "members"
+          "members",
+          "read_members"
         ],
         "title": "AgentGroupMembersOut",
         "type": "object"
@@ -10136,6 +10174,32 @@
         "title": "RateLimitPolicyOut",
         "type": "object"
       },
+      "ReadMembersIn": {
+        "properties": {
+          "member_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Ids"
+          }
+        },
+        "required": [
+          "member_ids"
+        ],
+        "title": "ReadMembersIn",
+        "type": "object"
+      },
       "RefreshIn": {
         "properties": {
           "refresh_token": {
@@ -17032,6 +17096,70 @@
           }
         },
         "summary": "Remove Member",
+        "tags": [
+          "agent-groups"
+        ]
+      }
+    },
+    "/api/agent-groups/{group_id}/members/{agent_id}/read-members": {
+      "put": {
+        "description": "Set whose contributions a member reads from the group map (R11.22) \u2014 Project Owner only.",
+        "operationId": "set_read_members_api_agent_groups__group_id__members__agent_id__read_members_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadMembersIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentGroupMemberReadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Set Read Members",
         "tags": [
           "agent-groups"
         ]

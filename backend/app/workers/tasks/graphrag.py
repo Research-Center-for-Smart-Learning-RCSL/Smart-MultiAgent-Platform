@@ -118,9 +118,10 @@ class _DbMsg:
     # Phase 2b WS5 (R11.21) — the message's creation time, the source of the
     # relation's first_seen_at/last_seen_at (from messages, not LLM output).
     created_at: datetime
-    # Phase 2b (R11.22) — the agent_group member whose room feed surfaced this
-    # message; ``None`` for a single-owner / non-agent_group build.
-    source_member_id: uuid.UUID | None = None
+    # R11.22 — the agent_group members this message is attributed to: its author
+    # for a member agent's message, otherwise every member bound to its room.
+    # Empty for a chatroom- or workspace-owned build.
+    source_member_ids: tuple[uuid.UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -129,17 +130,15 @@ class _DeltaScope:
 
     Every fragment is a compile-time constant chosen by :func:`_resolve_delta_scope`
     per ``owner_kind`` — never a data value — so interpolating them into the query
-    text carries no injection surface (the only bound values are ``params`` /
-    ``expanding``). ``empty`` short-circuits a scope that can match nothing (an
-    agent_group with no live members), so the loader yields no windows.
+    text carries no injection surface (the only bound values are ``params``).
+    ``empty`` short-circuits a scope that can match nothing (an agent_group with
+    no live members), so the loader yields no windows.
     """
 
-    select_source: str  # SQL for the source_member_id column ("ca.agent_id" | "NULL")
+    select_source: str  # SQL for the source_member_ids uuid[] column, or "NULL"
     extra_join: str  # extra JOIN after chatrooms, or ""
     owner_where: str  # owner predicate on the joined rows
-    order_extra: str  # ORDER BY tiebreak suffix, or ""
     params: dict[str, Any]
-    expanding: tuple[str, ...] = ()
     empty: bool = False
 
 
@@ -151,9 +150,9 @@ class _DbDeltaLoader:
     :class:`_DeltaScope`: a ``chatroom`` owner ingests that room's messages, a
     ``workspace`` owner every room in the workspace, and an ``agent_group`` owner
     the DISTINCT union of its member agents' room messages — a message co-present
-    to two members ingested exactly once (AC-1) and tagged with a deterministic
-    ``source_member_id`` (the smallest member id sharing it) for relation
-    provenance (R11.22). Wide owners carry no member provenance (NULL).
+    to two members ingested exactly once (AC-1) and tagged with its
+    ``source_member_ids`` for relation provenance (R11.22, see
+    :func:`_resolve_delta_scope`). Wide owners carry no member provenance.
     """
 
     def __init__(self, *, scope: _DeltaScope) -> None:
@@ -197,15 +196,14 @@ class _DbDeltaLoader:
                 params["last_created_at"] = last_created_at
                 params["last_id"] = last_id
             # DISTINCT ON (m.created_at, m.id) collapses a message reachable via
-            # several members (a shared room) to one row; the agent_group scope's
-            # ORDER BY tiebreak on ca.agent_id makes the surviving row — and thus
-            # source_member_id — deterministically the smallest member id. All
-            # interpolated fragments come from the static _DeltaScope, so only
-            # bound params carry data.
+            # several members (a shared room) to one row. Its provenance is
+            # computed per message, not taken from the join row, so which row
+            # survives does not matter. All interpolated fragments come from the
+            # static _DeltaScope, so only bound params carry data.
             stmt = sa.text(
                 "SELECT DISTINCT ON (m.created_at, m.id) "  # noqa: S608
                 "m.id, m.sender_type AS role, m.content_md AS content, "
-                f"m.created_at, {scope.select_source} AS source_member_id "
+                f"m.created_at, {scope.select_source} AS source_member_ids "
                 "FROM messages m "
                 "JOIN chatrooms cr ON cr.id = m.chatroom_id "
                 f"{scope.extra_join} "
@@ -214,11 +212,9 @@ class _DbDeltaLoader:
                 "  AND cr.deleted_at IS NULL "
                 "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
                 f"{cursor_clause}"
-                f"ORDER BY m.created_at, m.id{scope.order_extra} "
+                "ORDER BY m.created_at, m.id "
                 "LIMIT :batch_size"
             )
-            if scope.expanding:
-                stmt = stmt.bindparams(*[sa.bindparam(n, expanding=True) for n in scope.expanding])
             async with sm() as db:
                 rows = (await db.execute(stmt, params)).all()
             for r in rows:
@@ -239,7 +235,7 @@ class _DbDeltaLoader:
                         role=r.role,
                         content=content,
                         created_at=r.created_at,
-                        source_member_id=r.source_member_id,
+                        source_member_ids=tuple(r.source_member_ids or ()),
                     )
                 )
                 window_tokens += tokens
@@ -257,7 +253,10 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
 
     - ``agent_group`` — the DISTINCT union of the group's **live** members' room
       messages (read fresh so a removed member drops out of the next build),
-      tagged with member provenance.
+      tagged with member provenance: ``[sender]`` when a live member agent wrote
+      the message, otherwise every live member bound to the message's room
+      (R11.22). A person's message is attributed to the members present for it,
+      and so is a message from an agent outside the group.
     - ``chatroom`` — that room's messages, no member provenance.
     - ``workspace`` — every (non-deleted) room in the workspace, no provenance.
 
@@ -267,12 +266,18 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
     if cfg.owner_kind == "agent_group" and cfg.owner_agent_group_id is not None:
         members = list(await AgentGroupRepository(db).list_member_agent_ids(cfg.owner_agent_group_id))
         return _DeltaScope(
-            select_source="ca.agent_id",
+            select_source=(
+                "CASE WHEN m.sender_type = 'agent' "
+                "      AND m.sender_id = ANY(CAST(:member_arr AS uuid[])) "
+                "THEN ARRAY[m.sender_id] "
+                "ELSE ARRAY(SELECT cam.agent_id FROM chatroom_agents cam "
+                "           WHERE cam.chatroom_id = m.chatroom_id "
+                "             AND cam.agent_id = ANY(CAST(:member_arr AS uuid[])) "
+                "           ORDER BY cam.agent_id) END"
+            ),
             extra_join="JOIN chatroom_agents ca ON ca.chatroom_id = cr.id",
-            owner_where="ca.agent_id IN :member_ids",
-            order_extra=", ca.agent_id",
-            params={"member_ids": [str(a) for a in members]},
-            expanding=("member_ids",),
+            owner_where="ca.agent_id = ANY(CAST(:member_arr AS uuid[]))",
+            params={"member_arr": members},
             empty=not members,
         )
     if cfg.owner_kind == "chatroom" and cfg.owner_chatroom_id is not None:
@@ -280,7 +285,6 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
             select_source="NULL",
             extra_join="",
             owner_where="cr.id = :chatroom_id",
-            order_extra="",
             params={"chatroom_id": str(cfg.owner_chatroom_id)},
         )
     if cfg.owner_kind == "workspace" and cfg.owner_workspace_id is not None:
@@ -288,12 +292,9 @@ async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
             select_source="NULL",
             extra_join="",
             owner_where="cr.workspace_id = :workspace_id",
-            order_extra="",
             params={"workspace_id": str(cfg.owner_workspace_id)},
         )
-    return _DeltaScope(
-        select_source="NULL", extra_join="", owner_where="false", order_extra="", params={}, empty=True
-    )
+    return _DeltaScope(select_source="NULL", extra_join="", owner_where="false", params={}, empty=True)
 
 
 def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:
@@ -347,8 +348,14 @@ async def graphrag_build(
     *,
     config_id: str,
     triggered_by: str = "manual",
+    full_rebuild: bool = False,
 ) -> str:
-    """Run a full GraphRAG build for one config (2PC, R11.04).
+    """Run a GraphRAG build for one config (2PC, R11.04).
+
+    ``full_rebuild`` re-extracts the whole history and replaces the map's
+    relations, evidence and provenance instead of adding a delta; the
+    ``rebuild-agent-group-concept-maps`` command uses it to rewrite provenance
+    in place (R11.22). The old graph stays readable until the new one commits.
 
     D8: bounded by a per-worker semaphore so a burst of builds cannot starve the
     other worker lanes.
@@ -358,12 +365,12 @@ async def graphrag_build(
         raise BuildCrashLoopError(f"graphrag_build config={config_id} crashed on every attempt")
     try:
         async with _get_build_semaphore():
-            return await _run_build(config_id=config_id, triggered_by=triggered_by)
+            return await _run_build(config_id=config_id, triggered_by=triggered_by, full_rebuild=full_rebuild)
     except GraphRagBuildBusy:
         await retry_busy_build(ctx, job_name="graphrag_build", config_id=config_id)
 
 
-async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
+async def _run_build(*, config_id: str, triggered_by: str = "manual", full_rebuild: bool = False) -> str:
     cfg_id = uuid.UUID(config_id)
     settings = get_settings()
 
@@ -417,7 +424,12 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
 
             _set_state("running")
             try:
-                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
+                result = await builder.run(
+                    config_id=cfg_id,
+                    triggered_by=triggered_by,
+                    mode="full" if full_rebuild else "delta",
+                    replace=full_rebuild,
+                )
                 await db.commit()
                 _set_state(build_state_metric_label(result.state.value))
                 _log.info(

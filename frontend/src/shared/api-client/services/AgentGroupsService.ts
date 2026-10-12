@@ -4,11 +4,13 @@
 /* eslint-disable */
 import type { AgentGroupCreateIn } from '../models/AgentGroupCreateIn';
 import type { AgentGroupMemberIn } from '../models/AgentGroupMemberIn';
+import type { AgentGroupMemberReadOut } from '../models/AgentGroupMemberReadOut';
 import type { AgentGroupMembersOut } from '../models/AgentGroupMembersOut';
 import type { AgentGroupOut } from '../models/AgentGroupOut';
 import type { AgentGroupUpdateIn } from '../models/AgentGroupUpdateIn';
 import type { app__api__v1__agent_groups__ConceptMapStatusOut } from '../models/app__api__v1__agent_groups__ConceptMapStatusOut';
 import type { ConceptMapEnabledIn } from '../models/ConceptMapEnabledIn';
+import type { ReadMembersIn } from '../models/ReadMembersIn';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -178,6 +180,35 @@ export class AgentGroupsService {
                 'group_id': groupId,
                 'agent_id': agentId,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Set Read Members
+     * Set whose contributions a member reads from the group map (R11.22) — Project Owner only.
+     * @returns AgentGroupMemberReadOut Successful Response
+     * @throws ApiError
+     */
+    public static setReadMembersApiAgentGroupsGroupIdMembersAgentIdReadMembersPut({
+        groupId,
+        agentId,
+        requestBody,
+    }: {
+        groupId: string,
+        agentId: string,
+        requestBody: ReadMembersIn,
+    }): CancelablePromise<AgentGroupMemberReadOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/agent-groups/{group_id}/members/{agent_id}/read-members',
+            path: {
+                'group_id': groupId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },

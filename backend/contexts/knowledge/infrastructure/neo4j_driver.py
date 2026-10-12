@@ -13,6 +13,7 @@ the client.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any, cast
 
 from contexts.knowledge.domain.graphrag import Triple
@@ -502,11 +503,21 @@ class Neo4jAsyncDriver:
         config_id: uuid.UUID,
         seed_entities: list[str],
         hops: int,
+        member_ids: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
-        if not seed_entities:
+        if not seed_entities or (member_ids is not None and not member_ids):
             return []
         h = max(1, min(hops, 2))
         driver = await self._ensure()
+        # R11.22 member filter: every edge on the path must name a chosen member,
+        # so a hidden edge can neither be returned nor lead to a visible one two
+        # hops out. Applied in the MATCH, before the LIMIT, so hidden edges never
+        # take the 50 slots.
+        member_where = (
+            "WHERE all(e IN r WHERE any(x IN coalesce(e.source_member_ids, []) WHERE x IN $members)) "
+            if member_ids is not None
+            else ""
+        )
         # Audit L2: scope the relationship pattern by graphrag_config_id (not
         # just the endpoint nodes) so a future cross-config edge could never
         # leak into one tenant's traversal. Audit M5: ORDER BY confidence so the
@@ -516,6 +527,7 @@ class Neo4jAsyncDriver:
             "WHERE s.name IN $seeds "
             f"MATCH (s)-[r:REL*1..{h} {{graphrag_config_id: $cid}}]-"
             "(o:Entity {graphrag_config_id: $cid}) "
+            f"{member_where}"
             "UNWIND r AS edge "
             "RETURN DISTINCT startNode(edge).name AS subject, "
             "                edge.relation AS relation, "
@@ -532,7 +544,9 @@ class Neo4jAsyncDriver:
             "LIMIT 50"
         )
         async with driver.session() as session:
-            result = await session.run(cypher, cid=str(config_id), seeds=seed_entities)
+            result = await session.run(
+                cypher, cid=str(config_id), seeds=seed_entities, members=list(member_ids or [])
+            )
             return [dict(rec) async for rec in result]
 
     async def fetch_graph(

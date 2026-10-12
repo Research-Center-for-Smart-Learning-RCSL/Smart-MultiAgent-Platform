@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Literal
@@ -93,18 +93,24 @@ def attach_temporal_provenance(triple: Triple, msg_created_at: dict[str, float])
     return replace(triple, first_seen_at=min(stamps), last_seen_at=max(stamps))
 
 
-def attach_member_provenance(triple: Triple, msg_member: dict[str, str]) -> Triple:
+def attach_member_provenance(triple: Triple, msg_members: Mapping[str, Iterable[str]]) -> Triple:
     """Tag a triple with the member(s) whose messages produced it (R11.22).
 
-    ``msg_member`` maps message id -> source member agent id (both strings),
-    built from the delta feed. A relation's provenance is the set of members
-    behind its evidence messages: a relation two members independently stated
-    carries both, so a member-scoped retrieval filter returns each member's true
-    contributions. Derived only from message provenance — never from LLM output.
-    Returns the triple unchanged when no evidence resolves to a member (a
-    single-owner build, or a relation the extractor left evidence-less).
+    ``msg_members`` maps message id -> the member agent ids that message is
+    attributed to (all strings), built from the delta feed. A relation's
+    provenance is the union over its evidence messages: a relation two members
+    stated carries both, so a member-scoped retrieval filter returns each
+    member's contributions. The member list per message comes from the delta
+    feed, but which messages count as a triple's evidence is the extractor's
+    output, checked only against the build's own messages; the read filter is
+    therefore a relevance boundary inside a group, not a confidentiality control
+    against a content author steering the extractor (dossier FU-5). Returns the
+    triple unchanged when no evidence resolves to a member (a single-owner
+    build, or a relation the extractor left evidence-less).
     """
-    members = sorted({msg_member[ref] for ref in triple.evidence_refs if ref in msg_member})
+    members = sorted(
+        {member for ref in triple.evidence_refs if ref in msg_members for member in msg_members[ref]}
+    )
     if not members:
         return triple
     return replace(triple, source_member_ids=tuple(members))
@@ -326,11 +332,11 @@ class GraphRagBuilder:
             # window and triples accumulate; Neo4j apply / embed / Qdrant upsert
             # all happen once for the whole build (one atomic 2PC commit).
             triples: list[Triple] = []
-            # Phase 2b (R11.22): message id -> source member agent id, accumulated
-            # across windows so a relation's provenance resolves even when its
-            # evidence spans windows. Empty for a single-owner build, leaving
-            # triples untagged (source_member_ids == ()).
-            msg_member: dict[str, str] = {}
+            # R11.22: message id -> the member agent ids it is attributed to,
+            # accumulated across windows so a relation's provenance resolves even
+            # when its evidence spans windows. Empty for a single-owner build,
+            # leaving triples untagged (source_member_ids == ()).
+            msg_members: dict[str, tuple[str, ...]] = {}
             # Phase 2b WS5 (R11.21): message id -> created_at (UTC epoch seconds),
             # accumulated across windows so a relation's first/last-seen resolves
             # even when its evidence spans windows. Always populated (every
@@ -343,8 +349,8 @@ class GraphRagBuilder:
             ):
                 for m in window:
                     msg_created_at[str(m.id)] = m.created_at.timestamp()
-                    if m.source_member_id is not None:
-                        msg_member[str(m.id)] = str(m.source_member_id)
+                    if m.source_member_ids:
+                        msg_members[str(m.id)] = tuple(str(a) for a in m.source_member_ids)
                 window_triples = await self._extractor.extract(
                     config_id=cfg.id,
                     builder_key_group_id=cfg.builder_key_group_id,
@@ -359,8 +365,8 @@ class GraphRagBuilder:
                     raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
             if msg_created_at:
                 triples = [attach_temporal_provenance(tr, msg_created_at) for tr in triples]
-            if msg_member:
-                triples = [attach_member_provenance(tr, msg_member) for tr in triples]
+            if msg_members:
+                triples = [attach_member_provenance(tr, msg_members) for tr in triples]
             # F-6: replacement upserts and prunes in one Neo4j transaction; never
             # split it back into two port calls. Rationale on
             # ``Neo4jDriver.replace_triples``.

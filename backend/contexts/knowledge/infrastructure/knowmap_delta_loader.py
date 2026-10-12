@@ -49,7 +49,7 @@ class DocSourceUnit:
     document_id: uuid.UUID
     chunk_idx: int
     created_at: datetime
-    source_member_id: uuid.UUID | None = field(default=None)
+    source_member_ids: tuple[uuid.UUID, ...] = field(default=())
 
 
 class DocDeltaLoader:

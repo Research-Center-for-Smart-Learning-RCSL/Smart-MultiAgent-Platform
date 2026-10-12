@@ -24,6 +24,7 @@ from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
 from contexts.knowledge.domain.graphrag import (
     AgentConceptMapCoverage,
     BuildState,
+    ConceptMapLayer,
     ConceptMapOwnerOption,
     GraphRagConfig,
 )
@@ -481,7 +482,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         *,
         agent_id: uuid.UUID,
         chatroom_id: uuid.UUID,
-    ) -> Sequence[GraphRagConfig]:
+    ) -> Sequence[ConceptMapLayer]:
         """Every Concept Map covering ``agent_id`` in ``chatroom_id`` (WS4 R11.09).
 
         Returns, ordered narrow -> wide (chatroom, agent_group(s), workspace):
@@ -493,6 +494,10 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         - the workspace-owned config for the room's workspace, when that
           workspace has ``concept_map_enabled``.
 
+        An agent_group layer carries the agent's own ``read_member_ids`` (R11.22),
+        read from the same membership row that admits the layer, so a change to
+        it applies on the next turn exactly as membership does.
+
         Resolved in a single round-trip (UNION ALL) so the per-turn layer fan-out
         never becomes a per-group N+1; ranking is applied in Python.
         """
@@ -502,7 +507,8 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             .where(conv.chatrooms.c.id == chatroom_id)
             .scalar_subquery()
         )
-        chatroom_layer = sa.select(gc, _member_agent_id()).where(
+        no_filter = sa.cast(sa.null(), ag.agent_group_members.c.read_member_ids.type).label("read_member_ids")
+        chatroom_layer = sa.select(gc, _member_agent_id(), no_filter).where(
             sa.and_(
                 gc.c.owner_kind == "chatroom",
                 gc.c.owner_chatroom_id == chatroom_id,
@@ -514,7 +520,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
         )
         group_layer = (
-            sa.select(gc, _member_agent_id())
+            sa.select(gc, _member_agent_id(), ag.agent_group_members.c.read_member_ids)
             .select_from(group_join)
             .where(
                 sa.and_(
@@ -528,7 +534,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         workspace_join = gc.join(conv.workspaces, conv.workspaces.c.id == gc.c.owner_workspace_id)
         workspace_layer = (
-            sa.select(gc, _member_agent_id())
+            sa.select(gc, _member_agent_id(), no_filter)
             .select_from(workspace_join)
             .where(
                 sa.and_(
@@ -542,14 +548,20 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         rows = (await self._db.execute(sa.union_all(chatroom_layer, group_layer, workspace_layer))).all()
         seen: set[uuid.UUID] = set()
-        configs: list[GraphRagConfig] = []
+        layers: list[ConceptMapLayer] = []
         for r in rows:
             if r.id in seen:
                 continue
             seen.add(r.id)
-            configs.append(_row_to_config(r))
-        configs.sort(key=lambda c: (_LAYER_RANK.get(c.owner_kind, 99), c.created_at))
-        return configs
+            reads = r.read_member_ids
+            layers.append(
+                ConceptMapLayer(
+                    config=_row_to_config(r),
+                    read_member_ids=None if reads is None else tuple(str(m) for m in reads),
+                )
+            )
+        layers.sort(key=lambda layer: (_LAYER_RANK.get(layer.config.owner_kind, 99), layer.config.created_at))
+        return layers
 
     async def list_coverage_for_agent(
         self,
@@ -763,6 +775,28 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             for r in workspace_rows
         )
         return out
+
+    async def list_live_agent_group_configs(self) -> Sequence[GraphRagConfig]:
+        """Every live agent_group-owned Concept Map whose group is live, oldest first.
+
+        For the ``rebuild-agent-group-concept-maps`` maintenance command (R11.22).
+        """
+        gc = t.graphrag_configs
+        rows = (
+            await self._db.execute(
+                _config_select()
+                .select_from(gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id))
+                .where(
+                    sa.and_(
+                        gc.c.owner_kind == "agent_group",
+                        gc.c.deleted_at.is_(None),
+                        ag.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(gc.c.created_at, gc.c.id)
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
 
     async def list_in_state(
         self,

@@ -54,7 +54,21 @@
       "privacyToggleFailed": "Failed to update the privacy setting.",
       "cancel": "Cancel",
       "save": "Save",
-      "notFound": "This agent group was not found."
+      "notFound": "This agent group was not found.",
+      "colReadsFrom": "Reads from",
+      "readsWholeGroup": "Whole group",
+      "readsNothing": "Nothing",
+      "readsNothingHelp": "Every member it was set to read has been removed, so it reads nothing from the group's Concept Map until you choose again.",
+      "editReads": "Change what this member reads",
+      "readsTitle": "What {name} reads",
+      "readsHelp": "Choose whose contributions this member reads from the group's Concept Map.",
+      "readsModeAll": "The whole group",
+      "readsModeSome": "Only these members",
+      "readsChooseOne": "Choose at least one member.",
+      "readsRemovedAgent": "a removed agent",
+      "readsSaved": "Read setting saved.",
+      "readsFailed": "Failed to save the read setting.",
+      "removeConfirmEmpties": "Remove this agent from the group? {names} read only this agent's contributions and will read nothing from the group's Concept Map until you choose again."
     }
   }
 }

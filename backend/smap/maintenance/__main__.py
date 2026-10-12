@@ -14,6 +14,7 @@ from . import email_domain_policy as _email_domain_policy
 from . import encrypt_proxy_headers as _encrypt_proxy_headers
 from . import neo4j_evidence_refs as _neo4j_evidence_refs
 from . import purge_session_dirs as _purge_session_dirs
+from . import rebuild_agent_group_concept_maps as _rebuild_group_maps
 from . import reconcile_attachment_sizes as _reconcile_attachment_sizes
 from . import reconcile_model_catalog as _reconcile_model_catalog
 from . import repair_compaction_summaries as _repair_compaction_summaries
@@ -250,6 +251,54 @@ def neo4j_evidence_refs_cmd() -> None:
     if not report.dry_run and report.remaining:
         # Busy, lost, failed or unattributed configs, or edges an N-1 writer
         # changed during the run: the gate is not met, and a scripted run must see it.
+        raise typer.Exit(code=1)
+
+
+@app.command("rebuild-agent-group-concept-maps")
+def rebuild_agent_group_concept_maps_cmd() -> None:
+    """Rebuild every agent_group Concept Map in place so its member provenance is current.
+
+    Needed once after the R11.22 provenance change: relations built earlier name
+    only one member per room, and a delta build never rewrites them. Run it
+    before Project Owners rely on per-member read filters; see
+    docs/runbook-upgrade.md.
+
+    Every listed map re-extracts its whole history on its project's builder
+    key. Dry-run (lists the maps and their message counts) unless
+    SMAP_REBUILD_AGENT_GROUP_CONCEPT_MAPS_ARMED is set to a truthy value.
+    """
+    report = asyncio.run(_rebuild_group_maps.run())
+    for gm in report.maps:
+        logger.info(
+            "agent_group map config={} project={} group={} members={} messages={}",
+            gm.config_id,
+            gm.project_id,
+            gm.agent_group_id,
+            gm.members,
+            gm.messages,
+        )
+    if report.skipped_empty:
+        logger.warning(
+            "skipped, no live member (a rebuild would empty the map): {}",
+            ", ".join(str(c) for c in report.skipped_empty),
+        )
+    logger.info(
+        "rebuild-agent-group-concept-maps complete dry_run={} maps={} messages={} "
+        "enqueued={} deduped={} failed={}",
+        report.dry_run,
+        len(report.maps),
+        sum(gm.messages for gm in report.maps),
+        report.enqueued,
+        report.deduped,
+        len(report.failed),
+    )
+    if report.dry_run and report.maps:
+        logger.warning(
+            "Nothing was enqueued. Re-run with {}=1 to rebuild the maps above.",
+            _rebuild_group_maps.ARMED_ENV,
+        )
+    if report.failed:
+        logger.warning("enqueue failed for: {}", ", ".join(str(c) for c in report.failed))
         raise typer.Exit(code=1)
 
 

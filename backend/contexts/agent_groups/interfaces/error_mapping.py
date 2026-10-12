@@ -21,6 +21,16 @@ _MAP: ErrorMap = {
         422,
         "Agent does not belong to the group's project",
     ),
+    errors.AgentGroupMemberNotFound: (
+        "agent-groups/member-not-found",
+        404,
+        "Agent is not a member of this group",
+    ),
+    errors.AgentGroupReadMembersInvalid: (
+        "agent-groups/invalid-read-members",
+        422,
+        "Read members must be current members of the group, or null for the whole group",
+    ),
     errors.AgentGroupNameConflict: (
         "agent-groups/name-conflict",
         409,

@@ -37,7 +37,7 @@ class _DocUnit(Protocol):
     id: uuid.UUID
     role: str
     content: str
-    source_member_id: uuid.UUID | None
+    source_member_ids: tuple[uuid.UUID, ...]
     created_at: datetime
     document_id: uuid.UUID
     chunk_idx: int

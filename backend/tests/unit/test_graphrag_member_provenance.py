@@ -27,26 +27,26 @@ def _triple(*evidence: str) -> Triple:
 def test_two_members_both_recorded_sorted() -> None:
     m1, m2 = str(uuid.uuid4()), str(uuid.uuid4())
     e1, e2 = "msg-1", "msg-2"
-    out = attach_member_provenance(_triple(e1, e2), {e1: m1, e2: m2})
+    out = attach_member_provenance(_triple(e1, e2), {e1: (m1,), e2: (m2,)})
     assert out.source_member_ids == tuple(sorted([m1, m2]))
 
 
 def test_single_member_recorded() -> None:
     m1 = str(uuid.uuid4())
-    out = attach_member_provenance(_triple("msg-1"), {"msg-1": m1})
+    out = attach_member_provenance(_triple("msg-1"), {"msg-1": (m1,)})
     assert out.source_member_ids == (m1,)
 
 
 def test_duplicate_member_deduped() -> None:
     m1 = str(uuid.uuid4())
     # Two evidence messages from the same member collapse to a single tag.
-    out = attach_member_provenance(_triple("msg-1", "msg-2"), {"msg-1": m1, "msg-2": m1})
+    out = attach_member_provenance(_triple("msg-1", "msg-2"), {"msg-1": (m1,), "msg-2": (m1,)})
     assert out.source_member_ids == (m1,)
 
 
 def test_unresolved_evidence_leaves_triple_untagged() -> None:
     original = _triple("msg-x")
-    out = attach_member_provenance(original, {"msg-other": str(uuid.uuid4())})
+    out = attach_member_provenance(original, {"msg-other": (str(uuid.uuid4()),)})
     # No matching evidence -> the exact same triple (untagged) is returned.
     assert out is original
     assert out.source_member_ids == ()
@@ -55,3 +55,11 @@ def test_unresolved_evidence_leaves_triple_untagged() -> None:
 def test_empty_map_is_noop() -> None:
     original = _triple("msg-1")
     assert attach_member_provenance(original, {}) is original
+
+
+def test_a_message_attributed_to_several_members_tags_them_all() -> None:
+    # Phase 5b: a person's message carries every member present for it, so a
+    # relation it evidences belongs to each of them.
+    m1, m2 = str(uuid.uuid4()), str(uuid.uuid4())
+    out = attach_member_provenance(_triple("msg-1"), {"msg-1": (m2, m1)})
+    assert out.source_member_ids == tuple(sorted([m1, m2]))
