@@ -15,7 +15,7 @@ doesn't need a `depends_on` backfill).
 
 ### Agent configuration and project read scope (2026-10-13)
 
-- `2026-10-13-agent-config-visibility-and-project-reads` (feature, **draft**) - `depends_on: []`.
+- `2026-10-13-agent-config-visibility-and-project-reads` (feature, **approved 2026-10-13**, SRS delta applied) - `depends_on: []`.
   From the CRAT audit's F-13/FU-9 and the 2026-10-05 dashboard audit's F-24. Stage 1: an agent's
   configuration (prompt, tools, skills, workspace files, A2A dead letters) and project skills are
   readable only by editors (matrix row 15); everyone else gets agent names. Stage 2: a new

@@ -204,10 +204,13 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 25 | Configure org prompt assistant / org templates (§29) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
 | 26 | Configure personal prompt assistant / personal templates (§29) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✗ |
 | 27 | Configure org skills (§31) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| 28 | Read agent configuration: prompt, model settings, tools, skills (agent and project scope), workspace files, A2A dead letters | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ |
 
 **Row 19 — what a narrowed export contains.** A `∘` export contains the caller's own messages plus all agent and system messages in the room; messages sent by *other users*, together with their edit histories and attachments, are excluded. The narrowing is applied in the query predicate, so excluded rows are never read. Guests cannot export at all: the Guest cell is `✗`, matching `docs/UI/07-conversation.md` ("Guest sessions have limited permissions: … no export").
 
 **[R5.05]** All authorization MUST be enforced server-side in a single `permissions` service. Frontend visibility is advisory only.
+
+**[R5.07]** Project-scoped reads require a project role: Project Owner, Project Member, or the Project Owner role an Org Owner inherits ([R5.03]). An Org Member role alone, held through the project's parent organization ([R8.09]), admits only the reads that lead to a chat room admitting Org Members: the project, its workspace list, a workspace, a workspace's room list, and agent names. The two lists stay filtered to what the caller can open ([R13.32]). Agent names are readable by every project role and on that path; the rest of an agent's configuration follows row 28.
 
 ---
 
@@ -1631,9 +1634,10 @@ This section enumerates endpoints. Unless noted, all require a valid JWT and res
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/projects/{pid}/agents` | List. |
+| GET | `/api/projects/{pid}/agents` | List (matrix row 28). |
+| GET | `/api/projects/{pid}/agents/names` | Names only, `{id, name}`; any project role and the [R5.07] room path. |
 | POST | `/api/projects/{pid}/agents` | Create. |
-| GET | `/api/agents/{id}` | Read. |
+| GET | `/api/agents/{id}` | Read (matrix row 28). |
 | PATCH | `/api/agents/{id}` | Edit. |
 | DELETE | `/api/agents/{id}` | Soft-delete. |
 
