@@ -5,7 +5,9 @@ Splits across two routers because the collection is project-scoped
 (`/api/agents/{id}`) — same split the tenancy and keys contexts use.
 
 AuthZ (§5.2, cap #15 `RESOURCE_CREATE_EDIT`):
-- List: requires project membership (read-only).
+- List / Read / Tools: requires `RESOURCE_CREATE_EDIT` (matrix row 28: reading an
+  agent's configuration takes the same gate as editing it).
+- Names: requires project membership; the room labels read it.
 - Create / Patch / Delete: requires `RESOURCE_CREATE_EDIT` at the project scope.
 - MCP list/attach/detach: same capability.
 """
@@ -19,7 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, require_if_match
+from app.api.v1.deps import PaginationParams, assert_project_capability, require_if_match
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
     MAX_CONTEXT_TOKEN_CAP,
@@ -467,7 +469,12 @@ project_router = APIRouter(prefix="/api/projects/{project_id}/agents", tags=["ag
 async def list_project_agents(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentOut]:
     service = AgentService(db)
@@ -502,9 +509,9 @@ async def list_project_agent_names(
 ) -> list[AgentNameOut]:
     """The same rows as `GET ""`, in the same order, projected to id and name.
 
-    Deliberately the same membership gate: a name is not more sensitive than the
-    listing it is drawn from, and a second, looser gate on the same rows is how
-    an authorization surface drifts apart from itself.
+    Deliberately a looser gate than the listing's: the listing carries the
+    configuration (matrix row 28, editors only), while a name is what every room
+    label needs, including a room that admits organization members ([R5.07]).
     """
     service = AgentService(db)
     rows = await service.names_for_project(
@@ -758,17 +765,11 @@ async def read_agent(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> AgentOut:
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
     service = AgentService(db)
     agent = await service.get(agent_id)
-    # Membership check against the agent's project.
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the agent's project")
+    await assert_project_capability(
+        db=db, principal=principal, project_id=agent.project_id, capability=Capability.RESOURCE_CREATE_EDIT
+    )
     return _to_agent_out(agent)
 
 
@@ -1076,14 +1077,9 @@ async def list_agent_tools(
 ) -> list[AgentToolOut]:
     service = AgentService(db)
     agent = await service.get(agent_id)
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the agent's project")
+    await assert_project_capability(
+        db=db, principal=principal, project_id=agent.project_id, capability=Capability.RESOURCE_CREATE_EDIT
+    )
     tools = await service.list_tools(
         agent_id,
         limit=pagination.limit,

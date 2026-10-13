@@ -4,8 +4,8 @@ Four scope routers share one presentational contract, and **scope is a literal p
 site, never read from a request body** — a body-supplied scope would let any caller
 who can reach one router write into another's rows:
 
-- ``/api/agents/{agent_id}/skills``     RESOURCE_CREATE_EDIT at the agent's project
-- ``/api/projects/{project_id}/skills`` RESOURCE_CREATE_EDIT at the project
+- ``/api/agents/{agent_id}/skills``     RESOURCE_CREATE_EDIT at the agent's project, reads too
+- ``/api/projects/{project_id}/skills`` RESOURCE_CREATE_EDIT at the project, reads too
 - ``/api/orgs/{org_id}/skills``         SKILL_ORG_MANAGE (Org Owner)
 - ``/api/admin/skills``                 platform, ``require_admin``
 
@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
-from app.api.v1.deps import PaginationParams, assert_project_membership, parse_if_match
+from app.api.v1.deps import PaginationParams, assert_project_capability, parse_if_match
 from contexts.skills.domain.models import (
     MAX_DESCRIPTION_CHARS,
     MAX_LIST_ITEMS,
@@ -841,26 +841,27 @@ async def _agent_project_id(db: AsyncSession, agent_id: uuid.UUID) -> uuid.UUID:
     return agent.project_id
 
 
-async def _assert_agent_write(db: AsyncSession, principal: Principal, agent_id: uuid.UUID) -> uuid.UUID:
+async def _assert_project_editor(db: AsyncSession, principal: Principal, project_id: uuid.UUID) -> None:
+    """RESOURCE_CREATE_EDIT at the project, for the project-scope reads.
+
+    Reads take the write gate (matrix row 28): a skill is instruction content as
+    sensitive as an agent's system prompt.
+    """
+    await assert_project_capability(
+        db=db, principal=principal, project_id=project_id, capability=Capability.RESOURCE_CREATE_EDIT
+    )
+
+
+async def _assert_agent_editor(db: AsyncSession, principal: Principal, agent_id: uuid.UUID) -> uuid.UUID:
     """RESOURCE_CREATE_EDIT at the agent's own project; returns that project id.
 
-    The agent routers cannot use `scope_from_path` — there is no `{project_id}` in the
-    path — so the project is lifted off the agent first, mirroring `agents.py:265-275`. The
-    resolved project id is returned so a caller that also needs it (import's concurrency
-    bucket) does not resolve the agent a second time.
+    Gates reads and writes alike (matrix row 28). The agent routers cannot use
+    `scope_from_path` — there is no `{project_id}` in the path — so the project is lifted
+    off the agent first. The resolved project id is returned so a caller that also needs it
+    (import's concurrency bucket, the bindings read) does not resolve the agent a second time.
     """
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope, decide
-
     project_id = await _agent_project_id(db, agent_id)
-    if principal.is_admin:
-        return project_id
-    resolver = await get_role_resolver(db)
-    decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT, Scope(project_id=project_id), resolver
-    )
-    if not decision.allowed:
-        _raise_forbidden(decision.reason)
+    await _assert_project_editor(db, principal, project_id)
     return project_id
 
 
@@ -877,9 +878,7 @@ async def agent_list_skills(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillPageOut:
-    await assert_project_membership(
-        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
-    )
+    await _assert_agent_editor(db, principal, agent_id)
     return await _list(db, SkillScope.AGENT, agent_id, pagination, include_deleted=include_deleted)
 
 
@@ -891,7 +890,7 @@ async def agent_create_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _create(db, ctx, principal, SkillScope.AGENT, agent_id, body)
 
 
@@ -902,9 +901,7 @@ async def agent_get_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await assert_project_membership(
-        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
-    )
+    await _assert_agent_editor(db, principal, agent_id)
     return await _get(db, SkillScope.AGENT, agent_id, skill_id)
 
 
@@ -918,7 +915,7 @@ async def agent_patch_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _patch(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body, if_match)
 
 
@@ -931,7 +928,7 @@ async def agent_delete_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     await _delete(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, if_match)
 
 
@@ -943,7 +940,7 @@ async def agent_restore_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _restore(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id)
 
 
@@ -956,7 +953,7 @@ async def agent_copy_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _copy(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body)
 
 
@@ -968,7 +965,7 @@ async def agent_import_bundle(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> BundleJobOut:
-    project_id = await _assert_agent_write(db, principal, agent_id)
+    project_id = await _assert_agent_editor(db, principal, agent_id)
     return await _import(db, ctx, principal, SkillScope.AGENT, agent_id, project_id=project_id, upload=upload)
 
 
@@ -980,9 +977,7 @@ async def agent_export_bundle(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> BundleJobOut:
-    await assert_project_membership(
-        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
-    )
+    await _assert_agent_editor(db, principal, agent_id)
     return await _export(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id)
 
 
@@ -993,9 +988,7 @@ async def agent_list_files(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[SkillFileOut]:
-    await assert_project_membership(
-        db=db, principal=principal, project_id=await _agent_project_id(db, agent_id)
-    )
+    await _assert_agent_editor(db, principal, agent_id)
     return await _list_files(db, SkillScope.AGENT, agent_id, skill_id)
 
 
@@ -1008,7 +1001,7 @@ async def agent_create_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillFileOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _create_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, body)
 
 
@@ -1022,7 +1015,7 @@ async def agent_upload_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillFileOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _upload_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, path, upload)
 
 
@@ -1036,7 +1029,7 @@ async def agent_patch_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillFileOut:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     return await _patch_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, file_id, body)
 
 
@@ -1051,7 +1044,7 @@ async def agent_delete_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     await _delete_file(db, ctx, principal, SkillScope.AGENT, agent_id, skill_id, file_id)
 
 
@@ -1072,9 +1065,7 @@ async def project_list_skills(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillPageOut:
-    # Read is membership, not RESOURCE_CREATE_EDIT: a project member must be able to see
-    # what instructions their agents can be given.
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await _assert_project_editor(db, principal, project_id)
     return await _list(db, SkillScope.PROJECT, project_id, pagination, include_deleted=include_deleted)
 
 
@@ -1096,7 +1087,7 @@ async def project_get_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> SkillOut:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await _assert_project_editor(db, principal, project_id)
     return await _get(db, SkillScope.PROJECT, project_id, skill_id)
 
 
@@ -1174,7 +1165,7 @@ async def project_export_bundle(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> BundleJobOut:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await _assert_project_editor(db, principal, project_id)
     return await _export(db, ctx, principal, SkillScope.PROJECT, project_id, skill_id)
 
 
@@ -1185,7 +1176,7 @@ async def project_list_files(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[SkillFileOut]:
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await _assert_project_editor(db, principal, project_id)
     return await _list_files(db, SkillScope.PROJECT, project_id, skill_id)
 
 
@@ -1623,8 +1614,7 @@ async def list_bindings(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[SkillBindingOut]:
-    project_id = await _agent_project_id(db, agent_id)
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    project_id = await _assert_agent_editor(db, principal, agent_id)
     # This endpoint answers "what would actually be live on the next turn", so it runs the
     # same tap the turn runs and must feed it the same input. A turn shares one tool
     # snapshot across its consumers; a request has none to share, so it reads its own.
@@ -1653,7 +1643,7 @@ async def bind_skill(
     `resolve_bindable` inside `bind` is what proves the skill's scope contains it — taking
     `skill_id` on trust here is the SEC-H1 IDOR with instructions in place of chunks.
     """
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     skill = await SkillsFacade(db).bind(skill_id=skill_id, agent_id=agent_id)
     await _emit_binding_audit(db, ctx, principal, "skill.bound", agent_id, skill)
 
@@ -1666,7 +1656,7 @@ async def unbind_skill(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    await _assert_agent_write(db, principal, agent_id)
+    await _assert_agent_editor(db, principal, agent_id)
     skill = await SkillsFacade(db).unbind(skill_id=skill_id, agent_id=agent_id)
     if skill is None:
         raise HTTPException(status_code=404, detail="skill is not bound to this agent")

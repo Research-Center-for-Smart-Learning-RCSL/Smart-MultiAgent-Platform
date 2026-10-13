@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadF
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import assert_project_capability
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.application.workspace_service import WorkspaceFileService
 from shared_kernel.auth.context import RequestContext
@@ -112,15 +113,9 @@ async def list_workspace_files(
 ) -> list[WorkspaceFileOut]:
     service = AgentService(db)
     agent = await service.get(agent_id)
-
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the agent's project")
+    await assert_project_capability(
+        db=db, principal=principal, project_id=agent.project_id, capability=Capability.RESOURCE_CREATE_EDIT
+    )
 
     ws_service = WorkspaceFileService(db, get_minio_client())
     files = await ws_service.list_files(agent_id)

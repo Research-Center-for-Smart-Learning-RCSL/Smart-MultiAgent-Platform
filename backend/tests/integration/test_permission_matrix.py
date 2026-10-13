@@ -156,6 +156,26 @@ async def test_matrix_full_sweep(cap: Capability, role: Role) -> None:
     )
 
 
+# SRS §5.2 row 28 (read agent configuration) has no capability of its own: reading
+# shares cap #15's gate, so its column set must stay exactly cap #15's. A change to
+# either row that breaks the equality has to revisit the other.
+_ROW_28_ALLOW: set[Role] = {Role.ORG_OWNER, Role.PROJECT_OWNER}
+
+
+def test_row_28_is_enforced_through_resource_create_edit() -> None:
+    assert _EXPECTED_ALLOW[Capability.RESOURCE_CREATE_EDIT] == _ROW_28_ALLOW
+
+
+@pytest.mark.parametrize("role", list(Role))
+@pytest.mark.asyncio
+async def test_row_28_read_agent_configuration(role: Role) -> None:
+    user = uuid.uuid4()
+    principal = Principal(user_id=user, is_admin=False, email_verified=True)
+    scope = Scope(project_id=uuid.uuid4())
+    d = await decide(principal, Capability.RESOURCE_CREATE_EDIT, scope, FakeResolver(roles=frozenset({role})))
+    assert d.allowed is (role in _ROW_28_ALLOW), f"row 28 × {role.value}: {d.reason}"
+
+
 # Targeted: OWN_ONLY denies when the caller does NOT own the resource.
 @pytest.mark.asyncio
 async def test_own_only_denies_when_not_owner() -> None:

@@ -15,7 +15,8 @@ doesn't need a `depends_on` backfill).
 
 ### Agent configuration and project read scope (2026-10-13)
 
-- `2026-10-13-agent-config-visibility-and-project-reads` (feature, **approved 2026-10-13**, SRS delta applied) - `depends_on: []`.
+- (moved to In progress on 2026-10-13) The original entry, kept here for its detail:
+  `2026-10-13-agent-config-visibility-and-project-reads` (feature, **approved 2026-10-13**, SRS delta applied) - `depends_on: []`.
   From the CRAT audit's F-13/FU-9 and the 2026-10-05 dashboard audit's F-24. Stage 1: an agent's
   configuration (prompt, tools, skills, workspace files, A2A dead letters) and project skills are
   readable only by editors (matrix row 15); everyone else gets agent names. Stage 2: a new
@@ -789,6 +790,10 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-13-agent-config-visibility-and-project-reads` (feature), started 2026-10-13. Building
+  stage 1 only (agent configuration for editors); stage 2 (project-role gate) is deferred by the
+  user's choice at plan approval and stays in this dossier.
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
   [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.

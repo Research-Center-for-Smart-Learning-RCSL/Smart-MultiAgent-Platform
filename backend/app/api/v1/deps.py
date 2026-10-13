@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from fastapi import HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared_kernel.auth.permissions import Principal
+from shared_kernel.auth.permissions import Capability, Principal
 
 # Both graph products expose an identical admin reset (R11a.02). The prose is shared so
 # the two Query descriptions cannot drift into describing different contracts.
@@ -121,6 +121,27 @@ async def assert_project_membership(
     roles = await resolver.roles_for(principal, Scope(project_id=project_id))
     if not roles:
         _raise_forbidden(reason)
+
+
+async def assert_project_capability(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+    capability: Capability,
+) -> None:
+    """Raise 403 unless the matrix grants ``capability`` at ``project_id`` (admin bypasses).
+
+    The inline form of ``require(capability, scope_from_path(...))`` for routes that
+    derive the project from a resource (an agent, a skill) rather than from the path.
+    """
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(principal, capability, Scope(project_id=project_id), resolver)
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
 
 
 async def validate_agent_allowlist(

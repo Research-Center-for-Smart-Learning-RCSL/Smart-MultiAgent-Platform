@@ -5,10 +5,9 @@ caller only ever built an id-to-name map out of it, on the path every chatroom
 open runs, so a project near the pagination ceiling turned opening a room into a
 multi-megabyte response for two fields per row.
 
-What matters about the new route is what it does *not* carry and what it does
-*not* relax: the projection is the point, and so is the fact that it reuses the
-listing's membership gate rather than growing a second, looser one over the same
-rows.
+What matters about the route is what it does *not* carry: the projection is the
+point. Since matrix row 28 the full listing is editors-only, while the names
+projection keeps the membership gate, because every room label reads it.
 """
 
 from __future__ import annotations
@@ -64,25 +63,28 @@ class TestTheRouteReturnsOnlyALabel:
 
         service.names_for_project.assert_awaited_once_with(_PROJECT, limit=500, offset=40)
 
-    def test_it_is_gated_by_the_same_dependency_as_the_listing_it_projects(self) -> None:
-        """A name is not less sensitive than the row it comes from, and a second,
-        looser gate over the same rows is how an authorization surface drifts
-        apart from itself.
+    def test_names_and_listing_are_gated_apart_by_design(self) -> None:
+        """Matrix row 28: the listing carries the configuration and takes the
+        edit capability; the names projection is what every room label reads and
+        keeps the membership gate ([R5.07]). Dossier
+        2026-10-13-agent-config-visibility-and-project-reads, AC-1/AC-2.
 
-        Compared against the full listing rather than asserted by name, so
-        swapping either route to a different dependency fails here. What it does
-        NOT catch is the same factory called with different arguments —
-        `require_membership` returns a fresh closure per call, and both routes
-        take their id from the one path parameter this router has.
+        Asserted on the closure each factory returns, so moving either route onto
+        the other's gate fails here.
         """
 
         def gate_of(fn: Any) -> Any:
             return next(d.dependency for name, d in _defaults(fn).items() if name == "_")
 
-        gate = gate_of(agents_api.list_project_agent_names)
-
-        assert gate.__qualname__ == gate_of(agents_api.list_project_agents).__qualname__
-        assert gate.__qualname__.startswith("require_membership")
+        assert gate_of(agents_api.list_project_agent_names).__qualname__.startswith("require_membership")
+        listing_gate = gate_of(agents_api.list_project_agents)
+        assert listing_gate.__qualname__.startswith("require.")
+        capability = next(
+            c.cell_contents
+            for c in listing_gate.__closure__ or ()
+            if isinstance(c.cell_contents, agents_api.Capability)
+        )
+        assert capability is agents_api.Capability.RESOURCE_CREATE_EDIT
 
 
 def _defaults(fn: Any) -> dict[str, Any]:

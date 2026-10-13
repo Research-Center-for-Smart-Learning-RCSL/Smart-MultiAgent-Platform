@@ -544,32 +544,62 @@ async def test_chain_read_requires_owner(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 # ---------------------------------------------------------------------------
-# AC-9 — the weak gate survives for exactly one route
+# AC-9 of the 2026-08-20 dossier, closed by 2026-10-13-agent-config-visibility-
+# and-project-reads: the DLQ was the last route on bare project membership, and
+# it now follows matrix row 28.
 # ---------------------------------------------------------------------------
 
 
-def test_assert_project_member_has_only_the_dlq_caller() -> None:
+def test_no_orchestration_route_gates_on_bare_project_membership() -> None:
     from pathlib import Path
 
     source = Path(orchestration.__file__).read_text(encoding="utf-8")
-    call_sites = source.count("_assert_project_member(")
-    # One definition, one call. Any third occurrence means a route reached for
-    # bare project membership again.
-    assert call_sites == 2, "bare project membership is the DLQ route's gate only (FU-1)"
+    assert "_assert_project_member" not in source
 
 
-async def test_dlq_still_admits_a_plain_project_member(monkeypatch: pytest.MonkeyPatch) -> None:
+def _dlq_fixture(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     agent = SimpleNamespace(project_id=_PROJECT)
     facade = MagicMock()
     facade.get_agent = AsyncMock(return_value=agent)
     monkeypatch.setattr(orchestration, "AgentsFacade", lambda _db: facade)
-    monkeypatch.setattr(orchestration, "read_dlq", AsyncMock(return_value=[]))
+    reader = AsyncMock(return_value=[])
+    monkeypatch.setattr(orchestration, "read_dlq", reader)
+    return reader
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [frozenset({Role.PROJECT_MEMBER}), frozenset({Role.ORG_MEMBER}), frozenset()],
+    ids=["project-member", "bare-org-member", "no-role"],
+)
+async def test_dlq_refuses_a_non_editor(monkeypatch: pytest.MonkeyPatch, roles: frozenset[Role]) -> None:
+    reader = _dlq_fixture(monkeypatch)
+
+    with pytest.raises(HTTPException) as exc:
+        await orchestration.get_agent_dlq(
+            agent_id=_AGENT, db=MagicMock(), principal=_principal(), resolver=_Resolver(roles)
+        )
+
+    assert exc.value.status_code == 403
+    reader.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("roles", "is_admin"),
+    [
+        (frozenset({Role.PROJECT_OWNER}), False),
+        (frozenset({Role.ORG_OWNER, Role.PROJECT_OWNER}), False),
+        (frozenset(), True),
+    ],
+    ids=["project-owner", "org-owner", "admin"],
+)
+async def test_dlq_admits_an_editor(
+    monkeypatch: pytest.MonkeyPatch, roles: frozenset[Role], is_admin: bool
+) -> None:
+    _dlq_fixture(monkeypatch)
 
     out = await orchestration.get_agent_dlq(
-        agent_id=_AGENT,
-        db=MagicMock(),
-        principal=_principal(),
-        resolver=_Resolver(frozenset({Role.PROJECT_MEMBER})),
+        agent_id=_AGENT, db=MagicMock(), principal=_principal(is_admin=is_admin), resolver=_Resolver(roles)
     )
 
     assert out == []

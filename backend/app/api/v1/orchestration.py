@@ -15,9 +15,8 @@ AuthZ (API-2 + R15.24 — a dual track, decided per record, not per route):
   follows [R14.10]: Admin and Project/Org Owners.
 - Listings omit rows the caller may not read rather than refusing the request,
   and filter *before* paginating so the page length discloses nothing (R15.24).
-- A2A DLQ (G.10) is the one exception, still bare project membership: its viewer
-  renders inside the chatroom settings view and that surface's audience has not
-  been established (dossier 2026-08-20-orchestration-room-scoped-reads, FU-1).
+- A2A DLQ (G.10) is the one exception: it is agent configuration (matrix row 28),
+  readable by the agent's editors (`RESOURCE_CREATE_EDIT`) only.
 
 SEC: denial on the room branch answers 404 with the same body a missing record
 answers. A record in a room the caller cannot open must be indistinguishable
@@ -54,7 +53,7 @@ from contexts.orchestration.domain.models import (
 from contexts.orchestration.infrastructure.a2a_streams import read_dlq
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from shared_kernel.auth.dependencies import current_principal, get_role_resolver
-from shared_kernel.auth.permissions import Principal, RoleResolver, Scope
+from shared_kernel.auth.permissions import Capability, Principal, RoleResolver, Scope, decide
 from shared_kernel.db.session import db_session
 
 router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
@@ -63,28 +62,6 @@ router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
 # ---------------------------------------------------------------------------
 # AuthZ helpers
 # ---------------------------------------------------------------------------
-
-
-async def _assert_project_member(
-    principal: Principal,
-    project_id: uuid.UUID,
-    resolver: RoleResolver,
-) -> None:
-    """Require the caller to hold any role in `project_id` (admin always passes).
-
-    The DLQ route's gate, and only that one (FU-1). Every other read here is
-    room-scoped or backstage — see `_assert_can_read_record`. Do not reach for
-    this when adding a route: bare project membership is what R15.24 exists to
-    stop being the answer.
-    """
-    if principal.is_admin:
-        return
-    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if not roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="caller is not a member of the project",
-        )
 
 
 async def _assert_can_read_record(
@@ -460,7 +437,7 @@ async def list_subagent_children(
 
 
 # ---------------------------------------------------------------------------
-# DLQ viewer (G.10 — project members; deliberately not narrowed, FU-1)
+# DLQ viewer (G.10 — the agent's editors, matrix row 28)
 # ---------------------------------------------------------------------------
 
 
@@ -477,7 +454,13 @@ async def get_agent_dlq(
     agent = await AgentsFacade(db).get_agent(agent_id, include_deleted=True)
     if agent is None:
         raise _not_found("agent")
-    await _assert_project_member(principal, agent.project_id, resolver)
+    # Matrix row 28: dead letters carry A2A message content, so they follow the
+    # agent's configuration, readable by its editors only.
+    decision = await decide(
+        principal, Capability.RESOURCE_CREATE_EDIT, Scope(project_id=agent.project_id), resolver
+    )
+    if not decision.allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
     return [DlqEntryOut(**d) for d in await read_dlq(agent_id)]
 
 
