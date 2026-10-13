@@ -52,7 +52,12 @@ function seed(role: 'owner' | 'member', members: string[] = ['a_1'], reads: Read
         read_members: members.map((id) => ({ agent_id: id, read_member_ids: reads[id] ?? null })),
       }),
     ),
-    http.get('/api/projects/proj_1/agents', () => HttpResponse.json(AGENTS)),
+    // Names only: the full listing is editors-only (matrix row 28), and a project
+    // member may open a group, so the page must not depend on it.
+    http.get('/api/projects/proj_1/agents/names', () =>
+      HttpResponse.json(AGENTS.map(({ id, name }) => ({ id, name }))),
+    ),
+    http.get('/api/projects/proj_1/agents', () => new HttpResponse(null, { status: 403 })),
     http.get('/api/projects/proj_1/graphrag-configs', () => HttpResponse.json([])),
     http.get('/api/projects/proj_1/members', () =>
       HttpResponse.json([{ user_id: 'u_1', email: 'u@smap.test', role, joined_at: '2026-01-01T00:00:00Z' }]),
@@ -77,6 +82,14 @@ describe('AgentGroupDetailView', () => {
     signInAs('u_1')
     await settle(wrapper)
     expect(wrapper.text()).toContain('Research Team')
+    expect(wrapper.text()).toContain('Alice')
+  })
+
+  it('resolves member agent names for a project member too', async () => {
+    seed('member')
+    const wrapper = await renderView(AgentGroupDetailView, { routes, initialRoute: '/agent-groups/g_1' })
+    signInAs('u_1')
+    await settle(wrapper)
     expect(wrapper.text()).toContain('Alice')
   })
 

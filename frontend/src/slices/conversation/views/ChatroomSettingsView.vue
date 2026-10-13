@@ -85,6 +85,7 @@ const {
   bindingError,
   boundAgents,
   availableAgents,
+  canEditAgents,
   orphanAgentIds,
   activityTypes,
   activityTypesFailed,
@@ -843,11 +844,18 @@ watchEffect(() => {
               @save-read="(granted) => onSetCanvasAccess(agent.id, granted)"
               @save-write="(granted) => onSetCanvasWriteAccess(agent.id, granted)"
             />
+            <!-- Agent configuration (matrix row 28): only an editor is sent the
+                 wake-up config or may read dead letters, and only an editor could
+                 save the editor's changes. -->
             <SWakeupEditor
+              v-if="agent.wakeup_config"
               :model-value="agent.wakeup_config"
               @update:model-value="(v) => saveWakeupConfig(agent.id, v)"
             />
-            <DlqViewer :agent-id="agent.id" />
+            <DlqViewer
+              v-if="canEditAgents"
+              :agent-id="agent.id"
+            />
           </div>
 
           <!-- Orphan bindings whose agent no longer appears in the project. -->

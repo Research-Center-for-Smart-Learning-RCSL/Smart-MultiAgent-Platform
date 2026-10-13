@@ -109,6 +109,19 @@ describe('AppSidebar — Agent nav items (AC-4)', () => {
     expect(wrapper.find('a[href="/projects/p1/agents"]').exists()).toBe(true)
     expect(wrapper.find('a[href="/projects/p1/agent-groups"]').exists()).toBe(true)
   })
+
+  // Matrix row 28: the agents pages are agent configuration, editors only.
+  it('offers AI Agents only to an editor, and only once the role is decided', async () => {
+    role.isAuthorized = false
+    let wrapper = await mountSidebar()
+    expect(wrapper.find('a[href="/projects/p1/agents"]').exists()).toBe(false)
+    expect(wrapper.find('a[href="/projects/p1/agent-groups"]').exists()).toBe(true)
+
+    role.isAuthorized = true
+    role.decided = false
+    wrapper = await mountSidebar()
+    expect(wrapper.find('a[href="/projects/p1/agents"]').exists()).toBe(false)
+  })
 })
 
 describe('AppSidebar — Project Settings group (AC-5)', () => {

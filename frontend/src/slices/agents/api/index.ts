@@ -383,8 +383,14 @@ function toToolTestResult(o: AgentToolTestOut): ToolTestResult {
 // object (the binary field is typed `string` by the codegen; the request core
 // builds the FormData and sets the multipart Content-Type).
 export const agentsApi = {
+  /** Full configuration of every agent: editors only (matrix row 28). */
   list: (projectId: string): Promise<Agent[]> =>
     AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({ projectId }),
+
+  /** `{id, name}` of the project's live agents, readable by every project role. */
+  listNames: (projectId: string): Promise<{ id: string; name: string }[]> =>
+    // 500 is the server's page ceiling; the generated default of 100 would drop agents.
+    AgentsService.listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({ projectId, limit: 500 }),
 
   create: (projectId: string, payload: AgentCreateInput): Promise<Agent> =>
     AgentsService.createAgentApiProjectsProjectIdAgentsPost({ projectId, requestBody: payload }),

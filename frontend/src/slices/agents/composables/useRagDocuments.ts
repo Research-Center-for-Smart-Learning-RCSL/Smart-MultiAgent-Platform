@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog, useToast } from '@shared/composables'
@@ -6,7 +6,10 @@ import { isProblemWithType, tusUpload } from '@shared/transport'
 import { agentsApi, RAG_MULTIPART_MAX, type Agent, type RagDocument } from '../api'
 import { agentKeys } from '../queries'
 
-export function useRagDocuments(configId: string, projectId: string) {
+/** `canEdit` gates the bound-agent lookup: it reads the full agent listing, which
+ *  is editors-only (matrix row 28), and only feeds the upload and allowlist
+ *  controls, which are editors-only too. */
+export function useRagDocuments(configId: string, projectId: string, canEdit: Ref<boolean>) {
   const { t } = useI18n()
   const qc = useQueryClient()
   const toast = useToast()
@@ -18,6 +21,7 @@ export function useRagDocuments(configId: string, projectId: string) {
   const agentsQuery = useQuery({
     queryKey: agentKeys.agents(projectId),
     queryFn: () => agentsApi.list(projectId),
+    enabled: canEdit,
   })
   const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
   const boundAgents = computed<Agent[]>(() =>

@@ -182,8 +182,8 @@ export async function setChatroomMemberGroups(
 // the reachable set as far as one request can rather than removing the case.
 const AGENT_PAGE_SIZE = 500
 
-/** The full agent records the binding UI edits. For a label, use
- *  {@link listProjectAgentNames} — see there for why the two are separate. */
+/** The full agent records the binding UI edits; editors only (matrix row 28). For a
+ *  label, use {@link listProjectAgentNames} — see there for why the two are separate. */
 export async function listProjectAgents(projectId: string): Promise<Agent[]> {
   return AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({
     projectId,

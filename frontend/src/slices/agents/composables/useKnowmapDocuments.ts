@@ -17,6 +17,8 @@ export function useKnowmapDocuments(
   projectId: string,
   effectiveState: Ref<GraphragBuildState>,
   watchBuild: (configId: string, initialState?: GraphragBuildState) => void,
+  /** Gates the bound-agent lookup, as in `useRagDocuments`. */
+  canEdit: Ref<boolean>,
 ) {
   const { t } = useI18n()
   const qc = useQueryClient()
@@ -29,6 +31,7 @@ export function useKnowmapDocuments(
   const agentsQuery = useQuery({
     queryKey: agentKeys.agents(projectId),
     queryFn: () => agentsApi.list(projectId),
+    enabled: canEdit,
   })
   const docs = computed<KnowmapDocument[]>(() => docsQuery.data.value ?? [])
   const boundAgents = computed<Agent[]>(() =>

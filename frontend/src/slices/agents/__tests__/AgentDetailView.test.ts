@@ -800,4 +800,33 @@ describe('AgentDetailView', () => {
     await settle(wrapper)
     expect((wrapper.find('#effort').element as HTMLSelectElement).value).toBe('')
   })
+
+  // Matrix row 28 / AC-4 (D-1): the URL carries no project id, so the agent read
+  // itself decides. A refusal renders the forbidden state, and the tool and
+  // coverage reads that depend on it are never sent.
+  it('renders the forbidden state when the agent read is refused', async () => {
+    let dependentReads = 0
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/forbidden', title: 'Forbidden', status: 403 },
+          { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+      http.get('/api/agents/agent_1/tools', () => {
+        dependentReads += 1
+        return HttpResponse.json([])
+      }),
+      http.get('/api/agents/agent_1/concept-map-coverage', () => {
+        dependentReads += 1
+        return HttpResponse.json({ agent_id: 'agent_1', entries: [] })
+      }),
+    )
+    const wrapper = await renderView(AgentDetailView, { routes, initialRoute: '/agents/agent_1' })
+    await settle(wrapper)
+
+    expect(wrapper.find('[data-testid="agents-forbidden"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('You are helpful.')
+    expect(dependentReads).toBe(0)
+  })
 })

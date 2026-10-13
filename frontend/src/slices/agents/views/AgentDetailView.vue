@@ -46,12 +46,13 @@ import {
   useToast,
   useBreakpoint,
 } from '@shared/composables'
-import { ApiError } from '@shared/errors'
+import { ApiError, PermissionError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
 import { SkillBindingsPanel } from '@slices/skills'
 import { agentsApi, type AgentTool, type AgentToolType, type ConceptMapOwnerKind } from '../api'
 import { agentKeys } from '../queries'
+import AgentsForbidden from '../components/AgentsForbidden.vue'
 import { useModelCatalog } from '@shared/composables'
 import { graphragBuildStateVariant, graphragBuildStateLabelKey } from '../lib/graphragBuildState'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -79,6 +80,12 @@ const query = useQuery({
   queryFn: () => agentsApi.get(agentId),
 })
 
+// The URL carries no project id, so whether the caller may read this agent
+// (matrix row 28, editors only) is only known from the read itself: a refusal is
+// rendered as the forbidden state, and the reads that depend on it wait for it.
+const forbidden = computed(() => query.error.value instanceof PermissionError)
+const agentReadable = computed(() => !isCreateMode && query.isSuccess.value)
+
 const pickerProjectId = computed(() => {
   if (isCreateMode) return createProjectId
   return query.data.value?.project_id ?? ''
@@ -104,7 +111,7 @@ const knowmapConfigsQuery = useQuery({
 
 const toolsQuery = useQuery({
   queryKey: computed(() => agentKeys.tools(agentId)),
-  enabled: computed(() => !isCreateMode && !!agentId),
+  enabled: agentReadable,
   queryFn: () => agentsApi.listTools(agentId),
 })
 
@@ -113,7 +120,7 @@ const toolsQuery = useQuery({
 // informational (transparency, not an attach).
 const coverageQuery = useQuery({
   queryKey: computed(() => agentKeys.conceptMapCoverage(agentId)),
-  enabled: computed(() => !isCreateMode && !!agentId),
+  enabled: agentReadable,
   queryFn: () => agentsApi.getAgentConceptMapCoverage(agentId),
 })
 const coverageEntries = computed(() => coverageQuery.data.value?.entries ?? [])
@@ -853,6 +860,8 @@ const breadcrumbs = computed(() => [
         </div>
       </SCard>
     </template>
+
+    <AgentsForbidden v-else-if="forbidden" />
 
     <template v-else>
       <SPageHeader

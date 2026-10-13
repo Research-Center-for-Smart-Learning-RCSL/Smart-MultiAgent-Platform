@@ -29,9 +29,16 @@ const AGENT = {
   deleted_at: null,
 }
 
-function seed(agents: unknown[]): void {
+function seed(agents: unknown[], { moderator = true } = {}): { listed: () => number } {
+  let listCalls = 0
   server.use(
-    http.get('/api/projects/proj_1/agents', () => HttpResponse.json(agents)),
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: moderator }),
+    ),
+    http.get('/api/projects/proj_1/agents', () => {
+      listCalls += 1
+      return HttpResponse.json(agents)
+    }),
     http.get('/api/projects/proj_1/key-groups', () =>
       HttpResponse.json([
         {
@@ -46,6 +53,7 @@ function seed(agents: unknown[]): void {
     ),
     http.get('/api/projects/proj_1/rag-configs', () => HttpResponse.json([])),
   )
+  return { listed: () => listCalls }
 }
 
 async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Promise<void> {
@@ -100,5 +108,31 @@ describe('AgentListView', () => {
 
     expect(capturedBody).toBeDefined()
     expect(capturedBody?.effort).toBe('high')
+  })
+
+  // Matrix row 28 / AC-4: the listing carries every agent's configuration and is
+  // editors-only, so a non-editor gets the forbidden state and no request is sent.
+  it('shows a non-editor the forbidden state without requesting the listing', async () => {
+    const calls = seed([AGENT], { moderator: false })
+    const wrapper = await renderView(AgentListView, {
+      routes,
+      initialRoute: '/projects/proj_1/agents',
+    })
+    await settle(wrapper)
+    expect(wrapper.find('[data-testid="agents-forbidden"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Researcher')
+    expect(wrapper.find('button.s-btn--primary').exists()).toBe(false)
+    expect(calls.listed()).toBe(0)
+  })
+
+  it('requests the listing for an editor', async () => {
+    const calls = seed([AGENT])
+    const wrapper = await renderView(AgentListView, {
+      routes,
+      initialRoute: '/projects/proj_1/agents',
+    })
+    await settle(wrapper)
+    expect(wrapper.find('[data-testid="agents-forbidden"]').exists()).toBe(false)
+    expect(calls.listed()).toBe(1)
   })
 })

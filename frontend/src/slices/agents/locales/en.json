@@ -44,6 +44,10 @@
       "controlsActivities": "written to run activities",
       "activityControlNotice": "One of these agents is written to start and end activities for a class. Installing does not grant that: a pack creates no chatroom and no room binding, so the room's creator has to delegate it per room, per agent, after binding the agent."
     },
+    "forbidden": {
+      "title": "Editors only",
+      "text": "Only a project owner can view agent settings. Agents in your rooms are still shown by name."
+    },
     "list": {
       "title": "AI Agents",
       "actions": "AI Agent actions",

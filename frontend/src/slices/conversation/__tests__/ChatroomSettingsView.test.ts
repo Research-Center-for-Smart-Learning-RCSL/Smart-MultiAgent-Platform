@@ -57,6 +57,9 @@ function makeChatroom(overrides: Partial<Chatroom> = {}): Chatroom {
     allow_guest_links: false,
     version: 1,
     created_at: new Date().toISOString(),
+    // The default caller moderates the room, i.e. may edit agents (matrix row 28);
+    // the non-editor view is its own describe block below.
+    is_moderator: true,
     ...overrides,
   }
 }
@@ -100,6 +103,7 @@ describe('ChatroomSettingsView', () => {
   it('lists bound agents and offers unbound ones in the picker', async () => {
     // proj_1 has two agents; only agent_1 is bound to this room.
     server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
       http.get('/api/projects/:projectId/agents', () =>
         HttpResponse.json([
           makeAgent('agent_1', 'Bound Agent'),
@@ -133,6 +137,7 @@ describe('ChatroomSettingsView', () => {
   it('binds the selected agent via POST and refreshes', async () => {
     let posted: string | null = null
     server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
       http.get('/api/projects/:projectId/agents', () =>
         HttpResponse.json([makeAgent('agent_2', 'Free Agent')]),
       ),
@@ -312,6 +317,7 @@ describe('ChatroomSettingsView', () => {
     const partial = makeAgent('agent_1', 'Partial Agent')
     partial.wakeup_config = { triggers: {} }
     server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
       http.get('/api/projects/:projectId/agents', () =>
         HttpResponse.json([partial]),
       ),
@@ -329,6 +335,82 @@ describe('ChatroomSettingsView', () => {
 
     expect(wrapper.text()).toContain('Partial Agent')
     expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
+  })
+
+  // Matrix row 28 / AC-5: a caller who may not edit agents (a project member who
+  // opened the settings page) gets bound agents by name only.
+  describe('for a caller who may not edit agents', () => {
+    function seedNonEditor(): { fullListCalls: () => number } {
+      let calls = 0
+      const room = makeChatroom({ is_moderator: false })
+      server.use(
+        http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+        http.get('/api/projects/:projectId/agents/names', () =>
+          HttpResponse.json([{ id: 'agent_1', name: 'Bound Agent' }]),
+        ),
+        http.get('/api/projects/:projectId/agents', () => {
+          calls += 1
+          return new HttpResponse(null, { status: 403 })
+        }),
+        http.get('/api/chatrooms/:chatroomId/agents', () =>
+          HttpResponse.json([{ agent_id: 'agent_1' }]),
+        ),
+      )
+      return { fullListCalls: () => calls }
+    }
+
+    it('lists bound agents by name without requesting the full listing', async () => {
+      const calls = seedNonEditor()
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: seededClient([makeChatroom({ is_moderator: false })]),
+      })
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Bound Agent')
+      expect(wrapper.text()).not.toContain('conversation.settings.unknownAgent')
+      expect(wrapper.text()).not.toContain('conversation.settings.bindingsLoadFailed')
+      expect(calls.fullListCalls()).toBe(0)
+    })
+
+    it('renders neither the wake-up editor nor the dead-letter viewer', async () => {
+      seedNonEditor()
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: seededClient([makeChatroom({ is_moderator: false })]),
+      })
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Bound Agent')
+      expect(wrapper.find('.wakeup-editor').exists()).toBe(false)
+      expect(wrapper.find('.dlq-viewer').exists()).toBe(false)
+    })
+  })
+
+  it('shows a moderator the wake-up editor and the dead-letter viewer', async () => {
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
+    expect(wrapper.find('.dlq-viewer').exists()).toBe(true)
   })
 
   it('keeps the Guest Link card hidden when enabling guest links was rejected (F-7)', async () => {

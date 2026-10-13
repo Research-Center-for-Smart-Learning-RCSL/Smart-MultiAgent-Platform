@@ -110,8 +110,12 @@ const globalNav = computed<NavItem[]>(() => [
 const agentNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
+  // Matrix row 28: the agents pages are agent configuration, editors only.
+  const agents = decided.value && isAuthorized.value
+    ? [{ icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` }]
+    : []
   return [
-    { icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` },
+    ...agents,
     { icon: UserGroupIcon, label: t('app.sidebar.agentGroups'), route: `/projects/${pid}/agent-groups` },
   ]
 })

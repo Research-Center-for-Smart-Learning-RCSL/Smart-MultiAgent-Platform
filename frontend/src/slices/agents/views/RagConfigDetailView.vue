@@ -24,6 +24,7 @@ import {
   useBreakpoint,
 } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
+import { useProjectRole } from '@slices/tenancy'
 import {
   agentsApi,
   type RagConfig,
@@ -61,6 +62,9 @@ const projectKeysQuery = useQuery({
   queryFn: () => projectKeysApi.listCarried(projectId),
 })
 
+const { decided, isAuthorized } = useProjectRole(projectId)
+const canEdit = computed(() => decided.value && isAuthorized.value)
+
 const config = computed<RagConfig | undefined>(() => configQuery.data.value)
 const configError = computed(() => configQuery.error.value)
 const {
@@ -77,7 +81,7 @@ const {
   toggleUploadAgent,
   uploadAgentIds,
   uploading,
-} = useRagDocuments(configId, projectId)
+} = useRagDocuments(configId, projectId, canEdit)
 // F-20 (R10.04): chunk params describe the whole corpus and cannot be re-tuned
 // once documents exist (the backend rejects a changing patch with 409). Disable
 // the inputs as a UX guard once the config has any document — like the already

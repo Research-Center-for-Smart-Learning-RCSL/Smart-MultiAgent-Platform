@@ -33,7 +33,9 @@ import {
 } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
+import { useProjectRole } from '@slices/tenancy'
 import { agentsApi, type Agent } from '../api'
+import AgentsForbidden from '../components/AgentsForbidden.vue'
 import { agentKeys } from '../queries'
 import AgentPackInstallDialog from '../components/AgentPackInstallDialog.vue'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
@@ -59,19 +61,27 @@ const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.agents') },
 ])
 
+// Matrix row 28: the listing carries every agent's configuration and the server
+// refuses it to non-editors, so nothing on this page is fetched for them.
+const { decided, isAuthorized } = useProjectRole(projectId)
+const canRead = computed(() => decided.value && isAuthorized.value)
+
 const query = useQuery({
   queryKey: agentKeys.agents(projectId),
   queryFn: () => agentsApi.list(projectId),
+  enabled: canRead,
 })
 
 const keyGroupsQuery = useQuery({
   queryKey: keysKeys.keyGroups(projectId),
   queryFn: () => keyGroupsApi.listForProject(projectId),
+  enabled: canRead,
 })
 
 const ragConfigsQuery = useQuery({
   queryKey: agentKeys.ragConfigs(projectId),
   queryFn: () => agentsApi.listRagConfigs(projectId),
+  enabled: canRead,
 })
 
 const agents = computed<Agent[]>(() => query.data.value ?? [])
@@ -247,7 +257,10 @@ function onRowClick(row: Agent): void {
       :title="t('agents.list.title')"
       :breadcrumbs="breadcrumbs"
     >
-      <template #actions>
+      <template
+        v-if="canRead"
+        #actions
+      >
         <SButton
           variant="secondary"
           data-testid="open-example-packs"
@@ -270,156 +283,160 @@ function onRowClick(row: Agent): void {
       </template>
     </SPageHeader>
 
-    <AgentPackInstallDialog
-      :project-id="projectId"
-      :open="packDialogOpen"
-      @close="packDialogOpen = false"
-      @installed="qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })"
-    />
+    <AgentsForbidden v-if="decided && !isAuthorized" />
 
-    <div class="flex flex-wrap items-center gap-4 mt-6">
-      <SSearchInput
-        v-model="search"
-        :placeholder="t('agents.list.searchPlaceholder')"
-        class="w-64"
+    <template v-else>
+      <AgentPackInstallDialog
+        :project-id="projectId"
+        :open="packDialogOpen"
+        @close="packDialogOpen = false"
+        @installed="qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })"
       />
-      <SSelect
-        v-model="modelFilter"
-        :options="modelOptions"
-        size="sm"
-        class="w-36"
-      />
-      <SSelect
-        v-if="isAdmin"
-        v-model="statusFilter"
-        :options="statusOptions"
-        size="sm"
-        class="w-36"
-      />
-    </div>
 
-    <SAlert
-      v-if="error"
-      variant="danger"
-      class="mt-4"
-    >
-      {{ t('agents.list.loadError') }}
-      <template #actions>
-        <SButton
-          variant="ghost"
+      <div class="flex flex-wrap items-center gap-4 mt-6">
+        <SSearchInput
+          v-model="search"
+          :placeholder="t('agents.list.searchPlaceholder')"
+          class="w-64"
+        />
+        <SSelect
+          v-model="modelFilter"
+          :options="modelOptions"
           size="sm"
-          @click="query.refetch()"
-        >
-          {{ t('agents.detail.reload') }}
-        </SButton>
-      </template>
-    </SAlert>
+          class="w-36"
+        />
+        <SSelect
+          v-if="isAdmin"
+          v-model="statusFilter"
+          :options="statusOptions"
+          size="sm"
+          class="w-36"
+        />
+      </div>
 
-    <!-- One table for all viewports: STable's card-list mode replaces the
-         old hand-rolled mobile card branch (which also skipped empty states). -->
-    <AgentTable
-      :columns="columns"
-      :data="paginatedItems"
-      :loading="loading"
-      row-key="id"
-      sticky-header
-      responsive-mode="card-list"
-      class="mt-6"
-      :class="staggerClass"
-      @row-click="onRowClick"
-    >
-      <template #cell-name="{ row }">
-        <span class="font-medium cursor-pointer text-[var(--color-accent)]">
-          {{ row.name }}
-        </span>
-      </template>
-
-      <template #cell-model_hint="{ row }">
-        <SBadge
-          :variant="isProviderMismatch(row) ? 'warning' : 'neutral'"
-          :title="isProviderMismatch(row) ? t('agents.list.providerMismatch') : undefined"
-        >
-          <ExclamationTriangleIcon
-            v-if="isProviderMismatch(row)"
-            class="w-3.5 h-3.5 mr-1"
-            aria-hidden="true"
-          />
-          {{ modelHintLabel(row.model_hint) }}
-        </SBadge>
-      </template>
-
-      <template #cell-key_group_id="{ row }">
-        {{ keyGroupById.get(row.key_group_id) ?? '--' }}
-      </template>
-
-      <template #cell-rag_config_id="{ row }">
-        <template v-if="row.rag_config_id">
-          {{ ragConfigById.get(row.rag_config_id) ?? '--' }}
+      <SAlert
+        v-if="error"
+        variant="danger"
+        class="mt-4"
+      >
+        {{ t('agents.list.loadError') }}
+        <template #actions>
+          <SButton
+            variant="ghost"
+            size="sm"
+            @click="query.refetch()"
+          >
+            {{ t('agents.detail.reload') }}
+          </SButton>
         </template>
-        <span
-          v-else
-          class="text-[var(--color-muted)]"
-        >--</span>
-      </template>
+      </SAlert>
 
-      <template #cell-a2a_enabled="{ row }">
-        <SBadge
-          v-if="row.a2a_enabled"
-          variant="success"
-        >
-          {{ t('agents.list.a2aOn') }}
-        </SBadge>
-        <span
-          v-else
-          class="text-[var(--color-muted)]"
-        >--</span>
-      </template>
+      <!-- One table for all viewports: STable's card-list mode replaces the
+         old hand-rolled mobile card branch (which also skipped empty states). -->
+      <AgentTable
+        :columns="columns"
+        :data="paginatedItems"
+        :loading="loading"
+        row-key="id"
+        sticky-header
+        responsive-mode="card-list"
+        class="mt-6"
+        :class="staggerClass"
+        @row-click="onRowClick"
+      >
+        <template #cell-name="{ row }">
+          <span class="font-medium cursor-pointer text-[var(--color-accent)]">
+            {{ row.name }}
+          </span>
+        </template>
 
-      <template #actions="{ row }">
-        <SDropdown
-          :items="actionItems"
-          placement="bottom-end"
-          @select="onAction($event, row)"
-        >
-          <template #trigger>
-            <SButton
-              variant="ghost"
-              icon-only
-              size="sm"
-              :aria-label="t('agents.list.actions')"
-            >
-              <EllipsisVerticalIcon class="w-4 h-4" />
-            </SButton>
+        <template #cell-model_hint="{ row }">
+          <SBadge
+            :variant="isProviderMismatch(row) ? 'warning' : 'neutral'"
+            :title="isProviderMismatch(row) ? t('agents.list.providerMismatch') : undefined"
+          >
+            <ExclamationTriangleIcon
+              v-if="isProviderMismatch(row)"
+              class="w-3.5 h-3.5 mr-1"
+              aria-hidden="true"
+            />
+            {{ modelHintLabel(row.model_hint) }}
+          </SBadge>
+        </template>
+
+        <template #cell-key_group_id="{ row }">
+          {{ keyGroupById.get(row.key_group_id) ?? '--' }}
+        </template>
+
+        <template #cell-rag_config_id="{ row }">
+          <template v-if="row.rag_config_id">
+            {{ ragConfigById.get(row.rag_config_id) ?? '--' }}
           </template>
-        </SDropdown>
-      </template>
+          <span
+            v-else
+            class="text-[var(--color-muted)]"
+          >--</span>
+        </template>
 
-      <template #empty>
-        <SEmptyState
-          :icon="CpuChipIcon"
-          :title="t('agents.list.emptyTitle')"
-          :text="t('agents.list.emptyDescription')"
-        >
-          <template #action>
-            <SButton
-              variant="primary"
-              @click="goToCreate"
-            >
-              {{ t('agents.list.create') }}
-            </SButton>
-          </template>
-        </SEmptyState>
-      </template>
-    </AgentTable>
+        <template #cell-a2a_enabled="{ row }">
+          <SBadge
+            v-if="row.a2a_enabled"
+            variant="success"
+          >
+            {{ t('agents.list.a2aOn') }}
+          </SBadge>
+          <span
+            v-else
+            class="text-[var(--color-muted)]"
+          >--</span>
+        </template>
 
-    <SPagination
-      v-if="filteredAgents.length > pageSize"
-      :page="currentPage"
-      :total-pages="totalPages"
-      :total-items="filteredAgents.length"
-      :page-size="pageSize"
-      class="mt-4"
-      @update:page="currentPage = $event"
-    />
+        <template #actions="{ row }">
+          <SDropdown
+            :items="actionItems"
+            placement="bottom-end"
+            @select="onAction($event, row)"
+          >
+            <template #trigger>
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+                :aria-label="t('agents.list.actions')"
+              >
+                <EllipsisVerticalIcon class="w-4 h-4" />
+              </SButton>
+            </template>
+          </SDropdown>
+        </template>
+
+        <template #empty>
+          <SEmptyState
+            :icon="CpuChipIcon"
+            :title="t('agents.list.emptyTitle')"
+            :text="t('agents.list.emptyDescription')"
+          >
+            <template #action>
+              <SButton
+                variant="primary"
+                @click="goToCreate"
+              >
+                {{ t('agents.list.create') }}
+              </SButton>
+            </template>
+          </SEmptyState>
+        </template>
+      </AgentTable>
+
+      <SPagination
+        v-if="filteredAgents.length > pageSize"
+        :page="currentPage"
+        :total-pages="totalPages"
+        :total-items="filteredAgents.length"
+        :page-size="pageSize"
+        class="mt-4"
+        @update:page="currentPage = $event"
+      />
+    </template>
   </div>
 </template>

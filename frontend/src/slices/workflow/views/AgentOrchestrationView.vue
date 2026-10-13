@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from '@shared/composables'
 import { SButton, SPageHeader, SWakeupEditor } from '@shared/ui'
 import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
-import { agentsApi, agentKeys } from '@slices/agents'
+import { PermissionError } from '@shared/errors'
+import { AgentsForbidden, agentsApi, agentKeys } from '@slices/agents'
 
 import { patchAgentWakeupConfig } from '../api'
 import DlqViewer from '../components/DlqViewer.vue'
@@ -21,6 +22,9 @@ const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
   queryFn: () => agentsApi.get(agentId),
 })
+// Matrix row 28: the wake-up config and dead letters are agent configuration,
+// readable by its editors only; the agent read is what tells this page which.
+const forbidden = computed(() => agentQuery.error.value instanceof PermissionError)
 
 const breadcrumbs = computed(() => [
   { label: agentQuery.data.value?.name ?? '...', to: { name: 'agents.detail', params: { agentId } } },
@@ -62,38 +66,45 @@ async function save(): Promise<void> {
       :breadcrumbs="breadcrumbs"
     />
 
-    <div class="mb-6">
-      <h2 class="font-semibold mb-2">
-        {{ t('workflow.agentOps.wakeupSection') }}
-      </h2>
-      <p v-if="agentQuery.isLoading.value">
-        {{ t('workflow.agentOps.loading') }}
-      </p>
-      <p
-        v-else-if="agentQuery.isError.value"
-        class="text-red-600"
-      >
-        {{ t('workflow.agentOps.loadError') }}
-      </p>
-      <template v-else-if="config">
-        <SWakeupEditor v-model="config" />
-        <SButton
-          variant="primary"
-          class="mt-2"
-          type="button"
-          :loading="saving"
-          @click="save"
-        >
-          {{ t('workflow.agentOps.save') }}
-        </SButton>
-      </template>
-    </div>
+    <AgentsForbidden v-if="forbidden" />
 
-    <div class="mb-6">
-      <h2 class="font-semibold mb-2">
-        {{ t('workflow.agentOps.dlqSection') }}
-      </h2>
-      <DlqViewer :agent-id="agentId" />
-    </div>
+    <template v-else>
+      <div class="mb-6">
+        <h2 class="font-semibold mb-2">
+          {{ t('workflow.agentOps.wakeupSection') }}
+        </h2>
+        <p v-if="agentQuery.isLoading.value">
+          {{ t('workflow.agentOps.loading') }}
+        </p>
+        <p
+          v-else-if="agentQuery.isError.value"
+          class="text-red-600"
+        >
+          {{ t('workflow.agentOps.loadError') }}
+        </p>
+        <template v-else-if="config">
+          <SWakeupEditor v-model="config" />
+          <SButton
+            variant="primary"
+            class="mt-2"
+            type="button"
+            :loading="saving"
+            @click="save"
+          >
+            {{ t('workflow.agentOps.save') }}
+          </SButton>
+        </template>
+      </div>
+
+      <div class="mb-6">
+        <h2 class="font-semibold mb-2">
+          {{ t('workflow.agentOps.dlqSection') }}
+        </h2>
+        <DlqViewer
+          v-if="agentQuery.isSuccess.value"
+          :agent-id="agentId"
+        />
+      </div>
+    </template>
   </section>
 </template>

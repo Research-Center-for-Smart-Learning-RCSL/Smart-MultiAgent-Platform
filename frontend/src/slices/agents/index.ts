@@ -18,6 +18,7 @@ export { useRagConfigSocket, type RagIngestionProgress } from './composables/use
 // Generalized Concept Map surface (Phase 4α) — reused by the owner panels in the
 // agent-groups and conversation slices via this barrel (Q-3 / R24.06).
 export { default as ConceptMapPanel } from './components/ConceptMapPanel.vue'
+export { default as AgentsForbidden } from './components/AgentsForbidden.vue'
 export { useGraphragSocket } from './composables/useGraphragSocket'
 export {
   graphragBuildStateVariant,

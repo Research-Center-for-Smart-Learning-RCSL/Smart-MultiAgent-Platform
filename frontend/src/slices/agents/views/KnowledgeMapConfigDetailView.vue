@@ -103,7 +103,13 @@ const {
   toggleUploadAgent,
   uploadAgentIds,
   uploading,
-} = useKnowmapDocuments(configId, projectId, effectiveState, watchBuild)
+} = useKnowmapDocuments(
+  configId,
+  projectId,
+  effectiveState,
+  watchBuild,
+  computed(() => decided.value && isAuthorized.value),
+)
 
 // F-22: subscribe to build state unconditionally once the config loads (not
 // gated on an already-in-progress state), so an automatic rebuild triggered by

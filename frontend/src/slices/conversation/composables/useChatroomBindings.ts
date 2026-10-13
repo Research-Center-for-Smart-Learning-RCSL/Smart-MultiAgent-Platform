@@ -9,6 +9,7 @@ import {
   addChatroomAgent,
   getWorkspace,
   listChatroomAgents,
+  listProjectAgentNames,
   listProjectAgents,
   removeChatroomAgent,
   setChatroomAgentActivityControl,
@@ -26,7 +27,9 @@ import type { Chatroom, ChatroomAgentRole } from '../types'
 export interface BoundAgent {
   id: string
   name?: string
-  wakeup_config: WakeupConfig
+  // Present only for a caller who may edit agents (matrix row 28): a non-editor
+  // resolves bound agents through the names projection, which carries no config.
+  wakeup_config?: WakeupConfig
   // Present only when the caller is the room creator (R28.10).
   role?: ChatroomAgentRole
   // Delegated activity control ([R30.37]), creator-only on the same terms as
@@ -41,6 +44,16 @@ export interface BoundAgent {
   may_write_canvas?: boolean
 }
 
+interface AgentName {
+  id: string
+  name: string
+}
+
+interface KnownAgent extends AgentName {
+  deleted: boolean
+  wakeup_config?: WakeupConfig
+}
+
 export function useChatroomBindings(
   chatroomId: string,
   /** Reactive getter for the current room (may be null before load). */
@@ -50,6 +63,13 @@ export function useChatroomBindings(
   const toast = useToast()
 
   const projectAgents = ref<Agent[]>([])
+  // The names projection, loaded instead of `projectAgents` for a caller who may
+  // not read agent configuration (matrix row 28). Exactly one of the two is
+  // populated per load.
+  const agentNames = ref<AgentName[]>([])
+  // `is_moderator` is the server's verdict of PROJECT_OWNER or ORG_OWNER (admin
+  // included), the same role set that holds RESOURCE_CREATE_EDIT.
+  const canEditAgents = computed(() => getRoom()?.is_moderator === true)
   const boundAgentIds = ref<string[]>([])
   // agent_id → role, populated only for the creator (server omits it otherwise).
   const boundRoles = ref<Record<string, ChatroomAgentRole | undefined>>({})
@@ -76,10 +96,23 @@ export function useChatroomBindings(
   const bindingBusy = ref(false)
   const bindingError = ref<string | null>(null)
 
+  // Every live agent of the project as this caller may see it: full records for
+  // an editor, `{id, name}` otherwise.
+  const knownAgents = computed<KnownAgent[]>(() =>
+    projectAgents.value.length
+      ? projectAgents.value.map((a) => ({
+          id: a.id,
+          name: a.name,
+          deleted: !!a.deleted_at,
+          wakeup_config: normalizeWakeupConfig(a.wakeup_config),
+        }))
+      : agentNames.value.map((a) => ({ id: a.id, name: a.name, deleted: false })),
+  )
+
   const boundAgents = computed<BoundAgent[]>(() =>
     boundAgentIds.value
-      .map((id) => projectAgents.value.find((a) => a.id === id))
-      .filter((a): a is Agent => a != null)
+      .map((id) => knownAgents.value.find((a) => a.id === id))
+      .filter((a): a is KnownAgent => a != null)
       .map((a) => {
         const role = boundRoles.value[a.id]
         const grant = boundGrants.value[a.id]
@@ -89,7 +122,7 @@ export function useChatroomBindings(
         return {
           id: a.id,
           name: a.name,
-          wakeup_config: normalizeWakeupConfig(a.wakeup_config),
+          ...(a.wakeup_config !== undefined && { wakeup_config: a.wakeup_config }),
           ...(role !== undefined && { role }),
           ...(grant !== undefined && {
             may_control_activities: grant.granted,
@@ -102,15 +135,15 @@ export function useChatroomBindings(
       }),
   )
 
-  const availableAgents = computed<Agent[]>(() =>
-    projectAgents.value.filter(
-      (a) => !a.deleted_at && !boundAgentIds.value.includes(a.id),
-    ),
+  const availableAgents = computed<AgentName[]>(() =>
+    knownAgents.value
+      .filter((a) => !a.deleted && !boundAgentIds.value.includes(a.id))
+      .map((a) => ({ id: a.id, name: a.name })),
   )
 
   const orphanAgentIds = computed<string[]>(() =>
     boundAgentIds.value.filter(
-      (id) => !projectAgents.value.some((a) => a.id === id),
+      (id) => !knownAgents.value.some((a) => a.id === id),
     ),
   )
 
@@ -121,11 +154,14 @@ export function useChatroomBindings(
     bindingError.value = null
     try {
       const ws = await getWorkspace(room.workspace_id)
-      const [agents, bound] = await Promise.all([
-        listProjectAgents(ws.project_id),
+      const editor = room.is_moderator === true
+      const [agents, names, bound] = await Promise.all([
+        editor ? listProjectAgents(ws.project_id) : Promise.resolve([]),
+        editor ? Promise.resolve([]) : listProjectAgentNames(ws.project_id),
         listChatroomAgents(chatroomId),
       ])
       projectAgents.value = agents
+      agentNames.value = names
       boundAgentIds.value = bound.map((b) => b.agent_id)
       boundRoles.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.role]))
       boundGrants.value = Object.fromEntries(
@@ -338,6 +374,7 @@ export function useChatroomBindings(
 
   return {
     projectAgents,
+    canEditAgents,
     boundAgentIds,
     activityTypes,
     activityTypesFailed,

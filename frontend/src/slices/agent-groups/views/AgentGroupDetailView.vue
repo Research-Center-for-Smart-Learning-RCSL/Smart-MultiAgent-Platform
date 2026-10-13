@@ -24,7 +24,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useProjectRole } from '@slices/tenancy'
-import { agentsApi, ConceptMapPanel, type Agent } from '@slices/agents'
+import { agentsApi, ConceptMapPanel } from '@slices/agents'
 import { agentGroupsApi } from '../api'
 import { agentGroupKeys } from '../queries'
 import type { Column } from '@shared/ui/STable.vue'
@@ -71,10 +71,12 @@ const readsByAgent = computed(
   () => new Map((membersQuery.data.value?.read_members ?? []).map((r) => [r.agent_id, r.read_member_ids ?? null])),
 )
 
+// Names only: this page needs nothing else of an agent, and the full listing is
+// editors-only (matrix row 28) while a project member may open a group.
 const agentsQuery = useQuery({
-  queryKey: computed(() => ['agents', 'list', projectId.value]),
+  queryKey: computed(() => ['agents', 'names', projectId.value]),
   enabled: computed(() => !!projectId.value),
-  queryFn: () => agentsApi.list(projectId.value),
+  queryFn: () => agentsApi.listNames(projectId.value),
 })
 const agentById = computed(
   () => new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),
@@ -85,7 +87,7 @@ function agentName(id: string): string {
 const memberRows = computed(() =>
   memberIds.value.map((id) => ({ id, name: agentName(id), reads: readsByAgent.value.get(id) ?? null })),
 )
-const addableAgents = computed<Agent[]>(() =>
+const addableAgents = computed(() =>
   (agentsQuery.data.value ?? []).filter((a) => !memberIds.value.includes(a.id)),
 )
 const addableOptions = computed(() => addableAgents.value.map((a) => ({ value: a.id, label: a.name })))

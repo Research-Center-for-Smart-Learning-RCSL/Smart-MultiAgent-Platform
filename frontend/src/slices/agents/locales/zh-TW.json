@@ -44,6 +44,10 @@
       "controlsActivities": "設計上會執行活動",
       "activityControlNotice": "其中一個代理的設計是為班級開始與結束活動。安裝並不會授予這項權限：代理包不會建立討論室，也不會建立任何綁定，所以要由討論室的建立者在綁定代理後，逐一討論室、逐一代理地授權。"
     },
+    "forbidden": {
+      "title": "僅限編輯者",
+      "text": "只有專案擁有者可以檢視 AI Agent 設定。聊天室中的 Agent 仍會以名稱顯示。"
+    },
     "list": {
       "title": "AI Agents",
       "actions": "AI Agent 操作",

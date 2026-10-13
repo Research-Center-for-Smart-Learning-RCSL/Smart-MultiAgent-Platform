@@ -31,8 +31,14 @@ const routes = [
   },
 ]
 
-function seedHandlers(): void {
+let agentListCalls = 0
+
+function seedHandlers({ moderator = true } = {}): void {
+  agentListCalls = 0
   server.use(
+    http.get('/api/projects/proj_1', () =>
+      HttpResponse.json({ id: 'proj_1', name: 'Test Project', is_moderator: moderator }),
+    ),
     http.get('/api/rag-configs/cfg_1', () =>
       HttpResponse.json({
         id: 'cfg_1',
@@ -67,8 +73,9 @@ function seedHandlers(): void {
       ]),
     ),
     http.get('/api/projects/proj_1/keys', () => HttpResponse.json([])),
-    http.get('/api/projects/proj_1/agents', () =>
-      HttpResponse.json([
+    http.get('/api/projects/proj_1/agents', () => {
+      agentListCalls += 1
+      return HttpResponse.json([
         {
           id: 'agent_1',
           project_id: 'proj_1',
@@ -87,8 +94,8 @@ function seedHandlers(): void {
           created_at: '2026-01-01T00:00:00Z',
           deleted_at: null,
         },
-      ]),
-    ),
+      ])
+    }),
   )
 }
 
@@ -136,6 +143,19 @@ describe('RagConfigDetailView', () => {
     expect(wrapper.text()).toContain('Support Bot')
     // The allowlist checkbox picker rendered.
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
+  })
+
+  // Matrix row 28: the bound-agent lookup reads the editors-only listing and only
+  // feeds editor controls, so a project member viewing the config never sends it.
+  it('does not request the agent listing for a non-editor', async () => {
+    seedHandlers({ moderator: false })
+    const wrapper = await renderView(RagConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/rag-configs/cfg_1?tab=documents',
+    })
+    await settle(wrapper)
+    expect(wrapper.text()).toContain('guide.pdf')
+    expect(agentListCalls).toBe(0)
   })
 
   it('shows an actionable error when a duplicate has a different allowlist', async () => {

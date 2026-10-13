@@ -37,6 +37,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
+import { PermissionError } from '@shared/errors'
 import {
   agentsApi,
   type AgentTool,
@@ -45,6 +46,7 @@ import {
   type WorkspaceFile,
 } from '../api'
 import { agentKeys } from '../queries'
+import AgentsForbidden from '../components/AgentsForbidden.vue'
 import { mcpToolCreateSchema, functionToolCreateSchema } from '../types/schemas'
 import type { FunctionToolCreateInput } from '../types/schemas'
 import { useToolTest } from '../composables/useToolTest'
@@ -68,6 +70,9 @@ const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
   queryFn: () => agentsApi.get(agentId),
 })
+// Matrix row 28: tools are agent configuration, readable by its editors only. The
+// agent read answers whether this caller is one; the tool reads wait for it.
+const forbidden = computed(() => agentQuery.error.value instanceof PermissionError)
 const breadcrumbs = computed(() => [
   { label: agentQuery.data.value?.name ?? '...', to: { name: 'agents.detail', params: { agentId } } },
   { label: t('agents.tools.tabLabel') },
@@ -77,6 +82,7 @@ const breadcrumbs = computed(() => [
 const toolsQuery = useQuery({
   queryKey: agentKeys.tools(agentId),
   queryFn: () => agentsApi.listTools(agentId),
+  enabled: computed(() => agentQuery.isSuccess.value),
 })
 
 const allTools = computed<AgentTool[]>(() => toolsQuery.data.value ?? [])
@@ -162,7 +168,7 @@ const wsFilesQuery = useQuery({
   queryKey: agentKeys.workspaceFiles(agentId),
   queryFn: () => agentsApi.listWorkspaceFiles(agentId),
   enabled: computed(
-    () => !!codeInterpreter.value?.enabled || !!fileWorkspace.value?.enabled,
+    () => agentQuery.isSuccess.value && (!!codeInterpreter.value?.enabled || !!fileWorkspace.value?.enabled),
   ),
 })
 const wsFiles = computed<WorkspaceFile[]>(() => wsFilesQuery.data.value ?? [])
@@ -709,300 +715,203 @@ function fnLabel(tool: AgentTool): string {
       :breadcrumbs="breadcrumbs"
     />
 
-    <!-- ========== Hosted Tools ========== -->
-    <section class="mt-6">
-      <h2 class="text-base font-semibold text-[var(--color-fg)]">
-        {{ t('agents.tools.hosted.title') }}
-      </h2>
-      <p class="mt-1 text-sm text-[var(--color-muted)]">
-        {{ t('agents.tools.hosted.subtitle') }}
-      </p>
+    <AgentsForbidden v-if="forbidden" />
 
-      <!-- Singleton hosted tool toggles -->
-      <SCard class="mt-4">
-        <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
-          <li
-            v-for="card in singletonCards"
-            :key="card.key"
-            class="flex items-center justify-between gap-4 py-3"
-          >
-            <div class="min-w-0">
-              <label
-                :for="`tool-${card.key}`"
-                class="text-sm font-medium text-[var(--color-fg)]"
-              >{{ card.label }}</label>
-              <p class="text-xs text-[var(--color-muted)]">
-                {{ card.description }}
-              </p>
-              <p
-                v-if="card.disabledHint"
-                class="text-xs text-[var(--color-warning)] mt-1"
-              >
-                {{ card.disabledHint }}
-              </p>
-            </div>
-            <SToggle
-              :id="`tool-${card.key}`"
-              :model-value="card.tool?.enabled ?? false"
-              :disabled="toggleBusy || !card.tool || card.disabled"
-              @update:model-value="toggleSingleton(card.tool, $event)"
-            />
-          </li>
-        </ul>
-      </SCard>
+    <template v-else>
+      <!-- ========== Hosted Tools ========== -->
+      <section class="mt-6">
+        <h2 class="text-base font-semibold text-[var(--color-fg)]">
+          {{ t('agents.tools.hosted.title') }}
+        </h2>
+        <p class="mt-1 text-sm text-[var(--color-muted)]">
+          {{ t('agents.tools.hosted.subtitle') }}
+        </p>
 
-      <!-- Workspace files (shared by Code Interpreter and File Workspace) -->
-      <SCard
-        v-if="codeInterpreter?.enabled || fileWorkspace?.enabled"
-        class="mt-4"
-      >
-        <!-- `flex-wrap` + `shrink-0`: the hint beside this button is long, so
+        <!-- Singleton hosted tool toggles -->
+        <SCard class="mt-4">
+          <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
+            <li
+              v-for="card in singletonCards"
+              :key="card.key"
+              class="flex items-center justify-between gap-4 py-3"
+            >
+              <div class="min-w-0">
+                <label
+                  :for="`tool-${card.key}`"
+                  class="text-sm font-medium text-[var(--color-fg)]"
+                >{{ card.label }}</label>
+                <p class="text-xs text-[var(--color-muted)]">
+                  {{ card.description }}
+                </p>
+                <p
+                  v-if="card.disabledHint"
+                  class="text-xs text-[var(--color-warning)] mt-1"
+                >
+                  {{ card.disabledHint }}
+                </p>
+              </div>
+              <SToggle
+                :id="`tool-${card.key}`"
+                :model-value="card.tool?.enabled ?? false"
+                :disabled="toggleBusy || !card.tool || card.disabled"
+                @update:model-value="toggleSingleton(card.tool, $event)"
+              />
+            </li>
+          </ul>
+        </SCard>
+
+        <!-- Workspace files (shared by Code Interpreter and File Workspace) -->
+        <SCard
+          v-if="codeInterpreter?.enabled || fileWorkspace?.enabled"
+          class="mt-4"
+        >
+          <!-- `flex-wrap` + `shrink-0`: the hint beside this button is long, so
              at 375px the button's wrapper shrank to its min-content width. In
              `en` that wrapped the label onto two lines; in `zh-TW`, where every
              glyph is its own break opportunity, it became one character per
              line. -->
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 class="text-sm font-semibold text-[var(--color-fg)]">
-              {{ t('agents.tools.codeInterpreter.files.title') }}
-            </h3>
-            <p class="text-xs text-[var(--color-muted)]">
-              {{ t('agents.tools.codeInterpreter.files.hint') }}
-            </p>
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[var(--color-fg)]">
+                {{ t('agents.tools.codeInterpreter.files.title') }}
+              </h3>
+              <p class="text-xs text-[var(--color-muted)]">
+                {{ t('agents.tools.codeInterpreter.files.hint') }}
+              </p>
+            </div>
+            <div class="shrink-0">
+              <label
+                class="sr-only"
+                for="ws-file-upload"
+              >
+                {{ t('agents.tools.codeInterpreter.files.upload') }}
+              </label>
+              <input
+                id="ws-file-upload"
+                ref="wsFileInput"
+                type="file"
+                class="hidden"
+                accept=".csv,.tsv,.json,.jsonl,.txt,.md,.pdf,.docx,.xlsx,.py,.r,.sql,.xml,.yaml,.yml,.parquet,.zip,.tar,.gz,.png,.jpg,.jpeg,.gif,.webp"
+                @change="onWsFileChange"
+              >
+              <SButton
+                variant="secondary"
+                size="sm"
+                :loading="uploadWsFile.isPending.value"
+                @click="wsFileInput?.click()"
+              >
+                <template #icon-left>
+                  <ArrowUpTrayIcon class="w-4 h-4" />
+                </template>
+                {{ t('agents.tools.codeInterpreter.files.upload') }}
+              </SButton>
+            </div>
           </div>
-          <div class="shrink-0">
-            <label
-              class="sr-only"
-              for="ws-file-upload"
-            >
-              {{ t('agents.tools.codeInterpreter.files.upload') }}
-            </label>
-            <input
-              id="ws-file-upload"
-              ref="wsFileInput"
-              type="file"
-              class="hidden"
-              accept=".csv,.tsv,.json,.jsonl,.txt,.md,.pdf,.docx,.xlsx,.py,.r,.sql,.xml,.yaml,.yml,.parquet,.zip,.tar,.gz,.png,.jpg,.jpeg,.gif,.webp"
-              @change="onWsFileChange"
-            >
+          <p class="text-xs text-[var(--color-muted)] mb-3">
+            {{ t('agents.tools.codeInterpreter.files.sizeHint') }}
+          </p>
+
+          <div v-if="wsFiles.length">
+            <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
+              <li
+                v-for="file in wsFiles"
+                :key="file.id"
+                class="flex items-center justify-between gap-3 py-2"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <DocumentIcon class="w-4 h-4 shrink-0 text-[var(--color-muted)]" />
+                  <span class="text-sm font-mono truncate">{{ file.path }}</span>
+                  <span class="text-xs text-[var(--color-muted)] shrink-0">{{ formatBytes(file.size_bytes) }}</span>
+                </div>
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon-only
+                  :title="t('agents.tools.codeInterpreter.files.deleteTitle')"
+                  @click="confirmDeleteWsFile(file)"
+                >
+                  <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
+                </SButton>
+              </li>
+            </ul>
+          </div>
+          <SEmptyState
+            v-else
+            :icon="DocumentIcon"
+            :title="t('agents.tools.codeInterpreter.files.empty')"
+          />
+        </SCard>
+
+        <!-- MCP Servers -->
+        <SCard class="mt-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[var(--color-fg)]">
+                {{ t('agents.tools.mcp.label') }}
+              </h3>
+              <p class="text-xs text-[var(--color-muted)]">
+                {{ t('agents.tools.mcp.description') }}
+              </p>
+            </div>
             <SButton
               variant="secondary"
               size="sm"
-              :loading="uploadWsFile.isPending.value"
-              @click="wsFileInput?.click()"
+              @click="openAddModal"
             >
               <template #icon-left>
-                <ArrowUpTrayIcon class="w-4 h-4" />
+                <PlusIcon class="w-4 h-4" />
               </template>
-              {{ t('agents.tools.codeInterpreter.files.upload') }}
+              {{ t('agents.tools.mcp.add') }}
             </SButton>
           </div>
-        </div>
-        <p class="text-xs text-[var(--color-muted)] mb-3">
-          {{ t('agents.tools.codeInterpreter.files.sizeHint') }}
-        </p>
 
-        <div v-if="wsFiles.length">
-          <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
-            <li
-              v-for="file in wsFiles"
-              :key="file.id"
-              class="flex items-center justify-between gap-3 py-2"
-            >
-              <div class="flex items-center gap-2 min-w-0">
-                <DocumentIcon class="w-4 h-4 shrink-0 text-[var(--color-muted)]" />
-                <span class="text-sm font-mono truncate">{{ file.path }}</span>
-                <span class="text-xs text-[var(--color-muted)] shrink-0">{{ formatBytes(file.size_bytes) }}</span>
-              </div>
-              <SButton
-                variant="ghost"
-                size="sm"
-                icon-only
-                :title="t('agents.tools.codeInterpreter.files.deleteTitle')"
-                @click="confirmDeleteWsFile(file)"
-              >
-                <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
-              </SButton>
-            </li>
-          </ul>
-        </div>
-        <SEmptyState
-          v-else
-          :icon="DocumentIcon"
-          :title="t('agents.tools.codeInterpreter.files.empty')"
-        />
-      </SCard>
-
-      <!-- MCP Servers -->
-      <SCard class="mt-4">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h3 class="text-sm font-semibold text-[var(--color-fg)]">
-              {{ t('agents.tools.mcp.label') }}
-            </h3>
-            <p class="text-xs text-[var(--color-muted)]">
-              {{ t('agents.tools.mcp.description') }}
-            </p>
-          </div>
-          <SButton
-            variant="secondary"
-            size="sm"
-            @click="openAddModal"
+          <McpToolsTable
+            :columns="mcpColumns"
+            :data="mcpTools"
+            :loading="loading"
+            row-key="id"
           >
-            <template #icon-left>
-              <PlusIcon class="w-4 h-4" />
+            <template #cell-source="{ row }">
+              <SBadge variant="neutral">
+                {{ (row.config as Record<string, unknown>).source ?? 'url' }}
+              </SBadge>
             </template>
-            {{ t('agents.tools.mcp.add') }}
-          </SButton>
-        </div>
 
-        <McpToolsTable
-          :columns="mcpColumns"
-          :data="mcpTools"
-          :loading="loading"
-          row-key="id"
-        >
-          <template #cell-source="{ row }">
-            <SBadge variant="neutral">
-              {{ (row.config as Record<string, unknown>).source ?? 'url' }}
-            </SBadge>
-          </template>
-
-          <template #cell-reference="{ row }">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
-              <span
-                v-if="row.config_warnings?.length"
-                :title="row.config_warnings.join(', ')"
-              >
-                <ExclamationTriangleIcon class="w-4 h-4 shrink-0 text-[var(--color-warning)]" />
-              </span>
-            </div>
-          </template>
-
-          <template #cell-tools="{ row }">
-            <template v-if="!((row.config as Record<string, unknown>).allowed_tools as string[] ?? []).length">
-              {{ t('agents.tools.mcp.allTools') }}
-            </template>
-            <template v-else>
-              {{ t('agents.tools.mcp.nAllowed', { n: ((row.config as Record<string, unknown>).allowed_tools as string[]).length }) }}
-            </template>
-          </template>
-
-          <template #actions="{ row }">
-            <div class="flex items-center gap-2">
-              <SButton
-                variant="ghost"
-                size="sm"
-                :loading="isTesting(row.id)"
-                @click="runTest(row.id)"
-              >
-                {{ t('agents.tools.mcp.test') }}
-              </SButton>
-              <SDropdown
-                :items="mcpActionItems"
-                placement="bottom-end"
-                @select="onMcpAction($event, row)"
-              >
-                <template #trigger>
-                  <SButton
-                    variant="ghost"
-                    icon-only
-                    size="sm"
-                  >
-                    <EllipsisVerticalIcon class="w-4 h-4" />
-                  </SButton>
-                </template>
-              </SDropdown>
-            </div>
-          </template>
-
-          <template #empty>
-            <SEmptyState
-              :icon="ServerIcon"
-              :title="t('agents.tools.mcp.emptyTitle')"
-              :text="t('agents.tools.mcp.emptyDescription')"
-            >
-              <template #action>
-                <SButton
-                  variant="primary"
-                  @click="openAddModal"
+            <template #cell-reference="{ row }">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
+                <span
+                  v-if="row.config_warnings?.length"
+                  :title="row.config_warnings.join(', ')"
                 >
-                  {{ t('agents.tools.mcp.add') }}
-                </SButton>
+                  <ExclamationTriangleIcon class="w-4 h-4 shrink-0 text-[var(--color-warning)]" />
+                </span>
+              </div>
+            </template>
+
+            <template #cell-tools="{ row }">
+              <template v-if="!((row.config as Record<string, unknown>).allowed_tools as string[] ?? []).length">
+                {{ t('agents.tools.mcp.allTools') }}
               </template>
-            </SEmptyState>
-          </template>
-        </McpToolsTable>
-      </SCard>
-    </section>
-
-    <!-- ========== Local Tools ========== -->
-    <section class="mt-8">
-      <h2 class="text-base font-semibold text-[var(--color-fg)]">
-        {{ t('agents.tools.local.title') }}
-      </h2>
-      <p class="mt-1 text-sm text-[var(--color-muted)]">
-        {{ t('agents.tools.local.subtitle') }}
-      </p>
-
-      <!-- Functions -->
-      <SCard class="mt-4">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h3 class="text-sm font-semibold text-[var(--color-fg)]">
-              {{ t('agents.tools.functions.label') }}
-            </h3>
-            <p class="text-xs text-[var(--color-muted)]">
-              {{ t('agents.tools.functions.description') }}
-            </p>
-          </div>
-          <SButton
-            variant="secondary"
-            size="sm"
-            @click="openFnAddModal"
-          >
-            <template #icon-left>
-              <PlusIcon class="w-4 h-4" />
+              <template v-else>
+                {{ t('agents.tools.mcp.nAllowed', { n: ((row.config as Record<string, unknown>).allowed_tools as string[]).length }) }}
+              </template>
             </template>
-            {{ t('agents.tools.functions.add') }}
-          </SButton>
-        </div>
 
-        <div v-if="functionTools.length">
-          <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
-            <li
-              v-for="fn in functionTools"
-              :key="fn.id"
-              class="flex items-center justify-between gap-3 py-2"
-            >
-              <div class="flex items-center gap-2 min-w-0">
-                <BoltIcon class="w-4 h-4 shrink-0 text-[var(--color-muted)]" />
-                <span class="text-sm font-medium">{{ (fn.config as Record<string, unknown>).name ?? fn.display_name }}</span>
-                <SBadge
-                  variant="neutral"
+            <template #actions="{ row }">
+              <div class="flex items-center gap-2">
+                <SButton
+                  variant="ghost"
                   size="sm"
+                  :loading="isTesting(row.id)"
+                  @click="runTest(row.id)"
                 >
-                  {{ ((fn.config as Record<string, unknown>).http as Record<string, unknown>)?.method ?? 'POST' }}
-                </SBadge>
-                <span class="text-xs text-[var(--color-muted)] truncate">{{ fnHost(fn) }}</span>
-                <ExclamationTriangleIcon
-                  v-if="fn.config_warnings?.length"
-                  class="w-4 h-4 shrink-0 text-[var(--color-warning)]"
-                  :title="fn.config_warnings.join(', ')"
-                />
-              </div>
-              <div class="flex items-center gap-1">
-                <SToggle
-                  :model-value="fn.enabled"
-                  :disabled="toggleBusy"
-                  :aria-label="t('agents.tools.functions.label') + ': ' + fnLabel(fn)"
-                  @update:model-value="toggleSingleton(fn, $event)"
-                />
+                  {{ t('agents.tools.mcp.test') }}
+                </SButton>
                 <SDropdown
-                  :items="fnActionItems"
+                  :items="mcpActionItems"
                   placement="bottom-end"
-                  @select="onFnAction($event, fn)"
+                  @select="onMcpAction($event, row)"
                 >
                   <template #trigger>
                     <SButton
@@ -1015,353 +924,454 @@ function fnLabel(tool: AgentTool): string {
                   </template>
                 </SDropdown>
               </div>
-            </li>
-          </ul>
-        </div>
-        <SEmptyState
-          v-else
-          :icon="BoltIcon"
-          :title="t('agents.tools.functions.emptyTitle')"
-          :text="t('agents.tools.functions.emptyDescription')"
-        >
-          <template #action>
+            </template>
+
+            <template #empty>
+              <SEmptyState
+                :icon="ServerIcon"
+                :title="t('agents.tools.mcp.emptyTitle')"
+                :text="t('agents.tools.mcp.emptyDescription')"
+              >
+                <template #action>
+                  <SButton
+                    variant="primary"
+                    @click="openAddModal"
+                  >
+                    {{ t('agents.tools.mcp.add') }}
+                  </SButton>
+                </template>
+              </SEmptyState>
+            </template>
+          </McpToolsTable>
+        </SCard>
+      </section>
+
+      <!-- ========== Local Tools ========== -->
+      <section class="mt-8">
+        <h2 class="text-base font-semibold text-[var(--color-fg)]">
+          {{ t('agents.tools.local.title') }}
+        </h2>
+        <p class="mt-1 text-sm text-[var(--color-muted)]">
+          {{ t('agents.tools.local.subtitle') }}
+        </p>
+
+        <!-- Functions -->
+        <SCard class="mt-4">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[var(--color-fg)]">
+                {{ t('agents.tools.functions.label') }}
+              </h3>
+              <p class="text-xs text-[var(--color-muted)]">
+                {{ t('agents.tools.functions.description') }}
+              </p>
+            </div>
             <SButton
-              variant="primary"
+              variant="secondary"
+              size="sm"
               @click="openFnAddModal"
             >
+              <template #icon-left>
+                <PlusIcon class="w-4 h-4" />
+              </template>
               {{ t('agents.tools.functions.add') }}
             </SButton>
-          </template>
-        </SEmptyState>
-      </SCard>
-
-      <!-- Local Shell — coming soon -->
-      <SCard class="mt-4">
-        <div class="flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-[var(--color-fg)]">
-                {{ t('agents.tools.localShell.label') }}
-              </span>
-              <SBadge
-                variant="neutral"
-                size="sm"
-              >
-                {{ t('agents.tools.localShell.badge') }}
-              </SBadge>
-            </div>
-            <p class="text-xs text-[var(--color-muted)]">
-              {{ t('agents.tools.localShell.description') }}
-            </p>
-            <SButton
-              variant="link"
-              size="sm"
-              class="mt-1 p-0"
-              @click="toast.info(t('agents.tools.localShell.comingSoon'))"
-            >
-              {{ t('agents.tools.localShell.learnMore') }}
-            </SButton>
           </div>
-          <SToggle
-            :model-value="false"
-            disabled
-            :title="t('agents.tools.localShell.comingSoon')"
-            :aria-label="t('agents.tools.localShell.comingSoon')"
-          />
-        </div>
-      </SCard>
-    </section>
 
-    <!-- ========== MCP Add / Edit Modal ========== -->
-    <SModal
-      :open="showModal"
-      :title="isEditing ? t('common.edit', 'Edit') : t('agents.tools.mcp.add')"
-      size="lg"
-      @close="showModal = false"
-    >
-      <form @submit.prevent="onSubmit">
-        <SAlert
-          v-if="formLevelErrors.length > 0"
-          variant="danger"
-          :title="t('agents.tools.mcp.submitBlocked')"
-          focus-on-mount
-          class="mb-4"
-        >
-          <ul class="list-disc ps-5">
-            <li
-              v-for="(message, index) in formLevelErrors"
-              :key="index"
-            >
-              {{ message }}
-            </li>
-          </ul>
-        </SAlert>
+          <div v-if="functionTools.length">
+            <ul class="flex flex-col divide-y divide-[var(--color-border-subtle)]">
+              <li
+                v-for="fn in functionTools"
+                :key="fn.id"
+                class="flex items-center justify-between gap-3 py-2"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <BoltIcon class="w-4 h-4 shrink-0 text-[var(--color-muted)]" />
+                  <span class="text-sm font-medium">{{ (fn.config as Record<string, unknown>).name ?? fn.display_name }}</span>
+                  <SBadge
+                    variant="neutral"
+                    size="sm"
+                  >
+                    {{ ((fn.config as Record<string, unknown>).http as Record<string, unknown>)?.method ?? 'POST' }}
+                  </SBadge>
+                  <span class="text-xs text-[var(--color-muted)] truncate">{{ fnHost(fn) }}</span>
+                  <ExclamationTriangleIcon
+                    v-if="fn.config_warnings?.length"
+                    class="w-4 h-4 shrink-0 text-[var(--color-warning)]"
+                    :title="fn.config_warnings.join(', ')"
+                  />
+                </div>
+                <div class="flex items-center gap-1">
+                  <SToggle
+                    :model-value="fn.enabled"
+                    :disabled="toggleBusy"
+                    :aria-label="t('agents.tools.functions.label') + ': ' + fnLabel(fn)"
+                    @update:model-value="toggleSingleton(fn, $event)"
+                  />
+                  <SDropdown
+                    :items="fnActionItems"
+                    placement="bottom-end"
+                    @select="onFnAction($event, fn)"
+                  >
+                    <template #trigger>
+                      <SButton
+                        variant="ghost"
+                        icon-only
+                        size="sm"
+                      >
+                        <EllipsisVerticalIcon class="w-4 h-4" />
+                      </SButton>
+                    </template>
+                  </SDropdown>
+                </div>
+              </li>
+            </ul>
+          </div>
+          <SEmptyState
+            v-else
+            :icon="BoltIcon"
+            :title="t('agents.tools.functions.emptyTitle')"
+            :text="t('agents.tools.functions.emptyDescription')"
+          >
+            <template #action>
+              <SButton
+                variant="primary"
+                @click="openFnAddModal"
+              >
+                {{ t('agents.tools.functions.add') }}
+              </SButton>
+            </template>
+          </SEmptyState>
+        </SCard>
 
-        <SFormField
-          :label="t('agents.tools.mcp.source')"
-          name="config.source"
-          :error="errors['config.source'] ?? ''"
-          required
-        >
-          <SSelect
-            v-model="mcpSource"
-            :options="sourceOptions"
-            :disabled="isEditing"
-          />
-        </SFormField>
-
-        <SFormField
-          :label="t('agents.tools.mcp.reference')"
-          name="config.reference"
-          :error="errors['config.reference'] ?? ''"
-          :help="referenceHelp"
-          required
-        >
-          <SInput
-            v-model="mcpReference"
-            :maxlength="INPUT_LIMITS.MCP_REFERENCE"
-            :placeholder="mcpSource === 'url'
-              ? t('agents.tools.mcp.referencePlaceholderUrl')
-              : t('agents.tools.mcp.referencePlaceholderPackage')"
-            :error="!!errors['config.reference']"
-            :disabled="isEditing"
-          />
-        </SFormField>
-
-        <SFormField
-          :label="t('agents.tools.mcp.allowedTools')"
-          name="allowed_tools"
-          :help="t('agents.tools.mcp.allowedToolsHelp')"
-          :error="allowedToolsError ?? ''"
-        >
-          <STextarea
-            v-model="allowedToolsRaw"
-            :rows="3"
-            :maxlength="INPUT_LIMITS.CONFIG_TEXT"
-            :placeholder="t('agents.tools.mcp.allowedToolsPlaceholder')"
-          />
-        </SFormField>
-
-        <SAccordion
-          :items="mcpAccordionItems"
-          class="mt-4"
-        >
-          <template #item-config>
-            <!-- The parse error is reported by the form-level alert, not here:
-                 this panel is collapsed by default, so an error rendered inside
-                 it is invisible at the moment the submit is refused. -->
-            <SCodeEditor
-              v-model="configJson"
-              language="json"
-              :rows="6"
+        <!-- Local Shell — coming soon -->
+        <SCard class="mt-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-[var(--color-fg)]">
+                  {{ t('agents.tools.localShell.label') }}
+                </span>
+                <SBadge
+                  variant="neutral"
+                  size="sm"
+                >
+                  {{ t('agents.tools.localShell.badge') }}
+                </SBadge>
+              </div>
+              <p class="text-xs text-[var(--color-muted)]">
+                {{ t('agents.tools.localShell.description') }}
+              </p>
+              <SButton
+                variant="link"
+                size="sm"
+                class="mt-1 p-0"
+                @click="toast.info(t('agents.tools.localShell.comingSoon'))"
+              >
+                {{ t('agents.tools.localShell.learnMore') }}
+              </SButton>
+            </div>
+            <SToggle
+              :model-value="false"
+              disabled
+              :title="t('agents.tools.localShell.comingSoon')"
+              :aria-label="t('agents.tools.localShell.comingSoon')"
             />
-          </template>
-        </SAccordion>
-      </form>
+          </div>
+        </SCard>
+      </section>
 
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <SButton
-            variant="secondary"
-            @click="showModal = false"
-          >
-            {{ t('common.cancel', 'Cancel') }}
-          </SButton>
-          <SButton
-            variant="primary"
-            :loading="submitting"
-            @click="onSubmit"
-          >
-            {{ isEditing ? t('common.save', 'Save') : t('agents.tools.mcp.add') }}
-          </SButton>
-        </div>
-      </template>
-    </SModal>
-
-    <!-- MCP test failure modal -->
-    <SModal
-      :open="!!failedResult"
-      :title="t('agents.tools.mcp.testErrorTitle')"
-      size="md"
-      @close="failedResult = null"
-    >
-      <SCodeEditor
-        v-if="failedResult"
-        :model-value="failedResult.error"
-        language="text"
-        :rows="6"
-        readonly
-      />
-      <p
-        v-if="failedResult"
-        class="text-sm text-[var(--color-muted)] mt-2"
+      <!-- ========== MCP Add / Edit Modal ========== -->
+      <SModal
+        :open="showModal"
+        :title="isEditing ? t('common.edit', 'Edit') : t('agents.tools.mcp.add')"
+        size="lg"
+        @close="showModal = false"
       >
-        {{ t('agents.tools.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
-      </p>
-
-      <template #footer>
-        <div class="flex justify-end">
-          <SButton
-            variant="secondary"
-            @click="failedResult = null"
+        <form @submit.prevent="onSubmit">
+          <SAlert
+            v-if="formLevelErrors.length > 0"
+            variant="danger"
+            :title="t('agents.tools.mcp.submitBlocked')"
+            focus-on-mount
+            class="mb-4"
           >
-            {{ t('app.close') }}
-          </SButton>
-        </div>
-      </template>
-    </SModal>
+            <ul class="list-disc ps-5">
+              <li
+                v-for="(message, index) in formLevelErrors"
+                :key="index"
+              >
+                {{ message }}
+              </li>
+            </ul>
+          </SAlert>
 
-    <!-- ========== Function Add / Edit Modal ========== -->
-    <SModal
-      :open="showFnModal"
-      :title="isEditingFn ? t('common.edit', 'Edit') : t('agents.tools.functions.add')"
-      size="lg"
-      @close="showFnModal = false"
-    >
-      <form @submit.prevent="onFnSubmit">
-        <SFormField
-          :label="t('agents.tools.functions.name')"
-          name="config.name"
-          :error="fnErrors['config.name'] ?? ''"
-          :help="t('agents.tools.functions.nameHelp')"
-          required
-        >
-          <SInput
-            v-model="fnName"
-            :maxlength="INPUT_LIMITS.FUNCTION_NAME"
-            :placeholder="t('agents.tools.functions.namePlaceholder')"
-            :error="!!fnErrors['config.name']"
-          />
-        </SFormField>
-
-        <SFormField
-          :label="t('agents.tools.functions.fnDescription')"
-          name="config.description"
-          :error="fnErrors['config.description'] ?? ''"
-          required
-        >
-          <STextarea
-            v-model="fnDescription"
-            :rows="2"
-            :maxlength="INPUT_LIMITS.FUNCTION_DESCRIPTION"
-            :placeholder="t('agents.tools.functions.descriptionPlaceholder')"
-          />
-        </SFormField>
-
-        <SFormField
-          :label="t('agents.tools.functions.parameters')"
-          name="config.parameters"
-        >
-          <SCodeEditor
-            v-model="fnParamsJson"
-            language="json"
-            :rows="6"
-          />
-          <p
-            v-if="fnParamsError"
-            class="text-xs text-[var(--color-danger)] mt-1"
-          >
-            {{ fnParamsError }}
-          </p>
-        </SFormField>
-
-        <div class="flex gap-3">
           <SFormField
-            :label="t('agents.tools.functions.method')"
-            name="config.http.method"
-            class="w-32"
+            :label="t('agents.tools.mcp.source')"
+            name="config.source"
+            :error="errors['config.source'] ?? ''"
+            required
           >
             <SSelect
-              v-model="fnMethod"
-              :options="fnMethodOptions"
+              v-model="mcpSource"
+              :options="sourceOptions"
+              :disabled="isEditing"
             />
           </SFormField>
 
           <SFormField
-            :label="t('agents.tools.functions.url')"
-            name="config.http.url"
-            :error="fnErrors['config.http.url'] ?? ''"
-            :help="t('agents.tools.functions.urlHelp')"
-            class="flex-1"
+            :label="t('agents.tools.mcp.reference')"
+            name="config.reference"
+            :error="errors['config.reference'] ?? ''"
+            :help="referenceHelp"
             required
           >
             <SInput
-              v-model="fnUrl"
-              :maxlength="INPUT_LIMITS.URL"
-              :placeholder="t('agents.tools.functions.urlPlaceholder')"
-              :error="!!fnErrors['config.http.url']"
+              v-model="mcpReference"
+              :maxlength="INPUT_LIMITS.MCP_REFERENCE"
+              :placeholder="mcpSource === 'url'
+                ? t('agents.tools.mcp.referencePlaceholderUrl')
+                : t('agents.tools.mcp.referencePlaceholderPackage')"
+              :error="!!errors['config.reference']"
+              :disabled="isEditing"
             />
           </SFormField>
-        </div>
 
-        <SFormField
-          :label="t('agents.tools.functions.auth')"
-          name="auth"
-        >
-          <SSelect
-            v-model="fnAuthType"
-            :options="fnAuthOptions"
-          />
-        </SFormField>
-
-        <template v-if="fnAuthType === 'bearer'">
           <SFormField
-            :label="t('agents.tools.functions.authToken')"
-            name="auth.token"
+            :label="t('agents.tools.mcp.allowedTools')"
+            name="allowed_tools"
+            :help="t('agents.tools.mcp.allowedToolsHelp')"
+            :error="allowedToolsError ?? ''"
+          >
+            <STextarea
+              v-model="allowedToolsRaw"
+              :rows="3"
+              :maxlength="INPUT_LIMITS.CONFIG_TEXT"
+              :placeholder="t('agents.tools.mcp.allowedToolsPlaceholder')"
+            />
+          </SFormField>
+
+          <SAccordion
+            :items="mcpAccordionItems"
+            class="mt-4"
+          >
+            <template #item-config>
+              <!-- The parse error is reported by the form-level alert, not here:
+                 this panel is collapsed by default, so an error rendered inside
+                 it is invisible at the moment the submit is refused. -->
+              <SCodeEditor
+                v-model="configJson"
+                language="json"
+                :rows="6"
+              />
+            </template>
+          </SAccordion>
+        </form>
+
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <SButton
+              variant="secondary"
+              @click="showModal = false"
+            >
+              {{ t('common.cancel', 'Cancel') }}
+            </SButton>
+            <SButton
+              variant="primary"
+              :loading="submitting"
+              @click="onSubmit"
+            >
+              {{ isEditing ? t('common.save', 'Save') : t('agents.tools.mcp.add') }}
+            </SButton>
+          </div>
+        </template>
+      </SModal>
+
+      <!-- MCP test failure modal -->
+      <SModal
+        :open="!!failedResult"
+        :title="t('agents.tools.mcp.testErrorTitle')"
+        size="md"
+        @close="failedResult = null"
+      >
+        <SCodeEditor
+          v-if="failedResult"
+          :model-value="failedResult.error"
+          language="text"
+          :rows="6"
+          readonly
+        />
+        <p
+          v-if="failedResult"
+          class="text-sm text-[var(--color-muted)] mt-2"
+        >
+          {{ t('agents.tools.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
+        </p>
+
+        <template #footer>
+          <div class="flex justify-end">
+            <SButton
+              variant="secondary"
+              @click="failedResult = null"
+            >
+              {{ t('app.close') }}
+            </SButton>
+          </div>
+        </template>
+      </SModal>
+
+      <!-- ========== Function Add / Edit Modal ========== -->
+      <SModal
+        :open="showFnModal"
+        :title="isEditingFn ? t('common.edit', 'Edit') : t('agents.tools.functions.add')"
+        size="lg"
+        @close="showFnModal = false"
+      >
+        <form @submit.prevent="onFnSubmit">
+          <SFormField
+            :label="t('agents.tools.functions.name')"
+            name="config.name"
+            :error="fnErrors['config.name'] ?? ''"
+            :help="t('agents.tools.functions.nameHelp')"
+            required
           >
             <SInput
-              v-model="fnAuthToken"
-              type="password"
-              placeholder="sk-..."
+              v-model="fnName"
+              :maxlength="INPUT_LIMITS.FUNCTION_NAME"
+              :placeholder="t('agents.tools.functions.namePlaceholder')"
+              :error="!!fnErrors['config.name']"
             />
           </SFormField>
-        </template>
 
-        <template v-if="fnAuthType === 'header'">
+          <SFormField
+            :label="t('agents.tools.functions.fnDescription')"
+            name="config.description"
+            :error="fnErrors['config.description'] ?? ''"
+            required
+          >
+            <STextarea
+              v-model="fnDescription"
+              :rows="2"
+              :maxlength="INPUT_LIMITS.FUNCTION_DESCRIPTION"
+              :placeholder="t('agents.tools.functions.descriptionPlaceholder')"
+            />
+          </SFormField>
+
+          <SFormField
+            :label="t('agents.tools.functions.parameters')"
+            name="config.parameters"
+          >
+            <SCodeEditor
+              v-model="fnParamsJson"
+              language="json"
+              :rows="6"
+            />
+            <p
+              v-if="fnParamsError"
+              class="text-xs text-[var(--color-danger)] mt-1"
+            >
+              {{ fnParamsError }}
+            </p>
+          </SFormField>
+
           <div class="flex gap-3">
             <SFormField
-              :label="t('agents.tools.functions.authHeaderName')"
-              name="auth.name"
-              class="w-1/3"
+              :label="t('agents.tools.functions.method')"
+              name="config.http.method"
+              class="w-32"
             >
-              <SInput
-                v-model="fnAuthHeaderName"
-                :maxlength="INPUT_LIMITS.NAME"
-                placeholder="X-Api-Key"
+              <SSelect
+                v-model="fnMethod"
+                :options="fnMethodOptions"
               />
             </SFormField>
+
             <SFormField
-              :label="t('agents.tools.functions.authHeaderValue')"
-              name="auth.value"
+              :label="t('agents.tools.functions.url')"
+              name="config.http.url"
+              :error="fnErrors['config.http.url'] ?? ''"
+              :help="t('agents.tools.functions.urlHelp')"
               class="flex-1"
+              required
             >
               <SInput
-                v-model="fnAuthHeaderValue"
+                v-model="fnUrl"
                 :maxlength="INPUT_LIMITS.URL"
-                type="password"
+                :placeholder="t('agents.tools.functions.urlPlaceholder')"
+                :error="!!fnErrors['config.http.url']"
               />
             </SFormField>
           </div>
-        </template>
-      </form>
 
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <SButton
-            variant="secondary"
-            @click="showFnModal = false"
+          <SFormField
+            :label="t('agents.tools.functions.auth')"
+            name="auth"
           >
-            {{ t('common.cancel', 'Cancel') }}
-          </SButton>
-          <SButton
-            variant="primary"
-            :loading="fnSubmitting"
-            @click="onFnSubmit"
-          >
-            {{ isEditingFn ? t('common.save', 'Save') : t('agents.tools.functions.add') }}
-          </SButton>
-        </div>
-      </template>
-    </SModal>
+            <SSelect
+              v-model="fnAuthType"
+              :options="fnAuthOptions"
+            />
+          </SFormField>
+
+          <template v-if="fnAuthType === 'bearer'">
+            <SFormField
+              :label="t('agents.tools.functions.authToken')"
+              name="auth.token"
+            >
+              <SInput
+                v-model="fnAuthToken"
+                type="password"
+                placeholder="sk-..."
+              />
+            </SFormField>
+          </template>
+
+          <template v-if="fnAuthType === 'header'">
+            <div class="flex gap-3">
+              <SFormField
+                :label="t('agents.tools.functions.authHeaderName')"
+                name="auth.name"
+                class="w-1/3"
+              >
+                <SInput
+                  v-model="fnAuthHeaderName"
+                  :maxlength="INPUT_LIMITS.NAME"
+                  placeholder="X-Api-Key"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.tools.functions.authHeaderValue')"
+                name="auth.value"
+                class="flex-1"
+              >
+                <SInput
+                  v-model="fnAuthHeaderValue"
+                  :maxlength="INPUT_LIMITS.URL"
+                  type="password"
+                />
+              </SFormField>
+            </div>
+          </template>
+        </form>
+
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <SButton
+              variant="secondary"
+              @click="showFnModal = false"
+            >
+              {{ t('common.cancel', 'Cancel') }}
+            </SButton>
+            <SButton
+              variant="primary"
+              :loading="fnSubmitting"
+              @click="onFnSubmit"
+            >
+              {{ isEditingFn ? t('common.save', 'Save') : t('agents.tools.functions.add') }}
+            </SButton>
+          </div>
+        </template>
+      </SModal>
+    </template>
   </div>
 </template>
