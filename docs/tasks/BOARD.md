@@ -13,6 +13,16 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Agent configuration and project read scope (2026-10-13)
+
+- `2026-10-13-agent-config-visibility-and-project-reads` (feature, **draft**) - `depends_on: []`.
+  From the CRAT audit's F-13/FU-9 and the 2026-10-05 dashboard audit's F-24. Stage 1: an agent's
+  configuration (prompt, tools, skills, workspace files, A2A dead letters) and project skills are
+  readable only by editors (matrix row 15); everyone else gets agent names. Stage 2: a new
+  project-role gate on about 25 project-scoped reads that today admit a bare Org Member against
+  [R8.09]; the five room-navigation reads keep the membership gate. Each stage ships on its own.
+  SRS delta: matrix row 28, [R5.07], §22.6 table notes.
+
 ### From the 2026-10-12 CRAT facilitation audit
 
 `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md` (16 findings from a
