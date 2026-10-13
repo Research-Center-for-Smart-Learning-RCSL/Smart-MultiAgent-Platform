@@ -258,15 +258,15 @@ This is an authorization change on tenant boundaries (check-security's AuthZ dim
 ## 11. Acceptance Criteria
 
 Stage 1
-- [ ] AC-1: the agent listing, agent read, tools, workspace files, agent and project skill reads
+- [x] AC-1: the agent listing, agent read, tools, workspace files, agent and project skill reads
   and the agent DLQ return 403 for a Project Member and a bare Org Member, and 200 for a Project
   Owner, an Org Owner and an Admin.
-- [ ] AC-2: `GET /agents/names` still returns `{id, name}` for a Project Member and for a bare Org
+- [x] AC-2: `GET /agents/names` still returns `{id, name}` for a Project Member and for a bare Org
   Member.
-- [ ] AC-3: no response to a Project Member or a bare Org Member contains a `system_prompt` field.
-- [ ] AC-4: a non-editor is not offered the agents pages, and a direct agents URL shows the
+- [x] AC-3: no response to a Project Member or a bare Org Member contains a `system_prompt` field.
+- [x] AC-4: a non-editor is not offered the agents pages, and a direct agents URL shows the
   forbidden state without a failed request.
-- [ ] AC-5: room settings for a non-editor list bound agents by name, render no wake-up editor, and
+- [x] AC-5: room settings for a non-editor list bound agents by name, render no wake-up editor, and
   mark none as orphaned; a moderator's room settings are unchanged.
 
 Stage 2
@@ -281,7 +281,7 @@ Stage 2
 - [ ] AC-10: the dashboard routes refuse a bare Org Member (the F-24 decision).
 
 Both
-- [ ] AC-11: `backend/tests/integration/test_permission_matrix.py` covers matrix row 28.
+- [x] AC-11: `backend/tests/integration/test_permission_matrix.py` covers matrix row 28.
 - [ ] AC-12: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
 
@@ -334,7 +334,43 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by /build.
+**Build status (2026-10-13).** Stage 1 is built: commits `3cc671e5` (backend), the frontend
+commit after it, and `f0298247` (a review refactor). Stage 2 was deferred by the user's choice at
+plan approval and is not started; the dossier stays `in-progress` until AC-6 to AC-10 and AC-12
+close. AC-12 is open for stage 1 only on the backend `db`/`integration` tiers, which need Postgres
+and run in CI. Everything else passed locally:
+- backend unit tier: 11781 passed;
+- `ruff check`, `ruff format --check` and `mypy` clean;
+- frontend: 2144 tests, lint, typecheck and build.
+
+- **D-1** (AC-4, agreed with the user at plan approval): on an agent-id URL (`/agents/:id`,
+  `/agents/:id/tools`, `/agents/:id/orchestration`) the forbidden state follows one refused
+  `GET /api/agents/{id}`. The URL carries no project id, so the role cannot be known without that
+  read. No toast is shown, and every read that depends on it is held back until it succeeds. The
+  project-scoped agents page sends no request at all to a non-editor.
+- **D-2**: §6's frontend inventory was incomplete. Found at freshness check and added to the plan
+  the user approved:
+  - `ChatroomSettingsView` is open to every non-guest member, not only moderators, and rendered a
+    `DlqViewer` for each bound agent. It is now shown only to editors.
+  - `useRagDocuments` and `useKnowmapDocuments` are reachable by project members. §6 said only
+    editors reach them. Their full-listing query is now gated on the editor role.
+  - `AgentGroupDetailView` read the full listing for project members too. It now reads
+    `/agents/names` for every caller. It used only `id` and `name`, and both routes omit
+    soft-deleted agents.
+- **D-3**: Q-6's premise does not hold in the frontend. The prompt assistant lives only in
+  `AgentDetailView`, which the agents gate already covers; it is not in the room composer.
+  `CanvasTemplatePicker` is imported nowhere. Neither needs a stage-2 frontend change; the backend
+  routes still move per §6.
+- **D-4**: AC-1, AC-2 and AC-3 are verified by the route-level test
+  `backend/tests/unit/test_agent_config_read_gate.py` rather than by the seeded-database
+  integration test §12 plans. That test drives each route through FastAPI with the real `decide`
+  and matrix, faking only the role resolver, for six caller types. With the old gates restored it
+  fails 28 cases. The seeded integration table stays planned for stage 2, where it covers both
+  stages.
+- **D-5**: AC-11 pins row 28 to capability 15 in `test_permission_matrix.py` instead of adding a
+  27th `Capability`. This matches Q-1: reading and editing share one gate.
+- **D-6**: the manual walk through the `run` skill (§12) was not performed; no stack was running.
+  AC-4 and AC-5 are verified by the view tests.
 
 ## 16. Follow-ups
 
@@ -342,3 +378,15 @@ Appended by /build.
   knowledge maps, GraphRAG) and agent groups. Stage 2 only removes the organization-member leak.
 - **FU-2**: `ProjectDetailView.vue:47` checks the member row's role without the Org Owner
   inheritance that `is_moderator` applies.
+- **FU-3** (security audit, MEDIUM, pre-existing): `GET /api/agents/{id}/concept-map-coverage`
+  (`graphrag.py:592`) is membership-gated and returns `owner_name`. For a chatroom-owned map that
+  is the room's name (`graphrag_repositories.py:597`). A member can therefore learn the names of
+  rooms they cannot open, against [R13.32]; no room-ACL filter was found on that path. Either apply
+  `has_config_read_access` per entry or move the route behind row 28. Stage 1 stops the frontend
+  from requesting it for non-editors, but the server-side exposure remains.
+- **FU-4** (code review): `agentsApi.listNames` reads a single page at the server ceiling of 500.
+  A project with more agents loses names silently, in the room labels as well as in agent-group
+  detail. This predates the change in the chatroom path.
+- **FU-5** (quality audit, info): `get_agent_dlq` refuses with a plain `HTTPException`, while
+  `assert_project_capability` answers with problem+json. This matches the rest of
+  `orchestration.py`; aligning it means changing the whole module.

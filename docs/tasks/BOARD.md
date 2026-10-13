@@ -791,9 +791,15 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ## In progress
 
-- `2026-10-13-agent-config-visibility-and-project-reads` (feature), started 2026-10-13. Building
-  stage 1 only (agent configuration for editors); stage 2 (project-role gate) is deferred by the
-  user's choice at plan approval and stays in this dossier.
+- `2026-10-13-agent-config-visibility-and-project-reads` (feature), started 2026-10-13.
+  - **Stage 1 built.** Agent configuration is now readable by editors only (matrix row 28).
+    AC-1..AC-5 and AC-11 are ticked.
+  - **AC-12** waits on the CI `db`/`integration` tiers.
+  - **Stage 2** (the project-role gate, AC-6..AC-10) was deferred by the user at plan approval
+    and is not started.
+  - **Deviations and follow-ups.** D-1..D-6 and FU-3..FU-5 are in the dossier. FU-3 is a
+    pre-existing medium from the security audit: concept-map coverage leaks room names.
+  - **Release note.** A teacher who is a Project Member, not an owner, loses the agents pages.
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
   [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.
