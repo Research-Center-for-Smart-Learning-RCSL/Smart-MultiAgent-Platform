@@ -8,6 +8,7 @@ import {
 } from '@shared/api-client'
 import { asBinaryFormField } from '@shared/transport'
 import type {
+  AgentNameOut,
   AgentToolCreateIn,
   AgentToolOut,
   AgentToolTestOut,
@@ -382,15 +383,21 @@ function toToolTestResult(o: AgentToolTestOut): ToolTestResult {
 // above). The multipart uploads pass the File through the generated formData
 // object (the binary field is typed `string` by the codegen; the request core
 // builds the FormData and sets the multipart Content-Type).
+// The server's page ceiling (PaginationParams); the generated default of 100 would
+// silently drop agents past it.
+const AGENT_PAGE_CEILING = 500
+
 export const agentsApi = {
   /** Full configuration of every agent: editors only (matrix row 28). */
   list: (projectId: string): Promise<Agent[]> =>
     AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({ projectId }),
 
   /** `{id, name}` of the project's live agents, readable by every project role. */
-  listNames: (projectId: string): Promise<{ id: string; name: string }[]> =>
-    // 500 is the server's page ceiling; the generated default of 100 would drop agents.
-    AgentsService.listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({ projectId, limit: 500 }),
+  listNames: (projectId: string): Promise<AgentNameOut[]> =>
+    AgentsService.listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({
+      projectId,
+      limit: AGENT_PAGE_CEILING,
+    }),
 
   create: (projectId: string, payload: AgentCreateInput): Promise<Agent> =>
     AgentsService.createAgentApiProjectsProjectIdAgentsPost({ projectId, requestBody: payload }),

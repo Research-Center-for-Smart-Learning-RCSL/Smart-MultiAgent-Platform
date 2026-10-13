@@ -29,7 +29,7 @@ import type {
   MessageOut,
   ObservationOut,
 } from '@shared/api-client'
-import type { Agent } from '@slices/agents'
+import { agentsApi, type Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
   Attachment,
@@ -204,10 +204,8 @@ export async function listProjectAgents(projectId: string): Promise<Agent[]> {
  *  unknown-agent label rather than the listing growing with every deletion.
  */
 export async function listProjectAgentNames(projectId: string): Promise<AgentNameOut[]> {
-  return AgentsService.listProjectAgentNamesApiProjectsProjectIdAgentsNamesGet({
-    projectId,
-    limit: AGENT_PAGE_SIZE,
-  })
+  // The agents slice owns this read; one wrapper, so the page size cannot drift.
+  return agentsApi.listNames(projectId)
 }
 
 /** `[{agent_id, name}]` for the agents the room's history shows: past authors,

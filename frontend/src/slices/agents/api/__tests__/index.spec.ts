@@ -110,6 +110,8 @@ function captureAll(): { value: CapturedRequest | null } {
   const { cap, on } = createRequestCapture()
   server.use(
     // agents
+    // msw matches segment counts, so /agents/names needs its own handler.
+    on('get', '/api/projects/:pid/agents/names', [{ id: 'ag_1', name: 'Agent' }]),
     on('get', '/api/projects/:pid/agents', [agentOut]),
     on('post', '/api/projects/:pid/agents', agentOut, 201),
     on('get', '/api/agents/:aid', agentOut),
@@ -164,6 +166,15 @@ describe('agents api wire contract', () => {
     const agents = await agentsApi.list('proj_1')
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/projects/proj_1/agents' })
     expect(agents[0]).toMatchObject({ id: 'ag_1', model_hint: 'claude' })
+  })
+
+  it('listNames GETs the projection with the server page ceiling', async () => {
+    // Left unsent, the generated default of 100 would silently drop agents.
+    const cap = captureAll()
+    const names = await agentsApi.listNames('proj_1')
+    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/projects/proj_1/agents/names' })
+    expect(cap.value?.query.limit).toBe('500')
+    expect(names).toEqual([{ id: 'ag_1', name: 'Agent' }])
   })
 
   it('create POSTs the payload', async () => {
