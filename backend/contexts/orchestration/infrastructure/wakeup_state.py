@@ -7,6 +7,7 @@ Keys:
   wakeup:msg_count:{agent_id}:{room_id}    — message counter (for every_n_messages)
   wakeup:silence_timer:{agent_id}:{room_id} — last-activity timestamp (for silence_minutes)
   wakeup:autostop:{agent_id}:{room_id}     — consecutive agent-only rounds
+  wakeup:msg_due:{agent_id}:{room_id}      — every_n firing deferred past the agent's own message
 
 SoC: pure Redis state; no domain logic, no DB access.
 """
@@ -95,6 +96,20 @@ async def get_message_count(
     return int(val) if val else 0
 
 
+def _fire_due_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
+    return f"wakeup:msg_due:{agent_id}:{room_id}"
+
+
+async def set_fire_due(agent_id: uuid.UUID, room_id: uuid.UUID) -> None:
+    """The N-th message was the agent's own: fire on the next one ([R15.01a])."""
+    await get_redis().set(_fire_due_key(agent_id, room_id), "1", ex=_KEY_TTL)
+
+
+async def pop_fire_due(agent_id: uuid.UUID, room_id: uuid.UUID) -> bool:
+    """Consume a deferred firing; True when one was pending."""
+    return bool(await get_redis().getdel(_fire_due_key(agent_id, room_id)))
+
+
 # ---------------------------------------------------------------------------
 # silence_minutes timer
 # ---------------------------------------------------------------------------
@@ -161,6 +176,8 @@ __all__ = [
     "get_silence_timestamp",
     "increment_autostop",
     "increment_message_count",
+    "pop_fire_due",
     "reset_autostop",
+    "set_fire_due",
     "touch_silence_timestamp",
 ]

@@ -238,6 +238,12 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 user_id=conn.principal.user_id,
                 connection_id=conn.connection_id,
             )
+            # [R15.02]: composing keeps the room from reading as silent. Best
+            # effort: a lost stamp only lets one silence wake fire early.
+            try:
+                await presence.note_composing(room_id=chatroom_id)
+            except Exception:
+                _log.warning("composing stamp failed for room %s", chatroom_id, exc_info=True)
             # Emitted unconditionally rather than only on the first typing
             # connection: a client that joined mid-burst has no other way to
             # learn the indicator should be on, and a repeat start is idempotent

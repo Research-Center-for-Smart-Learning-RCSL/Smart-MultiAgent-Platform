@@ -387,6 +387,7 @@ async def test_every_n_presence_gate_notifies_and_skips(monkeypatch) -> None:
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.touch_silence_timestamp", _noop)
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.reset_autostop", _noop)
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.increment_message_count", _count)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.pop_fire_due", _noop)
 
     svc = WakeupService.__new__(WakeupService)
     svc._db = _FakeDB()  # type: ignore[attr-defined]
@@ -440,6 +441,7 @@ async def test_every_n_does_not_gate_a_user_authored_message(monkeypatch) -> Non
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.touch_silence_timestamp", _noop)
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.reset_autostop", _noop)
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.increment_message_count", _count)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.pop_fire_due", _noop)
 
     roster_reads: list = []
 

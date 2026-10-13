@@ -73,6 +73,64 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_wakeup_tool_passes_toggles_and_states_the_semantics(monkeypatch) -> None:
+    """C AC-10 and the tool half of AC-4/AC-5."""
+    captured: dict = {}
+
+    class _Cfg:
+        def to_dict(self) -> dict:
+            return {}
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def update_wakeup(self, **kwargs):
+            captured.update(kwargs)
+            return _Cfg()
+
+    import contexts.orchestration.interfaces.facade as facade_mod
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    tool = build_update_wakeup_tool(object(), agent_id=uuid.uuid4())
+
+    await tool.invoke({"silence_minutes_enabled": True})
+
+    assert captured["silence_minutes_enabled"] is True
+    assert "every_n_messages_enabled" not in captured, "an absent toggle must mean leave it alone"
+    spec = tool.spec()
+    n_text = spec["input_schema"]["properties"]["every_n_messages"]["description"]
+    assert "room messages" in n_text
+    assert "including yours" in n_text
+    assert "user messages" not in n_text, "R15.01 counts every message by default"
+    for key in ("every_n_messages_enabled", "silence_minutes_enabled"):
+        assert spec["input_schema"]["properties"][key]["type"] == "boolean"
+        assert "designer" in spec["input_schema"]["properties"][key]["description"]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_toggle_reaches_the_model_as_a_tool_error(monkeypatch) -> None:
+    from contexts.orchestration.domain.errors import WakeupToggleNotAllowed
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def update_wakeup(self, **kwargs):
+            raise WakeupToggleNotAllowed("not allowed to switch silence_minutes")
+
+    import contexts.orchestration.interfaces.facade as facade_mod
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    reg = ToolRegistry([build_update_wakeup_tool(object(), agent_id=uuid.uuid4())])
+
+    res = await reg.call("update_wakeup", {"silence_minutes_enabled": True})
+
+    assert res.is_error
+    assert "silence_minutes" in res.content
+
+
+@pytest.mark.asyncio
 async def test_registry_dispatch_and_unknown() -> None:
     reg = build_registry(object(), agent_id=uuid.uuid4(), skills=_snap())
     # update_wakeup is the only unconditional built-in: an agent with nothing bound

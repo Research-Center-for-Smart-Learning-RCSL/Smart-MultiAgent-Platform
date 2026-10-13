@@ -60,3 +60,29 @@ describe('wakeup config defaults', () => {
     expect(config.triggers.every_n_messages.n).toBe(4)
   })
 })
+
+describe('wakeup counting mode and self-toggle grant (R15.01, R15.06)', () => {
+  it('defaults to counting every message and granting nothing', () => {
+    const config = defaultWakeupConfig()
+
+    expect(config.triggers.every_n_messages.count).toBe('all')
+    expect(config.self_toggle).toEqual([])
+  })
+
+  it('keeps a stored human count and resolves an unknown one to all', () => {
+    const human = normalizeWakeupConfig({ triggers: { every_n_messages: { count: 'human' } } })
+    const unknown = normalizeWakeupConfig({ triggers: { every_n_messages: { count: 'robots' } } })
+
+    expect(human.triggers.every_n_messages.count).toBe('human')
+    expect(unknown.triggers.every_n_messages.count).toBe('all')
+  })
+
+  it('keeps only toggleable trigger names in the grant', () => {
+    const config = normalizeWakeupConfig({
+      triggers: {},
+      self_toggle: ['silence_minutes', 'call_only', 7],
+    })
+
+    expect(config.self_toggle).toEqual(['silence_minutes'])
+  })
+})

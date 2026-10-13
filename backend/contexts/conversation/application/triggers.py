@@ -52,6 +52,7 @@ async def evaluate_message_wakeups(
     sender_is_user: bool,
     sender_agent_id: uuid.UUID | None = None,
     bound_agents: Sequence[ChatroomAgent] | None = None,
+    sender_is_human: bool | None = None,
 ) -> list[uuid.UUID]:
     """Return the agent ids whose ``every_n_messages`` trigger fired for this
     message. Side effects (counter increment, autostop reset on user sends,
@@ -64,6 +65,10 @@ async def evaluate_message_wakeups(
     (see ``list_bound_agents``); when omitted they are queried here. The rows
     carry the role so observer bindings are flagged to orchestration
     (O-2/R28.04). Returns an empty list when no agent is bound to the room.
+
+    ``sender_is_human`` overrides ``sender_is_user`` for ``count: "human"``
+    ([R15.01]); only a caller whose message resets autostop without being written
+    by a person (a released observation) needs to pass it.
     """
     rows = bound_agents if bound_agents is not None else await ChatroomAgentRepository(db).list(chatroom_id)
     if not rows:
@@ -72,12 +77,14 @@ async def evaluate_message_wakeups(
     observer_ids = {a.agent_id for a in rows if a.role is ChatroomAgentRole.OBSERVER}
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
+    extra = {} if sender_is_human is None else {"sender_is_human": sender_is_human}
     return await OrchestrationFacade(db).on_message_created(
         room_id=chatroom_id,
         sender_is_user=sender_is_user,
         sender_agent_id=sender_agent_id,
         agent_ids=agent_ids,
         observer_agent_ids=observer_ids,
+        **extra,
     )
 
 

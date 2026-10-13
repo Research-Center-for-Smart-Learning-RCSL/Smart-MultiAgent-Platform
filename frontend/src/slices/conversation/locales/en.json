@@ -220,7 +220,8 @@
       "alreadyGone": "That observation no longer exists. The list has been refreshed.",
       "skip": {
         "no_input": "Nothing new to analyze",
-        "empty_reply": "Had nothing to add"
+        "empty_reply": "Had nothing to add",
+        "withdrawn": "Withdrew its note after new messages arrived"
       },
       "badgeAria": "Observer tab, {n} unread observations",
       "trigger": {

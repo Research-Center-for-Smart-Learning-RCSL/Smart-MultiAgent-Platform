@@ -687,6 +687,125 @@ class TestChineseCharacterCreativityPromptConstraints:
         assert "計數" in aa.system_prompt, f"{agent_key} does not mention counting"
 
 
+class TestCratPackMatchesThePlatform:
+    """The CRAT room pack, written against the platform it actually runs on.
+
+    Spec: ``docs/tasks/2026-10-12-crat-pack-prompt-platform-alignment/spec.md``. The
+    shipped prompts asked ``update_wakeup`` to switch on a trigger it cannot enable,
+    for fractional minutes it refuses, promised an ``instruct`` tool no runtime
+    builds, never said that an empty reply is how to stay silent, and kept an answer
+    key where every CRAT student (a project member) can read it.
+    """
+
+    @staticmethod
+    def _agent(key: str) -> Any:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == key)
+
+    @staticmethod
+    def _crat_agents() -> list[Any]:
+        return [a for p, a in SHIPPED_AGENTS if p.pack_key.startswith("crat-word-puzzle-")]
+
+    def test_crat_teacher_ships_both_triggers(self) -> None:
+        """AC-2, Q-3/Q-3b: both on, `n = 2`; the peer one minute behind the teacher."""
+        ta = self._agent("ta-crat-teacher").wakeup_config["triggers"]
+        assert ta["every_n_messages"] == {"enabled": True, "n": 2}
+        assert ta["silence_minutes"] == {"enabled": True, "t_minutes": 2, "autostop_rounds": 2}
+
+        sa = self._agent("sa-crat-peer").wakeup_config["triggers"]
+        assert sa["silence_minutes"]["t_minutes"] == 3
+
+    def test_crat_teacher_reads_lulls_from_the_time_line(self) -> None:
+        """AC-8a, Q-11: a lull is read from the time line, the level from the transcript."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+
+        assert "系統提示裡的時間資訊" in prompt
+        assert "上一則訊息已經過了兩分鐘以上" in prompt
+        assert "你在上一則學生訊息之後已經發了幾則訊息，再加一" in prompt
+        for counted_wake in ("第一次觸發", "再次靜默", "第三次觸發"):
+            assert counted_wake not in prompt, f"the teacher still counts wakes: {counted_wake}"
+
+    def test_crat_prompts_reference_no_unavailable_tool(self) -> None:
+        """AC-3: no runtime builds an agent-facing `instruct` tool."""
+        for agent in self._crat_agents():
+            assert "instruct" not in agent.system_prompt.lower(), agent.key
+
+    def test_crat_prompts_use_integer_minutes(self) -> None:
+        """AC-3: `silence_minutes` is an integer of at least one."""
+        for agent in self._crat_agents():
+            assert not re.search(r"\d+\.\d+\s*分鐘", agent.system_prompt), agent.key
+            assert "秒" not in agent.system_prompt, agent.key
+
+    def test_crat_teacher_states_the_empty_reply_rule(self) -> None:
+        """AC-4: an empty reply posts nothing; the prompt has to say so."""
+        assert "要保持沉默時，回覆空白即可：空白的回覆不會送進討論室。" in (
+            self._agent("ta-crat-teacher").system_prompt
+        )
+
+    def test_crat_teacher_names_every_required_field(self) -> None:
+        """AC-6: read from the course schema so the test follows the course."""
+        course = load_course("chinese-character-creativity")
+        crat = next(t for t in course.activity_types if t.key == "crat-word-puzzle")
+        prompt = self._agent("ta-crat-teacher").system_prompt
+
+        for field in crat.payload_schema["required"]:
+            title = crat.payload_schema["properties"][field]["title"]
+            assert title in prompt, f"D1 does not name the required field {title}"
+
+    def test_crat_teacher_carries_the_turn_shape(self) -> None:
+        """AC-5."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+
+        assert "每一輪最多只發一則訊息" in prompt
+        assert "最多只接住一位同學" in prompt
+
+    def test_crat_prompts_do_not_tune_their_own_cadence(self) -> None:
+        """AC-2, Q-3a: one teacher agent serves every group room, so its cadence is shared."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+
+        assert prompt.count("update_wakeup") == 1
+        assert "不要呼叫 update_wakeup" in prompt
+        assert "[喚醒策略" not in prompt
+
+    def test_crat_teacher_never_claims_the_answer(self) -> None:
+        """AC-7, Q-7: no agent holds the key, so the teacher confirms the answer."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+
+        assert "請老師確認答案" in prompt
+        for agent in self._crat_agents():
+            assert "本課題組" not in agent.system_prompt, agent.key
+
+    def test_crat_analyst_observes_during_the_lesson(self) -> None:
+        """AC-8b, Q-9."""
+        aa = self._agent("aa-crat-analyst").wakeup_config["triggers"]
+
+        assert aa["every_n_messages"] == {"enabled": True, "n": 20}
+        assert aa["silence_minutes"]["enabled"] is True
+        assert aa["silence_minutes"]["t_minutes"] == 10
+
+    def test_crat_room_agents_check_drafts_before_breaking_silence(self) -> None:
+        """AC-8a, Q-8: composing is not a stall."""
+        for key in ("ta-crat-teacher", "sa-crat-peer"):
+            prompt = self._agent(key).system_prompt
+            assert "先呼叫 read_drafts" in prompt, key
+            assert "有人正在打字" in prompt, key
+
+    def test_crat_analyst_never_names_an_uncoded_participant(self) -> None:
+        """AC-8b, Q-10."""
+        prompt = self._agent("aa-crat-analyst").system_prompt
+
+        assert "沒有代號" in prompt
+        assert "不要寫出姓名" in prompt
+
+    def test_crat_designer_carries_the_platform_rules(self) -> None:
+        """AC-8: the designer drafts the next TA/SA prompts, so the rules must survive one hop."""
+        prompt = self._agent("da-crat-designer").system_prompt
+
+        assert "整數分鐘" in prompt
+        assert "update_wakeup" in prompt
+        assert "回覆空白" in prompt
+        assert "不要貼進任何 Agent 的設定" in prompt
+
+
 class TestTheAnalystAsksOnlyWhatItsInputSupports:
     """A prompt may not ask for a report its context cannot ground.
 

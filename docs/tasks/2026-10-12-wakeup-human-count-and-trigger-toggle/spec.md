@@ -1,0 +1,368 @@
+---
+type: feature
+status: implemented
+created: 2026-10-12
+requirements: [R15.01, R15.02, R15.05a, R15.06, R15.07, R15.09]
+depends_on: []
+---
+
+# Human-only message counting and designer-allowed trigger toggles
+
+## 1. Summary
+
+An agent designer who wants "wake me every three student messages" cannot express it: the
+`every_n_messages` counter counts every room message, agents' included ([R15.01]), and a firing
+that lands on the agent's own message is lost. A facilitator agent that should go quiet in one
+phase of a lesson and listen for silence in another cannot do it either: `update_wakeup` may
+change only the two numeric fields ([R15.06]), so a trigger the designer shipped disabled stays
+disabled. This feature adds an opt-in human-only counting mode, stops losing firings that land
+on the agent's own message, and lets an agent enable or disable its own `every_n_messages` and
+`silence_minutes` triggers, but only those the designer explicitly allowed.
+
+It also stops silence triggers firing while participants are still composing a message.
+
+Born from `docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md`, F-2, F-14 and
+the platform half of F-3.
+
+## 2. Goals and Non-goals
+
+**Goals**
+- `every_n_messages` gains a counting mode, `all` (today's behavior, the default) or `human`
+  (only user and guest messages count).
+- In `all` mode, a firing that lands on the agent's own message fires on the next message
+  instead of being dropped.
+- `update_wakeup` can set `enabled` on `every_n_messages` and `silence_minutes`, limited to the
+  triggers the designer listed in a new `self_toggle` setting, which defaults to none.
+- Every toggle is audit-logged; the tool never touches `call_only` and never leaves the agent
+  inert.
+- The tool's description matches the counting semantics.
+- A participant who is composing a message keeps the room from reading as silent, so a silence
+  trigger no longer fires while students are mid-sentence (audit F-14).
+- The agent editor exposes both new settings in both locales.
+
+**Non-goals**
+- Per-binding (per-room) wake-up state; `update_wakeup` still writes the agent row, and rooms
+  that share an agent still share its cadence (audit F-9, FU-6).
+- Changing the default counting mode for existing agents.
+- Letting the agent edit `autostop_rounds`, `allow_self_open`, `refresh_every_hours`,
+  `soft_bounds` or `self_toggle` itself.
+- Exempting toggles from the [R15.09] refresh: a refresh restores the designer's values,
+  toggles included, as it does for `n` and `t_minutes` today.
+- Updating the CRAT pack to use the new settings (that is FU-2 of
+  `2026-10-12-crat-pack-prompt-platform-alignment`).
+- Reconciling the call-only copy in the editor with [R15.05a] (FU-1).
+
+## 3. Clarifications
+
+| ID | Question | Decision | Rationale |
+|---|---|---|---|
+| Q-1 | Change the platform at all, given [R15.01]/[R15.06] make today's behavior intentional? | Yes, as an opt-in feature with an SRS delta. | User's choice. |
+| Q-2 | Default counting mode? | `all`; `human` is opt-in. Also fix the lost firing in `all` mode. | User's choice. Existing agents keep their cadence; the lost firing is undocumented behavior with no intent behind it. |
+| Q-3 | Who may the agent toggle? | Only triggers listed in a designer-set `self_toggle`, default empty; never `call_only`; never into an inert config; every toggle audited. | User's choice. A prompt-injected message could otherwise switch on autonomous turns paid from the project's key, and `every_n_messages` has no round cap ([R15.03] bounds only silence). |
+| Q-4 | Is a released observation a human message in `human` mode? | No. | It is agent-authored; `observations.py:248` passes `sender_is_user=True` only to reset autostop ([R28.06]). |
+| Q-5 | Does a toggle survive the [R15.09] refresh? | No; the refresh restores the snapshot, toggles included. | Same contract as the numeric fields; the refresh exists to undo runtime drift. |
+| Q-7 | Fix F-14 (silence fires while participants compose) here? | Yes: a live typing assertion in the room counts as room activity for the silence clock. | User's choice. It is a wake-up behavior change with an [R15.02] amendment, the same kind as the rest of this dossier. The CRAT pack mitigates it in prompts meanwhile. |
+| Q-8 | What signal says a participant is composing? | Recent typing: each accepted `typing.start` records the room's last typing time in Redis, and `evaluate_silence_trigger` treats the room as active, and re-arms the clock, while that time is less than 60 s old. | A code review found that the live typing assertion is not level state over a composition: the client sends `typing.stop` 3 s after the last keystroke (`frontend/src/slices/conversation/views/ChatroomView.vue:1226,1330`), which ends the server's heartbeat refresh (`backend/app/api/ws/chatroom.py:249-263`), so a student pausing to think reads as not typing at the 30 s sweep. A pause ends a burst and the next keystroke sends a new `typing.start` (`chatroom.py:130-131`), so a 60 s recency window holds through ordinary pauses. Draft state ([R32]) was rejected: it is stored only in rooms whose bindings hold the drafts grant. |
+| Q-6 | Dependencies on `2026-10-12-stale-reply-recheck` or `2026-10-12-crat-pack-prompt-platform-alignment`? | None. | The re-check dossier edits `tool_registry.py:119-147` (a new frozenset beside `BUILTIN_TOOL_NAMES`) and this one edits `:359-398` (the tool); disjoint regions, whoever builds second rebases. The pack dossier edits no platform code. |
+
+## 4. Current State
+
+- **Model.** `EveryNMessagesTrigger(enabled, n)` and `SilenceMinutesTrigger`
+  (`backend/contexts/orchestration/domain/models.py:181-202`); `WakeupConfig.from_dict` keeps
+  only keys it knows (`:233-295`), `to_dict` mirrors it (`:297-329`); `is_inert` is true when all
+  three `enabled` flags are false (`:331-336`).
+- **Counting.** `WakeupService.on_message_created` (`wakeup_service.py:62-150`) increments one
+  counter per (agent, room) for every message (`:117`, Redis INCR in `wakeup_state.py:76-87`),
+  fires on `count % n == 0` (`:119`), and drops the firing when the triggering message is the
+  agent's own (`:120-121`). Human sends pass `sender_is_user=True` for users and guests alike
+  (`backend/app/api/v1/messages.py:200,275-277`); agent replies pass `False` with
+  `sender_agent_id` (`turn_engine.py:3582-3588`); released observations pass `True`
+  (`backend/app/api/v1/observations.py:248`).
+- **Self-modification.** `update_wakeup` (`wakeup_service.py:309-411`) writes only `n` and
+  `t_minutes` (`:361-364`), as the system actor with `replace_wakeup_config=True` (`:376-384`),
+  and audits only clamps (`agent.wakeup_clamped`, `:393-409`). The tool schema has two integers
+  (`tool_registry.py:359-372`) and its descriptions say "user messages" (`:364,391-395`), which
+  contradicts [R15.01].
+- **Refresh.** `refresh_wakeup_config` replaces the whole config with
+  `wakeup_authored_snapshot` (`wakeup_service.py:417-499`); the snapshot is written only by
+  non-system actors (`agent_service.py:880-912`), so runtime edits never reach it.
+- **API.** `_validate_wakeup_config` (`backend/app/api/v1/agents.py:158-225`) checks the known
+  trigger keys and passes other keys through unvalidated (`:159-162`).
+- **Frontend.** `SWakeupEditor.vue` (`frontend/src/shared/ui/SWakeupEditor.vue:183-290`) edits the
+  two trigger cards; types and normalization in `frontend/src/shared/types/workflow.ts:47-164`;
+  strings under `app.wakeup.*` in `frontend/src/app/locales/en.json:19-42` and `zh-TW.json:19`.
+
+## 5. Design
+
+### Options considered
+
+**Option A, counting: one counter, mode-gated increment.** Keep one counter and skip the INCR for
+non-human messages in `human` mode. Simple, and switching modes at runtime only shifts the next
+firing by at most `n - 1` messages.
+
+**Option B, counting: count human messages for everyone and derive.** Two counters per (agent,
+room), choose at evaluation. Doubles Redis writes for every agent to serve an opt-in mode.
+
+**Option C, toggles: disable-only.** The agent may turn off triggers the designer enabled and
+turn them back on, but never enable one the designer disabled. No new setting, but it cannot
+express "ship with silence off and let the agent turn it on in the thinking phase", which is the
+case that motivated it.
+
+**Option D, toggles: designer allowlist.** A `self_toggle` list names the triggers the agent may
+set either way.
+
+### Decision
+
+Option A for counting and Option D for toggles. A keeps the hot path at one INCR per agent per
+message. D is the only toggle model that serves the motivating case while keeping the
+authorization decision with a human, and its default (empty) preserves today's [R15.06]
+behavior exactly. Given up: a mode switch does not reset the counter, so the first firing after
+a switch can come early.
+
+The lost firing in `all` mode is fixed with a per-(agent, room) "due" flag: when `count % n == 0`
+lands on the agent's own message, set `wakeup:msg_due:{agent}:{room}`; the next message from any
+other sender fires the agent and clears it. This keeps [R15.01]'s count intact. In `human` mode
+the agent's own messages never count, so the case cannot arise.
+
+## 6. Detailed Changes
+
+- **Backend, orchestration domain** (`models.py`): `EveryNMessagesTrigger.count: Literal["all",
+  "human"] = "all"`; `WakeupConfig.self_toggle: frozenset[Literal["every_n_messages",
+  "silence_minutes"]] = frozenset()`; both parsed tolerantly in `from_dict` (unknown values
+  resolve to the default, matching `_tolerant_bool`'s posture at `:170-178`) and emitted by
+  `to_dict`.
+- **Backend, orchestration application** (`wakeup_service.py`):
+  - `on_message_created` gains `sender_is_human: bool`. In `human` mode the INCR at `:117` runs
+    only when it is true. The due flag (§5) is read and cleared in the same branch.
+  - `update_wakeup` gains `every_n_messages_enabled: bool | None` and
+    `silence_minutes_enabled: bool | None`. A toggle for a trigger not in `self_toggle`, any
+    toggle while `call_only.enabled`, or a toggle that would leave the config inert raises a new
+    `WakeupToggleNotAllowed` domain error (`contexts/orchestration/domain/errors.py`, beside the
+    existing R15.06 error at `:61`). Allowed toggles are written in `_build_new_dict` (`:357-365`)
+    and audited as `agent.wakeup_toggled {trigger, enabled, actor_agent_id}`.
+- **Backend, orchestration infrastructure** (`wakeup_state.py`): due-flag get/set/clear with the
+  counter's TTL.
+- **Backend, composing as activity** (Q-7, Q-8): the `typing.start` handler
+  (`backend/app/api/ws/chatroom.py:231-248`), after its throttle, sets a room key
+  `ws:typing:last:{room}` to the current time with a short TTL, through a presence method beside
+  `typing_start` (`contexts/conversation/infrastructure/presence.py:175-200`).
+  `evaluate_silence_trigger` (`wakeup_service.py:219-267`), after the `t_minutes` comparison and
+  before the autostop check, reads it through `WakeupService._presence`
+  (`wakeup_service.py:135,262`); when it is less than 60 s old, it touches the silence timestamp
+  and returns False. Observer bindings are included: an analyst should not report a lull that is
+  not one.
+- **Backend, orchestration interfaces** (`facade.py`): pass the new parameters through
+  `on_message_created` (`:135-142`) and `update_wakeup` (`:176-189`).
+- **Backend, conversation** (`contexts/conversation/application/triggers.py:48-81`) and callers:
+  `messages.py:275-277` passes `sender_is_human=True`; `turn_engine.py:3582-3588` and
+  `observations.py:248` pass `False`.
+- **Backend, agents runtime** (`tool_registry.py:359-398`): schema gains two optional booleans;
+  descriptions rewritten so `n` is "every N room messages; by default every message counts,
+  including agents' own, unless this agent is configured to count only human messages", and the
+  toggles say they are refused unless the designer allowed them. `WakeupToggleNotAllowed`
+  surfaces as a tool error naming the reason.
+- **API contract**: `_validate_wakeup_config` (`agents.py:158-225`) validates `count` and
+  `self_toggle`. `wakeup_config` is a free-form dict in the generated client, so `gen:api`
+  produces no model change; it is rerun anyway to confirm.
+- **Frontend**: `SWakeupEditor.vue` gains a count-mode select in the every-N card and an "agent
+  may turn this trigger on or off itself" checkbox in each autonomous card; `workflow.ts`
+  `WakeupConfig`, `DEFAULT_WAKEUP` and `normalizeWakeupConfig` carry both fields; new keys under
+  `app.wakeup.*` in `en.json` and `zh-TW.json`.
+- **Docs**: `docs/implement/G-orchestration.md:18,80,95,215,242-244` updated to the new
+  contract.
+- **Migration**: none; `wakeup_config` is JSONB and absent keys parse to defaults.
+- **Deploy/config**: none.
+
+## 7. NFR Checklist
+
+- [ ] i18n: the select, its two options, the two checkboxes and their help text, in both
+  locales.
+- [ ] Audit log: `agent.wakeup_toggled` on every toggle; clamps keep `agent.wakeup_clamped`.
+- [ ] Tenant isolation: N/A, no new endpoint; the existing agent create/patch authorization
+  covers the two new keys.
+- [ ] Error handling UX: a refused toggle is a tool error to the model, not a user-facing state;
+  the editor shows the checkboxes disabled while call-only mode is on.
+- [ ] Performance: at most one extra Redis GET per firing evaluation (the due flag), only in
+  `all` mode when a firing lands on an own message; no added INCRs.
+
+## 8. Security Considerations
+
+This touches an agent/LLM tool surface (check-security's LLM/agent dimension).
+
+- **Prompt injection to raise spend**: a room message could instruct the agent to enable its
+  triggers. Bounded by `self_toggle` (designer opt-in, default empty) and by the inert refusal;
+  the tool cannot edit `self_toggle`, `autostop_rounds` or `call_only`. Residual risk: on an
+  agent whose designer allowed `every_n_messages`, an injected instruction can enable it, with no
+  round cap. Recorded in the editor's help text for that checkbox.
+- **Prompt injection to silence an agent**: disabling both triggers is refused (inert), so an
+  agent cannot be talked into permanent autonomous silence.
+- **Audit**: every toggle is attributable via `actor_agent_id`.
+- **Input validation**: `count` and `self_toggle` validated at the API boundary; the tool
+  schema rejects non-boolean toggles before invoke (`tool_registry.py:324-332`).
+
+## 9. Quality Notes
+
+- **Existing debt**: the tool description already contradicts [R15.01]
+  (`tool_registry.py:364`); fixed here. The editor's call-only copy contradicts [R15.05a]
+  (`SWakeupEditor.vue:38-42`, `en.json:24-25`); not fixed here (FU-1). `update_wakeup` has no
+  audit for unclamped numeric changes (`wakeup_service.py:393`); left as is, since toggles get
+  their own event.
+- **Patterns to follow**: tolerant parsing in `models.py:147-178`; clamp-then-audit flow in
+  `update_wakeup`; reserved-name and schema drift tests in
+  `backend/tests/unit/test_builtin_tools_wiring.py`.
+- **Reuse inventory**: `_tolerant_bool`, `_default_below_one`, `merge_json_config`, the
+  `_check_wakeup_*` helpers in `agents.py:114-157`, `wakeup_state`'s TTL helpers, the existing
+  `SWakeupEditor` card layout and `normalizeWakeupConfig`.
+
+## 10. Risks and Rollback
+
+- **Early first firing after a mode switch** (§5): accepted.
+- **Behavior change in `all` mode**: an agent whose firing used to be dropped now speaks on the
+  next message. This is the intended fix; it is the only change visible to existing agents.
+- **Rollback**: revert the code; stored `count` and `self_toggle` keys are ignored by the old
+  parser (`from_dict` keeps only known keys), and the due flag expires on its TTL.
+
+## 11. Acceptance Criteria
+
+- [x] AC-1: with `count: "human"` and `n = 3`, two user messages and any number of agent
+  messages do not fire the agent; the third user or guest message does.
+- [x] AC-2: with `count: "human"`, a released observation does not advance the counter.
+- [x] AC-3: with `count: "all"` (and with the key absent), the counter behaves as today except
+  that a firing landing on the agent's own message fires on the next message from another
+  sender.
+- [x] AC-4: `update_wakeup` with `silence_minutes_enabled: true` succeeds and is audited when
+  `silence_minutes` is in `self_toggle`, and is refused with a tool error when it is not.
+- [x] AC-5: any toggle is refused while `call_only.enabled`, and a toggle that would leave every
+  trigger disabled is refused.
+- [x] AC-6: the tool cannot change `self_toggle`, `count`, `autostop_rounds` or `call_only`.
+- [x] AC-7: an [R15.09] refresh restores toggled triggers to the designer's values.
+- [x] AC-8: the API rejects an invalid `count` or `self_toggle` with a validation error, and
+  round-trips valid values.
+- [x] AC-9: the editor shows and saves both settings, in both locales.
+- [x] AC-10: the tool descriptions state the counting semantics and the toggle restriction.
+- [x] AC-10a: when a `typing.start` was accepted in the room less than 60 s ago,
+  `evaluate_silence_trigger` does not fire and re-arms the clock, for normal and observer
+  bindings, even if `typing.stop` has since been sent; 60 s after the last `typing.start`, the
+  trigger fires `t_minutes` after the last activity.
+- [x] AC-11: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
+  `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
+
+  (Closed on PR #256 at `6473a237`: CI green, backend unit, db, integration and wiring tiers,
+  lint and typecheck, and the frontend test, lint, typecheck and e2e jobs. Before that: the last complete backend unit run, before the audit fixes, was 11683 passed and 2
+  failed; both were exact-dict expectations in `test_agent_service.py` that now include the
+  new `count` default, and pass. The run after the audit fixes was stopped by the host for low
+  memory, not by a failure. Every module the change touches, 431 tests, passes; `ruff check .`,
+  `ruff format --check .` and `mypy` on the touched packages are clean; frontend
+  `pnpm typecheck`, `pnpm lint` and `pnpm test` (2125 tests) pass.)
+
+## 12. Test Plan
+
+- Unit, `backend/tests/unit/test_wakeup_service.py`: AC-1, AC-2, AC-3 against a fake
+  `wakeup_state`, including the own-message landing case (no test isolates the cadence today).
+- Unit, `backend/tests/unit/test_wakeup_self_modification.py`: AC-4, AC-5, AC-6 and the audit
+  event.
+- Unit, `backend/tests/unit/test_wakeup_refresh_interval.py`: AC-7.
+- Unit, `backend/tests/unit/test_wakeup_service.py` with a presence fake reporting a last
+  typing time: AC-10a at 10 s, 59 s and 61 s, and after a `typing.stop`.
+- Unit, the WebSocket handler: a throttled `typing.start` does not refresh the last typing time.
+- Unit, `backend/tests/unit/test_agent_runtime_tools.py`: update the fake facade at `:50` for
+  the new kwargs; AC-10 asserts the description text.
+- API unit tests for `_validate_wakeup_config`: AC-8.
+- Frontend, `frontend/src/shared/types/__tests__/workflow.test.ts` and an `SWakeupEditor`
+  component test: AC-9.
+- Manual via the `run` skill: one room, `count: "human"`, `n = 2`, a peer agent posting; confirm
+  the cadence.
+
+## 13. SRS Delta
+
+Replace [R15.01] (`REQUIREMENTS.md:882`):
+
+> - **[R15.01]** `every_n_messages.n` counts messages in the room, scoped to the room (Q49). By
+>   default (`count: "all"`) every message counts, user and agent alike. With
+>   `count: "human"` only messages sent by users and guests count; agent replies and released
+>   observations do not.
+> - **[R15.01a]** In `count: "all"` mode, when the N-th message is the agent's own, the firing
+>   is deferred to the next message sent by anyone else rather than dropped.
+
+Amend [R15.02] (`REQUIREMENTS.md:883`), third sentence:
+
+> Room activity means a user or agent message, a participant joining, an activity submission
+> ([R30.17]), or a participant composing a message (a typing indicator started in the room
+> within the last 60 seconds).
+
+Add `"count": "all"` to the `every_n_messages` object and `"self_toggle": []` to the top level of
+the JSON example at `REQUIREMENTS.md:870-880`.
+
+Replace [R15.06] (`REQUIREMENTS.md:892`):
+
+> - **[R15.06]** An Agent can modify, during a run and via the built-in tool
+>   `update_wakeup({every_n_messages?, silence_minutes?, every_n_messages_enabled?,
+>   silence_minutes_enabled?})`, only `every_n_messages.n`, `silence_minutes.t_minutes`, and the
+>   `enabled` flag of each of those two triggers that the Agent Designer listed in
+>   `self_toggle` (default empty).
+> - **[R15.06a]** A toggle is refused when the trigger is not in `self_toggle`, when
+>   `call_only` is enabled, or when it would leave every trigger disabled. The agent cannot
+>   modify `self_toggle`, `count` or `call_only`. Every accepted toggle is audit-logged with the
+>   acting agent.
+
+`docs/traceability.csv` is regenerated with `python scripts/traceability.py`.
+
+## 14. Open Questions
+
+None blocking.
+
+## 15. Deviation Log
+
+- **D-1**: the deferred-firing flag is consumed on every counted message from another sender,
+  not only when that message would not fire anyway. The quality audit found that a flag left
+  behind by a firing that happened anyway made the next message fire a second time, and that
+  with `n = 1` the flag was never cleared. The cost is one Redis GETDEL per counted message per
+  bound agent with the trigger on, more than §7's "at most one extra GET" estimate.
+- **D-2**: the composing signal is a room key whose TTL is the 60 s window, read with `EXISTS`
+  (`presence.py`, `note_composing` / `composing_recently`), rather than a stored timestamp
+  compared on the reader's clock. The writer (the WS process) and the reader (the worker) may
+  run on hosts whose clocks differ; the TTL runs on Redis's.
+- **D-3**: a pending deferral is not cleared when the counting mode is switched or the trigger
+  is toggled, so the first counted message afterwards can fire early. Same class as §10's
+  "early first firing after a mode switch"; accepted.
+- **D-4**: behaviour change for deployed agents beyond §10's note: two agents taking turns in
+  `all` mode with an even `n` used to never fire each other (each N-th message was the other's
+  own and was dropped). With [R15.01a] they now do, until the autostop cap stops them. Bounded,
+  but these are new provider calls; to be stated in the release notes.
+- **D-5**: `WakeupToggleNotAllowed` is exported but not mapped to an HTTP problem type in
+  `contexts/orchestration/interfaces/error_mapping.py`; only the tool path raises it, and there
+  it reaches the model as a tool error (FU-3).
+- **D-6**: the editor now writes `count` and `self_toggle` on every save of a wake-up config.
+  Harmless (the server's `to_dict` writes the same defaults), but every existing agent's stored
+  config gains the two keys the first time it is saved.
+- **D-7**: API validation checks `isinstance(..., str)` before the membership tests, from the
+  security audit: an unhashable `count` or `self_toggle` entry raised `TypeError`, which Pydantic
+  does not convert, and the request ended as a 500.
+
+## 16. Follow-ups
+
+- **FU-1**: the editor describes call-only mode as "responds only when @mentioned"
+  (`SWakeupEditor.vue:38-42`, `en.json:24-25`), while [R15.05a] defines it as A2A call or
+  instruct only.
+- **FU-2**: per-binding wake-up state (audit F-9). The security audit notes the cost side: a
+  toggle applies in every room the agent is bound to until the next refresh, so an injection in
+  one room changes the agent's cadence in all of them. Stated in the editor's help text.
+- **FU-3**: map `WakeupToggleNotAllowed` to an HTTP problem type if any HTTP path ever raises
+  it (D-5).
+- **FU-4**: the editor shows and saves the runtime config, so a designer saving any unrelated
+  field writes an agent-made toggle into `wakeup_authored_snapshot`, after which the [R15.09]
+  refresh no longer undoes it. Pre-existing for `n` and `t_minutes`; this feature extends it to
+  `enabled`. A drift badge against the snapshot, or saving only the fields the designer touched,
+  would close it.
+- **FU-5**: nothing rate-limits toggles; an injected loop of `update_wakeup` calls bumps the
+  agent version each time (the designer's editor then meets 409s) and fills the audit log. A
+  toggle that changes nothing could skip the write and the audit. From the security audit
+  (hardening).
+- **FU-6**: any connected participant, guests included, can keep a room "composing" with a
+  `typing.start` every 2 s and so suppress silence triggers without posting. No worse than
+  posting; stamping only for principals allowed to post would close it. From the security audit
+  (hardening).
+- **FU-7**: two pre-existing gaps the audits passed through: a released observation passes no
+  `sender_agent_id`, so in `all` mode the authoring observer counts its own released message;
+  and an exception from `presence.typing_start` escapes the WS handler, unlike the new composing
+  stamp beneath it.

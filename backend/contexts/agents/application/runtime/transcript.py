@@ -31,6 +31,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,6 +104,10 @@ class HistoryMessage:
     # itself is purged by retention while its messages stay, and the guest
     # marker ([R13.33]) must outlive it.
     from_guest_session: bool = False
+    # When the message was sent, for the gap notices and the time line ([R13.73]).
+    # Optional because rows built outside the loader (test fakes, compaction
+    # fixtures) carry none, and a row without it simply never produces a gap.
+    created_at: datetime | None = None
 
 
 def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str | None:
@@ -173,6 +178,7 @@ def _to_history(msg: Message, attachments: Sequence[MessageAttachment] | None = 
         token_count=estimate_tokens(counted_text),
         attachment_excerpt=excerpt,
         from_guest_session=msg.sender_type is SenderType.GUEST,
+        created_at=msg.created_at,
     )
 
 

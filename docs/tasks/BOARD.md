@@ -13,6 +13,22 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### From the 2026-10-12 CRAT facilitation audit
+
+`docs/audits/2026-10-12-crat-ta-multi-speaker-facilitation/findings.md` (16 findings from a
+classroom test in which the CRAT teacher agent lost control of a parallel discussion) spawned
+four dossiers, all approved 2026-10-12 with their SRS deltas applied. Three are `depends_on: []` and listed here; the pack dossier waits
+on the time-context one and is under Blocked. The re-check and wake-up dossiers both edit
+`tool_registry.py` in disjoint regions (a new frozenset beside `BUILTIN_TOOL_NAMES` vs the
+`update_wakeup` tool); not sequenced, whoever builds second rebases.
+
+- (implemented 2026-10-13) `2026-10-12-stale-reply-recheck`. AC-1..AC-8a and AC-10 ticked; AC-9 (four participants on a running stack) unticked. The quality audit's six warnings were fixed before commit (D-3..D-8), including releasing the claim on every failure path and an atomic covered check in the mark script; [R13.72]'s failure sentence was corrected to match. FU-1..FU-4 are in the dossier. Nothing lists this slug in `depends_on`.
+- (implemented 2026-10-13) `2026-10-12-wakeup-human-count-and-trigger-toggle`. AC-1..AC-11 ticked; AC-11 closed by CI on PR #256 at `6473a237`. D-1..D-7 and FU-2..FU-7 are in the dossier; D-4 (two agents with an even n now wake each other until autostop) belongs in the release notes. Nothing lists this slug in `depends_on`.
+- (implemented 2026-10-12) `2026-10-12-agent-message-time-context`. AC-1..AC-8 ticked; the
+  manual provider-request check was not run (D-6, no stack). Deviations D-1..D-6 and FU-1..FU-5
+  are in the dossier. It unblocked `2026-10-12-crat-pack-prompt-platform-alignment`, now below.
+- (implemented 2026-10-12) `2026-10-12-crat-pack-prompt-platform-alignment`. AC-1..AC-9 and AC-11 ticked; AC-10 and AC-10a (the classroom run with four participants and the 30-minute rate-limit check) are unticked until the pack is observed in class. D-1..D-4 and FU-1..FU-3 are in the dossier; FU-1 (the two sibling course packs share all four defects) is to become its own dossier after that classroom run. Nothing lists this slug in `depends_on`.
+
 ### From the 2026-10-12 GraphRAG blueprint close-out
 
 Unblocked 2026-10-12, when `2026-10-12-graph-build-busy-retry` and
@@ -536,6 +552,21 @@ rows are added as each is written.
 - (moved to In progress on 2026-10-07) `2026-10-07-agent-reply-delivery-gaps`.
 
 ## Blocked
+
+### From the 2026-10-12 CRAT facilitation audit
+
+- (moved to Ready now on 2026-10-12, unblocked by the implemented
+  `2026-10-12-agent-message-time-context`) The original entry, kept here for its detail:
+  `2026-10-12-crat-pack-prompt-platform-alignment` (bugfix, **approved 2026-10-12**) - waiting on
+  `2026-10-12-agent-message-time-context`. **Logical prerequisite** (its Q-11): the teacher
+  tells a lull from a message wake, and picks its hint level, from the time line that dossier
+  adds; the wake reason reaches the model nowhere today. Rewrites the CRAT room pack: both
+  wake-up triggers on with a fixed `n = 2` (one teacher agent is shared by every group room, and
+  `n = 1` risks the visible turn rate limit), integer minutes, no `instruct`, the empty-reply
+  rule, a one-message three-part turn shape, a silence chain of teacher at about 2 and 4 minutes
+  and peer at about 7, no answer key in any agent (every CRAT student can read agent settings),
+  and an analyst that also wakes every 20 messages. Pack JSON and tests only. Existing installs
+  are not updated by reinstalling.
 
 ### From the 2026-10-11 chat and research export audit
 

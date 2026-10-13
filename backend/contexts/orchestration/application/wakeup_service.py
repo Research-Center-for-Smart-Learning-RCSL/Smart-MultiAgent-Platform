@@ -30,6 +30,7 @@ from contexts.agents.interfaces.facade import (
     AgentVersionMismatch,
 )
 from contexts.conversation.infrastructure.presence import PresenceTracker
+from contexts.orchestration.domain.errors import WakeupToggleNotAllowed
 from contexts.orchestration.domain.models import (
     N_MAX,
     N_MIN,
@@ -67,6 +68,7 @@ class WakeupService:
         sender_agent_id: uuid.UUID | None = None,
         agent_ids: list[uuid.UUID],
         observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
+        sender_is_human: bool | None = None,
     ) -> list[uuid.UUID]:
         """Called when any message is created in a room.
 
@@ -90,7 +92,13 @@ class WakeupService:
         output is out-of-band, so the empty-room presence gate does not apply
         and the gated-wakeup owner bell must never fire for them — it would
         name the observer to non-creators (R28.09).
+
+        ``sender_is_human`` — whether a user or guest wrote it, which is what
+        ``count: "human"`` counts ([R15.01]). Defaults to ``sender_is_user``; the
+        released-observation path passes False explicitly, because it resets
+        autostop like a user message but is agent-authored.
         """
+        human = sender_is_user if sender_is_human is None else sender_is_human
         wake_list: list[uuid.UUID] = []
 
         for agent_id in agent_ids:
@@ -113,12 +121,22 @@ class WakeupService:
                 if sender_is_user:
                     await wakeup_state.reset_autostop(agent_id, room_id)
 
-                if cfg.triggers.every_n_messages.enabled:
+                every_n = cfg.triggers.every_n_messages
+                if every_n.enabled and (every_n.count == "all" or human):
                     count = await wakeup_state.increment_message_count(agent_id, room_id)
-                    n = cfg.triggers.every_n_messages.n
-                    if n > 0 and count % n == 0:
-                        if agent_id == sender_agent_id:
-                            continue
+                    n = every_n.n
+                    due = n > 0 and count % n == 0
+                    if agent_id == sender_agent_id:
+                        # [R15.01a]: the N-th message is this agent's own. Deferred to
+                        # the next message from anyone else, not dropped.
+                        if due:
+                            await wakeup_state.set_fire_due(agent_id, room_id)
+                        continue
+                    # Consumed on every other sender's message, due or not: a flag
+                    # left behind by a firing that happened anyway would fire twice.
+                    if await wakeup_state.pop_fire_due(agent_id, room_id):
+                        due = True
+                    if due:
                         # APP-3: `not sender_is_user` is load-bearing. The roster is
                         # the *WebSocket* roster, and a message posted over REST
                         # never touches it -- a user whose socket is still
@@ -250,6 +268,13 @@ class WakeupService:
         if elapsed_minutes < cfg.triggers.silence_minutes.t_minutes:
             return False
 
+        # [R15.02]: someone typed within the composing window, so the room is not
+        # silent, only quiet; re-arm instead of interrupting them mid-sentence.
+        # Observers included: a lull that is not one is not worth reporting.
+        if await self._presence.composing_recently(room_id):
+            await wakeup_state.touch_silence_timestamp(agent_id, room_id)
+            return False
+
         # Check autostop (R15.03 / R15.04); observers use their own cap (O-3/R28.12).
         autostop_limit = cfg.triggers.silence_minutes.autostop_limit_for(is_observer=is_observer)
         autostop_count = await wakeup_state.get_autostop_count(agent_id, room_id)
@@ -312,19 +337,31 @@ class WakeupService:
         agent_id: uuid.UUID,
         every_n_messages: int | None = None,
         silence_minutes: int | None = None,
+        every_n_messages_enabled: bool | None = None,
+        silence_minutes_enabled: bool | None = None,
         actor_agent_id: uuid.UUID | None = None,
     ) -> WakeupConfig:
         """Built-in tool for agents to modify their own wake-up params (R15.06).
 
-        Only ``every_n_messages.n`` and ``silence_minutes.t_minutes`` are
-        writable at runtime. Values are clamped to hard bounds (R15.07)
-        and designer soft bounds (R15.08).
+        Writable at runtime: ``every_n_messages.n`` and ``silence_minutes.t_minutes``,
+        clamped to hard bounds (R15.07) and designer soft bounds (R15.08); and the
+        ``enabled`` flag of either trigger, only when the designer listed it in
+        ``self_toggle`` (R15.06a).
         """
         agent = await self._agents_facade.get_agent(agent_id)
         if agent is None:
             raise ValueError(f"agent {agent_id} not found")
 
+        toggles = {
+            name: value
+            for name, value in (
+                ("every_n_messages", every_n_messages_enabled),
+                ("silence_minutes", silence_minutes_enabled),
+            )
+            if value is not None
+        }
         config = WakeupConfig.from_dict(agent.wakeup_config)
+        self._check_toggles(config, toggles)
         soft_bounds = config.soft_bounds or WakeupSoftBounds()
         clamped_fields: dict[str, dict[str, Any]] = {}
 
@@ -356,12 +393,17 @@ class WakeupService:
         # of whatever the concurrent writer committed, not on top of stale data.
         def _build_new_dict(base_agent: Agent) -> dict[str, Any]:
             fresh_cfg = WakeupConfig.from_dict(base_agent.wakeup_config)
+            # Re-checked against the fresh config: a designer edit that landed
+            # between the read and this write may have withdrawn the permission.
+            self._check_toggles(fresh_cfg, toggles)
             d = merge_json_config(base_agent.wakeup_config, fresh_cfg.to_dict())
             fresh_bounds = fresh_cfg.soft_bounds or WakeupSoftBounds()
             if requested_n is not None:
                 d["triggers"]["every_n_messages"]["n"] = self._clamp_n(requested_n, fresh_bounds)
             if requested_t is not None:
                 d["triggers"]["silence_minutes"]["t_minutes"] = self._clamp_t(requested_t, fresh_bounds)
+            for name, value in toggles.items():
+                d["triggers"][name]["enabled"] = value
             return d
 
         for _attempt in range(2):
@@ -408,7 +450,47 @@ class WakeupService:
                 isolated=True,
             )
 
+        for name, value in toggles.items():
+            # Every accepted toggle, not only changed ones (R15.06a): the record
+            # is how a designer sees what their agent did with the permission.
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="agent.wakeup_toggled",
+                    resource_type="agent",
+                    resource_id=agent_id,
+                    metadata={
+                        "trigger": name,
+                        "enabled": value,
+                        "actor_agent_id": str(actor_agent_id) if actor_agent_id else None,
+                    },
+                ),
+                isolated=True,
+            )
+
         return WakeupConfig.from_dict(updated.wakeup_config)
+
+    @staticmethod
+    def _check_toggles(config: WakeupConfig, toggles: dict[str, bool]) -> None:
+        """Refuse a toggle the designer did not allow (R15.06a)."""
+        if not toggles:
+            return
+        if config.triggers.call_only.enabled:
+            raise WakeupToggleNotAllowed(
+                "this agent only answers when called; its triggers cannot be switched"
+            )
+        refused = sorted(name for name in toggles if name not in config.self_toggle)
+        if refused:
+            raise WakeupToggleNotAllowed(
+                f"not allowed to switch {', '.join(refused)}: "
+                "the designer has not enabled self-toggling for it"
+            )
+        every_on = toggles.get("every_n_messages", config.triggers.every_n_messages.enabled)
+        silence_on = toggles.get("silence_minutes", config.triggers.silence_minutes.enabled)
+        if not every_on and not silence_on:
+            raise WakeupToggleNotAllowed(
+                "refused: this would turn off every trigger, and the agent could not wake on its own again"
+            )
 
     # ------------------------------------------------------------------
     # G.5: Periodic refresh

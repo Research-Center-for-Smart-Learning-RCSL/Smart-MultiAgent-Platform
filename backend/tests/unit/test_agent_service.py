@@ -659,7 +659,7 @@ class TestPatch:
         merged = values["wakeup_config"]
         assert merged["soft_bounds"] == {"n_min": 5}
         assert merged["designer_note"] == "x"
-        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 8}
+        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 8, "count": "all"}
         # The authored snapshot is written from the merged result, not the fragment:
         # writing the fragment is what makes the loss unrecoverable.
         assert values["wakeup_authored_snapshot"] == merged
@@ -984,7 +984,7 @@ class TestPatch:
         )
 
         merged = agents.patch.call_args.kwargs["values"]["wakeup_config"]
-        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 7}
+        assert merged["triggers"]["every_n_messages"] == {"enabled": True, "n": 7, "count": "all"}
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_reuses_the_wakeup_config_merge_for_a_first_snapshot(self, _audit) -> None:

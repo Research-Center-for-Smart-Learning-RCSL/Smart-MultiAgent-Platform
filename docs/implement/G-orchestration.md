@@ -14,8 +14,8 @@ By phase close:
 - Each agent has a dedicated Redis Stream inbox `a2a:agent:{agent_id}`.
 - Messages carry the exact R9.13 envelope (`id, from_agent, to_agent, workflow_run_id, type, payload, correlation_id, created_at`).
 - Synchronous `call` blocks the caller's turn for up to 60 s by default.
-- Wake-up evaluator honours `every_n_messages` (counts user+agent, §15.01), `silence_minutes` (pauses without live users, §15.02 / §15.05b), `autostop_rounds` (§15.03 / §15.04), `allow_self_open=false` (§15.05), `call_only` (§15.05a).
-- Agents self-modify only `n` and `t_minutes` via the built-in `update_wakeup` tool; out-of-range clamped + audited.
+- Wake-up evaluator honours `every_n_messages` (counts user+agent by default, or only users and guests with `count: "human"`, §15.01; a firing on the agent's own message is deferred, §15.01a), `silence_minutes` (pauses without live users, and re-arms while someone started typing within 60 s, §15.02 / §15.05b), `autostop_rounds` (§15.03 / §15.04), `allow_self_open=false` (§15.05), `call_only` (§15.05a).
+- Agents self-modify `n` and `t_minutes` via the built-in `update_wakeup` tool (out-of-range clamped + audited), and switch either autonomous trigger on or off only when the designer listed it in `self_toggle` (§15.06, §15.06a; every toggle audited as `agent.wakeup_toggled`).
 - Designer sets `refresh_every_hours` to snap wake-up back to authored values periodically.
 - Approval gates are strictly between **agents**; `leader_agent_id` mandatory.
 - Instruct chains enforce `max_chain_depth=5`, `max_instructions_per_wakeup=5`, `max_chain_seconds=120`, with cycle detection.
@@ -77,7 +77,7 @@ By phase close:
     "refresh_every_hours": 24
   }
   ```
-- **`every_n_messages`** (R15.01): counts **all messages** in the room (user + agent) scoped to the room. Engine subscribes to `message.created` events; on every `n`-th, enqueues an Arq job to wake the agent in that room.
+- **`every_n_messages`** (R15.01): counts **all messages** in the room (user + agent) scoped to the room by default; with `count: "human"` only users and guests count (released observations do not). When the N-th message is the agent's own, the firing is deferred to the next message from anyone else (R15.01a). Engine subscribes to `message.created` events; on every `n`-th, enqueues an Arq job to wake the agent in that room.
 - **`silence_minutes`** (R15.02, R15.05b): starts only when `ws:presence:{room_id}` is non-empty (live user/guest present); pauses when the set becomes empty.
 - **`autostop_rounds`** (R15.03 / R15.04): a "round" = agent message with no subsequent user message. After `autostop_rounds` such rounds, silence trigger stops for the room until a user sends a new message. Default 5, hard cap 100.
 - **`allow_self_open = false`** (R15.05): agent cannot speak first in an empty room.
@@ -92,7 +92,7 @@ By phase close:
 
 **Deliverables.**
 
-- Built-in tool `update_wakeup({every_n_messages?: int, silence_minutes?: int})` (R15.06).
+- Built-in tool `update_wakeup({every_n_messages?: int, silence_minutes?: int, every_n_messages_enabled?: bool, silence_minutes_enabled?: bool})` (R15.06). A toggle is refused unless the trigger is in `self_toggle`, never while `call_only` is on, and never into a state with every trigger off (R15.06a).
 - **Only** these two fields are mutable at runtime; all other fields in `wakeup_config` are read-only for the agent.
 - Server-side hard bounds (R15.07): `n ∈ [1, 1000]`, `t_minutes ∈ [1, 1440]`. Values outside are **clamped** and the clamp is audit-logged as `agent.wakeup_clamped`.
 - Designer may also set soft per-agent bounds at creation (R15.08); self-modification must respect them.
@@ -212,7 +212,7 @@ By phase close:
 
 **Deliverables.**
 
-- Audit events: `a2a.sent`, `a2a.dlq`, `a2a.forbidden`, `wakeup.fired`, `agent.wakeup_clamped`, `agent.wakeup_refreshed`, `approval.requested`, `approval.resolved`, `instruct.issued`, `instruct.rejected_loop`, `subagent.spawned`, `subagent.destroyed`.
+- Audit events: `a2a.sent`, `a2a.dlq`, `a2a.forbidden`, `wakeup.fired`, `agent.wakeup_clamped`, `agent.wakeup_toggled`, `agent.wakeup_refreshed`, `approval.requested`, `approval.resolved`, `instruct.issued`, `instruct.rejected_loop`, `subagent.spawned`, `subagent.destroyed`.
 - Metrics: `a2a_messages_total{type}`, `a2a_dlq_total`, `wakeup_fires_total{kind}`, `approval_resolutions_total{mode,outcome}`, `instruct_chain_depth_histogram`, `subagent_concurrency{parent}`.
 
 **Key IDs.** §17.1 Workflow category.
@@ -240,7 +240,7 @@ By phase close:
 
 - [ ] Per-agent `a2a:agent:{id}` streams; DLQ after 3 failures; sync `call` 60 s.
 - [ ] All three wake-up triggers match R15.01–R15.05a; `autostop_rounds` boundary verified.
-- [ ] `update_wakeup` clamps and audits; only `n` / `t_minutes` writable.
+- [ ] `update_wakeup` clamps and audits; only `n` / `t_minutes`, and the `enabled` flags listed in `self_toggle`, are writable.
 - [ ] `refresh_every_hours` snapshot-revert works.
 - [ ] Approvals use `approvals / approval_votes` with agents only; `timeout_leader` path verified.
 - [ ] Instruct enforces depth=5, per-wakeup 5, chain-seconds 120; `rejected_loop` audit present.

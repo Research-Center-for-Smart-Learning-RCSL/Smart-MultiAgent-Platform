@@ -129,3 +129,21 @@ async def test_never_refreshed_agent_is_immediately_eligible(monkeypatch) -> Non
     assert await svc.refresh_wakeup_config(agent.id)
     assert len(patched) == 1
     assert patched[0]["draft"].wakeup_last_refreshed_at is not None
+
+
+async def test_refresh_restores_a_toggled_trigger(monkeypatch) -> None:
+    """C AC-7 ([R15.09]): a toggle is runtime drift like `n`, undone at refresh."""
+    agent = _agent(last_refreshed_at=datetime.now(UTC) - timedelta(hours=25))
+    agent.wakeup_config = {
+        "triggers": {"every_n_messages": {"enabled": True, "n": 3}, "silence_minutes": {"enabled": True}},
+        "self_toggle": ["silence_minutes"],
+    }
+    agent.wakeup_authored_snapshot = {
+        "triggers": {"every_n_messages": {"enabled": True, "n": 3}, "silence_minutes": {"enabled": False}},
+        "self_toggle": ["silence_minutes"],
+    }
+    svc, patched = await _service(monkeypatch, agent)
+
+    assert await svc.refresh_wakeup_config(agent.id)
+    restored = patched[0]["draft"].wakeup_config
+    assert restored["triggers"]["silence_minutes"]["enabled"] is False

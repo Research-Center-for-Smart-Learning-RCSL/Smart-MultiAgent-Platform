@@ -284,6 +284,10 @@ async def test_one_unparseable_config_does_not_stop_the_room(monkeypatch, caplog
         "contexts.orchestration.application.wakeup_service.wakeup_state.increment_message_count",
         _async_return(1),
     )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.pop_fire_due",
+        _async_return(False),
+    )
 
     with caplog.at_level(logging.WARNING):
         woken = await svc.on_message_created(

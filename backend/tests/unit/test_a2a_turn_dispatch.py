@@ -332,6 +332,21 @@ async def test_run_input_turn_indexes_the_agents_bound_skills(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
+async def test_run_input_turn_carries_no_time_line(monkeypatch) -> None:
+    # [R13.73] / time-context AC-7: a headless turn loads no room history, so the
+    # time line would have no last message to date and no room wake to explain.
+    agent = _agent()
+    engine, captured = _headless_engine(monkeypatch, agent)
+    _stub_skills(monkeypatch, bound=BoundSet(skills=()))
+    _wire_knowledge(engine)
+
+    result = await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    assert result.status == "completed"
+    assert "Current time:" not in captured["system_text"]
+
+
+@pytest.mark.asyncio
 async def test_run_input_turn_passes_the_snapshot_to_the_registry(monkeypatch) -> None:
     # The tool must be built from the snapshot the tap just validated. Re-querying by
     # name at call time would make the tap decorative.

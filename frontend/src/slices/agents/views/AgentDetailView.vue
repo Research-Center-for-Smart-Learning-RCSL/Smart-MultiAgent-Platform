@@ -450,7 +450,7 @@ const seedHelp = computed(() =>
 // in the query watcher below.
 const wakeupConfig = ref<WakeupConfig>(defaultWakeupConfig())
 if (isCreateMode) {
-  wakeupConfig.value.triggers.every_n_messages = { enabled: true, n: 1 }
+  wakeupConfig.value.triggers.every_n_messages = { enabled: true, n: 1, count: 'all' }
 }
 
 // SInput's model-value accepts `string | number` (no `null`); these fields are

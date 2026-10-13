@@ -33,8 +33,10 @@ from contexts.agents.domain.models import (
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
+    EVERY_N_COUNT_MODES,
     N_MAX,
     N_MIN,
+    SELF_TOGGLEABLE_TRIGGERS,
     SUBAGENT_MAX_CONCURRENT_HARD,
     T_MINUTES_MAX,
     T_MINUTES_MIN,
@@ -174,6 +176,13 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
                 )
             if "enabled" in enm:
                 _check_wakeup_bool(enm["enabled"], field="wakeup_config.triggers.every_n_messages.enabled")
+            # `isinstance` first: an unhashable value would raise TypeError from the
+            # membership test, which Pydantic does not turn into a 422.
+            if "count" in enm and not (isinstance(enm["count"], str) and enm["count"] in EVERY_N_COUNT_MODES):
+                raise ValueError(
+                    "wakeup_config.triggers.every_n_messages.count must be one of "
+                    + ", ".join(sorted(EVERY_N_COUNT_MODES))
+                )
         sm = triggers.get("silence_minutes")
         if isinstance(sm, dict):
             if "t_minutes" in sm:
@@ -205,6 +214,17 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
         )
     if "allow_self_open" in value:
         _check_wakeup_bool(value["allow_self_open"], field="wakeup_config.allow_self_open")
+    if "self_toggle" in value:
+        toggles = value["self_toggle"]
+        # [R15.06]: a grant the agent acts on at runtime, so it is checked exactly
+        # here rather than left to the tolerant parser to drop silently.
+        if not isinstance(toggles, list) or not all(
+            isinstance(t, str) and t in SELF_TOGGLEABLE_TRIGGERS for t in toggles
+        ):
+            raise ValueError(
+                "wakeup_config.self_toggle must be a list drawn from "
+                + ", ".join(sorted(SELF_TOGGLEABLE_TRIGGERS))
+            )
     soft_bounds = value.get("soft_bounds")
     if soft_bounds is not None:
         _check_wakeup_container(soft_bounds, field="wakeup_config.soft_bounds")
