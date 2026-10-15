@@ -548,39 +548,68 @@ code/label/render helpers and remove the superseded global room-editor path.
 
 Participant facts:
 
-- [ ] AC-1: A chat-only account, registered guest and anonymous guest each have consistent codes
+- [x] AC-1: A chat-only account, registered guest and anonymous guest each have consistent codes
   across transcript, applicable activity and authorized draft context; same-name people are
   distinguishable and a missing/deleted name does not remove the stored sender code.
-- [ ] AC-2: A connected non-speaker appears with window-scoped facts. Historical disconnected
+  `test_participant_facts.py::TestCodes` (the prefix code is the activity/draft `subject_code`,
+  draft tools import the same function); `test_turn_participant_note.py::TestRoomGuestNames`,
+  `::TestGuestMarker` (registered and anonymous guests, purged sessions keep code and marker).
+- [x] AC-2: A connected non-speaker appears with window-scoped facts. Historical disconnected
   speakers are not labeled connected, and unrelated project members/enrolled guests are not
   imported as the live class.
-- [ ] AC-3: Empty successful presence, lookup failure and truncation are distinguishable in
+  `test_participant_facts.py::TestRows` and `::TestTheTurnEngineSeams::test_the_facts_come_from_the_included_rows_and_presence`.
+- [x] AC-3: Empty successful presence, lookup failure and truncation are distinguishable in
   model input. Cohort/code collisions are explicitly ambiguous, not silently merged.
-- [ ] AC-4: Supplemental context meets the 100-row/2,000-token bounds; no new email fallback,
+  `test_participant_facts.py::TestUnknownsAreNotZeros`, `::TestThePresenceRead`;
+  `test_presence.py::TestBoundedRoster`.
+- [x] AC-4: Supplemental context meets the 100-row/2,000-token bounds; no new email fallback,
   forged label/control line, cross-room identity or hidden observation data is introduced.
-- [ ] AC-5: Compaction, final request budgeting and recheck include added identity overhead;
+  `test_participant_facts.py::TestBounds` (row and token caps, no email, a name cannot spell a code).
+- [x] AC-5: Compaction, final request budgeting and recheck include added identity overhead;
   newly arrived speakers keep correct codes. Normal and observer room turns receive the
   facts, while unrelated headless turns do not.
+  `test_participant_facts.py::TestTheTurnEngineSeams` (prefix and code budgeting, room and observer
+  requests carry the block, headless builds have no slot); `test_turn_context_budget.py` (the
+  compaction projection counts every human row's code); `test_reply_recheck.py::TestTheRecheckKeepsParticipantCodes`.
 
 Cadence:
 
-- [ ] AC-6: One teacher bound to A/B can have different human and runtime cadence layers.
+- [x] AC-6: One teacher bound to A/B can have different human and runtime cadence layers.
   Tool/edit/reset in A changes neither B nor Agent defaults/version.
-- [ ] AC-7: Message, silence and worker execution all resolve identical effective settings;
+  `test_wakeup_self_modification.py::test_tuning_in_one_room_leaves_the_other_room_alone`,
+  `::test_self_modification_preserves_designer_config_and_bounds`; `test_room_wakeup_service.py::TestPatch`;
+  db tier `test_room_wakeup_persistence.py::TestBindingLayers::test_cas_writes_one_room_and_refuses_a_stale_version`.
+- [x] AC-7: Message, silence and worker execution all resolve identical effective settings;
   latest bounds, designer call-only and toggle revocations apply even to in-flight retries.
-- [ ] AC-8: Human room patches affect only supplied fields; unrelated designer saves do not
+  `test_room_wakeup_resolution.py` (one pure resolver; revoked toggles, call-only and narrowed
+  bounds); message, silence and worker gates read it (`test_wakeup_service.py`,
+  `test_agent_trigger_wiring.py::test_wakeup_agent_skips_a_trigger_the_room_has_since_paused`); D-3.
+- [x] AC-8: Human room patches affect only supplied fields; unrelated designer saves do not
   promote runtime drift. Runtime refresh/reset preserves human room overrides; room reset
   returns to current designer defaults.
-- [ ] AC-9: First override, subsequent tuning, shortened refresh interval, no-op, disabling
+  `test_room_wakeup_service.py::TestPatch`, `::TestReset`; `test_wakeup_refresh_interval.py::test_refresh_keeps_the_human_room_overrides`;
+  designer saves cannot promote drift because the tool no longer writes `Agent.wakeup_config`.
+- [x] AC-9: First override, subsequent tuning, shortened refresh interval, no-op, disabling
   deferred fires and silence rearming follow §6.3 under a deterministic clock. No config
   action resets autostop or message count.
-- [ ] AC-10: Stale revisions return 409; concurrent room changes do not cross-contaminate.
+  `test_room_wakeup_service.py::TestTimers`; `test_wakeup_refresh_interval.py` (fake clock);
+  `test_wakeup_self_modification.py::test_an_unchanged_toggle_is_audited_but_writes_nothing`.
+- [x] AC-10: Stale revisions return 409; concurrent room changes do not cross-contaminate.
   Unbind/rebind invalidates old tools, queued workers and Redis state by binding generation.
-- [ ] AC-11: A headless/no-binding invocation has no tuning tool and cannot mutate through
+  `test_room_wakeup_service.py::TestPatch::test_a_stale_version_is_a_conflict`, `::test_a_rebound_binding_is_a_new_incarnation`;
+  `test_agent_trigger_wiring.py::test_wakeup_agent_drops_a_job_from_an_earlier_binding`;
+  `test_wakeup_state_ttl.py` (binding-scoped keys); db tier `::test_unbind_and_rebind_is_a_new_incarnation`.
+- [x] AC-11: A headless/no-binding invocation has no tuning tool and cannot mutate through
   a direct call. Cross-project/guest/non-creator observer setting access is denied without
   exposing unrelated agent configuration; a current room creator can manage permitted settings.
-- [ ] AC-12: UI shows inherited/human/runtime values and reset meaning, handles rapid edits
+  `test_agent_runtime_tools.py::test_registry_dispatch_and_unknown` (no tool headless),
+  `test_wakeup_self_modification.py::test_a_rebound_agent_cannot_use_the_old_binding`;
+  `test_room_wakeup_routes.py` (role matrix, hidden observer as 404, no config fields).
+- [x] AC-12: UI shows inherited/human/runtime values and reset meaning, handles rapid edits
   and conflicts, and never PATCHes Agent from room cadence controls. OpenAPI generation is clean.
+  `ChatroomSettingsView.test.ts` (room panel patches the binding with its version, never
+  `/api/agents/:id`; a 409 reloads; a 403 hides the panel). Writes are serialised by
+  disabling the controls while one is in flight. `openapi.json` and the client regenerated.
 - [ ] AC-13: Populated migration/backfill and rollback rehearsal preserve defaults/room data;
   all runtime replicas use the new resolver before tuning-enabled pack adoption.
 
@@ -693,9 +722,69 @@ generic demonstration pattern avoids blocking the platform milestones on new cur
 
 ## 15. Deviation Log
 
-None; no implementation has begun. The previous CRAT no-self-tuning rule is
-intentionally replaced only after room-local tuning exists, rather than treated as a mistake
-in that earlier release. Its live classroom checks are carried forward as release gates.
+The previous CRAT no-self-tuning rule is intentionally replaced only after room-local tuning
+exists, rather than treated as a mistake in that earlier release. Its live classroom checks
+are carried forward as release gates.
+
+- **D-1. The participant code helpers stay in `activities.domain.subject_code`.** §6.1 offered a
+  public seam or a move to `shared_kernel`. The module is pure and already imported that way by
+  `agents/application/runtime/draft_tools.py:46`; a re-export from `activities.interfaces` would
+  have pulled its realtime broadcast module into the turn engine's import graph. Both surfaces
+  call the same function (`test_participant_facts.py::TestCodes`).
+- **D-2. The prefix is `[u:xxxxxxxx] Name`.** §6.1 fixed "code plus display label" but not a
+  format. The code is bracketed because `one_line_label` strips brackets from every label, so a
+  participant cannot name themselves into another person's code; an unnamed sender shows the code
+  alone and an unnamed guest the bare marker. The owner note names the creator by the same prefix.
+- **D-3. A concurrent designer permission change is enforced at resolution, not by a second CAS.**
+  §6.3 asked to lock or CAS against both the Agent version and the binding version. Writes CAS the
+  binding version only; every read resolves the stored layers against the designer's current
+  defaults (`resolve_room_wakeup`), so a toggle written just before the designer revokes it never
+  takes effect (`test_wakeup_self_modification.py::test_a_toggle_revoked_while_stored_stops_applying`).
+  This avoids a cross-context row lock on `agents` from the turn's own session.
+- **D-4. No-op handling differs by writer.** The agent tool skips the write when the resolved
+  config would not change, as §6.3 requires, and still audits accepted toggles. A human save of a
+  value the room layer already stores writes nothing, but a human value equal to the inherited one
+  is stored as the room's own choice, so it survives a later designer change.
+- **D-5. Explicit triggers carry no binding id.** §6.3 binding-scoped worker payloads. Every
+  cadence enqueue (message count, silence, agent-reply counts) carries it and the worker drops a
+  job whose binding is gone. `mention` and `release` are explicit calls by the room's people and,
+  like the coalesced re-enqueue, resolve the room's current binding at run time.
+- **D-6. The worker also skips an autonomous job whose trigger was turned off after it was
+  queued** (`skipped:trigger_off`). Not in §6.3; it is what AC-7's "worker execution resolves
+  identical effective settings" means for a job already in the queue.
+- **D-7. Two reads became dead and were removed.** `IdentityFacade.get_chat_labels` (the email
+  fallback, now used nowhere) and `AgentsFacade.list_agents_with_authored_snapshot` (the old
+  refresh's scan). The snapshot columns stay (FU-5).
+- **D-8. Migration `0104` restores only JSON-object snapshots.** Found by the db-tier test:
+  `AgentRepository.create` writes a Python `None` snapshot into `pg.JSONB`, which stores the JSON
+  value `null`, not SQL `NULL`. A plain `IS NOT NULL` would have replaced those agents' configs
+  with `null` and switched every trigger off. The predicate is `jsonb_typeof(...) = 'object'`
+  (`test_room_wakeup_persistence.py::TestMigration0104DataStep`).
+- **D-9. The cutover is a stopped deployment.** §10 required it; the procedure is runbook §3.3.
+  Redis counters restart from zero because their keys now carry the binding id.
+- **D-10. Two security-audit fixes (MEDIUM, both Introduced).**
+  - A message body could carry `\n[u:xxxxxxxx] Name: ...` and read as another person's turn,
+    while the participant note says codes cannot be imitated. Every model-facing body now loses
+    the brackets of a code-like token, the way the notice marker already did
+    (`_defang_notice_marker`; `test_participant_facts.py::TestBodiesCannotForgeAPrefix`).
+  - The room wake-up routes loaded the agent before refusing a hidden observer, so a non-creator
+    could tell an observer binding from an unbound agent by response time. The 404/403 decision
+    is now made from the binding row before anything else is read
+    (`test_room_wakeup_routes.py::test_a_hidden_observer_reads_as_unbound`).
+- **D-11. Quality-audit fixes.** The bounded presence read reports truncation when its scan
+  stopped early, even if ghosts left fewer live members than the limit
+  (`test_presence.py::test_an_early_stop_is_truncation_even_when_ghosts_shrink_the_result`). A role
+  change clears both wake-up layers and bumps the version, because a stored `autostop_rounds`
+  names the other role's cap afterwards and an editor's choices must not survive onto an observer
+  binding (`test_room_wakeup_persistence.py::test_a_role_change_clears_the_layers_and_bumps_the_version`).
+  The facts footer reserve is computed from its two lines at their longest. The room panel
+  re-seeds a number draft only when that field's server value changes and skips a cleared field.
+  The tool's conflict errors say what to do.
+- **D-12. The refresh sweep reads every binding holding a runtime layer, not only due ones.**
+  §6.3 asked for due bindings only. Due-ness depends on each agent's `refresh_every_hours`, which
+  lives in `agents.wakeup_config`; filtering in SQL would join the agents table into the
+  conversation repository. The sweep keyset-pages bindings with a runtime layer (indexed) and
+  decides due-ness per binding, so its cost is bounded by bindings an agent actually tuned.
 
 ## 16. Follow-ups
 
@@ -707,3 +796,30 @@ in that earlier release. Its live classroom checks are carried forward as releas
   channel remain separate product decisions; the example banks live in prompt text only. Existing code-prefix/label qualification is not authentication.
 - **FU-4:** Authoritative autonomous phase timing/completion (rejected Q-4B) remains future
   work. Do not reintroduce it as a promise in a design pack without that platform contract.
+- **FU-5:** `agents.wakeup_authored_snapshot` and `wakeup_last_refreshed_at` are no longer read
+  after migration 0104, and `AgentService.patch` still writes the snapshot on human edits. Retire
+  both columns, the snapshot write and `AgentDraft.replace_wakeup_config` /
+  `wakeup_last_refreshed_at` in a later release, once no rollback to the previous code is wanted.
+- **FU-6:** `pg.JSONB` without `none_as_null=True` stores a Python `None` as JSON `null` in
+  `agents.wakeup_authored_snapshot` (D-8). Any other nullable JSONB column written from Python
+  `None` has the same split between SQL `NULL` and JSON `null`; an audit of those columns is
+  outside this task.
+- **FU-7 (security Hardening):** `one_line_label` strips ASCII brackets only, so a name such as
+  `［u:1a2b3c4d］ Teacher` (full-width) is a visual lookalike of a code. Fold confusables (NFKC)
+  or strip code-like tokens inside labels.
+- **FU-8 (security Hardening):** room values are bounded by the hard limits only, as designed
+  ([R15.25]), so a creator or owner can set `n=1` and spend the project's own key faster than the
+  designer's soft bounds would allow. A per-room turn budget is the remaining backstop.
+- **FU-9 (quality Warning, deferred with the requester's knowledge):** the timer side effects of
+  a wake-up write (dropping a deferred every-N firing, re-arming the silence clock) run in Redis
+  right after the CAS UPDATE, before the owning transaction commits. If that transaction then rolls
+  back (a failed turn after the tool call, a refresh savepoint failure), Redis keeps the effect. Both
+  effects only ever delay or suppress a reply, never cause one. The fix is to return the effects and
+  apply them after the commit at each of the three call sites.
+- **FU-10 (pre-existing pattern):** the tool's CAS UPDATE runs on the turn's session, which commits
+  with the reply, so the binding row stays locked for the rest of the turn and blocks a concurrent
+  human PATCH/reset, role change or unbind; the hourly refresh holds every touched row until its one
+  commit. The previous `update_wakeup` held the `agents` row the same way.
+- **FU-11 (quality Info):** `RoomWakeup` carries the full `Agent` up to the route, which reads only
+  ids; `RoomWakeupPanel.vue` could split its query and mutations into a composable; the frontend
+  repeats the 1000/1440/100 bounds instead of reading them from the API.

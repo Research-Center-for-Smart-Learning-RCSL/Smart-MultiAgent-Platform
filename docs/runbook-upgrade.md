@@ -244,6 +244,53 @@ members. Relations that came only from a removed or deleted member's rooms, or f
 rooms a member has since left, are removed. A map whose group has no live member is
 listed and skipped, since a rebuild would empty it.
 
+### 3.3 Room-owned wake-up settings: a stopped cutover, not a rolling one
+
+From the release of `docs/tasks/2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`
+(migration `0104_room_wakeup_layers`), an agent's wake-up behaviour in a room is the
+designer's defaults plus that room's own overrides plus the agent's temporary adjustments
+for that room ([R15.09], [R15.25]). The old code wrote the agent's own adjustments, and
+the hourly refresh, straight into the shared agent row. Old and new code cannot run at
+the same time: an old replica would keep rewriting the defaults the new code reads, and
+its Redis counters use keys the new code no longer reads. This release is therefore the
+exception to §1.4's rolling restart.
+
+Migration `0104` also restores each agent's wake-up config to its last designer-authored
+value, discarding drift its own tool had written there. Every value it replaces is kept
+in the table `agent_wakeup_config_backup_0104`.
+
+1. Stop the workers and the web replicas so no turn, wake-up job or settings write runs:
+
+   ```bash
+   docker compose -f deploy/compose/docker-compose.yml \
+     -f deploy/compose/docker-compose.prod.yml \
+     stop backend-worker backend-web
+   ```
+
+2. Build the new images (§1.3), then run the migration with the new image:
+
+   ```bash
+   docker compose -f deploy/compose/docker-compose.yml \
+     -f deploy/compose/docker-compose.prod.yml \
+     run --rm --no-deps backend-web alembic upgrade head
+   ```
+
+3. Start every web and worker replica on the new image (`up -d --no-deps backend-web
+   backend-worker`) and run §1.5.
+
+Message counters, silence clocks and autostop counts start again from zero for every
+binding, because their Redis keys now carry the binding id. Jobs queued before the stop
+still run: one carrying no binding id resolves the room's current binding, and the
+worker skips it if the trigger is now off. The old keys expire within seven days.
+
+**Rollback.** Stop web and workers again before starting the previous image. Leave the
+schema in place: the previous code ignores the new columns, and `alembic downgrade`
+would drop every room setting made since. The previous code reads the restored designer
+configs, not the drift the backup table holds; if an agent needs its pre-upgrade value,
+copy it back from `agent_wakeup_config_backup_0104` by hand. Room-level settings do not
+exist in the previous release, so tell teachers who changed them that their room choices
+are not in effect until the release returns.
+
 ---
 
 ## 4. Sandbox image upgrades
