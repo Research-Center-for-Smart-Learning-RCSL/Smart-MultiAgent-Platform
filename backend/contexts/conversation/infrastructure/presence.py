@@ -272,6 +272,24 @@ class PresenceTracker:
         live = await _reconcile_roster(get_redis(), room_id)
         return [uuid.UUID(v) for v in live]
 
+    async def list_room_bounded(self, room_id: uuid.UUID, *, limit: int) -> tuple[list[uuid.UUID], bool]:
+        """At most ``limit`` live members, in id order, and whether more were seen.
+
+        For the agent's participant facts ([R13.74]), which must not pay for an
+        unbounded roster: SSCAN stops once ``limit + 1`` members are collected, so
+        only those are reconciled. Which members a truncated read keeps is
+        whatever the scan yields first; the caller says so rather than ranking them.
+        """
+        r = get_redis()
+        members: list[str] = []
+        async for member in r.sscan_iter(_room_key(room_id), count=max(limit, 10)):
+            members.append(member)
+            if len(members) > limit:
+                break
+        live = await _reconcile_members(r, room_id, members)
+        ids = sorted(uuid.UUID(v) for v in live)
+        return ids[:limit], len(ids) > limit
+
     async def list_user_rooms(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Rooms the inverse index places this user in. Unreconciled: a ghost
         entry lingers until the next `list_room`/`leave` of that room or the
@@ -289,8 +307,12 @@ async def _reconcile_roster(r: Redis, room_id: uuid.UUID) -> list[str]:
     every_n gate) are frequent enough that N sequential round-trips per call
     would add up.
     """
+    return await _reconcile_members(r, room_id, list(await r.smembers(_room_key(room_id))))
+
+
+async def _reconcile_members(r: Redis, room_id: uuid.UUID, members: list[str]) -> list[str]:
+    """`_reconcile_roster` over an already-read subset of the roster."""
     rk = _room_key(room_id)
-    members = list(await r.smembers(rk))
     if not members:
         return []
     check = r.pipeline(transaction=False)

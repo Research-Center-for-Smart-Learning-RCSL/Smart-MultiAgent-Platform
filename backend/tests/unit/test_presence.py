@@ -47,6 +47,12 @@ class _FakeRedis:
     async def exists(self, key: str) -> int:
         return 1 if key in self.sets else 0
 
+    async def sscan_iter(self, key: str, count: int = 0):
+        self.sscanned: list[str] = []
+        for member in sorted(self.sets.get(key, set())):
+            self.sscanned.append(member)
+            yield member
+
     async def scan_iter(self, match: str, count: int = 0):
         prefix = match.rstrip("*")
         for key in list(self.sets.keys()):
@@ -353,3 +359,39 @@ async def test_composing_lasts_for_the_stamps_lifetime(monkeypatch) -> None:
     assert list(kv.ttl.values()) == [presence_mod.COMPOSING_WINDOW_SECONDS]
     kv.expire_all()
     assert await tracker.composing_recently(room) is False
+
+
+class TestBoundedRoster:
+    """[R13.74]: the agent's participant facts read a bounded roster."""
+
+    async def _join(self, p: PresenceTracker, room: uuid.UUID, n: int) -> list[uuid.UUID]:
+        users = [uuid.uuid4() for _ in range(n)]
+        for user in users:
+            await p.join(room_id=room, user_id=user, connection_id=uuid.uuid4())
+        return users
+
+    @pytest.mark.asyncio
+    async def test_under_the_limit_returns_everyone_in_id_order(self, fake_redis: _FakeRedis) -> None:
+        p, room = PresenceTracker(), uuid.uuid4()
+        users = await self._join(p, room, 3)
+
+        assert await p.list_room_bounded(room, limit=5) == (sorted(users), False)
+
+    @pytest.mark.asyncio
+    async def test_the_scan_stops_after_one_past_the_limit(self, fake_redis: _FakeRedis) -> None:
+        p, room = PresenceTracker(), uuid.uuid4()
+        await self._join(p, room, 8)
+
+        ids, truncated = await p.list_room_bounded(room, limit=3)
+
+        assert len(ids) == 3
+        assert truncated is True
+        assert len(fake_redis.sscanned) == 4
+
+    @pytest.mark.asyncio
+    async def test_a_ghost_is_not_returned(self, fake_redis: _FakeRedis) -> None:
+        p, room = PresenceTracker(), uuid.uuid4()
+        live, ghost = await self._join(p, room, 2)
+        fake_redis.sets.pop(presence_mod._conns_key(room, ghost))
+
+        assert await p.list_room_bounded(room, limit=5) == ([live], False)

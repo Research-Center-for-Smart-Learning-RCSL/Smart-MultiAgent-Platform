@@ -134,24 +134,6 @@ class UserRepository:
         ).all()
         return {r.id: r.display_name for r in rows}
 
-    async def get_chat_labels(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
-        """Batch-resolve user_id -> a human label, falling back to email.
-
-        Unlike :pymeth:`get_display_names`, this DOES surface the login email when
-        no display name is set. It is the model-context counterpart used to give
-        agents a stable name for each speaker; callers must keep the result out of
-        anything shown to other room members. Unknown ids are absent.
-        """
-        ids = list(set(user_ids))
-        if not ids:
-            return {}
-        rows = (
-            await self._db.execute(
-                sa.select(t.users.c.id, t.users.c.display_name, t.users.c.email).where(t.users.c.id.in_(ids))
-            )
-        ).all()
-        return {r.id: (r.display_name or r.email) for r in rows}
-
     async def get_member_info(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str | None]]:
         """Batch-resolve user_id -> (email, display_name) for member listings."""
         ids = list(set(user_ids))

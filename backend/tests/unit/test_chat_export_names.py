@@ -5,8 +5,8 @@ Spec: ``docs/tasks/2026-10-07-name-fallback-surfaces/spec.md`` §7.3, §8.
 The manifest carried only ``sender_type`` and ``sender_id``, and the Markdown and
 PDF transcripts labelled every message ``<type> (<8 chars of id>)``. The fix
 resolves names once per export: agents through ``AgentsFacade.agent_names``,
-guests through the room's guest labels, accounts through ``get_display_names``
-(never ``get_chat_labels``, which falls back to email).
+guests through the room's guest labels, accounts through ``get_display_names``,
+which never returns the login email.
 """
 
 from __future__ import annotations
@@ -83,9 +83,6 @@ def minio(monkeypatch: pytest.MonkeyPatch) -> FakeStore:
                 _REGISTERED: "Account",
             }
             return {i: n for i, n in names.items() if i in ids}
-
-        async def get_chat_labels(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
-            return dict.fromkeys(ids, "leak@example.com")
 
     class _Agents:
         def __init__(self, db: object) -> None:

@@ -24,6 +24,7 @@ from contexts.conversation.application.guest_session_service import (
     GuestSessionResult,
 )
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
+from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AgentObservation,
@@ -477,6 +478,26 @@ class ConversationFacade:
                 "presence read for roster failed"
             )
             return []
+
+    async def room_presence_snapshot(self, chatroom_id: uuid.UUID, *, limit: int) -> RoomPresenceSnapshot:
+        """Connected principals for an agent's participant facts, bounded at the read.
+
+        Unlike :meth:`present_user_ids`, a failed read is reported as unavailable
+        rather than as an empty room.
+        """
+        observed_at = now()
+        try:
+            ids, truncated = await PresenceTracker().list_room_bounded(chatroom_id, limit=limit)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "presence read for participant facts failed"
+            )
+            return RoomPresenceSnapshot(
+                observed_at=observed_at, available=False, user_ids=(), truncated=False
+            )
+        return RoomPresenceSnapshot(
+            observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
+        )
 
     async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
         """Tell every room the user is present in to re-read its roster ([R13.19]).
@@ -958,5 +979,6 @@ __all__ = [
     "Message",
     "MessageAttachment",
     "RoomGuests",
+    "RoomPresenceSnapshot",
     "SenderType",
 ]

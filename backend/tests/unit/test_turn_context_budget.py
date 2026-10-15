@@ -185,8 +185,9 @@ async def test_assemble_history_budgets_the_next_request_not_history_alone(monke
 
     # F-17: the compaction decision sees history (500) + the non-knowledge
     # prefix (800), not history alone — so a large prompt/tool prefix can trigger
-    # compaction even when stored history is well under the cap.
-    assert seen["projected"] == 1300
+    # compaction even when stored history is well under the cap. The human row's
+    # participant code ([R13.33]) is request text too.
+    assert seen["projected"] == 1300 + te.CODE_PREFIX_TOKENS
     assert out is history
 
 
@@ -226,7 +227,7 @@ async def test_assemble_history_counts_the_gap_notices_it_will_render(monkeypatc
     )
 
     # Three rows, one gap of five minutes; the ten-second pause is not a gap.
-    assert seen["projected"] == 30 + te._GAP_NOTICE_TOKENS
+    assert seen["projected"] == 30 + te._GAP_NOTICE_TOKENS + 3 * te.CODE_PREFIX_TOKENS
 
 
 # --------------------------------------------------------------------------- #

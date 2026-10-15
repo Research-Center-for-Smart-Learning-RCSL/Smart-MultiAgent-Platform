@@ -12,7 +12,7 @@ This lives in ``shared_kernel`` because two contexts write labels into the same
 sink and only one of them used to guard it. Identity normalised account display
 names (``AuthService.set_display_name``, ``AdminService``); conversation stored a
 room guest's self-chosen label verbatim (``GuestService.enroll``), and the guest
-label *wins* the precedence in ``TurnEngine._room_user_labels``. One helper, so
+label *wins* the precedence in ``TurnEngine._room_display_labels``. One helper, so
 the guarantee cannot hold on one path and not the other.
 
 The render sites still collapse whitespace of their own. That is not redundancy:
