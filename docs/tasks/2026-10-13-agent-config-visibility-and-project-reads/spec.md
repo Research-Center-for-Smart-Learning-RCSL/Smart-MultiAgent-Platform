@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-13
 requirements: [R5.05, R5.06, R8.09, R8.10, R9.01, R13.28, R13.31, R13.32, R30.25]
 depends_on: []
@@ -283,7 +283,7 @@ Stage 2
 
 Both
 - [x] AC-11: `backend/tests/integration/test_permission_matrix.py` covers matrix row 28.
-- [ ] AC-12: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
+- [x] AC-12: backend `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`; frontend
   `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass.
 
 ## 12. Test Plan
@@ -417,6 +417,10 @@ locally:
   listing (the caller's `project_members` rows). It is the same shape as `is_moderator`.
 - **D-13**: the `run` walk was again not performed, so AC-9 is verified by the view tests. No living
   doc named the old gates, so the docs-update step was not needed.
+
+**Closed (2026-10-15).** CI run `38761765798` on `139cd0dc` passed every job, including the
+`backend-db` and `backend-integration` tiers, which closes AC-12. The run on `a22d2696` failed only
+`backend-typecheck`, on a mypy error in the new gate test; `139cd0dc` fixed it.
 
 ## 16. Follow-ups
 

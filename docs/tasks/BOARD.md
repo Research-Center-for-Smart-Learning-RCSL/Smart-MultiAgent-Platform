@@ -15,7 +15,11 @@ doesn't need a `depends_on` backfill).
 
 ### Agent configuration and project read scope (2026-10-13)
 
-- (moved to In progress on 2026-10-13) The original entry, kept here for its detail:
+- (implemented 2026-10-15) `2026-10-13-agent-config-visibility-and-project-reads`.
+  AC-1..AC-12 ticked; AC-12 closed by CI run `38761765798` at `139cd0dc`. D-1..D-13 and
+  FU-1, FU-3..FU-7 are in the dossier (FU-2 resolved). Release notes: a Project Member teacher
+  loses the agents pages; a bare Org Member keeps only the path to an org-open room. Nothing
+  lists this slug in `depends_on`. The original entry, kept for its detail:
   `2026-10-13-agent-config-visibility-and-project-reads` (feature, **approved 2026-10-13**, SRS delta applied) - `depends_on: []`.
   From the CRAT audit's F-13/FU-9 and the 2026-10-05 dashboard audit's F-24. Stage 1: an agent's
   configuration (prompt, tools, skills, workspace files, A2A dead letters) and project skills are
@@ -790,20 +794,6 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
-
-- `2026-10-13-agent-config-visibility-and-project-reads` (feature), started 2026-10-13.
-  - **Stage 1 built.** Agent configuration is now readable by editors only (matrix row 28).
-    AC-1..AC-5 and AC-11 are ticked.
-  - **AC-12** waits on the CI `db`/`integration` tiers.
-  - **Stage 2 built 2026-10-15.** Project-scoped reads now require a project role ([R5.07]).
-    AC-6..AC-10 are ticked.
-  - **Deviations and follow-ups.** D-1..D-13 and FU-3..FU-7 are in the dossier; FU-2 is resolved.
-    FU-3 is a pre-existing medium from the security audit: concept-map coverage leaks room names
-    to Project Members.
-  - **Release notes.**
-    - A teacher who is a Project Member, not an owner, loses the agents pages.
-    - A bare Org Member keeps only the path to a room open to the org. They lose the prompt
-      assistant, canvas templates, the dashboard, the member list and the other project pages.
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
   [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.
