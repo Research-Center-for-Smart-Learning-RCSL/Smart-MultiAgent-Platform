@@ -16,7 +16,7 @@ import {
   TrashIcon, ArrowPathIcon, UserIcon, BuildingOffice2Icon, PuzzlePieceIcon,
   ClipboardDocumentCheckIcon,
 } from '@heroicons/vue/24/outline'
-import { projectsApi, type Project, type ProjectMember } from '../api/projects'
+import { projectsApi, type Project } from '../api/projects'
 import { tenancyKeys } from '../queries'
 import { formatDateTime } from '../utils/formatters'
 import { useEntityLifecycle } from '../composables/useEntityLifecycle'
@@ -34,17 +34,11 @@ const { data: project, isLoading, isError, refetch } = useQuery({
   queryFn: () => projectsApi.get(projectId.value),
 })
 
-const { data: members } = useQuery({
-  queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
-  queryFn: () => projectsApi.listMembers(projectId.value),
-})
-
-const myMembership = computed<ProjectMember | null>(() => {
-  if (!members.value || !session.me) return null
-  return members.value.find(m => m.user_id === session.me!.id) ?? null
-})
-
-const isOwner = computed(() => myMembership.value?.role === 'owner')
+// The server's verdicts, not a scan of the member list: ownership is inherited
+// (R5.03), so an Org Owner holds no `owner` row, and the member list is refused
+// outright to a bare org member ([R5.07]), who is shown the project only so they
+// can reach a room open to the org.
+const isOwner = computed(() => session.me?.is_admin === true || project.value?.is_moderator === true)
 const isDeleted = computed(() => !!project.value?.deleted_at)
 
 const rename = useInlineRename({

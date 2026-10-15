@@ -127,14 +127,20 @@ const deleteMutation = useMutation({
 // 2026-08-20-orchestration-room-scoped-reads): offering it to a plain member
 // only routes them to a page that bounces them back. The other two entries are
 // left as they were — this dossier did not change what they require.
-const { isAuthorized: canOpenWorkflows } = useProjectRole(projectId)
+// The dashboard and the Concept Map settings read project data a bare org member
+// is refused ([R5.07]); such a caller came here only to reach a room.
+const { isAuthorized: canOpenWorkflows, hasProjectRole } = useProjectRole(projectId)
 
 const actionItems = computed(() => [
-  { key: 'dashboard', label: t('conversation.workspace.actions.dashboard'), icon: ChartBarIcon },
+  ...(hasProjectRole.value
+    ? [{ key: 'dashboard', label: t('conversation.workspace.actions.dashboard'), icon: ChartBarIcon }]
+    : []),
   ...(canOpenWorkflows.value
     ? [{ key: 'workflows', label: t('conversation.workspaces.workflows'), icon: ShareIcon }]
     : []),
-  { key: 'conceptMap', label: t('conversation.conceptMap.settings'), icon: Cog6ToothIcon },
+  ...(hasProjectRole.value
+    ? [{ key: 'conceptMap', label: t('conversation.conceptMap.settings'), icon: Cog6ToothIcon }]
+    : []),
   { key: 'delete', label: t('conversation.workspaces.delete'), icon: TrashIcon, danger: true },
 ])
 

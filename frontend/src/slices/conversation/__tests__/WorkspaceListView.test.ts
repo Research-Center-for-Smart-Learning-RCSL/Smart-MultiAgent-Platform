@@ -48,6 +48,35 @@ describe('WorkspaceListView', () => {
     expect(wrapper.find('form input').exists()).toBe(true)
   })
 
+  // [R5.07] / AC-9: the dashboard and the Concept Map settings are project reads a
+  // bare org member is refused; that caller came only to reach a room.
+  describe.each([
+    [false, []],
+    [true, ['dashboard', 'conceptMap']],
+  ])('workspace actions with has_project_role=%s', (hasRole, offered) => {
+    it('offers the project surfaces only to a project role', async () => {
+      server.use(
+        http.get('/api/projects/:projectId', () =>
+          HttpResponse.json({ id: 'proj_1', name: 'P', has_project_role: hasRole, is_moderator: false }),
+        ),
+        http.get('/api/projects/:projectId/workspaces', () =>
+          HttpResponse.json([{ id: 'ws_1', project_id: 'proj_1', name: 'Space One' }]),
+        ),
+      )
+      const wrapper = await renderView(WorkspaceListView, {
+        routes,
+        initialRoute: '/projects/proj_1/workspaces',
+      })
+      await flushPromises()
+      await flushPromises()
+
+      const keys = (wrapper.findComponent(SDropdown).props('items') as { key: string }[]).map((i) => i.key)
+      for (const key of ['dashboard', 'conceptMap']) {
+        expect(keys.includes(key), key).toBe((offered as string[]).includes(key))
+      }
+    })
+  })
+
   // F-4. Deleting a workspace cascades its rooms, and creating one ships a
   // default chatroom, so both move the recent rail. Unlike the chatroom list,
   // these two sites name `convKeys.workspaces`, which the chatrooms prefix does

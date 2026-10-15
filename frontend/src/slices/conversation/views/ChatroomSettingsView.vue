@@ -27,7 +27,7 @@ import {
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
-import { tenancyKeys, memberGroupsApi } from '@slices/tenancy'
+import { tenancyKeys, memberGroupsApi, useProjectRole } from '@slices/tenancy'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
@@ -98,7 +98,10 @@ const {
   onSetDraftAccess,
   onSetRole,
   saveWakeupConfig,
-} = useChatroomBindings(chatroomId, () => room.value)
+} = useChatroomBindings(chatroomId, () => room.value, {
+  // The types feed only the creator's activity-control picker.
+  needsActivityTypes: () => isCreator.value,
+})
 
 // ---- creator gate (R28.02 mirror; server is authoritative) ----------------
 
@@ -117,6 +120,9 @@ watchEffect(async () => {
     }
   }
 })
+// [R5.07]: the project's member groups and Concept Maps are project reads, refused
+// to a bare org member who opened the settings of a room open to the org.
+const { hasProjectRole } = useProjectRole(() => projectId.value)
 
 // ---- member-group bindings (section 13.2a) --------------------------------
 // Only fetched once the room actually has the tier on: a project that uses no
@@ -125,7 +131,9 @@ watchEffect(async () => {
 const groupsQuery = useQuery({
   queryKey: computed(() => tenancyKeys.memberGroups(projectId.value ?? '')),
   queryFn: () => memberGroupsApi.list(projectId.value!),
-  enabled: computed(() => !!projectId.value && flags.value.allow_member_groups),
+  enabled: computed(
+    () => !!projectId.value && flags.value.allow_member_groups && hasProjectRole.value,
+  ),
 })
 
 // Named once so the query, the optimistic write and the invalidate cannot drift
@@ -881,7 +889,7 @@ watchEffect(() => {
         </SCard>
 
         <!-- Concept Map (chatroom-owned; access inherited from the room) -->
-        <template v-if="projectId">
+        <template v-if="projectId && hasProjectRole">
           <SAlert variant="info">
             {{ t('conversation.conceptMap.chatroomInheritsAccess') }}
           </SAlert>

@@ -423,6 +423,35 @@ describe('ActivityPanel — participant surface (Q-1, AC-2)', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
+  // [R5.07] / AC-9 of 2026-10-13-agent-config-visibility-and-project-reads: the
+  // type listing is a project read that a guest or a bare org member in an
+  // org-open room is refused, and only the creator's start picker uses it.
+  it('does not request the project type listing for a participant', async () => {
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+
+    await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+
+    expect(listActivityTypesMock).not.toHaveBeenCalled()
+  })
+
+  it('requests it once the viewer turns out to be the creator', async () => {
+    getActiveActivationMock.mockResolvedValue(null)
+    listActivityTypesMock.mockResolvedValue([])
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: false },
+    })
+    await flushPromises()
+    await wrapper.setProps({ isCreator: true })
+    await flushPromises()
+
+    expect(listActivityTypesMock).toHaveBeenCalledWith('p1')
+  })
+
   it('falls back to getRoomActivityType when activation lacks the type', async () => {
     getActiveActivationMock.mockResolvedValue(activeActivation({ activity_type: null }))
     listActivityTypesMock.mockResolvedValue([])

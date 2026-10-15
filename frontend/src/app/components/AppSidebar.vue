@@ -45,7 +45,10 @@ const session = useSessionStore()
 const workspace = useWorkspaceStore()
 const { isDesktop } = useBreakpoint()
 
-const { decided, isAuthorized } = useProjectRole(() => workspace.projectId ?? undefined)
+const { decided, isAuthorized, hasProjectRole } = useProjectRole(() => workspace.projectId ?? undefined)
+// [R5.07]: a bare org member reached this project through a room open to the org;
+// offer them the rooms and workspaces, not surfaces every one of whose reads refuses them.
+const showProjectSurfaces = computed(() => decided.value && hasProjectRole.value)
 
 interface NavItem {
   icon: typeof BuildingOffice2Icon
@@ -114,10 +117,10 @@ const agentNav = computed<NavItem[]>(() => {
   const agents = decided.value && isAuthorized.value
     ? [{ icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` }]
     : []
-  return [
-    ...agents,
-    { icon: UserGroupIcon, label: t('app.sidebar.agentGroups'), route: `/projects/${pid}/agent-groups` },
-  ]
+  const groups = showProjectSurfaces.value
+    ? [{ icon: UserGroupIcon, label: t('app.sidebar.agentGroups'), route: `/projects/${pid}/agent-groups` }]
+    : []
+  return [...agents, ...groups]
 })
 
 const knowledgeSettingsNav = computed<NavItem[]>(() => {
@@ -230,7 +233,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
         <!-- Dashboard, Agents & Workspaces -->
         <div class="sidebar__section">
           <SidebarNavItem
-            v-if="currentWorkspaceId"
+            v-if="currentWorkspaceId && showProjectSurfaces"
             :icon="ChartBarIcon"
             :label="t('app.sidebar.dashboard')"
             :to="`/workspaces/${currentWorkspaceId}/dashboard`"
@@ -253,6 +256,7 @@ const manageSettingsNav = computed<NavItem[]>(() => {
 
         <!-- Project Settings (single collapsible group) -->
         <SidebarGroup
+          v-if="showProjectSurfaces"
           :label="t('app.sidebar.groupProjectSettings')"
           storage-key="project-settings"
           :default-collapsed="true"

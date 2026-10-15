@@ -12,7 +12,7 @@ import type * as ConversationSlice from '@slices/conversation'
 import { appRoutes } from '../../../tests/utils/routes'
 import AppSidebar from '../components/AppSidebar.vue'
 
-const role = vi.hoisted(() => ({ decided: true, isAuthorized: true }))
+const role = vi.hoisted(() => ({ decided: true, isAuthorized: true, hasProjectRole: true }))
 const wsMock = vi.hoisted(() => ({
   list: [{ id: 'ws1', name: 'Default', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' }] as Array<{ id: string; name: string; project_id: string; concept_map_enabled: boolean; created_at: string }>,
 }))
@@ -24,6 +24,7 @@ vi.mock('@slices/tenancy', async (importOriginal) => {
       isAdmin: computed(() => false),
       isOwner: computed(() => role.isAuthorized),
       isAuthorized: computed(() => role.isAuthorized),
+      hasProjectRole: computed(() => role.hasProjectRole),
       decided: computed(() => role.decided),
     }),
   }
@@ -77,6 +78,7 @@ async function mountSidebar() {
 beforeEach(() => {
   role.decided = true
   role.isAuthorized = true
+  role.hasProjectRole = true
   wsMock.list = [{ id: 'ws1', name: 'Default', project_id: 'p1', concept_map_enabled: false, created_at: '2026-01-01T00:00:00Z' }]
   window.innerWidth = 1280
 })
@@ -153,6 +155,36 @@ describe('AppSidebar — Project Settings group (AC-5)', () => {
     role.decided = false
     const wrapper = await mountSidebar()
     expect(wrapper.find('a[href="/projects/p1/members"]').exists()).toBe(false)
+  })
+})
+
+// [R5.07]: a bare org member reached the project through a room open to the org.
+describe('AppSidebar — a caller without a project role', () => {
+  it('is offered workspaces and rooms, and no project surface', async () => {
+    role.isAuthorized = false
+    role.hasProjectRole = false
+    const wrapper = await mountSidebar()
+    await flushPromises()
+    expect(wrapper.find('a[href="/projects/p1/workspaces"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="chatroom-list-stub"]').exists()).toBe(true)
+    for (const href of [
+      '/projects/p1/agents',
+      '/projects/p1/agent-groups',
+      '/workspaces/ws1/dashboard',
+      '/projects/p1/rag-configs',
+      '/projects/p1/keys',
+      '/projects/p1/members',
+    ]) {
+      expect(wrapper.find(`a[href="${href}"]`).exists(), href).toBe(false)
+    }
+  })
+
+  it('shows the dashboard to a project member', async () => {
+    role.isAuthorized = false
+    const wrapper = await mountSidebar()
+    await flushPromises()
+    expect(wrapper.find('a[href="/workspaces/ws1/dashboard"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/projects/p1/agent-groups"]').exists()).toBe(true)
   })
 })
 

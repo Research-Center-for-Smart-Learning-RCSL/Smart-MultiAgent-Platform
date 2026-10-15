@@ -25,6 +25,10 @@ export interface Project {
   // the parent org)? Server-computed, because ownership is inherited and the
   // member list therefore cannot answer it — see `useProjectRole`.
   is_moderator?: boolean
+  // Does the caller hold a project role here ([R5.07])? False for a bare org
+  // member who reached the project through a room open to the org: every project
+  // read but the path to that room refuses them. Server-computed, like the above.
+  has_project_role?: boolean
 }
 
 export interface ProjectMember {

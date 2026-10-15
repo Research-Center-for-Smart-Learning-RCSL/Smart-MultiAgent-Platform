@@ -7,6 +7,7 @@ export type ProjectOut = {
     created_at: string;
     created_by_user_id: string;
     deleted_at: (string | null);
+    has_project_role?: boolean;
     id: string;
     is_moderator?: boolean;
     name: string;

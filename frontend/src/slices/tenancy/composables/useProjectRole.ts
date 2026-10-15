@@ -38,6 +38,13 @@ export function useProjectRole(projectId: MaybeRefOrGetter<string | undefined>) 
 
   const isAuthorized = computed(() => isAdmin.value || isOwner.value)
 
+  // [R5.07]: may this caller read the project's surfaces at all? False for a bare
+  // org member, who is offered the workspaces and rooms they can open and nothing
+  // that would be refused.
+  const hasProjectRole = computed(
+    () => isAdmin.value || (projectQuery.data.value?.has_project_role ?? false),
+  )
+
   // True once authorization can be concluded, so callers don't hide an owner's
   // control mid-load (R11.10 / spec §8: a flash-hidden-then-shown control is a
   // correctness bug). Undecided while the project id is still resolving.
@@ -47,5 +54,5 @@ export function useProjectRole(projectId: MaybeRefOrGetter<string | undefined>) 
     return projectQuery.isSuccess.value || projectQuery.isError.value
   })
 
-  return { isAdmin, isOwner, isAuthorized, decided }
+  return { isAdmin, isOwner, isAuthorized, hasProjectRole, decided }
 }

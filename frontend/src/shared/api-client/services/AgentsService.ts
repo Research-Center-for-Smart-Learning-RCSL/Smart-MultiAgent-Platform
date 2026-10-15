@@ -354,9 +354,9 @@ export class AgentsService {
      * List Project Agent Names
      * The same rows as `GET ""`, in the same order, projected to id and name.
      *
-     * Deliberately the same membership gate: a name is not more sensitive than the
-     * listing it is drawn from, and a second, looser gate on the same rows is how
-     * an authorization surface drifts apart from itself.
+     * Deliberately a looser gate than the listing's: the listing carries the
+     * configuration (matrix row 28, editors only), while a name is what every room
+     * label needs, including a room that admits organization members ([R5.07]).
      * @returns AgentNameOut Successful Response
      * @throws ApiError
      */

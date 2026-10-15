@@ -207,16 +207,15 @@ async function hydrate(): Promise<void> {
 }
 
 async function loadTypes(projectId: string | undefined): Promise<void> {
-  if (!projectId) return
+  // Facilitator-only surface (the start dropdown, `v-if="isCreator"` below); the
+  // participant path never reads `types` (Q-1/AC-2). Not requested for anyone
+  // else, since the listing is a project read a guest or a bare org member in an
+  // org-open room is refused ([R5.07]).
+  if (!projectId || !props.isCreator) return
   try {
     types.value = await listActivityTypes(projectId)
   } catch (err) {
-    // Facilitator-only surface (the start dropdown, `v-if="isCreator"` below)
-    // — a non-owner/guest 403 here must never block the participant path,
-    // which never reads `types` (Q-1/AC-2).
-    if (props.isCreator) {
-      errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.loadFailed')
-    }
+    errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.loadFailed')
   }
 }
 
@@ -330,7 +329,12 @@ async function loadOwnDeclaration(): Promise<void> {
   }
 }
 
-watch(() => props.projectId, loadTypes, { immediate: true })
+// On the creator bit too: it can settle after the project id does.
+watch(
+  () => [props.projectId, props.isCreator] as const,
+  ([projectId]) => loadTypes(projectId),
+  { immediate: true },
+)
 watch(activation, (next, previous) => {
   if (!next || (previous && next.id !== previous.id)) completed.value = false
   // A round that ended or changed takes its draft with it: the worksheet on

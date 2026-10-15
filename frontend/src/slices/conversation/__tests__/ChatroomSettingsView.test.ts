@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
@@ -74,6 +74,15 @@ function seededClient(rooms: Chatroom[]): QueryClient {
 }
 
 describe('ChatroomSettingsView', () => {
+  // The default caller holds a role in the project ([R5.07]); the bare org
+  // member's view has its own describe block below.
+  beforeEach(() => {
+    server.use(
+      http.get('/api/projects/:projectId', () =>
+        HttpResponse.json({ id: 'proj_1', name: 'Test Project', has_project_role: true }),
+      ),
+    )
+  })
   it('renders without errors', async () => {
     const wrapper = await renderView(ChatroomSettingsView, {
       routes,
@@ -388,6 +397,47 @@ describe('ChatroomSettingsView', () => {
       expect(wrapper.text()).toContain('Bound Agent')
       expect(wrapper.find('.wakeup-editor').exists()).toBe(false)
       expect(wrapper.find('.dlq-viewer').exists()).toBe(false)
+    })
+  })
+
+  // [R5.07] / AC-9: a bare org member who opened the settings of a room open to
+  // the org is refused every project read, so none is sent.
+  describe('for a bare org member', () => {
+    it('requests neither the member groups nor the Concept Maps', async () => {
+      const projectReads: string[] = []
+      const room = makeChatroom({ is_moderator: false, allow_member_groups: true } as Partial<Chatroom>)
+      server.use(
+        http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+        http.get('/api/workspaces/:workspaceId', () =>
+          HttpResponse.json({ id: 'ws_1', project_id: 'proj_1', name: 'WS One', created_at: '2026-01-01T00:00:00Z' }),
+        ),
+        http.get('/api/projects/:projectId', () =>
+          HttpResponse.json({ id: 'proj_1', name: 'Test Project', has_project_role: false }),
+        ),
+        http.get('/api/projects/:projectId/member-groups', () => {
+          projectReads.push('member-groups')
+          return new HttpResponse(null, { status: 403 })
+        }),
+        http.get('/api/projects/:projectId/graphrag-configs', () => {
+          projectReads.push('graphrag-configs')
+          return new HttpResponse(null, { status: 403 })
+        }),
+        http.get('/api/projects/:projectId/activity-types', () => {
+          projectReads.push('activity-types')
+          return new HttpResponse(null, { status: 403 })
+        }),
+      )
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: seededClient([room]),
+      })
+      await flushPromises()
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('agents.conceptMapPanel.title')
+      expect(projectReads).toEqual([])
     })
   })
 

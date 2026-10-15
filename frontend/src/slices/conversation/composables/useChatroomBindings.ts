@@ -58,6 +58,9 @@ export function useChatroomBindings(
   chatroomId: string,
   /** Reactive getter for the current room (may be null before load). */
   getRoom: () => Chatroom | null,
+  /** Whether to list the project's activity types with the bindings. They are a
+   *  project read ([R5.07]) and only the room creator's controls use them. */
+  { needsActivityTypes }: { needsActivityTypes: () => boolean } = { needsActivityTypes: () => true },
 ) {
   const { t } = useI18n()
   const toast = useToast()
@@ -184,7 +187,7 @@ export function useChatroomBindings(
       // Separate from the two loads above: a project with no activity types is
       // ordinary, and so is a viewer who cannot list them, so neither may fail
       // the whole bindings panel.
-      await loadActivityTypes(ws.project_id)
+      if (needsActivityTypes()) await loadActivityTypes(ws.project_id)
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
     }
