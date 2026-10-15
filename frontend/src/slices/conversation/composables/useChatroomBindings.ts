@@ -1,7 +1,7 @@
 // Composable: chatroom agent binding management (list, add, remove).
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
@@ -94,6 +94,19 @@ export function useChatroomBindings(
   // instruction the teacher can act on, and telling them that when the listing
   // merely failed sends them to create something that already exists.
   const activityTypesFailed = ref(false)
+  // The project the last load resolved. Kept so the types can still be listed
+  // when the creator bit settles after the bindings did (the session's `me` can
+  // arrive after the room).
+  const bindingsProjectId = ref<string | null>(null)
+  let typesRequestedFor: string | null = null
+  watch(
+    // Project id first: it is null at setup, so the caller's getter is not read
+    // before the caller has finished declaring what it reads.
+    () => bindingsProjectId.value && needsActivityTypes() && bindingsProjectId.value,
+    (projectId) => {
+      if (projectId && typesRequestedFor !== projectId) void loadActivityTypes(projectId)
+    },
+  )
   const selectedAgentId = ref('')
   const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
@@ -187,6 +200,7 @@ export function useChatroomBindings(
       // Separate from the two loads above: a project with no activity types is
       // ordinary, and so is a viewer who cannot list them, so neither may fail
       // the whole bindings panel.
+      bindingsProjectId.value = ws.project_id
       if (needsActivityTypes()) await loadActivityTypes(ws.project_id)
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
@@ -194,6 +208,7 @@ export function useChatroomBindings(
   }
 
   async function loadActivityTypes(projectId: string): Promise<void> {
+    typesRequestedFor = projectId
     try {
       activityTypes.value = await listActivityTypes(projectId)
       activityTypesFailed.value = false

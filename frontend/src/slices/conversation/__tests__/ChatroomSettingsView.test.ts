@@ -441,6 +441,34 @@ describe('ChatroomSettingsView', () => {
     })
   })
 
+  // The activity types feed only the creator's picker; the creator bit needs the
+  // session's `me`, which can settle after the bindings have loaded.
+  it('lists the activity types once the viewer turns out to be the creator', async () => {
+    let typeReads = 0
+    const room = makeChatroom({ created_by_user_id: 'u_1' } as Partial<Chatroom>)
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:projectId/activity-types', () => {
+        typeReads += 1
+        return HttpResponse.json([])
+      }),
+    )
+    await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    await flushPromises()
+    await flushPromises()
+    expect(typeReads).toBe(0)
+
+    useSessionStore().me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    await flushPromises()
+    await flushPromises()
+
+    expect(typeReads).toBe(1)
+  })
+
   it('shows a moderator the wake-up editor and the dead-letter viewer', async () => {
     server.use(
       http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
