@@ -129,8 +129,8 @@ both.
 - [ ] AC-6: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
   as before on the compose stack after each release, observed live.
 - [ ] AC-7: backend lint, typecheck and tests (db tier included) pass in CI for each
-  milestone. Milestone B: CI run 38769376813 green at `426a259f` (PR #260), db tier
-  included.
+  milestone. Milestone B: CI run 38773253521 green at `acfba904` (PR #260), db tier
+  included, after the `/code-review` fixes.
 
 ## 10. SRS Delta
 
