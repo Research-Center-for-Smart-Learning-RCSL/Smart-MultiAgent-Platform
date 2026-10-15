@@ -282,23 +282,28 @@ async def test_a_current_snapshot_restores_with_an_earlier_release(
     assert [_sorted(v) for v in stored["knows"][:keys_written]] == [["m1", "m2"]] * keys_written
 
 
-async def test_a_release_a_snapshot_restores_with_the_current_release(
-    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
-) -> None:
-    # Release A's snapshot carries both keys with the same list.
+def _snapshot(**evidence: list[str]) -> dict[str, Any]:
+    """A one-edge snapshot as Redis holds it, with the given evidence keys only."""
     edge = {
         "subject": "alice",
         "relation": "knows",
         "object": "bob",
         "confidence": 0.9,
-        "evidence_refs": ["m1", "m2"],
-        "evidence_msg_ids": ["m1", "m2"],
         "source_member_ids": [],
         "first_seen_at": None,
         "last_seen_at": None,
         "build_id": "b0",
+        **evidence,
     }
-    await driver.restore_from_snapshot(config_id=config_id, snapshot={"edges": [edge], "nodes": []})
+    return {"edges": [edge], "nodes": []}
+
+
+async def test_a_release_a_snapshot_restores_with_the_current_release(
+    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
+) -> None:
+    # Release A's snapshot carries both keys with the same list.
+    snapshot = _snapshot(evidence_refs=["m1", "m2"], evidence_msg_ids=["m1", "m2"])
+    await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
     stored = await _raw_evidence(raw, config_id)
     assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
@@ -307,16 +312,8 @@ async def test_a_release_a_snapshot_restores_with_the_current_release(
 async def test_the_restore_trusts_the_new_snapshot_key(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
-    edge = {
-        "subject": "alice",
-        "relation": "knows",
-        "object": "bob",
-        "confidence": 0.9,
-        "evidence_refs": ["m1"],
-        "evidence_msg_ids": ["stale"],
-        "build_id": "b0",
-    }
-    await driver.restore_from_snapshot(config_id=config_id, snapshot={"edges": [edge], "nodes": []})
+    snapshot = _snapshot(evidence_refs=["m1"], evidence_msg_ids=["stale"])
+    await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
     stored = await _raw_evidence(raw, config_id)
     assert stored["knows"] == (["m1"], ["m1"])
@@ -326,22 +323,7 @@ async def test_an_n_minus_1_snapshot_restores_with_the_current_release(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     # The shape release N-1 put into Redis: no evidence_refs key at all.
-    snapshot = {
-        "edges": [
-            {
-                "subject": "alice",
-                "relation": "knows",
-                "object": "bob",
-                "confidence": 0.9,
-                "evidence_msg_ids": ["m1", "m2"],
-                "source_member_ids": [],
-                "first_seen_at": None,
-                "last_seen_at": None,
-                "build_id": "b0",
-            }
-        ],
-        "nodes": [],
-    }
+    snapshot = _snapshot(evidence_msg_ids=["m1", "m2"])
     await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
     stored = await _raw_evidence(raw, config_id)
@@ -401,6 +383,23 @@ async def test_the_backfill_counts_copies_and_is_idempotent(
 
     again = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id], batch=1)
     assert (again.pending, again.copied, again.remaining) == (0, 0, 0)
+
+
+async def test_the_backfill_never_overwrites_the_new_key(
+    driver: Neo4jAsyncDriver,
+    raw: AsyncDriver,
+    redis: Redis,
+    config_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smap.maintenance import neo4j_evidence_refs as cmd
+
+    await _diverged_edge(raw, config_id, new=["m1"], old=["stale"])
+    monkeypatch.setenv(cmd.ARMED_ENV, "1")
+    report = await cmd.run(driver=driver, lock_store=RedisBuildLockStore(redis), config_ids=[config_id])
+
+    assert (report.pending, report.copied, report.remaining) == (0, 0, 0)
+    assert (await _raw_evidence(raw, config_id))["knows"] == (["stale"], ["m1"])
 
 
 async def test_the_backfill_skips_a_busy_config(

@@ -4,14 +4,17 @@ Release A of ``docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand``
 writes both ``evidence_msg_ids`` and ``evidence_refs`` on every edge it touches,
 but a Concept Map delta build never touches older edges, so those keep only the
 old key. This command copies the old key onto every edge where the new one is
-missing or differs, one config at a time under that config's build lock, in
-batches. A config whose lock is held is skipped and reported.
+missing, one config at a time under that config's build lock, in batches. A
+config whose lock is held is skipped and reported.
 
-Run it only once release A is on every web and worker replica: before that, an
-N-1 writer can change the old key after the copy. Re-running repairs such an
-edge, since the command is idempotent. Its "0 remaining" report is what the
-contract dossier (``2026-10-12-graphrag-phase5a2-evidence-refs-contract``) is
-gated on. Dry-run unless ``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see
+Run it only once release A is on every web and worker replica. Its "0 remaining"
+report, from release A's build of this command, is what release B of the contract
+dossier (``2026-10-12-graphrag-phase5a2-evidence-refs-contract``) is gated on.
+Release A's build also re-copies an edge whose keys differ, which repairs one an
+N-1 writer changed after the copy. From release B on, the new key is
+authoritative, so an edge whose keys differ is left alone.
+
+Dry-run unless ``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see
 ``purge_session_dirs._ARMED_ENV`` for why that is not a flag.
 """
 

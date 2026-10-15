@@ -215,11 +215,10 @@ _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 # at this module.
 _EVIDENCE_READ = "coalesce({r}.evidence_refs, {r}.evidence_msg_ids)"
 
-# An edge the backfill still has to copy: written by N-1 (no new key) or touched
-# by an N-1 writer after a copy (new key stale).
-_EVIDENCE_UNMIGRATED = (
-    "r.evidence_msg_ids IS NOT NULL AND (r.evidence_refs IS NULL OR r.evidence_refs <> r.evidence_msg_ids)"
-)
+# An edge the backfill still has to copy: one that never received the new key. An
+# edge whose keys differ is not one; the new key is authoritative from release B on,
+# and copying the old one over it would discard the trusted value.
+_EVIDENCE_UNMIGRATED = "r.evidence_msg_ids IS NOT NULL AND r.evidence_refs IS NULL"
 
 
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
@@ -426,7 +425,7 @@ class Neo4jAsyncDriver:
         return _collapse_config_rows(rows)
 
     async def count_unmigrated_evidence(self) -> dict[str, int]:
-        """Edges per raw config id whose ``evidence_refs`` does not yet mirror the old key.
+        """Edges per raw config id that carry the old key but no ``evidence_refs`` yet.
 
         For the ``neo4j-evidence-refs`` maintenance command only. Keys are left
         unparsed (``""`` for a missing id) so the caller can count an edge it

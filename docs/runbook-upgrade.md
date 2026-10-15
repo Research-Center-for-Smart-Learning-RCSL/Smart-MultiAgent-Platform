@@ -216,7 +216,9 @@ Release B treats `evidence_refs` as authoritative and still writes both properti
 equal, so replicas of A and B may run side by side and B rolls back to A safely.
 Snapshots taken by either restore through the other. Record the date B finished rolling
 out: the clean-up after release C waits 24 hours past it, the lifetime of a build
-snapshot.
+snapshot. From release B on, the command copies only relations that lack
+`evidence_refs`, and it never overwrites a value already there, so the `remaining=0`
+that gates release B must come from release A's build of the command.
 
 ### 3.2 Agent-group Concept Map provenance rebuild
 
