@@ -228,7 +228,9 @@ def test_the_key_group_detail_takes_the_project_role_gate() -> None:
     route = next(
         r
         for r in key_groups.group_router.routes
-        if isinstance(r, APIRoute) and r.path == "/api/key-groups/{group_id}" and "GET" in r.methods
+        if isinstance(r, APIRoute)
+        and r.path == "/api/key-groups/{group_id}"
+        and "GET" in (r.methods or set())
     )
     assert key_groups._require_group_view in {d.call for d in route.dependant.dependencies}
 
