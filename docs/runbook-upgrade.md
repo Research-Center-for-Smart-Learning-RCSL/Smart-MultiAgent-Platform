@@ -212,6 +212,12 @@ An armed run ends with `remaining=0` and exit status 0 once every relation carri
 switches reads to the new property, must not be deployed before a run has reported
 `remaining=0` with release A on every replica.
 
+Release B treats `evidence_refs` as authoritative and still writes both properties
+equal, so replicas of A and B may run side by side and B rolls back to A safely.
+Snapshots taken by either restore through the other. Record the date B finished rolling
+out: the clean-up after release C waits 24 hours past it, the lifetime of a build
+snapshot.
+
 ### 3.2 Agent-group Concept Map provenance rebuild
 
 From the release of `docs/tasks/2026-10-12-graphrag-phase5b-member-filter`, an
