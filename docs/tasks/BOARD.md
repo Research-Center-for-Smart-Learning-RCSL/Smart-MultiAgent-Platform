@@ -795,11 +795,15 @@ each row for its own list — the frontmatter wins over this preamble.
   - **Stage 1 built.** Agent configuration is now readable by editors only (matrix row 28).
     AC-1..AC-5 and AC-11 are ticked.
   - **AC-12** waits on the CI `db`/`integration` tiers.
-  - **Stage 2** (the project-role gate, AC-6..AC-10) was deferred by the user at plan approval
-    and is not started.
-  - **Deviations and follow-ups.** D-1..D-6 and FU-3..FU-5 are in the dossier. FU-3 is a
-    pre-existing medium from the security audit: concept-map coverage leaks room names.
-  - **Release note.** A teacher who is a Project Member, not an owner, loses the agents pages.
+  - **Stage 2 built 2026-10-15.** Project-scoped reads now require a project role ([R5.07]).
+    AC-6..AC-10 are ticked.
+  - **Deviations and follow-ups.** D-1..D-13 and FU-3..FU-7 are in the dossier; FU-2 is resolved.
+    FU-3 is a pre-existing medium from the security audit: concept-map coverage leaks room names
+    to Project Members.
+  - **Release notes.**
+    - A teacher who is a Project Member, not an owner, loses the agents pages.
+    - A bare Org Member keeps only the path to a room open to the org. They lose the prompt
+      assistant, canvas templates, the dashboard, the member list and the other project pages.
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
   [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.

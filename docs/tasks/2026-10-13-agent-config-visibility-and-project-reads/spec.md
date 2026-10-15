@@ -206,13 +206,14 @@ the dependency's docstring states which to use when.
 
 ## 7. NFR Checklist
 
-- [ ] i18n: any new string in both locales.
-- [ ] Audit log: N/A; reads are not audited today and this adds no write.
-- [ ] Tenant isolation: the whole point. Each changed route is covered by a role-parametrized test
+- [x] i18n: any new string in both locales.
+- [x] Audit log: N/A; reads are not audited today and this adds no write.
+- [x] Tenant isolation: the whole point. Each changed route is covered by a role-parametrized test
   (§12), including the bare-Org-Member case and the cross-org case.
-- [ ] Error handling UX: non-editors and bare organization members are not offered surfaces that
+- [x] Error handling UX: non-editors and bare organization members are not offered surfaces that
   would 403; a direct URL shows the existing forbidden state.
-- [ ] Performance: no new queries; the predicate reuses the role set each gate already resolves.
+- [x] Performance: no new queries; the predicate reuses the role set each gate already resolves.
+  Exception in D-12.
 
 ## 8. Security Considerations
 
@@ -270,15 +271,15 @@ Stage 1
   mark none as orphaned; a moderator's room settings are unchanged.
 
 Stage 2
-- [ ] AC-6: every stage-2 route returns 403 for a bare Org Member and 200 for a Project Member,
+- [x] AC-6: every stage-2 route returns 403 for a bare Org Member and 200 for a Project Member,
   Project Owner, Org Owner and Admin.
-- [ ] AC-7: a bare Org Member still reaches an `allow_org_members` room through the
+- [x] AC-7: a bare Org Member still reaches an `allow_org_members` room through the
   room-navigation reads (Q-7); the existing room-listing visibility tests pass unchanged.
-- [ ] AC-8: `ProjectOut.has_project_role` is true for project roles and false for a bare Org
+- [x] AC-8: `ProjectOut.has_project_role` is true for project roles and false for a bare Org
   Member; `gen:api` is rerun.
-- [ ] AC-9: a bare Org Member's project view offers only workspaces and rooms, and their room view
+- [x] AC-9: a bare Org Member's project view offers only workspaces and rooms, and their room view
   offers neither the prompt assistant nor canvas templates, without any 403 request.
-- [ ] AC-10: the dashboard routes refuse a bare Org Member (the F-24 decision).
+- [x] AC-10: the dashboard routes refuse a bare Org Member (the F-24 decision).
 
 Both
 - [x] AC-11: `backend/tests/integration/test_permission_matrix.py` covers matrix row 28.
@@ -372,21 +373,74 @@ and run in CI. Everything else passed locally:
 - **D-6**: the manual walk through the `run` skill (§12) was not performed; no stack was running.
   AC-4 and AC-5 are verified by the view tests.
 
+**Build status (2026-10-15).** Stage 2 is built on the user's instruction to continue: commits
+`d2543556` (backend), `983bdbd8` (frontend), `5cc3eeb9` and `39320370` (the room creator's
+activity types, from the quality audit and a code review), and `3563dc75` (the key-group detail,
+from the security audit). AC-6 to AC-10 are verified by unit and view tests. AC-12 stays open on the
+backend `db`/`integration` tiers only, which need Postgres and run in CI. Everything else passed
+locally:
+- backend unit tier: 11814 passed;
+- `ruff check`, `ruff format --check` and `mypy` clean;
+- frontend: full run, lint, typecheck and build. The full run's two failures were timing flakes
+  under build load (`AgentToolsView` CodeMirror and `mobileViewportContract`), and both pass in
+  isolation.
+
+- **D-7**: `assert_project_membership` is removed rather than kept beside `assert_project_role`.
+  Nothing calls it after stage 2, and leaving it would offer the next route the gate [R5.07]
+  retires. Its unit test went with it; three tests that patched it now patch the new helper.
+- **D-8**: AC-6, AC-7 and AC-10 are verified by `backend/tests/unit/test_require_project_role.py`,
+  plus a `db`-tier test, rather than by §12's seeded HTTP table:
+  - the unit test drives the dependency and the helpers for seven caller types;
+  - it reads the mounted route table, so every project-path route still on the membership gate
+    must be one of the room-path reads;
+  - it checks that each inline route calls a project-role helper.
+
+  With the old gate restored, it fails. `tests/integration/test_project_role_gate_db.py` resolves
+  the roles against real rows and runs in CI. The seeded table (D-4) is not written, and it would
+  duplicate both tests.
+- **D-9**: following D-3, there was no prompt-assistant or canvas-picker surface in a room to hide.
+  The backend routes moved as §6 says, and the POST that opens a prompt-assistant session moved with
+  the two reads, since it reads the project's assistant configuration.
+- **D-10**: two surfaces outside §6 moved for AC-9:
+  - Room settings no longer request member groups or Concept Maps for a caller without a project
+    role.
+  - The room's activity panel and the binding settings list activity types only for the room
+    creator, whose picker is the only reader.
+
+  The binding settings read the types through a query that follows the creator bit, because
+  `session.me` can settle after the room does.
+- **D-11**: the security audit's sweep of item-level reads found `GET /api/key-groups/{group_id}`
+  still gated by `KEY_VIEW_USAGE_PROJECT`, which a bare Org Member holds (matrix row 5). It is a
+  group's configuration, not key usage, so it moved to the project role (Q-5 keeps only the usage
+  route on row 5).
+- **D-12**: the project listing now resolves `has_project_role` in batch, which adds one query per
+  listing (the caller's `project_members` rows). It is the same shape as `is_moderator`.
+- **D-13**: the `run` walk was again not performed, so AC-9 is verified by the view tests. No living
+  doc named the old gates, so the docs-update step was not needed.
+
 ## 16. Follow-ups
 
 - **FU-1**: whether ordinary project members (students) should read knowledge configs (RAG,
   knowledge maps, GraphRAG) and agent groups. Stage 2 only removes the organization-member leak.
-- **FU-2**: `ProjectDetailView.vue:47` checks the member row's role without the Org Owner
-  inheritance that `is_moderator` applies.
+- **FU-2** (resolved in stage 2): `ProjectDetailView.vue:47` checked the member row's role without
+  the Org Owner inheritance that `is_moderator` applies. It now reads `is_moderator` and no longer
+  reads the member list.
 - **FU-3** (security audit, MEDIUM, pre-existing): `GET /api/agents/{id}/concept-map-coverage`
   (`graphrag.py:592`) is membership-gated and returns `owner_name`. For a chatroom-owned map that
   is the room's name (`graphrag_repositories.py:597`). A member can therefore learn the names of
   rooms they cannot open, against [R13.32]; no room-ACL filter was found on that path. Either apply
   `has_config_read_access` per entry or move the route behind row 28. Stage 1 stops the frontend
-  from requesting it for non-editors, but the server-side exposure remains.
+  from requesting it for non-editors, but the server-side exposure remains. Stage 2 narrows the
+  route to project roles, so a bare Org Member no longer reaches it; a Project Member still does.
 - **FU-4** (code review): `agentsApi.listNames` reads a single page at the server ceiling of 500.
   A project with more agents loses names silently, in the room labels as well as in agent-group
   detail. This predates the change in the chatroom path.
 - **FU-5** (quality audit, info): `get_agent_dlq` refuses with a plain `HTTPException`, while
   `assert_project_capability` answers with problem+json. This matches the rest of
   `orchestration.py`; aligning it means changing the whole module.
+- **FU-6** (quality audit, pre-existing): the project WebSocket (`app/api/ws/project.py`) admits only
+  callers with an explicit `project_members` row. That is stricter than [R5.07], but it also shuts
+  out an Org Owner who inherits the Project Owner role ([R5.03]) and holds no row.
+- **FU-7** (security audit, hardening, pre-existing): the key-group item gate
+  (`key_groups.py:221`) answers 404 for a missing group and 403 for one the caller may not read, so
+  the existence of a group id can be tested. Group ids are random UUIDs.
