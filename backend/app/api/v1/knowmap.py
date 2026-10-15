@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import (
     ADMIN_RESET_FORCE_DESCRIPTION,
     PaginationParams,
-    assert_project_membership,
+    assert_project_role,
 )
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from app.wiring.knowledge_ingest import KnowledgeIngestWiring
@@ -75,7 +75,7 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -276,7 +276,7 @@ project_router = APIRouter(prefix="/api/projects/{project_id}/knowmap-configs", 
 async def list_knowmap_configs(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[KnowmapConfigOut]:
     rows = await KnowmapConfigService(db).list_for_project(project_id)
@@ -323,7 +323,7 @@ async def read_knowmap_config(
     db: AsyncSession = Depends(db_session),
 ) -> KnowmapConfigOut:
     cfg = await KnowmapConfigService(db).get(config_id)
-    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    await assert_project_role(db=db, principal=principal, project_id=cfg.project_id)
     return _to_config_out(cfg)
 
 
@@ -471,7 +471,7 @@ async def read_knowmap_graph(
     cfg = await facade.get_knowmap_config(config_id)
     if cfg is None:
         raise KnowmapConfigNotFound(str(config_id))
-    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    await assert_project_role(db=db, principal=principal, project_id=cfg.project_id)
     # The build-state read gate lives in KnowmapGraphService, so it applies to every
     # caller of the facade rather than only to this route.
     view = await facade.get_knowmap_graph(config_id, limit=limit)
@@ -503,7 +503,7 @@ async def list_knowmap_documents(
     db: AsyncSession = Depends(db_session),
 ) -> list[KnowmapDocumentOut]:
     cfg = await KnowmapConfigService(db).get(config_id)
-    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    await assert_project_role(db=db, principal=principal, project_id=cfg.project_id)
     docs = await KnowmapDocumentRepository(db).list_for_config(
         config_id, limit=pagination.limit, offset=pagination.offset
     )

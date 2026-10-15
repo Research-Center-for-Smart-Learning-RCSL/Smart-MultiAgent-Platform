@@ -57,7 +57,7 @@ class TestResolveWorkspaceRooms:
 
         with (
             patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
-            patch("app.api.v1.dashboard.assert_project_membership") as assert_pm,
+            patch("app.api.v1.dashboard.assert_project_role") as assert_pm,
         ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)
@@ -115,7 +115,7 @@ class TestResolveWorkspaceRooms:
         with (
             patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
             patch(
-                "app.api.v1.dashboard.assert_project_membership",
+                "app.api.v1.dashboard.assert_project_role",
                 side_effect=HTTPException(status_code=403, detail="Not a member"),
             ),
         ):
@@ -134,7 +134,7 @@ class TestResolveWorkspaceRooms:
 
         with (
             patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
-            patch("app.api.v1.dashboard.assert_project_membership"),
+            patch("app.api.v1.dashboard.assert_project_role"),
         ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)

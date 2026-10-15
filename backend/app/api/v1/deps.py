@@ -38,8 +38,7 @@ def parse_if_match(raw: str | None) -> int | None:
     412 rather than a 400 — the client sent a precondition we cannot evaluate.
 
     The same six lines were living in agents.py, chatrooms.py, messages.py,
-    prompt_studio.py, and skills.py; collapsed here alongside
-    :func:`assert_project_membership` for the reason recorded there.
+    prompt_studio.py, and skills.py; collapsed here so they cannot drift.
     """
     if raw is None:
         return None
@@ -98,28 +97,39 @@ async def assert_project_owner(
         _raise_forbidden(reason)
 
 
-async def assert_project_membership(
+async def has_project_role(
     *,
     db: AsyncSession,
     principal: Principal,
     project_id: uuid.UUID,
-    reason: str = "caller is not a member of the project",
-) -> None:
-    """Raise 403 unless the principal has any role on the project (admin bypasses).
-
-    The single membership-gate for read routes on a project-scoped resource —
-    was hand-copied identically across graphrag.py, knowmap.py, and
-    agent_groups.py (found in code review, 2026-07-10); collapsed here
-    alongside :func:`assert_project_owner` for the same reason.
-    """
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
+) -> bool:
+    """Non-raising form of :func:`assert_project_role`, for a caller that brands a
+    response on the answer rather than refusing (``ProjectOut.has_project_role``)."""
+    from shared_kernel.auth.dependencies import get_role_resolver
+    from shared_kernel.auth.permissions import Scope, holds_project_role
 
     if principal.is_admin:
-        return
+        return True
     resolver = await get_role_resolver(db)
-    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if not roles:
+    return holds_project_role(await resolver.roles_for(principal, Scope(project_id=project_id)))
+
+
+async def assert_project_role(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+    reason: str = "caller holds no role in the project",
+) -> None:
+    """Raise 403 unless the principal holds a project role ([R5.07]; admin bypasses).
+
+    The inline form of ``require_project_role`` for routes that derive the project
+    from a resource. It replaced ``assert_project_membership``, which admitted a
+    bare Org Member of the parent org and so let one read every project of it.
+    """
+    from shared_kernel.auth.dependencies import _raise_forbidden
+
+    if not await has_project_role(db=db, principal=principal, project_id=project_id):
         _raise_forbidden(reason)
 
 

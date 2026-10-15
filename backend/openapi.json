@@ -9539,6 +9539,11 @@
             ],
             "title": "Deleted At"
           },
+          "has_project_role": {
+            "default": false,
+            "title": "Has Project Role",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -29930,7 +29935,7 @@
     },
     "/api/projects/{project_id}/agents/names": {
       "get": {
-        "description": "The same rows as `GET \"\"`, in the same order, projected to id and name.\n\nDeliberately the same membership gate: a name is not more sensitive than the\nlisting it is drawn from, and a second, looser gate on the same rows is how\nan authorization surface drifts apart from itself.",
+        "description": "The same rows as `GET \"\"`, in the same order, projected to id and name.\n\nDeliberately a looser gate than the listing's: the listing carries the\nconfiguration (matrix row 28, editors only), while a name is what every room\nlabel needs, including a room that admits organization members ([R5.07]).",
         "operationId": "list_project_agent_names_api_projects__project_id__agents_names_get",
         "parameters": [
           {

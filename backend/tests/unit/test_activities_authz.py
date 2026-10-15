@@ -343,7 +343,7 @@ class TestListTypesRedaction:
         facade = MagicMock()
         facade.list_types = AsyncMock(return_value=[activity_type])
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
-        monkeypatch.setattr(activities, "assert_project_membership", AsyncMock())
+        monkeypatch.setattr(activities, "assert_project_role", AsyncMock())
         monkeypatch.setattr(activities, "is_project_owner_or_admin", AsyncMock(return_value=False))
 
         out = await activities.list_activity_types(
@@ -360,7 +360,7 @@ class TestListTypesRedaction:
         facade = MagicMock()
         facade.list_types = AsyncMock(return_value=[activity_type])
         monkeypatch.setattr(activities, "ActivitiesFacade", lambda _db: facade)
-        monkeypatch.setattr(activities, "assert_project_membership", AsyncMock())
+        monkeypatch.setattr(activities, "assert_project_role", AsyncMock())
         monkeypatch.setattr(activities, "is_project_owner_or_admin", AsyncMock(return_value=True))
 
         out = await activities.list_activity_types(

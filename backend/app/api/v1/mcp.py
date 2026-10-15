@@ -24,7 +24,7 @@ from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
-    require_membership,
+    require_project_role,
 )
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -129,7 +129,7 @@ project_router = APIRouter(
 @project_router.get("")
 async def list_allowlist(
     project_id: uuid.UUID = Path(...),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[AllowlistEntryOut]:
     service = EgressAllowlistService(db)

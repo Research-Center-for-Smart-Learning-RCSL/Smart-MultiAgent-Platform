@@ -30,7 +30,7 @@ from fastapi import (
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, assert_project_role
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from app.config.settings import get_settings
 from app.wiring.knowledge_ingest import KnowledgeIngestWiring
@@ -56,7 +56,7 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -218,7 +218,7 @@ project_router = APIRouter(
 async def list_rag_configs(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[RagConfigOut]:
     service = RagConfigService(db)
@@ -297,15 +297,7 @@ async def read_rag_config(
 ) -> RagConfigOut:
     service = RagConfigService(db)
     cfg = await service.get(config_id)
-    # Membership check scoped to cfg's project.
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=cfg.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the config's project")
+    await assert_project_role(db=db, principal=principal, project_id=cfg.project_id)
     return _to_config_out(cfg)
 
 
@@ -432,14 +424,7 @@ async def list_documents(
 ) -> list[RagDocumentOut]:
     service = RagConfigService(db)
     cfg = await service.get(config_id)
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=cfg.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the config's project")
+    await assert_project_role(db=db, principal=principal, project_id=cfg.project_id)
     from contexts.knowledge.infrastructure.repositories import (
         RagDocumentRepository,
     )

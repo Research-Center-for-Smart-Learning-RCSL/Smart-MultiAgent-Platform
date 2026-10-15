@@ -32,6 +32,7 @@ from shared_kernel.auth.permissions import (
     RoleResolver,
     Scope,
     decide,
+    holds_project_role,
 )
 from shared_kernel.db.session import db_session
 from shared_kernel.errors.problem import Problem, problem_type
@@ -149,9 +150,10 @@ def require_membership(
 ) -> Callable[..., Awaitable[None]]:
     """Assert the caller is a member (any role) of the target org or project.
 
-    Use for *read-only* endpoints where `require(Capability, ...)` would be
-    over-restrictive (the matrix is privilege-centric; bare membership is
-    below the lowest capability row). Admin always passes.
+    At project scope this admits a bare Org Member of the parent org, so a
+    project-scoped read takes `require_project_role` instead ([R5.07]); see there
+    for the few reads that keep this gate. At org scope it is the org read gate.
+    Admin always passes.
     """
     builder = scope_from_path(org_param=org_param, project_param=project_param)
 
@@ -168,6 +170,34 @@ def require_membership(
         roles = await resolver.roles_for(principal, scope)
         if not roles:
             _raise_forbidden("caller is not a member of the scope")
+
+    return dep
+
+
+def require_project_role(*, project_param: str) -> Callable[..., Awaitable[None]]:
+    """Assert the caller holds a project role on the target project ([R5.07]).
+
+    The gate for project-scoped reads. It differs from `require_membership` in one
+    case only: a bare Org Member of the project's parent org passes that gate and
+    is refused by this one. Keep `require_membership` for the reads on the path to
+    a room that admits org members, and for nothing else: the project, its
+    workspace list, a workspace, a workspace's room list, and agent names.
+    Admin always passes.
+    """
+    builder = scope_from_path(project_param=project_param)
+
+    async def dep(
+        request: Request,
+        principal: Principal = Depends(current_principal),
+        resolver: RoleResolver = Depends(get_role_resolver),
+    ) -> None:
+        if principal.is_admin:
+            return
+        scope = await builder(request)
+        if scope.project_id is None:
+            _raise_forbidden("project role check without scope")
+        if not holds_project_role(await resolver.roles_for(principal, scope)):
+            _raise_forbidden("caller holds no role in the project")
 
     return dep
 
@@ -196,6 +226,7 @@ __all__ = [
     "optional_principal",
     "require",
     "require_membership",
+    "require_project_role",
     "require_registered_principal",
     "scope_from_path",
 ]

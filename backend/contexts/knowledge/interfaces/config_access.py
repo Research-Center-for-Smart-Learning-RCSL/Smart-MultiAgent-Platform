@@ -7,10 +7,10 @@ same rule and cannot drift:
 - A chatroom-owned Concept Map inherits the owning room's ACL (§21.1): only
   principals permitted to read the private room may read its graph or subscribe
   to its build status.
-- agent_group- and workspace-owned Concept Maps require project membership plus
-  the owner's ``concept_map_enabled`` opt-in (set only by a strict Project
-  Owner, [R11.17]).
-- RAG and Knowledge-Map configs (no ``owner_kind``) require project membership.
+- agent_group- and workspace-owned Concept Maps require a project role
+  ([R5.07]) plus the owner's ``concept_map_enabled`` opt-in (set only by a
+  strict Project Owner, [R11.17]).
+- RAG and Knowledge-Map configs (no ``owner_kind``) require a project role.
 
 Admin bypasses. SoC: this consumes the conversation room-ACL port, the tenancy
 role resolver, and the agent_groups / conversation facades — it never
@@ -33,7 +33,7 @@ from contexts.conversation.interfaces.access import (
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
-from shared_kernel.auth.permissions import Principal, Scope
+from shared_kernel.auth.permissions import Principal, Scope, holds_project_role
 
 
 async def has_config_read_access(
@@ -64,10 +64,10 @@ async def has_config_read_access(
             return False
         return True
 
-    # agent_group / workspace / rag / knowmap -> project membership first.
+    # agent_group / workspace / rag / knowmap -> a project role first ([R5.07]):
+    # a bare Org Member reaches only what a room it may read owns, above.
     resolver = TenancyRoleResolver(session)
-    roles = await resolver.roles_for(principal, Scope(project_id=cfg.project_id))
-    if not roles:
+    if not holds_project_role(await resolver.roles_for(principal, Scope(project_id=cfg.project_id))):
         return False
 
     # R11.17: agent_group / workspace Concept Maps additionally require the

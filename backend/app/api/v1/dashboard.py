@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import assert_project_membership
+from app.api.v1.deps import assert_project_role
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.dependencies import current_principal
@@ -117,7 +117,7 @@ async def _resolve_workspace_rooms(
     workspace = await facade.get_workspace(workspace_id)
     if workspace is None or workspace.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    await assert_project_membership(db=db, principal=principal, project_id=workspace.project_id)
+    await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
     room_ids = await facade.list_chatroom_ids_for_workspace(workspace_id)
     if not room_ids:
         return {}

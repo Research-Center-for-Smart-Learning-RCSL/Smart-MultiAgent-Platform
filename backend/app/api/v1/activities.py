@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import (
     PaginationParams,
-    assert_project_membership,
     assert_project_owner,
+    assert_project_role,
     is_project_owner_or_admin,
 )
 from contexts.activities.domain.errors import (
@@ -702,7 +702,7 @@ async def list_activity_types(
     lists types (that is how a facilitator picks one to activate). Only
     `validator_config` is owner-gated (R30.25): it may hold answer keys and,
     once sealed validator credentials exist, secrets."""
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_role(db=db, principal=principal, project_id=project_id)
     is_owner = await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id)
     types = await ActivitiesFacade(db).list_types(project_id)
     return [_type_out(t, include_validator_config=is_owner) for t in types]

@@ -27,7 +27,7 @@ from shared_kernel.auth.dependencies import (
     current_principal,
     get_role_resolver,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal, Scope, decide
@@ -118,7 +118,7 @@ async def list_member_groups(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[MemberGroupOut]:
     """R13.31 — a manager sees the project's groups, anyone else sees their own."""

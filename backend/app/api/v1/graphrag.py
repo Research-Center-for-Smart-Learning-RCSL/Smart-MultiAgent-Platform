@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import (
     ADMIN_RESET_FORCE_DESCRIPTION,
     PaginationParams,
-    assert_project_membership,
+    assert_project_role,
 )
 from contexts.knowledge.application.graphrag_config_service import (
     GraphRagConfigService,
@@ -47,7 +47,7 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -235,7 +235,7 @@ project_router = APIRouter(
 async def list_configs(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[GraphRagConfigOut]:
     service = GraphRagConfigService(db)
@@ -247,7 +247,7 @@ async def list_configs(
 @project_router.get("/owner-options")
 async def list_owner_options(
     project_id: uuid.UUID = Path(...),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[ConceptMapOwnerOptionOut]:
     """Owners in the project without a Concept Map, for the overview create picker."""
@@ -608,7 +608,7 @@ async def read_agent_concept_map_coverage(
     agent = await AgentsFacade(db).get_agent(agent_id)
     if agent is None:
         raise AgentNotFound(str(agent_id))
-    await assert_project_membership(
+    await assert_project_role(
         db=db,
         principal=principal,
         project_id=agent.project_id,

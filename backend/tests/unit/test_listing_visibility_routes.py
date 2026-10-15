@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -261,12 +262,21 @@ def _project(name: str) -> SimpleNamespace:
     )
 
 
+def _verdicts(*, moderated: set[uuid.UUID] | None = None, with_role: set[uuid.UUID] | None = None) -> Any:
+    resolver = SimpleNamespace(
+        moderated_project_ids=AsyncMock(return_value=moderated or set()),
+        project_role_project_ids=AsyncMock(return_value=with_role or set()),
+    )
+    return patch("contexts.tenancy.interfaces.role_resolver.TenancyRoleResolver", return_value=resolver)
+
+
 async def _call_list_projects(
     *,
     candidates: list[SimpleNamespace],
     directly_visible: set[uuid.UUID],
     with_visible_room: set[uuid.UUID],
     moderated: set[uuid.UUID] | None = None,
+    with_role: set[uuid.UUID] | None = None,
 ) -> tuple[list, AsyncMock]:
     service = AsyncMock()
     service.list_candidates_for_user = AsyncMock(
@@ -278,10 +288,11 @@ async def _call_list_projects(
     with (
         patch.object(projects_mod, "ProjectService", return_value=service),
         patch.object(projects_mod, "ConversationFacade", return_value=facade),
-        # `_moderated` builds a real role resolver against `db`; these tests are
-        # about which projects are *listed*, and the moderator bit each row
-        # carries is pinned by `test_moderated_project_ids.py`.
-        patch.object(projects_mod, "_moderated", AsyncMock(return_value=moderated or set())),
+        # `_project_outs` builds a real role resolver against `db`; these tests are
+        # about which projects are *listed*, and the two verdicts each row carries
+        # are pinned by `test_moderated_project_ids.py` and
+        # `test_project_role_project_ids.py`.
+        _verdicts(moderated=moderated, with_role=with_role),
     ):
         out = await projects_mod.list_projects(
             scope=None,
@@ -311,6 +322,22 @@ async def test_each_listed_project_carries_the_callers_own_moderator_bit() -> No
     )
 
     assert {p.name: p.is_moderator for p in out} == {"mine": False, "theirs": True}
+
+
+@pytest.mark.asyncio
+async def test_each_listed_project_carries_the_callers_own_project_role_bit() -> None:
+    """[R5.07]: a project listed only through an org-open room is marked as one the
+    caller holds no role in, so the client offers it the room path and nothing else."""
+    mine, open_to_org = _project("mine"), _project("open-to-org")
+
+    out, _ = await _call_list_projects(
+        candidates=[mine, open_to_org],
+        directly_visible={mine.id},
+        with_visible_room={open_to_org.id},
+        with_role={mine.id},
+    )
+
+    assert {p.name: p.has_project_role for p in out} == {"mine": True, "open-to-org": False}
 
 
 @pytest.mark.asyncio
@@ -382,7 +409,7 @@ async def _call_list_projects_scoped(
             "shared_kernel.auth.dependencies.get_role_resolver",
             AsyncMock(return_value=resolver),
         ),
-        patch.object(projects_mod, "_moderated", AsyncMock(return_value=set())),
+        _verdicts(),
     ):
         return await projects_mod.list_projects(
             scope="org",

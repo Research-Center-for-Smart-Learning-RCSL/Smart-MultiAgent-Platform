@@ -56,7 +56,7 @@ async def test_read_knowmap_graph_returns_bounded_view() -> None:
 
     with (
         patch("app.api.v1.knowmap.KnowledgeFacade", facade),
-        patch("app.api.v1.knowmap.assert_project_membership", AsyncMock()),
+        patch("app.api.v1.knowmap.assert_project_role", AsyncMock()),
     ):
         out = await read_knowmap_graph(
             config_id=config_id,
@@ -93,7 +93,7 @@ async def test_read_knowmap_graph_passes_the_gate_flag_through(blocked: bool) ->
 
     with (
         patch("app.api.v1.knowmap.KnowledgeFacade", facade),
-        patch("app.api.v1.knowmap.assert_project_membership", AsyncMock()),
+        patch("app.api.v1.knowmap.assert_project_role", AsyncMock()),
     ):
         out = await read_knowmap_graph(
             config_id=config_id,
@@ -113,7 +113,7 @@ async def test_read_knowmap_graph_missing_config_raises_not_found() -> None:
 
     with (
         patch("app.api.v1.knowmap.KnowledgeFacade", facade),
-        patch("app.api.v1.knowmap.assert_project_membership", AsyncMock()) as membership,
+        patch("app.api.v1.knowmap.assert_project_role", AsyncMock()) as membership,
         pytest.raises(KnowmapConfigNotFound),
     ):
         await read_knowmap_graph(
@@ -137,7 +137,7 @@ async def test_read_knowmap_graph_forbidden_for_non_member() -> None:
 
     with (
         patch("app.api.v1.knowmap.KnowledgeFacade", facade),
-        patch("app.api.v1.knowmap.assert_project_membership", _deny),
+        patch("app.api.v1.knowmap.assert_project_role", _deny),
         pytest.raises(HTTPException) as exc,
     ):
         await read_knowmap_graph(

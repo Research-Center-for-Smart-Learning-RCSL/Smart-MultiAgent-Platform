@@ -104,6 +104,33 @@ class TenancyRoleResolver(RoleResolver):
             or p.owner_user_id == principal.user_id
         }
 
+    async def project_role_project_ids(
+        self,
+        principal: Principal,
+        projects: Sequence[Project],
+    ) -> set[uuid.UUID]:
+        """In which of these projects does `principal` hold a project role? ([R5.07])
+
+        The batch form of ``holds_project_role(await roles_for(project_scope))``, for
+        the same reason ``moderated_project_ids`` is the batch form of the moderator
+        predicate: a listing and a gate must agree by construction. Three grounds,
+        as in ``roles_for``: a membership row of any role, ownership of the parent
+        org, ownership of a user-owned project. A plain org membership is not one.
+
+        Admin is not considered here; the route applies that bypass.
+        """
+        if not projects:
+            return set()
+        owned_org_ids = await self._org_members.owned_org_ids(principal.user_id)
+        member_of = set(await self._project_members.list_project_ids_for_user(principal.user_id))
+        return {
+            p.id
+            for p in projects
+            if p.id in member_of
+            or (p.owner_org_id is not None and p.owner_org_id in owned_org_ids)
+            or p.owner_user_id == principal.user_id
+        }
+
     async def project_role_holders(
         self,
         user_ids: Sequence[uuid.UUID],

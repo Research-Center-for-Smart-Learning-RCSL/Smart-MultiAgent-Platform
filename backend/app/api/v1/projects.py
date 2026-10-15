@@ -27,6 +27,7 @@ from shared_kernel.auth.dependencies import (
     current_principal,
     require,
     require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -63,6 +64,11 @@ class ProjectOut(BaseModel):
     # is entitled to. Computed by `moderated_project_ids`, the batch form of the
     # gates' own predicate.
     is_moderator: bool = False
+    # Does the caller hold a project role here ([R5.07])? False for a bare Org Member
+    # who reached the project through a room open to the org: that caller may walk
+    # to the room, and every other project read refuses them. Computed by
+    # `project_role_project_ids`, the batch form of the gate's own predicate.
+    has_project_role: bool = False
 
 
 class ProjectMemberOut(BaseModel):
@@ -100,7 +106,7 @@ class InvitableMemberOut(BaseModel):
     display_name: str | None = None
 
 
-def _to_out(p, *, is_moderator: bool = False) -> ProjectOut:
+def _to_out(p, *, is_moderator: bool, has_project_role: bool) -> ProjectOut:
     owner_type = ProjectOwnerType.ORG if p.owner_org_id else ProjectOwnerType.USER
     owner_id = p.owner_org_id or p.owner_user_id
     return ProjectOut(
@@ -113,25 +119,30 @@ def _to_out(p, *, is_moderator: bool = False) -> ProjectOut:
         created_at=p.created_at.isoformat(),
         deleted_at=p.deleted_at.isoformat() if p.deleted_at else None,
         is_moderator=is_moderator,
+        has_project_role=has_project_role,
     )
 
 
-async def _moderated(
+async def _project_outs(
     db: AsyncSession,
     principal: Principal,
     projects: Sequence[Project],
-) -> set[uuid.UUID]:
-    """Which of `projects` the caller moderates, admin bypass applied.
+) -> list[ProjectOut]:
+    """`ProjectOut` for each of `projects`, with the caller's two verdicts on it.
 
-    One place, so every `ProjectOut` on every route answers the same question
-    the same way — a route that computed this itself would be the second copy
-    `moderated_project_ids` exists to prevent.
+    One place, so every `ProjectOut` on every route answers the same questions
+    the same way — a route that computed either verdict itself would be the
+    second copy the resolver's batch methods exist to prevent. Admin bypass is
+    applied here, as every gate applies it.
     """
     if principal.is_admin:
-        return {p.id for p in projects}
+        return [_to_out(p, is_moderator=True, has_project_role=True) for p in projects]
     from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 
-    return await TenancyRoleResolver(db).moderated_project_ids(principal, projects)
+    resolver = TenancyRoleResolver(db)
+    moderated = await resolver.moderated_project_ids(principal, projects)
+    with_role = await resolver.project_role_project_ids(principal, projects)
+    return [_to_out(p, is_moderator=p.id in moderated, has_project_role=p.id in with_role) for p in projects]
 
 
 async def _list_visible(
@@ -218,8 +229,7 @@ async def list_projects(
             else await _list_visible(db, service, principal, org_id=owner_id)
         )
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    moderated = await _moderated(db, principal, rows)
-    return [_to_out(r, is_moderator=r.id in moderated) for r in rows]
+    return await _project_outs(db, principal, rows)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -268,12 +278,12 @@ async def create_project(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    # The creator moderates what they just created, and `_moderated` says so
+    # The creator moderates what they just created, and `_project_outs` says so
     # without a special case: a user-owned project matches `owner_user_id`, an
     # org-owned one matches the org ownership the capability check above already
     # required. Recomputing rather than hardcoding True is what keeps this
     # response from disagreeing with the GET one request later.
-    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
+    return (await _project_outs(db, principal, [project]))[0]
 
 
 @router.get("/{project_id}")
@@ -285,7 +295,7 @@ async def read_project(
 ) -> ProjectOut:
     service = ProjectService(db)
     project = await service.get(project_id)
-    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
+    return (await _project_outs(db, principal, [project]))[0]
 
 
 @router.patch("/{project_id}")
@@ -319,7 +329,7 @@ async def rename_project(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(project, is_moderator=project.id in await _moderated(db, principal, [project]))
+    return (await _project_outs(db, principal, [project]))[0]
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
@@ -370,7 +380,7 @@ async def restore_project(
 async def list_members(
     project_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
-    _=Depends(require_membership(project_param="project_id")),
+    _=Depends(require_project_role(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectMemberOut]:
     service = ProjectService(db)

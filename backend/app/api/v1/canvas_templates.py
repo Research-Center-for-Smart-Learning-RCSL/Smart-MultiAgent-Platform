@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import assert_project_membership
+from app.api.v1.deps import assert_project_role, has_project_role
 from contexts.canvas.application.template_service import (
     CanvasNotEmpty,
     TemplateDataTooLarge,
@@ -129,15 +129,15 @@ _TEMPLATE_NOT_FOUND = "Template not found"
 
 
 async def _can_read_template(principal: Principal, template: CanvasTemplate, db: AsyncSession) -> bool:
-    """[R13.59]: platform templates for every principal, project templates for the
-    project's members. The one readability rule get, delete and apply share, so a
-    template refused on one route cannot be reached through another (audit F-12)."""
+    """[R13.59]: platform templates for every principal, project templates for
+    holders of a project role ([R5.07]). The one readability rule get, delete and
+    apply share, so a template refused on one route cannot be reached through
+    another (audit F-12)."""
     if principal.is_admin or template.scope is CanvasTemplateScope.PLATFORM:
         return True
     if template.project_id is None:
         return False
-    resolver = TenancyRoleResolver(db)
-    return bool(await resolver.roles_for(principal, Scope(project_id=template.project_id)))
+    return await has_project_role(db=db, principal=principal, project_id=template.project_id)
 
 
 def _template_not_found() -> HTTPException:
@@ -172,7 +172,7 @@ async def list_templates(
             detail="project_id is required for scope=project",
         )
     if project_id is not None:
-        await assert_project_membership(db=db, principal=principal, project_id=project_id)
+        await assert_project_role(db=db, principal=principal, project_id=project_id)
 
     facade = CanvasFacade(db)
     templates = await facade.list_templates(scope=scope_enum, project_id=project_id)

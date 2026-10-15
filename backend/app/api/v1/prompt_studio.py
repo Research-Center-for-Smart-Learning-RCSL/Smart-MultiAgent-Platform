@@ -8,7 +8,7 @@ Platform scope is not a singleton (R29.02 relaxed, R29.16): it holds multiple
 named presets, managed via ``/api/admin/prompt-assistant/presets`` CRUD
 (``require_admin``) rather than the singleton get/put contract above.
 
-Plus project-scoped resolved reads (``require_membership``) and the streaming
+Plus project-scoped resolved reads (``require_project_role``) and the streaming
 session endpoints. Routers stay thin over the application services; key
 material is never returned (metadata only, R29.14).
 """
@@ -59,7 +59,7 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -849,7 +849,7 @@ async def admin_delete_template(
 
 
 @project_router.get(
-    "/prompt-assistant", dependencies=[Depends(require_membership(project_param="project_id"))]
+    "/prompt-assistant", dependencies=[Depends(require_project_role(project_param="project_id"))]
 )
 async def project_resolved_assistant(
     project_id: uuid.UUID = Path(...),
@@ -863,7 +863,7 @@ async def project_resolved_assistant(
 
 
 @project_router.get(
-    "/prompt-templates", dependencies=[Depends(require_membership(project_param="project_id"))]
+    "/prompt-templates", dependencies=[Depends(require_project_role(project_param="project_id"))]
 )
 async def project_merged_templates(
     project_id: uuid.UUID = Path(...),
@@ -877,7 +877,7 @@ async def project_merged_templates(
 @project_router.post(
     "/prompt-assistant/sessions",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_membership(project_param="project_id"))],
+    dependencies=[Depends(require_project_role(project_param="project_id"))],
 )
 async def create_session(
     project_id: uuid.UUID = Path(...),

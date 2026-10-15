@@ -393,6 +393,17 @@ _SELF_SERVICE_CAPABILITIES: frozenset[Capability] = frozenset(
 )
 
 
+# [R5.07] A project role: Project Owner or Project Member. An Org Owner holds
+# PROJECT_OWNER by inheritance at project scope (R5.03), so it qualifies; an
+# ORG_MEMBER alone does not, and admits only the room-navigation reads.
+PROJECT_ROLES: frozenset[Role] = frozenset({Role.PROJECT_OWNER, Role.PROJECT_MEMBER})
+
+
+def holds_project_role(roles: frozenset[Role]) -> bool:
+    """[R5.07] over a role set resolved at project scope. Admin is the caller's bypass."""
+    return not roles.isdisjoint(PROJECT_ROLES)
+
+
 def outcome_for(capability: Capability, role: Role) -> Outcome | None:
     """Return the raw §5.2 cell for `(capability, role)`, or None if the row is
     empty for that role.
@@ -413,6 +424,7 @@ def outcome_for(capability: Capability, role: Role) -> Outcome | None:
 
 
 __all__ = [
+    "PROJECT_ROLES",
     "Capability",
     "Decision",
     "Outcome",
@@ -421,5 +433,6 @@ __all__ = [
     "RoleResolver",
     "Scope",
     "decide",
+    "holds_project_role",
     "outcome_for",
 ]

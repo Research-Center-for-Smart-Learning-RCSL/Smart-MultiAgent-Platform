@@ -18,7 +18,7 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     require,
-    require_membership,
+    require_project_role,
     scope_from_path,
 )
 from shared_kernel.auth.permissions import Capability, Principal
@@ -65,7 +65,7 @@ class SearchKeyOut(BaseModel):
 @router.get(
     "/{project_id}/search-keys",
     response_model=list[SearchKeyOut],
-    dependencies=[Depends(require_membership(project_param="project_id"))],
+    dependencies=[Depends(require_project_role(project_param="project_id"))],
 )
 async def list_search_keys(
     project_id: uuid.UUID,

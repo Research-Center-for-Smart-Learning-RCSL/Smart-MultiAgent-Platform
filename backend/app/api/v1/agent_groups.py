@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
+from app.api.v1.deps import PaginationParams, assert_project_owner, assert_project_role
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
 from contexts.agent_groups.domain.models import AgentGroup, AgentGroupMember
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
@@ -134,7 +134,7 @@ async def list_groups(
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentGroupOut]:
     """List a project's agent groups (Phase 4α). Read ⇒ project membership."""
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_role(db=db, principal=principal, project_id=project_id)
     groups = await AgentGroupFacade(db).list_groups(project_id)
     groups = groups[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(g) for g in groups]
@@ -178,7 +178,7 @@ async def get_group(
 ) -> AgentGroupOut:
     """Read a single agent group (Phase 4α). Read ⇒ project membership."""
     project_id = await _group_project_id(db, group_id)
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_role(db=db, principal=principal, project_id=project_id)
     group = await AgentGroupFacade(db).get_group(group_id)
     if group is None:
         raise AgentGroupNotFound(str(group_id))
@@ -285,7 +285,7 @@ async def list_members(
     db: AsyncSession = Depends(db_session),
 ) -> AgentGroupMembersOut:
     project_id = await _group_project_id(db, group_id)
-    await assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_role(db=db, principal=principal, project_id=project_id)
     return await _members_out(AgentGroupFacade(db), group_id)
 
 
