@@ -143,14 +143,29 @@ None in substance. `REQUIREMENTS.md:1513`'s stale schema sketch is corrected to 
   puts the gate first. On 2026-10-16 the requester chose to write and test B on
   `refactor/graphrag-evidence-refs-contract` ahead of the operator evidence. The gate
   still holds for shipping: the branch does not merge or deploy until AC-1 is recorded.
-- **D-2. From release B, the backfill copies only onto edges without `evidence_refs`
-  (`5ef25e23`).** §5 does not mention the command for release B. Release A's predicate
-  also re-copied edges whose two keys differed, which is right while the old key is
-  authoritative. Under B it would overwrite the authoritative key with a stale one. No
-  release writes such an edge, so this is a guard, not a repair. Found by the quality
-  gate. `test_the_backfill_never_overwrites_the_new_key` was red before the change. The
-  `remaining=0` that gates B therefore has to come from release A's build of the
-  command, as runbook §3.1 now states.
+- **D-2. Withdrawn.** `5ef25e23` narrowed the backfill under release B to edges without
+  `evidence_refs`, on the premise that no release writes an edge whose keys differ.
+  `/code-review` showed the premise false: an N-1 writer after a backfill copy leaves
+  exactly that edge, with the old key correct. Releases A and B always write both keys
+  equal, so a difference can only come from N-1, and the narrowing guarded against
+  nothing while dropping the repair and letting B's build of the command report a
+  false `remaining=0`. The predicate is back to release A's, so the command behaves the
+  same under both releases, matching §5's silence on it.
+  `test_the_backfill_repairs_an_edge_an_n_minus_1_writer_changed` pins it under B.
+- **D-3. `/code-review` findings not acted on.**
+  - B's writes and reads on an edge whose keys differ trust `evidence_refs`, so on such
+    an edge an old-key-only ref is lost on the next write, and A and B replicas answer
+    differently during the rollout. Only N-1 produces that edge, and AC-1's gate (A's
+    command at `remaining=0` with A on every replica) rules it out before B ships. A
+    union of both keys was rejected: an N-1 Knowledge Map replace build shrinks the old
+    key, and a union would bring back the deleted document's refs ([R11.23], expand
+    F-6).
+  - The two restore Cyphers copied into the test differ in two lines; they stay
+    verbatim on purpose, as each pins what a past release really runs.
+  - The evidence union is evaluated per key in each SET. Unchanged from release A; the
+    builders bound the lists.
+  - The test module keeps its `_expand` name: §6 names it as the home of the B and C
+    cases.
 
 ## 12. Follow-ups
 
