@@ -152,7 +152,11 @@ async def test_a_legacy_edge_reads_with_its_evidence(
 
 
 async def _diverged_edge(raw: AsyncDriver, cid: uuid.UUID, *, new: list[str], old: list[str]) -> None:
-    """An edge whose two keys disagree. No release writes this; it shows which key a read trusts."""
+    """An edge whose two keys disagree.
+
+    Only an N-1 writer after a backfill copy leaves one (old key fresh); release B's gate
+    excludes that, so the reads and writes below use it only to show which key B trusts.
+    """
     await _legacy_edge(raw, cid, old)
     async with raw.session() as session:
         await session.run(
@@ -385,7 +389,7 @@ async def test_the_backfill_counts_copies_and_is_idempotent(
     assert (again.pending, again.copied, again.remaining) == (0, 0, 0)
 
 
-async def test_the_backfill_never_overwrites_the_new_key(
+async def test_the_backfill_repairs_an_edge_an_n_minus_1_writer_changed(
     driver: Neo4jAsyncDriver,
     raw: AsyncDriver,
     redis: Redis,
@@ -394,12 +398,18 @@ async def test_the_backfill_never_overwrites_the_new_key(
 ) -> None:
     from smap.maintenance import neo4j_evidence_refs as cmd
 
-    await _diverged_edge(raw, config_id, new=["m1"], old=["stale"])
-    monkeypatch.setenv(cmd.ARMED_ENV, "1")
-    report = await cmd.run(driver=driver, lock_store=RedisBuildLockStore(redis), config_ids=[config_id])
+    # Copied, then an N-1 writer appended m2 to the old key only.
+    await _diverged_edge(raw, config_id, new=["m1"], old=["m1", "m2"])
+    locks = RedisBuildLockStore(redis)
 
-    assert (report.pending, report.copied, report.remaining) == (0, 0, 0)
-    assert (await _raw_evidence(raw, config_id))["knows"] == (["stale"], ["m1"])
+    monkeypatch.delenv(cmd.ARMED_ENV, raising=False)
+    dry = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id])
+    assert (dry.pending, dry.remaining) == (1, 1)
+
+    monkeypatch.setenv(cmd.ARMED_ENV, "1")
+    armed = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id])
+    assert (armed.copied, armed.remaining) == (1, 0)
+    assert (await _raw_evidence(raw, config_id))["knows"] == (["m1", "m2"], ["m1", "m2"])
 
 
 async def test_the_backfill_skips_a_busy_config(
