@@ -130,9 +130,14 @@ def stub_participant_reads(engine: Any, *, facts: str = "") -> None:
     async def _facts(*a: Any, **k: Any) -> str:
         return facts
 
+    async def _no_binding(*a: Any, **k: Any) -> None:
+        return None
+
     engine._room_presence = _presence
     engine._room_creator_id = _creator
     engine._participant_facts = _facts
+    # The binding read that scopes update_wakeup ([R15.06]) is a DB read too.
+    engine._wakeup_binding = _no_binding
 
 
 def wire_engine(

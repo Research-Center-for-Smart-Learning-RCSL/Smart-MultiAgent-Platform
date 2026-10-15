@@ -21,9 +21,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.orchestration.application.a2a_service import A2AService
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
+from contexts.orchestration.application.room_wakeup_service import ResetScope, RoomWakeup, RoomWakeupService
 from contexts.orchestration.application.subagent_service import SubagentService
-from contexts.orchestration.application.wakeup_service import WakeupService
+from contexts.orchestration.application.wakeup_service import WakeTarget, WakeupService
 from contexts.orchestration.domain.models import (
+    AUTOSTOP_HARD_CAP,
+    N_MAX,
+    T_MINUTES_MAX,
     A2AEnvelope,
     AgentInstance,
     Approval,
@@ -33,12 +37,14 @@ from contexts.orchestration.domain.models import (
     Instruction,
     WakeupConfig,
 )
+from contexts.orchestration.domain.room_wakeup import WakeupOverrides
 
 
 class OrchestrationFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._a2a = A2AService(db)
         self._wakeup = WakeupService(db)
+        self._room_wakeup = RoomWakeupService(db)
         self._approval = ApprovalService(db)
         self._instruct = InstructService(db)
         self._subagent = SubagentService(db)
@@ -137,7 +143,7 @@ class OrchestrationFacade:
         agent_ids: list[uuid.UUID],
         observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
         sender_is_human: bool | None = None,
-    ) -> list[uuid.UUID]:
+    ) -> list[WakeTarget]:
         return await self._wakeup.on_message_created(
             room_id=room_id,
             sender_is_user=sender_is_user,
@@ -175,27 +181,69 @@ class OrchestrationFacade:
             room_id=room_id,
         )
 
-    async def update_wakeup(
+    async def update_room_wakeup(
         self,
         *,
         agent_id: uuid.UUID,
+        room_id: uuid.UUID,
+        binding_id: uuid.UUID,
         every_n_messages: int | None = None,
         silence_minutes: int | None = None,
         every_n_messages_enabled: bool | None = None,
         silence_minutes_enabled: bool | None = None,
-        actor_agent_id: uuid.UUID | None = None,
     ) -> WakeupConfig:
-        return await self._wakeup.update_wakeup(
+        """The agent's own tool ([R15.06]): this binding's runtime layer only."""
+        return await self._room_wakeup.update_runtime(
             agent_id=agent_id,
+            room_id=room_id,
+            binding_id=binding_id,
             every_n_messages=every_n_messages,
             silence_minutes=silence_minutes,
             every_n_messages_enabled=every_n_messages_enabled,
             silence_minutes_enabled=silence_minutes_enabled,
-            actor_agent_id=actor_agent_id,
         )
 
-    async def refresh_wakeup_config(self, agent_id: uuid.UUID) -> bool:
-        return await self._wakeup.refresh_wakeup_config(agent_id)
+    async def room_wakeup(self, *, agent_id: uuid.UUID, room_id: uuid.UUID) -> RoomWakeup | None:
+        """The live binding's layered settings; ``None`` when unbound."""
+        return await self._room_wakeup.load(agent_id=agent_id, room_id=room_id)
+
+    async def patch_room_wakeup(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        room_id: uuid.UUID,
+        binding_id: uuid.UUID,
+        expected_version: int,
+        patch: WakeupOverrides,
+        actor_user_id: uuid.UUID,
+    ) -> RoomWakeup:
+        return await self._room_wakeup.patch_room(
+            agent_id=agent_id,
+            room_id=room_id,
+            binding_id=binding_id,
+            expected_version=expected_version,
+            patch=patch,
+            actor_user_id=actor_user_id,
+        )
+
+    async def reset_room_wakeup(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        room_id: uuid.UUID,
+        binding_id: uuid.UUID,
+        expected_version: int,
+        scope: ResetScope,
+        actor_user_id: uuid.UUID,
+    ) -> RoomWakeup:
+        return await self._room_wakeup.reset(
+            agent_id=agent_id,
+            room_id=room_id,
+            binding_id=binding_id,
+            expected_version=expected_version,
+            scope=scope,
+            actor_user_id=actor_user_id,
+        )
 
     # -- Approval (G.6) --
 
@@ -396,4 +444,13 @@ class OrchestrationFacade:
         return await self._subagent.resolve_run_project(workflow_run_id)
 
 
-__all__ = ["OrchestrationFacade"]
+__all__ = [
+    "AUTOSTOP_HARD_CAP",
+    "N_MAX",
+    "T_MINUTES_MAX",
+    "OrchestrationFacade",
+    "ResetScope",
+    "RoomWakeup",
+    "WakeTarget",
+    "WakeupOverrides",
+]

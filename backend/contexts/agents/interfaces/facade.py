@@ -159,10 +159,6 @@ class AgentsFacade:
     ) -> list[Agent]:
         return list(await self._agents.list_for_project(project_id))
 
-    async def list_agents_with_authored_snapshot(self) -> list[Agent]:
-        """Active agents with non-null wakeup_authored_snapshot (G.5)."""
-        return list(await self._agents.list_with_authored_snapshot())
-
     async def count_agents_for_key_groups(self, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Active-agent count per Key Group — consumed by the keys context to
         annotate a key's per-project binding footprint."""

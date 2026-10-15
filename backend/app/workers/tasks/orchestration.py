@@ -3,7 +3,7 @@
 Tasks:
 - ``wakeup_agent``          — enqueue an agent wake-up for a specific room
 - ``evaluate_silence``      — periodic check of silence triggers across rooms
-- ``wakeup_refresh``        — periodic snap of wakeup_config to authored values
+- ``wakeup_refresh``        — periodic clear of due runtime wake-up layers ([R15.09])
 
 G.9 audit wiring: ``make_dlq_audit_callback`` is used by the consumer loop
 to emit ``a2a.dlq`` audit events whenever a message is moved to the DLQ.
@@ -41,6 +41,7 @@ async def wakeup_agent(
     room_id: str,
     trigger: str = "every_n_messages",
     trigger_message_id: str | None = None,
+    binding_id: str | None = None,
 ) -> str:
     """Fire a wake-up for a single agent in a single room (K.3, link b).
 
@@ -57,9 +58,12 @@ async def wakeup_agent(
 
     - room still live (not soft-deleted);
     - agent still exists (``get_agent`` filters deleted);
-    - autostop not tripped — consecutive agent-only rounds below the agent's
-      ``autostop_rounds`` (R15.03/R15.04), a backstop against turn storms for
-      both trigger kinds (the silence sweep also checks this pre-enqueue).
+    - autostop not tripped — consecutive agent-only rounds below the binding's
+      effective cap (R15.03/R15.04), a backstop against turn storms for both
+      trigger kinds (the silence sweep also checks this pre-enqueue);
+    - for an autonomous trigger, the binding that fired is still the live one
+      (``binding_id``; an unbind and rebind is a new incarnation, [R15.09]) and
+      its effective config still has that trigger on.
 
     The turn's own commit / rollback and ``agent.turn_*`` audits are owned by
     the engine; on a completed turn we bump autostop so a runaway agent loop
@@ -68,12 +72,8 @@ async def wakeup_agent(
     from app.config.settings import get_settings
     from contexts.agents.application.runtime.turn_engine import TurnEngine
     from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.conversation.domain.models import ChatroomAgentRole
-    from contexts.conversation.infrastructure.repositories import (
-        ChatroomAgentRepository,
-        ChatroomRepository,
-    )
-    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS, WakeupConfig
+    from contexts.conversation.infrastructure.repositories import ChatroomRepository
+    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS
     from contexts.orchestration.infrastructure import wakeup_state
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel import audit
@@ -104,24 +104,36 @@ async def wakeup_agent(
                 await emit_agent_finished_error(rid, aid, "agent_gone")
             logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: agent gone")
             return "skipped:agent_gone"
-        cfg = WakeupConfig.from_dict(agent.wakeup_config)
-        # O-3 (R28.12): observer bindings use their own, higher round cap —
-        # autostop resets only on user messages, and the prime observer use
-        # case is a room no human is currently speaking in.
-        role = await ChatroomAgentRepository(db).role_of(chatroom_id=rid, agent_id=aid)
-        sm = cfg.triggers.silence_minutes
-        autostop_limit = sm.autostop_limit_for(is_observer=role is ChatroomAgentRole.OBSERVER)
-        autostop_count = await wakeup_state.get_autostop_count(aid, rid)
         # A `mention` is an explicit user call (not an autonomous round), so it
-        # bypasses the autostop backstop — a user summoning the agent must always
-        # get a reply even after the agent has stalled on consecutive self-rounds.
+        # bypasses the gates below — a user summoning the agent must always get
+        # a reply even after the agent has stalled on consecutive self-rounds.
         # `release` (R28.07) is the same shape: the room creator explicitly woke
         # the agent to read a released observation.
-        if trigger not in EXPLICIT_TRIGGERS and autostop_count >= autostop_limit:
-            logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
-                "wakeup skipped: autostop tripped"
-            )
-            return "skipped:autostop"
+        if trigger not in EXPLICIT_TRIGGERS:
+            current = await OrchestrationFacade(db).room_wakeup(agent_id=aid, room_id=rid)
+            if current is None or (binding_id is not None and str(current.state.binding_id) != binding_id):
+                logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: binding gone")
+                return "skipped:binding_gone"
+            triggers = current.effective.config.triggers
+            still_on = {
+                "every_n_messages": triggers.every_n_messages.enabled,
+                "silence_minutes": triggers.silence_minutes.enabled,
+            }.get(trigger, True)
+            if triggers.call_only.enabled or not still_on:
+                logger.bind(agent_id=agent_id, room_id=room_id, trigger=trigger).info(
+                    "wakeup skipped: trigger turned off since it fired"
+                )
+                return "skipped:trigger_off"
+            # O-3 (R28.12): an observer binding uses its own, higher round cap —
+            # autostop resets only on user messages, and the prime observer use
+            # case is a room no human is currently speaking in.
+            autostop_limit = triggers.silence_minutes.autostop_limit_for(is_observer=current.is_observer)
+            autostop_count = await wakeup_state.get_autostop_count(aid, rid, current.state.binding_id)
+            if autostop_count >= autostop_limit:
+                logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
+                    "wakeup skipped: autostop tripped"
+                )
+                return "skipped:autostop"
 
         # --- turn -------------------------------------------------------
         settings = get_settings()
@@ -248,19 +260,16 @@ async def approval_timeout(
 async def evaluate_silence(ctx: dict[str, Any]) -> str:
     """Periodic sweep: fire silence_minutes wake-ups for room-bound agents.
 
-    Runs every 30 s via Arq cron (G.3 / R15.02). Uses the
-    ``ChatroomAgentRepository.list_live_bindings`` method to fetch active
-    bindings (M19: SQL extracted into repository). Each firing enqueues a
-    ``wakeup_agent`` job.
+    Runs every 30 s via Arq cron (G.3 / R15.02). Reads every live binding's
+    stored wake-up layers through the conversation facade, so each is evaluated
+    against its own room's effective config ([R15.09]). Each firing enqueues a
+    ``wakeup_agent`` job carrying the binding id.
 
     After a firing the silence timestamp is reset so the trigger re-arms on
     the next T-minute window instead of re-firing on every 30 s sweep — an
     interim debounce until the Phase H agent runtime owns the timer.
     """
-    from contexts.conversation.domain.models import ChatroomAgentRole
-    from contexts.conversation.infrastructure.repositories import (
-        ChatroomAgentRepository,
-    )
+    from contexts.conversation.interfaces.facade import ConversationFacade
     from contexts.orchestration.application.wakeup_service import WakeupService
     from contexts.orchestration.infrastructure import wakeup_state
 
@@ -271,44 +280,44 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     batch_size = 500
     async with async_session() as db:
         svc = WakeupService(db)
-        repo = ChatroomAgentRepository(db)
+        conversation = ConversationFacade(db)
         # Paginate to avoid loading all bindings into memory at once.
         offset = 0
-        pairs: list[Any] = []
+        states: list[Any] = []
         while True:
-            batch = await repo.list_live_bindings(limit=batch_size, offset=offset)
-            pairs.extend(batch)
+            batch = await conversation.live_binding_wakeup_states(limit=batch_size, offset=offset)
+            states.extend(batch)
             if len(batch) < batch_size:
                 break
             offset += batch_size
 
-        for agent_id, room_id, role in pairs:
+        for state in states:
             checked += 1
             try:
-                if await svc.evaluate_silence_trigger(
-                    agent_id=agent_id,
-                    room_id=room_id,
-                    is_observer=role is ChatroomAgentRole.OBSERVER,
-                ):
+                if await svc.evaluate_silence_trigger(state):
                     # No trigger_message_id: silence is time-based, not tied to a
                     # specific message, so the turn intentionally falls back to
                     # resolving attachments against the room's current latest
                     # user message (wakeup_agent's default).
                     await redis.enqueue_job(
                         "wakeup_agent",
-                        str(agent_id),
-                        str(room_id),
+                        str(state.agent_id),
+                        str(state.chatroom_id),
                         "silence_minutes",
+                        None,
+                        str(state.binding_id),
                     )
                     # Debounce: re-arm the timer so the next 30 s sweep does
                     # not immediately re-fire the same silence trigger.
-                    await wakeup_state.touch_silence_timestamp(agent_id, room_id)
+                    await wakeup_state.touch_silence_timestamp(
+                        state.agent_id, state.chatroom_id, state.binding_id
+                    )
                     fired += 1
             except Exception:
-                # One bad pair must not abort the sweep; clear any aborted
+                # One bad binding must not abort the sweep; clear any aborted
                 # transaction so subsequent reads on this session succeed.
                 await db.rollback()
-                logger.bind(agent_id=str(agent_id), room_id=str(room_id)).exception(
+                logger.bind(agent_id=str(state.agent_id), room_id=str(state.chatroom_id)).exception(
                     "evaluate_silence: trigger check failed"
                 )
 
@@ -318,38 +327,44 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     return f"fired={fired}"
 
 
-async def wakeup_refresh(ctx: dict[str, Any]) -> str:
-    """Periodic: snap wakeup_config back to authored values (G.5 / R15.09).
+_REFRESH_BATCH = 200
 
-    Runs hourly. Iterates agents with a non-null ``wakeup_authored_snapshot``
-    and calls refresh if the current config has drifted from authored values.
+
+async def wakeup_refresh(ctx: dict[str, Any]) -> str:
+    """Periodic: clear each binding's runtime wake-up layer once it is due ([R15.09]).
+
+    Runs hourly. Reads only bindings that hold a runtime layer, oldest refresh
+    start first, in keyset pages; each is cleared when its designer's current
+    ``refresh_every_hours`` has elapsed since that layer started. Human room
+    overrides and other rooms are untouched, and no agent row is written.
     """
-    from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.orchestration.application.wakeup_service import WakeupService
+    from contexts.conversation.interfaces.facade import ConversationFacade
+    from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
 
     refreshed = 0
     failed = 0
     async with async_session() as db:
-        svc = WakeupService(db)
-        facade = AgentsFacade(db)
-        candidates = await facade.list_agents_with_authored_snapshot()
-        for agent in candidates:
-            try:
-                # Unlike `evaluate_silence`'s per-item guard (which only ever
-                # reads through its session), `refresh_wakeup_config` issues a
-                # real UPDATE + audit INSERT that must survive to the final
-                # commit. A bare `db.rollback()` here would roll back the
-                # *whole* transaction -- discarding every earlier agent's
-                # already-flushed write, not just this one's -- so isolate
-                # each agent's write in its own SAVEPOINT instead: a failure
-                # rolls back to the savepoint, leaving prior agents' flushed
-                # work intact in the outer transaction for the post-loop commit.
-                async with db.begin_nested():
-                    if await svc.refresh_wakeup_config(agent.id):
-                        refreshed += 1
-            except Exception:
-                failed += 1
-                logger.bind(agent_id=str(agent.id)).exception("wakeup refresh failed")
+        svc = RoomWakeupService(db)
+        conversation = ConversationFacade(db)
+        after = None
+        while True:
+            page = await conversation.runtime_layer_binding_states(limit=_REFRESH_BATCH, after=after)
+            for state in page:
+                try:
+                    # Each write isolated in its own SAVEPOINT: a bare rollback
+                    # would discard every earlier binding's flushed refresh.
+                    async with db.begin_nested():
+                        if await svc.refresh_if_due(state):
+                            refreshed += 1
+                except Exception:
+                    failed += 1
+                    logger.bind(binding_id=str(state.binding_id)).exception("wakeup refresh failed")
+            if len(page) < _REFRESH_BATCH:
+                break
+            last = page[-1]
+            if last.runtime_started_at is None:  # the page query selects only started layers
+                break
+            after = (last.runtime_started_at, last.binding_id)
         try:
             await db.commit()
         except Exception:
@@ -359,7 +374,7 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
             return f"sweep_failed lost={refreshed} failed={failed}"
 
     logger.bind(event="wakeup_refresh_done", refreshed=refreshed, failed=failed).info(
-        f"wakeup refresh sweep: {refreshed} agents refreshed, {failed} failed"
+        f"wakeup refresh sweep: {refreshed} bindings refreshed, {failed} failed"
     )
     return f"refreshed={refreshed} failed={failed}"
 

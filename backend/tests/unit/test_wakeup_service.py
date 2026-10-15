@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgentRole
+from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
 from contexts.orchestration.application.wakeup_service import WakeupService
 from contexts.orchestration.domain.models import (
     N_MAX,
@@ -14,6 +16,7 @@ from contexts.orchestration.domain.models import (
     T_MINUTES_MIN,
     WakeupConfig,
 )
+from contexts.orchestration.domain.room_wakeup import clamp_n, clamp_t
 
 
 def _async_return(value):
@@ -34,12 +37,34 @@ def _silence_config(*, allow_self_open: bool) -> dict:
     }
 
 
+def _state(agent: SimpleNamespace, room_id: uuid.UUID, *, observer: bool = False) -> BindingWakeupState:
+    """A binding with empty room and runtime layers: the designer's config applies."""
+    return BindingWakeupState(
+        chatroom_id=room_id,
+        agent_id=agent.id,
+        # Stable per agent, so a test's repeated reads name one incarnation.
+        binding_id=agent.id,
+        role=ChatroomAgentRole.OBSERVER if observer else ChatroomAgentRole.NORMAL,
+        version=1,
+        room_overrides={},
+        runtime_overrides={},
+        runtime_started_at=None,
+    )
+
+
 def _make_service(
     *, agent: SimpleNamespace, room_members: list[uuid.UUID], composing: bool = False
 ) -> WakeupService:
     svc = WakeupService.__new__(WakeupService)
     svc._db = None  # type: ignore[attr-defined]
-    svc._agents_facade = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
+    room_wakeup = RoomWakeupService.__new__(RoomWakeupService)
+    room_wakeup._agents = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
+    svc._room_wakeup = room_wakeup  # type: ignore[attr-defined]
+
+    async def _states(room_id):
+        return [_state(agent, room_id)]
+
+    svc._conversation = SimpleNamespace(room_binding_wakeup_states=_states)  # type: ignore[attr-defined]
     svc._presence = SimpleNamespace(  # type: ignore[attr-defined]
         list_room=_async_return(room_members), composing_recently=_async_return(composing)
     )
@@ -84,7 +109,7 @@ async def test_a_recently_re_armed_clock_does_not_fire(monkeypatch) -> None:
         _async_return(0),
     )
 
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
     assert fired is False
 
@@ -97,7 +122,7 @@ async def test_a_genuine_lull_past_the_window_still_fires(monkeypatch) -> None:
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
     assert fired is True
 
@@ -108,7 +133,7 @@ async def test_allow_self_open_true_does_not_fire_into_empty_room(monkeypatch) -
     svc = _make_service(agent=agent, room_members=[])
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
     assert fired is False
 
@@ -118,7 +143,7 @@ async def test_allow_self_open_true_fires_with_a_live_roster(monkeypatch) -> Non
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
     assert fired is True
 
@@ -129,7 +154,7 @@ async def test_allow_self_open_false_still_does_not_fire_into_empty_room(monkeyp
     svc = _make_service(agent=agent, room_members=[])
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
     assert fired is False
 
@@ -148,7 +173,7 @@ async def test_observer_silence_fires_in_empty_room(monkeypatch) -> None:
     _stub_stale_but_ready_silence_state(monkeypatch)
     # The role-blind presence pause set the flag inactive when the room
     # emptied — an observer must fire regardless.
-    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True)
+    fired = await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4(), observer=True))
 
     assert fired is True
 
@@ -163,7 +188,7 @@ async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge
     async def _get_timestamp(*_args):
         return timestamps.pop(0)
 
-    async def _touch(agent_id, touched_room_id):
+    async def _touch(agent_id, touched_room_id, binding_id):
         touched.append((agent_id, touched_room_id))
 
     monkeypatch.setattr(
@@ -179,9 +204,9 @@ async def test_silence_seeds_its_clock_for_a_binding_created_after_the_join_edge
         _async_return(0),
     )
 
-    assert not await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id)
+    assert not await svc.evaluate_silence_trigger(_state(agent, room_id))
     assert touched == [(agent.id, room_id)]
-    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id)
+    assert await svc.evaluate_silence_trigger(_state(agent, room_id))
 
 
 async def test_join_still_rearms_the_silence_clock(monkeypatch) -> None:
@@ -191,22 +216,25 @@ async def test_join_still_rearms_the_silence_clock(monkeypatch) -> None:
     every bound agent on the join edge."""
     svc = WakeupService.__new__(WakeupService)
     svc._db = None  # type: ignore[attr-defined]
+    room_id = uuid.uuid4()
+    agent_ids = [uuid.uuid4(), uuid.uuid4()]
+    bound = [_state(SimpleNamespace(id=aid), room_id) for aid in agent_ids]
+    svc._conversation = SimpleNamespace(room_binding_wakeup_states=_async_return(bound))  # type: ignore[attr-defined]
 
-    touched: list[tuple[uuid.UUID, uuid.UUID]] = []
+    touched: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]] = []
 
-    async def _touch(agent_id, room_id):
-        touched.append((agent_id, room_id))
+    async def _touch(agent_id, room_id, binding_id):
+        touched.append((agent_id, room_id, binding_id))
 
     monkeypatch.setattr(
         "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
         _touch,
     )
 
-    room_id = uuid.uuid4()
-    agent_ids = [uuid.uuid4(), uuid.uuid4()]
     await svc.on_users_present(room_id=room_id, agent_ids=agent_ids)
 
-    assert touched == [(agent_ids[0], room_id), (agent_ids[1], room_id)]
+    # Each binding's own clock ([R15.09]).
+    assert touched == [(aid, room_id, aid) for aid in agent_ids]
 
 
 async def test_normal_silence_follows_the_live_roster_not_the_cached_flag(monkeypatch) -> None:
@@ -214,7 +242,7 @@ async def test_normal_silence_follows_the_live_roster_not_the_cached_flag(monkey
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+    assert await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4()))
 
 
 async def test_observer_silence_uses_observer_autostop_cap(monkeypatch) -> None:
@@ -225,10 +253,10 @@ async def test_observer_silence_uses_observer_autostop_cap(monkeypatch) -> None:
     room_id = uuid.uuid4()
 
     _stub_stale_but_ready_silence_state(monkeypatch, autostop_count=10)  # >= 5, < 50
-    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id, is_observer=True)
+    assert await svc.evaluate_silence_trigger(_state(agent, room_id, observer=True))
 
     _stub_stale_but_ready_silence_state(monkeypatch, autostop_count=50)
-    assert not await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id, is_observer=True)
+    assert not await svc.evaluate_silence_trigger(_state(agent, room_id, observer=True))
 
 
 def test_wakeup_config_parses_observer_autostop_rounds() -> None:
@@ -347,21 +375,21 @@ def test_soft_bounds_tolerate_wrong_typed_values() -> None:
     assert cfg.soft_bounds.n_max is None
     assert cfg.soft_bounds.t_minutes_min is None
 
-    n = WakeupService._clamp_n(500, cfg.soft_bounds)
+    n = clamp_n(500, cfg.soft_bounds)
     assert N_MIN <= n <= N_MAX
-    t = WakeupService._clamp_t(500, cfg.soft_bounds)
+    t = clamp_t(500, cfg.soft_bounds)
     assert T_MINUTES_MIN <= t <= T_MINUTES_MAX
 
     inverted = WakeupConfig.from_dict({"soft_bounds": {"n_min": 900, "n_max": 3}}).soft_bounds
     assert inverted is not None
     for value in (1, 500, 1000, 5000, -10):
-        assert N_MIN <= WakeupService._clamp_n(value, inverted) <= N_MAX
+        assert N_MIN <= clamp_n(value, inverted) <= N_MAX
 
     out_of_range = WakeupConfig.from_dict({"soft_bounds": {"n_min": 99999}}).soft_bounds
     assert out_of_range is not None
     assert out_of_range.n_min == N_MAX
     for value in (1, 500, 1000, 5000):
-        assert N_MIN <= WakeupService._clamp_n(value, out_of_range) <= N_MAX
+        assert N_MIN <= clamp_n(value, out_of_range) <= N_MAX
 
 
 def test_from_dict_tolerates_a_non_dict_triggers_container() -> None:
@@ -414,11 +442,7 @@ async def test_observer_zero_autostop_uses_the_parsed_default(monkeypatch) -> No
         _async_return(0),
     )
 
-    assert await svc.evaluate_silence_trigger(
-        agent_id=agent.id,
-        room_id=uuid.uuid4(),
-        is_observer=True,
-    )
+    assert await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4(), observer=True))
 
 
 def _every_n_config(*, allow_self_open: bool = False) -> dict:
@@ -468,7 +492,7 @@ async def test_observer_every_n_fires_with_empty_presence_and_no_gated_bell(monk
         observer_agent_ids={agent.id},
     )
 
-    assert woken == [agent.id]
+    assert [t.agent_id for t in woken] == [agent.id]
     assert bells == []
 
 
@@ -541,7 +565,7 @@ async def _send(svc, agent, *, human: bool | None = None, user: bool = True, aut
         agent_ids=[agent.id],
         **kwargs,
     )
-    return agent.id in woken
+    return agent.id in {t.agent_id for t in woken}
 
 
 async def test_human_count_ignores_agent_messages(monkeypatch) -> None:
@@ -617,7 +641,7 @@ async def test_recent_typing_rearms_instead_of_firing(monkeypatch) -> None:
         "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp", _touch
     )
 
-    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4()) is False
+    assert await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4())) is False
     assert touched == [True]
 
 
@@ -630,9 +654,7 @@ async def test_an_observer_also_waits_for_composing(monkeypatch) -> None:
         _async_return(None),
     )
 
-    assert (
-        await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True) is False
-    )
+    assert await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4(), observer=True)) is False
 
 
 async def test_without_recent_typing_the_lull_fires(monkeypatch) -> None:
@@ -640,7 +662,7 @@ async def test_without_recent_typing_the_lull_fires(monkeypatch) -> None:
     svc = _make_service(agent=agent, room_members=[uuid.uuid4()], composing=False)
     _stub_stale_but_ready_silence_state(monkeypatch)
 
-    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4()) is True
+    assert await svc.evaluate_silence_trigger(_state(agent, uuid.uuid4())) is True
 
 
 # ---------------------------------------------------------------------------

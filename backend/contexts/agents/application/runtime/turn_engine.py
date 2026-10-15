@@ -54,6 +54,7 @@ from contexts.agents.application.runtime.tool_registry import (
     MAX_ARTIFACTS_PER_TURN,
     READ_ONLY_TOOL_NAMES,
     Tool,
+    WakeupBinding,
     artifact_size_bytes,
     build_cast_approval_vote_tool,
     build_registry,
@@ -385,6 +386,9 @@ def _parse_approval_id(note: dict[str, Any]) -> uuid.UUID | None:
 _ROOM_NOTICE_MARKER = "[Room notice]"
 # Case and spacing variants too: a model reads "[room  notice]" as the same thing.
 _NOTICE_MARKER_LIKE = re.compile(r"\[\s*(room\s+notice)\s*\]", re.IGNORECASE)
+# A bracketed participant code as `participant_facts.code_prefix` writes it, with
+# the spacing and case variants a model reads as the same thing.
+_CODE_LIKE = re.compile(r"\[\s*([ug]\s*:\s*[0-9a-f]{8})\s*\]", re.IGNORECASE)
 
 # The platform's half of the re-check ([R13.72]): fixed text only. The new
 # messages it refers to are separate turns rendered like any transcript row.
@@ -517,10 +521,12 @@ def _first_label(*candidates: str | None) -> str | None:
 
 
 def _defang_notice_marker(text: str) -> str:
-    """``text`` unable to spell ``_ROOM_NOTICE_MARKER``. Applied to every body the
-    model sees as a turn, because providers combine consecutive user turns: a
-    marker line inside a message is then indistinguishable from a real notice."""
-    return _NOTICE_MARKER_LIKE.sub(r"\1", text)
+    """``text`` unable to spell ``_ROOM_NOTICE_MARKER`` or a bracketed participant
+    code. Applied to every body the model sees as a turn, because providers combine
+    consecutive user turns: a marker line inside a message is then
+    indistinguishable from a real notice, and a ``[u:xxxxxxxx] Name:`` line from
+    another person's turn ([R13.33]). The brackets are dropped and the text kept."""
+    return _CODE_LIKE.sub(r"\1", _NOTICE_MARKER_LIKE.sub(r"\1", text))
 
 
 def _summary_blocks(history: Sequence[tx.HistoryMessage]) -> list[str]:
@@ -3160,6 +3166,7 @@ class TurnEngine:
                 reads=skill_reads,
                 extra=extra_tools,
                 is_infra_error=_is_infrastructure_error,
+                wakeup_binding=await self._wakeup_binding(chatroom_id, agent.id),
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
@@ -4018,13 +4025,14 @@ class TurnEngine:
                 sender_agent_id=agent.id,
                 bound_agents=bound,
             )
-            for aid in fired:
+            for target in fired:
                 await enqueue(
                     "wakeup_agent",
-                    str(aid),
+                    str(target.agent_id),
                     str(chatroom_id),
                     "every_n_messages",
                     str(message_id),
+                    str(target.binding_id),
                 )
             # R11.02/R11.08: room-scoped, so an empty binding set — whether the
             # room is agentless or a member unbound mid-turn — never suppresses
@@ -4133,6 +4141,21 @@ class TurnEngine:
         return await ConversationFacade(self._db).room_presence_snapshot(
             chatroom_id, limit=MAX_PARTICIPANT_ROWS
         )
+
+    async def _wakeup_binding(self, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> WakeupBinding | None:
+        """The live binding `update_wakeup` is scoped to ([R15.06]); ``None`` offers no tool.
+
+        Best-effort: a failed read costs the agent its tuning tool for one turn,
+        never the turn.
+        """
+        try:
+            state = await ConversationFacade(self._db).binding_wakeup_state(
+                chatroom_id=chatroom_id, agent_id=agent_id
+            )
+        except Exception:
+            _log.warning("binding lookup for update_wakeup failed room=%s", chatroom_id, exc_info=True)
+            return None
+        return WakeupBinding(room_id=chatroom_id, binding_id=state.binding_id) if state is not None else None
 
     async def _room_creator_id(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
         """The room's creator, or ``None`` for a legacy room without one.

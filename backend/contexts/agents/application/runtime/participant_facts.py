@@ -71,6 +71,20 @@ def transcript_speakers(rows: Sequence[tuple[uuid.UUID, datetime | None]]) -> li
     ]
 
 
+_TRUNCATED_LINE = "More people are connected than the connection read returned; not all are listed."
+
+
+def _omitted_line(count: int) -> str:
+    return f"{count} more people are not listed (row or size limit)."
+
+
+# Both footer lines at their worst case, plus their newlines. The omission count
+# is bounded by the rows the block can be asked to list.
+_FOOTER_RESERVE = (
+    estimate_tokens(_omitted_line(10 * MAX_PARTICIPANT_ROWS)) + estimate_tokens(_TRUNCATED_LINE) + 2
+)
+
+
 def _clock(at: datetime) -> str:
     return at.strftime("%Y-%m-%d %H:%M UTC")
 
@@ -130,16 +144,16 @@ def render_participant_facts(
             facts.append("ambiguous code")
         row = f"- {human_prefix(uid, labels.get(uid))}: {'; '.join(facts)}"
         cost = estimate_tokens(row) + 1
-        # Room for the omission line, whatever it ends up saying.
-        if used + cost > MAX_PARTICIPANT_TOKENS - 30:
+        # Room for both footer lines at their longest, whatever they end up saying.
+        if used + cost > MAX_PARTICIPANT_TOKENS - _FOOTER_RESERVE:
             omitted += 1
             continue
         rows.append(row)
         used += cost
     if omitted:
-        footer.append(f"{omitted} more people are not listed (row or size limit).")
+        footer.append(_omitted_line(omitted))
     if presence.truncated:
-        footer.append("More people are connected than the connection read returned; not all are listed.")
+        footer.append(_TRUNCATED_LINE)
     if not ordered:
         rows.append("- nobody to list")
     return "\n".join(lines + rows + footer)

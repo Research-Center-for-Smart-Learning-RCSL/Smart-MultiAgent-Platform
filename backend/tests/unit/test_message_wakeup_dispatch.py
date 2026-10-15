@@ -175,13 +175,16 @@ async def test_dispatch_graphrag_builds_evaluates_agentless_room(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_dispatch_message_wakeups_enqueues_with_trigger_message_id(monkeypatch) -> None:
+    from contexts.orchestration.interfaces.facade import WakeTarget
+
     agent_id = uuid.uuid4()
+    binding_id = uuid.uuid4()
     room_id = uuid.uuid4()
     trigger_message_id = uuid.uuid4()
     enqueued: list[tuple[object, ...]] = []
 
     async def _evaluate_message_wakeups(*_a, **_k):
-        return [agent_id]
+        return [WakeTarget(agent_id, binding_id)]
 
     async def _enqueue(*args, **_kwargs) -> None:
         enqueued.append(args)
@@ -194,8 +197,16 @@ async def test_dispatch_message_wakeups_enqueues_with_trigger_message_id(monkeyp
     )
 
     assert woken == {agent_id}
+    # The binding that fired rides along, so a rebind in between drops the job ([R15.09]).
     assert enqueued == [
-        ("wakeup_agent", str(agent_id), str(room_id), "every_n_messages", str(trigger_message_id))
+        (
+            "wakeup_agent",
+            str(agent_id),
+            str(room_id),
+            "every_n_messages",
+            str(trigger_message_id),
+            str(binding_id),
+        )
     ]
 
 
@@ -267,9 +278,30 @@ async def test_one_unparseable_config_does_not_stop_the_room(monkeypatch, caplog
             raise RuntimeError("facade read failed")
         return {a.id: a, c.id: c}[agent_id]
 
+    from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgentRole
+    from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
+
+    def _state(room_id, agent_id):
+        return BindingWakeupState(
+            chatroom_id=room_id,
+            agent_id=agent_id,
+            binding_id=agent_id,
+            role=ChatroomAgentRole.NORMAL,
+            version=1,
+            room_overrides={},
+            runtime_overrides={},
+            runtime_started_at=None,
+        )
+
+    async def _states(room_id):
+        return [_state(room_id, x.id) for x in (a, b, c)]
+
     svc = WakeupService.__new__(WakeupService)
     svc._db = SimpleNamespace(rollback=_rollback)
-    svc._agents_facade = SimpleNamespace(get_agent=_get_agent)
+    room_wakeup = RoomWakeupService.__new__(RoomWakeupService)
+    room_wakeup._agents = SimpleNamespace(get_agent=_get_agent)
+    svc._room_wakeup = room_wakeup
+    svc._conversation = SimpleNamespace(room_binding_wakeup_states=_states)
     svc._presence = SimpleNamespace(list_room=_async_return([uuid.uuid4()]))
 
     monkeypatch.setattr(
@@ -296,6 +328,6 @@ async def test_one_unparseable_config_does_not_stop_the_room(monkeypatch, caplog
             agent_ids=[a.id, b.id, c.id],
         )
 
-    assert woken == [a.id, c.id]
+    assert [t.agent_id for t in woken] == [a.id, c.id]
     assert rolled_back == [True]
     assert any(str(b.id) in record.getMessage() for record in caplog.records)

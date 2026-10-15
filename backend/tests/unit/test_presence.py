@@ -395,3 +395,19 @@ class TestBoundedRoster:
         fake_redis.sets.pop(presence_mod._conns_key(room, ghost))
 
         assert await p.list_room_bounded(room, limit=5) == ([live], False)
+
+    @pytest.mark.asyncio
+    async def test_an_early_stop_is_truncation_even_when_ghosts_shrink_the_result(
+        self, fake_redis: _FakeRedis
+    ) -> None:
+        """Quality audit: the members after the stop were never read."""
+        p, room = PresenceTracker(), uuid.uuid4()
+        users = sorted(await self._join(p, room, 4), key=str)
+        # The fake scans in id order: the first three scanned include two ghosts.
+        for ghost in users[:2]:
+            fake_redis.sets.pop(presence_mod._conns_key(room, ghost))
+
+        ids, truncated = await p.list_room_bounded(room, limit=2)
+
+        assert ids == [users[2]]
+        assert truncated is True

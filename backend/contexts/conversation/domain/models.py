@@ -122,6 +122,24 @@ class ChatroomAgent:
 
 
 @dataclass(frozen=True, slots=True)
+class BindingWakeupState:
+    """One live binding's stored wake-up layers ([R15.09]).
+
+    The layers stay raw here: their meaning is orchestration's
+    (``orchestration.domain.room_wakeup``), and conversation only stores them.
+    """
+
+    chatroom_id: uuid.UUID
+    agent_id: uuid.UUID
+    binding_id: uuid.UUID
+    role: ChatroomAgentRole
+    version: int
+    room_overrides: dict[str, Any]
+    runtime_overrides: dict[str, Any]
+    runtime_started_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class CanvasReadGrant:
     """A live delegation of canvas-content reading in one room ([R13.47]).
 
@@ -279,6 +297,7 @@ __all__ = [
     "AgentObservation",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
+    "BindingWakeupState",
     "Chatroom",
     "ChatroomAgent",
     "ChatroomAgentRole",

@@ -275,15 +275,16 @@ async def _dispatch_message_wakeups(
         fired = await evaluate_message_wakeups(
             db, chatroom_id=chatroom_id, sender_is_user=True, bound_agents=bound_agents
         )
-        for agent_id in fired:
+        for target in fired:
             await enqueue(
                 "wakeup_agent",
-                str(agent_id),
+                str(target.agent_id),
                 str(chatroom_id),
                 "every_n_messages",
                 str(trigger_message_id),
+                str(target.binding_id),
             )
-            woken.add(agent_id)
+            woken.add(target.agent_id)
     except Exception:  # pragma: no cover — defensive; exercised via wiring tier
         _log.warning(
             "wake-up dispatch failed for room %s; message persisted, no turn enqueued",

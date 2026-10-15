@@ -250,9 +250,14 @@ async def _dispatch_release(
             fired = await evaluate_message_wakeups(
                 db, chatroom_id=chatroom_id, sender_is_user=True, sender_is_human=False
             )
-            for agent_id in fired:
+            for target in fired:
                 await enqueue(
-                    "wakeup_agent", str(agent_id), str(chatroom_id), "every_n_messages", str(msg.id)
+                    "wakeup_agent",
+                    str(target.agent_id),
+                    str(chatroom_id),
+                    "every_n_messages",
+                    str(msg.id),
+                    str(target.binding_id),
                 )
         except Exception:
             _log.warning("wake-up dispatch failed after release in room %s", chatroom_id, exc_info=True)

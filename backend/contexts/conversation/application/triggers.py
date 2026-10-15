@@ -22,11 +22,15 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import ChatroomAgent, ChatroomAgentRole
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+
+if TYPE_CHECKING:
+    from contexts.orchestration.interfaces.facade import WakeTarget
 
 __all__ = [
     "evaluate_message_wakeups",
@@ -53,10 +57,11 @@ async def evaluate_message_wakeups(
     sender_agent_id: uuid.UUID | None = None,
     bound_agents: Sequence[ChatroomAgent] | None = None,
     sender_is_human: bool | None = None,
-) -> list[uuid.UUID]:
-    """Return the agent ids whose ``every_n_messages`` trigger fired for this
-    message. Side effects (counter increment, autostop reset on user sends,
-    silence-timer touch) happen inside the orchestration facade.
+) -> list[WakeTarget]:
+    """Return the agents whose ``every_n_messages`` trigger fired for this
+    message, each with the binding incarnation that fired ([R15.09]). Side
+    effects (counter increment, autostop reset on user sends, silence-timer
+    touch) happen inside the orchestration facade.
 
     ``sender_agent_id`` — set when the message was authored by a room-bound
     agent; used to exclude the author from its own wake list (R15.01/Q49).

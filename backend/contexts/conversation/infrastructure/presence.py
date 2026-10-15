@@ -281,14 +281,19 @@ class PresenceTracker:
         whatever the scan yields first; the caller says so rather than ranking them.
         """
         r = get_redis()
-        members: list[str] = []
+        # SSCAN may yield a member more than once; dedupe before counting.
+        members: dict[str, None] = {}
+        stopped_early = False
         async for member in r.sscan_iter(_room_key(room_id), count=max(limit, 10)):
-            members.append(member)
+            members[member] = None
             if len(members) > limit:
+                stopped_early = True
                 break
-        live = await _reconcile_members(r, room_id, members)
+        live = await _reconcile_members(r, room_id, list(members))
         ids = sorted(uuid.UUID(v) for v in live)
-        return ids[:limit], len(ids) > limit
+        # An early stop is truncation even if ghosts among the scanned members
+        # leave `ids` within the limit: the members after them were never read.
+        return ids[:limit], stopped_early or len(ids) > limit
 
     async def list_user_rooms(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Rooms the inverse index places this user in. Unreconciled: a ghost

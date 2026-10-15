@@ -260,22 +260,12 @@ def _patch_task_env(
 ):
     """Wire the function-local imports in ``wakeup_agent`` to fakes. Returns a
     dict of recorders the test asserts on."""
-    from contexts.conversation.domain.models import ChatroomAgentRole
+    from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgentRole
+    from contexts.orchestration.application.room_wakeup_service import build_room_wakeup
 
     rec: dict = {"run_turn": [], "on_agent_message_sent": [], "audit": [], "turn_job_id": []}
     binding_role = role or ChatroomAgentRole.NORMAL
-
-    class _BindingRepo:
-        def __init__(self, db) -> None:
-            pass
-
-        async def role_of(self, *, chatroom_id, agent_id):
-            return binding_role
-
-    monkeypatch.setattr(
-        "contexts.conversation.infrastructure.repositories.ChatroomAgentRepository",
-        _BindingRepo,
-    )
+    rec["binding_id"] = binding_id = uuid.uuid4()
 
     @asynccontextmanager
     async def _fake_session():
@@ -304,7 +294,8 @@ def _patch_task_env(
 
     monkeypatch.setattr("contexts.agents.interfaces.facade.AgentsFacade", _AgentsFacade)
 
-    async def _get_autostop_count(aid, rid):
+    async def _get_autostop_count(aid, rid, bid):
+        assert bid == binding_id
         return autostop_count
 
     monkeypatch.setattr(
@@ -333,6 +324,21 @@ def _patch_task_env(
             rec["on_agent_message_sent"].append((agent_id, room_id))
             return 1
 
+        async def room_wakeup(self, *, agent_id, room_id):
+            if rec.get("unbound"):
+                return None
+            state = BindingWakeupState(
+                chatroom_id=room_id,
+                agent_id=agent_id,
+                binding_id=binding_id,
+                role=binding_role,
+                version=1,
+                room_overrides=rec.get("room_overrides", {}),
+                runtime_overrides={},
+                runtime_started_at=None,
+            )
+            return build_room_wakeup(state, agent)
+
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _OrchFacade)
 
     async def _emit(db, event):
@@ -352,14 +358,19 @@ def _patch_task_env(
 
 
 def _agent(autostop_rounds=5, *, observer_autostop_rounds=50):
+    # Both autonomous triggers on: the worker skips a trigger that is off by the
+    # time the job runs ([R15.09]).
     return SimpleNamespace(
         id=uuid.uuid4(),
+        deleted_at=None,
         wakeup_config={
             "triggers": {
+                "every_n_messages": {"enabled": True},
                 "silence_minutes": {
+                    "enabled": True,
                     "autostop_rounds": autostop_rounds,
                     "observer_autostop_rounds": observer_autostop_rounds,
-                }
+                },
             }
         },
     )
@@ -614,3 +625,62 @@ async def test_wakeup_agent_tolerates_a_context_without_a_job_id(monkeypatch) ->
     await orch_task.wakeup_agent({}, str(aid), str(rid), "mention")
 
     assert rec["turn_job_id"] == [None]
+
+
+# ---------------------------------------------------------------------------
+# Binding incarnation and current config at execution ([R15.09], phase 2 AC-7, AC-10)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_drops_a_job_from_an_earlier_binding(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_agent())
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "every_n_messages", None, str(uuid.uuid4())
+    )
+
+    assert out == "skipped:binding_gone"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_runs_for_the_binding_that_fired(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_agent())
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "every_n_messages", None, str(rec["binding_id"])
+    )
+
+    assert out == "completed"
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_skips_an_unbound_agent(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_agent())
+    rec["unbound"] = True
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "silence_minutes")
+
+    assert out == "skipped:binding_gone"
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_skips_a_trigger_the_room_has_since_paused(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_agent())
+    rec["room_overrides"] = {"silence_minutes_enabled": False}
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "silence_minutes")
+
+    assert out == "skipped:trigger_off"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_mention_still_runs_when_the_room_paused_its_triggers(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_agent())
+    rec["room_overrides"] = {"every_n_messages_enabled": False, "silence_minutes_enabled": False}
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "mention")
+
+    assert out == "completed"
