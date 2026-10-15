@@ -49,13 +49,7 @@ on the time-context one and is under Blocked. The re-check and wake-up dossiers 
 Unblocked 2026-10-12, when `2026-10-12-graph-build-busy-retry` and
 `2026-10-12-graphrag-phase5a-evidence-refs-expand` were both implemented.
 `2026-10-12-graphrag-phase5b-member-filter`, unblocked at the same time, is implemented.
-
-- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, **approved 2026-10-12**) - `depends_on:
-  [2026-10-12-graphrag-phase5a-evidence-refs-expand]`, implemented. Releases B (reads
-  switch to `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed
-  clean-up). **Ready by dependency but deploy-gated:** release B may not ship until the
-  expand release is on every replica and `neo4j-evidence-refs` has reported
-  `remaining=0` there (runbook §3.1). Release C needs B deployed everywhere.
+`2026-10-12-graphrag-phase5a2-evidence-refs-contract` moved to In progress on 2026-10-16.
 
 ### From the 2026-08-30 FU consolidation
 
@@ -794,6 +788,13 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+- `2026-10-12-graphrag-phase5a2-evidence-refs-contract` (refactor, in progress since
+  2026-10-16) on `refactor/graphrag-evidence-refs-contract`. Releases B (reads switch to
+  `evidence_refs`) and C (stop writing `evidence_msg_ids`, then an armed clean-up), each
+  deploy-gated. Milestone B's code is written ahead of its gate (AC-1) at the requester's
+  choice and does not merge until the expand release is on every replica and
+  `neo4j-evidence-refs` has reported `remaining=0` there (runbook §3.1).
 
 - (implemented 2026-10-12) `2026-10-12-graphrag-phase5b-member-filter` (feature, SRS Delta
   [R11.22] applied at approval), PR #255 from `feat/graphrag-member-filter`.

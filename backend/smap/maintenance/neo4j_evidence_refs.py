@@ -9,9 +9,12 @@ batches. A config whose lock is held is skipped and reported.
 
 Run it only once release A is on every web and worker replica: before that, an
 N-1 writer can change the old key after the copy. Re-running repairs such an
-edge, since the command is idempotent. Its "0 remaining" report is what the
-contract dossier (``2026-10-12-graphrag-phase5a2-evidence-refs-contract``) is
-gated on. Dry-run unless ``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see
+edge, since the command is idempotent. Releases A and B both write the two keys
+equal, so a difference always comes from N-1 and the old key is right. Its "0
+remaining" report is what release B of the contract dossier
+(``2026-10-12-graphrag-phase5a2-evidence-refs-contract``) is gated on.
+
+Dry-run unless ``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see
 ``purge_session_dirs._ARMED_ENV`` for why that is not a flag.
 """
 

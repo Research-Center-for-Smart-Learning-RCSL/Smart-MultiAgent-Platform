@@ -52,12 +52,12 @@ def _collapse_config_rows(
 # member-scoped retrieval filter stays correct across delta builds.
 #
 # Evidence is stored under two keys during the rename to `evidence_refs`
-# (docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand). The old key
-# `evidence_msg_ids` stays authoritative while an N-1 replica may write only it, so
-# both are computed from it, falling back to `evidence_refs` for an edge that has
-# only the new key (a rollback from a release past the rename); a SET reads
-# pre-clause values, so the two right-hand sides yield the same list.
-_EVIDENCE_STORED = "coalesce(r.evidence_msg_ids, r.evidence_refs, [])"
+# (docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract, release B). The
+# new key is authoritative; the old one is still written, equal to it, because a
+# release A replica in the same rollout reads `evidence_msg_ids` first. The fallback
+# to the old key covers an edge the backfill never reached. A SET reads pre-clause
+# values, so the two right-hand sides yield the same list.
+_EVIDENCE_STORED = "coalesce(r.evidence_refs, r.evidence_msg_ids, [])"
 _EVIDENCE_UNION = f"{_EVIDENCE_STORED} + [x IN row.evidence_refs WHERE NOT x IN {_EVIDENCE_STORED}]"
 _EVIDENCE_SET_DELTA = (
     f"    r.evidence_msg_ids = {_EVIDENCE_UNION}, "
@@ -192,10 +192,10 @@ _RESTORE_EDGES_CYPHER = (
     "                  relation: row.relation}]->(o) "
     "SET r.build_id = row.build_id, "
     "    r.confidence = row.confidence, "
-    # Either key: an N-1 snapshot carries only evidence_msg_ids, and a snapshot
-    # from a release past the rename may carry only evidence_refs.
-    "    r.evidence_msg_ids = coalesce(row.evidence_msg_ids, row.evidence_refs), "
-    "    r.evidence_refs = coalesce(row.evidence_msg_ids, row.evidence_refs), "
+    # Either key: a snapshot from before the rename carries only evidence_msg_ids,
+    # and one from a release past it may carry only evidence_refs.
+    "    r.evidence_msg_ids = coalesce(row.evidence_refs, row.evidence_msg_ids), "
+    "    r.evidence_refs = coalesce(row.evidence_refs, row.evidence_msg_ids), "
     # coalesce so an older snapshot (taken before member provenance existed)
     # restores to [] rather than nulling the property.
     "    r.source_member_ids = coalesce(row.source_member_ids, []), "
@@ -211,12 +211,13 @@ _UPSERT_CYPHER_DELTA = _build_upsert_cypher(replace=False)
 _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 
 
-# Every read surfaces evidence under the domain name, preferring the old key while
-# it is authoritative, so the physical spelling stops at this module.
-_EVIDENCE_READ = "coalesce({r}.evidence_msg_ids, {r}.evidence_refs)"
+# Every read surfaces evidence under the domain name, so the physical spelling stops
+# at this module.
+_EVIDENCE_READ = "coalesce({r}.evidence_refs, {r}.evidence_msg_ids)"
 
-# An edge the backfill still has to copy: written by N-1 (no new key) or touched
-# by an N-1 writer after a copy (new key stale).
+# An edge the backfill still has to copy: written by N-1 (no new key) or touched by an
+# N-1 writer after a copy (new key stale). Releases A and B always write both keys
+# equal, so a difference can only come from N-1, whose old key is then the truth.
 _EVIDENCE_UNMIGRATED = (
     "r.evidence_msg_ids IS NOT NULL AND (r.evidence_refs IS NULL OR r.evidence_refs <> r.evidence_msg_ids)"
 )
@@ -274,8 +275,8 @@ class Neo4jAsyncDriver:
             "-[r:REL]->(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, "
             "o.name AS object, r.confidence AS confidence, "
-            # The snapshot is data that crosses versions (Redis, 24 h): an N-1
-            # restore reads evidence_msg_ids from it, so it carries both keys.
+            # The snapshot is data that crosses versions (Redis, 24 h): a release A
+            # restore reads evidence_msg_ids from it first, so it carries both keys.
             f"{evidence} AS evidence_refs, {evidence} AS evidence_msg_ids, "
             "r.source_member_ids AS source_member_ids, "
             "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at, "
