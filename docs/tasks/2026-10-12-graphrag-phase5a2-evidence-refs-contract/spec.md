@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R11.15, R11.23, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand]
@@ -112,8 +112,14 @@ both.
 
 - [ ] AC-1: gate for B recorded — expand `implemented`, release A on every replica, the
   armed backfill's "0 remaining" output pasted here.
-- [ ] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
+- [x] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
   B snapshots restore across each other (real Neo4j).
+  `test_the_new_key_wins_while_both_exist`,
+  `test_a_delta_write_computes_both_keys_from_the_new_one`,
+  `test_the_restore_trusts_the_new_snapshot_key` (all three red before `867a7338`),
+  `test_a_current_snapshot_restores_with_an_earlier_release[release-a]`,
+  `test_a_release_a_snapshot_restores_with_the_current_release`; run against Neo4j
+  5.24 on the developer host. Pending CI under AC-7.
 - [ ] AC-3: gate for C recorded — release B on every replica.
 - [ ] AC-4: release C writes and reads only `evidence_refs`; B and C snapshots restore
   across each other (real Neo4j).
@@ -132,7 +138,18 @@ None in substance. `REQUIREMENTS.md:1513`'s stale schema sketch is corrected to 
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1. Milestone B's code was written before its gate (AC-1) was recorded.** §7 step 1
+  puts the gate first. On 2026-10-16 the requester chose to write and test B on
+  `refactor/graphrag-evidence-refs-contract` ahead of the operator evidence. The gate
+  still holds for shipping: the branch does not merge or deploy until AC-1 is recorded.
+- **D-2. From release B, the backfill copies only onto edges without `evidence_refs`
+  (`5ef25e23`).** §5 does not mention the command for release B. Release A's predicate
+  also re-copied edges whose two keys differed, which is right while the old key is
+  authoritative. Under B it would overwrite the authoritative key with a stale one. No
+  release writes such an edge, so this is a guard, not a repair. Found by the quality
+  gate. `test_the_backfill_never_overwrites_the_new_key` was red before the change. The
+  `remaining=0` that gates B therefore has to come from release A's build of the
+  command, as runbook §3.1 now states.
 
 ## 12. Follow-ups
 
