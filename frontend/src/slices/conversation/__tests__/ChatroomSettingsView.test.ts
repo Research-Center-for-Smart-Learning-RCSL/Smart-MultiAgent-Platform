@@ -64,6 +64,27 @@ function makeChatroom(overrides: Partial<Chatroom> = {}): Chatroom {
   }
 }
 
+function roomWakeup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const field = (value: unknown, source = 'designer') => ({ value, designer_value: value, source })
+  return {
+    agent_id: 'agent_1',
+    binding_id: 'bind_1',
+    version: 4,
+    role: 'normal',
+    every_n_messages_enabled: field(true),
+    every_n_messages: { value: 5, designer_value: 3, source: 'room' },
+    count: field('all'),
+    silence_minutes_enabled: field(false),
+    silence_minutes: field(2),
+    autostop_rounds: field(5),
+    call_only: false,
+    agent_may_toggle: [],
+    ignored_agent_fields: [],
+    runtime_refresh_at: null,
+    ...overrides,
+  }
+}
+
 function seededClient(rooms: Chatroom[]): QueryClient {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -318,20 +339,127 @@ describe('ChatroomSettingsView', () => {
     expect(wrapper.text()).not.toContain('conversation.observers.guestObserverCallout')
   })
 
-  it('normalizes a malformed config instead of hiding the wakeup editor', async () => {
-    // `triggers` present but missing the sub-objects the editor dereferences —
-    // normalizeWakeupConfig fills them with defaults rather than the editor
-    // being hidden (which would leave the agent's wakeup unconfigurable from
-    // this page even though AgentDetailView shows it fine for the same data).
-    const partial = makeAgent('agent_1', 'Partial Agent')
-    partial.wakeup_config = { triggers: {} }
+  it('edits wake-up in this room without ever writing the shared agent', async () => {
+    // [R15.25] / phase 2 AC-12: the room's controls patch the binding's room
+    // layer; the agent PATCH they used to send changed every room at once.
+    let agentPatches = 0
+    const roomPatches: Record<string, unknown>[] = []
     server.use(
       http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
       http.get('/api/projects/:projectId/agents', () =>
-        HttpResponse.json([partial]),
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
       ),
       http.get('/api/chatrooms/:chatroomId/agents', () =>
         HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(roomWakeup()),
+      ),
+      http.patch('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>
+        roomPatches.push(body)
+        return HttpResponse.json(roomWakeup({ version: 5 }))
+      }),
+      http.patch('/api/agents/:agentId', () => {
+        agentPatches += 1
+        return HttpResponse.json({})
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    const panel = wrapper.find('.room-wakeup')
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('conversation.roomWakeup.source.room')
+    await panel.find('button[role="switch"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(roomPatches).toEqual([
+      { every_n_messages_enabled: false, binding_id: 'bind_1', expected_version: 4 },
+    ])
+    expect(agentPatches).toBe(0)
+  })
+
+  it('keeps a number being typed when another wake-up setting is saved', async () => {
+    const roomPatches: Record<string, unknown>[] = []
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(roomWakeup()),
+      ),
+      http.patch('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', async ({ request }) => {
+        roomPatches.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json(
+          roomWakeup({
+            version: 4 + roomPatches.length,
+            every_n_messages_enabled: { value: false, designer_value: true, source: 'room' },
+          }),
+        )
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    const panel = wrapper.find('.room-wakeup')
+    const nInput = panel.find('input[type="number"]')
+    await nInput.setValue('9')
+    await panel.find('button[role="switch"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect((nInput.element as HTMLInputElement).value).toBe('9')
+    const save = panel
+      .findAll('button')
+      .find((b) => b.text().includes('conversation.roomWakeup.saveNumbers'))
+    await save!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(roomPatches[1]).toEqual({ every_n_messages: 9, binding_id: 'bind_1', expected_version: 5 })
+  })
+
+  it('reloads instead of overwriting when the room settings changed underneath', async () => {
+    let reads = 0
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () => {
+        reads += 1
+        return HttpResponse.json(roomWakeup({ version: 3 + reads }))
+      }),
+      http.patch('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(
+          {
+            type: 'https://smap.local/problems/orchestration/room-wakeup-version-conflict',
+            title: 'Conflict',
+            status: 409,
+          },
+          { status: 409 },
+        ),
       ),
     )
     const wrapper = await renderView(ChatroomSettingsView, {
@@ -341,9 +469,42 @@ describe('ChatroomSettingsView', () => {
     })
     await flushPromises()
     await flushPromises()
+    await flushPromises()
+    await wrapper.find('.room-wakeup button[role="switch"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
 
-    expect(wrapper.text()).toContain('Partial Agent')
-    expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
+    expect(reads).toBe(2)
+  })
+
+  it('hides the room wake-up panel when the server refuses it', async () => {
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(
+          { type: 'https://smap.local/problems/forbidden', title: 'Forbidden', status: 403 },
+          { status: 403 },
+        ),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('.room-wakeup').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('conversation.roomWakeup.loadFailed')
   })
 
   // Matrix row 28 / AC-5: a caller who may not edit agents (a project member who
@@ -507,7 +668,7 @@ describe('ChatroomSettingsView', () => {
     })
   })
 
-  it('shows a moderator the wake-up editor and the dead-letter viewer', async () => {
+  it('shows a moderator the room wake-up panel and the dead-letter viewer', async () => {
     server.use(
       http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
       http.get('/api/projects/:projectId/agents', () =>
@@ -515,6 +676,9 @@ describe('ChatroomSettingsView', () => {
       ),
       http.get('/api/chatrooms/:chatroomId/agents', () =>
         HttpResponse.json([{ agent_id: 'agent_1' }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(roomWakeup()),
       ),
     )
     const wrapper = await renderView(ChatroomSettingsView, {
@@ -524,8 +688,9 @@ describe('ChatroomSettingsView', () => {
     })
     await flushPromises()
     await flushPromises()
+    await flushPromises()
 
-    expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
+    expect(wrapper.find('.room-wakeup').exists()).toBe(true)
     expect(wrapper.find('.dlq-viewer').exists()).toBe(true)
   })
 
