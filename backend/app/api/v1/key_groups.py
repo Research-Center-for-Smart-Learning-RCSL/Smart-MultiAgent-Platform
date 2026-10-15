@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, assert_project_role
 from contexts.keys.application.group_service import KeyGroupService
 from contexts.keys.domain.errors import KeyNotFound
 from contexts.keys.domain.groups import KeyGroup, KeyGroupMember
@@ -241,7 +241,21 @@ def _require_group_cap(capability: Capability):
 
 
 _require_group_configure = _require_group_cap(Capability.KEY_CONFIGURE)
-_require_group_view = _require_group_cap(Capability.KEY_VIEW_USAGE_PROJECT)
+
+
+async def _require_group_view(
+    group_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """[R5.07]: a project role, as on the group list. Not KEY_VIEW_USAGE_PROJECT,
+    which a bare Org Member holds: the detail is the group's configuration, not
+    key usage."""
+    loaded = await KeyGroupService(db).get_with_members(group_id)
+    if loaded is None:
+        raise KeyNotFound(str(group_id))
+    group, _ = loaded
+    await assert_project_role(db=db, principal=principal, project_id=group.project_id)
 
 
 @group_router.get("/{group_id}", response_model=GroupDetailOut)

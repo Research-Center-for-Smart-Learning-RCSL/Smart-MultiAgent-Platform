@@ -40,6 +40,7 @@ from app.api.v1 import (
     dashboard,
     get_router_registry,
     graphrag,
+    key_groups,
     knowmap,
     rag,
 )
@@ -218,7 +219,18 @@ _INLINE = [
     canvas_templates.list_templates,
     canvas_templates._can_read_template,
     dashboard._resolve_workspace_rooms,
+    key_groups._require_group_view,
 ]
+
+
+def test_the_key_group_detail_takes_the_project_role_gate() -> None:
+    # It was gated by KEY_VIEW_USAGE_PROJECT, which a bare Org Member holds.
+    route = next(
+        r
+        for r in key_groups.group_router.routes
+        if isinstance(r, APIRoute) and r.path == "/api/key-groups/{group_id}" and "GET" in r.methods
+    )
+    assert key_groups._require_group_view in {d.call for d in route.dependant.dependencies}
 
 
 def _called_names(fn: Any) -> set[str]:
