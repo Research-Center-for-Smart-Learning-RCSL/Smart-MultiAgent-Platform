@@ -443,30 +443,68 @@ describe('ChatroomSettingsView', () => {
 
   // The activity types feed only the creator's picker; the creator bit needs the
   // session's `me`, which can settle after the bindings have loaded.
-  it('lists the activity types once the viewer turns out to be the creator', async () => {
-    let typeReads = 0
-    const room = makeChatroom({ created_by_user_id: 'u_1' } as Partial<Chatroom>)
-    server.use(
-      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
-      http.get('/api/projects/:projectId/activity-types', () => {
-        typeReads += 1
-        return HttpResponse.json([])
-      }),
-    )
-    await renderView(ChatroomSettingsView, {
-      routes,
-      initialRoute: '/chatrooms/cr_1/settings',
-      queryClient: seededClient([room]),
+  describe('activity types for the creator', () => {
+    const creatorRoom = makeChatroom({ created_by_user_id: 'u_1' } as Partial<Chatroom>)
+    const settleCreator = () => {
+      useSessionStore().me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    }
+    const serveGrantedBinding = (types: () => Response) => {
+      let typeReads = 0
+      server.use(
+        http.get('/api/chatrooms/:id', () => HttpResponse.json(creatorRoom)),
+        http.get('/api/projects/:projectId/agents', () =>
+          HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+        ),
+        http.get('/api/chatrooms/:chatroomId/agents', () =>
+          HttpResponse.json([
+            { agent_id: 'agent_1', role: 'normal', may_control_activities: true, activity_type_allowlist: ['at_1'] },
+          ]),
+        ),
+        http.get('/api/projects/:projectId/activity-types', () => {
+          typeReads += 1
+          return types()
+        }),
+      )
+      return () => typeReads
+    }
+    const render = async () => {
+      const wrapper = await renderView(ChatroomSettingsView, {
+        routes,
+        initialRoute: '/chatrooms/cr_1/settings',
+        queryClient: seededClient([creatorRoom]),
+      })
+      await flushPromises()
+      await flushPromises()
+      return wrapper
+    }
+
+    // The creator bit needs the session's `me`, which can settle after the
+    // bindings have loaded.
+    it('lists them into the picker once the viewer turns out to be the creator', async () => {
+      const typeReads = serveGrantedBinding(() => HttpResponse.json([{ id: 'at_1', name: 'Quiz Type' }]))
+      const wrapper = await render()
+      expect(typeReads()).toBe(0)
+
+      settleCreator()
+      await flushPromises()
+      await flushPromises()
+
+      expect(typeReads()).toBe(1)
+      expect(wrapper.text()).toContain('Quiz Type')
+      expect(wrapper.text()).not.toContain('conversation.activityControl.typesLoadFailed')
     })
-    await flushPromises()
-    await flushPromises()
-    expect(typeReads).toBe(0)
 
-    useSessionStore().me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
-    await flushPromises()
-    await flushPromises()
+    it('says the listing failed rather than that the project has none', async () => {
+      serveGrantedBinding(() => new HttpResponse(null, { status: 500 }))
+      const wrapper = await render()
+      settleCreator()
+      await flushPromises()
+      await flushPromises()
 
-    expect(typeReads).toBe(1)
+      expect(wrapper.text()).toContain('conversation.activityControl.typesLoadFailed')
+      expect(wrapper.text()).not.toContain('conversation.activityControl.noTypes')
+      expect(wrapper.text()).not.toContain('conversation.settings.bindingsLoadFailed')
+    })
   })
 
   it('shows a moderator the wake-up editor and the dead-letter viewer', async () => {

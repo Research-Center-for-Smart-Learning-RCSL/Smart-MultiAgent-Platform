@@ -76,6 +76,40 @@ const {
   onDelete,
 } = useChatroomSettings(chatroomId)
 
+// ---- creator gate (R28.02 mirror; server is authoritative) ----------------
+
+const session = useSessionStore()
+const projectId = ref<string | undefined>(undefined)
+const workspaceName = ref<string | undefined>(undefined)
+watchEffect(async () => {
+  const r = room.value
+  if (r && !projectId.value) {
+    try {
+      const ws = await getWorkspace(r.workspace_id)
+      projectId.value = ws.project_id
+      workspaceName.value = ws.name
+    } catch {
+      /* leave undefined — creator gate stays closed, which is safe */
+    }
+  }
+})
+// [R5.07]: the project's member groups and Concept Maps are project reads, refused
+// to a bare org member who opened the settings of a room open to the org.
+const { hasProjectRole } = useProjectRole(() => projectId.value)
+
+// F-3, same substitution as `useObservations`: for a NULL-creator room the
+// server falls back to moderator semantics, which an inherited ORG_OWNER
+// satisfies with no `project_members` row — so scanning that table answered a
+// question the server had already answered, and answered it wrong.
+const isCreator = computed<boolean>(() => {
+  const me = session.me
+  const r = room.value
+  if (!me || !r) return false
+  if (me.is_admin) return true
+  if (r.created_by_user_id !== null) return r.created_by_user_id === me.id
+  return r.is_moderator === true
+})
+
 // ---- agent binding composable ---------------------------------------------
 
 const {
@@ -99,30 +133,10 @@ const {
   onSetRole,
   saveWakeupConfig,
 } = useChatroomBindings(chatroomId, () => room.value, {
+  projectId: () => projectId.value,
   // The types feed only the creator's activity-control picker.
   needsActivityTypes: () => isCreator.value,
 })
-
-// ---- creator gate (R28.02 mirror; server is authoritative) ----------------
-
-const session = useSessionStore()
-const projectId = ref<string | undefined>(undefined)
-const workspaceName = ref<string | undefined>(undefined)
-watchEffect(async () => {
-  const r = room.value
-  if (r && !projectId.value) {
-    try {
-      const ws = await getWorkspace(r.workspace_id)
-      projectId.value = ws.project_id
-      workspaceName.value = ws.name
-    } catch {
-      /* leave undefined — creator gate stays closed, which is safe */
-    }
-  }
-})
-// [R5.07]: the project's member groups and Concept Maps are project reads, refused
-// to a bare org member who opened the settings of a room open to the org.
-const { hasProjectRole } = useProjectRole(() => projectId.value)
 
 // ---- member-group bindings (section 13.2a) --------------------------------
 // Only fetched once the room actually has the tier on: a project that uses no
@@ -234,19 +248,6 @@ async function toggleGroup(groupId: string): Promise<void> {
     savingGroups.value = false
   }
 }
-
-// F-3, same substitution as `useObservations`: for a NULL-creator room the
-// server falls back to moderator semantics, which an inherited ORG_OWNER
-// satisfies with no `project_members` row — so scanning that table answered a
-// question the server had already answered, and answered it wrong.
-const isCreator = computed<boolean>(() => {
-  const me = session.me
-  const r = room.value
-  if (!me || !r) return false
-  if (me.is_admin) return true
-  if (r.created_by_user_id !== null) return r.created_by_user_id === me.id
-  return r.is_moderator === true
-})
 
 const roleOptions = computed(() => [
   { value: 'normal', label: t('conversation.observers.roleParticipant') },

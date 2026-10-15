@@ -1,7 +1,8 @@
 // Composable: chatroom agent binding management (list, add, remove).
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
 
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
@@ -19,7 +20,7 @@ import {
   setChatroomAgentRole,
 } from '../api'
 import { patchAgentWakeupConfig } from '@slices/workflow'
-import { listActivityTypes, type ActivityType } from '@slices/activities'
+import { activityKeys, listActivityTypes, type ActivityType } from '@slices/activities'
 import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
@@ -58,9 +59,16 @@ export function useChatroomBindings(
   chatroomId: string,
   /** Reactive getter for the current room (may be null before load). */
   getRoom: () => Chatroom | null,
-  /** Whether to list the project's activity types with the bindings. They are a
-   *  project read ([R5.07]) and only the room creator's controls use them. */
-  { needsActivityTypes }: { needsActivityTypes: () => boolean } = { needsActivityTypes: () => true },
+  {
+    projectId,
+    needsActivityTypes,
+  }: {
+    /** The room's project, once resolved. */
+    projectId: () => string | undefined
+    /** Whether to list the project's activity types. They are a project read
+     *  ([R5.07]) and only the room creator's controls use them. */
+    needsActivityTypes: () => boolean
+  },
 ) {
   const { t } = useI18n()
   const toast = useToast()
@@ -86,27 +94,24 @@ export function useChatroomBindings(
   const boundDraftGrants = ref<Record<string, boolean | undefined>>({})
   const boundCanvasGrants = ref<Record<string, boolean | undefined>>({})
   const boundCanvasWriteGrants = ref<Record<string, boolean | undefined>>({})
-  // The project's usable activity types, for the grant multi-select. Loaded once
-  // with the bindings.
-  const activityTypes = ref<ActivityType[]>([])
+  // The project's usable activity types, for the grant multi-select. A query
+  // rather than part of `loadBindings`: the creator bit can settle after the
+  // bindings did (the session's `me` may arrive after the room), and the query
+  // follows it without a hand-rolled trigger. Its failure is kept off the
+  // bindings panel: a project with no types is ordinary, and so is a creator
+  // who holds no project role and so cannot list them.
+  const typesQuery = useQuery({
+    queryKey: computed(() => activityKeys.types(projectId() ?? '')),
+    queryFn: () => listActivityTypes(projectId()!),
+    enabled: computed(() => !!projectId() && needsActivityTypes()),
+    retry: false,
+  })
+  const activityTypes = computed<ActivityType[]>(() => typesQuery.data.value ?? [])
   // Tracked separately from `activityTypes.length` because the two states need
   // different copy: "this project has no activity types yet, register one" is a
   // instruction the teacher can act on, and telling them that when the listing
   // merely failed sends them to create something that already exists.
-  const activityTypesFailed = ref(false)
-  // The project the last load resolved. Kept so the types can still be listed
-  // when the creator bit settles after the bindings did (the session's `me` can
-  // arrive after the room).
-  const bindingsProjectId = ref<string | null>(null)
-  let typesRequestedFor: string | null = null
-  watch(
-    // Project id first: it is null at setup, so the caller's getter is not read
-    // before the caller has finished declaring what it reads.
-    () => bindingsProjectId.value && needsActivityTypes() && bindingsProjectId.value,
-    (projectId) => {
-      if (projectId && typesRequestedFor !== projectId) void loadActivityTypes(projectId)
-    },
-  )
+  const activityTypesFailed = computed(() => typesQuery.isError.value)
   const selectedAgentId = ref('')
   const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
@@ -197,28 +202,8 @@ export function useChatroomBindings(
       boundCanvasWriteGrants.value = Object.fromEntries(
         bound.map((b) => [b.agent_id, b.may_write_canvas]),
       )
-      // Separate from the two loads above: a project with no activity types is
-      // ordinary, and so is a viewer who cannot list them, so neither may fail
-      // the whole bindings panel.
-      bindingsProjectId.value = ws.project_id
-      if (needsActivityTypes()) await loadActivityTypes(ws.project_id)
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
-    }
-  }
-
-  async function loadActivityTypes(projectId: string): Promise<void> {
-    typesRequestedFor = projectId
-    try {
-      activityTypes.value = await listActivityTypes(projectId)
-      activityTypesFailed.value = false
-    } catch {
-      // Swallowed rather than raised: a room creator who is not a project member
-      // legitimately cannot list the project's types (the endpoint is
-      // membership-gated), and neither that nor a transient failure may take down
-      // the whole bindings panel.
-      activityTypes.value = []
-      activityTypesFailed.value = true
     }
   }
 
