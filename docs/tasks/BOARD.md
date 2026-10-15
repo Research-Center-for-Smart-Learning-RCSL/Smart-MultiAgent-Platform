@@ -13,6 +13,18 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Classroom facilitation phase 2 (2026-10-16)
+
+- `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, **approved
+  2026-10-16**, SRS delta applied) - `depends_on: []`. Bounded participant facts and
+  consistent codes for teacher and observer agents (M1); three-layer room-owned wake-up
+  settings with a migration and coordinated worker cutover (M2); prompt-level invitation
+  rules (Q-3B), human-confirmed stage transitions (Q-4A) and reviewed built-in round banks
+  with answers only in teacher prompts (Q-11..Q-13) across the three course packs (M3); live
+  classroom runs (M4). Every bank item needs the requester's or an educator's approval in
+  the PR before it ships. SRS: R13.33, R13.74, R13.75, R15.06, R15.06a, R15.09, R15.25,
+  R28.05, §5.2 matrix row 29.
+
 ### Agent configuration and project read scope (2026-10-13)
 
 - (implemented 2026-10-15) `2026-10-13-agent-config-visibility-and-project-reads`.
