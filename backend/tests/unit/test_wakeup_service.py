@@ -701,3 +701,26 @@ async def test_a_deferred_firing_never_fires_twice(monkeypatch) -> None:
 
     assert fired == [False, False, False, True, False]
     assert state["due"] is False
+
+
+async def test_a_finished_turn_counts_its_round_on_the_binding_it_ran_for(monkeypatch) -> None:
+    """Code review #5: a rebind during the turn must not inherit the old round."""
+    import contexts.orchestration.application.wakeup_service as ws
+
+    counted: list[uuid.UUID] = []
+
+    async def _increment(aid, rid, bid):
+        counted.append(bid)
+        return 1
+
+    async def _no_lookup(**kw):
+        raise AssertionError("the turn's own binding needs no lookup")
+
+    monkeypatch.setattr(ws.wakeup_state, "increment_autostop", _increment)
+    svc = WakeupService.__new__(WakeupService)
+    svc._conversation = SimpleNamespace(binding_wakeup_state=_no_lookup)
+    ran_for = uuid.uuid4()
+
+    await svc.on_agent_message_sent(agent_id=uuid.uuid4(), room_id=uuid.uuid4(), binding_id=ran_for)
+
+    assert counted == [ran_for]

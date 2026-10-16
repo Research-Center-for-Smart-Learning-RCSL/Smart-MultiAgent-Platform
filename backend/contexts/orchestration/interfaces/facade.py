@@ -176,16 +176,19 @@ class OrchestrationFacade:
         *,
         agent_id: uuid.UUID,
         room_id: uuid.UUID,
+        binding_id: uuid.UUID | None = None,
     ) -> int:
         """Track a completed agent reply for autostop (R15.03/R15.04).
 
         Called by the turn-trigger wiring (K.3) after an agent turn persists a
         reply. Returns the new consecutive agent-only round count; a user
-        message resets it via :meth:`on_message_created`.
+        message resets it via :meth:`on_message_created`. ``binding_id`` is the
+        incarnation the turn ran for; without it the live binding is looked up.
         """
         return await self._wakeup.on_agent_message_sent(
             agent_id=agent_id,
             room_id=room_id,
+            binding_id=binding_id,
         )
 
     async def update_room_wakeup(

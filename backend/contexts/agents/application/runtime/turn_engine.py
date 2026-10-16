@@ -986,7 +986,9 @@ async def _release_recheck_claim(agent_id: uuid.UUID, chatroom_id: uuid.UUID, cl
     await _repark_queued_trigger(agent_id, chatroom_id, claim.parked)
 
 
-async def drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+async def drain_queued_trigger(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID, binding_id: uuid.UUID | None = None
+) -> None:
     """Hand a trigger that landed mid-turn to exactly one follow-up wakeup.
 
     Called from ``run_turn``'s ``finally`` so it also runs when the job is
@@ -997,7 +999,12 @@ async def drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> N
 
     Public because the stranded-turn reaper calls it too: a turn killed by
     ``SIGKILL`` never reaches that ``finally``, and the parked trigger is then
-    the reaper's to drain."""
+    the reaper's to drain.
+
+    ``binding_id`` is the incarnation the finished turn ran for. The follow-up
+    carries it, so a parked autonomous trigger is skipped as ``binding_gone`` if
+    the agent was unbound and rebound meanwhile ([R15.09]); ``None`` (the reaper)
+    leaves the follow-up ungated, as before."""
     queued = await _pop_queued_trigger(agent_id, chatroom_id)
     if queued.state is not TriggerPopState.PARKED:
         # ABSENT is the ordinary case (nothing landed mid-turn). UNKNOWN is a
@@ -1013,6 +1020,7 @@ async def drain_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> N
             str(chatroom_id),
             queued.trigger,
             str(queued.message_id) if queued.message_id else None,
+            str(binding_id) if binding_id is not None else None,
         )
     except Exception:
         _log.warning(
@@ -1532,6 +1540,7 @@ class TurnEngine:
         request_id: uuid.UUID | None = None,
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
+        binding_id: uuid.UUID | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         result: TurnResult | None = None
@@ -1603,7 +1612,7 @@ class TurnEngine:
             # `async with` above closes before the `finally` runs.
             if held:
                 await _run_uncancellable(
-                    drain_queued_trigger(agent_id, chatroom_id),
+                    drain_queued_trigger(agent_id, chatroom_id, binding_id),
                     what="queued-trigger drain",
                 )
         if result is None:

@@ -315,16 +315,20 @@ class WakeupService:
         *,
         agent_id: uuid.UUID,
         room_id: uuid.UUID,
+        binding_id: uuid.UUID | None = None,
     ) -> int:
         """Track consecutive agent-only rounds for autostop (R15.03).
 
-        Returns the new autostop count; 0 when the agent is no longer bound,
-        since a new binding starts its own count.
+        The round is counted on ``binding_id``, the incarnation the turn ran for,
+        so a rebind during the turn starts its own count at zero. Without one the
+        live binding is used; 0 when the agent is no longer bound.
         """
-        state = await self._conversation.binding_wakeup_state(chatroom_id=room_id, agent_id=agent_id)
-        if state is None:
-            return 0
-        return await wakeup_state.increment_autostop(agent_id, room_id, state.binding_id)
+        if binding_id is None:
+            state = await self._conversation.binding_wakeup_state(chatroom_id=room_id, agent_id=agent_id)
+            if state is None:
+                return 0
+            binding_id = state.binding_id
+        return await wakeup_state.increment_autostop(agent_id, room_id, binding_id)
 
 
 __all__ = ["WakeTarget", "WakeupService"]

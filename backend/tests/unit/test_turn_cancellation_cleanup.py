@@ -205,7 +205,13 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
     now, so a trigger parked mid-turn still becomes a follow-up wakeup when the
     job is killed. `max_tries=1` (C3) means nothing else will do it."""
 
-    async def _run(self, monkeypatch: pytest.MonkeyPatch, *, parked: te.QueuedTrigger):
+    async def _run(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        parked: te.QueuedTrigger,
+        binding_id: uuid.UUID | None = None,
+    ):
         agent_id, room = uuid.uuid4(), uuid.uuid4()
         popped: list[tuple[uuid.UUID, uuid.UUID]] = []
         enqueued: list[tuple] = []
@@ -241,7 +247,9 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
         engine._run_locked = _cancel  # type: ignore[attr-defined]
 
         with pytest.raises(asyncio.CancelledError):
-            await engine.run_turn(agent_id=agent_id, chatroom_id=room, trigger="mention")
+            await engine.run_turn(
+                agent_id=agent_id, chatroom_id=room, trigger="mention", binding_id=binding_id
+            )
 
         return popped, enqueued, agent_id, room
 
@@ -252,7 +260,21 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
         )
 
         assert popped == [(agent_id, room)]
-        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None)]
+        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None, None)]
+
+    async def test_the_follow_up_names_the_binding_the_turn_ran_for(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Code review #2: a parked autonomous trigger must not fire on a binding
+        rebound while this turn ran; the worker skips it as ``binding_gone``."""
+        binding = uuid.uuid4()
+        _popped, enqueued, agent_id, room = await self._run(
+            monkeypatch,
+            parked=te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="silence_minutes"),
+            binding_id=binding,
+        )
+
+        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "silence_minutes", None, str(binding))]
 
     async def test_nothing_parked_enqueues_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         popped, enqueued, agent_id, room = await self._run(

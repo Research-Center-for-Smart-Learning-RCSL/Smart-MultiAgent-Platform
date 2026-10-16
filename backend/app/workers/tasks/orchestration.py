@@ -109,11 +109,20 @@ async def wakeup_agent(
         # a reply even after the agent has stalled on consecutive self-rounds.
         # `release` (R28.07) is the same shape: the room creator explicitly woke
         # the agent to read a released observation.
-        if trigger not in EXPLICIT_TRIGGERS:
+        # The incarnation this turn runs for: its queued follow-up and its autostop
+        # round belong to it, not to whatever binding is live when the turn ends.
+        turn_binding: uuid.UUID | None = None
+        if trigger in EXPLICIT_TRIGGERS:
+            from contexts.conversation.interfaces.facade import ConversationFacade
+
+            bound = await ConversationFacade(db).binding_wakeup_state(chatroom_id=rid, agent_id=aid)
+            turn_binding = bound.binding_id if bound is not None else None
+        else:
             current = await OrchestrationFacade(db).room_wakeup(agent_id=aid, room_id=rid)
             if current is None or (binding_id is not None and str(current.state.binding_id) != binding_id):
                 logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: binding gone")
                 return "skipped:binding_gone"
+            turn_binding = current.state.binding_id
             triggers = current.effective.config.triggers
             still_on = {
                 "every_n_messages": triggers.every_n_messages.enabled,
@@ -166,6 +175,7 @@ async def wakeup_agent(
             trigger=trigger,
             trigger_message_id=mid,
             turn_job_id=ctx.get("job_id"),
+            binding_id=turn_binding,
         )
 
         # Result-accurate audit slug: `wakeup.fired` is reserved for turns that
@@ -192,7 +202,9 @@ async def wakeup_agent(
 
         # Count the round for autostop only when a reply was actually produced.
         if result.status == "completed":
-            await OrchestrationFacade(db).on_agent_message_sent(agent_id=aid, room_id=rid)
+            await OrchestrationFacade(db).on_agent_message_sent(
+                agent_id=aid, room_id=rid, binding_id=turn_binding
+            )
 
     # K.4: fire a wakeup_signal to workflows whose dormant trigger watches this
     # agent. Best-effort, post-commit; failure must not fail the wake-up.

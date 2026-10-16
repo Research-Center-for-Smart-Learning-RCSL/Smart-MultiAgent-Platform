@@ -263,7 +263,13 @@ def _patch_task_env(
     from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgentRole
     from contexts.orchestration.application.room_wakeup_service import build_room_wakeup
 
-    rec: dict = {"run_turn": [], "on_agent_message_sent": [], "audit": [], "turn_job_id": []}
+    rec: dict = {
+        "run_turn": [],
+        "on_agent_message_sent": [],
+        "audit": [],
+        "turn_job_id": [],
+        "turn_binding": [],
+    }
     binding_role = role or ChatroomAgentRole.NORMAL
     rec["binding_id"] = binding_id = uuid.uuid4()
 
@@ -308,10 +314,18 @@ def _patch_task_env(
             pass
 
         async def run_turn(
-            self, *, agent_id, chatroom_id, trigger, trigger_message_id=None, turn_job_id=None
+            self,
+            *,
+            agent_id,
+            chatroom_id,
+            trigger,
+            trigger_message_id=None,
+            turn_job_id=None,
+            binding_id=None,
         ):
             rec["run_turn"].append((agent_id, chatroom_id, trigger, trigger_message_id))
             rec["turn_job_id"].append(turn_job_id)
+            rec["turn_binding"].append(binding_id)
             return SimpleNamespace(status=turn_status, reason=None)
 
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine)
@@ -320,8 +334,9 @@ def _patch_task_env(
         def __init__(self, db) -> None:
             pass
 
-        async def on_agent_message_sent(self, *, agent_id, room_id):
+        async def on_agent_message_sent(self, *, agent_id, room_id, binding_id=None):
             rec["on_agent_message_sent"].append((agent_id, room_id))
+            rec["autostop_binding"] = binding_id
             return 1
 
         async def room_wakeup(self, *, agent_id, room_id):
@@ -340,6 +355,19 @@ def _patch_task_env(
             return build_room_wakeup(state, agent)
 
     monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _OrchFacade)
+
+    class _ConvFacade:
+        """The binding read an explicit (mention/release) trigger makes for its turn."""
+
+        def __init__(self, db) -> None:
+            pass
+
+        async def binding_wakeup_state(self, *, chatroom_id, agent_id):
+            if rec.get("unbound"):
+                return None
+            return SimpleNamespace(binding_id=binding_id)
+
+    monkeypatch.setattr("contexts.conversation.interfaces.facade.ConversationFacade", _ConvFacade)
 
     async def _emit(db, event):
         rec["audit"].append(event.action)
@@ -562,6 +590,8 @@ async def test_wakeup_agent_mention_bypasses_autostop(monkeypatch) -> None:
 
     assert out == "completed"
     assert rec["run_turn"] == [(aid, rid, "mention", None)]
+    # An explicit call is not gated on the binding, but its turn still names one.
+    assert rec["turn_binding"] == [rec["binding_id"]]
 
 
 @pytest.mark.asyncio
@@ -653,6 +683,10 @@ async def test_wakeup_agent_runs_for_the_binding_that_fired(monkeypatch) -> None
     )
 
     assert out == "completed"
+    # Code review #2/#5: the turn's follow-up and its autostop round belong to the
+    # incarnation that was gated, not to whichever binding is live afterwards.
+    assert rec["turn_binding"] == [rec["binding_id"]]
+    assert rec["autostop_binding"] == rec["binding_id"]
 
 
 @pytest.mark.asyncio
