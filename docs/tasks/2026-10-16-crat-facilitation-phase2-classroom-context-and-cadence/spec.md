@@ -610,8 +610,21 @@ Cadence:
   `ChatroomSettingsView.test.ts` (room panel patches the binding with its version, never
   `/api/agents/:id`; a 409 reloads; a 403 hides the panel). Writes are serialised by
   disabling the controls while one is in flight. `openapi.json` and the client regenerated.
-- [ ] AC-13: Populated migration/backfill and rollback rehearsal preserve defaults/room data;
+- [x] AC-13: Populated migration/backfill and rollback rehearsal preserve defaults/room data;
   all runtime replicas use the new resolver before tuning-enabled pack adoption.
+  Rehearsed on staging (smap.rcsl.online) on 2026-10-16 as runbook §3.3's stopped cutover, from
+  `main` at `a8aa37ba` to this branch at `58b190d3`, with a `pg_dump` taken first: web and worker
+  stopped, `0103 -> 0104` applied, then started. All 31 bindings kept their rows, each with its own
+  `binding_id` and empty layers at version 1; no agent had drifted, so the backup table holds 0
+  rows and the restore branch was exercised only by the db-tier test. In the browser: a room
+  override saved, survived a reload and left the same teacher agent's other room and its
+  `agents.wakeup_config` unchanged; a role change cleared the layers, issued a new `binding_id`
+  and the panel re-read without a 409; reset to defaults worked; Redis keys carry the binding id.
+  Rollback: web, worker and frontend restarted on the `a8aa37ba` images with `--no-deps` (the old
+  code's alembic does not know `0104`), healthy with no error-level log lines; forward again, the
+  room override set before the rollback (`silence_minutes_enabled: true`, version 4) was intact.
+  Not covered: no turn or message was exercised on the old images during the rollback window.
+  Staging runs one web and one worker replica, both stopped across the cutover.
 
 Invitations and courses:
 
