@@ -798,6 +798,24 @@ are carried forward as release gates.
   itself is in §17. The retired assertions (the shared-cadence prohibition, creator-confirmed CRAT
   answers, `本課題組`, the designer's settings-visibility sentence) were replaced, not deleted, as
   the Test Plan row for AC-23..24 directs.
+- **D-14. FU-9 fixed in this dossier rather than deferred (requester's decision, 2026-10-16).** The
+  defect was introduced by this dossier's own unmerged diff, so it is fixed before the PR merges
+  instead of shipping a known quality Warning. `RoomWakeupService` no longer touches Redis: each
+  write returns its `TimerEffects` (`RoomWakeupChange` for human writes and refresh,
+  `RuntimeTuning` for the tool), and each of the three callers applies them only after the
+  transaction holding the write commits. The PATCH and reset routes apply them after `db.commit()`
+  and log a Redis failure without failing the saved change. The refresh sweep collects the effects
+  of bindings whose savepoint succeeded and applies them once its single commit lands, none if that
+  commit fails. The `update_wakeup` tool appends its effects to `WakeupBinding.effect_sink`, which
+  the turn drains inside `_post_commit` on its three committing branches (reply, empty reply,
+  observer) beside the activation events; the failure path rolls back with the sink undrained. The
+  choice was made over a SQLAlchemy `after_commit` hook, whose synchronous callback would have to
+  schedule the async Redis calls with no place to report a failure. Regression tests:
+  `TestTimersWaitForTheCommit` (failed against the previous code with the timers already touched),
+  the route ordering tests in `test_room_wakeup_routes.py`, the sweep assertions in
+  `test_workers.py`, and `test_turn_wakeup_effects.py` through the real `_run_locked`. Five
+  mutations (a missing drain, a drain before the commit, the route or the sweep applying early, the
+  service applying inline) each fail the suite.
 
 ## 16. Follow-ups
 
@@ -823,7 +841,7 @@ are carried forward as release gates.
 - **FU-8 (security Hardening):** room values are bounded by the hard limits only, as designed
   ([R15.25]), so a creator or owner can set `n=1` and spend the project's own key faster than the
   designer's soft bounds would allow. A per-room turn budget is the remaining backstop.
-- **FU-9 (quality Warning, deferred with the requester's knowledge):** the timer side effects of
+- **FU-9 [FIXED, D-14] (quality Warning, deferred with the requester's knowledge):** the timer side effects of
   a wake-up write (dropping a deferred every-N firing, re-arming the silence clock) run in Redis
   right after the CAS UPDATE, before the owning transaction commits. If that transaction then rolls
   back (a failed turn after the tool call, a refresh savepoint failure), Redis keeps the effect. Both
