@@ -824,10 +824,10 @@ are carried forward as release gates.
   ids; `RoomWakeupPanel.vue` could split its query and mutations into a composable; the frontend
   repeats the 1000/1440/100 bounds instead of reading them from the API.
 
-## 17. Round bank draft (Q-11, awaiting item-by-item approval)
+## 17. Round bank (Q-11, approved 2026-10-16)
 
-Drafted 2026-10-16 for AC-23. Nothing below ships until the requester or an educator approves
-each item; an unapproved item is removed, not shipped. Items are written in the courses'
+Drafted 2026-10-16 for AC-23 and approved item by item by the requester the same day: C1..C8,
+K1..K6 with 垚 removed from K5, and O1..O6. Items are written in the courses'
 language (Traditional Chinese). "Ambiguity check" records the competing answers that were
 looked for; an item with a second common answer was replaced while drafting.
 
@@ -859,7 +859,7 @@ and discuss work after submission, never to post first. All are standard Traditi
 | K2 | 日、月 (repeatable) | 明、昌、朋、晶 | Repetition yields 昌 (日日), 朋 (月月), 晶 (日日日). |
 | K3 | 火 (repeatable) | 炎、焱 | A minimal set for the repetition idea; two references only. |
 | K4 | 女、口、子 | 好、如 | 好 = 女子, 如 = 女口. |
-| K5 | 土、口 (repeatable) | 吐、圭、垚 | 垚 is less common; the educator may drop it from the references. |
+| K5 | 土、口 (repeatable) | 吐、圭 | 垚 removed at approval as too uncommon. |
 | K6 | 力、口 | 加、另 | 加 = 力口 side by side, 另 = 口 over 力. |
 
 The current room prompt's fixed 木/口 demonstration becomes K1 and is approved or removed
