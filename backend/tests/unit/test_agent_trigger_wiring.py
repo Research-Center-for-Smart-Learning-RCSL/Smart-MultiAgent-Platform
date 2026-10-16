@@ -24,7 +24,7 @@ import contexts.orchestration.interfaces.facade as facade_mod
 
 
 def _fake_agent_repo(agent_ids, roles=None):
-    from contexts.conversation.domain.models import ChatroomAgentRole
+    from contexts.conversation.domain.models import ChatroomAgent, ChatroomAgentRole
 
     role_by_id = roles or {}
 
@@ -33,8 +33,11 @@ def _fake_agent_repo(agent_ids, roles=None):
             self._db = db
 
         async def list(self, chatroom_id):
+            # Rows without their wake-up layers: orchestration then reads them itself.
             return [
-                SimpleNamespace(agent_id=a, role=role_by_id.get(a, ChatroomAgentRole.NORMAL))
+                ChatroomAgent(
+                    chatroom_id=chatroom_id, agent_id=a, role=role_by_id.get(a, ChatroomAgentRole.NORMAL)
+                )
                 for a in agent_ids
             ]
 
@@ -54,9 +57,17 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
             pass
 
         async def on_message_created(
-            self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids, observer_agent_ids=frozenset()
+            self,
+            *,
+            room_id,
+            sender_is_user,
+            sender_agent_id=None,
+            agent_ids,
+            observer_agent_ids=frozenset(),
+            states=None,
         ):
             captured.update(
+                states=states,
                 room_id=room_id,
                 sender_is_user=sender_is_user,
                 sender_agent_id=sender_agent_id,
@@ -74,6 +85,7 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
     assert captured["sender_is_user"] is True
     assert captured["agent_ids"] == [a1, a2]
     assert captured["observer_agent_ids"] == set()
+    assert captured["states"] is None  # rows without layers: orchestration reads them
 
 
 @pytest.mark.asyncio
