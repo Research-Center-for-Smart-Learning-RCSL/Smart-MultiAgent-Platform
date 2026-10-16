@@ -656,10 +656,12 @@ Invitations and courses:
 - [ ] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
   stay in different phases without changing each other's cadence. Confirm quiet-work behavior,
   teacher-confirmed transitions, missing grants and teacher-ended activities.
-- [ ] AC-23: Each room teacher ships its bank (CRAT 8, character building 6, object
+- [x] AC-23: Each room teacher ships its bank (CRAT 8, character building 6, object
   reinterpretation 6). The dossier holds each item's verification table, and the PR
   records the requester's or an educator's approval of every shipped item. No teacher
   prompt asks the human teacher for round content or adopts a creator-posted round.
+  Verification tables in §17; the requester's item-by-item approval is recorded on PR #261
+  (issuecomment-6218027017), cross-checked against the banks in the three shipped teacher prompts.
 - [ ] AC-24: Answers and reference items appear only in teacher prompts: no peer, analyst or
   designer prompt carries them. The CRAT teacher confirms a matching submission itself,
   routes a differing target to the human teacher, and in a live run does not reveal the
