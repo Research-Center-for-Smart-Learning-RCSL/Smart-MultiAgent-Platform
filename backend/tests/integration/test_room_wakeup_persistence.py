@@ -159,7 +159,7 @@ class TestBindingLayers:
         assert (fresh.version, fresh.room_overrides) == (1, {})
         assert late_write is None
 
-    async def test_a_role_change_clears_the_layers_and_bumps_the_version(
+    async def test_a_role_change_is_a_new_incarnation_with_empty_layers(
         self, sessionmaker: async_sessionmaker[AsyncSession], room_agent
     ) -> None:
         from contexts.conversation.domain.models import ChatroomAgentRole
@@ -188,7 +188,9 @@ class TestBindingLayers:
         assert after is not None
         assert (after.room_overrides, after.runtime_overrides, after.runtime_started_at) == ({}, {}, None)
         assert after.version == 3
-        assert after.binding_id == state.binding_id
+        # Code review #3: a new incarnation, so the old role's Redis counters, silence
+        # clock and queued jobs (all keyed by binding_id) do not carry over.
+        assert after.binding_id != state.binding_id
 
     async def test_the_refresh_page_reads_only_started_layers_in_keyset_order(
         self, sessionmaker: async_sessionmaker[AsyncSession], room_agent

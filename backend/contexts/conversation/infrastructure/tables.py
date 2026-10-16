@@ -132,7 +132,8 @@ chatroom_agents = sa.Table(
         nullable=True,
     ),
     # Room-owned wake-up layers ([R15.09], migration 0104). `binding_id` is fresh
-    # per bind, so a rebind is a new incarnation that inherits nothing; the two
+    # per bind and per role change, so either is a new incarnation that inherits
+    # nothing; the two
     # layers are sparse and parsed by `orchestration.domain.room_wakeup`.
     sa.Column(
         "binding_id", pg.UUID(as_uuid=True), nullable=False, server_default=sa.text("gen_random_uuid()")

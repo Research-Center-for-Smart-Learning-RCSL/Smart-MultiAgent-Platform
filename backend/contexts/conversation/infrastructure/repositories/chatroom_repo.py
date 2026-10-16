@@ -541,13 +541,16 @@ class ChatroomAgentRepository:
                     t.chatroom_agents.c.role == expected_role.value,
                 )
             )
-            # A role change starts the wake-up layers over ([R15.09]): the stored
-            # `autostop_rounds` means the other role's cap after the change, and
-            # an editor's choices on a normal binding must not survive onto an
-            # observer binding only the creator may manage. The version bump turns
-            # an editor still holding the old settings into a 409.
+            # A role change starts the binding over as a new incarnation ([R15.09]):
+            # the stored `autostop_rounds` means the other role's cap after the
+            # change, and an editor's choices on a normal binding must not survive
+            # onto an observer binding only the creator may manage. A fresh
+            # `binding_id` also leaves behind the Redis counters, silence clock and
+            # queued wake-ups keyed by the old one; the version bump turns an editor
+            # still holding the old settings into a 409.
             .values(
                 role=role.value,
+                binding_id=sa.func.gen_random_uuid(),
                 wakeup_room_overrides={},
                 wakeup_runtime_overrides={},
                 wakeup_runtime_started_at=None,

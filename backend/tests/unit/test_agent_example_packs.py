@@ -945,6 +945,16 @@ class TestPhase2CoursePacks:
         assert self._agent(key).wakeup_config["triggers"]["every_n_messages"]["n"] == 20
 
     @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_teachers_state_that_the_last_write_wins(self, teacher_key: str) -> None:
+        """A runtime value outranks the room's ([R15.25] resolution order), so a prompt
+        may not promise that the teacher's choice wins; it says not to reopen a
+        trigger the agent did not close (code review #4)."""
+        prompt = self._agent(teacher_key).system_prompt
+        assert "選擇優先" not in prompt
+        assert "又會取代老師的值" in prompt
+        assert "不要把它打開" in prompt
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
     def test_teachers_may_toggle_only_silence(self, teacher_key: str) -> None:
         """The message trigger is the one that must stay live while silence is paused."""
         assert self._agent(teacher_key).wakeup_config["self_toggle"] == ["silence_minutes"]
