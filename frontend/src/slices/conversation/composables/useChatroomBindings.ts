@@ -2,7 +2,7 @@
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
 import { computed, ref } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 
 import {
   addChatroomAgent,
@@ -17,6 +17,7 @@ import {
   setChatroomAgentDraftAccess,
   setChatroomAgentRole,
 } from '../api'
+import { convKeys } from '../queries'
 import { activityKeys, listActivityTypes, type ActivityType } from '@slices/activities'
 import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
@@ -62,6 +63,7 @@ export function useChatroomBindings(
     needsActivityTypes: () => boolean
   },
 ) {
+  const qc = useQueryClient()
   const projectAgents = ref<Agent[]>([])
   // The names projection, loaded instead of `projectAgents` for a caller who may
   // not read agent configuration (matrix row 28). Exactly one of the two is
@@ -220,6 +222,9 @@ export function useChatroomBindings(
     bindingError.value = null
     try {
       await setChatroomAgentRole(chatroomId, agentId, role)
+      // The server starts the binding over (new binding id, empty layers, new
+      // version), so a wake-up panel still holding the old read would save into a 409.
+      void qc.invalidateQueries({ queryKey: convKeys.roomWakeup(chatroomId, agentId) })
       await loadBindings()
     } catch {
       bindingError.value = 'conversation.settings.roleChangeFailed'

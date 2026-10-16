@@ -387,6 +387,61 @@ describe('ChatroomSettingsView', () => {
     expect(agentPatches).toBe(0)
   })
 
+  it('re-reads the wake-up settings after a role change starts the binding over', async () => {
+    // Code review #6: the server issues a new binding id and version on a role
+    // change, so the panel must not keep saving against the read it already had.
+    const room = makeChatroom({ created_by_user_id: 'u_1' } as Partial<Chatroom>)
+    let role = 'normal'
+    let wakeupReads = 0
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1', role }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () => {
+        wakeupReads += 1
+        return HttpResponse.json(roomWakeup({ role, version: 4 + wakeupReads }))
+      }),
+      http.patch('/api/chatrooms/:chatroomId/agents/:agentId', () => {
+        role = 'observer'
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    useSessionStore().me = {
+      id: 'u_1',
+      email: 'u@smap.test',
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    }
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+    const before = wakeupReads
+    expect(before).toBeGreaterThan(0)
+
+    const roleSelect = wrapper
+      .find('.agent-item .agent-head__actions')
+      .findAllComponents({ name: 'SSelect' })
+      .find((c) => (c.props('options') as { value: string }[]).some((o) => o.value === 'observer'))
+    expect(roleSelect).toBeDefined()
+    roleSelect!.vm.$emit('update:modelValue', 'observer')
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    expect(role).toBe('observer')
+    expect(wakeupReads).toBeGreaterThan(before)
+  })
+
   it('keeps a number being typed when another wake-up setting is saved', async () => {
     const roomPatches: Record<string, unknown>[] = []
     server.use(
