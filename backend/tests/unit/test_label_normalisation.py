@@ -4,7 +4,7 @@ A display name is user content rendered into line-structured text: the
 ``"Name: message"`` prefix on every participant turn, and — since the room-owner
 note and the activity legend landed — the agent's system prompt itself. Identity
 guarded its own names for exactly that reason. Conversation did not, and a room
-guest's label *wins* the precedence in ``TurnEngine._room_user_labels``, so the
+guest's label *wins* the precedence in ``TurnEngine._room_display_labels``, so the
 guarantee held on the branch nobody could reach and not on the one anybody could.
 
 The rule now lives in ``shared_kernel.labels``; these cover the rule and both

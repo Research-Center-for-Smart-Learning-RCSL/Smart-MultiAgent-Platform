@@ -10512,6 +10512,227 @@
         "title": "RoomSummaryOut",
         "type": "object"
       },
+      "RoomWakeupOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_may_toggle": {
+            "items": {
+              "enum": [
+                "every_n_messages",
+                "silence_minutes"
+              ],
+              "type": "string"
+            },
+            "title": "Agent May Toggle",
+            "type": "array"
+          },
+          "autostop_rounds": {
+            "$ref": "#/components/schemas/WakeupIntFieldOut"
+          },
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "call_only": {
+            "title": "Call Only",
+            "type": "boolean"
+          },
+          "count": {
+            "$ref": "#/components/schemas/WakeupCountFieldOut"
+          },
+          "every_n_messages": {
+            "$ref": "#/components/schemas/WakeupIntFieldOut"
+          },
+          "every_n_messages_enabled": {
+            "$ref": "#/components/schemas/WakeupBoolFieldOut"
+          },
+          "ignored_agent_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Agent Fields",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "normal",
+              "observer"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "runtime_refresh_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Refresh At"
+          },
+          "silence_minutes": {
+            "$ref": "#/components/schemas/WakeupIntFieldOut"
+          },
+          "silence_minutes_enabled": {
+            "$ref": "#/components/schemas/WakeupBoolFieldOut"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "binding_id",
+          "version",
+          "role",
+          "every_n_messages_enabled",
+          "every_n_messages",
+          "count",
+          "silence_minutes_enabled",
+          "silence_minutes",
+          "autostop_rounds",
+          "call_only",
+          "agent_may_toggle",
+          "ignored_agent_fields",
+          "runtime_refresh_at"
+        ],
+        "title": "RoomWakeupOut",
+        "type": "object"
+      },
+      "RoomWakeupPatchIn": {
+        "properties": {
+          "autostop_rounds": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autostop Rounds"
+          },
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all",
+                  "human"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "every_n_messages": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Every N Messages"
+          },
+          "every_n_messages_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Every N Messages Enabled"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "silence_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silence Minutes"
+          },
+          "silence_minutes_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silence Minutes Enabled"
+          }
+        },
+        "required": [
+          "binding_id",
+          "expected_version"
+        ],
+        "title": "RoomWakeupPatchIn",
+        "type": "object"
+      },
+      "RoomWakeupResetIn": {
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "runtime",
+              "room"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binding_id",
+          "expected_version",
+          "scope"
+        ],
+        "title": "RoomWakeupResetIn",
+        "type": "object"
+      },
       "RotationOut": {
         "properties": {
           "retry_initial_delay_ms": {
@@ -12564,6 +12785,98 @@
           "token"
         ],
         "title": "VerifyEmailIn",
+        "type": "object"
+      },
+      "WakeupBoolFieldOut": {
+        "properties": {
+          "designer_value": {
+            "title": "Designer Value",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "designer",
+              "room",
+              "runtime"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "designer_value",
+          "source"
+        ],
+        "title": "WakeupBoolFieldOut",
+        "type": "object"
+      },
+      "WakeupCountFieldOut": {
+        "properties": {
+          "designer_value": {
+            "enum": [
+              "all",
+              "human"
+            ],
+            "title": "Designer Value",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "designer",
+              "room",
+              "runtime"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "enum": [
+              "all",
+              "human"
+            ],
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "designer_value",
+          "source"
+        ],
+        "title": "WakeupCountFieldOut",
+        "type": "object"
+      },
+      "WakeupIntFieldOut": {
+        "properties": {
+          "designer_value": {
+            "title": "Designer Value",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "designer",
+              "room",
+              "runtime"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value",
+          "designer_value",
+          "source"
+        ],
+        "title": "WakeupIntFieldOut",
         "type": "object"
       },
       "WatchlistEntryOut": {
@@ -21319,6 +21632,185 @@
           }
         },
         "summary": "Patch Chatroom Agent Draft Access",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/wakeup": {
+      "get": {
+        "operationId": "get_room_wakeup_api_chatrooms__chatroom_id__agents__agent_id__wakeup_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomWakeupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Room Wakeup",
+        "tags": [
+          "chatrooms"
+        ]
+      },
+      "patch": {
+        "description": "Supplied fields replace the room's value and drop the agent's adjustment of\nthe same field; nothing is written to the shared agent.",
+        "operationId": "patch_room_wakeup_api_chatrooms__chatroom_id__agents__agent_id__wakeup_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomWakeupPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomWakeupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Patch Room Wakeup",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/wakeup/reset": {
+      "post": {
+        "description": "``runtime`` drops the agent's own adjustments; ``room`` also returns every\nroom value to the designer's current defaults. Neither touches other rooms.",
+        "operationId": "reset_room_wakeup_api_chatrooms__chatroom_id__agents__agent_id__wakeup_reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomWakeupResetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomWakeupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Reset Room Wakeup",
         "tags": [
           "chatrooms"
         ]

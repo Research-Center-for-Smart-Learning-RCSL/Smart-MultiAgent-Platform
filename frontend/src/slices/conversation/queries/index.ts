@@ -55,6 +55,9 @@ export const convKeys = {
   chatroomAgentLabels: (chatroomId: string) =>
     ['conversation', 'chatroom-agent-labels', chatroomId] as const,
   guestBans: (chatroomId: string) => ['conversation', 'guest-bans', chatroomId] as const,
+  // One binding's room wake-up settings ([R15.25]).
+  roomWakeup: (chatroomId: string, agentId: string) =>
+    ['conversation', 'room-wakeup', chatroomId, agentId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   observations: (chatroomId: string) =>
     ['conversation', 'observations', chatroomId] as const,

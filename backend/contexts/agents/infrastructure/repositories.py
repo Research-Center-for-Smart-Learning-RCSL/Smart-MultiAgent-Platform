@@ -346,20 +346,6 @@ class AgentRepository:
             raise AgentVersionMismatch(str(agent_id))
         return _row_to_agent(row)
 
-    async def list_with_authored_snapshot(self) -> Sequence[Agent]:
-        """Active agents that have a non-null wakeup_authored_snapshot (G.5)."""
-        rows = (
-            await self._db.execute(
-                t.agents.select().where(
-                    sa.and_(
-                        t.agents.c.deleted_at.is_(None),
-                        t.agents.c.wakeup_authored_snapshot.isnot(None),
-                    )
-                )
-            )
-        ).all()
-        return [_row_to_agent(r) for r in rows]
-
     async def soft_delete(self, *, agent_id: uuid.UUID, expected_version: int) -> Agent:
         stmt = (
             t.agents.update()

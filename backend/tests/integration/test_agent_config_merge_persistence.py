@@ -33,7 +33,6 @@ pytestmark = pytest.mark.db
 # and `audit_logs` is append-only at the database level (R17.04) — so the row cannot
 # be deleted and its actor must outlive the test. That also rules out the conftest
 # `project` fixture's owner, whose teardown deletes the user.
-_SYSTEM_ACTOR = uuid.UUID(int=0)
 _HUMAN_ACTOR = uuid.UUID("00000000-0000-4000-8000-00000000a11e")
 
 # What the editor sends: the full shape it models, with no `soft_bounds` — it has
@@ -76,13 +75,6 @@ async def _ensure_actor(
             )
             await session.commit()
     return actor_id
-
-
-@pytest.fixture
-async def system_actor(sessionmaker: async_sessionmaker[AsyncSession]) -> uuid.UUID:
-    """`uuid(int=0)` is the actor the wake-up service writes as (G.4/G.5). Seeded here
-    rather than assumed, so the test does not depend on how the database was bootstrapped."""
-    return await _ensure_actor(sessionmaker, _SYSTEM_ACTOR, "itest-system@test.invalid")
 
 
 @pytest.fixture
@@ -189,50 +181,3 @@ async def test_explicit_null_deletes_through_jsonb(
 
     assert "soft_bounds" not in after.wakeup_config
     assert after.wakeup_config["designer_note"] == "keep me"
-
-
-async def test_refresh_restores_the_snapshot_and_then_converges(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    agent_ids: tuple[uuid.UUID, uuid.UUID],
-    system_actor: uuid.UUID,
-) -> None:
-    """G.5 is a restore, not a patch. After it runs, `wakeup_config` must equal
-    `wakeup_authored_snapshot` exactly — otherwise the drift check never settles and
-    every later sweep refreshes and audits the same agent forever."""
-    agent_id, _ = agent_ids
-
-    # Drift the live config the way a self-modification does: a full normalised
-    # dict carrying keys the partial authored snapshot never had.
-    async with sessionmaker() as session:
-        before = await _read(session, agent_id)
-        await AgentService(session).patch(
-            agent_id=agent_id,
-            draft=AgentDraft(wakeup_config=_EDITOR_PAYLOAD),
-            expected_version=before.version,
-            actor_user_id=system_actor,  # self-modification: snapshot untouched
-            actor_ip=None,
-        )
-        await session.commit()
-
-    async with sessionmaker() as session:
-        drifted = await _read(session, agent_id)
-        assert drifted.wakeup_config != drifted.wakeup_authored_snapshot
-        assert drifted.wakeup_authored_snapshot == _AUTHORED
-
-        await AgentService(session).patch(
-            agent_id=agent_id,
-            draft=AgentDraft(
-                wakeup_config=drifted.wakeup_authored_snapshot,
-                replace_wakeup_config=True,
-            ),
-            expected_version=drifted.version,
-            actor_user_id=system_actor,
-            actor_ip=None,
-        )
-        await session.commit()
-
-    async with sessionmaker() as session:
-        restored = await _read(session, agent_id)
-
-    assert restored.wakeup_config == _AUTHORED
-    assert restored.wakeup_config == restored.wakeup_authored_snapshot

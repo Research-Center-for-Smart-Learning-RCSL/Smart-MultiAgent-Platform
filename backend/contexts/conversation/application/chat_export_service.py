@@ -346,8 +346,8 @@ class ChatExportService:
     async def _sender_names(self, chatroom_id: uuid.UUID, rows: Sequence[Message]) -> dict[uuid.UUID, str]:
         """Sender id -> the name the room shows for it ([R13.17], [R13.33]).
 
-        Accounts resolve through ``get_display_names``, never ``get_chat_labels``:
-        the export is read by people, and that one falls back to the login email.
+        Accounts resolve through ``get_display_names``, which never returns the
+        login email: the export is read by people.
         """
         ids: dict[SenderType, set[uuid.UUID]] = {kind: set() for kind in SenderType}
         for m in rows:

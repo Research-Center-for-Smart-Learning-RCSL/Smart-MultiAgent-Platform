@@ -1,4 +1,4 @@
-﻿// The delegation control in the chatroom settings ([R30.37]).
+// The delegation control in the chatroom settings ([R30.37]).
 //
 // The test i18n harness echoes keys (bundles load lazily), so assert on structure
 // and the exact key rather than translated copy.
@@ -31,7 +31,6 @@ function boundAgent(over: Partial<BoundAgent> = {}): BoundAgent {
   return {
     id: 'ag_1',
     name: 'TA',
-    wakeup_config: { triggers: {} } as BoundAgent['wakeup_config'],
     role: 'normal',
     may_control_activities: false,
     activity_type_allowlist: [],

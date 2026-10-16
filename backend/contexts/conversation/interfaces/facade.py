@@ -11,6 +11,7 @@ import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from typing import Any
 
 import sqlalchemy as sa
 from loguru import logger
@@ -24,11 +25,13 @@ from contexts.conversation.application.guest_session_service import (
     GuestSessionResult,
 )
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
+from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AgentObservation,
     AttachmentExtractionStatus,
     AttachmentStatus,
+    BindingWakeupState,
     Chatroom,
     ChatroomAgentRole,
     DraftReadGrant,
@@ -477,6 +480,63 @@ class ConversationFacade:
                 "presence read for roster failed"
             )
             return []
+
+    # Room-owned wake-up layers ([R15.09]). Orchestration owns their meaning;
+    # this context stores them on the binding row.
+
+    async def binding_wakeup_state(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> BindingWakeupState | None:
+        return await self._room_agents.wakeup_state(chatroom_id=chatroom_id, agent_id=agent_id)
+
+    async def room_binding_wakeup_states(self, chatroom_id: uuid.UUID) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.wakeup_states_for_room(chatroom_id)
+
+    async def live_binding_wakeup_states(self, *, limit: int, offset: int) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.live_wakeup_states(limit=limit, offset=offset)
+
+    async def runtime_layer_binding_states(
+        self, *, limit: int, after: tuple[datetime, uuid.UUID] | None = None
+    ) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.runtime_layer_states(limit=limit, after=after)
+
+    async def write_binding_wakeup_layers(
+        self,
+        *,
+        binding_id: uuid.UUID,
+        expected_version: int,
+        room_overrides: dict[str, Any],
+        runtime_overrides: dict[str, Any],
+        runtime_started_at: datetime | None,
+    ) -> BindingWakeupState | None:
+        """CAS write; ``None`` when the version moved or the binding is gone."""
+        return await self._room_agents.cas_wakeup_layers(
+            binding_id=binding_id,
+            expected_version=expected_version,
+            room_overrides=room_overrides,
+            runtime_overrides=runtime_overrides,
+            runtime_started_at=runtime_started_at,
+        )
+
+    async def room_presence_snapshot(self, chatroom_id: uuid.UUID, *, limit: int) -> RoomPresenceSnapshot:
+        """Connected principals for an agent's participant facts, bounded at the read.
+
+        Unlike :meth:`present_user_ids`, a failed read is reported as unavailable
+        rather than as an empty room.
+        """
+        observed_at = now()
+        try:
+            ids, truncated = await PresenceTracker().list_room_bounded(chatroom_id, limit=limit)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "presence read for participant facts failed"
+            )
+            return RoomPresenceSnapshot(
+                observed_at=observed_at, available=False, user_ids=(), truncated=False
+            )
+        return RoomPresenceSnapshot(
+            observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
+        )
 
     async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
         """Tell every room the user is present in to re-read its roster ([R13.19]).
@@ -953,10 +1013,13 @@ __all__ = [
     "ActivityControlGrant",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
+    "BindingWakeupState",
+    "ChatroomAgentRole",
     "ConversationFacade",
     "DraftReadGrant",
     "Message",
     "MessageAttachment",
     "RoomGuests",
+    "RoomPresenceSnapshot",
     "SenderType",
 ]

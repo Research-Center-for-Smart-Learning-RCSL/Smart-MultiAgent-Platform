@@ -391,11 +391,6 @@ def _normalize_wakeup_config(merged: dict[str, Any]) -> dict[str, Any]:
     whole dict with `WakeupConfig.to_dict()`'s output would silently drop them
     (Q-3, forced by 2026-07-27-wakeup-config-key-preservation's additive merge).
 
-    Not applied to a `replace_wakeup_config` restore: that write must land the
-    authored snapshot verbatim, or the drift check `current == authored`
-    (`wakeup_service.refresh_wakeup_config`) could never converge for a snapshot
-    written before this normalization existed.
-
     Merges the normalized shape back onto `merged` (rather than a flat
     `dict.update`) so an unmodelled key nested *inside* a known container --
     e.g. a custom field under `triggers.silence_minutes` or `soft_bounds` --
@@ -409,12 +404,11 @@ def _normalize_wakeup_config(merged: dict[str, Any]) -> dict[str, Any]:
 
 
 def _merge_and_normalize_wakeup(
-    base: dict[str, Any] | None, patch: dict[str, Any], *, replace: bool, field: str
+    base: dict[str, Any] | None, patch: dict[str, Any], *, field: str
 ) -> dict[str, Any]:
     """Shared merge/normalize/bounds-check for `wakeup_config` and
     `wakeup_authored_snapshot` — same rule (Q-4), different base value each
-    caller supplies. A `replace` write (the G.5 restore) skips both merge and
-    normalization and lands `patch` verbatim — see `_normalize_wakeup_config`.
+    caller supplies.
 
     An empty `patch` (`{}`) is a no-op against `base` under this additive merge
     (`merge_json_config` has nothing to iterate), not a reset to blank — that is
@@ -422,7 +416,7 @@ def _merge_and_normalize_wakeup(
     (2026-07-28-wakeup-config-validation-and-patch-semantics F-5/Q-2); an
     explicit per-key `null` still clears whatever the caller wants cleared.
     """
-    merged = patch if replace else _normalize_wakeup_config(merge_json_config(base, patch))
+    merged = _normalize_wakeup_config(merge_json_config(base, patch))
     _assert_config_within_bounds(merged, field=field)
     return merged
 
@@ -869,26 +863,18 @@ class AgentService:
             # payload deletes that key — see `merge_json_config`. The merge always
             # runs before normalization (Q-4): normalizing first would materialize
             # defaults for fields the caller omitted and merge over the stored
-            # values, turning a partial PATCH into a silent reset. Not applied on
-            # a `replace_wakeup_config` restore — see `_normalize_wakeup_config`.
+            # values, turning a partial PATCH into a silent reset.
             values["wakeup_config"] = _merge_and_normalize_wakeup(
                 current.wakeup_config,
                 draft.wakeup_config,
-                replace=draft.replace_wakeup_config,
                 field="wakeup_config",
             )
-            # Human edit → update the authored snapshot (G.5).
-            # System actor (uuid(int=0)) updates are self-modifications
-            # and should NOT overwrite the authored snapshot.
-            #
-            # The snapshot is merged too — writing the submitted fragment is what
-            # turns a dropped key into an unrecoverable loss — but it merges over
-            # the *previous snapshot*, not over the live config. The live config
-            # may carry runtime drift from R15.06 self-modification that has not
-            # been refreshed away yet; merging that in would launder the agent's
-            # own edits into the designer's baseline and R15.09 could never
-            # restore them. With no snapshot yet there is no baseline to protect,
-            # so the live config is the best available base.
+            # Human edit → keep the authored snapshot in step. Nothing reads it
+            # since migration 0104 moved runtime tuning onto the room binding; it
+            # is still written so a rollback to the previous release finds a
+            # current baseline (crat facilitation phase 2 FU-5 retires it). A
+            # system-actor write is not the designer's authoring, so it is left
+            # alone. The merge base is the previous snapshot, as before.
             if actor_user_id != _SYSTEM_ACTOR_ID:
                 if current.wakeup_authored_snapshot is None:
                     # No prior snapshot: the base falls back to current.wakeup_config,
@@ -902,7 +888,6 @@ class AgentService:
                     merged_snapshot = _merge_and_normalize_wakeup(
                         current.wakeup_authored_snapshot,
                         draft.wakeup_config,
-                        replace=draft.replace_wakeup_config,
                         field="wakeup_authored_snapshot",
                     )
                 # `_merge_and_normalize_wakeup`'s non-replace path always re-emits
@@ -910,8 +895,6 @@ class AgentService:
                 # can never be empty -- the `or None` fallback this used to have
                 # was dead code (F-5).
                 values["wakeup_authored_snapshot"] = merged_snapshot
-        if draft.wakeup_last_refreshed_at is not None:
-            values["wakeup_last_refreshed_at"] = draft.wakeup_last_refreshed_at
         if draft.workflow_capabilities is not None:
             merged_capabilities = merge_json_config(
                 current.workflow_capabilities, draft.workflow_capabilities

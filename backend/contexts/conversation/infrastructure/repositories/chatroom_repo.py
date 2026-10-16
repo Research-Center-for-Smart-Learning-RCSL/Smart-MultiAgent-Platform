@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.domain.errors import VersionMismatch
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
+    BindingWakeupState,
     CanvasReadGrant,
     CanvasWriteGrant,
     Chatroom,
@@ -444,6 +445,7 @@ class ChatroomAgentRepository:
                 may_read_drafts=bool(r.may_read_drafts),
                 may_read_canvas=bool(r.may_read_canvas),
                 may_write_canvas=bool(r.may_write_canvas),
+                wakeup=self._wakeup_state(r),
             )
             for r in rows
         ]
@@ -540,7 +542,21 @@ class ChatroomAgentRepository:
                     t.chatroom_agents.c.role == expected_role.value,
                 )
             )
-            .values(role=role.value)
+            # A role change starts the binding over as a new incarnation ([R15.09]):
+            # the stored `autostop_rounds` means the other role's cap after the
+            # change, and an editor's choices on a normal binding must not survive
+            # onto an observer binding only the creator may manage. A fresh
+            # `binding_id` also leaves behind the Redis counters, silence clock and
+            # queued wake-ups keyed by the old one; the version bump turns an editor
+            # still holding the old settings into a 409.
+            .values(
+                role=role.value,
+                binding_id=sa.func.gen_random_uuid(),
+                wakeup_room_overrides={},
+                wakeup_runtime_overrides={},
+                wakeup_runtime_started_at=None,
+                wakeup_version=t.chatroom_agents.c.wakeup_version + 1,
+            )
         )
         return bool(result.rowcount)
 
@@ -897,39 +913,128 @@ class ChatroomAgentRepository:
         ).all()
         return {r.chatroom_id for r in rows}
 
-    async def list_live_bindings(
-        self,
-        *,
-        limit: int = 500,
-        offset: int = 0,
-    ) -> list[tuple[uuid.UUID, uuid.UUID, ChatroomAgentRole]]:  # type: ignore[valid-type]
-        """Return (agent_id, chatroom_id, role) triples for non-deleted chatrooms.
+    # ------------------------------------------------------------------
+    # Room-owned wake-up layers ([R15.09], migration 0104)
+    # ------------------------------------------------------------------
 
-        Used by the silence-trigger sweep (M19) so the SQL join stays in the
-        repository instead of the worker task. The role rides along so the
-        sweep can exempt observer bindings from the presence gate (O-2/R28.04)
-        without a per-pair role lookup.
-        """
+    _WAKEUP_COLUMNS = (
+        t.chatroom_agents.c.chatroom_id,
+        t.chatroom_agents.c.agent_id,
+        t.chatroom_agents.c.binding_id,
+        t.chatroom_agents.c.role,
+        t.chatroom_agents.c.wakeup_version,
+        t.chatroom_agents.c.wakeup_room_overrides,
+        t.chatroom_agents.c.wakeup_runtime_overrides,
+        t.chatroom_agents.c.wakeup_runtime_started_at,
+    )
+
+    @staticmethod
+    def _wakeup_state(r: Any) -> BindingWakeupState:
+        return BindingWakeupState(
+            chatroom_id=r.chatroom_id,
+            agent_id=r.agent_id,
+            binding_id=r.binding_id,
+            role=ChatroomAgentRole(r.role),
+            version=int(r.wakeup_version),
+            room_overrides=dict(r.wakeup_room_overrides or {}),
+            runtime_overrides=dict(r.wakeup_runtime_overrides or {}),
+            runtime_started_at=r.wakeup_runtime_started_at,
+        )
+
+    def _live_wakeup_select(self) -> sa.Select[Any]:
+        return (
+            sa.select(*self._WAKEUP_COLUMNS)
+            .select_from(
+                t.chatroom_agents.join(t.chatrooms, t.chatrooms.c.id == t.chatroom_agents.c.chatroom_id)
+            )
+            .where(t.chatrooms.c.deleted_at.is_(None))
+        )
+
+    async def wakeup_state(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> BindingWakeupState | None:
+        """The live binding's layers, or ``None`` when unbound or the room is deleted."""
+        row = (
+            await self._db.execute(
+                self._live_wakeup_select().where(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id,
+                    t.chatroom_agents.c.agent_id == agent_id,
+                )
+            )
+        ).first()
+        return self._wakeup_state(row) if row is not None else None
+
+    async def wakeup_states_for_room(self, chatroom_id: uuid.UUID) -> Sequence[BindingWakeupState]:
         rows = (
             await self._db.execute(
-                sa.select(
-                    t.chatroom_agents.c.agent_id,
-                    t.chatroom_agents.c.chatroom_id,
-                    t.chatroom_agents.c.role,
-                )
-                .select_from(
-                    t.chatroom_agents.join(
-                        t.chatrooms,
-                        t.chatrooms.c.id == t.chatroom_agents.c.chatroom_id,
-                    )
-                )
-                .where(t.chatrooms.c.deleted_at.is_(None))
+                self._live_wakeup_select()
+                .where(t.chatroom_agents.c.chatroom_id == chatroom_id)
+                .order_by(t.chatroom_agents.c.agent_id)
+            )
+        ).all()
+        return [self._wakeup_state(r) for r in rows]
+
+    async def live_wakeup_states(self, *, limit: int, offset: int) -> Sequence[BindingWakeupState]:
+        """Every live binding's layers, a page at a time, for the silence sweep."""
+        rows = (
+            await self._db.execute(
+                self._live_wakeup_select()
                 .order_by(t.chatroom_agents.c.chatroom_id, t.chatroom_agents.c.agent_id)
                 .limit(limit)
                 .offset(offset)
             )
         ).all()
-        return [(r.agent_id, r.chatroom_id, ChatroomAgentRole(r.role)) for r in rows]
+        return [self._wakeup_state(r) for r in rows]
+
+    async def runtime_layer_states(
+        self, *, limit: int, after: tuple[Any, uuid.UUID] | None = None
+    ) -> Sequence[BindingWakeupState]:
+        """Live bindings holding a runtime layer, oldest refresh start first.
+
+        Keyset-paged on ``(wakeup_runtime_started_at, binding_id)``, so a refresh
+        that clears rows as it goes cannot make the next page skip one.
+        """
+        started = t.chatroom_agents.c.wakeup_runtime_started_at
+        stmt = self._live_wakeup_select().where(started.isnot(None))
+        if after is not None:
+            stmt = stmt.where(
+                sa.tuple_(started, t.chatroom_agents.c.binding_id)
+                > sa.tuple_(sa.literal(after[0]), sa.literal(after[1]))
+            )
+        rows = (
+            await self._db.execute(stmt.order_by(started, t.chatroom_agents.c.binding_id).limit(limit))
+        ).all()
+        return [self._wakeup_state(r) for r in rows]
+
+    async def cas_wakeup_layers(
+        self,
+        *,
+        binding_id: uuid.UUID,
+        expected_version: int,
+        room_overrides: dict[str, Any],
+        runtime_overrides: dict[str, Any],
+        runtime_started_at: Any,
+    ) -> BindingWakeupState | None:
+        """Write both layers if the binding still has ``expected_version``.
+
+        ``None`` means the binding is gone (unbound, possibly rebound under a new
+        id) or someone else wrote first; the caller re-reads to tell which.
+        """
+        row = (
+            await self._db.execute(
+                t.chatroom_agents.update()
+                .where(
+                    t.chatroom_agents.c.binding_id == binding_id,
+                    t.chatroom_agents.c.wakeup_version == expected_version,
+                )
+                .values(
+                    wakeup_room_overrides=room_overrides,
+                    wakeup_runtime_overrides=runtime_overrides,
+                    wakeup_runtime_started_at=runtime_started_at,
+                    wakeup_version=expected_version + 1,
+                )
+                .returning(*self._WAKEUP_COLUMNS)
+            )
+        ).first()
+        return self._wakeup_state(row) if row is not None else None
 
 
 class ChatroomMemberGroupRepository:

@@ -350,8 +350,6 @@
       "bindingsLoadFailed": "載入代理人繫結失敗。",
       "bindFailed": "繫結代理人失敗。",
       "unbindFailed": "解除繫結失敗。",
-      "wakeupConfigSaved": "喚醒設定已儲存。",
-      "wakeupConfigFailed": "儲存喚醒設定失敗。",
       "roleChangeFailed": "變更代理角色失敗。",
       "loading": "載入中…",
       "loadFailed": "載入聊天室設定失敗。",
@@ -444,6 +442,48 @@
       "unresolved": "有 {count} 個先前選取的活動已不在這個專案可用的範圍內，不會提供給代理。",
       "observerNote": "這個代理是觀察者：全班看不到它發言，但開始或結束一輪活動是全班都看得見的動作。",
       "typesLoadFailed": "無法載入這個專案的活動類型，所以沒有可以勾選的項目。請重新整理；若持續失敗，可能是你沒有列出活動類型的權限。"
+    },
+    "roomWakeup": {
+      "title": "本討論室的喚醒設定",
+      "description": "這些設定只套用在這間討論室，不會改動代理的預設值或其他討論室。",
+      "loadFailed": "無法載入這個代理的喚醒設定。",
+      "retry": "重試",
+      "callOnly": "代理的設計者設定為只在被呼叫時回應，因此所有討論室中它自己的觸發都維持關閉。",
+      "everyNEnabled": "累積一定訊息數後回覆",
+      "everyN": "回覆前的訊息數",
+      "count": "計入的訊息",
+      "countAll": "所有訊息",
+      "countHuman": "只計真人的訊息",
+      "silenceEnabled": "沉默一段時間後回覆",
+      "silenceMinutes": "沉默分鐘數",
+      "autostop": "沒有真人參與時，最多連續幾輪後停止",
+      "designerValue": "代理預設：{value}",
+      "saveNumbers": "儲存數值",
+      "saved": "已儲存本討論室的喚醒設定。",
+      "saveFailed": "無法儲存喚醒設定。",
+      "conflict": "這些設定在你開啟後已被變更。畫面已顯示最新的值，請重新修改。",
+      "resetDone": "已重設本討論室的喚醒設定。",
+      "refreshAt": "代理自行調整的設定會在 {at} 自動復原。",
+      "noRuntime": "代理沒有在這間討論室自行調整過。",
+      "ignored": "代理的部分自行調整在目前的設定下沒有生效，例如設計者已不再允許。",
+      "source": {
+        "designer": "代理預設",
+        "room": "本討論室",
+        "runtime": "代理自行調整"
+      },
+      "reset": {
+        "confirm": "重設",
+        "runtime": {
+          "button": "復原代理的自行調整",
+          "title": "要復原代理的自行調整嗎？",
+          "message": "代理在這間討論室自行做的變更會被移除，本討論室的設定會保留。"
+        },
+        "room": {
+          "button": "重設為代理預設值",
+          "title": "要把這間討論室重設為代理的預設值嗎？",
+          "message": "為這間討論室選擇的所有喚醒設定，以及代理在這裡的所有自行調整，都會被移除。"
+        }
+      }
     }
   }
 }

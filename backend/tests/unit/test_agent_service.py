@@ -617,10 +617,7 @@ class TestPatch:
 
         await svc.patch(
             agent_id=current.id,
-            draft=AgentDraft(
-                wakeup_config={"enabled": True},
-                wakeup_last_refreshed_at=_NOW,
-            ),
+            draft=AgentDraft(wakeup_config={"enabled": True}),
             expected_version=1,
             actor_user_id=system_actor,
             actor_ip=None,
@@ -629,7 +626,6 @@ class TestPatch:
         call_values = agents.patch.call_args.kwargs["values"]
         assert "wakeup_config" in call_values
         assert "wakeup_authored_snapshot" not in call_values
-        assert call_values["wakeup_last_refreshed_at"] == _NOW
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_patch_merges_wakeup_config_instead_of_replacing_it(self, _audit) -> None:
@@ -804,35 +800,6 @@ class TestPatch:
 
         merged = agents.patch.call_args.kwargs["values"]["workflow_capabilities"]
         assert merged == {"can_create_subagent": False}
-
-    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
-    async def test_replace_flag_restores_the_authored_snapshot_verbatim(self, _audit) -> None:
-        """The G.5 refresh restores, it does not patch. Merging instead would leave
-        live-config keys the snapshot never had, so the refreshed config would never
-        equal the snapshot and every later sweep would refresh and audit again."""
-        authored = {"triggers": {"silence_minutes": {"enabled": True}}}
-        current = _make_agent(
-            wakeup_config={
-                "triggers": {"silence_minutes": {"enabled": True, "t_minutes": 30}},
-                "allow_self_open": True,
-                "refresh_every_hours": 24,
-            }
-        )
-        agents = AsyncMock()
-        agents.get.return_value = current
-        agents.patch.return_value = _make_agent(version=2)
-        svc = _make_service(agent_repo=agents)
-
-        await svc.patch(
-            agent_id=current.id,
-            draft=AgentDraft(wakeup_config=authored, replace_wakeup_config=True),
-            expected_version=1,
-            actor_user_id=uuid.UUID(int=0),
-            actor_ip=None,
-        )
-
-        values = agents.patch.call_args.kwargs["values"]
-        assert values["wakeup_config"] == authored
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_wakeup_config_is_normalized_before_persisting(self, _audit) -> None:
