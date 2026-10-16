@@ -706,9 +706,10 @@ class TestCratPackMatchesThePlatform:
         return [a for p, a in SHIPPED_AGENTS if p.pack_key.startswith("crat-word-puzzle-")]
 
     def test_crat_teacher_ships_both_triggers(self) -> None:
-        """AC-2, Q-3/Q-3b: both on, `n = 2`; the peer one minute behind the teacher."""
+        """AC-2, Q-3/Q-3b: both on, `n = 2`; the peer one minute behind the teacher.
+        Phase 2 AC-16 makes the human count explicit."""
         ta = self._agent("ta-crat-teacher").wakeup_config["triggers"]
-        assert ta["every_n_messages"] == {"enabled": True, "n": 2}
+        assert ta["every_n_messages"] == {"enabled": True, "n": 2, "count": "human"}
         assert ta["silence_minutes"] == {"enabled": True, "t_minutes": 2, "autostop_rounds": 2}
 
         sa = self._agent("sa-crat-peer").wakeup_config["triggers"]
@@ -758,27 +759,21 @@ class TestCratPackMatchesThePlatform:
         assert "每一輪最多只發一則訊息" in prompt
         assert "最多只接住一位同學" in prompt
 
-    def test_crat_prompts_do_not_tune_their_own_cadence(self) -> None:
-        """AC-2, Q-3a: one teacher agent serves every group room, so its cadence is shared."""
+    def test_crat_teacher_tunes_only_its_own_room(self) -> None:
+        """Phase 2 AC-16, [R15.06]: cadence is room-owned now, so the teacher may tune
+        it; the shared-cadence prohibition of Q-3a is retired."""
         prompt = self._agent("ta-crat-teacher").system_prompt
 
-        assert prompt.count("update_wakeup") == 1
-        assert "不要呼叫 update_wakeup" in prompt
+        assert "不要呼叫 update_wakeup" not in prompt
+        assert "每間討論室各自一份" in prompt
+        assert "同一個時機只調一次" in prompt
         assert "[喚醒策略" not in prompt
 
-    def test_crat_teacher_never_claims_the_answer(self) -> None:
-        """AC-7, Q-7: no agent holds the key, so the teacher confirms the answer."""
-        prompt = self._agent("ta-crat-teacher").system_prompt
-
-        assert "請老師確認答案" in prompt
-        for agent in self._crat_agents():
-            assert "本課題組" not in agent.system_prompt, agent.key
-
     def test_crat_analyst_observes_during_the_lesson(self) -> None:
-        """AC-8b, Q-9."""
+        """AC-8b, Q-9; phase 2 AC-16 makes the human count explicit."""
         aa = self._agent("aa-crat-analyst").wakeup_config["triggers"]
 
-        assert aa["every_n_messages"] == {"enabled": True, "n": 20}
+        assert aa["every_n_messages"] == {"enabled": True, "n": 20, "count": "human"}
         assert aa["silence_minutes"]["enabled"] is True
         assert aa["silence_minutes"]["t_minutes"] == 10
 
@@ -803,7 +798,373 @@ class TestCratPackMatchesThePlatform:
         assert "整數分鐘" in prompt
         assert "update_wakeup" in prompt
         assert "回覆空白" in prompt
-        assert "不要貼進任何 Agent 的設定" in prompt
+        # Q-13: answers now live in the teacher prompt, readable by agent editors.
+        assert "不要貼進任何 Agent 的設定" not in prompt
+        assert "能編輯 Agent" in prompt
+
+
+_PHASE2_COURSES = ("crat-word-puzzle", "character-building", "object-reinterpretation")
+_PHASE2_TEACHERS = {
+    "crat-word-puzzle": "ta-crat-teacher",
+    "character-building": "ta-charbuilding-teacher",
+    "object-reinterpretation": "ta-objreinterpret-teacher",
+}
+_PHASE2_ANALYSTS = ("aa-crat-analyst", "aa-charbuilding-analyst", "aa-objreinterpret-analyst")
+
+
+def _phase2_agents() -> list[Any]:
+    return [a for p, a in SHIPPED_AGENTS if p.pack_key.startswith(_PHASE2_COURSES)]
+
+
+def _section(prompt: str, tag: str) -> str:
+    """The block between the tags on their own lines; prose also names ``<tag>``."""
+    m = re.search(rf"^<{tag}>$(.*?)^</{tag}>$", prompt, re.MULTILINE | re.DOTALL)
+    assert m, f"no <{tag}> block"
+    return m.group(1)
+
+
+def _bank_lines(teacher_key: str, letter: str) -> list[str]:
+    prompt = next(a for _, a in SHIPPED_AGENTS if a.key == teacher_key).system_prompt
+    return [line for line in _section(prompt, "題庫").splitlines() if re.match(rf"{letter}\d+\. ", line)]
+
+
+_CRAT_ROUND = re.compile(r"^C(\d+)\. 線索字：(.)、(.)、(.) → 目標字：(.)（(..)、(..)、(..)）$")
+_CHAR_ROUND = re.compile(r"^K(\d+)\. 部件：(.+?) ?→ 參考字：(.+)$")
+_OBJECT_ROUND = re.compile(r"^O(\d+)\. (.+?) → 參考用途：(.+)$")
+
+
+def _bank_secrets() -> list[str]:
+    """Every answer string a bank holds: CRAT words, reference characters, reference uses."""
+    secrets: list[str] = []
+    for line in _bank_lines("ta-crat-teacher", "C"):
+        m = _CRAT_ROUND.match(line)
+        assert m, line
+        secrets.extend(m.group(6, 7, 8))
+    for line in _bank_lines("ta-charbuilding-teacher", "K"):
+        m = _CHAR_ROUND.match(line)
+        assert m, line
+        secrets.append(m.group(3))
+    for line in _bank_lines("ta-objreinterpret-teacher", "O"):
+        m = _OBJECT_ROUND.match(line)
+        assert m, line
+        secrets.extend(m.group(3).split("、"))
+    return secrets
+
+
+class TestPhase2CoursePacks:
+    """CRAT facilitation phase 2, M3: the six course packs against the new platform.
+
+    Spec: ``docs/tasks/2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence/spec.md``
+    §6.2 and §6.4. These check what the packs promise; whether a model follows the
+    invitation and secrecy rules is the live half of AC-14/AC-24 (AC-20/AC-21), and no
+    assertion here is a guarantee of it.
+    """
+
+    @staticmethod
+    def _agent(key: str) -> Any:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == key)
+
+    # -- AC-14: invitation rules ------------------------------------------------
+
+    def test_every_teacher_carries_the_same_invitation_rules(self) -> None:
+        """One block, so a fix to one course cannot silently skip the other two."""
+        blocks = {
+            key: _section(self._agent(key).system_prompt, "邀請發言") for key in _PHASE2_TEACHERS.values()
+        }
+        assert len(set(blocks.values())) == 1, "the teachers' invitation blocks differ"
+
+        block = next(iter(blocks.values()))
+        for rule in (
+            "個人作答、安靜思考的時段不邀請任何人",  # not during individual work
+            "一次只邀請一位",  # one person
+            "`connected`",  # only connected participants
+            "`connection unknown`",  # unknown presence never justifies one
+            "列表被截斷",  # nor a truncated list
+            "`ambiguous code`",  # nor an ambiguous identity
+            "不邀請討論室建立者",  # skip the creator
+            "可以拒絕",  # optional
+            "下一次換別人",  # rotate
+            "不要追問",  # accept no response
+            "不是作答或留在活動裡的條件",  # not a prerequisite
+            "不要排名",
+            "平台不會替你計時或擋下",  # disclaims server enforcement
+        ):
+            assert rule in block, f"the invitation block lacks: {rule}"
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_every_teacher_explains_the_participant_facts(self, teacher_key: str) -> None:
+        block = _section(self._agent(teacher_key).system_prompt, "認識參與者")
+        assert "[u:xxxxxxxx]" in block
+        assert "不是點名簿" in block
+        assert "`no message in this window`" in block
+
+    def test_observers_never_post_invitations(self) -> None:
+        for key in _PHASE2_ANALYSTS:
+            assert "<邀請發言>" not in self._agent(key).system_prompt, key
+
+    # -- AC-15: human-confirmed transitions -------------------------------------
+
+    @pytest.mark.parametrize("agent", _phase2_agents(), ids=lambda a: a.key)
+    def test_no_room_prompt_promises_timed_or_inferred_transitions(self, agent: Any) -> None:
+        if agent.room_role is None:
+            return  # designers name these phrases only to forbid them
+        for phrase in ("五分鐘後", "自動進入", "大多數人完成", "大部分人完成", "全班都完成", "全班都交了"):
+            assert phrase not in agent.system_prompt, f"{agent.key} promises: {phrase}"
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_every_teacher_waits_for_the_creator_to_move_on(self, teacher_key: str) -> None:
+        prompt = self._agent(teacher_key).system_prompt
+        assert "若建立者表示進行下一輪" in prompt
+        assert "結束交給老師決定" in prompt or "結束活動交給老師決定" in prompt
+        assert "看起來像教師打的」不等於「就是教師打的」" in prompt
+
+    # -- AC-16: cadence through the orchestration domain ------------------------
+
+    @pytest.mark.parametrize("agent", _phase2_agents(), ids=lambda a: a.key)
+    def test_every_cadence_parses_without_clamping(self, agent: Any) -> None:
+        """A value the parser clamps is a value the pack does not actually ship."""
+        from contexts.orchestration.domain.models import WakeupConfig
+
+        raw = agent.wakeup_config
+        parsed = WakeupConfig.from_dict(raw).to_dict()
+        for trigger, values in raw["triggers"].items():
+            for name, value in values.items():
+                assert parsed["triggers"][trigger][name] == value, f"{agent.key}: {trigger}.{name}"
+        assert parsed["self_toggle"] == sorted(raw.get("self_toggle", []))
+        for name, value in raw.get("soft_bounds", {}).items():
+            assert parsed["soft_bounds"][name] == value, f"{agent.key}: soft_bounds.{name}"
+
+    @pytest.mark.parametrize("key", [*_PHASE2_TEACHERS.values(), *_PHASE2_ANALYSTS])
+    def test_teachers_and_analysts_count_humans_explicitly(self, key: str) -> None:
+        every = self._agent(key).wakeup_config["triggers"]["every_n_messages"]
+        assert every["enabled"] is True
+        assert every["count"] == "human"
+
+    @pytest.mark.parametrize("key", _PHASE2_ANALYSTS)
+    def test_analysts_wake_every_twenty_human_messages(self, key: str) -> None:
+        assert self._agent(key).wakeup_config["triggers"]["every_n_messages"]["n"] == 20
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_teachers_may_toggle_only_silence(self, teacher_key: str) -> None:
+        """The message trigger is the one that must stay live while silence is paused."""
+        assert self._agent(teacher_key).wakeup_config["self_toggle"] == ["silence_minutes"]
+
+    # Each stage change a teacher prompt tells it to make, as the sentence that
+    # says so plus the runtime override it amounts to. The sentence ties the row
+    # to the shipped text, so rewording the prompt without revisiting this table
+    # fails here.
+    _STAGE_CHANGES: ClassVar[list[tuple[str, str, dict[str, Any]]]] = [
+        (
+            "ta-crat-teacher",
+            "用 update_wakeup 關掉沉默觸發（silence_minutes_enabled 設為 false）",
+            {"silence_minutes_enabled": False},
+        ),
+        (
+            "ta-crat-teacher",
+            "把沉默觸發打開（silence_minutes_enabled 設為 true）",
+            {"silence_minutes_enabled": True},
+        ),
+        ("ta-crat-teacher", "every_n_messages 調到 3 或 4", {"every_n_messages": 3}),
+        ("ta-crat-teacher", "every_n_messages 調到 3 或 4", {"every_n_messages": 4}),
+        (
+            "ta-charbuilding-teacher",
+            "關掉沉默觸發（silence_minutes_enabled 設為 false），並把 every_n_messages 調成 3",
+            {"silence_minutes_enabled": False, "every_n_messages": 3},
+        ),
+        (
+            "ta-charbuilding-teacher",
+            "把沉默觸發打開（silence_minutes_enabled 設為 true），every_n_messages 調回 2",
+            {"silence_minutes_enabled": True, "every_n_messages": 2},
+        ),
+        (
+            "ta-objreinterpret-teacher",
+            "關掉沉默觸發（silence_minutes_enabled 設為 false），並把 every_n_messages 調成 3",
+            {"silence_minutes_enabled": False, "every_n_messages": 3},
+        ),
+        (
+            "ta-objreinterpret-teacher",
+            "把沉默觸發打開（silence_minutes_enabled 設為 true），every_n_messages 調回 2",
+            {"silence_minutes_enabled": True, "every_n_messages": 2},
+        ),
+    ]
+
+    @pytest.mark.parametrize(
+        ("teacher_key", "sentence", "override"),
+        _STAGE_CHANGES,
+        ids=[f"{k}-{i}" for i, (k, _, _) in enumerate(_STAGE_CHANGES)],
+    )
+    def test_every_stage_change_is_legal(
+        self, teacher_key: str, sentence: str, override: dict[str, Any]
+    ) -> None:
+        """AC-16: applied as written, not ignored or clamped, and the message
+        trigger stays live while silence is paused."""
+        from contexts.orchestration.domain.models import WakeupConfig
+        from contexts.orchestration.domain.room_wakeup import (
+            RUNTIME_FIELDS,
+            WakeupOverrides,
+            resolve_room_wakeup,
+        )
+
+        agent = self._agent(teacher_key)
+        assert sentence in agent.system_prompt, f"{teacher_key} no longer says: {sentence}"
+
+        runtime = WakeupOverrides.from_dict(override, allowed=RUNTIME_FIELDS)
+        assert runtime.to_dict() == override
+        effective = resolve_room_wakeup(
+            WakeupConfig.from_dict(agent.wakeup_config), WakeupOverrides(), runtime, is_observer=False
+        )
+        triggers = effective.config.triggers
+
+        assert effective.ignored_runtime == frozenset()
+        assert triggers.every_n_messages.enabled is True
+        assert triggers.every_n_messages.count == "human"
+        if "silence_minutes_enabled" in override:
+            assert triggers.silence_minutes.enabled is override["silence_minutes_enabled"]
+        if "every_n_messages" in override:
+            assert triggers.every_n_messages.n == override["every_n_messages"]
+        for name in override:
+            assert effective.sources[name] == "runtime"
+
+    # -- AC-17: no unavailable capability ---------------------------------------
+
+    @pytest.mark.parametrize("agent", _phase2_agents(), ids=lambda a: a.key)
+    def test_no_prompt_promises_what_the_platform_lacks(self, agent: Any) -> None:
+        prompt = agent.system_prompt
+        assert "instruct" not in prompt.lower(), agent.key
+        assert not re.search(r"\d+\.\d+\s*分鐘", prompt), agent.key
+        assert "秒" not in prompt, agent.key
+        for counted_wake in ("第一次觸發", "再次靜默", "第三次觸發", "第幾次被喚醒時"):
+            assert counted_wake not in prompt, f"{agent.key} counts wakes: {counted_wake}"
+        assert "A2A 規則" not in prompt, agent.key
+
+    @pytest.mark.parametrize("key", _PHASE2_ANALYSTS)
+    def test_analysts_use_codes_and_may_stay_silent(self, key: str) -> None:
+        prompt = self._agent(key).system_prompt
+        assert "[u:xxxxxxxx]" in prompt
+        assert re.search(r"不要寫(出)?姓名", prompt), key
+        assert "回覆空白" in prompt
+        assert "不是全班" in prompt
+
+    def test_crat_group_work_stays_with_the_group(self) -> None:
+        assert "不要歸給任何一個學生" in self._agent("aa-crat-analyst").system_prompt
+
+    # -- AC-18: worksheets as the course defines them ---------------------------
+
+    _NUMERALS: ClassVar[dict[int, str]] = {1: "一", 2: "兩", 5: "五", 10: "十"}
+
+    def _activity(self, key: str) -> Any:
+        course = load_course("chinese-character-creativity")
+        return next(t for t in course.activity_types if t.key == key)
+
+    def test_character_teacher_describes_the_real_worksheet(self) -> None:
+        activity = self._activity("character-building")
+        props = activity.payload_schema["properties"]
+        minimum = activity.validator_config["min_filled"]
+        prompt = self._agent("ta-charbuilding-teacher").system_prompt
+
+        titles = [props[f]["title"] for f in sorted(props, key=lambda f: props[f]["x-order"])]
+        assert f"「{titles[0]}」到「{titles[-1]}」{self._NUMERALS[len(titles)]}格" in prompt
+        assert f"至少要填{self._NUMERALS[minimum]}個字" in prompt
+        assert "算的是格子裡的字數，不是提交次數" in prompt
+
+    def test_object_teacher_describes_the_real_worksheet(self) -> None:
+        activity = self._activity("object-reinterpretation")
+        props = activity.payload_schema["properties"]
+        minimum = activity.validator_config["min_filled"]
+        prompt = self._agent("ta-objreinterpret-teacher").system_prompt
+
+        use_fields = [f for f in props if f.startswith("use_")]
+        assert f"{self._NUMERALS[len(use_fields)]}格『新用途或新定義』" in prompt
+        assert f"至少寫{self._NUMERALS[minimum]}格" in prompt
+        for field in ("best_pick", "best_pick_reasoning"):
+            assert f"『{props[field]['title']}』" in prompt, field
+        assert "想法的數量看填了幾格，不是提交了幾次" in prompt
+
+    @pytest.mark.parametrize("key", ["aa-charbuilding-analyst", "aa-objreinterpret-analyst"])
+    def test_analysts_count_filled_fields_not_attempts(self, key: str) -> None:
+        assert re.search(r"看填了幾格，不是提交了幾次", self._agent(key).system_prompt), key
+
+    # -- AC-23: the round banks --------------------------------------------------
+
+    def test_crat_bank_has_eight_well_formed_rounds(self) -> None:
+        rounds = [_CRAT_ROUND.match(line) for line in _bank_lines("ta-crat-teacher", "C")]
+        assert all(rounds), "a CRAT round does not match the bank shape"
+        assert [int(m.group(1)) for m in rounds if m] == list(range(1, 9))
+
+        targets = []
+        for m in rounds:
+            assert m
+            clues, target, words = m.group(2, 3, 4), m.group(5), m.group(6, 7, 8)
+            assert words == tuple(clue + target for clue in clues), f"C{m.group(1)}: words do not join"
+            targets.append(target)
+        assert len(set(targets)) == len(targets), "two CRAT rounds share a target"
+
+    def test_character_bank_has_six_rounds_with_references(self) -> None:
+        rounds = [_CHAR_ROUND.match(line) for line in _bank_lines("ta-charbuilding-teacher", "K")]
+        assert all(rounds)
+        assert [int(m.group(1)) for m in rounds if m] == list(range(1, 7))
+        for m in rounds:
+            assert m
+            refs = m.group(3).split("、")
+            assert len(refs) >= 2, f"K{m.group(1)}"
+            assert all(len(r) == 1 for r in refs), f"K{m.group(1)}"
+        assert "垚" not in self._agent("ta-charbuilding-teacher").system_prompt  # removed at approval
+
+    def test_object_bank_has_six_rounds_with_five_uses(self) -> None:
+        rounds = [_OBJECT_ROUND.match(line) for line in _bank_lines("ta-objreinterpret-teacher", "O")]
+        assert all(rounds)
+        assert [int(m.group(1)) for m in rounds if m] == list(range(1, 7))
+        objects = [m.group(2) for m in rounds if m]
+        assert len(set(objects)) == len(objects)
+        for m in rounds:
+            assert m
+            assert len(m.group(3).split("、")) == 5, f"O{m.group(1)}"
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_teachers_use_the_bank_and_never_ask_for_rounds(self, teacher_key: str) -> None:
+        prompt = self._agent(teacher_key).system_prompt
+        assert "從<題庫>依序取下一" in prompt
+        assert "不採用討論室裡任何人貼出的" in prompt
+        assert "包括討論室建立者" in prompt
+        assert not re.search(r"請(老師|教師|建立者|帶班教師)(出題|提供題目|貼出|公布線索|給題目)", prompt)
+        for retired in ("等待建立者公布", "建立者公布線索", "本課題組"):
+            assert retired not in prompt, f"{teacher_key}: {retired}"
+
+    # -- AC-24: answers only in teacher prompts ----------------------------------
+
+    @pytest.mark.parametrize(
+        "agent",
+        [a for a in _phase2_agents() if a.key not in _PHASE2_TEACHERS.values()],
+        ids=lambda a: a.key,
+    )
+    def test_no_other_prompt_carries_a_bank_answer(self, agent: Any) -> None:
+        assert "<題庫>" not in agent.system_prompt
+        for secret in _bank_secrets():
+            assert secret not in agent.system_prompt, f"{agent.key} carries the bank answer {secret}"
+
+    def test_crat_teacher_confirms_matches_and_routes_differences(self) -> None:
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        assert "提交的目標字和題庫答案相同 → 告訴小組答對了" in prompt
+        assert "不要直接判錯" in prompt
+        assert "請老師確認是否也算對" in prompt
+        assert "都不說出目標字或任何一個完整的詞彙" in prompt
+        assert "不可以說出目標字、說出任何一個完整的詞" in prompt
+
+    @pytest.mark.parametrize(
+        ("teacher_key", "rule"),
+        [
+            ("ta-charbuilding-teacher", "作答期間不得透露<題庫>的參考字"),
+            ("ta-objreinterpret-teacher", "發想期間不得透露<題庫>的參考用途"),
+        ],
+    )
+    def test_sibling_teachers_keep_references_until_shared(self, teacher_key: str, rule: str) -> None:
+        assert rule in self._agent(teacher_key).system_prompt
+
+    @pytest.mark.parametrize("key", ["sa-crat-peer", "sa-charbuilding-peer", "sa-objreinterpret-peer"])
+    def test_peers_do_not_know_the_answers(self, key: str) -> None:
+        prompt = self._agent(key).system_prompt
+        assert re.search(r"你不知道", prompt), key
+        assert "也不要猜一份清單出來" in prompt or "不要假裝知道" in prompt, key
 
 
 class TestTheAnalystAsksOnlyWhatItsInputSupports:
