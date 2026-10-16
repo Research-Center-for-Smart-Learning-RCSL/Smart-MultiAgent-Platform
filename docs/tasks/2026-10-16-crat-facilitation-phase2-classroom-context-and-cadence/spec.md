@@ -823,3 +823,61 @@ are carried forward as release gates.
 - **FU-11 (quality Info):** `RoomWakeup` carries the full `Agent` up to the route, which reads only
   ids; `RoomWakeupPanel.vue` could split its query and mutations into a composable; the frontend
   repeats the 1000/1440/100 bounds instead of reading them from the API.
+
+## 17. Round bank draft (Q-11, awaiting item-by-item approval)
+
+Drafted 2026-10-16 for AC-23. Nothing below ships until the requester or an educator approves
+each item; an unapproved item is removed, not shipped. Items are written in the courses'
+language (Traditional Chinese). "Ambiguity check" records the competing answers that were
+looked for; an item with a second common answer was replaced while drafting.
+
+### 17.1 CRAT (8 rounds)
+
+Each clue character forms a common two-character word with the target. All words are in
+everyday Taiwanese Mandarin use.
+
+| # | Clues | Target | Words | Ambiguity check |
+|---|---|---|---|---|
+| C1 | 點、放、粗 | 心 | 點心、放心、粗心 | `開` was dropped from an earlier draft: 開火、點火、放火 made 火 a second answer. |
+| C2 | 口、淚、香 | 水 | 口水、淚水、香水 | `汗` was dropped: 口味、汗味、香味 made 味 a second answer. |
+| C3 | 主、客、詩 | 人 | 主人、客人、詩人 | No second target forms all three (主角/客角, 主題/客題 fail). |
+| C4 | 颱、威、兜 | 風 | 颱風、威風、兜風 | 颱 combines only with 風 in common use. |
+| C5 | 眼、時、觀 | 光 | 眼光、時光、觀光 | 眼界/時界, 觀眾/眼眾 fail. |
+| C6 | 熱、專、竅 | 門 | 熱門、專門、竅門 | 竅 combines commonly only with 門. |
+| C7 | 秘、證、圖 | 書 | 秘書、證書、圖書 | 秘密/證密, 圖案/證案 fail. |
+| C8 | 饅、碼、枕 | 頭 | 饅頭、碼頭、枕頭 | 饅 combines only with 頭. |
+
+### 17.2 Character building (6 component sets)
+
+Rule shown to students: build characters from the given components; a component may be used
+more than once where the set says so. Reference characters are for the teacher agent to check
+and discuss work after submission, never to post first. All are standard Traditional characters.
+
+| # | Components | Reference characters | Note |
+|---|---|---|---|
+| K1 | 木、口 | 杏、呆、束、困 | Four layouts of the same two components (top-bottom both ways, enclosed, interlocked). |
+| K2 | 日、月 (repeatable) | 明、昌、朋、晶 | Repetition yields 昌 (日日), 朋 (月月), 晶 (日日日). |
+| K3 | 火 (repeatable) | 炎、焱 | A minimal set for the repetition idea; two references only. |
+| K4 | 女、口、子 | 好、如 | 好 = 女子, 如 = 女口. |
+| K5 | 土、口 (repeatable) | 吐、圭、垚 | 垚 is less common; the educator may drop it from the references. |
+| K6 | 力、口 | 加、另 | 加 = 力口 side by side, 另 = 口 over 力. |
+
+The current room prompt's fixed 木/口 demonstration becomes K1 and is approved or removed
+with it.
+
+### 17.3 Object reinterpretation (6 objects)
+
+Reference uses are cited by the teacher agent only after students have shared, never as a
+list to copy. Each object has at least five so the five idea slots are not exhausted by the
+reference alone.
+
+| # | Object | Reference uses |
+|---|---|---|
+| O1 | 迴紋針 | 手機取卡針、臨時掛勾、書籤、拉鍊拉環替代品、小型鐵絲雕塑 |
+| O2 | 報紙 | 包裝填充物、擦玻璃、摺紙帽、雨天鞋內吸濕、搬家時的保護墊 |
+| O3 | 寶特瓶 | 小花盆、筆筒、撲滿、自製灑水器、剪半當漏斗 |
+| O4 | 衣架 | 勾取掉到家具後的東西、吊掛盆栽、撐開垃圾袋、平板支架、圍巾收納架 |
+| O5 | 磚塊 | 門擋、書擋、壓住防水布、墊高物品、簡易啞鈴 |
+| O6 | 橡皮筋 | 開罐頭防滑、捆綁收納線材、標記自己的杯子、固定書頁、筆的防滑握把 |
+
+Safety screen: uses involving fire, ingestion or projectiles were excluded while drafting.
