@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import NamedTuple
 
@@ -63,6 +64,7 @@ class WakeupService:
         agent_ids: list[uuid.UUID],
         observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
         sender_is_human: bool | None = None,
+        states: Sequence[BindingWakeupState] | None = None,
     ) -> list[WakeTarget]:
         """Called when any message is created in a room.
 
@@ -91,10 +93,15 @@ class WakeupService:
         ``count: "human"`` counts ([R15.01]). Defaults to ``sender_is_user``; the
         released-observation path passes False explicitly, because it resets
         autostop like a user message but is agent-authored.
+
+        ``states`` — the room's binding layers when the caller already read them
+        with its binding rows; read here otherwise.
         """
         human = sender_is_user if sender_is_human is None else sender_is_human
         wake_list: list[WakeTarget] = []
-        states = {s.agent_id: s for s in await self._conversation.room_binding_wakeup_states(room_id)}
+        if states is None:
+            states = await self._conversation.room_binding_wakeup_states(room_id)
+        by_agent = {s.agent_id: s for s in states}
 
         for agent_id in agent_ids:
             # One agent's evaluation failing (a bad facade read, a Redis hiccup) must
@@ -103,7 +110,7 @@ class WakeupService:
             # the whole room. Mirrors the per-item guard in `evaluate_silence`
             # (app/workers/tasks/orchestration.py).
             try:
-                state = states.get(agent_id)
+                state = by_agent.get(agent_id)
                 current = await self._room_wakeup.for_state(state) if state is not None else None
                 if state is None or current is None:
                     continue

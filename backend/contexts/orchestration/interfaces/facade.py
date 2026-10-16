@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.interfaces.facade import BindingWakeupState
 from contexts.orchestration.application.a2a_service import A2AService
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
@@ -150,6 +151,7 @@ class OrchestrationFacade:
         agent_ids: list[uuid.UUID],
         observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
         sender_is_human: bool | None = None,
+        states: Sequence[BindingWakeupState] | None = None,
     ) -> list[WakeTarget]:
         return await self._wakeup.on_message_created(
             room_id=room_id,
@@ -158,6 +160,7 @@ class OrchestrationFacade:
             agent_ids=agent_ids,
             observer_agent_ids=observer_agent_ids,
             sender_is_human=sender_is_human,
+            states=states,
         )
 
     async def on_users_present(

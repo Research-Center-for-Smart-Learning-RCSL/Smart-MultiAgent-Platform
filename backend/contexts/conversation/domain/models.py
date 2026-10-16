@@ -119,6 +119,9 @@ class ChatroomAgent:
     may_read_drafts: bool = False
     may_read_canvas: bool = False
     may_write_canvas: bool = False
+    # The same row's wake-up layers, when the read that built this selected them,
+    # so a message's wake-up evaluation needs no second read of the room's rows.
+    wakeup: BindingWakeupState | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -445,6 +445,7 @@ class ChatroomAgentRepository:
                 may_read_drafts=bool(r.may_read_drafts),
                 may_read_canvas=bool(r.may_read_canvas),
                 may_write_canvas=bool(r.may_write_canvas),
+                wakeup=self._wakeup_state(r),
             )
             for r in rows
         ]

@@ -83,12 +83,17 @@ async def evaluate_message_wakeups(
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
     extra = {} if sender_is_human is None else {"sender_is_human": sender_is_human}
+    # Rows built by `list_bound_agents` already carry their wake-up layers; a row
+    # built elsewhere without them makes orchestration read the room's once.
+    layers = [r.wakeup for r in rows]
+    states = [s for s in layers if s is not None] if all(s is not None for s in layers) else None
     return await OrchestrationFacade(db).on_message_created(
         room_id=chatroom_id,
         sender_is_user=sender_is_user,
         sender_agent_id=sender_agent_id,
         agent_ids=agent_ids,
         observer_agent_ids=observer_ids,
+        states=states,
         **extra,
     )
 

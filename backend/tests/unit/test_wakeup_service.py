@@ -724,3 +724,39 @@ async def test_a_finished_turn_counts_its_round_on_the_binding_it_ran_for(monkey
     await svc.on_agent_message_sent(agent_id=uuid.uuid4(), room_id=uuid.uuid4(), binding_id=ran_for)
 
     assert counted == [ran_for]
+
+
+async def test_message_evaluation_uses_the_layers_the_caller_already_read(monkeypatch) -> None:
+    """Code review #9: the binding rows a message dispatch reads carry their layers,
+    so evaluation must not read the room's bindings a second time."""
+    import contexts.orchestration.application.wakeup_service as ws
+
+    agent = _agent(wakeup_config={"triggers": {"every_n_messages": {"enabled": True, "n": 1}}})
+    room = uuid.uuid4()
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+
+    async def _second_read(room_id):
+        raise AssertionError("the room's bindings were read again")
+
+    svc._conversation = SimpleNamespace(room_binding_wakeup_states=_second_read)  # type: ignore[attr-defined]
+
+    async def _noop(*a, **k):
+        return None
+
+    async def _count(*a, **k):
+        return 1
+
+    async def _not_due(*a, **k):
+        return False
+
+    for name in ("touch_silence_timestamp", "reset_autostop"):
+        monkeypatch.setattr(ws.wakeup_state, name, _noop)
+    monkeypatch.setattr(ws.wakeup_state, "increment_message_count", _count)
+    monkeypatch.setattr(ws.wakeup_state, "pop_fire_due", _not_due)
+    state = _state(agent, room)
+
+    woke = await svc.on_message_created(
+        room_id=room, sender_is_user=True, agent_ids=[agent.id], states=[state]
+    )
+
+    assert woke == [ws.WakeTarget(agent.id, state.binding_id)]

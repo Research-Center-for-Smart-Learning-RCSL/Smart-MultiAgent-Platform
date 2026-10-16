@@ -57,30 +57,49 @@ async def test_filter_mentioned_bound_agents_narrows_with_provided_binding(monke
 
 @pytest.mark.asyncio
 async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> None:
-    from types import SimpleNamespace
+    from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgent, ChatroomAgentRole
 
-    from contexts.conversation.domain.models import ChatroomAgentRole
-
-    a1 = uuid.uuid4()
+    a1, room = uuid.uuid4(), uuid.uuid4()
     monkeypatch.setattr(triggers, "ChatroomAgentRepository", _BoomRepo)
+    layers = BindingWakeupState(
+        chatroom_id=room,
+        agent_id=a1,
+        binding_id=uuid.uuid4(),
+        role=ChatroomAgentRole.NORMAL,
+        version=1,
+        room_overrides={},
+        runtime_overrides={},
+        runtime_started_at=None,
+    )
+    passed: list = []
 
     class _Facade:
         def __init__(self, db) -> None:
             pass
 
         async def on_message_created(
-            self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids, observer_agent_ids=frozenset()
+            self,
+            *,
+            room_id,
+            sender_is_user,
+            sender_agent_id=None,
+            agent_ids,
+            observer_agent_ids=frozenset(),
+            states=None,
         ):
+            passed.append(states)
             return list(agent_ids)
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
     woken = await triggers.evaluate_message_wakeups(
         object(),
-        chatroom_id=uuid.uuid4(),
+        chatroom_id=room,
         sender_is_user=True,
-        bound_agents=[SimpleNamespace(agent_id=a1, role=ChatroomAgentRole.NORMAL)],
+        bound_agents=[ChatroomAgent(chatroom_id=room, agent_id=a1, wakeup=layers)],
     )
     assert woken == [a1]
+    # Code review #9: the rows' own layers go through, so nothing reads them again.
+    assert passed == [[layers]]
 
 
 @pytest.mark.asyncio
