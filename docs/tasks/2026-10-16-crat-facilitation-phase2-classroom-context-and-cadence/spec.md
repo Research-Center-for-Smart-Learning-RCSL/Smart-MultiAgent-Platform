@@ -644,8 +644,12 @@ Invitations and courses:
 - [x] AC-18: Character/object instructions match actual worksheet fields and validation minimums;
   CRAT retains its required fields. Questionable example content is removed or explicitly
   approved by the educator, not silently presented as verified.
-- [ ] AC-19: Upgrading/reinstalling examples leaves existing customized prompts, settings and
+- [x] AC-19: Upgrading/reinstalling examples leaves existing customized prompts, settings and
   grants unchanged. The adoption guide describes manual application and missing room grants.
+  `test_agent_example_service.py::test_a_reinstall_never_rewrites_a_customised_agent` (all three
+  room packs) and `::test_a_second_install_reports_already_present_and_creates_nothing`; install
+  has no binding or grant path. Guide: `docs/examples/chinese-character-courses-adoption.md`
+  (manual application, delete-and-reinstall cost, missing grants, guidance-not-enforcement).
 - [ ] AC-20: Four-person CRAT live validation includes simultaneous candidates, a connected
   non-speaker, same-name/guest identities, drafting, optional invitations and observer release.
   The 30-minute steady-discussion run records reply/wake counts and any rate-limit failures.
