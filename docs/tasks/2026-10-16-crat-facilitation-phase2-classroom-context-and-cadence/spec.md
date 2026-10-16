@@ -816,6 +816,29 @@ are carried forward as release gates.
   `test_workers.py`, and `test_turn_wakeup_effects.py` through the real `_run_locked`. Five
   mutations (a missing drain, a drain before the commit, the route or the sweep applying early, the
   service applying inline) each fail the suite.
+- **D-15. `/code-review` of the branch, ten findings, decided with the requester (2026-10-16).**
+  #1 (the tool's CAS holds the binding row lock for the rest of the turn) is FU-10 and #10 (the
+  panel repeats backend bounds) is FU-11; both stay deferred. #4 (a runtime enabled flag outranks
+  a room one, so an agent can reopen a trigger the teacher paused) keeps the §6.3 resolution
+  order at the requester's choice: the three teacher prompts no longer claim the teacher's
+  choice wins, they say the last write wins and tell the agent not to reopen a trigger it did not
+  close, and the three designer prompts say the platform does not lock the teacher's value. The
+  rest were fixed. #3: a role change now issues a fresh `binding_id`, so the old role's autostop
+  and message counters, deferred firing, silence clock and queued jobs are left behind (a missing
+  silence timestamp only arms the clock, `evaluate_silence_trigger`), which also retires the
+  premise "binding id is immutable" in `tables.py`; the integration test that pinned the old id
+  now pins a new one. #2/#5: `wakeup_agent` passes the binding it gated (or, for an explicit
+  trigger, the live one) into `run_turn`, whose queued-trigger drain names it on the follow-up
+  job, and counts the autostop round on it instead of re-reading the live binding after the turn.
+  #6: a role change invalidates the panel's `roomWakeup` query. #9: `ChatroomAgentRepository.list`
+  carries each row's wake-up layers, and `evaluate_message_wakeups` passes them to
+  `on_message_created`, removing the second read of the room's bindings per message. #7: the
+  unreachable G.5 restore path (`AgentDraft.replace_wakeup_config`, `wakeup_last_refreshed_at`
+  writes, the `replace` branch of `_merge_and_normalize_wakeup`) and the tests that pinned it are
+  removed; the snapshot write and both columns stay for FU-5. #8: PATCH and reset authorize from
+  the binding row only and let the write load the binding and agent, and GET reuses the row it
+  authorized with. One behavioural edge of #8: PATCH or reset on a soft-deleted but still bound
+  agent now answers 409 (binding gone) instead of 404; the reload that follows answers 404.
 
 ## 16. Follow-ups
 
