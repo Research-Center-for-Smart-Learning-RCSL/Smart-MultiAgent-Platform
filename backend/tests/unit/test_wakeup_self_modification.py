@@ -40,7 +40,9 @@ def _bound(monkeypatch, config=_BOTH_ON):
 
 
 async def _tool(h, room, state, **kw):
-    return await h.svc.update_runtime(agent_id=h.agent.id, room_id=room, binding_id=state.binding_id, **kw)
+    """The config the tool reports back; its timer effects are the turn's to apply."""
+    tuning = await h.svc.update_runtime(agent_id=h.agent.id, room_id=room, binding_id=state.binding_id, **kw)
+    return tuning.config
 
 
 async def test_self_modification_preserves_designer_config_and_bounds(monkeypatch) -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -226,20 +227,28 @@ class TestWakeupRefresh:
             if state is states[1]:
                 raise RuntimeError("db blip")
             db.pending.append(str(state.binding_id))
-            return True
+            return SimpleNamespace(effects=state.binding_id)
 
         svc = AsyncMock()
         svc.refresh_if_due.side_effect = _fake_refresh
+        applied: list[tuple[list, int]] = []
+
+        async def _apply(effects):
+            applied.append((list(effects), db.commit_calls))
 
         with (
             patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
             patch(
                 "contexts.orchestration.application.room_wakeup_service.RoomWakeupService", return_value=svc
             ),
+            patch("contexts.orchestration.application.room_wakeup_service.apply_timer_effects", _apply),
         ):
             result = await wakeup_refresh({})
 
         assert result == "refreshed=2 failed=1"
+        # Phase 2 D-14: once, after the commit, and never for the binding whose
+        # savepoint rolled back.
+        assert applied == [([states[0].binding_id, states[2].binding_id], 1)]
         # The load-bearing assertion: binding 1's write, flushed before binding 2
         # failed, must survive and reach the final commit.
         assert db.committed == [str(states[0].binding_id), str(states[2].binding_id)]
@@ -260,7 +269,7 @@ class TestWakeupRefresh:
         conversation = AsyncMock()
         conversation.runtime_layer_binding_states.side_effect = [page, []]
         svc = AsyncMock()
-        svc.refresh_if_due.return_value = False
+        svc.refresh_if_due.return_value = None
 
         with (
             patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
@@ -289,17 +298,20 @@ class TestWakeupRefresh:
         conversation.runtime_layer_binding_states.return_value = [MagicMock(binding_id=uuid.uuid4())]
 
         svc = AsyncMock()
-        svc.refresh_if_due.return_value = True
+        svc.refresh_if_due.return_value = SimpleNamespace(effects="owed")
+        apply = AsyncMock()
 
         with (
             patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
             patch(
                 "contexts.orchestration.application.room_wakeup_service.RoomWakeupService", return_value=svc
             ),
+            patch("contexts.orchestration.application.room_wakeup_service.apply_timer_effects", apply),
         ):
             result = await wakeup_refresh({})
 
         assert result == "sweep_failed lost=1 failed=0"
+        apply.assert_not_awaited()
 
 
 # ===========================================================================

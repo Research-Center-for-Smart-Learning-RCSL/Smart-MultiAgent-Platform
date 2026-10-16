@@ -2,13 +2,18 @@
 
 The three layers and their resolution are ``domain.room_wakeup``; this service
 loads them for one live binding, writes them with optimistic concurrency, and
-applies the timer side effects a change implies ([R15.09]):
+reports the timer side effects a change implies ([R15.09]):
 
 - no configuration change resets autostop or the message count;
 - switching the message trigger off discards its deferred firing;
 - switching silence on, or changing its interval, re-arms that binding's
   silence clock now, so the change cannot fire a reply at once;
 - an effective no-op writes nothing and touches no timer.
+
+The timers live in Redis and the write in the caller's transaction, so a write
+returns its :class:`TimerEffects` instead of applying them: the caller applies
+them with :func:`apply_timer_effects` after that transaction commits, and a
+rollback leaves the timers untouched.
 
 The runtime layer's refresh interval starts at its first actual override and is
 not postponed by later tuning; refresh clears that layer only. Every write
@@ -19,6 +24,7 @@ binding fails instead of landing on its successor.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -76,6 +82,64 @@ class RoomWakeup:
             return None
 
 
+@dataclass(frozen=True, slots=True)
+class TimerEffects:
+    """The timer changes one committed write implies, for one binding."""
+
+    agent_id: uuid.UUID
+    room_id: uuid.UUID
+    binding_id: uuid.UUID
+    drop_deferred_fire: bool = False
+    rearm_silence: bool = False
+
+    def is_empty(self) -> bool:
+        return not (self.drop_deferred_fire or self.rearm_silence)
+
+
+@dataclass(frozen=True, slots=True)
+class RoomWakeupChange:
+    """A human write's result: the settings now stored, and the timers still owed."""
+
+    wakeup: RoomWakeup
+    effects: TimerEffects | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeTuning:
+    """The agent tool's result: its effective config, and the timers still owed."""
+
+    config: WakeupConfig
+    effects: TimerEffects | None
+
+
+def timer_effects(before: RoomWakeup, after: RoomWakeup) -> TimerEffects | None:
+    old, new = before.effective.config.triggers, after.effective.config.triggers
+    state = after.state
+    effects = TimerEffects(
+        agent_id=state.agent_id,
+        room_id=state.chatroom_id,
+        binding_id=state.binding_id,
+        drop_deferred_fire=old.every_n_messages.enabled and not new.every_n_messages.enabled,
+        rearm_silence=new.silence_minutes.enabled
+        and (
+            not old.silence_minutes.enabled or old.silence_minutes.t_minutes != new.silence_minutes.t_minutes
+        ),
+    )
+    return None if effects.is_empty() else effects
+
+
+async def apply_timer_effects(effects: Iterable[TimerEffects | None]) -> None:
+    """Apply effects whose writes have committed. Raises on a Redis failure, which
+    the caller logs: a missed effect can let one reply fire early, never lose one."""
+    for effect in effects:
+        if effect is None:
+            continue
+        if effect.drop_deferred_fire:
+            await wakeup_state.pop_fire_due(effect.agent_id, effect.room_id, effect.binding_id)
+        if effect.rearm_silence:
+            await wakeup_state.touch_silence_timestamp(effect.agent_id, effect.room_id, effect.binding_id)
+
+
 def build_room_wakeup(state: BindingWakeupState, agent: Agent) -> RoomWakeup:
     defaults = WakeupConfig.from_dict(agent.wakeup_config)
     room = WakeupOverrides.from_dict(state.room_overrides)
@@ -125,7 +189,7 @@ class RoomWakeupService:
         silence_minutes: int | None = None,
         every_n_messages_enabled: bool | None = None,
         silence_minutes_enabled: bool | None = None,
-    ) -> WakeupConfig:
+    ) -> RuntimeTuning:
         """Change this binding's runtime layer; never another room or the defaults.
 
         A bounded retry starts again from the original request against the latest
@@ -175,7 +239,7 @@ class RoomWakeupService:
                     "this room's wake-up settings kept changing while you wrote; try again"
                 )
             await self._audit_tool(current, clamped=clamped, toggles=toggles, changed=updated is not current)
-            return updated.effective.config
+            return RuntimeTuning(config=updated.effective.config, effects=timer_effects(current, updated))
         raise RoomWakeupVersionConflict(str(binding_id))  # pragma: no cover - loop always returns
 
     @staticmethod
@@ -254,7 +318,7 @@ class RoomWakeupService:
         expected_version: int,
         patch: WakeupOverrides,
         actor_user_id: uuid.UUID,
-    ) -> RoomWakeup:
+    ) -> RoomWakeupChange:
         current = await self._live(agent_id=agent_id, room_id=room_id, binding_id=binding_id)
         if current.state.version != expected_version:
             raise RoomWakeupVersionConflict(str(binding_id))
@@ -266,7 +330,7 @@ class RoomWakeupService:
             await self._audit_human(
                 current, "chatroom.agent_wakeup_updated", actor_user_id, sorted(patch.set_fields())
             )
-        return updated
+        return RoomWakeupChange(wakeup=updated, effects=timer_effects(current, updated))
 
     async def reset(
         self,
@@ -277,7 +341,7 @@ class RoomWakeupService:
         expected_version: int,
         scope: ResetScope,
         actor_user_id: uuid.UUID,
-    ) -> RoomWakeup:
+    ) -> RoomWakeupChange:
         """``runtime`` drops the agent's adjustments; ``room`` returns every field to the defaults."""
         current = await self._live(agent_id=agent_id, room_id=room_id, binding_id=binding_id)
         if current.state.version != expected_version:
@@ -288,7 +352,7 @@ class RoomWakeupService:
             raise RoomWakeupVersionConflict(str(binding_id))
         if updated is not current:
             await self._audit_human(current, "chatroom.agent_wakeup_reset", actor_user_id, [scope])
-        return updated
+        return RoomWakeupChange(wakeup=updated, effects=timer_effects(current, updated))
 
     async def _audit_human(
         self, current: RoomWakeup, action: str, actor_user_id: uuid.UUID, fields: list[str]
@@ -312,20 +376,22 @@ class RoomWakeupService:
     # Refresh ([R15.09])
     # ------------------------------------------------------------------
 
-    async def refresh_if_due(self, state: BindingWakeupState, *, at: datetime | None = None) -> bool:
-        """Clear the binding's runtime layer once its interval has elapsed.
+    async def refresh_if_due(
+        self, state: BindingWakeupState, *, at: datetime | None = None
+    ) -> RoomWakeupChange | None:
+        """Clear the binding's runtime layer once its interval has elapsed; ``None`` when not.
 
         The interval is the designer's current one measured from the existing
         start, so shortening it can make a binding due at once.
         """
         current = await self.for_state(state)
         if current is None or current.refresh_due_at is None:
-            return False
+            return None
         if (at or now()) < current.refresh_due_at:
-            return False
+            return None
         updated = await self._write(current, room=current.room, runtime=WakeupOverrides())
         if updated is None or updated is current:
-            return False
+            return None
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -339,7 +405,7 @@ class RoomWakeupService:
                 },
             ),
         )
-        return True
+        return RoomWakeupChange(wakeup=updated, effects=timer_effects(current, updated))
 
     # ------------------------------------------------------------------
     # Write path
@@ -373,20 +439,17 @@ class RoomWakeupService:
         )
         if state is None:
             return None
-        updated = build_room_wakeup(state, current.agent)
-        await self._apply_timer_effects(current, updated)
-        return updated
-
-    @staticmethod
-    async def _apply_timer_effects(before: RoomWakeup, after: RoomWakeup) -> None:
-        old, new = before.effective.config.triggers, after.effective.config.triggers
-        state = after.state
-        if old.every_n_messages.enabled and not new.every_n_messages.enabled:
-            await wakeup_state.pop_fire_due(state.agent_id, state.chatroom_id, state.binding_id)
-        if new.silence_minutes.enabled and (
-            not old.silence_minutes.enabled or old.silence_minutes.t_minutes != new.silence_minutes.t_minutes
-        ):
-            await wakeup_state.touch_silence_timestamp(state.agent_id, state.chatroom_id, state.binding_id)
+        return build_room_wakeup(state, current.agent)
 
 
-__all__ = ["ResetScope", "RoomWakeup", "RoomWakeupService", "build_room_wakeup"]
+__all__ = [
+    "ResetScope",
+    "RoomWakeup",
+    "RoomWakeupChange",
+    "RoomWakeupService",
+    "RuntimeTuning",
+    "TimerEffects",
+    "apply_timer_effects",
+    "build_room_wakeup",
+    "timer_effects",
+]

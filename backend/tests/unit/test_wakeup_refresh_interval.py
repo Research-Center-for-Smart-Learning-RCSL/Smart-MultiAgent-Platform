@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 
+from contexts.orchestration.application.room_wakeup_service import apply_timer_effects
 from contexts.orchestration.domain.room_wakeup import WakeupOverrides
 from tests.unit.room_wakeup_fakes import make_harness
 
@@ -34,8 +35,13 @@ async def _tune(h, room, state, **kw):
     return await h.svc.update_runtime(agent_id=h.agent.id, room_id=room, binding_id=state.binding_id, **kw)
 
 
-async def _refresh(h, room):
-    return await h.svc.refresh_if_due(h.bindings.get(h.agent.id, room), at=h.clock.now)
+async def _refresh(h, room) -> bool:
+    """Whether the binding was refreshed; its timers are applied as the sweep would, after commit."""
+    change = await h.svc.refresh_if_due(h.bindings.get(h.agent.id, room), at=h.clock.now)
+    if change is None:
+        return False
+    await apply_timer_effects([change.effects])
+    return True
 
 
 async def test_refresh_is_skipped_inside_the_configured_window(monkeypatch) -> None:

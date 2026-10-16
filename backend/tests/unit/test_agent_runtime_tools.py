@@ -20,6 +20,7 @@ from contexts.agents.application.runtime.tool_registry import (
     build_registry,
     build_update_wakeup_tool,
 )
+from contexts.orchestration.interfaces.facade import RuntimeTuning, TimerEffects
 from contexts.skills.application.binding_service import BoundSet
 from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead, SkillScanStatus
 from shared_kernel.tokens import estimate_tokens
@@ -36,7 +37,11 @@ def _snap(*skills: Skill, files: dict | None = None) -> BoundSet:
     return BoundSet(skills=tuple(skills), files=files or {})
 
 
-_BINDING = WakeupBinding(room_id=uuid.uuid4(), binding_id=uuid.uuid4())
+def _binding() -> WakeupBinding:
+    return WakeupBinding(room_id=uuid.uuid4(), binding_id=uuid.uuid4(), effect_sink=[])
+
+
+_BINDING = _binding()
 
 
 @pytest.mark.asyncio
@@ -61,7 +66,7 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
                 every_n_messages=every_n_messages,
                 silence_minutes=silence_minutes,
             )
-            return _Cfg()
+            return RuntimeTuning(config=_Cfg(), effects=None)
 
     import contexts.orchestration.interfaces.facade as facade_mod
 
@@ -97,7 +102,7 @@ async def test_update_wakeup_tool_passes_toggles_and_states_the_semantics(monkey
 
         async def update_room_wakeup(self, **kwargs):
             captured.update(kwargs)
-            return _Cfg()
+            return RuntimeTuning(config=_Cfg(), effects=None)
 
     import contexts.orchestration.interfaces.facade as facade_mod
 
@@ -116,6 +121,40 @@ async def test_update_wakeup_tool_passes_toggles_and_states_the_semantics(monkey
     for key in ("every_n_messages_enabled", "silence_minutes_enabled"):
         assert spec["input_schema"]["properties"][key]["type"] == "boolean"
         assert "designer" in spec["input_schema"]["properties"][key]["description"]
+
+
+@pytest.mark.asyncio
+async def test_update_wakeup_hands_its_timer_effects_to_the_turn(monkeypatch) -> None:
+    """Phase 2 D-14: the write is in the turn's open transaction, so the tool only
+    queues its timer effects; the turn applies them after its commit."""
+    binding = _binding()
+    effects = TimerEffects(
+        agent_id=uuid.uuid4(), room_id=binding.room_id, binding_id=binding.binding_id, rearm_silence=True
+    )
+
+    class _Cfg:
+        def to_dict(self) -> dict:
+            return {}
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def update_room_wakeup(self, **kwargs):
+            return RuntimeTuning(config=_Cfg(), effects=effects)
+
+        @staticmethod
+        async def apply_room_wakeup_effects(_effects) -> None:
+            raise AssertionError("the tool must not apply timer effects itself")
+
+    import contexts.orchestration.interfaces.facade as facade_mod
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    tool = build_update_wakeup_tool(object(), agent_id=uuid.uuid4(), binding=binding)
+
+    await tool.invoke({"silence_minutes_enabled": True})
+
+    assert binding.effect_sink == [effects]
 
 
 @pytest.mark.asyncio

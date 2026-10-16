@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 
+from contexts.orchestration.application.room_wakeup_service import apply_timer_effects
 from contexts.orchestration.domain.errors import RoomWakeupBindingGone, RoomWakeupVersionConflict
 from contexts.orchestration.domain.room_wakeup import WakeupOverrides
 from tests.unit.room_wakeup_fakes import make_harness
@@ -31,6 +32,16 @@ def _bound(monkeypatch):
 
 
 async def _patch(h, room, state, patch: WakeupOverrides, *, version: int | None = None):
+    """The route's sequence: write, commit, then apply the timers the write owes."""
+    return await _committed(await _patch_uncommitted(h, room, state, patch, version=version))
+
+
+async def _committed(change):
+    await apply_timer_effects([change.effects])
+    return change.wakeup
+
+
+async def _patch_uncommitted(h, room, state, patch: WakeupOverrides, *, version: int | None = None):
     current = h.bindings.get(h.agent.id, room)
     return await h.svc.patch_room(
         agent_id=h.agent.id,
@@ -43,6 +54,10 @@ async def _patch(h, room, state, patch: WakeupOverrides, *, version: int | None 
 
 
 async def _reset(h, room, state, scope):
+    return await _committed(await _reset_uncommitted(h, room, state, scope))
+
+
+async def _reset_uncommitted(h, room, state, scope):
     return await h.svc.reset(
         agent_id=h.agent.id,
         room_id=room,
@@ -54,7 +69,13 @@ async def _reset(h, room, state, scope):
 
 
 async def _tune(h, room, state, **kw):
-    await h.svc.update_runtime(agent_id=h.agent.id, room_id=room, binding_id=state.binding_id, **kw)
+    tuning = await _tune_uncommitted(h, room, state, **kw)
+    await apply_timer_effects([tuning.effects])
+    return tuning.config
+
+
+async def _tune_uncommitted(h, room, state, **kw):
+    return await h.svc.update_runtime(agent_id=h.agent.id, room_id=room, binding_id=state.binding_id, **kw)
 
 
 class TestPatch:
@@ -138,6 +159,42 @@ class TestReset:
         assert updated.room.is_empty()
         assert updated.runtime.is_empty()
         assert set(updated.effective.sources.values()) == {"designer"}
+
+
+class TestTimersWaitForTheCommit:
+    """D-14 (FU-9): a write touches no Redis timer itself. The caller applies the
+    returned effects after the transaction holding the write commits, so a rollback
+    leaves the timers as they were."""
+
+    async def test_a_human_write_touches_no_timer_until_applied(self, monkeypatch) -> None:
+        h, room, state = _bound(monkeypatch)
+
+        dropped = await _patch_uncommitted(h, room, state, WakeupOverrides(every_n_messages_enabled=False))
+        reset = await _reset_uncommitted(h, room, state, "room")
+
+        assert h.timers == []
+        assert dropped.effects is not None
+        assert dropped.effects.drop_deferred_fire
+        assert reset.effects is None  # the reset re-enables only the message trigger
+
+        await apply_timer_effects([dropped.effects, reset.effects])
+        assert h.timers == [("pop_fire_due", state.binding_id)]
+
+    async def test_a_tool_write_touches_no_timer_until_applied(self, monkeypatch) -> None:
+        h, room, state = _bound(monkeypatch)
+
+        tuning = await _tune_uncommitted(h, room, state, silence_minutes_enabled=True)
+
+        assert h.timers == []
+        assert tuning.effects is not None
+        assert tuning.effects.rearm_silence
+
+    async def test_a_no_op_owes_no_timer(self, monkeypatch) -> None:
+        h, room, state = _bound(monkeypatch)
+
+        change = await _patch_uncommitted(h, room, state, WakeupOverrides(every_n_messages=3))
+
+        assert change.effects is None
 
 
 class TestTimers:

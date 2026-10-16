@@ -11,6 +11,7 @@ agent (404), so the endpoint cannot reveal a hidden observer ([R28.10]).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -31,6 +32,7 @@ from contexts.orchestration.interfaces.facade import (
     T_MINUTES_MAX,
     OrchestrationFacade,
     RoomWakeup,
+    RoomWakeupChange,
     WakeupOverrides,
 )
 from shared_kernel.auth.dependencies import current_principal
@@ -38,6 +40,7 @@ from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
+_log = logging.getLogger(__name__)
 
 Source = Literal["designer", "room", "runtime"]
 
@@ -199,7 +202,7 @@ async def patch_room_wakeup(
     """Supplied fields replace the room's value and drop the agent's adjustment of
     the same field; nothing is written to the shared agent."""
     await _managed(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
-    updated = await OrchestrationFacade(db).patch_room_wakeup(
+    change = await OrchestrationFacade(db).patch_room_wakeup(
         agent_id=agent_id,
         room_id=chatroom_id,
         binding_id=body.binding_id,
@@ -208,7 +211,8 @@ async def patch_room_wakeup(
         actor_user_id=principal.user_id,
     )
     await db.commit()
-    return _out(updated)
+    await _apply_timers(change)
+    return _out(change.wakeup)
 
 
 @chatroom_router.post("/{chatroom_id}/agents/{agent_id}/wakeup/reset")
@@ -222,7 +226,7 @@ async def reset_room_wakeup(
     """``runtime`` drops the agent's own adjustments; ``room`` also returns every
     room value to the designer's current defaults. Neither touches other rooms."""
     await _managed(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
-    updated = await OrchestrationFacade(db).reset_room_wakeup(
+    change = await OrchestrationFacade(db).reset_room_wakeup(
         agent_id=agent_id,
         room_id=chatroom_id,
         binding_id=body.binding_id,
@@ -231,7 +235,17 @@ async def reset_room_wakeup(
         actor_user_id=principal.user_id,
     )
     await db.commit()
-    return _out(updated)
+    await _apply_timers(change)
+    return _out(change.wakeup)
+
+
+async def _apply_timers(change: RoomWakeupChange) -> None:
+    """After the commit: the settings are stored, so a Redis failure costs at most
+    an early reply and must not turn a saved change into an error."""
+    try:
+        await OrchestrationFacade.apply_room_wakeup_effects([change.effects])
+    except Exception:
+        _log.warning("room wake-up timer effects failed after commit", exc_info=True)
 
 
 __all__ = ["chatroom_router"]

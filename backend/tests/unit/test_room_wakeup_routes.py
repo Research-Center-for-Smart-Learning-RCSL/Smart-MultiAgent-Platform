@@ -18,7 +18,11 @@ from pydantic import ValidationError
 import app.api.v1.room_wakeup as mod
 from contexts.conversation.application.access import RoomAccess, can_manage_room_wakeup
 from contexts.conversation.domain.models import BindingWakeupState, ChatroomAgentRole
-from contexts.orchestration.application.room_wakeup_service import build_room_wakeup
+from contexts.orchestration.application.room_wakeup_service import (
+    RoomWakeupChange,
+    TimerEffects,
+    build_room_wakeup,
+)
 from shared_kernel.auth.permissions import Principal, Role
 
 _CONFIG = {
@@ -59,7 +63,17 @@ def _current(role: ChatroomAgentRole = ChatroomAgentRole.NORMAL):
 
 
 def _wire(monkeypatch, *, access: RoomAccess, current) -> SimpleNamespace:
-    calls = SimpleNamespace(patched=[], reset=[], loaded=0)
+    calls = SimpleNamespace(patched=[], reset=[], loaded=0, applied=[], apply_error=None)
+    effects = (
+        TimerEffects(
+            agent_id=current.state.agent_id,
+            room_id=current.state.chatroom_id,
+            binding_id=current.state.binding_id,
+            rearm_silence=True,
+        )
+        if current is not None
+        else None
+    )
 
     async def _resolve(db, *, principal, chatroom_id):
         return access
@@ -81,11 +95,17 @@ def _wire(monkeypatch, *, access: RoomAccess, current) -> SimpleNamespace:
 
         async def patch_room_wakeup(self, **kw):
             calls.patched.append(kw)
-            return current
+            return RoomWakeupChange(wakeup=current, effects=effects)
 
         async def reset_room_wakeup(self, **kw):
             calls.reset.append(kw)
-            return current
+            return RoomWakeupChange(wakeup=current, effects=effects)
+
+        @staticmethod
+        async def apply_room_wakeup_effects(applied):
+            if calls.apply_error is not None:
+                raise calls.apply_error
+            calls.applied.append(list(applied))
 
     monkeypatch.setattr(mod, "resolve_room_access", _resolve)
     monkeypatch.setattr(mod, "OrchestrationFacade", _Orch)
@@ -241,6 +261,59 @@ class TestRoutes:
         )
 
         assert calls.reset[0]["scope"] == "runtime"
+
+    async def _patch_as_creator(self, monkeypatch, db):
+        uid = uuid.uuid4()
+        calls = _wire(
+            monkeypatch,
+            access=_access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER})),
+            current=_current(),
+        )
+        return calls, mod.patch_room_wakeup(
+            body=mod.RoomWakeupPatchIn(
+                binding_id=uuid.uuid4(), expected_version=4, silence_minutes_enabled=True
+            ),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            principal=_principal(uid),
+            db=db,
+        )
+
+    async def test_timers_are_applied_only_after_the_commit(self, monkeypatch) -> None:
+        """Phase 2 D-14: the write's timer effects follow its commit, never precede it."""
+        order: list[str] = []
+        calls_box: list[SimpleNamespace] = []
+
+        async def _commit() -> None:
+            order.append(f"commit (applied so far: {len(calls_box[0].applied)})")
+
+        calls, pending = await self._patch_as_creator(monkeypatch, SimpleNamespace(commit=_commit))
+        calls_box.append(calls)
+        await pending
+
+        assert order == ["commit (applied so far: 0)"]
+        assert len(calls.applied) == 1
+        assert calls.applied[0][0].rearm_silence
+
+    async def test_a_failed_commit_applies_no_timer(self, monkeypatch) -> None:
+        calls, pending = await self._patch_as_creator(
+            monkeypatch, SimpleNamespace(commit=AsyncMock(side_effect=RuntimeError("commit failed")))
+        )
+
+        with pytest.raises(RuntimeError):
+            await pending
+        assert calls.applied == []
+
+    async def test_a_timer_failure_after_the_commit_still_returns_the_saved_settings(
+        self, monkeypatch
+    ) -> None:
+        calls, pending = await self._patch_as_creator(monkeypatch, SimpleNamespace(commit=AsyncMock()))
+        calls.apply_error = RuntimeError("redis down")
+
+        out = await pending
+
+        assert out.version == 4
+        assert calls.applied == []
 
 
 class TestBodies:

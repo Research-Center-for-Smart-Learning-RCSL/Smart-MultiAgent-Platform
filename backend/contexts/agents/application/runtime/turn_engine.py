@@ -3103,6 +3103,9 @@ class TurnEngine:
             # published after the commit that made them durable. Same sink shape
             # and same reason as `artifact_sink` above.
             activation_events: list[dict[str, Any]] = []
+            # Timer effects of `update_wakeup` writes, owed once the turn commits
+            # them; the failure path rolls back with the sink undrained.
+            wakeup_effects: list[Any] = []
             # The observation this turn assembled, if it is an observer turn and
             # the model called `present_observation` ([R28.16]). Replaced rather
             # than appended to by the tool: the last call in a turn is the
@@ -3166,7 +3169,7 @@ class TurnEngine:
                 reads=skill_reads,
                 extra=extra_tools,
                 is_infra_error=_is_infrastructure_error,
-                wakeup_binding=await self._wakeup_binding(chatroom_id, agent.id),
+                wakeup_binding=await self._wakeup_binding(chatroom_id, agent.id, effect_sink=wakeup_effects),
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
@@ -3622,6 +3625,8 @@ class TurnEngine:
                 # ordinary shape for a pacing agent — so the room must still be told.
                 async with _post_commit("activity activation events (empty reply)"):
                     await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
+                async with _post_commit("wake-up timer effects (empty reply)"):
+                    await self._drain_wakeup_effects(wakeup_effects)
                 # The provider was reached and the drained notes were in its context
                 # (rendering is delivery for notify/released_observation, R9.16/R28.07),
                 # but an approval ballot is only consumed once cast — re-arm it if the
@@ -3702,6 +3707,8 @@ class TurnEngine:
                 # asymmetry): the round is class-visible however quiet the agent is.
                 async with _post_commit("activity activation events (observer)"):
                     await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
+                async with _post_commit("wake-up timer effects (observer)"):
+                    await self._drain_wakeup_effects(wakeup_effects)
                 async with _post_commit("settle pending approvals (observer)"):
                     await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
                 return TurnResult(
@@ -3743,6 +3750,8 @@ class TurnEngine:
             # sees the round the reply is talking about.
             async with _post_commit("activity activation events"):
                 await self._drain_activation_events(agent, activation_events, is_observer=is_observer)
+            async with _post_commit("wake-up timer effects"):
+                await self._drain_wakeup_effects(wakeup_effects)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             # `room is not None` always holds here (the observer branch returned
@@ -4142,7 +4151,9 @@ class TurnEngine:
             chatroom_id, limit=MAX_PARTICIPANT_ROWS
         )
 
-    async def _wakeup_binding(self, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> WakeupBinding | None:
+    async def _wakeup_binding(
+        self, chatroom_id: uuid.UUID, agent_id: uuid.UUID, *, effect_sink: list[Any]
+    ) -> WakeupBinding | None:
         """The live binding `update_wakeup` is scoped to ([R15.06]); ``None`` offers no tool.
 
         Best-effort: a failed read costs the agent its tuning tool for one turn,
@@ -4155,7 +4166,21 @@ class TurnEngine:
         except Exception:
             _log.warning("binding lookup for update_wakeup failed room=%s", chatroom_id, exc_info=True)
             return None
-        return WakeupBinding(room_id=chatroom_id, binding_id=state.binding_id) if state is not None else None
+        if state is None:
+            return None
+        return WakeupBinding(room_id=chatroom_id, binding_id=state.binding_id, effect_sink=effect_sink)
+
+    async def _drain_wakeup_effects(self, wakeup_effects: list[Any]) -> None:
+        """Apply the timers the turn's `update_wakeup` writes owe ([R15.09]).
+
+        Called only inside a ``_post_commit`` scope after the turn's commit, like
+        ``_drain_activation_events``: before it the writes could still roll back.
+        """
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+        drained = list(wakeup_effects)
+        wakeup_effects.clear()
+        await OrchestrationFacade.apply_room_wakeup_effects(drained)
 
     async def _room_creator_id(self, chatroom_id: uuid.UUID) -> uuid.UUID | None:
         """The room's creator, or ``None`` for a legacy room without one.

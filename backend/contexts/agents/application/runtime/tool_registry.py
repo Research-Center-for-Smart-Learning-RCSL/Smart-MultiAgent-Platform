@@ -401,17 +401,24 @@ _UPDATE_WAKEUP_SCHEMA: dict[str, Any] = {
 
 @dataclass(frozen=True, slots=True)
 class WakeupBinding:
-    """The live room binding a turn runs in; the only thing `update_wakeup` may change."""
+    """The live room binding a turn runs in; the only thing `update_wakeup` may change.
+
+    ``effect_sink`` receives the timer effects of each write. The write is in the
+    turn's open transaction, so the turn applies them after its commit and drops
+    them when it rolls back, as ``activity_tools`` does with its events.
+    """
 
     room_id: uuid.UUID
     binding_id: uuid.UUID
+    effect_sink: list[Any]
 
 
 def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID, binding: WakeupBinding) -> Tool:
     """R15.06 — the agent adjusts its own cadence in this room only (clamps R15.07).
 
     The room and binding come from this closure, never from the model's arguments,
-    and the facade refuses the write if that binding is no longer live.
+    and the facade refuses the write if that binding is no longer live. Nothing
+    here touches a timer; see ``WakeupBinding.effect_sink``.
     """
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
@@ -424,7 +431,7 @@ def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID, binding: WakeupBin
             for key in ("every_n_messages_enabled", "silence_minutes_enabled")
             if isinstance(args.get(key), bool)
         }
-        cfg = await OrchestrationFacade(db).update_room_wakeup(
+        tuning = await OrchestrationFacade(db).update_room_wakeup(
             agent_id=agent_id,
             room_id=binding.room_id,
             binding_id=binding.binding_id,
@@ -432,7 +439,9 @@ def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID, binding: WakeupBin
             silence_minutes=_opt_int(args.get("silence_minutes")),
             **toggles,
         )
-        return ToolResult(content=json.dumps(cfg.to_dict()))
+        if tuning.effects is not None:
+            binding.effect_sink.append(tuning.effects)
+        return ToolResult(content=json.dumps(tuning.config.to_dict()))
 
     return Tool(
         name="update_wakeup",

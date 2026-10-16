@@ -339,10 +339,17 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
     overrides and other rooms are untouched, and no agent row is written.
     """
     from contexts.conversation.interfaces.facade import ConversationFacade
-    from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
+    from contexts.orchestration.application.room_wakeup_service import (
+        RoomWakeupService,
+        TimerEffects,
+        apply_timer_effects,
+    )
 
     refreshed = 0
     failed = 0
+    # Applied only once the sweep's commit lands: a refresh whose savepoint or
+    # commit fails must leave that binding's timers as they were.
+    owed: list[TimerEffects | None] = []
     async with async_session() as db:
         svc = RoomWakeupService(db)
         conversation = ConversationFacade(db)
@@ -354,8 +361,10 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
                     # Each write isolated in its own SAVEPOINT: a bare rollback
                     # would discard every earlier binding's flushed refresh.
                     async with db.begin_nested():
-                        if await svc.refresh_if_due(state):
-                            refreshed += 1
+                        change = await svc.refresh_if_due(state)
+                    if change is not None:
+                        refreshed += 1
+                        owed.append(change.effects)
                 except Exception:
                     failed += 1
                     logger.bind(binding_id=str(state.binding_id)).exception("wakeup refresh failed")
@@ -372,6 +381,12 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
                 "wakeup refresh sweep: commit failed, every refresh this sweep collected was lost"
             )
             return f"sweep_failed lost={refreshed} failed={failed}"
+    try:
+        await apply_timer_effects(owed)
+    except Exception:
+        logger.bind(event="wakeup_refresh_timers_failed").exception(
+            "wakeup refresh sweep: committed, but resetting the refreshed bindings' timers failed"
+        )
 
     logger.bind(event="wakeup_refresh_done", refreshed=refreshed, failed=failed).info(
         f"wakeup refresh sweep: {refreshed} bindings refreshed, {failed} failed"

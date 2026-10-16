@@ -21,7 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.orchestration.application.a2a_service import A2AService
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
-from contexts.orchestration.application.room_wakeup_service import ResetScope, RoomWakeup, RoomWakeupService
+from contexts.orchestration.application.room_wakeup_service import (
+    ResetScope,
+    RoomWakeup,
+    RoomWakeupChange,
+    RoomWakeupService,
+    RuntimeTuning,
+    TimerEffects,
+    apply_timer_effects,
+)
 from contexts.orchestration.application.subagent_service import SubagentService
 from contexts.orchestration.application.wakeup_service import WakeTarget, WakeupService
 from contexts.orchestration.domain.models import (
@@ -35,7 +43,6 @@ from contexts.orchestration.domain.models import (
     ApprovalState,
     ApprovalVote,
     Instruction,
-    WakeupConfig,
 )
 from contexts.orchestration.domain.room_wakeup import WakeupOverrides
 
@@ -191,8 +198,11 @@ class OrchestrationFacade:
         silence_minutes: int | None = None,
         every_n_messages_enabled: bool | None = None,
         silence_minutes_enabled: bool | None = None,
-    ) -> WakeupConfig:
-        """The agent's own tool ([R15.06]): this binding's runtime layer only."""
+    ) -> RuntimeTuning:
+        """The agent's own tool ([R15.06]): this binding's runtime layer only.
+
+        The result's ``effects`` are owed after the turn commits; pass them to
+        :meth:`apply_room_wakeup_effects` then, never before."""
         return await self._room_wakeup.update_runtime(
             agent_id=agent_id,
             room_id=room_id,
@@ -216,7 +226,7 @@ class OrchestrationFacade:
         expected_version: int,
         patch: WakeupOverrides,
         actor_user_id: uuid.UUID,
-    ) -> RoomWakeup:
+    ) -> RoomWakeupChange:
         return await self._room_wakeup.patch_room(
             agent_id=agent_id,
             room_id=room_id,
@@ -235,7 +245,7 @@ class OrchestrationFacade:
         expected_version: int,
         scope: ResetScope,
         actor_user_id: uuid.UUID,
-    ) -> RoomWakeup:
+    ) -> RoomWakeupChange:
         return await self._room_wakeup.reset(
             agent_id=agent_id,
             room_id=room_id,
@@ -244,6 +254,11 @@ class OrchestrationFacade:
             scope=scope,
             actor_user_id=actor_user_id,
         )
+
+    @staticmethod
+    async def apply_room_wakeup_effects(effects: Sequence[TimerEffects | None]) -> None:
+        """The timers a committed wake-up write owes; call only after its commit."""
+        await apply_timer_effects(effects)
 
     # -- Approval (G.6) --
 
@@ -451,6 +466,9 @@ __all__ = [
     "OrchestrationFacade",
     "ResetScope",
     "RoomWakeup",
+    "RoomWakeupChange",
+    "RuntimeTuning",
+    "TimerEffects",
     "WakeTarget",
     "WakeupOverrides",
 ]
