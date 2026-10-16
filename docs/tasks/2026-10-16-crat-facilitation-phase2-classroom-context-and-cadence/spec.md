@@ -620,15 +620,15 @@ Invitations and courses:
   participant, absent during individual-work stages, rotated away from the last person
   invited, and never based on unknown, truncated or ambiguous identity. Pack text and the
   adoption guide disclaim server-enforced timing or targeting.
-- [ ] AC-15: Sibling prompts never promise automatic timed transitions or whole-class
+- [x] AC-15: Sibling prompts never promise automatic timed transitions or whole-class
   completion from recent events, and ask the human teacher to confirm each stage change.
-- [ ] AC-16: All six course packs load and each cadence parses through the orchestration
+- [x] AC-16: All six course packs load and each cadence parses through the orchestration
   domain. Human counts and allowed toggles are explicit; all stage-table settings are legal,
   including preservation of a live message trigger during agent-disabled silence.
-- [ ] AC-17: No course promises unavailable `instruct`, fractional wake times, elapsed deadlines
+- [x] AC-17: No course promises unavailable `instruct`, fractional wake times, elapsed deadlines
   from silence, or individual contribution from a group submission. Analysts use supplied codes
   and return empty output when there is no new observation.
-- [ ] AC-18: Character/object instructions match actual worksheet fields and validation minimums;
+- [x] AC-18: Character/object instructions match actual worksheet fields and validation minimums;
   CRAT retains its required fields. Questionable example content is removed or explicitly
   approved by the educator, not silently presented as verified.
 - [ ] AC-19: Upgrading/reinstalling examples leaves existing customized prompts, settings and
@@ -785,6 +785,19 @@ are carried forward as release gates.
   lives in `agents.wakeup_config`; filtering in SQL would join the agents table into the
   conversation repository. The sweep keyset-pages bindings with a runtime layer (indexed) and
   decides due-ness per binding, so its cost is bounded by bindings an agent actually tuned.
+- **D-13. M3 static half recorded; the live and document halves stay open.** The six packs carry
+  the §6.2 blocks, the §17 banks and the §6.4 cadences; `TestPhase2CoursePacks` in
+  `test_agent_example_packs.py` checks them, and the stage-change table resolves every
+  `update_wakeup` instruction a teacher prompt gives through `resolve_room_wakeup` (applied as
+  written, none ignored or clamped, the message trigger live while silence is paused). Seven
+  single-property mutations of the packs (an answer in a peer prompt, a revoked toggle, a narrowed
+  bound, a dropped `count`, a dropped invitation rule, a broken bank word, a timed transition) each
+  fail the suite. `test_agent_example_service.py` covers fresh install and reinstallation of the
+  three room packs. AC-14 and AC-24 remain open for their live transcripts (AC-20/AC-21), AC-19 for
+  the M4 adoption guide, and AC-23 for the approval record on the PR; the item-by-item approval
+  itself is in §17. The retired assertions (the shared-cadence prohibition, creator-confirmed CRAT
+  answers, `本課題組`, the designer's settings-visibility sentence) were replaced, not deleted, as
+  the Test Plan row for AC-23..24 directs.
 
 ## 16. Follow-ups
 
