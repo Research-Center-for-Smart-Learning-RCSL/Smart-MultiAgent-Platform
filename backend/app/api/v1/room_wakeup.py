@@ -25,7 +25,7 @@ from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
 )
-from contexts.conversation.interfaces.facade import ChatroomAgentRole, ConversationFacade
+from contexts.conversation.interfaces.facade import BindingWakeupState, ChatroomAgentRole, ConversationFacade
 from contexts.orchestration.interfaces.facade import (
     AUTOSTOP_HARD_CAP,
     N_MAX,
@@ -159,9 +159,10 @@ def _out(current: RoomWakeup) -> RoomWakeupOut:
     )
 
 
-async def _managed(
+async def _authorized_state(
     db: AsyncSession, *, principal: Principal, chatroom_id: uuid.UUID, agent_id: uuid.UUID
-) -> RoomWakeup:
+) -> BindingWakeupState:
+    """The binding the caller may manage, from its row alone; raises 404/403 otherwise."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     # Decided from the binding row alone, before the agent is loaded: an observer
@@ -175,7 +176,14 @@ async def _managed(
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
     if not can_manage_room_wakeup(access, principal=principal, observer_binding=observer):
         raise HTTPException(status_code=403, detail="caller cannot manage this room's agent wake-up settings")
-    current = await OrchestrationFacade(db).room_wakeup(agent_id=agent_id, room_id=chatroom_id)
+    return state
+
+
+async def _managed(
+    db: AsyncSession, *, principal: Principal, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+) -> RoomWakeup:
+    state = await _authorized_state(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
+    current = await OrchestrationFacade(db).room_wakeup_for_state(state)
     if current is None:
         raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
     return current
@@ -201,7 +209,9 @@ async def patch_room_wakeup(
 ) -> RoomWakeupOut:
     """Supplied fields replace the room's value and drop the agent's adjustment of
     the same field; nothing is written to the shared agent."""
-    await _managed(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
+    # The write re-reads the binding and agent itself; loading them here too was
+    # a third read of each.
+    await _authorized_state(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
     change = await OrchestrationFacade(db).patch_room_wakeup(
         agent_id=agent_id,
         room_id=chatroom_id,
@@ -225,7 +235,7 @@ async def reset_room_wakeup(
 ) -> RoomWakeupOut:
     """``runtime`` drops the agent's own adjustments; ``room`` also returns every
     room value to the designer's current defaults. Neither touches other rooms."""
-    await _managed(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
+    await _authorized_state(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
     change = await OrchestrationFacade(db).reset_room_wakeup(
         agent_id=agent_id,
         room_id=chatroom_id,

@@ -223,6 +223,10 @@ class OrchestrationFacade:
         """The live binding's layered settings; ``None`` when unbound."""
         return await self._room_wakeup.load(agent_id=agent_id, room_id=room_id)
 
+    async def room_wakeup_for_state(self, state: BindingWakeupState) -> RoomWakeup | None:
+        """The same, for a binding row the caller already read; ``None`` when the agent is gone."""
+        return await self._room_wakeup.for_state(state)
+
     async def patch_room_wakeup(
         self,
         *,

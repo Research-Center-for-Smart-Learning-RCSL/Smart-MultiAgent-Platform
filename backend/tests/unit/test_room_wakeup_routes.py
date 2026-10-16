@@ -89,7 +89,7 @@ def _wire(monkeypatch, *, access: RoomAccess, current) -> SimpleNamespace:
         def __init__(self, db) -> None:
             pass
 
-        async def room_wakeup(self, *, agent_id, room_id):
+        async def room_wakeup_for_state(self, state):
             calls.loaded += 1
             return current
 
@@ -243,6 +243,8 @@ class TestRoutes:
         )
         assert call["patch"].to_dict() == {"silence_minutes_enabled": False}
         db.commit.assert_awaited_once()
+        # Code review #8: the write loads the binding and agent itself.
+        assert calls.loaded == 0
 
     async def test_reset_names_its_scope(self, monkeypatch) -> None:
         uid = uuid.uuid4()
