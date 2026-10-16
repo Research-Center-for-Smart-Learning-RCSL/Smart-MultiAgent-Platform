@@ -428,14 +428,14 @@ function fid(name: string): string {
 }
 
 .room-wakeup__title {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .room-wakeup__desc,
 .room-wakeup__note,
 .room-wakeup__inherited {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
 }
 
 .room-wakeup__row {
@@ -447,7 +447,7 @@ function fid(name: string): string {
 
 .room-wakeup__label {
   min-width: 10rem;
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
 }
 
 .room-wakeup__number {

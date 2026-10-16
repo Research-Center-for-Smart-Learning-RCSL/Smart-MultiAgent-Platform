@@ -303,7 +303,7 @@ async def test_message_produces_streamed_agent_reply() -> None:
         # .on_message_created and fire the every_n_messages trigger. Deleting that
         # call (the audit's severed wiring) makes this return [] and fails CI.
         woke = await evaluate_message_wakeups(db, chatroom_id=env.room.id, sender_is_user=True)
-        assert env.agent.id in woke
+        assert env.agent.id in [target.agent_id for target in woke]
 
         collected: list[dict] = []
         async with Subscriber([room_channel(env.room.id)]) as sub:
