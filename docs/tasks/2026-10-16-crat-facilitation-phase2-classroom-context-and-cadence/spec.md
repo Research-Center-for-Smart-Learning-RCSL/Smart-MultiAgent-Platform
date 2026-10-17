@@ -330,8 +330,9 @@ shortening it can make the binding immediately due. A new override after refresh
 new interval. Refresh scans only due bindings in bounded batches, retaining per-item savepoint
 failure isolation. It never patches Agent.version.
 
-Configuration changes do not reset autostop or accumulated message count. Disabling a message
-trigger discards its deferred-fire flag. Enabling silence or changing its interval re-arms
+Configuration changes do not reset autostop. Enabling the message trigger or changing its `n` or
+`count` restarts that binding's message count and discards its deferred-fire flag (D-16); other
+changes keep the accumulated count. Disabling a message trigger discards its deferred-fire flag. Enabling silence or changing its interval re-arms
 that binding's silence baseline at the change time to avoid an immediate surprise reply.
 An effective no-op changes neither timers nor version. Reset actions follow the same rules;
 they cannot bypass the requirement that a human message resets autostop.
@@ -591,7 +592,7 @@ Cadence:
   designer saves cannot promote drift because the tool no longer writes `Agent.wakeup_config`.
 - [x] AC-9: First override, subsequent tuning, shortened refresh interval, no-op, disabling
   deferred fires and silence rearming follow §6.3 under a deterministic clock. No config
-  action resets autostop or message count.
+  action resets autostop; only a change to the message trigger's own cadence restarts its count (D-16).
   `test_room_wakeup_service.py::TestTimers`; `test_wakeup_refresh_interval.py` (fake clock);
   `test_wakeup_self_modification.py::test_an_unchanged_toggle_is_audited_but_writes_nothing`.
 - [x] AC-10: Stale revisions return 409; concurrent room changes do not cross-contaminate.
@@ -858,6 +859,19 @@ are carried forward as release gates.
   the binding row only and let the write load the binding and agent, and GET reuses the row it
   authorized with. One behavioural edge of #8: PATCH or reset on a soft-deleted but still bound
   agent now answers 409 (binding gone) instead of 404; the reload that follows answers 404.
+- **D-16. A change to the message trigger's cadence restarts its count (requester's decision,
+  2026-10-17).** Found in the first staging run of the two sibling courses. `on_message_created`
+  fires on `count % n == 0` over a count that is never reset, so the §6.3 rule "configuration
+  changes do not reset accumulated message count" made the first firing after a change land after
+  anywhere from 1 to `n` messages. In 拆字蓋樓-Test-Group1 the teacher raised `n` from 2 to 3 at the
+  room's eighth human message; the ninth woke it at once (it correctly replied empty), and the
+  creator's "時間到" was the eleventh and woke nothing until a twelfth arrived. `timer_effects` now
+  owes `restart_message_count` when the trigger is switched on or its `n` or `count` changes, and
+  `apply_timer_effects` deletes that binding's count and deferred-fire keys after the commit, as
+  for the other effects (D-14). Autostop and every other change keep their counts. A message that
+  arrives between the tool call and the turn's commit is lost from the new cycle, which can only
+  delay a reply by one message. Tests: `test_room_wakeup_service.py::TestTimers`,
+  `test_wakeup_state_ttl.py::test_restarting_the_message_cycle_clears_the_count_and_the_deferred_firing`.
 
 ## 16. Follow-ups
 
@@ -896,6 +910,16 @@ are carried forward as release gates.
 - **FU-11 (quality Info):** `RoomWakeup` carries the full `Agent` up to the route, which reads only
   ids; `RoomWakeupPanel.vue` could split its query and mutations into a composable; the frontend
   repeats the 1000/1440/100 bounds instead of reading them from the API.
+- **FU-12 (staging data):** staging's installed `object-reinterpretation` type predates the
+  `best_pick_reasoning` field, so its form has no 選擇理由 slot while the shipped teacher prompt asks
+  students to fill it. Install never updates an existing type; the remedy is the documented
+  delete-and-reinstall, which revokes project opt-ins and changes the type id (so TA's activity
+  grants must be re-ticked). Found 2026-10-17; do it between classes.
+- **FU-13 (prompt):** in the same run SA-CharBuilding, woken by silence after the creator said time
+  was up but before the activity ended, offered the creator's just-submitted character as its own
+  idea. The quoting rule permits quoting `character-building` answers but not passing one off as
+  the peer's own; the peer prompt should say its example must not be one already submitted. Its
+  later shares in the sharing stage were its own.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 
