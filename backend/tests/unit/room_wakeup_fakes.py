@@ -155,9 +155,13 @@ def make_harness(monkeypatch: pytest.MonkeyPatch, wakeup_config: dict[str, Any])
     async def _touch(agent_id: uuid.UUID, room_id: uuid.UUID, binding_id: uuid.UUID) -> None:
         timers.append(("touch_silence", binding_id))
 
+    async def _restart(agent_id: uuid.UUID, room_id: uuid.UUID, binding_id: uuid.UUID) -> None:
+        timers.append(("restart_count", binding_id))
+
     monkeypatch.setattr(rws.audit, "emit", _emit)
     monkeypatch.setattr(rws.wakeup_state, "pop_fire_due", _pop)
     monkeypatch.setattr(rws.wakeup_state, "touch_silence_timestamp", _touch)
+    monkeypatch.setattr(rws.wakeup_state, "restart_message_count", _restart)
     monkeypatch.setattr(rws, "now", lambda: clock.now)
 
     svc = RoomWakeupService.__new__(RoomWakeupService)

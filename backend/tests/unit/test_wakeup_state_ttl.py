@@ -39,6 +39,10 @@ class _Redis:
         self.events.append(("bare_expire", key, ttl))
         return True
 
+    async def delete(self, *keys):
+        self.events.append(("delete", *keys))
+        return len(keys)
+
 
 async def test_wakeup_counters_increment_and_expire_in_one_transaction(monkeypatch) -> None:
     redis = _Redis()
@@ -78,6 +82,17 @@ async def test_graphrag_counter_increment_and_expire_in_one_transaction(monkeypa
         ("expire", key, 604800),
         ("execute",),
     ]
+
+
+async def test_restarting_the_message_cycle_clears_the_count_and_the_deferred_firing(monkeypatch) -> None:
+    redis = _Redis()
+    monkeypatch.setattr(wakeup_state, "get_redis", lambda: redis)
+    agent_id, room_id, binding_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    b = f"{agent_id}:{room_id}:{binding_id}"
+
+    await wakeup_state.restart_message_count(agent_id, room_id, binding_id)
+
+    assert redis.events == [("delete", f"wakeup:msg_count:{b}", f"wakeup:msg_due:{b}")]
 
 
 def test_dead_message_counter_reset_is_not_exported() -> None:

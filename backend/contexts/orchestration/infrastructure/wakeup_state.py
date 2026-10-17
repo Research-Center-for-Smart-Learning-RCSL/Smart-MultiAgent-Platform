@@ -102,6 +102,18 @@ async def get_message_count(
     return int(val) if val else 0
 
 
+async def restart_message_count(
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
+    binding_id: uuid.UUID,
+) -> None:
+    """Start the every_n cycle again: the counter and any deferred firing belong
+    to the cadence that just changed."""
+    await get_redis().delete(
+        _msg_count_key(agent_id, room_id, binding_id), _fire_due_key(agent_id, room_id, binding_id)
+    )
+
+
 def _fire_due_key(agent_id: uuid.UUID, room_id: uuid.UUID, binding_id: uuid.UUID) -> str:
     return f"wakeup:msg_due:{agent_id}:{room_id}:{binding_id}"
 
@@ -189,6 +201,7 @@ __all__ = [
     "increment_message_count",
     "pop_fire_due",
     "reset_autostop",
+    "restart_message_count",
     "set_fire_due",
     "touch_silence_timestamp",
 ]

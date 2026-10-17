@@ -4,7 +4,9 @@ The three layers and their resolution are ``domain.room_wakeup``; this service
 loads them for one live binding, writes them with optimistic concurrency, and
 reports the timer side effects a change implies ([R15.09]):
 
-- no configuration change resets autostop or the message count;
+- no configuration change resets autostop;
+- switching the message trigger on, or changing its ``n`` or ``count``, restarts
+  its message count and discards its deferred firing;
 - switching the message trigger off discards its deferred firing;
 - switching silence on, or changing its interval, re-arms that binding's
   silence clock now, so the change cannot fire a reply at once;
@@ -90,10 +92,11 @@ class TimerEffects:
     room_id: uuid.UUID
     binding_id: uuid.UUID
     drop_deferred_fire: bool = False
+    restart_message_count: bool = False
     rearm_silence: bool = False
 
     def is_empty(self) -> bool:
-        return not (self.drop_deferred_fire or self.rearm_silence)
+        return not (self.drop_deferred_fire or self.restart_message_count or self.rearm_silence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,12 +117,17 @@ class RuntimeTuning:
 
 def timer_effects(before: RoomWakeup, after: RoomWakeup) -> TimerEffects | None:
     old, new = before.effective.config.triggers, after.effective.config.triggers
+    old_n, new_n = old.every_n_messages, new.every_n_messages
     state = after.state
     effects = TimerEffects(
         agent_id=state.agent_id,
         room_id=state.chatroom_id,
         binding_id=state.binding_id,
-        drop_deferred_fire=old.every_n_messages.enabled and not new.every_n_messages.enabled,
+        drop_deferred_fire=old_n.enabled and not new_n.enabled,
+        # The trigger fires on `count % n == 0` over a running count, so a new n
+        # left on the old count would fire after anywhere from 1 to n messages.
+        restart_message_count=new_n.enabled
+        and (not old_n.enabled or old_n.n != new_n.n or old_n.count != new_n.count),
         rearm_silence=new.silence_minutes.enabled
         and (
             not old.silence_minutes.enabled or old.silence_minutes.t_minutes != new.silence_minutes.t_minutes
@@ -134,7 +142,9 @@ async def apply_timer_effects(effects: Iterable[TimerEffects | None]) -> None:
     for effect in effects:
         if effect is None:
             continue
-        if effect.drop_deferred_fire:
+        if effect.restart_message_count:
+            await wakeup_state.restart_message_count(effect.agent_id, effect.room_id, effect.binding_id)
+        elif effect.drop_deferred_fire:
             await wakeup_state.pop_fire_due(effect.agent_id, effect.room_id, effect.binding_id)
         if effect.rearm_silence:
             await wakeup_state.touch_silence_timestamp(effect.agent_id, effect.room_id, effect.binding_id)

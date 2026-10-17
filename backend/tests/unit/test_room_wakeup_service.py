@@ -175,10 +175,11 @@ class TestTimersWaitForTheCommit:
         assert h.timers == []
         assert dropped.effects is not None
         assert dropped.effects.drop_deferred_fire
-        assert reset.effects is None  # the reset re-enables only the message trigger
+        assert reset.effects is not None
+        assert reset.effects.restart_message_count  # the reset re-enables the message trigger
 
         await apply_timer_effects([dropped.effects, reset.effects])
-        assert h.timers == [("pop_fire_due", state.binding_id)]
+        assert h.timers == [("pop_fire_due", state.binding_id), ("restart_count", state.binding_id)]
 
     async def test_a_tool_write_touches_no_timer_until_applied(self, monkeypatch) -> None:
         h, room, state = _bound(monkeypatch)
@@ -213,14 +214,39 @@ class TestTimers:
 
         assert h.timers == [("touch_silence", state.binding_id), ("touch_silence", state.binding_id)]
 
-    async def test_a_change_to_n_touches_no_timer(self, monkeypatch) -> None:
-        """No configuration change resets autostop or the message count."""
+    async def test_a_new_n_restarts_the_message_cycle(self, monkeypatch) -> None:
+        """D-16: the trigger fires on a running count modulo n, so a new n restarts the
+        count; otherwise the first firing after the change lands after 1 to n messages."""
         h, room, state = _bound(monkeypatch)
 
         await _patch(h, room, state, WakeupOverrides(every_n_messages=8))
         await _tune(h, room, state, every_n_messages=4)
 
-        assert h.timers == []
+        assert h.timers == [("restart_count", state.binding_id), ("restart_count", state.binding_id)]
+
+    async def test_re_enabling_the_message_trigger_restarts_its_cycle(self, monkeypatch) -> None:
+        h, room, state = _bound(monkeypatch)
+        await _patch(h, room, state, WakeupOverrides(every_n_messages_enabled=False))
+
+        await _patch(h, room, state, WakeupOverrides(every_n_messages_enabled=True))
+
+        assert h.timers == [("pop_fire_due", state.binding_id), ("restart_count", state.binding_id)]
+
+    async def test_changing_what_counts_restarts_the_cycle(self, monkeypatch) -> None:
+        h, room, state = _bound(monkeypatch)
+
+        await _patch(h, room, state, WakeupOverrides(count="human"))
+
+        assert h.timers == [("restart_count", state.binding_id)]
+
+    async def test_a_silence_change_leaves_the_message_count_alone(self, monkeypatch) -> None:
+        """Autostop and the message count survive every change that leaves the
+        message trigger's own cadence as it was."""
+        h, room, state = _bound(monkeypatch)
+
+        await _tune(h, room, state, silence_minutes_enabled=True)
+
+        assert h.timers == [("touch_silence", state.binding_id)]
 
     async def test_the_first_runtime_override_starts_the_refresh_clock(self, monkeypatch) -> None:
         h, room, state = _bound(monkeypatch)
