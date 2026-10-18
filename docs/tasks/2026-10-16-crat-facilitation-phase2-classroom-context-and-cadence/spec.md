@@ -915,11 +915,20 @@ are carried forward as release gates.
   students to fill it. Install never updates an existing type; the remedy is the documented
   delete-and-reinstall, which revokes project opt-ins and changes the type id (so TA's activity
   grants must be re-ticked). Found 2026-10-17; do it between classes.
-- **FU-13 (prompt):** in the same run SA-CharBuilding, woken by silence after the creator said time
+- **FU-13 [FIXED 2026-10-18] (prompt):** in the same run SA-CharBuilding, woken by silence after the creator said time
   was up but before the activity ended, offered the creator's just-submitted character as its own
   idea. The quoting rule permits quoting `character-building` answers but not passing one off as
   the peer's own; the peer prompt should say its example must not be one already submitted. Its
-  later shares in the sharing stage were its own.
+  later shares in the sharing stage were its own. Fixed: each of the three peers now says an answer
+  a classmate (or, for CRAT, the group) already submitted or said must not be passed off as its own
+  (`test_agent_example_packs.py::test_peers_never_pass_off_a_classmates_answer_as_their_own`).
+- **FU-14 [FIXED 2026-10-18] (prompt):** in the re-run after D-16 was deployed, TA-CharBuilding
+  woke on the creator's third message as intended, announced time up and restored its cadence,
+  but called no `end_activity`, so the worksheet stayed open (an earlier run of the same step
+  did call it). Each teacher's ending step now says to call the tool in the same turn and that
+  announcing alone does not close the form
+  (`::test_teachers_end_the_activity_with_the_tool_not_just_words`). Whether a model follows it is
+  still live evidence (AC-21), not a guarantee.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 
