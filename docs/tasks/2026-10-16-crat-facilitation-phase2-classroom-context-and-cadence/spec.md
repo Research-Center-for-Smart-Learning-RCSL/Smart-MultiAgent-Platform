@@ -914,7 +914,12 @@ are carried forward as release gates.
   `best_pick_reasoning` field, so its form has no 選擇理由 slot while the shipped teacher prompt asks
   students to fill it. Install never updates an existing type; the remedy is the documented
   delete-and-reinstall, which revokes project opt-ins and changes the type id (so TA's activity
-  grants must be re-ticked). Found 2026-10-17; do it between classes.
+  grants must be re-ticked). Found 2026-10-17; do it between classes. **Done 2026-10-18** at the
+  requester's request: the old type `a78736c2` was deleted (soft; its submissions stay), which also
+  ended one three-week-old activation in 創造力-拆字蓋樓-Group1. The reinstall created
+  `dbe3b487`, whose form carries `best_pick_reasoning`. TEST PROJECT was the only project with the
+  example enabled and has it enabled again. Of 18 rooms scanned, only 萬物新解-Test-Group1's TA had
+  the old id in its grant, and it is re-granted for the new one.
 - **FU-13 [FIXED 2026-10-18] (prompt):** in the same run SA-CharBuilding, woken by silence after the creator said time
   was up but before the activity ended, offered the creator's just-submitted character as its own
   idea. The quoting rule permits quoting `character-building` answers but not passing one off as
