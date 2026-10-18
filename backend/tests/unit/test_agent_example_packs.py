@@ -1176,6 +1176,18 @@ class TestPhase2CoursePacks:
         assert re.search(r"你不知道", prompt), key
         assert "也不要猜一份清單出來" in prompt or "不要假裝知道" in prompt, key
 
+    @pytest.mark.parametrize("key", ["sa-crat-peer", "sa-charbuilding-peer", "sa-objreinterpret-peer"])
+    def test_peers_never_pass_off_a_classmates_answer_as_their_own(self, key: str) -> None:
+        """FU-13: a staging run's peer offered the answer just submitted as its own idea."""
+        assert "不可以說成是你想到的" in self._agent(key).system_prompt, key
+
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_teachers_end_the_activity_with_the_tool_not_just_words(self, teacher_key: str) -> None:
+        """FU-14: a staging run's teacher announced time up and left the form open."""
+        prompt = self._agent(teacher_key).system_prompt
+        assert "只用說的不會關掉作答表單" in prompt, teacher_key
+        assert "使用它結束活動" not in prompt, teacher_key
+
 
 class TestTheAnalystAsksOnlyWhatItsInputSupports:
     """A prompt may not ask for a report its context cannot ground.
