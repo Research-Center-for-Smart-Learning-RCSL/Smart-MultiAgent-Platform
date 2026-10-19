@@ -15,8 +15,8 @@ doesn't need a `depends_on` backfill).
 
 ### Teacher dashboard redesign (2026-10-19)
 
-- `2026-10-19-teacher-dashboard-redesign` (feature, **draft**, SRS delta amending [R33.02] and
-  [R33.10] and adding [R33.05]-[R33.07] not yet applied) - `depends_on: []`. Rebuilds the teacher
+- `2026-10-19-teacher-dashboard-redesign` (feature, **approved 2026-10-20**, SRS delta amending
+  [R33.02] and [R33.10] and adding [R33.05]-[R33.07] applied) - `depends_on: []`. Rebuilds the teacher
   dashboard around the room's current round and absorbs the dashboard findings of the 2026-10-05
   audit, whose planned fix dossiers were never created (F-1..F-4, F-7..F-9, F-11, F-16..F-23).
   Five stages: shared primitives and chart tokens, authorization, round semantics and a named
