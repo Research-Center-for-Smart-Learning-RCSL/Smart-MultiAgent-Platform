@@ -13,6 +13,17 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Teacher dashboard redesign (2026-10-19)
+
+- `2026-10-19-teacher-dashboard-redesign` (feature, **draft**, SRS delta amending [R33.02] and
+  [R33.10] and adding [R33.05]-[R33.07] not yet applied) - `depends_on: []`. Rebuilds the teacher
+  dashboard around the room's current round and absorbs the dashboard findings of the 2026-10-05
+  audit, whose planned fix dossiers were never created (F-1..F-4, F-7..F-9, F-11, F-16..F-23).
+  Five stages: shared primitives and chart tokens, authorization, round semantics and a named
+  watchlist, the page rebuild, and per-room presence and message figures. Its Q-9 records the
+  `main.css` overlap with `2026-10-19-chat-bubble-sides-and-agent-colors` (disjoint regions, not
+  a dependency; whoever builds second rebases, including `contrast.test.ts`).
+
 ### Chat bubble sides and agent colours (2026-10-19)
 
 - `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **approved 2026-10-19**, SRS delta
