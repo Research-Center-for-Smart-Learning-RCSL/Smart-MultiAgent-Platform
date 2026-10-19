@@ -15,8 +15,8 @@ doesn't need a `depends_on` backfill).
 
 ### Chat bubble sides and agent colours (2026-10-19)
 
-- `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **draft**, SRS delta [R13.77],
-  [R13.78] and matrix row 29 not yet applied) - `depends_on: []`. Part A: only the viewer's
+- `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **approved 2026-10-19**, SRS delta
+  [R13.77], [R13.78] and matrix row 29 applied) - `depends_on: []`. Part A: only the viewer's
   own messages sit on the right (tinted), resolved from the access token so guests and
   impersonation are correct; everyone else is on the left. Part B: a per-room colour from an
   eight-key palette for participant (normal-role) agent bindings, set by row 29's audience,
