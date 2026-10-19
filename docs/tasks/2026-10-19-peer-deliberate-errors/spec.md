@@ -2,7 +2,7 @@
 type: feature
 status: in-progress
 created: 2026-10-19
-requirements: [R13.75, R30.35, R33.10]
+requirements: [R13.75, R13.76, R30.35, R33.10]
 depends_on: []
 ---
 
@@ -90,11 +90,11 @@ Installs copy prompts into project agents and skip names that already exist (`ba
 
 ### Options considered
 
-**Option A — prompt-only, position-based ratio.** The SA counts its own earlier answer proposals in the visible room history and makes every third one deliberately wrong (the 2nd, 5th, 8th ... proposal). TA and DA prompts gain matching rules. No code. Deterministic positions are easier for a model to follow than "about one in three", and starting with a correct proposal lets the SA build some credibility first. Gives up exactness: counting depends on the history window and degrades under compaction, and the model can miscount.
+**Option A: prompt-only, position-based ratio.** The SA counts its own earlier answer proposals in the visible room history and makes every third one deliberately wrong (the 2nd, 5th, 8th ... proposal). TA and DA prompts gain matching rules. No code. Deterministic positions are easier for a model to follow than "about one in three", and starting with a correct proposal lets the SA build some credibility first. Gives up exactness: counting depends on the history window and degrades under compaction, and the model can miscount.
 
-**Option B — prompt-only, probabilistic wording** ("about one in three of your proposals"). Simplest text, but models do not sample reliably from verbal probabilities and the realised rate would be unknowable.
+**Option B: prompt-only, probabilistic wording** ("about one in three of your proposals"). Simplest text, but models do not sample reliably from verbal probabilities and the realised rate would be unknowable.
 
-**Option C — engine-assisted.** The engine tells the SA per turn whether this proposal should be wrong and stores a hidden marker. Exact and researchable, but needs engine, schema-free metadata plumbing kept out of the student API, export changes and tests; rejected by Q-3 and Q-7 for this task (FU-1).
+**Option C: engine-assisted.** The engine tells the SA per turn whether this proposal should be wrong and stores a hidden marker. Exact and researchable, but needs engine, schema-free metadata plumbing kept out of the student API, export changes and tests; rejected by Q-3 and Q-7 for this task (FU-1).
 
 ### Decision
 
@@ -112,7 +112,7 @@ TA rules: one disclosure sentence in `<步驟A1>` of each TA, identical text acr
 
 ## 6. Detailed Changes
 
-- **Backend (data only)** — edit `system_prompt` strings in:
+- **Backend (data only)**: edit `system_prompt` strings in:
   - `backend/contexts/agents/infrastructure/examples/packs/crat-word-puzzle-room.json` (TA `:26`, SA `:48`)
   - `backend/contexts/agents/infrastructure/examples/packs/character-building-room.json` (TA `:26`, SA `:48`)
   - `backend/contexts/agents/infrastructure/examples/packs/object-reinterpretation-room.json` (TA `:26`, SA `:48`)
@@ -120,20 +120,20 @@ TA rules: one disclosure sentence in `<步驟A1>` of each TA, identical text acr
   - SA edits rewrite the conflicting lines: CRAT boundaries 4 and 5 (keep `你不知道` and `不要假裝知道`), character-building boundary 3, object strategy and boundary 3 wording; all keep `不可以說成是你想到的`.
   - Wording must avoid every bank string, `<題庫>`, `秒` and the other phrases pinned in §4.7.
   - Migration required: no.
-- **Tests** — `backend/tests/unit/test_agent_example_packs.py`, in `TestPhase2CoursePacks` (`:854`) next to `:1173`: new tests per §12.
-- **API contract** — none; `gen:api` not required.
-- **Frontend** — none.
-- **Docs** — `docs/examples/chinese-character-courses-adoption.md`: describe the SA error behaviour and ratio, the TA disclosure and wait-first rule under "What is guidance, not enforcement" (`:125-153`), and state that students must not hold agent-edit rights in a research project, because anyone who can edit agents can read these prompts (`:145-147`).
-- **Requirements** — new `[R13.76]` (§13); regenerate `docs/traceability.csv` with `python scripts/traceability.py`.
-- **Deploy/config** — none.
+- **Tests**: `backend/tests/unit/test_agent_example_packs.py`, in `TestPhase2CoursePacks` (`:854`) next to `:1173`: new tests per §12.
+- **API contract**: none; `gen:api` not required.
+- **Frontend**: none.
+- **Docs**: `docs/examples/chinese-character-courses-adoption.md`: describe the SA error behaviour and ratio, the TA disclosure and wait-first rule under "What is guidance, not enforcement" (`:125-153`), and state that students must not hold agent-edit rights in a research project, because anyone who can edit agents can read these prompts (`:145-147`).
+- **Requirements**: new `[R13.76]` (§13); regenerate `docs/traceability.csv` with `python scripts/traceability.py`.
+- **Deploy/config**: none.
 
 ## 7. NFR Checklist
 
-- [x] i18n — N/A: prompt text is agent content, not UI strings.
-- [x] Audit log — N/A: no new domain events.
-- [x] Tenant isolation — N/A: no new endpoint.
-- [x] Error handling UX — N/A: no UI.
-- [x] Performance — N/A: prompt length grows by a few hundred characters per agent; no new calls.
+- [x] i18n: N/A: prompt text is agent content, not UI strings.
+- [x] Audit log: N/A: no new domain events.
+- [x] Tenant isolation: N/A: no new endpoint.
+- [x] Error handling UX: N/A: no UI.
+- [x] Performance: N/A: prompt length grows by a few hundred characters per agent; no new calls.
 
 ## 8. Security Considerations
 
@@ -147,9 +147,9 @@ Agent/LLM prompt surface, so the check-security LLM dimensions apply.
 
 ## 9. Quality Notes
 
-- **Existing debt** — the CRAT designer's numbered list is ordered 1,2,3,4,6,7,5 (`crat-word-puzzle-design.json:24`); record as FU-2, do not renumber in this task, and append the new rule as the next free number. Phase-2 dossier line citations 24/46/68 are stale (now 26/48/66); not this task's to fix.
-- **Patterns to follow** — prompt sections in the existing XML+Markdown style (`<活動特定行為>`, `<界線>`, `<步驟A1>`); behaviour pinned by substring tests in `TestPhase2CoursePacks`, one test per rule, iterating packs through the existing helpers in the test module.
-- **Reuse inventory** — the test module's pack-loading helpers and agent collections (`_phase2_agents`, `COURSE_AGENTS`, the bank-answer extraction used by `:1145-1153`); the CRAT TA's existing "不直接糾正，引導驗證" (C1) and C2 verification lines instead of new verification wording; the object TA's D2 feasibility question; the TA's existing "你在上一則學生訊息之後已經發了幾則訊息" counting idiom as the model for the SA's proposal counting.
+- **Existing debt**: the CRAT designer's numbered list is ordered 1,2,3,4,6,7,5 (`crat-word-puzzle-design.json:24`); record as FU-2, do not renumber in this task, and append the new rule as the next free number. Phase-2 dossier line citations 24/46/68 are stale (now 26/48/66); not this task's to fix.
+- **Patterns to follow**: prompt sections in the existing XML+Markdown style (`<活動特定行為>`, `<界線>`, `<步驟A1>`); behaviour pinned by substring tests in `TestPhase2CoursePacks`, one test per rule, iterating packs through the existing helpers in the test module.
+- **Reuse inventory**: the test module's pack-loading helpers and agent collections (`_phase2_agents`, `COURSE_AGENTS`, the bank-answer extraction used by `:1145-1153`); the CRAT TA's existing "不直接糾正，引導驗證" (C1) and C2 verification lines instead of new verification wording; the object TA's D2 feasibility question; the TA's existing "你在上一則學生訊息之後已經發了幾則訊息" counting idiom as the model for the SA's proposal counting.
 
 ## 10. Risks and Rollback
 
@@ -161,16 +161,16 @@ Agent/LLM prompt surface, so the check-security LLM dimensions apply.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: Each of the three college SA prompts states that every third of its own answer proposals in the room (the 2nd, 5th, 8th ...) is deliberately wrong, counted from its own earlier messages in the visible history, and never two wrong in a row.
-- [ ] AC-2: The CRAT SA prompt defines its error as a character that forms a common word with two clue characters but not the third, which the SA has checked; the character-building SA prompt defines it as a real character that cannot be built from the given components; the object SA prompt defines it as a use the object cannot perform because of its material or size, and keeps the fire, eating and projectile exclusions.
-- [ ] AC-3: Each of the three SA prompts instructs it to present deliberate errors in the same first-person way as its other proposals, to concede a valid challenge, to explain once on an invalid challenge, and, when asked whether an error was on purpose, to say anyone can think wrongly and the group should check together, without confirming or denying.
-- [ ] AC-4: The three SA prompts still pass the existing peer tests (`你不知道`, `不要假裝知道` or `也不要猜一份清單出來`, `不可以說成是你想到的`) and no longer contain `確保你分享的字確實可以由給定部件組成` or `不要猜一個答案說成是正確的`.
-- [ ] AC-5: Each of the three college TA prompts contains, inside `<步驟A1>`, the same disclosure sentence telling students the AI classmate's ideas may be wrong and they should judge them themselves, with no word saying the errors are deliberate (no 刻意, 故意, 設計).
-- [ ] AC-6: Each of the three college TA prompts states that after an SA answer proposal the TA neither confirms nor corrects it until at least one student has responded, and then guides verification; the CRAT TA's existing submission-routing and secrecy strings (`test_agent_example_packs.py:1155-1161`) are unchanged.
-- [ ] AC-7: Each of the three college DA prompts contains a numbered rule requiring SA drafts to carry the deliberate-error rule and TA drafts to carry the disclosure and wait-first rules.
-- [ ] AC-8: Neither `creative-thinking-room` nor `creative-thinking-design` contains the deliberate-error rule or the disclosure sentence.
-- [ ] AC-9: No SA or DA prompt contains `<題庫>` or any bank answer string, and no edited prompt contains `秒`, `instruct`, a decimal minute or the forbidden pacing and trigger phrases (existing tests pass unchanged).
-- [ ] AC-10: `docs/examples/chinese-character-courses-adoption.md` describes the behaviour as guidance and tells research operators not to give students agent-edit rights; `REQUIREMENTS.md` carries `[R13.76]` and `docs/traceability.csv` is regenerated.
+- [x] AC-1: Each of the three college SA prompts states that every third of its own answer proposals in the room (the 2nd, 5th, 8th ...) is deliberately wrong, counted from its own earlier messages in the visible history, and never two wrong in a row.
+- [x] AC-2: The CRAT SA prompt defines its error as a character that forms a common word with two clue characters but not the third, which the SA has checked; the character-building SA prompt defines it as a real character that cannot be built from the given components; the object SA prompt defines it as a use the object cannot perform because of its material or size, and keeps the fire, eating and projectile exclusions.
+- [x] AC-3: Each of the three SA prompts instructs it to present deliberate errors in the same first-person way as its other proposals, to concede a valid challenge, to explain once on an invalid challenge, and, when asked whether an error was on purpose, to say anyone can think wrongly and the group should check together, without confirming or denying.
+- [x] AC-4: The three SA prompts still pass the existing peer tests (`你不知道`, `不要假裝知道` or `也不要猜一份清單出來`, `不可以說成是你想到的`) and no longer contain `確保你分享的字確實可以由給定部件組成` or `不要猜一個答案說成是正確的`.
+- [x] AC-5: Each of the three college TA prompts contains, inside `<步驟A1>`, the same disclosure sentence telling students the AI classmate's ideas may be wrong and they should judge them themselves, with no word saying the errors are deliberate (no 刻意, 故意, 設計).
+- [x] AC-6: Each of the three college TA prompts states that after an SA answer proposal the TA neither confirms nor corrects it until at least one student has responded, and then guides verification; the CRAT TA's existing submission-routing and secrecy strings (`test_agent_example_packs.py:1155-1161`) are unchanged.
+- [x] AC-7: Each of the three college DA prompts contains a numbered rule requiring SA drafts to carry the deliberate-error rule and TA drafts to carry the disclosure and wait-first rules.
+- [x] AC-8: Neither `creative-thinking-room` nor `creative-thinking-design` contains the deliberate-error rule or the disclosure sentence.
+- [x] AC-9: No SA or DA prompt contains `<題庫>` or any bank answer string, and no edited prompt contains `秒`, `instruct`, a decimal minute or the forbidden pacing and trigger phrases (existing tests pass unchanged).
+- [x] AC-10: `docs/examples/chinese-character-courses-adoption.md` describes the behaviour as guidance and tells research operators not to give students agent-edit rights; `REQUIREMENTS.md` carries `[R13.76]` and `docs/traceability.csv` is regenerated.
 - [ ] AC-11: A live run in one CRAT room (staging, not a phase-2 live-run room) shows the TA disclosure at the opening and at least one SA proposal that fails a clue, with the TA not judging it before a student responds; transcript excerpt recorded in this dossier.
 
 ## 12. Test Plan
@@ -196,7 +196,12 @@ Add to `REQUIREMENTS.md` section 13.5, after `[R13.75]`:
 
 Appended by /build. Empty means the implementation matches this spec exactly.
 
+- D-1: The new tests live in their own class `TestPeerDeliberateErrors` in `backend/tests/unit/test_agent_example_packs.py`, not inside `TestPhase2CoursePacks` as §6 and §12 said. A separate class keeps the tests traceable to this dossier and leaves the phase-2 class to phase 2; the tests reuse the module's existing helpers (`_section`, `SHIPPED_AGENTS`, `_PHASE2_TEACHERS`, `CT_COURSE_AGENTS`).
+- D-2: Two prompt lines beyond §6. The CRAT SA gains strategy 4, telling it not to present the deliberate error through strategy 3's self-flagged near-miss wording, which would otherwise give the error away. The character-building TA's D1 feedback step gains a pointer to the new wait-first rule, because D1 is where that TA gives feedback on any share and would otherwise confirm or correct an SA character immediately.
+- D-3: The branch code review found that the first SA wording counted a self-flagged near miss as an answer. A near miss is itself a wrong candidate, so a planned error right after one put two wrong candidates in a row, against the no-two-in-a-row rule, with no tie-break. All three SA prompts now say that an attempt the SA has already flagged as not fitting counts as neither an answer nor an error; `test_peer_errs_on_every_third_proposal_counted_from_its_own_history` pins it.
+
 ## 16. Follow-ups
 
 - FU-1: A hidden, researcher-only marker on deliberately wrong peer messages (engine sets it, student APIs omit it, research export includes it), and optionally an engine-decided error schedule for exact ratios. Needs its own dossier; touches turn engine, message API serialisation and the research export.
 - FU-2: The CRAT designer prompt's numbered list is ordered 1,2,3,4,6,7,5 (`crat-word-puzzle-design.json:24`).
+- FU-3: The 2026-10-19 branch code review (`main...HEAD`, unverified candidates) raised items in phase-2 code that this task did not touch; they belong to `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`. In particular: full-width brackets (［u:...］, 【u:...】) are not defanged by `_CODE_LIKE` (`turn_engine.py:391`), so a student could plausibly spoof the room creator's prefix and push the TA to end a work phase. Also: during individual work the TA's raised message count means a single 時間到 from the creator may not wake it, `update_wakeup`'s row lock is held across the turn, the room wake-up panel cannot pin a value equal to the runtime one, silent SA wake-ups during individual work are paid turns, and the refresh sweep loads agents one by one.
