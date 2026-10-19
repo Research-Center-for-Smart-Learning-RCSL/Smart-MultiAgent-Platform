@@ -15,7 +15,7 @@ doesn't need a `depends_on` backfill).
 
 ### Peer deliberate errors (2026-10-19)
 
-- `2026-10-19-peer-deliberate-errors` (feature, **draft**) - `depends_on: []`. The peer agent in
+- `2026-10-19-peer-deliberate-errors` (feature, **approved 2026-10-19**, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
   the three college course packs proposes a deliberately wrong answer for every third of its own
   proposals; the teacher agents disclose at the opening that the AI classmate may be wrong and do
   not judge a peer proposal before a student responds; the designers carry both rules. Prompt-only.
