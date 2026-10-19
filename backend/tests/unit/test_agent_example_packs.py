@@ -1215,6 +1215,10 @@ class TestPeerDeliberateErrors:
         assert _PEER_ERROR_POSITIONS in block, key
         assert "只算你自己的發言" in block, key
         assert "不要連續兩次都提錯的" in block, key
+        # A self-flagged near miss is neither a proposal nor an error, so a planned
+        # error right after one does not break the no-two-in-a-row rule.
+        assert "不算答案，也不算提錯" in block, key
+        assert "包括「差點就對了」的嘗試，都算一個答案" not in block, key
 
     @pytest.mark.parametrize("key", _PEERS)
     def test_peer_presents_errors_plainly_and_never_admits_intent(self, key: str) -> None:
