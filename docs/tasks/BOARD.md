@@ -13,6 +13,16 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Peer deliberate errors (2026-10-19)
+
+- `2026-10-19-peer-deliberate-errors` (feature, **draft**) - `depends_on: []`. The peer agent in
+  the three college course packs proposes a deliberately wrong answer for every third of its own
+  proposals; the teacher agents disclose at the opening that the AI classmate may be wrong and do
+  not judge a peer proposal before a student responds; the designers carry both rules. Prompt-only.
+  Edits the same six pack files as the in-progress
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`; not a declared dependency
+  (Q-5), but this branch must not reach any room used for that dossier's live runs until they finish.
+
 ### Agent configuration and project read scope (2026-10-13)
 
 - (implemented 2026-10-15) `2026-10-13-agent-config-visibility-and-project-reads`.
