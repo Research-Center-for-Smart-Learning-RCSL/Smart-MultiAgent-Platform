@@ -901,6 +901,33 @@ are carried forward as release gates.
   - Cadence: TA used `update_wakeup` at 20:32:56 entering `<步驟E1>` (room settings show
     「代理自行調整」 on silence), and the room audit shows a TA silence wake at 20:37, so the
     trigger was back on in round 2 as `4b` requires.
+- **D-18. Live character and object evidence for AC-21, 2026-10-20 (partial).** Same build and
+  re-synced agents as D-17; room creator plus one guest.
+  - Two rooms sharing one teacher: `驗證-拆字A-1020` (`da859240-f0d9-40b3-8c6c-4809b595106f`,
+    teacher holds the activity grant) and `驗證-拆字B-1020` (`8c94a20a-c22d-494d-a22c-7f6f136688ee`,
+    no grant). After A moved to sharing and B stayed in individual work, room settings showed the
+    teacher's `every_n_messages` at 2 in A and 3 in B, each 「代理自行調整」 with its own revert time
+    (A 20:50:15, B 20:53:06). Cadence stayed per room: passed.
+  - Character stages A1 to D1 traversed in room A; the teacher started the activity at B2 with its
+    grant (20:50), and neither teacher nor peer spoke during 3.5 minutes of individual work: passed.
+  - Teacher-confirmed transition: passed with a delay. The creator's single 「時間到」 (20:55)
+    woke nothing because the teacher had raised `n` to 3 and turned silence off for individual work
+    (the risk already in FU of the peer-deliberate-errors review); the third creator message woke
+    it, and it ended the activity with `end_activity` in the same turn (21:01), then led sharing.
+  - **Missing grant: failed.** In room B, with no grant and no activation, the teacher still said
+    「開始個人作答！請看畫面右邊的表單」 (20:53). The `<步驟B2>` wording is unconditional.
+  - **Teacher-ended activity: failed.** `驗證-萬物-1020` (`679c7bb1-d281-485c-b095-2426b807a319`):
+    the creator ended the activity from the panel (21:08). The student wrote
+    「咦，表單不見了？」 and the teacher answered 「等老師宣布發想時間結束」; after the creator's
+    「時間到」 the teacher moved to `<步驟C2>` and asked students to 「寫下理由後提交」 to a form that
+    no longer existed. The teacher cannot observe activation state.
+  - Both failures and the CRAT findings in D-17 are the subject of
+    `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state` (activity-state block,
+    activation notices, state-conditional pack wording).
+  - Bank reading: for K1 (「木、口」, no 「可重複使用」 marking) room A's teacher announced
+    「可以重複使用」 while room B's announced 「每個部件不重複使用」. Marking only the reusable items
+    is easy to misread; marking every item explicitly would remove the ambiguity (FU-15).
+  - AC-21 stays open: the missing-grant and teacher-ended cases fail as written.
 
 ## 16. Follow-ups
 
@@ -965,7 +992,14 @@ are carried forward as release gates.
   did call it). Each teacher's ending step now says to call the tool in the same turn and that
   announcing alone does not close the form
   (`::test_teachers_end_the_activity_with_the_tool_not_just_words`). Whether a model follows it is
-  still live evidence (AC-21), not a guarantee.
+  still live evidence (AC-21), not a guarantee. 2026-10-20 run: the teacher did call it (D-18).
+- **FU-15 (prompt, D-18):** mark every character-building bank item 「可重複使用」 or
+  「不可重複使用」 instead of marking only the reusable ones; one teacher announced K1 as reusable.
+- **FU-16 (platform, D-17, blocks AC-24):** the CRAT submission digest agents receive is
+  `5/5 fields answered: ...`, never the submitted target character, so the teacher cannot confirm a
+  matching submission. Either a CRAT validator detail or digest that carries the target (the type
+  already sets `expose_payload_to_agent: true`) or a prompt that routes every result to the human
+  teacher; decide before AC-24 can close.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 
