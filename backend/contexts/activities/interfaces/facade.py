@@ -1005,9 +1005,6 @@ class ActivitiesFacade:
     async def round_aggregates(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundDashboardAggregate]:
         return await self._aggregation.round_aggregates(activation_ids=activation_ids)
 
-    async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
-        return await self._aggregation.round_subject_counts(activation_ids=activation_ids)
-
     async def round_session_subjects(
         self, *, activation_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, set[RoundSubject]]:

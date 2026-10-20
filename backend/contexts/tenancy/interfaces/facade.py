@@ -159,14 +159,6 @@ class TenancyFacade:
         """Subset of `project_ids` the user currently belongs to (one query)."""
         return await self._project_members.member_project_ids(user_id=user_id, project_ids=project_ids)
 
-    async def project_role_holders(
-        self, user_ids: Sequence[uuid.UUID], *, project_id: uuid.UUID
-    ) -> set[uuid.UUID]:
-        """Resolve which candidate users hold a role in this project, including inherited owners."""
-        from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
-
-        return await TenancyRoleResolver(self._db).project_role_holders(user_ids, project_id=project_id)
-
     async def project_owner_ids(
         self, user_ids: Sequence[uuid.UUID], *, project_id: uuid.UUID
     ) -> set[uuid.UUID]:
