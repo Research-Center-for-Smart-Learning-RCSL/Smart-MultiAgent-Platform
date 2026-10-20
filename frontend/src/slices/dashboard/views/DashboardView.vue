@@ -16,7 +16,6 @@ import { useDashboardWatchlist } from '../composables/useDashboardWatchlist'
 import type { TimeWindow, BucketSize } from '@shared/api-client'
 import { useDashboardSocket } from '../composables/useDashboardSocket'
 import { useProjectRole } from '@slices/tenancy'
-import { useWorkspaceStore } from '@shared/stores/workspace'
 import RoomStatusCard from '../components/RoomStatusCard.vue'
 import ResearchExportButton from '../components/ResearchExportButton.vue'
 import OutputChart from '../components/OutputChart.vue'
@@ -61,13 +60,12 @@ const {
 const rooms = computed(() => summary.value?.rooms ?? [])
 const roomIds = computed(() => new Set(rooms.value.map((r) => String(r.room_id))))
 
-useDashboardSocket(wid, roomIds)
+const { projectId } = useDashboardSocket(wid, roomIds)
 const buckets = computed(() => timeseries.value?.buckets ?? [])
 const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
 
-const workspace = useWorkspaceStore()
 const { isAuthorized: canExport, decided: roleDecided } = useProjectRole(
-  () => workspace.projectId ?? undefined,
+  () => projectId.value || undefined,
 )
 </script>
 

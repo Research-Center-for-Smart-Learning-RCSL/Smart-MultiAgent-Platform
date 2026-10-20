@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import assert_computed_project_owner
 from contexts.conversation.application import research_export_service
 from contexts.conversation.application.research_export_service import ResearchExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
@@ -78,7 +79,6 @@ async def create_research_export(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ResearchExportCreateOut:
-    from app.api.v1.deps import assert_project_owner
     from contexts.conversation.interfaces.facade import ConversationFacade
 
     facade = ConversationFacade(db)
@@ -88,7 +88,7 @@ async def create_research_export(
 
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    await assert_project_owner(db=db, principal=principal, project_id=workspace.project_id)
+    await assert_computed_project_owner(db=db, principal=principal, project_id=workspace.project_id)
 
     body = body or ResearchExportCreateIn()
     created_after, created_before = _resolve_window(body)

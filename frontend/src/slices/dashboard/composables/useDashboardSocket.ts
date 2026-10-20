@@ -4,6 +4,9 @@ import { wsManager, type ChannelEvent } from '@shared/transport/ws-manager'
 import { WorkspacesService } from '@shared/api-client'
 import { dashboardKeys } from '../queries'
 
+const PROJECT_ACCESS_REFUSED_CLOSE_CODE = 4403
+const PROJECT_NOT_FOUND_CLOSE_CODE = 4404
+
 export function useDashboardSocket(
   workspaceId: () => string,
   roomIds: Ref<Set<string>>,
@@ -13,6 +16,7 @@ export function useDashboardSocket(
   let currentPath: string | null = null
   let unsubEvent: (() => void) | null = null
   let unsubStatus: (() => void) | null = null
+  let unsubCloseCode: (() => void) | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
   const { data: workspace } = useQuery({
@@ -37,8 +41,10 @@ export function useDashboardSocket(
   function teardown() {
     unsubEvent?.()
     unsubStatus?.()
+    unsubCloseCode?.()
     unsubEvent = null
     unsubStatus = null
+    unsubCloseCode = null
     if (currentPath) {
       wsManager.close(currentPath)
       currentPath = null
@@ -68,6 +74,11 @@ export function useDashboardSocket(
     unsubStatus = channel.onStatus((isConnected: boolean) => {
       connected.value = isConnected
     })
+    unsubCloseCode = channel.onCloseCode((code) => {
+      if (code === PROJECT_ACCESS_REFUSED_CLOSE_CODE || code === PROJECT_NOT_FOUND_CLOSE_CODE) {
+        channel.disconnect()
+      }
+    })
 
     channel.connect()
   }
@@ -83,5 +94,5 @@ export function useDashboardSocket(
 
   onBeforeUnmount(teardown)
 
-  return { connected }
+  return { connected, projectId }
 }

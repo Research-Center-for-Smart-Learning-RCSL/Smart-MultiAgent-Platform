@@ -7,6 +7,7 @@ import DashboardView from '../views/DashboardView.vue'
 const summaryMock = vi.hoisted(() => vi.fn())
 const timeseriesMock = vi.hoisted(() => vi.fn())
 const watchlistMock = vi.hoisted(() => vi.fn())
+const roleScope = vi.hoisted(() => ({ projectId: '', authorized: false }))
 
 vi.mock('../composables/useDashboardSummary', () => ({
   dashboardKeys: {
@@ -35,7 +36,10 @@ vi.mock('../composables/useDashboardWatchlist', () => ({
 }))
 
 vi.mock('../composables/useDashboardSocket', () => ({
-  useDashboardSocket: () => ({ connected: { value: false } }),
+  useDashboardSocket: () => ({
+    connected: { value: false },
+    projectId: { value: 'project-from-workspace' },
+  }),
 }))
 
 vi.mock('../components/OutputChart.vue', () => ({
@@ -58,18 +62,21 @@ vi.mock('@slices/tenancy', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
-    useProjectRole: () => ({
-      isAuthorized: ref(false),
+    useProjectRole: (getProjectId: () => string | undefined) => {
+      roleScope.projectId = getProjectId() ?? ''
+      return {
+      isAuthorized: ref(roleScope.authorized),
       decided: ref(true),
       isAdmin: ref(false),
       isOwner: ref(false),
-    }),
+      }
+    },
   }
 })
 
 vi.mock('@shared/stores/workspace', () => ({
   useWorkspaceStore: () => ({
-    projectId: null,
+    projectId: 'project-from-sidebar',
   }),
 }))
 
@@ -123,5 +130,29 @@ describe('DashboardView', () => {
     })
     await flushPromises()
     expect(wrapper.text()).toContain('Room A')
+  })
+
+  it('gates export using the viewed workspace project, not the sidebar project', async () => {
+    roleScope.authorized = true
+    summaryMock.mockReturnValue({ rooms: [] })
+    timeseriesMock.mockReturnValue({ buckets: [] })
+    watchlistMock.mockReturnValue({ entries: [] })
+
+    const wrapper = await renderView(DashboardView, {
+      routes: [
+        {
+          path: '/workspaces/:workspaceId/dashboard',
+          name: 'dashboard',
+          component: DashboardView,
+          meta: { requiresAuth: true, requiresVerifiedEmail: true },
+        },
+      ],
+      initialRoute: '/workspaces/w2/dashboard',
+    })
+    await flushPromises()
+
+    expect(roleScope.projectId).toBe('project-from-workspace')
+    expect(wrapper.find('[data-testid="research-export-stub"]').exists()).toBe(true)
+    roleScope.authorized = false
   })
 })

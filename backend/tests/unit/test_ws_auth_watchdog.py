@@ -23,6 +23,7 @@ import pytest
 from shared_kernel.auth import tokens as tokens_mod
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
+from shared_kernel.realtime import AccessOutcome
 from shared_kernel.realtime import connection as conn_mod
 
 _CLOSE_AUTH_FAILED = 4401
@@ -113,3 +114,33 @@ async def test_watchdog_closes_on_denylist(monkeypatch: pytest.MonkeyPatch) -> N
     # Not expired — the denylist hit is what must tear it down.
     await _drive(ws, expires_at=now() + timedelta(hours=1), jti=uuid.uuid4())
     assert ws.closed == (_CLOSE_AUTH_FAILED, "token revoked")
+
+
+async def test_endpoint_can_authorize_on_each_30_second_watchdog_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_redis(monkeypatch, _FakeRedis(denied=False))
+    ws = _FakeWS()
+    called = False
+
+    async def authorize(_conn: conn_mod.ChannelConnection) -> AccessOutcome:
+        nonlocal called
+        called = True
+        return AccessOutcome.FORBIDDEN
+
+    await asyncio.wait_for(
+        conn_mod.connection_loop(
+            ws=ws,
+            principal=_principal(),
+            subprotocol="",
+            channels=[],
+            token_expires_at=now() + timedelta(hours=1),
+            token_jti=uuid.uuid4(),
+            authorize=authorize,
+            authorize_every_n_ticks=1,
+        ),
+        timeout=5.0,
+    )
+
+    assert called
+    assert ws.closed == (4403, "access denied")

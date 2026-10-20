@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import assert_project_role
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -117,12 +118,11 @@ async def _resolve_workspace_rooms(
     workspace = await facade.get_workspace(workspace_id)
     if workspace is None or workspace.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if await TenancyFacade(db).get_project(workspace.project_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
-    room_ids = await facade.list_chatroom_ids_for_workspace(workspace_id)
-    if not room_ids:
-        return {}
-    rooms = await facade.get_chatrooms(room_ids)
-    return {rid: room.name for rid, room in rooms.items()}
+    rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
+    return {room.id: room.name for room in rooms}
 
 
 @router.get("/{workspace_id}/dashboard/summary")

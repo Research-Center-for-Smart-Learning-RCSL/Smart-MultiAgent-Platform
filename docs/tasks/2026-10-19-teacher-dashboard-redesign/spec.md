@@ -562,15 +562,15 @@ Stage B
   the summary; an owner receives B (route test against the real gate, not a mock).
 - [ ] AC-5: An Org Owner without an explicit project row can request a research export (200) and
   sees the button; a Project Member gets 403 and no button.
-- [ ] AC-6: With the sidebar store on project P1 and the page on a P2 workspace, the export
+- [x] AC-6: With the sidebar store on project P1 and the page on a P2 workspace, the export
   button follows the caller's role in P2 (component test).
 - [ ] AC-7: The same caller as AC-4 receives no bucket and no watchlist row for room B from the
   timeseries and watchlist reads.
-- [ ] AC-8: The project socket admits an Org Owner without an explicit row and refuses a bare
+- [x] AC-8: The project socket admits an Org Owner without an explicit row and refuses a bare
   Org Member; a refused client stops reconnecting.
-- [ ] AC-9: After soft-deleting the project, dashboard reads return 404, the export returns 404
+- [x] AC-9: After soft-deleting the project, dashboard reads return 404, the export returns 404
   and the project socket refuses.
-- [ ] AC-10: A member removed from the project is disconnected from `ws:project` within 35 seconds.
+- [x] AC-10: A member removed from the project is disconnected from `ws:project` within 35 seconds.
 
 Stage C
 
@@ -696,6 +696,15 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
   themes. Machado full-severity simulations report minimum pairwise CIE76 distances of 21.2,
   21.2, and 21.3 for protanopia, deuteranopia, and tritanopia in light mode, and 16.7, 16.5,
   and 15.9 in dark mode.
+- Stage A used a repeatable Machado/CIE76 palette check in `contrast.test.ts`; the listed
+  `dataviz` skill was unavailable in this environment. The component exposes `accessibleLabel`
+  (`accessible-label` in templates) and renders it as `aria-label`, since Vue's type checker did
+  not resolve the spec's `ariaLabel` prop through the `aria-label` attribute spelling.
+- Stage B's database-backed route tests were added but cannot run on this host: the configured
+  DSN uses `postgres:5432`, which resolves inside the Compose test network but not on the local
+  Windows host. The unit suites, lint and frontend typecheck pass; the `db` tests remain for CI.
+- Stage B also stops dashboard socket retries for 4404 (deleted project) as well as 4403
+  (authorization refusal), since neither condition is repaired by reconnecting.
 
 ## 16. Follow-ups
 
