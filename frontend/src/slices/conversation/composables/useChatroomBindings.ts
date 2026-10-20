@@ -326,15 +326,20 @@ export function useChatroomBindings(
     }
   }
 
+  /** Unlike the grant writes, a 204 here means the server now holds exactly
+   *  `color` (written or already equal), so the local map is patched instead of
+   *  reloading the whole card. A failure reloads: a 404/409 means another tab
+   *  unbound the agent or made it an observer, and the row must show that. */
   async function onSetBubbleColor(agentId: string, color: AgentBubbleColor | null): Promise<void> {
     if (bindingBusy.value) return
     bindingBusy.value = true
     try {
       await setChatroomAgentAppearance(chatroomId, agentId, color)
-      await qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
-      await loadBindings()
+      boundColors.value = { ...boundColors.value, [agentId]: color }
+      void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
     } catch {
       toast.error(t('conversation.appearance.failed'))
+      await loadBindings()
     } finally {
       bindingBusy.value = false
     }

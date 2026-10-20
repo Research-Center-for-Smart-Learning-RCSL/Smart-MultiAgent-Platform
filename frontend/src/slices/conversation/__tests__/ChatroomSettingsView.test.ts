@@ -142,6 +142,51 @@ describe('ChatroomSettingsView', () => {
     expect((picker.find(`input[value="${fail ? 'teal' : 'rose'}"]`).element as HTMLInputElement).checked).toBe(true)
   })
 
+  it('re-reads the bindings when a save is refused because another tab made the agent an observer', async () => {
+    const room = makeChatroom()
+    let role = 'normal'
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/chatrooms/:id/agents', () => HttpResponse.json([{ agent_id: 'agent_1', role }])),
+      http.patch('/api/chatrooms/:id/agents/:agentId/appearance', () => {
+        role = 'observer'
+        return new HttpResponse(null, { status: 409 })
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    await wrapper.find('.color-picker input[value="rose"]').setValue()
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.find('.color-picker').exists()).toBe(false)
+  })
+
+  it('keeps a saved colour without re-reading the bindings, so a failed re-read cannot revert it', async () => {
+    const room = makeChatroom()
+    let listings = 0
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/chatrooms/:id/agents', () => {
+        listings += 1
+        return listings === 1
+          ? HttpResponse.json([{ agent_id: 'agent_1', bubble_color: 'teal' }])
+          : new HttpResponse(null, { status: 500 })
+      }),
+      http.patch('/api/chatrooms/:id/agents/:agentId/appearance', () => new HttpResponse(null, { status: 204 })),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    const picker = wrapper.find('.color-picker')
+    await picker.find('input[value="rose"]').setValue()
+    await flushPromises()
+    await flushPromises()
+    expect((picker.find('input[value="rose"]').element as HTMLInputElement).checked).toBe(true)
+  })
+
   // The default caller holds a role in the project ([R5.07]); the bare org
   // member's view has its own describe block below.
   beforeEach(() => {

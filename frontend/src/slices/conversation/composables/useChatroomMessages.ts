@@ -8,7 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
-import { getAccessToken, tokenViewer, type TokenViewer } from '@shared/transport'
+import { getAccessToken, getGuestChatroomId, tokenViewer, type TokenViewer } from '@shared/transport'
 import { ApiError } from '@shared/errors'
 import { triggerDownload } from '@shared/utils/download'
 import {
@@ -61,6 +61,9 @@ export function useChatroomMessages(
   const viewer = computed<TokenViewer | null>(() => {
     if (tokenViewer.value) return tokenViewer.value
     if (getAccessToken()) return null
+    // A held guest context with no token yet is a guest whose token is still
+    // being restored: `session.me` may be an earlier sign-in, not this viewer.
+    if (getGuestChatroomId()) return null
     return session.me ? { kind: 'user', id: session.me.id } : null
   })
   const isAdmin = computed(() => session.me?.is_admin ?? false)

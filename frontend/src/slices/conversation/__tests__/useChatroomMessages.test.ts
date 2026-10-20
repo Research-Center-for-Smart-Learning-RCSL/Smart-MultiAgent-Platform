@@ -11,7 +11,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
 import { ValidationError } from '@shared/errors'
-import { setAccessToken } from '@shared/transport'
+import { clearGuestContext, setAccessToken, setGuestContext } from '@shared/transport'
 import { deferred } from '../../../../tests/utils'
 import type { Message } from '../types'
 
@@ -172,6 +172,20 @@ describe('token-derived message ownership', () => {
     expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g1' }))).toBe(true)
     expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g2' }))).toBe(false)
     expect(composable.isOwnMessage(msg({ sender_id: 'g1' }))).toBe(false)
+  })
+
+  it('claims no viewer while a held guest context waits for its token', () => {
+    api.listMessages.mockResolvedValue([])
+    mountHost()
+    setGuestContext('room-1')
+    try {
+      expect(composable.viewer.value).toBeNull()
+      expect(composable.isOwnMessage(msg())).toBe(false)
+      setAccessToken(token('g1', true))
+      expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g1' }))).toBe(true)
+    } finally {
+      clearGuestContext()
+    }
   })
 
   it.each([false, true])('keeps a pending send own through its echo (guest=%s)', async (guest) => {
