@@ -435,9 +435,12 @@ class ChatroomService:
         it may discover the target role was already reached (no-op) or
         needs a different transition than the one it started with."""
         for _attempt in range(self._SET_ROLE_MAX_ATTEMPTS):
-            old_role = await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
-            if old_role is None:
+            # The row lock holds the colour still while the CAS runs, so a colour
+            # cleared by a demotion is the one audited below ([R13.78]).
+            appearance = await self._agents.locked_appearance(chatroom_id=chatroom_id, agent_id=agent_id)
+            if appearance is None:
                 return False
+            old_role, old_color = appearance
             if old_role is role:
                 return True
             won = await self._agents.set_role(
@@ -464,6 +467,24 @@ class ChatroomService:
                     request_id=request_id,
                 ),
             )
+            if role is ChatroomAgentRole.OBSERVER and old_color is not None:
+                await audit.emit(
+                    self._db,
+                    audit.AuditEvent(
+                        action="chatroom.agent_appearance_changed",
+                        actor_user_id=actor_user_id,
+                        actor_ip=actor_ip,
+                        resource_type="chatroom_agent",
+                        resource_id=chatroom_id,
+                        metadata={
+                            "agent_id": str(agent_id),
+                            "old_color": old_color.value,
+                            "new_color": None,
+                            "cause": "role_changed",
+                        },
+                        request_id=request_id,
+                    ),
+                )
             return True
         return False
 

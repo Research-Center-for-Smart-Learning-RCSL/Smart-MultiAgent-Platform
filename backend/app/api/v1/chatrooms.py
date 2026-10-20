@@ -191,7 +191,8 @@ class AgentRolePatchIn(BaseModel):
 
 
 class AgentAppearanceIn(BaseModel):
-    bubble_color: Literal["cyan", "teal", "green", "lime", "amber", "orange", "rose", "violet"] | None
+    # Required with no default, so clearing is an explicit `null`, never an omitted field.
+    bubble_color: ChatroomAgentBubbleColor | None
 
 
 class AgentDraftAccessIn(BaseModel):
@@ -949,7 +950,7 @@ async def patch_chatroom_agent_appearance(
     result = await facade.set_agent_bubble_color(
         chatroom_id=chatroom_id,
         agent_id=agent_id,
-        color=ChatroomAgentBubbleColor(body.bubble_color) if body.bubble_color else None,
+        color=body.bubble_color,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

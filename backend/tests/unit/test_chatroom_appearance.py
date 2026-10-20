@@ -101,6 +101,23 @@ async def test_appearance_outcomes(monkeypatch, result, status):
     emit.assert_not_awaited()
 
 
+def test_one_palette_across_domain_table_and_migration():
+    import importlib.util
+    from pathlib import Path
+
+    from contexts.conversation.infrastructure import tables
+
+    path = Path(__file__).resolve().parents[2] / "alembic/versions/0105_agent_bubble_colors.py"
+    spec = importlib.util.spec_from_file_location("migration_0105_palette", path)
+    assert spec is not None
+    assert spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    domain = [c.value for c in ChatroomAgentBubbleColor]
+    assert list(migration._COLOR.enums) == domain
+    assert list(tables.chatroom_agents.c.bubble_color.type.enums) == domain
+
+
 def test_closed_palette_and_required_field():
     for value in ("blue", "red; color: red", "", 123):
         with pytest.raises(ValidationError):

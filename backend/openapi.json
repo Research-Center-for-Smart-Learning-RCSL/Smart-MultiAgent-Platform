@@ -1889,23 +1889,12 @@
           "bubble_color": {
             "anyOf": [
               {
-                "enum": [
-                  "cyan",
-                  "teal",
-                  "green",
-                  "lime",
-                  "amber",
-                  "orange",
-                  "rose",
-                  "violet"
-                ],
-                "type": "string"
+                "$ref": "#/components/schemas/ChatroomAgentBubbleColor"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Bubble Color"
+            ]
           }
         },
         "required": [

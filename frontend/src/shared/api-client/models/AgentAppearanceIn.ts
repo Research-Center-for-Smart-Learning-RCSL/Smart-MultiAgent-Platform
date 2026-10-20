@@ -2,7 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ChatroomAgentBubbleColor } from './ChatroomAgentBubbleColor';
 export type AgentAppearanceIn = {
-    bubble_color: ('cyan' | 'teal' | 'green' | 'lime' | 'amber' | 'orange' | 'rose' | 'violet' | null);
+    bubble_color: (ChatroomAgentBubbleColor | null);
 };
 

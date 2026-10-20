@@ -51,11 +51,31 @@ def test_upgrade_existing_bindings_constraint_and_downgrade():
                             )
                         )
                     savepoint.rollback()
+                # Pre-0105 code demotes without naming `bubble_color`; the trigger
+                # must clear it so the CHECK does not refuse that UPDATE.
+                conn.execute(sa.text("UPDATE chatroom_agents SET role = 'observer' WHERE role = 'normal'"))
+                assert (
+                    conn.execute(
+                        sa.text("SELECT count(*) FROM chatroom_agents WHERE bubble_color IS NOT NULL")
+                    ).scalar_one()
+                    == 0
+                )
                 migration.downgrade()
                 columns = sa.inspect(conn).get_columns("chatroom_agents", schema=schema)
                 assert [column["name"] for column in columns] == ["role"]
                 assert conn.execute(sa.text("SELECT count(*) FROM chatroom_agents")).scalar_one() == 2
                 assert not sa.inspect(conn).has_type("chatroom_agent_bubble_color", schema=schema)
+                assert (
+                    conn.execute(
+                        sa.text(
+                            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                            "WHERE p.proname = 'smap_chatroom_agents_clear_observer_color' "
+                            "AND n.nspname = :schema"
+                        ),
+                        {"schema": schema},
+                    ).scalar_one()
+                    == 0
+                )
             transaction.rollback()
     finally:
         engine.dispose()

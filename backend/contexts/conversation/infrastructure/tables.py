@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
+from contexts.conversation.domain.models import ChatroomAgentBubbleColor
 from shared_kernel.db import metadata
 
 workspaces = sa.Table(
@@ -87,14 +88,7 @@ chatroom_agents = sa.Table(
     sa.Column(
         "bubble_color",
         pg.ENUM(
-            "cyan",
-            "teal",
-            "green",
-            "lime",
-            "amber",
-            "orange",
-            "rose",
-            "violet",
+            *(c.value for c in ChatroomAgentBubbleColor),
             name="chatroom_agent_bubble_color",
             create_type=False,
         ),
