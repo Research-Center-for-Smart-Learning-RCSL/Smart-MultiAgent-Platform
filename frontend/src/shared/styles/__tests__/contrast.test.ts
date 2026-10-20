@@ -82,7 +82,12 @@ function lightness(hex: string): number {
  * same bar because they carry sentences, not glyphs - an SAlert's body renders
  * in `--color-*-on` on `--color-*-tint`.
  */
-const AGENT_COLORS = ['cyan', 'teal', 'green', 'lime', 'amber', 'orange', 'rose', 'violet']
+// Read from the tokens rather than restated, so a palette key added to main.css
+// is measured without editing this file. The conversation slice's palette test
+// pins that main.css declares exactly the keys the API accepts.
+const AGENT_COLORS = Object.keys(light)
+  .map((name) => /^--color-agent-([a-z]+)$/.exec(name)?.[1])
+  .filter((key): key is string => key !== undefined)
 
 const TEXT_PAIRS: [fg: string, bg: string][] = [
   ...AGENT_COLORS.flatMap((key): [string, string][] =>
@@ -127,6 +132,8 @@ describe('WCAG contrast budget', () => {
     expect(Object.keys(light).length).toBeGreaterThan(25)
     expect(Object.keys(dark).length).toBeGreaterThan(25)
     expect(dark['--color-bg']).not.toBe(light['--color-bg'])
+    // The agent pairs are derived from the tokens, so they need the same guard.
+    expect(AGENT_COLORS.length).toBeGreaterThan(0)
   })
 
   describe.each(THEMES)('%s theme', (themeName, tokens) => {

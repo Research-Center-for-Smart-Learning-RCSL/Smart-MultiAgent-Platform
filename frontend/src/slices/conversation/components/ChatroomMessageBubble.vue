@@ -39,7 +39,6 @@
     :id="`msg-${message.id}`"
     class="bubble-row"
     :class="{
-      'bubble-row--agent': isAgent,
       'bubble-row--own': isOwn,
       'msg--flash': flash,
       'bubble-row--pending': message._status === 'sending',

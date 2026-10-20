@@ -2,7 +2,12 @@
 import { useI18n } from 'vue-i18n'
 import { ref, watch } from 'vue'
 import { SRadio } from '@shared/ui'
-import { AGENT_BUBBLE_COLORS, isAgentBubbleColor, type AgentBubbleColor } from '../utils/agentBubbleColors'
+import {
+  AGENT_BUBBLE_COLORS,
+  agentColorVars,
+  isAgentBubbleColor,
+  type AgentBubbleColor,
+} from '../utils/agentBubbleColors'
 
 const props = defineProps<{
   modelValue: AgentBubbleColor | null
@@ -56,7 +61,7 @@ function save(value: string): void {
       >
         <span
           class="color-picker__swatch"
-          :class="`color-picker__swatch--${color}`"
+          :style="agentColorVars(color)"
           aria-hidden="true"
         />
         {{ t(`conversation.appearance.colors.${color}`) }}
@@ -90,38 +95,8 @@ function save(value: string): void {
   height: var(--space-3);
   border-radius: var(--radius-full);
   margin-right: var(--space-1);
+  /* Overridden per swatch by agentColorVars(). */
+  --agent-color: var(--color-border-strong);
+  background: var(--agent-color);
 }
-
-.color-picker__swatch--cyan {
-  background: var(--color-agent-cyan);
-}
-
-.color-picker__swatch--teal {
-  background: var(--color-agent-teal);
-}
-
-.color-picker__swatch--green {
-  background: var(--color-agent-green);
-}
-
-.color-picker__swatch--lime {
-  background: var(--color-agent-lime);
-}
-
-.color-picker__swatch--amber {
-  background: var(--color-agent-amber);
-}
-
-.color-picker__swatch--orange {
-  background: var(--color-agent-orange);
-}
-
-.color-picker__swatch--rose {
-  background: var(--color-agent-rose);
-}
-
-.color-picker__swatch--violet {
-  background: var(--color-agent-violet);
-}
-
 </style>

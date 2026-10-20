@@ -854,10 +854,9 @@ watchEffect(() => {
               @save-read="(granted) => onSetCanvasAccess(agent.id, granted)"
               @save-write="(granted) => onSetCanvasWriteAccess(agent.id, granted)"
             />
-            <!-- Room wake-up settings ([R15.25], matrix row 29): the room's
-                 creator for any binding, a project editor for a normal one. The
-                 shared agent is never written from here; the server decides, and
-                 the panel hides itself on a 403/404. -->
+            <!-- Bubble colour ([R13.78]): matrix row 29's audience, normal
+                 bindings only. A refused save re-reads the bindings, so a row
+                 another tab made an observer drops its picker. -->
             <AgentBubbleColorPicker
               v-if="agent.role !== 'observer' && (isCreator || canEditAgents)"
               :name="`bubble-color-${agent.id}`"
@@ -865,6 +864,10 @@ watchEffect(() => {
               :disabled="bindingBusy"
               @save="(color) => onSetBubbleColor(agent.id, color)"
             />
+            <!-- Room wake-up settings ([R15.25], matrix row 29): the room's
+                 creator for any binding, a project editor for a normal one. The
+                 shared agent is never written from here; the server decides, and
+                 the panel hides itself on a 403/404. -->
             <RoomWakeupPanel
               v-if="isCreator || (canEditAgents && agent.role !== 'observer')"
               :chatroom-id="chatroomId"

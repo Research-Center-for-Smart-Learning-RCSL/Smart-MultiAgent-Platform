@@ -41,12 +41,17 @@ describe('viewer-relative bubble sides', () => {
     const stream = await renderView(ChatroomStreamingBubble, {
       props: { html: '<p>hi</p>', agentName: 'Bot', agentColor: color },
     })
-    expect(bubble.find(`.bubble--agent-${color}`).exists()).toBe(true)
-    expect(stream.find(`.bubble--agent-${color}`).exists()).toBe(true)
+    for (const wrapper of [bubble, stream]) {
+      const shell = wrapper.find(`.bubble--agent-colored[data-agent-color="${color}"]`)
+      expect(shell.exists()).toBe(true)
+      const style = (shell.element as HTMLElement).style
+      expect(style.getPropertyValue('--agent-color')).toBe(`var(--color-agent-${color})`)
+      expect(style.getPropertyValue('--agent-color-tint')).toBe(`var(--color-agent-${color}-tint)`)
+    }
     await bubble.setProps({ agentColor: null })
     await stream.setProps({ agentColor: null })
-    expect(bubble.find(`.bubble--agent-${color}`).exists()).toBe(false)
-    expect(stream.find(`.bubble--agent-${color}`).exists()).toBe(false)
+    expect(bubble.find('.bubble--agent-colored').exists()).toBe(false)
+    expect(stream.find('.bubble--agent-colored').exists()).toBe(false)
     expect(bubble.find('.bubble--agent').exists()).toBe(true)
   })
 
@@ -54,7 +59,8 @@ describe('viewer-relative bubble sides', () => {
     const bubble = await renderView(ChatroomMessageBubble, {
       props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, agentColor: 'rose' },
     })
-    expect(bubble.find('.bubble--agent-rose').exists()).toBe(false)
+    expect(bubble.find('.bubble--agent-colored').exists()).toBe(false)
+    expect(bubble.find('[data-agent-color]').exists()).toBe(false)
   })
 
   it('moves only an own message to the right and applies its tint', async () => {
