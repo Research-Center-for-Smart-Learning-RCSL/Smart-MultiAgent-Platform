@@ -8,9 +8,8 @@ dashboard aggregates.
 from __future__ import annotations
 
 import datetime as dt
-import statistics
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +18,18 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     RecentActivityRow,
     ResearchExportSubmission,
-    RoomDashboardAggregate,
+    RoundDashboardAggregate,
+    RoundSubject,
+    RoundSubjectCount,
+    SubjectKind,
     TimeseriesBucket,
     WatchlistEntry,
 )
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
+
+_WATCHLIST_IDLE_MINUTES = 10
 
 
 class AggregationService:
@@ -68,12 +72,15 @@ class AggregationService:
 
     # -- Teacher dashboard ([R33.01]) ---------------------------------------- #
 
-    async def aggregate_for_rooms(
+    async def round_aggregates(
         self,
         *,
-        chatroom_ids: Sequence[uuid.UUID],
-    ) -> list[RoomDashboardAggregate]:
-        return await self._repo.aggregate_for_rooms(chatroom_ids=chatroom_ids)
+        activation_ids: Sequence[uuid.UUID],
+    ) -> list[RoundDashboardAggregate]:
+        return await self._repo.round_aggregates(activation_ids=activation_ids)
+
+    async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
+        return await self._repo.round_subject_counts(activation_ids=activation_ids)
 
     async def timeseries_for_rooms(
         self,
@@ -99,26 +106,68 @@ class AggregationService:
             created_before=created_before,
         )
 
-    async def watchlist_for_rooms(
+    async def watchlist_for_rounds(
         self,
         *,
-        chatroom_ids: Sequence[uuid.UUID],
+        rounds: Sequence[tuple[uuid.UUID, uuid.UUID, dt.datetime, bool]],
+        roster: Mapping[uuid.UUID, set[tuple[uuid.UUID, str]]],
+        session_subjects: Mapping[uuid.UUID, set[RoundSubject]],
+        now_at: dt.datetime | None = None,
     ) -> list[WatchlistEntry]:
-        """Participants at or below the median submission count."""
-        raw = await self._repo.participant_submission_counts(chatroom_ids=chatroom_ids)
-        if not raw:
+        """Merge each current round's present roster with its valid-submission counts.
+
+        Round tuples are ``(room_id, activation_id, started_at, is_active)``.
+        The roster keys are ``(subject_id, subject_kind)`` pairs; activity sessions
+        are included even if that subject has never sent a message or submission.
+        """
+        if not rounds:
             return []
-        counts = [count for _, count, _ in raw]
-        median = statistics.median(counts)
-        return [
-            WatchlistEntry(
-                subject_code=code,
-                submission_count=count,
-                last_submission_at=last_at,
+        current = now_at or dt.datetime.now(dt.UTC)
+        counts = await self._repo.round_subject_counts(
+            activation_ids=[activation_id for _, activation_id, _, _ in rounds]
+        )
+        count_by_subject = {
+            (row.activation_id, row.subject_kind.value, row.subject_id): row for row in counts
+        }
+        entries: list[WatchlistEntry] = []
+        for room_id, activation_id, started_at, is_active in rounds:
+            participants = set(roster.get(room_id, set()))
+            participants.update(
+                (subject.subject_id, subject.subject_kind.value)
+                for subject in session_subjects.get(activation_id, set())
             )
-            for code, count, last_at in raw
-            if count <= median
-        ]
+            for subject_id, subject_kind in participants:
+                count_row = count_by_subject.get((activation_id, subject_kind, subject_id))
+                valid_count = count_row.valid_count if count_row is not None else 0
+                last_valid_at = count_row.last_valid_submission_at if count_row is not None else None
+                if valid_count == 0:
+                    reason = "no_valid_in_round"
+                elif is_active and (last_valid_at or started_at) < current - dt.timedelta(
+                    minutes=_WATCHLIST_IDLE_MINUTES
+                ):
+                    reason = "idle"
+                else:
+                    reason = None
+                entries.append(
+                    WatchlistEntry(
+                        chatroom_id=room_id,
+                        subject_kind=SubjectKind(subject_kind),
+                        subject_id=subject_id,
+                        valid_count=valid_count,
+                        last_valid_submission_at=last_valid_at,
+                        needs_attention=reason is not None,
+                        reason=reason,
+                    )
+                )
+        entries.sort(
+            key=lambda entry: (
+                not entry.needs_attention,
+                str(entry.chatroom_id),
+                entry.subject_kind.value,
+                str(entry.subject_id),
+            )
+        )
+        return entries[:500]
 
 
 __all__ = ["AggregationService"]

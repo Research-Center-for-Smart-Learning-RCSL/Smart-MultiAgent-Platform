@@ -197,6 +197,76 @@ class MessageRepository:
         ).all()
         return {r.sender_id for r in rows}
 
+    async def human_senders_since_by_room(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]:
+        """Distinct user and guest message senders since each round began."""
+        if not rounds:
+            return {}
+        scopes = [
+            sa.and_(t.messages.c.chatroom_id == room_id, t.messages.c.created_at >= since)
+            for room_id, since in rounds
+        ]
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    t.messages.c.chatroom_id,
+                    t.messages.c.sender_id,
+                    t.messages.c.sender_type,
+                )
+                .where(
+                    sa.and_(
+                        sa.or_(*scopes),
+                        t.messages.c.sender_type.in_([SenderType.USER.value, SenderType.GUEST.value]),
+                        t.messages.c.sender_id.is_not(None),
+                        t.messages.c.deleted_at.is_(None),
+                    )
+                )
+                .distinct()
+            )
+        ).all()
+        result: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id, _ in rounds}
+        for row in rows:
+            result[row.chatroom_id].add((row.sender_id, row.sender_type))
+        return result
+
+    async def counts_by_sender_since_by_room(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Count live human and agent messages since each room's round began."""
+        result = {room_id: {"human": 0, "agent": 0} for room_id, _ in rounds}
+        if not rounds:
+            return result
+        scopes = [
+            sa.and_(t.messages.c.chatroom_id == room_id, t.messages.c.created_at >= since)
+            for room_id, since in rounds
+        ]
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    t.messages.c.chatroom_id,
+                    t.messages.c.sender_type,
+                    sa.func.count().label("message_count"),
+                )
+                .where(
+                    sa.and_(
+                        sa.or_(*scopes),
+                        t.messages.c.sender_type.in_(
+                            [SenderType.USER.value, SenderType.GUEST.value, SenderType.AGENT.value]
+                        ),
+                        t.messages.c.deleted_at.is_(None),
+                    )
+                )
+                .group_by(t.messages.c.chatroom_id, t.messages.c.sender_type)
+            )
+        ).all()
+        for row in rows:
+            if row.sender_type in (SenderType.USER.value, SenderType.GUEST.value):
+                result[row.chatroom_id]["human"] = int(row.message_count)
+            elif row.sender_type == SenderType.AGENT.value:
+                result[row.chatroom_id]["agent"] = int(row.message_count)
+        return result
+
     async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Agent ids the room's live history shows: message authors, and the observer
         a released observation names.

@@ -24,6 +24,7 @@ most one TTL window of UI lag.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping, Sequence
 from typing import Final
 
 from redis.asyncio import Redis
@@ -272,6 +273,15 @@ class PresenceTracker:
         live = await _reconcile_roster(get_redis(), room_id)
         return [uuid.UUID(v) for v in live]
 
+    async def list_rooms(self, room_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Reconcile several room rosters with one Redis read and liveness pipeline."""
+        if not room_ids:
+            return {}
+        r = get_redis()
+        room_rosters = await _read_rosters(r, room_ids)
+        live = await _reconcile_room_members(r, room_rosters)
+        return {room_id: [uuid.UUID(value) for value in members] for room_id, members in live.items()}
+
     async def list_room_bounded(self, room_id: uuid.UUID, *, limit: int) -> tuple[list[uuid.UUID], bool]:
         """At most ``limit`` live members, in id order, and whether more were seen.
 
@@ -317,21 +327,40 @@ async def _reconcile_roster(r: Redis, room_id: uuid.UUID) -> list[str]:
 
 async def _reconcile_members(r: Redis, room_id: uuid.UUID, members: list[str]) -> list[str]:
     """`_reconcile_roster` over an already-read subset of the roster."""
-    rk = _room_key(room_id)
-    if not members:
-        return []
+    reconciled = await _reconcile_room_members(r, {room_id: members})
+    return reconciled.get(room_id, [])
+
+
+async def _read_rosters(r: Redis, room_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    pipe = r.pipeline(transaction=False)
+    for room_id in room_ids:
+        pipe.smembers(_room_key(room_id))
+    values = await pipe.execute()
+    return {room_id: list(members) for room_id, members in zip(room_ids, values, strict=True)}
+
+
+async def _reconcile_room_members(
+    r: Redis, room_members: Mapping[uuid.UUID, list[str]]
+) -> dict[uuid.UUID, list[str]]:
+    """Pipelined liveness checks and ghost eviction across multiple rooms."""
+    pairs = [(room_id, member) for room_id, members in room_members.items() for member in members]
+    if not pairs:
+        return {room_id: [] for room_id in room_members}
     check = r.pipeline(transaction=False)
-    for member in members:
+    for room_id, member in pairs:
         check.exists(_conns_key(room_id, uuid.UUID(member)))
     alive_flags = await check.execute()
-    live: list[str] = []
-    stale: list[str] = []
-    for member, alive in zip(members, alive_flags, strict=True):
-        (live if alive else stale).append(member)
+    live: dict[uuid.UUID, list[str]] = {room_id: [] for room_id in room_members}
+    stale: list[tuple[uuid.UUID, str]] = []
+    for (room_id, member), alive in zip(pairs, alive_flags, strict=True):
+        if alive:
+            live[room_id].append(member)
+        else:
+            stale.append((room_id, member))
     if stale:
         evict = r.pipeline(transaction=False)
-        for member in stale:
-            evict.srem(rk, member)
+        for room_id, member in stale:
+            evict.srem(_room_key(room_id), member)
             evict.srem(_user_rooms_key(uuid.UUID(member)), str(room_id))
         await evict.execute()
     return live

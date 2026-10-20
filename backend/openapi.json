@@ -5949,18 +5949,49 @@
       },
       "DashboardSummaryOut": {
         "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
           "rooms": {
             "items": {
               "$ref": "#/components/schemas/RoomSummaryOut"
             },
             "title": "Rooms",
             "type": "array"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/DashboardThresholdsOut"
           }
         },
         "required": [
-          "rooms"
+          "rooms",
+          "thresholds",
+          "generated_at"
         ],
         "title": "DashboardSummaryOut",
+        "type": "object"
+      },
+      "DashboardThresholdsOut": {
+        "properties": {
+          "green_minutes": {
+            "default": 5,
+            "title": "Green Minutes",
+            "type": "integer"
+          },
+          "idle_minutes": {
+            "default": 10,
+            "title": "Idle Minutes",
+            "type": "integer"
+          },
+          "yellow_minutes": {
+            "default": 15,
+            "title": "Yellow Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "DashboardThresholdsOut",
         "type": "object"
       },
       "DashboardTimeseriesOut": {
@@ -8629,6 +8660,24 @@
         "title": "MemberOut",
         "type": "object"
       },
+      "MessageCountsOut": {
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "integer"
+          },
+          "human": {
+            "title": "Human",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "human",
+          "agent"
+        ],
+        "title": "MessageCountsOut",
+        "type": "object"
+      },
       "MessageIn": {
         "additionalProperties": false,
         "properties": {
@@ -10509,9 +10558,14 @@
         "title": "RestoreOut",
         "type": "object"
       },
-      "RoomSummaryOut": {
+      "RoomRoundOut": {
         "properties": {
-          "last_submission_at": {
+          "activation_id": {
+            "format": "uuid",
+            "title": "Activation Id",
+            "type": "string"
+          },
+          "ended_at": {
             "anyOf": [
               {
                 "format": "date-time",
@@ -10521,7 +10575,57 @@
                 "type": "null"
               }
             ],
-            "title": "Last Submission At"
+            "title": "Ended At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RoundState"
+          }
+        },
+        "required": [
+          "activation_id",
+          "state",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "RoomRoundOut",
+        "type": "object"
+      },
+      "RoomSummaryOut": {
+        "properties": {
+          "last_valid_submission_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Valid Submission At"
+          },
+          "message_counts": {
+            "$ref": "#/components/schemas/MessageCountsOut"
+          },
+          "online_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Count"
+          },
+          "participant_count": {
+            "title": "Participant Count",
+            "type": "integer"
           },
           "room_id": {
             "format": "uuid",
@@ -10531,6 +10635,16 @@
           "room_name": {
             "title": "Room Name",
             "type": "string"
+          },
+          "round": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomRoundOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/TrafficLight"
@@ -10547,10 +10661,14 @@
         "required": [
           "room_id",
           "room_name",
+          "round",
           "total_submissions",
           "valid_count",
-          "last_submission_at",
-          "status"
+          "last_valid_submission_at",
+          "status",
+          "online_count",
+          "participant_count",
+          "message_counts"
         ],
         "title": "RoomSummaryOut",
         "type": "object"
@@ -10826,6 +10944,14 @@
         ],
         "title": "RotationOut",
         "type": "object"
+      },
+      "RoundState": {
+        "enum": [
+          "active",
+          "ended"
+        ],
+        "title": "RoundState",
+        "type": "string"
       },
       "RunOut": {
         "properties": {
@@ -12306,7 +12432,8 @@
         "enum": [
           "green",
           "yellow",
-          "red"
+          "red",
+          "inactive"
         ],
         "title": "TrafficLight",
         "type": "string"
@@ -12924,7 +13051,27 @@
       },
       "WatchlistEntryOut": {
         "properties": {
-          "last_submission_at": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "guest",
+              "group"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_valid_submission_at": {
             "anyOf": [
               {
                 "format": "date-time",
@@ -12934,26 +13081,50 @@
                 "type": "null"
               }
             ],
-            "title": "Last Submission At"
+            "title": "Last Valid Submission At"
           },
           "needs_attention": {
             "title": "Needs Attention",
             "type": "boolean"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_valid_in_round",
+                  "idle"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "room_id": {
+            "format": "uuid",
+            "title": "Room Id",
+            "type": "string"
+          },
           "subject_code": {
             "title": "Subject Code",
             "type": "string"
           },
-          "submission_count": {
-            "title": "Submission Count",
+          "valid_count": {
+            "title": "Valid Count",
             "type": "integer"
           }
         },
         "required": [
+          "room_id",
+          "kind",
+          "display_name",
           "subject_code",
-          "submission_count",
-          "last_submission_at",
-          "needs_attention"
+          "valid_count",
+          "last_valid_submission_at",
+          "needs_attention",
+          "reason"
         ],
         "title": "WatchlistEntryOut",
         "type": "object"

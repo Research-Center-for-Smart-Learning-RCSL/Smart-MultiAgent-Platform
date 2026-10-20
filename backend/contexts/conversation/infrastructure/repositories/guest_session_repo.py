@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -79,6 +80,41 @@ class GuestSessionRepository:
             .limit(limit)
         )
         return [(r.id, r.display_name) for r in rows]
+
+    async def labels_for_ids(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-load display labels without reading token or browser fields."""
+        if not session_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.guest_sessions.c.id, t.guest_sessions.c.display_name).where(
+                    t.guest_sessions.c.id.in_(list(session_ids))
+                )
+            )
+        ).all()
+        return {row.id: row.display_name for row in rows}
+
+    async def seen_since_by_room(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    ) -> dict[uuid.UUID, set[uuid.UUID]]:
+        """Guest sessions seen since each room's current activation began."""
+        if not rounds:
+            return {}
+        scopes = [
+            sa.and_(t.guest_sessions.c.chatroom_id == room_id, t.guest_sessions.c.last_seen_at >= since)
+            for room_id, since in rounds
+        ]
+        rows = (
+            await self._db.execute(
+                sa.select(t.guest_sessions.c.chatroom_id, t.guest_sessions.c.id).where(
+                    sa.and_(sa.or_(*scopes), t.guest_sessions.c.revoked_at.is_(None))
+                )
+            )
+        ).all()
+        result: dict[uuid.UUID, set[uuid.UUID]] = {room_id: set() for room_id, _ in rounds}
+        for row in rows:
+            result[row.chatroom_id].add(row.id)
+        return result
 
     async def find_by_id(self, session_id: uuid.UUID) -> GuestSession | None:
         row = (

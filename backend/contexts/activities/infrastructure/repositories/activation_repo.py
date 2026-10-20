@@ -54,6 +54,31 @@ class ActivationRepository:
     async def get_active(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         return await self._get_active(chatroom_id)
 
+    async def current_for_rooms(
+        self, chatroom_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, ActivityActivation]:
+        """Return the active activation, else latest ended activation, per room."""
+        if not chatroom_ids:
+            return {}
+        active_first = sa.case(
+            (t.activity_activations.c.status == ActivationStatus.ACTIVE.value, 0),
+            else_=1,
+        )
+        rows = (
+            await self._db.execute(
+                sa.select(*_ACTIVATION_COLS)
+                .where(t.activity_activations.c.chatroom_id.in_(list(chatroom_ids)))
+                .distinct(t.activity_activations.c.chatroom_id)
+                .order_by(
+                    t.activity_activations.c.chatroom_id,
+                    active_first,
+                    t.activity_activations.c.created_at.desc(),
+                    t.activity_activations.c.id.desc(),
+                )
+            )
+        ).all()
+        return {row.chatroom_id: _row_to_activation(row) for row in rows}
+
     async def get_active_for_update(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         """Lock the active row until the caller commits, serializing end with submit."""
         return await self._get_active(chatroom_id, for_update=True)

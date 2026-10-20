@@ -23,6 +23,7 @@ run would close open sessions belonging to whatever else is in the database.
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import uuid
 from pathlib import Path
@@ -31,12 +32,15 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from contexts.activities.domain.models import SessionStatus, ValidatorKind
+from contexts.activities.domain.models import RoundSubject, SessionStatus, SubjectKind, ValidatorKind
 from contexts.activities.infrastructure import tables as at
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
+from contexts.activities.infrastructure.repositories.submission_repo import ActivitySubmissionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
+from contexts.conversation.domain.models import SenderType
 from contexts.conversation.infrastructure import tables as t
+from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.infrastructure.tables import users as users_t
 
 pytestmark = pytest.mark.db
@@ -165,6 +169,185 @@ class TestRoundScopedIdentity:
             assert resolved_first.id == first_session
             assert resolved_second.id == second_session
 
+
+class TestDashboardCurrentRoundAggregates:
+    async def test_dashboard_uses_active_round_and_excludes_the_previous_round(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+        room: uuid.UUID,
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            type_id = await _make_type(session, project_id)
+            activations = ActivationRepository(session)
+            sessions = ActivitySessionRepository(session)
+            first_id = await _start_round(session, room, type_id, user_id)
+            first_session = await sessions.create_open(
+                activity_type_id=type_id,
+                chatroom_id=room,
+                subject_user_id=user_id,
+                activation_id=first_id,
+            )
+            assert first_session is not None
+            await activations.end(first_id)
+            await sessions.close_open_for_activation(first_id)
+
+            second_id = await _start_round(session, room, type_id, user_id)
+            second_session = await sessions.create_open(
+                activity_type_id=type_id,
+                chatroom_id=room,
+                subject_user_id=user_id,
+                activation_id=second_id,
+            )
+            assert second_session is not None
+            second_started = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=20)
+            await session.execute(
+                at.activity_activations.update()
+                .where(at.activity_activations.c.id == second_id)
+                .values(created_at=second_started)
+            )
+
+            async def insert_submission(
+                session_id: uuid.UUID, attempt: int, valid: bool, created_at: dt.datetime
+            ) -> None:
+                await session.execute(
+                    at.activity_submissions.insert().values(
+                        id=uuid.uuid4(),
+                        session_id=session_id,
+                        activity_type_id=type_id,
+                        chatroom_id=room,
+                        producer_user_id=user_id,
+                        attempt_no=attempt,
+                        validation_status="validated",
+                        is_valid=valid,
+                        created_at=created_at,
+                    )
+                )
+
+            now_at = dt.datetime.now(dt.UTC)
+            await insert_submission(first_session, 1, True, second_started - dt.timedelta(hours=1))
+            await insert_submission(second_session, 1, False, now_at - dt.timedelta(minutes=2))
+            await insert_submission(second_session, 2, True, now_at - dt.timedelta(minutes=12))
+            await session.commit()
+
+            current = await activations.current_for_rooms([room])
+            assert current[room].id == second_id
+            aggregates = await ActivitySubmissionRepository(session).round_aggregates(
+                activation_ids=[second_id]
+            )
+            assert len(aggregates) == 1
+            assert aggregates[0].total_submissions == 2
+            assert aggregates[0].valid_count == 1
+            assert aggregates[0].last_valid_submission_at is not None
+            assert aggregates[0].last_valid_submission_at.replace(second=0, microsecond=0) == (
+                now_at - dt.timedelta(minutes=12)
+            ).replace(second=0, microsecond=0)
+            subject_counts = await ActivitySubmissionRepository(session).round_subject_counts(
+                activation_ids=[second_id]
+            )
+            assert [(row.subject_id, row.valid_count) for row in subject_counts] == [(user_id, 1)]
+
+    async def test_round_roster_reads_recent_human_messages_and_guests(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+        room: uuid.UUID,
+    ) -> None:
+        project_id, user_id = project
+        since = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+        guest_id = uuid.uuid4()
+        old_guest_id = uuid.uuid4()
+        async with sessionmaker() as session:
+            type_id = await _make_type(session, project_id)
+            activation_id = await _start_round(session, room, type_id, user_id)
+            await ActivitySessionRepository(session).create_open(
+                activity_type_id=type_id,
+                chatroom_id=room,
+                subject_user_id=user_id,
+                activation_id=activation_id,
+            )
+            await session.execute(
+                t.messages.insert().values(
+                    id=uuid.uuid4(),
+                    chatroom_id=room,
+                    sender_type=SenderType.USER.value,
+                    sender_id=user_id,
+                    content_md="recent",
+                    created_at=since + dt.timedelta(minutes=1),
+                )
+            )
+            await session.execute(
+                t.messages.insert().values(
+                    id=uuid.uuid4(),
+                    chatroom_id=room,
+                    sender_type=SenderType.USER.value,
+                    sender_id=uuid.uuid4(),
+                    content_md="old",
+                    created_at=since - dt.timedelta(minutes=1),
+                )
+            )
+            for session_id, name, last_seen in (
+                (guest_id, "Round Guest", since + dt.timedelta(minutes=2)),
+                (old_guest_id, "Earlier Guest", since - dt.timedelta(minutes=1)),
+            ):
+                await session.execute(
+                    t.guest_sessions.insert().values(
+                        id=session_id,
+                        chatroom_id=room,
+                        display_name=name,
+                        refresh_token_hash=uuid.uuid4().hex,
+                        last_seen_at=last_seen,
+                    )
+                )
+            await session.commit()
+
+            roster = await ConversationFacade(session).round_roster([(room, since)])
+            subjects = await ActivitySessionRepository(session).subjects_for_activations([activation_id])
+
+        assert roster[room] >= {
+            (user_id, SenderType.USER.value),
+            (guest_id, SenderType.GUEST.value),
+        }
+        assert all(subject_id != old_guest_id for subject_id, _ in roster[room])
+        assert subjects[activation_id] == {RoundSubject(SubjectKind.USER, user_id)}
+
+    async def test_message_counts_split_live_human_and_agent_messages_by_round(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+        room: uuid.UUID,
+    ) -> None:
+        _, user_id = project
+        since = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=15)
+        now_at = dt.datetime.now(dt.UTC)
+        async with sessionmaker() as session:
+            for sender_type, sender_id, text, created_at, deleted_at in (
+                (SenderType.USER.value, user_id, "human", now_at, None),
+                (SenderType.GUEST.value, uuid.uuid4(), "guest", now_at, None),
+                (SenderType.AGENT.value, uuid.uuid4(), "agent", now_at, None),
+                (SenderType.SYSTEM.value, None, "system", now_at, None),
+                (SenderType.USER.value, uuid.uuid4(), "deleted", now_at, now_at),
+                (SenderType.AGENT.value, uuid.uuid4(), "old", since - dt.timedelta(minutes=1), None),
+            ):
+                await session.execute(
+                    t.messages.insert().values(
+                        id=uuid.uuid4(),
+                        chatroom_id=room,
+                        sender_type=sender_type,
+                        sender_id=sender_id,
+                        content_md=text,
+                        created_at=created_at,
+                        deleted_at=deleted_at,
+                    )
+                )
+            await session.commit()
+            counts = await ConversationFacade(session).message_counts_by_sender([(room, since)])
+
+        assert counts[room] == {"human": 2, "agent": 1}
+
+
+class TestRoundSessionUniqueness:
     async def test_one_round_cannot_hold_two_sessions_for_one_subject(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],

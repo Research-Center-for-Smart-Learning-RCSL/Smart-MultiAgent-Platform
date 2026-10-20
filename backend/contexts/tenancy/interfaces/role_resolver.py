@@ -162,6 +162,22 @@ class TenancyRoleResolver(RoleResolver):
             holders |= await self._org_members.owner_user_ids(org_id=project.owner_org_id, user_ids=user_ids)
         return holders
 
+    async def project_owner_ids(
+        self, user_ids: Sequence[uuid.UUID], *, project_id: uuid.UUID
+    ) -> set[uuid.UUID]:
+        """Which candidate users resolve to PROJECT_OWNER for this project."""
+        if not user_ids:
+            return set()
+        project = await self._projects.get(project_id, include_deleted=True)
+        if project is None:
+            return set()
+        owners = await self._project_members.owner_user_ids(project_id=project_id, user_ids=user_ids)
+        if project.owner_user_id is not None and project.owner_user_id in user_ids:
+            owners.add(project.owner_user_id)
+        if project.owner_org_id is not None:
+            owners |= await self._org_members.owner_user_ids(org_id=project.owner_org_id, user_ids=user_ids)
+        return owners
+
     async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
         member = await self._org_members.get(org_id=org_id, user_id=user_id)
         return member is not None and member.is_original_creator

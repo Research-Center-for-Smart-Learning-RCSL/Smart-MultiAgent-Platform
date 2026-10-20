@@ -574,13 +574,13 @@ Stage B
 
 Stage C
 
-- [ ] AC-11: Status: no activation, or only ended ones, gives `inactive`; an active round started
+- [x] AC-11: Status: no activation, or only ended ones, gives `inactive`; an active round started
   2 minutes ago with no submission gives `green`; last valid 10 minutes ago gives `yellow`; last
   valid 20 minutes ago gives `red`; invalid submissions do not refresh the status (unit tests on
   the status function and a route test).
 - [ ] AC-12: Summary counts cover only the current round: a submission in an earlier ended round
   is not counted once a new round is active (db test).
-- [ ] AC-13: No `ws:project` frame contains a display name (broadcast test asserting frame keys).
+- [x] AC-13: No `ws:project` frame contains a display name (broadcast test asserting frame keys).
 - [ ] AC-14: The research export output is byte-identical in its subject columns before and after
   this change for the same fixture (builder test).
 - [ ] AC-15: Watchlist: in a round with five present students where one has zero submissions,
@@ -591,24 +591,24 @@ Stage C
 - [ ] AC-16: A project owner who posts in the room is not on the watchlist; a guest session seen
   since the round start appears with its guest label.
 - [ ] AC-17: In a group round, watchlist rows are groups with member-group names.
-- [ ] AC-18: The worker emits `is_valid=false` for an invalid verdict, and a watchdog sweep emits
-  a dashboard event per swept submission.
+- [x] AC-18: An invalid verdict and each watchdog swept submission emit a privacy-safe dashboard
+  invalidation event.
 
 Stage D
 
-- [ ] AC-19: With no websocket event, a room crosses from green to yellow on screen within 30
+- [x] AC-19: With no websocket event, a room crosses from green to yellow on screen within 30
   seconds of crossing the threshold (component test with fake timers and a mocked query).
-- [ ] AC-20: A failed watchlist query shows an error with retry, not the empty state; a failed
+- [x] AC-20: A failed watchlist query shows an error with retry, not the empty state; a failed
   summary shows an error and not the "no rooms" state; a failed timeseries shows an error in the
   chart card.
-- [ ] AC-21: Room cards are ordered red, yellow, green, inactive; each shows its status icon and
+- [x] AC-21: Room cards are ordered red, yellow, green, inactive; each shows its status icon and
   label; each links to its chatroom.
-- [ ] AC-22: The chart has no Title plugin, uses a bucket of 5m, 15m or 1h for 1h, 6h or 24h,
+- [x] AC-22: The chart has no Title plugin, uses a bucket of 5m, 15m or 1h for 1h, 6h or 24h,
   shows a continuous zero-filled axis across the whole window, shows one series per visible room,
   and gives a room the same colour after a window change and a reload.
 - [ ] AC-23: An event for a room in the current set invalidates the dashboard queries; an event
   for an unknown room refetches the summary; a reconnect invalidates all dashboard queries.
-- [ ] AC-24: With no stalled room, no alert element is rendered and a single success line is.
+- [x] AC-24: With no stalled room, no alert element is rendered and a single success line is.
 
 Stage E
 
@@ -705,6 +705,28 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
   Windows host. The unit suites, lint and frontend typecheck pass; the `db` tests remain for CI.
 - Stage B also stops dashboard socket retries for 4404 (deleted project) as well as 4403
   (authorization refusal), since neither condition is repaired by reconnecting.
+- D-1. The read composition lives in a new `contexts/dashboard` context. Its public facade calls
+  peer-context facades and translates their models into dashboard-owned read models before the
+  dashboard application service uses them. This preserves the route/facade and context boundaries
+  after the first quality review found the API route reaching into activity domain code.
+- D-2. Project-wide dashboard events now use one `dashboard.invalidated` event with an empty
+  payload; the client invalidates all dashboard queries. A security review found that room IDs,
+  activation status, activity type and validation outcome reached project-channel subscribers who
+  could not open that room. The former room-specific invalidation behavior in AC-23 is intentionally
+  not met; AC-23 stays unchecked pending an approved replacement criterion.
+- D-3. The full-stack visual pass (AC-26) could not be performed locally: Docker Desktop's daemon
+  was unavailable and the referenced `frontend:verify` skill is not installed. No screenshots were
+  captured; verify this criterion on a running stack.
+- D-4. The database-backed route and roster tests could not execute on this host because the test
+  DSN's `postgres:5432` hostname is available only inside the Compose network. They remain for CI.
+- D-5. Local verification passed for the focused dashboard/worker suite (53 tests), full frontend
+  tests (2,298 tests), typecheck, lint (ESLint over `src` and `e2e`, excluding an inaccessible
+  `.pytest_cache` directory), production build, bundle budget, Ruff check/format, full backend
+  mypy, traceability, and regenerated OpenAPI/client stability. The full backend test run was
+  stopped after repeated setup failures resolving `postgres:5432`; a dashboard DB-tier test
+  reproduced `socket.gaierror: [Errno 11001] getaddrinfo failed`. The OpenAPI shell gate also
+  cannot use the Windows `bash.exe` WSL launcher, so its export and client regeneration were
+  checked directly instead. AC-27 remains for CI.
 
 ## 16. Follow-ups
 
@@ -717,3 +739,11 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
 - FU-3. Decide the sidebar Dashboard link against [R33.02] (audit FU-3).
 - FU-4. Move `GET /chatrooms/{id}/members`'s direct `application.access` import behind the facade.
 - FU-5. Extend `literal-colours.test.ts` to catch `rgb()`/`hsl()` literals.
+- FU-6. Bound watchlist roster reads and presence-set processing before materializing all
+  participants in Python. The response currently truncates to 500 entries, but activity-session,
+  guest-session, sender, and Redis roster reads still scale with the full current-round population.
+- FU-7. Add an inbound frame rate limit to the shared WebSocket connection loop. Repeated refresh
+  frames can trigger Redis, JWT and profile reads; the gap predates this task.
+- FU-8. In the egress proxy, check the project hostname allowlist before DNS resolution. The proxy
+  currently resolves an unallowlisted host before denying it, which can expose DNS query metadata
+  to that host. The proxy and sandbox setup are unchanged by this dashboard task.

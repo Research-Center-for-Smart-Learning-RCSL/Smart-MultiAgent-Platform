@@ -9,96 +9,59 @@ import {
   LinearScale,
   PointElement,
   LineElement,
-  Title,
   Tooltip,
   Legend,
   type ChartData,
   type ChartOptions,
 } from 'chart.js'
+import type { BucketSize, TimeWindow } from '@shared/api-client'
 import type { TimeseriesBucket, RoomSummary } from '../types'
+import { buildDashboardChartData } from '../chartData'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
 const props = defineProps<{
   buckets: TimeseriesBucket[]
   rooms: RoomSummary[]
+  window: TimeWindow
+  bucket: BucketSize
 }>()
 
-const { t } = useI18n()
+const { locale } = useI18n()
+const { tickColor, gridColor, legendColor, seriesColor } = useChartTheme()
 
-const ROOM_COLORS = [
-  'rgb(59, 130, 246)',
-  'rgb(16, 185, 129)',
-  'rgb(245, 158, 11)',
-  'rgb(239, 68, 68)',
-  'rgb(139, 92, 246)',
-  'rgb(236, 72, 153)',
-  'rgb(14, 165, 233)',
-]
+const chartData = computed<ChartData<'line'>>(() =>
+  buildDashboardChartData(props, locale.value, seriesColor),
+)
 
-const roomMap = computed(() => {
-  const map = new Map<string, string>()
-  props.rooms.forEach((r) => map.set(r.room_id, r.room_name))
-  return map
-})
-
-const chartData = computed<ChartData<'line'>>(() => {
-  const bucketsByRoom = new Map<string, Map<string, number>>()
-  const allBuckets = new Set<string>()
-
-  for (const b of props.buckets) {
-    allBuckets.add(b.bucket)
-    if (!bucketsByRoom.has(b.room_id)) bucketsByRoom.set(b.room_id, new Map())
-    bucketsByRoom.get(b.room_id)!.set(b.bucket, b.count)
-  }
-
-  const labels = [...allBuckets].sort()
-  const datasets = [...bucketsByRoom.entries()].map(([roomId, data], i) => ({
-    label: roomMap.value.get(roomId) || roomId.slice(0, 8),
-    data: labels.map((l) => data.get(l) || 0),
-    borderColor: ROOM_COLORS[i % ROOM_COLORS.length],
-    backgroundColor: 'transparent',
-    tension: 0.3,
-    pointRadius: 2,
-  }))
-
-  return {
-    labels: labels.map((l) =>
-      new Date(l).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    ),
-    datasets,
-  }
-})
-
-const { tickColor, gridColor, legendColor } = useChartTheme()
-
-const chartOptions = computed<ChartOptions<'line'>>(() => {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        labels: { color: legendColor.value },
-      },
-      title: {
-        display: true,
-        text: t('dashboard.chartTitle'),
+const chartOptions = computed<ChartOptions<'line'>>(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { intersect: false, mode: 'index' },
+  plugins: {
+    legend: {
+      position: 'bottom',
+      labels: {
         color: legendColor.value,
+        usePointStyle: true,
+        pointStyle: 'circle',
+        boxWidth: 8,
+        boxHeight: 8,
       },
     },
-    scales: {
-      x: {
-        ticks: { color: tickColor.value },
-        grid: { color: gridColor.value },
-      },
-      y: {
-        beginAtZero: true,
-        ticks: { color: tickColor.value, precision: 0 },
-        grid: { color: gridColor.value },
-      },
+  },
+  scales: {
+    x: {
+      ticks: { color: tickColor.value, maxTicksLimit: 6, autoSkip: true },
+      grid: { color: gridColor.value },
     },
-  }
-})
+    y: {
+      beginAtZero: true,
+      ticks: { color: tickColor.value, precision: 0 },
+      grid: { color: gridColor.value },
+    },
+  },
+}))
 </script>
 
 <template>

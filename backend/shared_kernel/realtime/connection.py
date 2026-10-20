@@ -449,8 +449,10 @@ async def connection_loop(
                     if verdict is not True and verdict is not AccessOutcome.ALLOWED:
                         # Anything but an explicit allow refuses, so a probe that
                         # returns something unexpected fails closed.
-                        refusal = verdict if verdict in _REFUSAL_CODES else AccessOutcome.FORBIDDEN
-                        _request_close(*_REFUSAL_CODES[refusal])
+                        if isinstance(verdict, AccessOutcome) and verdict in _REFUSAL_CODES:
+                            _request_close(*_REFUSAL_CODES[verdict])
+                        else:
+                            _request_close(*_REFUSAL_CODES[AccessOutcome.FORBIDDEN])
                         return
             jti = conn.token_jti
             if jti is None:

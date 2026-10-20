@@ -11,5 +11,6 @@ export function useDashboardSummary(workspaceId: () => string) {
         workspaceId: workspaceId(),
       }),
     enabled: computed(() => !!workspaceId()),
+    refetchInterval: 30_000,
   })
 }

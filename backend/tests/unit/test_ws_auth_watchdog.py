@@ -144,3 +144,29 @@ async def test_endpoint_can_authorize_on_each_30_second_watchdog_tick(
 
     assert called
     assert ws.closed == (4403, "access denied")
+
+
+async def test_unexpected_boolean_authorization_result_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_redis(monkeypatch, _FakeRedis(denied=False))
+    ws = _FakeWS()
+
+    async def authorize(_conn: conn_mod.ChannelConnection) -> bool:
+        return False
+
+    await asyncio.wait_for(
+        conn_mod.connection_loop(
+            ws=ws,
+            principal=_principal(),
+            subprotocol="",
+            channels=[],
+            token_expires_at=now() + timedelta(hours=1),
+            token_jti=uuid.uuid4(),
+            authorize=authorize,
+            authorize_every_n_ticks=1,
+        ),
+        timeout=5.0,
+    )
+
+    assert ws.closed == (4403, "access denied")

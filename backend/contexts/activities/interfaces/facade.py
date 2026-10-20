@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activation_service import ActivationService
-from contexts.activities.application.aggregation_service import AggregationService
+from contexts.activities.application.aggregation_service import _WATCHLIST_IDLE_MINUTES, AggregationService
 from contexts.activities.application.example_service import (
     ActivityExampleService,
     CatalogueEntry,
@@ -37,6 +37,7 @@ from contexts.activities.domain.errors import (
     PlatformActivityTypeReadOnly,
 )
 from contexts.activities.domain.models import (
+    ActivationStatus,
     ActivityActivation,
     ActivityActivationEndResult,
     ActivityAggregate,
@@ -56,7 +57,10 @@ from contexts.activities.domain.models import (
     PolicyImpact,
     RecentActivityRow,
     ResearchExportSubmission,
-    RoomDashboardAggregate,
+    RoundDashboardAggregate,
+    RoundSubject,
+    RoundSubjectCount,
+    SubjectKind,
     TimeseriesBucket,
     ValidationResult,
     ValidatorKind,
@@ -66,6 +70,7 @@ from contexts.activities.infrastructure.repositories.activation_repo import Acti
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
+from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 
 # Upper bound on the admin form's "how many types would this break" preview. A
@@ -74,6 +79,7 @@ from contexts.activities.infrastructure.repositories.type_repo import ActivityTy
 _POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
+    "ActivationStatus",
     "ActivitiesFacade",
     "ActivityActivation",
     "ActivityActivationEndResult",
@@ -94,7 +100,10 @@ __all__ = [
     "MemberGroupRef",
     "PlatformExample",
     "RecentActivityRow",
-    "RoomDashboardAggregate",
+    "RoundDashboardAggregate",
+    "RoundSubject",
+    "RoundSubjectCount",
+    "SubjectKind",
     "TimeseriesBucket",
     "ValidationResult",
     "ValidatorInfo",
@@ -104,11 +113,14 @@ __all__ = [
 
 
 class ActivitiesFacade:
+    WATCHLIST_IDLE_MINUTES = _WATCHLIST_IDLE_MINUTES
+
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._types = ActivityTypeService(db)
         activation_repo = ActivationRepository(db)
         self._activation_repo = activation_repo
+        self._session_repo = ActivitySessionRepository(db)
         self._type_repo = ActivityTypeRepository(db)
         self._optin_repo = ProjectActivityTypeOptInRepository(db)
         self._policy = ActivityPolicyService(db)
@@ -985,8 +997,21 @@ class ActivitiesFacade:
 
     # -- Teacher dashboard ([R33.01]) ---------------------------------------- #
 
-    async def aggregate_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[RoomDashboardAggregate]:
-        return await self._aggregation.aggregate_for_rooms(chatroom_ids=chatroom_ids)
+    async def current_activations_for_rooms(
+        self, *, chatroom_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, ActivityActivation]:
+        return await self._activation_repo.current_for_rooms(chatroom_ids)
+
+    async def round_aggregates(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundDashboardAggregate]:
+        return await self._aggregation.round_aggregates(activation_ids=activation_ids)
+
+    async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
+        return await self._aggregation.round_subject_counts(activation_ids=activation_ids)
+
+    async def round_session_subjects(
+        self, *, activation_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, set[RoundSubject]]:
+        return await self._session_repo.subjects_for_activations(activation_ids)
 
     async def timeseries_for_rooms(
         self,
@@ -1013,5 +1038,17 @@ class ActivitiesFacade:
             created_before=created_before,
         )
 
-    async def watchlist_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[WatchlistEntry]:
-        return await self._aggregation.watchlist_for_rooms(chatroom_ids=chatroom_ids)
+    async def watchlist_for_rounds(
+        self,
+        *,
+        rounds: Sequence[tuple[uuid.UUID, uuid.UUID, dt.datetime, bool]],
+        roster: dict[uuid.UUID, set[tuple[uuid.UUID, str]]],
+        session_subjects: dict[uuid.UUID, set[RoundSubject]],
+        now_at: dt.datetime | None = None,
+    ) -> list[WatchlistEntry]:
+        return await self._aggregation.watchlist_for_rounds(
+            rounds=rounds,
+            roster=roster,
+            session_subjects=session_subjects,
+            now_at=now_at,
+        )

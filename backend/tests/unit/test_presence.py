@@ -96,6 +96,9 @@ class _FakePipe:
     def exists(self, key: str) -> None:
         self._ops.append(("exists", key))
 
+    def smembers(self, key: str) -> None:
+        self._ops.append(("smembers", key))
+
     async def execute(self) -> list:
         results: list = []
         for op in self._ops:
@@ -107,6 +110,8 @@ class _FakePipe:
                 results.append(None)
             elif op[0] == "exists":
                 results.append(await self._redis.exists(op[1]))
+            elif op[0] == "smembers":
+                results.append(await self._redis.smembers(op[1]))
         self._ops = []
         return results
 
@@ -141,6 +146,21 @@ async def test_multi_tab_announces_once_and_leaves_on_last(fake_redis: _FakeRedi
     left, roster_size = await p.leave(room_id=room, user_id=user, connection_id=c2)
     assert (left, roster_size) == (True, 0)
     assert await p.list_room(room) == []
+
+
+@pytest.mark.asyncio
+async def test_list_rooms_batches_and_reconciles_each_room(fake_redis: _FakeRedis) -> None:
+    tracker = PresenceTracker()
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b, ghost = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await tracker.join(room_id=room_a, user_id=user_a, connection_id=uuid.uuid4())
+    await tracker.join(room_id=room_b, user_id=user_b, connection_id=uuid.uuid4())
+    await fake_redis.sadd(f"ws:presence:{room_a}", str(ghost))
+
+    result = await tracker.list_rooms([room_a, room_b])
+
+    assert result == {room_a: [user_a], room_b: [user_b]}
+    assert str(ghost) not in await fake_redis.smembers(f"ws:presence:{room_a}")
 
 
 @pytest.mark.asyncio

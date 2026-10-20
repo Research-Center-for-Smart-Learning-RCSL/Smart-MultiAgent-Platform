@@ -92,6 +92,7 @@ class ConversationFacade:
         self._rooms = ChatroomRepository(db)
         self._messages = MessageRepository(db)
         self._guests = ChatroomGuestRepository(db)
+        self._guest_sessions = GuestSessionRepository(db)
         self._room_agents = ChatroomAgentRepository(db)
         self._attachments = MessageAttachmentRepository(db)
 
@@ -464,6 +465,62 @@ class ConversationFacade:
     async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Human author ids present in the room's live message history (capped)."""
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
+
+    async def round_roster(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]:
+        """Batch the message, guest-session, and live-presence roster for rounds.
+
+        Each result pair is ``(principal_id, kind)`` where kind is ``user`` or
+        ``guest``. Redis is an opportunistic source; failure cannot hide the
+        database-backed message and guest-session participants.
+        """
+        if not rounds:
+            return {}
+        room_ids = [room_id for room_id, _ in rounds]
+        roster: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id in room_ids}
+        message_senders = await self._messages.human_senders_since_by_room(rounds)
+        guests_by_room = await self._guest_sessions.seen_since_by_room(rounds)
+        for room_id in room_ids:
+            roster[room_id].update(message_senders.get(room_id, set()))
+            roster[room_id].update((guest_id, SenderType.GUEST.value) for guest_id in guests_by_room[room_id])
+        try:
+            presence_by_room = await PresenceTracker().list_rooms(room_ids)
+        except Exception:
+            logger.bind(room_ids=[str(room_id) for room_id in room_ids]).opt(exception=True).warning(
+                "presence read for dashboard roster failed"
+            )
+            return roster
+        for room_id, principal_ids in presence_by_room.items():
+            guest_ids = guests_by_room.get(room_id, set())
+            roster[room_id].update(
+                (principal_id, SenderType.GUEST.value if principal_id in guest_ids else SenderType.USER.value)
+                for principal_id in principal_ids
+            )
+        return roster
+
+    async def message_counts_by_sender(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Batch current-round message counts, excluding deleted and system messages."""
+        return await self._messages.counts_by_sender_since_by_room(rounds)
+
+    async def guest_labels(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Display names for a batch of guest session ids; token data is not selected."""
+        return await self._guest_sessions.labels_for_ids(session_ids)
+
+    async def room_online_counts(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int | None]:
+        """Live deduplicated principals per room, or ``None`` when Redis is unavailable."""
+        if not chatroom_ids:
+            return {}
+        try:
+            rosters = await PresenceTracker().list_rooms(chatroom_ids)
+        except Exception:
+            logger.bind(room_count=len(chatroom_ids)).opt(exception=True).warning(
+                "presence read for dashboard counts failed"
+            )
+            return dict.fromkeys(chatroom_ids, None)
+        return {room_id: len(rosters.get(room_id, [])) for room_id in chatroom_ids}
 
     async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Agent ids the room's live history shows: authors and disclosed observers (capped)."""
