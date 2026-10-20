@@ -192,7 +192,10 @@ async def test_listing_exposes_color_without_disclosing_observers(monkeypatch, c
     uid, agent_id, observer_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     room = chatroom_row(created_by=uid if creator else uuid.uuid4())
     access = RoomAccess(
-        chatroom=room, project_id=uuid.uuid4(), roles=frozenset({Role.PROJECT_MEMBER}), is_guest=guest
+        chatroom=room,
+        project_id=uuid.uuid4(),
+        roles=frozenset() if guest else frozenset({Role.PROJECT_MEMBER}),
+        is_guest=guest,
     )
     monkeypatch.setattr(routes, "resolve_room_access", AsyncMock(return_value=access))
     monkeypatch.setattr(
@@ -219,4 +222,4 @@ async def test_listing_exposes_color_without_disclosing_observers(monkeypatch, c
         db=SimpleNamespace(),
     )
     assert out[0].bubble_color is ChatroomAgentBubbleColor.ROSE
-    assert [r.agent_id for r in out] == ([agent_id, observer_id] if creator else [agent_id])
+    assert [r.agent_id for r in out] == ([agent_id, observer_id] if creator and not guest else [agent_id])

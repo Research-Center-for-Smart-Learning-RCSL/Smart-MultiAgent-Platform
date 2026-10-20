@@ -823,7 +823,9 @@ each row for its own list — the frontmatter wins over this preamble.
   own messages sit on the right (tinted), resolved from the access token so guests and
   impersonation are correct; everyone else is on the left. Part B: a per-room colour from an
   eight-key palette for participant (normal-role) agent bindings, set by row 29's audience,
-  refused for observers. Migration 0105. Built as two milestones, A then B.
+  refused for observers. Migration 0105. Both milestones committed locally;
+  pending DB/e2e/live-stack verification, clean backend typecheck and a stacked PR
+  on the existing source branch. See the dossier verification record.
 
 - `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
   2026-10-16 on `feat/crat-facilitation-phase2`, SRS delta applied) - `depends_on: []`. Bounded participant facts and

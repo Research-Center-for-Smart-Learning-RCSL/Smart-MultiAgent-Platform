@@ -538,6 +538,13 @@ Appended by /build.
   "you" label; correct today, but could read the shared viewer.
 
 
+- FU-5: Existing backend architectural debt in the touched area: routes import
+  application services directly (`backend/app/api/v1/chatrooms.py:18`), while services
+  construct concrete repositories (`backend/contexts/conversation/application/chatroom_service.py:22`).
+  The new write uses the facade; wider port/facade migration remains separate.
+- FU-6: Restore the clean backend typecheck baseline for the three unchanged-file
+  errors recorded in §17; do not silence the type checker in this task.
+
 ## 17. Implementation verification (2026-10-20)
 
 Implementation is present on `feat/chat-bubble-sides-and-agent-colors`. Status remains
@@ -546,11 +553,18 @@ and clean remote CI are still required. Unchecked acceptance criteria are not wa
 
 - Milestone A: `96443096`; focused frontend suite 158 passed, guest/impersonation
   suite 21 passed, and typecheck passed.
-- Milestone B: migration 0105, locked idempotent audited write, shared row-29 predicate,
+- Milestone B: `8f86a722`; migration 0105, locked idempotent audited write, shared row-29 predicate,
   creator-aware observer refusal, generated API, palette controls, both bubble types,
   and English/Traditional Chinese translations. Persisted audit and enum/role-clearing
   DB tests are added alongside an isolated scratch-schema migration roundtrip test.
-- Frontend lint, typecheck and production build passed. The eight border/tint pairs
+- Final full frontend run: 264 files and 2,251 tests passed with two workers.
+  The first broad run had the then-unfixed stream-startup test and an unrelated
+  CodeMirror mount timeout; the editor suite also passes unchanged in isolation.
+- Final affected backend run: 172 tests passed (appearance, observers, wake-up routes,
+  draft API, guest reads and agent labels). Existing DTO stand-ins now include the
+  new nullable field; their assertions are unchanged.
+- Frontend lint, typecheck, production build and `check:openapi-drift` passed.
+  Backend `ruff check .` and `ruff format --check .` pass. The eight border/tint pairs
   and the own tint pass all required light/dark contrast checks. The colour-view/API
   suite passed 43 tests after respecting socket startup before injecting a stream;
   failed-save selection rollback and all 31 settings tests pass.
@@ -572,8 +586,8 @@ and clean remote CI are still required. Unchecked acceptance criteria are not wa
   `shared_kernel/realtime/connection.py:445` (`index`). No new-file error remains.
 - A broad local backend unit run was interrupted after 2,880 of 12,102 tests because
   sandbox temporary-directory permissions caused unrelated failures. A diagnostic
-  example-pack run reproduced the permission error, and the same unchanged suite
-  outside the sandbox passed 427 tests with one documented skip.
+  example-pack run reproduced a pytest temporary-directory permission error; the same
+  unchanged suite outside the sandbox passed 427 tests with one documented skip.
 - Quality audit: all 12 dimensions over the entire task diff from the base recorded
   in D-1, including new files and excluding generated-client implementation. A misplaced
   locale subtree was found and fixed. No remaining introduced Critical/Warning findings.
@@ -590,3 +604,12 @@ and clean remote CI are still required. Unchecked acceptance criteria are not wa
 Contract gates: API regenerated; i18n/traceability passed; migration execution pending.
 Security gate applies because this adds an authorized write surface. Deployment and
 new-dependency checks are N/A: neither is changed.
+
+
+Integration note: the recorded base is the local `feat/peer-deliberate-errors` head,
+which includes unmerged classroom phase-2 work and migration 0104 plus approved dossiers.
+`origin/main` lacks that migration and its wake-up surfaces. A PR directly against that
+ref would include unrelated preceding work. Keep this task's PR stacked on the existing
+source branch (which is not yet published), or wait for the preceding work to land.
+Publishing either branch requires the user's explicit confirmation. No push or PR has
+been performed. The sequencing index stays In progress until the remaining gates pass.
