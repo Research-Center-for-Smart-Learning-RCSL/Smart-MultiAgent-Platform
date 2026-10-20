@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useTheme } from '@shared/composables'
+import { useChartTheme } from '@shared/composables'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -70,41 +70,31 @@ const chartData = computed<ChartData<'line'>>(() => {
   }
 })
 
-function token(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-}
-
-const { theme } = useTheme()
+const { tickColor, gridColor, legendColor } = useChartTheme()
 
 const chartOptions = computed<ChartOptions<'line'>>(() => {
-  // Force recomputation when theme changes
-  void theme.value
-  const fg = token('--color-fg')
-  const muted = token('--color-muted')
-  const grid = token('--color-border-subtle')
-
   return {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
       legend: {
-        labels: { color: fg },
+        labels: { color: legendColor.value },
       },
       title: {
         display: true,
         text: t('dashboard.chartTitle'),
-        color: fg,
+        color: legendColor.value,
       },
     },
     scales: {
       x: {
-        ticks: { color: muted },
-        grid: { color: grid },
+        ticks: { color: tickColor.value },
+        grid: { color: gridColor.value },
       },
       y: {
         beginAtZero: true,
-        ticks: { color: muted, precision: 0 },
-        grid: { color: grid },
+        ticks: { color: tickColor.value, precision: 0 },
+        grid: { color: gridColor.value },
       },
     },
   }

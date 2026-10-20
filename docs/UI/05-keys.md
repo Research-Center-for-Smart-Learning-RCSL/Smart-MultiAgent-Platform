@@ -1451,8 +1451,8 @@ over configurable time windows.
 
 ### 8.3 Time Window Selector
 
-Rendered as a segmented button group (4 `SButton` elements, variant
-`ghost` for unselected, variant `secondary` for selected).
+Rendered through the shared `SSegmentedControl` primitive with the time-window label as
+its accessible group name.
 
 | Window | Label | API Parameter |
 |--------|-------|---------------|
@@ -1463,29 +1463,26 @@ Rendered as a segmented button group (4 `SButton` elements, variant
 
 Default selection: `1h`.
 
-**Visual spec**:
-- Button group: inline-flex, no gap, shared border
-- First button: border-radius `--radius-md` 0 0 `--radius-md`
-- Last button: border-radius 0 `--radius-md` `--radius-md` 0
-- Middle buttons: border-radius 0
-- Selected: `--color-accent` bg, white text
-- Unselected: `--color-bg` bg, `--color-fg` text
+**Visual spec**: The shared control owns selected and disabled states, radii, spacing, and
+focus styling. The key usage dashboard supplies its localized accessible label and the
+four options above.
 
 ### 8.4 Stat Cards
 
-Four stat cards in horizontal flex layout (wrapping on narrow viewports).
+Four shared `SStatTile` instances in a horizontal flex layout that wraps on narrow
+viewports. The dashboard supplies localized labels, formatted values, and a danger tone
+for non-zero errors. Its `#value` slot wraps each abbreviation in `STooltip` with the
+full number.
 
 | Stat | Label | Format | Color Condition |
 |------|-------|--------|-----------------|
 | Requests | "Requests" | Locale number: `1,248` | Default `--color-fg` |
 | Input Tokens | "Input Tokens" | Abbreviated: `3.2M`, `892K`, `1,248` | Default `--color-fg` |
 | Output Tokens | "Output Tokens" | Abbreviated | Default `--color-fg` |
-| Errors | "Errors" | Locale number | `--color-danger` when > 0, else `--color-muted` |
+| Errors | "Errors" | Locale number | `--color-danger` when > 0, else `--color-fg` |
 
-**Number abbreviation rules**:
-- < 1,000: locale number (e.g., "892")
-- 1,000 - 999,999: `{n/1000:.1f}K` (e.g., "892.3K")
-- >= 1,000,000: `{n/1000000:.1f}M` (e.g., "3.2M")
+Token values continue to use the existing `formatTokenCount` helper; `SStatTile` owns the
+shared card, label, tone, and compact presentation.
 
 **Stat card visual spec** (compact = false):
 - Each card: min-width 140px, flex 1
@@ -1586,7 +1583,9 @@ This is informational only and not interactive.
 
 | Component | Usage |
 |-----------|-------|
-| `SButton` | Time window selector buttons, retry |
+| `SSegmentedControl` | Time window selector |
+| `SStatTile` | Usage counters |
+| `SButton` | Retry |
 | `SProgressBar` | Hourly limit usage bars |
 | `SAlert` | 80% threshold warning, error state |
 | `SSkeleton` | Loading placeholders |

@@ -9,6 +9,7 @@
     "lastActivity": "Last Activity",
     "timeseries": "Output Trend",
     "timeWindow": { "1h": "1 Hour", "6h": "6 Hours", "24h": "24 Hours" },
+    "timeWindowLabel": "Chart time window",
     "bucketSize": { "1m": "1 min", "5m": "5 min", "15m": "15 min", "1h": "1 hour" },
     "watchlist": "Student Watchlist",
     "watchlistEmpty": "All participants are above median. No attention needed.",

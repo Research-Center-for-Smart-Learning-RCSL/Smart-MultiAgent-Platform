@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
+import { SStatTile } from '@shared/ui'
 import AdminMetricsView from '../views/AdminMetricsView.vue'
 
 describe('AdminMetricsView', () => {
@@ -25,6 +26,7 @@ describe('AdminMetricsView', () => {
     await new Promise(r => setTimeout(r, 50))
     const cards = wrapper.findAll('.admin-metrics__card')
     expect(cards.length).toBe(4)
+    expect(wrapper.findAllComponents(SStatTile)).toHaveLength(4)
     expect(wrapper.text()).toContain('100')
     expect(wrapper.text()).toContain('5000')
   })

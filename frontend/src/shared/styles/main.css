@@ -72,6 +72,16 @@
   --color-success: #16a34a;
   --color-warning: #d97706;
 
+  /* Chart series stay outside the red/amber/green status palette. */
+  --color-chart-1: #525ee0;
+  --color-chart-2: #4a174f;
+  --color-chart-3: #1f0b84;
+  --color-chart-4: #0da094;
+  --color-chart-5: #a079d8;
+  --color-chart-6: #6d13ec;
+  --color-chart-7: #085e57;
+  --color-chart-8: #86298e;
+
   /* Foreground for content sitting ON a filled accent or danger surface - a
      primary button's label, an avatar's initials, a notification count.
      This was a hard-coded #fff in nine components, which is correct against
@@ -440,6 +450,14 @@
     --color-accent-hover: #93c5fd;
     --color-accent-2: #a78bfa;
     --color-danger: #f87171;
+    --color-chart-1: #bde0fa;
+    --color-chart-2: #af2fee;
+    --color-chart-3: #2e8b9e;
+    --color-chart-4: #b98ef6;
+    --color-chart-5: #22bfb2;
+    --color-chart-6: #effaf9;
+    --color-chart-7: #a8ade6;
+    --color-chart-8: #9061d1;
     /* The dark theme's accent and danger are light colours, so what reads on
        them is the sheet, not white: 7.02:1 and 6.45:1 against 2.54 and 2.77. */
     --color-on-accent: #0f172a;

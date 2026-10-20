@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
+import { SStatTile } from '@shared/ui'
 import AdminHomeView from '../views/AdminHomeView.vue'
 import AdminNav from '../components/AdminNav.vue'
 
@@ -33,5 +34,6 @@ describe('AdminHomeView', () => {
     const wrapper = await renderView(AdminHomeView)
     await new Promise(r => setTimeout(r, 50))
     expect(wrapper.text()).toContain('42')
+    expect(wrapper.findAllComponents(SStatTile)).toHaveLength(4)
   })
 })

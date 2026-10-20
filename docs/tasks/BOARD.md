@@ -13,17 +13,6 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
-### Teacher dashboard redesign (2026-10-19)
-
-- `2026-10-19-teacher-dashboard-redesign` (feature, **approved 2026-10-20**, SRS delta amending
-  [R33.02] and [R33.10] and adding [R33.05]-[R33.07] applied) - `depends_on: []`. Rebuilds the teacher
-  dashboard around the room's current round and absorbs the dashboard findings of the 2026-10-05
-  audit, whose planned fix dossiers were never created (F-1..F-4, F-7..F-9, F-11, F-16..F-23).
-  Five stages: shared primitives and chart tokens, authorization, round semantics and a named
-  watchlist, the page rebuild, and per-room presence and message figures. Its Q-9 records the
-  `main.css` overlap with `2026-10-19-chat-bubble-sides-and-agent-colors` (disjoint regions, not
-  a dependency; whoever builds second rebases, including `contrast.test.ts`).
-
 ### Peer deliberate errors (2026-10-19)
 
 - `2026-10-19-peer-deliberate-errors` (feature, **in progress 2026-10-19** on `feat/peer-deliberate-errors`, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
@@ -815,6 +804,16 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+### Teacher dashboard redesign (2026-10-19)
+
+- `2026-10-19-teacher-dashboard-redesign` (feature, **in progress 2026-10-20** on
+  `feat/chat-bubble-sides-and-agent-colors`, SRS delta amending [R33.02] and [R33.10] and adding
+  [R33.05]-[R33.07] applied) - `depends_on: []`. Rebuilds the teacher dashboard around the room's
+  current round and absorbs the dashboard findings of the 2026-10-05 audit. Five stages: shared
+  primitives and chart tokens, authorization, round semantics and a named watchlist, the page
+  rebuild, and per-room presence and message figures. Its Q-9 records the disjoint `main.css`
+  overlap with `2026-10-19-chat-bubble-sides-and-agent-colors`.
 
 ### Chat bubble sides and agent colours (2026-10-19)
 

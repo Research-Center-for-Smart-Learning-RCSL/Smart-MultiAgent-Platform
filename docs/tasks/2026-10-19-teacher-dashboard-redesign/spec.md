@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-19
 requirements: [R33.01, R33.02, R33.03, R33.04, R33.10, R13.32, R8.08, R8.09, R8.11, R28.18, R24.27, R24.28]
 depends_on: []
@@ -546,13 +546,13 @@ mobile, `row-click`), `SProgressBar`, `SRelativeTime` with `useNow`, `SEmptyStat
 
 Stage A
 
-- [ ] AC-1: `SStatTile`, `SSegmentedControl`, `useChartTheme` and `formatNumber`/`formatPercent`
+- [x] AC-1: `SStatTile`, `SSegmentedControl`, `useChartTheme` and `formatNumber`/`formatPercent`
   exist with component or unit tests; `seriesColor` returns the same token for the same key
   across calls and different tokens for at least 7 of 8 distinct sample room ids.
-- [ ] AC-2: `AdminHomeView`, `AdminMetricsView` and `UsageDashboard` render their tiles through
+- [x] AC-2: `AdminHomeView`, `AdminMetricsView` and `UsageDashboard` render their tiles through
   `SStatTile`; `UsageDashboard` and `PayloadSchemaField` render their window and option pickers
   through `SSegmentedControl`; `PayloadSchemaField.test.ts` passes unmodified.
-- [ ] AC-3: `--color-chart-1..8` exist in both theme blocks; `contrast.test.ts` asserts each at
+- [x] AC-3: `--color-chart-1..8` exist in both theme blocks; `contrast.test.ts` asserts each at
   3:1 against `--color-surface` in both themes; the palette validator's CVD check passes and its
   output is recorded in §15 or the commit message.
 
@@ -692,7 +692,10 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- Stage A palette check: chart tokens measure at least 3:1 against `--color-surface` in both
+  themes. Machado full-severity simulations report minimum pairwise CIE76 distances of 21.2,
+  21.2, and 21.3 for protanopia, deuteranopia, and tritanopia in light mode, and 16.7, 16.5,
+  and 15.9 in dark mode.
 
 ## 16. Follow-ups
 

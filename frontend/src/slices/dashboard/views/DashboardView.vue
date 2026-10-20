@@ -2,11 +2,14 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import SPageHeader from '@shared/ui/SPageHeader.vue'
-import SCard from '@shared/ui/SCard.vue'
-import SSkeleton from '@shared/ui/SSkeleton.vue'
-import SAlert from '@shared/ui/SAlert.vue'
-import SEmptyState from '@shared/ui/SEmptyState.vue'
+import {
+  SPageHeader,
+  SCard,
+  SSkeleton,
+  SAlert,
+  SEmptyState,
+  SSegmentedControl,
+} from '@shared/ui'
 import { useDashboardSummary } from '../composables/useDashboardSummary'
 import { useDashboardTimeseries } from '../composables/useDashboardTimeseries'
 import { useDashboardWatchlist } from '../composables/useDashboardWatchlist'
@@ -19,7 +22,6 @@ import ResearchExportButton from '../components/ResearchExportButton.vue'
 import OutputChart from '../components/OutputChart.vue'
 import StudentWatchlist from '../components/StudentWatchlist.vue'
 import DashboardAlerts from '../components/DashboardAlerts.vue'
-import TimeWindowSelector from '../components/TimeWindowSelector.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -27,6 +29,15 @@ const route = useRoute()
 const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
 const timeWindow = ref<TimeWindow>('1h')
 const bucketSize = ref<BucketSize>('5m')
+const timeWindowOptions = computed(() => [
+  { value: '1h', label: t('dashboard.timeWindow.1h') },
+  { value: '6h', label: t('dashboard.timeWindow.6h') },
+  { value: '24h', label: t('dashboard.timeWindow.24h') },
+])
+
+function setTimeWindow(value: string): void {
+  if (value === '1h' || value === '6h' || value === '24h') timeWindow.value = value
+}
 
 const wid = () => workspaceId.value
 const {
@@ -119,7 +130,12 @@ const { isAuthorized: canExport, decided: roleDecided } = useProjectRole(
             <h2 class="text-lg font-semibold text-[var(--color-fg)]">
               {{ t('dashboard.timeseries') }}
             </h2>
-            <TimeWindowSelector v-model="timeWindow" />
+            <SSegmentedControl
+              :model-value="timeWindow"
+              :options="timeWindowOptions"
+              :accessible-label="t('dashboard.timeWindowLabel')"
+              @update:model-value="setTimeWindow"
+            />
           </div>
           <SSkeleton
             v-if="tsLoading"

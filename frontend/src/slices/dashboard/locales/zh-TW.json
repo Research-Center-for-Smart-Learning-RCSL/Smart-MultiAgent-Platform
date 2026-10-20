@@ -9,6 +9,7 @@
     "lastActivity": "最近活動",
     "timeseries": "產出趨勢",
     "timeWindow": { "1h": "1 小時", "6h": "6 小時", "24h": "24 小時" },
+    "timeWindowLabel": "圖表時間範圍",
     "bucketSize": { "1m": "1 分鐘", "5m": "5 分鐘", "15m": "15 分鐘", "1h": "1 小時" },
     "watchlist": "學生關注名單",
     "watchlistEmpty": "所有參與者均高於中位數，無需關注。",
