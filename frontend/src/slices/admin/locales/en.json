@@ -64,7 +64,7 @@
       "createSubmit": "Create account",
       "createNote": "The account is created unverified and with no password. You will be given two links to hand over: one to set a password, one to verify the address. No membership is created — the user still has to accept any invitation themselves.",
       "createDisplayNameHelp": "Optional. Up to 50 characters.",
-      "created": "Account created.",
+      "accountCreated": "Account created.",
       "createEmailTaken": "That address already has an account.",
       "createDomainDenied": "This deployment's email-domain policy rejects that address.",
       "createEmailInvalid": "That is not a valid email address.",

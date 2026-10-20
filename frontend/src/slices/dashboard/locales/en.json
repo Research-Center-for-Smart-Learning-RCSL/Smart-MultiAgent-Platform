@@ -12,7 +12,7 @@
     "room": "Room",
     "validCount": "Valid submissions",
     "lastValidSubmission": "Last valid submission",
-    "reason": "Reason",
+    "reasonColumn": "Reason",
     "filterRoom": "Filter by room",
     "allRooms": "All rooms",
     "activeRounds": "Active rounds",

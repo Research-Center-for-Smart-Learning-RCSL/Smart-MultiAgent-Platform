@@ -12,7 +12,7 @@
     "room": "聊天室",
     "validCount": "有效提交",
     "lastValidSubmission": "最近有效提交",
-    "reason": "原因",
+    "reasonColumn": "原因",
     "filterRoom": "依聊天室篩選",
     "allRooms": "所有聊天室",
     "activeRounds": "進行中的回合",

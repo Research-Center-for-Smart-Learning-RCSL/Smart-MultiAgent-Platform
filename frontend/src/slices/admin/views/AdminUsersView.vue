@@ -225,7 +225,7 @@ function onCreate(payload: { email: string; displayName: string | null }): void 
     onSuccess: (result) => {
       showCreate.value = false
       provisioned.value = result
-      toast.success(t('admin.users.created'))
+      toast.success(t('admin.users.accountCreated'))
     },
   })
 }

@@ -20,7 +20,7 @@ const columns = computed<Column[]>(() => [
   { key: 'room_name', label: t('dashboard.room') },
   { key: 'valid_count', label: t('dashboard.validCount'), align: 'right', cellType: 'number' },
   { key: 'last_valid_submission_at', label: t('dashboard.lastValidSubmission') },
-  { key: 'reason', label: t('dashboard.reason') },
+  { key: 'reason', label: t('dashboard.reasonColumn') },
 ])
 
 const rows = computed(() =>
