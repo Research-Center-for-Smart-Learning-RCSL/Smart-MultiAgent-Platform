@@ -16,6 +16,7 @@
     "check:boundaries-enforced": "bash scripts/check-boundaries-enforced.sh",
     "check:apierror-guard": "bash scripts/check-generated-apierror-guard.sh",
     "check:bundle-size": "bash scripts/check-bundle-size.sh",
+    "check:theme-tokens": "node scripts/check-theme-tokens.mjs",
     "check:global-css": "bash scripts/check-global-css.sh",
     "check:view-tests": "bash scripts/check-view-tests.sh",
     "check:type-coverage": "bash scripts/check-type-coverage.sh",

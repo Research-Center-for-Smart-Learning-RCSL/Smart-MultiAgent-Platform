@@ -910,6 +910,8 @@ jobs:
         run: pnpm run build
       - name: "Gate #9: Bundle budget"
         run: pnpm run check:bundle-size
+      - name: Theme tokens reach the built CSS
+        run: pnpm run check:theme-tokens
 
   # Gate 10: Type coverage >= 95%
   frontend-gate-type-coverage:

@@ -41,8 +41,14 @@
    Semantic colors, radii, fonts, breakpoints.
    Spacing uses Tailwind's default --spacing: 0.25rem which matches
    our original token scale exactly (p-1=4px … p-6=24px).
+
+   `static`: plain @theme only emits a variable when a scanned source names it
+   literally. The agent bubble and chart series tokens are named through
+   template strings in TypeScript, so they were dropped from the production
+   CSS while dev and the unit tier still saw them.
+   `pnpm run check:theme-tokens` guards the built output.
    ─────────────────────────────────────────────────────────────── */
-@theme {
+@theme static {
   /* ── Surface roles ──
      Three depths, not two. --color-canvas is the floor the application sits
      on, --color-bg is a sheet raised off it (card, modal, dropdown, top bar,

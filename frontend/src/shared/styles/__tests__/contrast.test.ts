@@ -42,7 +42,7 @@ function block(css: string, opener: string): Record<string, string> {
   return out
 }
 
-const light = block(mainCss, '@theme {')
+const light = block(mainCss, '@theme static {')
 // Dark declares only what it overrides; everything else is inherited from light.
 const dark = { ...light, ...block(mainCss, ':root[data-theme="dark"] {') }
 

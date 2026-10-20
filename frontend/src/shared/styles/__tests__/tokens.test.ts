@@ -26,9 +26,9 @@ const mainCss = readFileSync(MAIN_CSS, 'utf-8')
  * rather than silently everywhere.
  */
 
-/** Extracts `@theme { ... }`'s declarations, brace-counted rather than regexed. */
+/** Extracts `@theme static { ... }`'s declarations, brace-counted rather than regexed. */
 function themeBlock(css: string): Record<string, string> {
-  const start = css.indexOf('@theme {')
+  const start = css.indexOf('@theme static {')
   if (start === -1) throw new Error('main.css has no @theme block')
   let depth = 0
   let end = -1
