@@ -1,9 +1,9 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-20
-requirements: [R13.72, R13.73, R13.74, R13.75, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43]
-depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence]
+requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
+depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
 ---
 
 # Classroom facilitation phase 3: late joiners and activity state
@@ -25,6 +25,10 @@ state instead of being stated unconditionally.
 Both gaps were observed on staging on 2026-10-20 in `研究室測試房-1020` and `功能測試房-1020`:
 a joiner received no orientation, and the CRAT teacher told students the answer form was on
 the right before any activity had started.
+
+**Approval state:** approved 2026-10-20 as a whole (Q-1 to Q-11, goals, non-goals, design,
+ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. Building waits on both
+`depends_on` entries.
 
 ## 2. Goals and Non-goals
 
@@ -70,6 +74,7 @@ the right before any activity had started.
 | Q-7 | How is join noise contained? | **Confirmed 2026-10-20:** one join per participant per room per 30 minutes; joins within one minute coalesce into one wake per agent. | User choice. A page refresh is a leave plus a join at the presence layer (`presence.py:109-134`), so a per-person window is required. Thirty minutes re-orients someone who left mid-lesson and came back. |
 | Q-8 | Where is `on_join` configured? | **Confirmed 2026-10-20:** designer default on the agent's wake-up config, with a room override switch in the room wake-up settings. Not self-toggleable; not offered for observer bindings. | Matches the three-layer model in [R15.09] and the narrow room API in [R15.25]. |
 | Q-9 | Does a join wake require an earlier message in the room? | **Recommended:** yes, unless `allow_self_open` is true. | [R15.05] already forbids speaking first in a room nobody has spoken in; with nothing said there is nothing to orient a newcomer to. |
+| Q-11 | Does this depend on `2026-10-19-peer-deliberate-errors`? | **Confirmed 2026-10-20:** yes. | That dossier is in progress and edits the same six pack files (teacher `<步驟A1>` disclosure, peer `<刻意出錯>`, design packs). Rewriting the packs after it lands avoids two branches overwriting each other's prompt lines and pinned tests. |
 | Q-10 | Does a join wake obey the autostop cap? | **Recommended:** yes, like every non-explicit trigger (`app/workers/tasks/orchestration.py:139-145`), and it does not reset autostop. | A join is not a message the room waits on. OQ-1 tracks whether a stalled teacher should still greet newcomers. |
 
 ## 4. Current State
