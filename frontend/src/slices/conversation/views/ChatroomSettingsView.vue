@@ -46,6 +46,7 @@ import GuestBansCard from '../components/GuestBansCard.vue'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
 import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
+import AgentBubbleColorPicker from '../components/AgentBubbleColorPicker.vue'
 import RoomWakeupPanel from '../components/RoomWakeupPanel.vue'
 
 const { t } = useI18n()
@@ -131,6 +132,7 @@ const {
   onSetCanvasWriteAccess,
   onSetDraftAccess,
   onSetRole,
+  onSetBubbleColor,
 } = useChatroomBindings(chatroomId, () => room.value, {
   projectId: () => projectId.value,
   // The types feed only the creator's activity-control picker.
@@ -856,6 +858,13 @@ watchEffect(() => {
                  creator for any binding, a project editor for a normal one. The
                  shared agent is never written from here; the server decides, and
                  the panel hides itself on a 403/404. -->
+            <AgentBubbleColorPicker
+              v-if="agent.role !== 'observer' && (isCreator || canEditAgents)"
+              :name="`bubble-color-${agent.id}`"
+              :model-value="agent.bubble_color ?? null"
+              :disabled="bindingBusy"
+              @save="(color) => onSetBubbleColor(agent.id, color)"
+            />
             <RoomWakeupPanel
               v-if="isCreator || (canEditAgents && agent.role !== 'observer')"
               :chatroom-id="chatroomId"

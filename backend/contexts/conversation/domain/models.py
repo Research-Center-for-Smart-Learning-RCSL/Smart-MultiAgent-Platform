@@ -43,6 +43,17 @@ class ChatroomAgentRole(str, enum.Enum):
     OBSERVER = "observer"
 
 
+class ChatroomAgentBubbleColor(str, enum.Enum):
+    CYAN = "cyan"
+    TEAL = "teal"
+    GREEN = "green"
+    LIME = "lime"
+    AMBER = "amber"
+    ORANGE = "orange"
+    ROSE = "rose"
+    VIOLET = "violet"
+
+
 class AttachmentStatus(str, enum.Enum):
     ACTIVE = "active"
     QUARANTINED = "quarantined"
@@ -122,6 +133,7 @@ class ChatroomAgent:
     # The same row's wake-up layers, when the read that built this selected them,
     # so a message's wake-up evaluation needs no second read of the room's rows.
     wakeup: BindingWakeupState | None = None
+    bubble_color: ChatroomAgentBubbleColor | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +315,7 @@ __all__ = [
     "BindingWakeupState",
     "Chatroom",
     "ChatroomAgent",
+    "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
     "ChatroomGuest",
     "DraftReadGrant",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from contexts.conversation.domain.errors import ChatroomNotFound, RoomAccessFlag
 from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgent,
+    ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     ChatroomGuest,
 )
@@ -464,6 +466,45 @@ class ChatroomService:
             )
             return True
         return False
+
+    async def set_agent_bubble_color(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        color: ChatroomAgentBubbleColor | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Literal["written", "unchanged", "not_bound", "observer"]:
+        # Serialize with appearance and role writers so the audit describes the
+        # transition actually committed, and repeated requests remain no-ops.
+        appearance = await self._agents.locked_appearance(chatroom_id=chatroom_id, agent_id=agent_id)
+        if appearance is None:
+            return "not_bound"
+        role, old_color = appearance
+        if role is ChatroomAgentRole.OBSERVER:
+            return "observer"
+        if color == old_color:
+            return "unchanged"
+        await self._agents.set_bubble_color(chatroom_id=chatroom_id, agent_id=agent_id, color=color)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.agent_appearance_changed",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom_agent",
+                resource_id=chatroom_id,
+                metadata={
+                    "agent_id": str(agent_id),
+                    "old_color": old_color.value if old_color else None,
+                    "new_color": color.value if color else None,
+                },
+                request_id=request_id,
+            ),
+        )
+        return "written"
 
     async def set_agent_activity_grant(
         self,

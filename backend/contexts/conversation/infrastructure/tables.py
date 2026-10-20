@@ -84,6 +84,22 @@ chatroom_agents = sa.Table(
         nullable=False,
         server_default=sa.text("'normal'::chatroom_agent_role"),
     ),
+    sa.Column(
+        "bubble_color",
+        pg.ENUM(
+            "cyan",
+            "teal",
+            "green",
+            "lime",
+            "amber",
+            "orange",
+            "rose",
+            "violet",
+            name="chatroom_agent_bubble_color",
+            create_type=False,
+        ),
+        nullable=True,
+    ),
     # Delegated activity control ([R30.37], migration 0078). Two CHECK constraints
     # in the DB keep a live grant from being empty or unattributable; they are not
     # declared here because SQLAlchemy Core would then try to create them, and the

@@ -48,6 +48,7 @@ export type { AdminPlatformActivityTypeIn } from './models/AdminPlatformActivity
 export type { AdminPolicyImpactOut } from './models/AdminPolicyImpactOut';
 export type { AdminPromoteIn } from './models/AdminPromoteIn';
 export type { AgentActivityControlIn } from './models/AgentActivityControlIn';
+export type { AgentAppearanceIn } from './models/AgentAppearanceIn';
 export type { AgentCanvasAccessIn } from './models/AgentCanvasAccessIn';
 export type { AgentCanvasWriteAccessIn } from './models/AgentCanvasWriteAccessIn';
 export type { AgentConceptMapCoverageEntryOut } from './models/AgentConceptMapCoverageEntryOut';
@@ -146,6 +147,7 @@ export type { ChangeEmailIn } from './models/ChangeEmailIn';
 export type { ChangePasswordIn } from './models/ChangePasswordIn';
 export type { ChatModelProviderOut } from './models/ChatModelProviderOut';
 export type { ChatModelSpecOut } from './models/ChatModelSpecOut';
+export type { ChatroomAgentBubbleColor } from './models/ChatroomAgentBubbleColor';
 export type { ChatroomCreateIn } from './models/ChatroomCreateIn';
 export type { ChatroomMemberGroupsIn } from './models/ChatroomMemberGroupsIn';
 export type { ChatroomMemberGroupsOut } from './models/ChatroomMemberGroupsOut';

@@ -1,6 +1,9 @@
 // Composable: chatroom agent binding management (list, add, remove).
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
+import { useToast } from '@shared/composables'
+import { useI18n } from 'vue-i18n'
+import type { AgentBubbleColor } from '../utils/agentBubbleColors'
 import { computed, ref } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 
@@ -16,6 +19,7 @@ import {
   setChatroomAgentCanvasWriteAccess,
   setChatroomAgentDraftAccess,
   setChatroomAgentRole,
+  setChatroomAgentAppearance,
 } from '../api'
 import { convKeys } from '../queries'
 import { activityKeys, listActivityTypes, type ActivityType } from '@slices/activities'
@@ -23,6 +27,7 @@ import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
 
 export interface BoundAgent {
+  bubble_color?: AgentBubbleColor | null
   id: string
   name?: string
   // Present only when the caller is the room creator (R28.10).
@@ -64,6 +69,9 @@ export function useChatroomBindings(
   },
 ) {
   const qc = useQueryClient()
+  const toast = useToast()
+  const { t } = useI18n()
+  const boundColors = ref<Record<string, AgentBubbleColor | null>>({})
   const projectAgents = ref<Agent[]>([])
   // The names projection, loaded instead of `projectAgents` for a caller who may
   // not read agent configuration (matrix row 28). Exactly one of the two is
@@ -133,6 +141,7 @@ export function useChatroomBindings(
         return {
           id: a.id,
           name: a.name,
+          bubble_color: boundColors.value[a.id] ?? null,
           ...(role !== undefined && { role }),
           ...(grant !== undefined && {
             may_control_activities: grant.granted,
@@ -173,6 +182,7 @@ export function useChatroomBindings(
       projectAgents.value = agents
       agentNames.value = names
       boundAgentIds.value = bound.map((b) => b.agent_id)
+      boundColors.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.bubble_color ?? null]))
       boundRoles.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.role]))
       boundGrants.value = Object.fromEntries(
         bound.map((b) => [
@@ -316,6 +326,20 @@ export function useChatroomBindings(
     }
   }
 
+  async function onSetBubbleColor(agentId: string, color: AgentBubbleColor | null): Promise<void> {
+    if (bindingBusy.value) return
+    bindingBusy.value = true
+    try {
+      await setChatroomAgentAppearance(chatroomId, agentId, color)
+      await qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+      await loadBindings()
+    } catch {
+      toast.error(t('conversation.appearance.failed'))
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
   async function onRemoveAgent(agentId: string): Promise<void> {
     if (bindingBusy.value) return
     bindingBusy.value = true
@@ -351,5 +375,6 @@ export function useChatroomBindings(
     onSetCanvasAccess,
     onSetCanvasWriteAccess,
     onSetRole,
+    onSetBubbleColor,
   }
 }

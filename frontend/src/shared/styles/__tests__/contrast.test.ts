@@ -82,7 +82,12 @@ function lightness(hex: string): number {
  * same bar because they carry sentences, not glyphs - an SAlert's body renders
  * in `--color-*-on` on `--color-*-tint`.
  */
+const AGENT_COLORS = ['cyan', 'teal', 'green', 'lime', 'amber', 'orange', 'rose', 'violet']
+
 const TEXT_PAIRS: [fg: string, bg: string][] = [
+  ...AGENT_COLORS.flatMap((key): [string, string][] =>
+    ['--color-fg', '--color-muted', '--color-accent'].map((fg) => [fg, `--color-agent-${key}-tint`]),
+  ),
   ['--color-fg', '--color-bubble-own'],
   ['--color-muted', '--color-bubble-own'],
   ['--color-accent', '--color-bubble-own'],
@@ -156,6 +161,12 @@ describe('WCAG contrast budget', () => {
      * token drew both and neither could satisfy its own requirement without
      * ruining the other's.
      */
+    it.each(AGENT_COLORS)('draws the %s agent border at 3:1 on the feed', (key) => {
+      const color = tokens[`--color-agent-${key}`]
+      expect(color).toBeDefined()
+      expect(contrast(color, tokens['--color-canvas'])).toBeGreaterThanOrEqual(3)
+    })
+
     it('draws a form control boundary at 3:1', () => {
       const ratio = contrast(tokens['--color-border-strong'], tokens['--color-bg'])
       expect(ratio, `--color-border-strong is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)

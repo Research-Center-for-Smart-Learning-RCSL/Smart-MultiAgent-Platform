@@ -1,6 +1,6 @@
-"""Conversation facade — read-only surface for the web and other contexts.
+"""Conversation facade — public use cases and reads for the web and other contexts.
 
-Writers must go through the use-case services. Cross-context consumers (e.g.
+Writes delegate to the use-case services. Cross-context consumers (e.g.
 the WS layer in F.6) read chatroom / message state through this facade so
 they never import repositories or tables directly.
 """
@@ -11,13 +11,14 @@ import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.application.access import visible_room_ids
+from contexts.conversation.application.access import can_manage_normal_binding_settings, visible_room_ids
+from contexts.conversation.application.chatroom_service import ChatroomService
 from contexts.conversation.application.guest_session_service import (
     GuestRefreshResult,
     GuestRemovalResult,
@@ -33,6 +34,7 @@ from contexts.conversation.domain.models import (
     AttachmentStatus,
     BindingWakeupState,
     Chatroom,
+    ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     DraftReadGrant,
     GuestBan,
@@ -596,6 +598,25 @@ class ConversationFacade:
         """
         return await project_id_for_room(self._db, chatroom_id)
 
+    async def set_agent_bubble_color(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        color: ChatroomAgentBubbleColor | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Literal["written", "unchanged", "not_bound", "observer"]:
+        return await ChatroomService(self._db).set_agent_bubble_color(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            color=color,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def agent_role_in_chatroom(
         self,
         *,
@@ -1014,6 +1035,7 @@ __all__ = [
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "BindingWakeupState",
+    "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
     "ConversationFacade",
     "DraftReadGrant",
@@ -1022,4 +1044,5 @@ __all__ = [
     "RoomGuests",
     "RoomPresenceSnapshot",
     "SenderType",
+    "can_manage_normal_binding_settings",
 ]

@@ -1,5 +1,21 @@
 {
   "conversation": {
+    "appearance": {
+      "label": "訊息泡泡顏色",
+      "help": "選擇此參與代理在本聊天室的訊息顏色。",
+      "none": "不指定顏色",
+      "failed": "無法儲存訊息顏色，請再試一次。",
+      "colors": {
+        "cyan": "青色",
+        "teal": "藍綠色",
+        "green": "綠色",
+        "lime": "萊姆綠",
+        "amber": "琥珀色",
+        "orange": "橘色",
+        "rose": "玫瑰色",
+        "violet": "紫羅蘭色"
+      }
+    },
     "workspace": {
       "actions": {
         "dashboard": "儀表板"

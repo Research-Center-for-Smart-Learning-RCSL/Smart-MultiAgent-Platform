@@ -4,6 +4,8 @@ import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { i18n } from '@shared/i18n'
 import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
+import ChatroomStreamingBubble from '../components/ChatroomStreamingBubble.vue'
+import { AGENT_BUBBLE_COLORS } from '../utils/agentBubbleColors'
 import conversationEn from '../locales/en.json'
 import type { Attachment, DisplayMessage } from '../types'
 
@@ -32,6 +34,29 @@ const baseProps = {
 }
 
 describe('viewer-relative bubble sides', () => {
+  it.each(AGENT_BUBBLE_COLORS)('uses %s on persisted and streaming agent replies', async (color) => {
+    const bubble = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: agentMessage({}), agentColor: color },
+    })
+    const stream = await renderView(ChatroomStreamingBubble, {
+      props: { html: '<p>hi</p>', agentName: 'Bot', agentColor: color },
+    })
+    expect(bubble.find(`.bubble--agent-${color}`).exists()).toBe(true)
+    expect(stream.find(`.bubble--agent-${color}`).exists()).toBe(true)
+    await bubble.setProps({ agentColor: null })
+    await stream.setProps({ agentColor: null })
+    expect(bubble.find(`.bubble--agent-${color}`).exists()).toBe(false)
+    expect(stream.find(`.bubble--agent-${color}`).exists()).toBe(false)
+    expect(bubble.find('.bubble--agent').exists()).toBe(true)
+  })
+
+  it('ignores agent colours on human bubbles', async () => {
+    const bubble = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, agentColor: 'rose' },
+    })
+    expect(bubble.find('.bubble--agent-rose').exists()).toBe(false)
+  })
+
   it('moves only an own message to the right and applies its tint', async () => {
     const wrapper = await renderView(ChatroomMessageBubble, {
       props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, isOwn: false },

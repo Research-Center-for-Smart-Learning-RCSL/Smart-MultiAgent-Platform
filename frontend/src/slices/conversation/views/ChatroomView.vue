@@ -140,6 +140,7 @@
               v-if="item.kind === 'message'"
               :message="item.message"
               :is-own="isOwnMessage(item.message)"
+              :agent-color="item.message.sender_type === 'agent' ? agentColors[item.message.sender_id ?? ''] ?? null : null"
               :html="rendered[item.message.id] ?? ''"
               :sender-name="senderName(item.message)"
               :sender-is-guest="isGuestAuthor(item.message.sender_id, item.message.sender_type)"
@@ -178,6 +179,7 @@
           :key="`stream-${agentId}`"
           :html="html"
           :agent-name="agentNames[agentId] ?? agentId.slice(0, 8)"
+          :agent-color="agentColors[agentId] ?? null"
           aria-live="off"
         />
 
@@ -513,6 +515,7 @@ import { readGuestHint, writeGuestHint } from '../utils/guestHint'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
+import { isAgentBubbleColor, type AgentBubbleColor } from '../utils/agentBubbleColors'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
 import { useChatroomAttachments } from '../composables/useChatroomAttachments'
@@ -728,6 +731,12 @@ const agentLabelsQuery = useQuery({
   enabled: historyFirstPageSettled,
   retry: false,
 })
+
+const agentColors = computed<Record<string, AgentBubbleColor>>(() =>
+  Object.fromEntries((boundAgentsQuery.data.value ?? []).flatMap((a) =>
+    a.role !== 'observer' && isAgentBubbleColor(a.bubble_color) ? [[a.agent_id, a.bubble_color]] : [],
+  )),
+)
 
 // History labels underneath; the project's names and the room's own agent list,
 // which names every bound agent, layered on top.

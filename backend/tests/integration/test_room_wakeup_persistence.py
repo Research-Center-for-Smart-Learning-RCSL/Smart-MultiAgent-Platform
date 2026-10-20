@@ -72,6 +72,75 @@ async def room_agent(
 
 
 class TestBindingLayers:
+    async def test_appearance_service_persists_only_effective_audit_transitions(
+        self, sessionmaker, room_agent, project
+    ) -> None:
+        from contexts.conversation.application.chatroom_service import ChatroomService
+        from contexts.conversation.domain.models import ChatroomAgentBubbleColor
+        from shared_kernel.audit import audit_logs
+
+        room_a, _room_b, agent_id = room_agent
+        _project_id, actor_id = project
+        async with sessionmaker() as session:
+            service = ChatroomService(session)
+
+            async def set_color(color: ChatroomAgentBubbleColor | None) -> str:
+                return await service.set_agent_bubble_color(
+                    chatroom_id=room_a,
+                    agent_id=agent_id,
+                    actor_user_id=actor_id,
+                    actor_ip=None,
+                    color=color,
+                )
+
+            assert await set_color(ChatroomAgentBubbleColor.TEAL) == "written"
+            assert await set_color(ChatroomAgentBubbleColor.TEAL) == "unchanged"
+            assert await set_color(None) == "written"
+            rows = (
+                await session.execute(
+                    sa.select(audit_logs.c.metadata).where(
+                        audit_logs.c.resource_id == room_a,
+                        audit_logs.c.action == "chatroom.agent_appearance_changed",
+                    )
+                )
+            ).all()
+            assert len(rows) == 2
+            assert {tuple(sorted(row.metadata.items())) for row in rows} == {
+                tuple(sorted({"agent_id": str(agent_id), "old_color": None, "new_color": "teal"}.items())),
+                tuple(sorted({"agent_id": str(agent_id), "old_color": "teal", "new_color": None}.items())),
+            }
+            await session.rollback()
+
+    async def test_bubble_color_enum_roundtrip_and_role_clearing(self, sessionmaker, room_agent) -> None:
+        from contexts.conversation.domain.models import ChatroomAgentBubbleColor, ChatroomAgentRole
+
+        room_a, room_b, agent_id = room_agent
+        async with sessionmaker() as session:
+            repo = ChatroomAgentRepository(session)
+            assert await repo.set_bubble_color(
+                chatroom_id=room_a, agent_id=agent_id, color=ChatroomAgentBubbleColor.TEAL
+            )
+            assert (await repo.list(room_a))[0].bubble_color is ChatroomAgentBubbleColor.TEAL
+            assert (await repo.list(room_b))[0].bubble_color is None
+            assert await repo.set_role(
+                chatroom_id=room_a,
+                agent_id=agent_id,
+                expected_role=ChatroomAgentRole.NORMAL,
+                role=ChatroomAgentRole.OBSERVER,
+            )
+            assert (await repo.list(room_a))[0].bubble_color is None
+            assert not await repo.set_bubble_color(
+                chatroom_id=room_a, agent_id=agent_id, color=ChatroomAgentBubbleColor.ROSE
+            )
+            assert await repo.set_role(
+                chatroom_id=room_a,
+                agent_id=agent_id,
+                expected_role=ChatroomAgentRole.OBSERVER,
+                role=ChatroomAgentRole.NORMAL,
+            )
+            assert (await repo.list(room_a))[0].bubble_color is None
+            await session.rollback()
+
     async def test_a_new_binding_starts_empty_with_its_own_id(
         self, sessionmaker: async_sessionmaker[AsyncSession], room_agent
     ) -> None:

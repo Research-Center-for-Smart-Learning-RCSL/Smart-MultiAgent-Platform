@@ -45,7 +45,11 @@
       'bubble-row--pending': message._status === 'sending',
     }"
   >
-    <ChatroomBubbleShell :agent="isAgent" :own="isOwn">
+    <ChatroomBubbleShell
+      :agent="isAgent"
+      :own="isOwn"
+      :agent-color="agentColor"
+    >
       <template #meta>
         <SAvatar
           :name="senderName"
@@ -252,6 +256,7 @@
 </template>
 
 <script setup lang="ts">
+import type { AgentBubbleColor } from '../utils/agentBubbleColors'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -275,6 +280,7 @@ import type { Attachment, DisplayMessage, RagSource } from '../types'
 
 const props = withDefaults(defineProps<{
   isOwn?: boolean
+  agentColor?: AgentBubbleColor | null
   message: DisplayMessage
   html: string
   senderName: string
@@ -295,7 +301,7 @@ const props = withDefaults(defineProps<{
   // missing from the map is then not known to be unnamed, so the short id is
   // shown instead of the unknown-agent label.
   agentNamesSettled?: boolean
-}>(), { agentNames: () => ({}), agentNamesSettled: true })
+}>(), { isOwn: false, agentColor: null, agentNames: () => ({}), agentNamesSettled: true })
 
 const emit = defineEmits<{
   'start-edit': []

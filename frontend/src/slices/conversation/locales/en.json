@@ -1,5 +1,21 @@
 {
   "conversation": {
+    "appearance": {
+      "label": "Bubble colour",
+      "help": "Choose a colour for this participant agent in this room.",
+      "none": "No colour",
+      "failed": "Could not save the bubble colour. Try again.",
+      "colors": {
+        "cyan": "Cyan",
+        "teal": "Teal",
+        "green": "Green",
+        "lime": "Lime",
+        "amber": "Amber",
+        "orange": "Orange",
+        "rose": "Rose",
+        "violet": "Violet"
+      }
+    },
     "workspace": {
       "actions": {
         "dashboard": "Dashboard"

@@ -20,6 +20,7 @@ from contexts.conversation.domain.models import (
     CanvasWriteGrant,
     Chatroom,
     ChatroomAgent,
+    ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     ChatroomGuest,
     DraftReadGrant,
@@ -439,6 +440,7 @@ class ChatroomAgentRepository:
                 chatroom_id=r.chatroom_id,
                 agent_id=r.agent_id,
                 role=ChatroomAgentRole(r.role),
+                bubble_color=ChatroomAgentBubbleColor(r.bubble_color) if r.bubble_color else None,
                 may_control_activities=bool(r.may_control_activities),
                 activity_type_allowlist=_allowlist_from_json(r.activity_type_allowlist),
                 granted_by_user_id=r.granted_by_user_id,
@@ -551,12 +553,44 @@ class ChatroomAgentRepository:
             # still holding the old settings into a 409.
             .values(
                 role=role.value,
+                bubble_color=None if role is ChatroomAgentRole.OBSERVER else t.chatroom_agents.c.bubble_color,
                 binding_id=sa.func.gen_random_uuid(),
                 wakeup_room_overrides={},
                 wakeup_runtime_overrides={},
                 wakeup_runtime_started_at=None,
                 wakeup_version=t.chatroom_agents.c.wakeup_version + 1,
             )
+        )
+        return bool(result.rowcount)
+
+    async def locked_appearance(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> tuple[ChatroomAgentRole, ChatroomAgentBubbleColor | None] | None:
+        row = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.role, t.chatroom_agents.c.bubble_color)
+                .where(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id, t.chatroom_agents.c.agent_id == agent_id
+                )
+                .with_for_update()
+            )
+        ).first()
+        if row is None:
+            return None
+        color = ChatroomAgentBubbleColor(row.bubble_color) if row.bubble_color else None
+        return ChatroomAgentRole(row.role), color
+
+    async def set_bubble_color(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID, color: ChatroomAgentBubbleColor | None
+    ) -> bool:
+        result = await self._db.execute(
+            t.chatroom_agents.update()
+            .where(
+                t.chatroom_agents.c.chatroom_id == chatroom_id,
+                t.chatroom_agents.c.agent_id == agent_id,
+                t.chatroom_agents.c.role == ChatroomAgentRole.NORMAL.value,
+            )
+            .values(bubble_color=color.value if color else None)
         )
         return bool(result.rowcount)
 

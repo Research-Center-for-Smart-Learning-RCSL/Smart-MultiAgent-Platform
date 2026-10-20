@@ -404,19 +404,19 @@ None.
 
 Part A
 
-- [ ] AC-1: For a registered viewer, their own `user` messages render with
+- [x] AC-1: For a registered viewer, their own `user` messages render with
   `bubble-row--own` (right, tinted); other users', guests', and agents' messages render
   without it (left).
-- [ ] AC-2: For an anonymous guest viewer, their own `guest` messages are own; other
+- [x] AC-2: For an anonymous guest viewer, their own `guest` messages are own; other
   guests' and all users' messages are not, including an account still in `session.me` from
   an earlier sign-in (Q-3).
-- [ ] AC-3: While impersonating, the impersonated user's messages are own and the admin's
+- [x] AC-3: While impersonating, the impersonated user's messages are own and the admin's
   are not (Q-2); ending impersonation restores the admin's view without a reload.
-- [ ] AC-4: An optimistic send is own from its first render and stays own after the echo
+- [x] AC-4: An optimistic send is own from its first render and stays own after the echo
   replaces it.
-- [ ] AC-5: The roster "you" marker and moderation exclusions (`ChatroomView.vue:1389`,
+- [x] AC-5: The roster "you" marker and moderation exclusions (`ChatroomView.vue:1389`,
   `:1408`, `:1411`) use the same viewer as AC-1 to AC-3.
-- [ ] AC-6: `canEdit`/`canDelete` are unchanged for a normal user, a guest, an admin, and a
+- [x] AC-6: `canEdit`/`canDelete` are unchanged for a normal user, a guest, an admin, and a
   moderator (`useChatroomMessages.test.ts:407-439` passes).
 
 Part B
@@ -429,28 +429,28 @@ Part B
   `chatroom.agent_appearance_changed` audit row, and emits a room-visible
   `chatroom.updated`; a repeat with the same key writes no second audit row. `null` clears
   it.
-- [ ] AC-9: The same PATCH returns 403 for a Project Member who is not the creator, an Org
+- [x] AC-9: The same PATCH returns 403 for a Project Member who is not the creator, an Org
   Member who is not the creator, and a guest; 404 for an unbound agent; 409 for an observer
   binding; 422 for a key outside the palette.
 - [ ] AC-10: Changing a coloured binding's role to observer clears its colour in the same
   write; demoting it back to normal leaves it uncoloured.
-- [ ] AC-11: `contrast.test.ts` asserts, in both themes: `--color-fg`, `--color-muted`, and
+- [x] AC-11: `contrast.test.ts` asserts, in both themes: `--color-fg`, `--color-muted`, and
   `--color-accent` at 4.5:1 on `--color-bubble-own` and on every `--color-agent-<key>-tint`;
   every `--color-agent-<key>` at 3:1 against `--color-canvas` (the feed background behind
   the border); and passes.
-- [ ] AC-12: `GET /chatrooms/{id}/agents` returns `bubble_color` for normal bindings to
+- [x] AC-12: `GET /chatrooms/{id}/agents` returns `bubble_color` for normal bindings to
   every reader (creator, member, guest), and still returns no observer binding to
   non-creators.
 - [ ] AC-13: In room settings, the colour control appears for normal rows under the
   `:860` condition, never for observer rows, and a save updates another open client's
   bubbles for that agent without a reload.
-- [ ] AC-14: An agent's persisted and streaming bubbles both use its colour; an agent with
+- [x] AC-14: An agent's persisted and streaming bubbles both use its colour; an agent with
   no colour, or no longer bound, renders with today's agent style.
 
 Both
 
 - [ ] AC-15: The e2e specs selecting `.bubble-row`/`.bubble-row--pending` pass unchanged.
-- [ ] AC-16: `docs/UI/07-conversation.md` describes both rules and the settings control;
+- [x] AC-16: `docs/UI/07-conversation.md` describes both rules and the settings control;
   `REQUIREMENTS.md` carries §13's delta and `docs/traceability.csv` is regenerated.
 - [ ] AC-17: Manual check on a running stack, light and dark, desktop and mobile width:
   two signed-in users, one guest and two coloured agents in one room; each person sees
@@ -518,6 +518,12 @@ Appended by /build.
   by the user. Task base: `792b316a73ce25b2a798301ff2faa6166cfbde8c`;
   branch: `feat/chat-bubble-sides-and-agent-colors`.
 
+- D-2: Hidden observer bindings return the same 404 and detail as absent bindings to
+  non-creators, including a concurrent role promotion. Creators/Admin retain the
+  documented 409. The service reads the role under the same row lock as the colour,
+  rather than exposing an unlocked role read in the route. This preserves [R28.10]
+  and removes an observer-enumeration oracle found during the security gate.
+
 ## 16. Follow-ups
 
 - FU-1: While impersonating, `session.me` and `isAdmin` still describe the admin
@@ -530,3 +536,57 @@ Appended by /build.
 - FU-3: `backend/CLAUDE.md` states migrations `0000–0079`; the head is 0104.
 - FU-4: `senderLabel` (`ChatroomView.vue:1583`) compares the guest id separately for the
   "you" label; correct today, but could read the shared viewer.
+
+
+## 17. Implementation verification (2026-10-20)
+
+Implementation is present on `feat/chat-bubble-sides-and-agent-colors`. Status remains
+`in-progress`: database execution, the existing e2e suite, full multi-client verification
+and clean remote CI are still required. Unchecked acceptance criteria are not waived.
+
+- Milestone A: `96443096`; focused frontend suite 158 passed, guest/impersonation
+  suite 21 passed, and typecheck passed.
+- Milestone B: migration 0105, locked idempotent audited write, shared row-29 predicate,
+  creator-aware observer refusal, generated API, palette controls, both bubble types,
+  and English/Traditional Chinese translations. Persisted audit and enum/role-clearing
+  DB tests are added alongside an isolated scratch-schema migration roundtrip test.
+- Frontend lint, typecheck and production build passed. The eight border/tint pairs
+  and the own tint pass all required light/dark contrast checks. The colour-view/API
+  suite passed 43 tests after respecting socket startup before injecting a stream;
+  failed-save selection rollback and all 31 settings tests pass.
+- Both locale trees contain `conversation.appearance` and every palette label.
+  The approved REQUIREMENTS delta was already present; traceability regeneration is
+  unchanged and `python scripts/traceability.py --check` passes.
+- Browser observation used actual Vue components and transport identity in a disposable
+  local preview, with Alice/Bob/Guest and two coloured agents. Own sides, changing viewer,
+  streaming/persisted colour consistency and the picker were observed at 1280px and
+  390px in light and dark. This is component verification, not the live-stack AC-17.
+  Preview source is removed; screenshots are retained with the chat's visual artifacts.
+- Migration DDL test skips without `SMAP_SCRATCH_DATABASE_URL`; the repository DB test
+  cannot resolve the configured PostgreSQL host. Docker's Linux engine is unavailable.
+  Thus migration upgrade/downgrade, persisted audit rows and multi-client delivery are
+  pending the provisioned CI/staging environment. No migration was applied locally.
+- Full backend mypy reports three errors in unchanged files:
+  `shared_kernel/storage/svg_sanitize.py:13` (missing defusedxml typing),
+  `contexts/activities/domain/group_consent.py:85` (`no-any-return`), and
+  `shared_kernel/realtime/connection.py:445` (`index`). No new-file error remains.
+- A broad local backend unit run was interrupted after 2,880 of 12,102 tests because
+  sandbox temporary-directory permissions caused unrelated failures. A diagnostic
+  example-pack run reproduced the permission error, and the same unchanged suite
+  outside the sandbox passed 427 tests with one documented skip.
+- Quality audit: all 12 dimensions over the entire task diff from the base recorded
+  in D-1, including new files and excluding generated-client implementation. A misplaced
+  locale subtree was found and fixed. No remaining introduced Critical/Warning findings.
+- Security audit: all 13 dimensions, migration injection/schema review, and authorization
+  traced for PATCH appearance and GET bindings through the facade/service/repository.
+  The hidden-observer response oracle was fixed and re-reviewed. No remaining
+  CRITICAL/HIGH/MEDIUM findings in the change. No dependencies/deploy settings changed.
+- Self-review: complete task diff, generated contract changes, new files, transaction
+  scope, role concurrency, token reactivity, default/unbound appearance, translations
+  and test fixtures inspected. Merge decision: hold for remaining verification and
+  required independent approval. This local record is prepared for the required PR
+  self-review comment; it does not substitute for another writer's approval.
+
+Contract gates: API regenerated; i18n/traceability passed; migration execution pending.
+Security gate applies because this adds an authorized write surface. Deployment and
+new-dependency checks are N/A: neither is changed.

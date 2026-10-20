@@ -15,6 +15,7 @@ import { renderView } from '../../../../tests/utils'
 import { setAccessToken } from '@shared/transport'
 import ChatroomView from '../views/ChatroomView.vue'
 import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
+import ChatroomStreamingBubble from '../components/ChatroomStreamingBubble.vue'
 import ChatroomSearchPanel from '../components/ChatroomSearchPanel.vue'
 import ChatroomHeader from '../components/ChatroomHeader.vue'
 import ChatroomPresence from '../components/ChatroomPresence.vue'
@@ -76,6 +77,32 @@ afterEach(() => {
 })
 
 describe('ChatroomView agent labels', () => {
+  it('refreshes colours for persisted and streaming replies and drops them on unbind', async () => {
+    let bound = [{ agent_id: 'a_1', name: 'Tutor', bubble_color: 'teal' }]
+    server.use(
+      http.get('/api/chatrooms/cr_1/agents', () => HttpResponse.json(bound)),
+      http.get('/api/chatrooms/cr_1/messages', () => HttpResponse.json([message('m_1', { sender_id: 'a_1' })])),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1', queryClient })
+    await settle()
+    useConversationStore().appendAgentToken('cr_1', 'a_1', 'streaming')
+    await settle()
+    expect(bubbleFor(wrapper, 'm_1').props('agentColor')).toBe('teal')
+    expect(wrapper.findComponent(ChatroomStreamingBubble).props('agentColor')).toBe('teal')
+    bound = [{ agent_id: 'a_1', name: 'Tutor', bubble_color: 'rose' }]
+    await queryClient.invalidateQueries({ queryKey: convKeys.chatroomAgents('cr_1') })
+    await settle()
+    expect(bubbleFor(wrapper, 'm_1').props('agentColor')).toBe('rose')
+    expect(wrapper.findComponent(ChatroomStreamingBubble).props('agentColor')).toBe('rose')
+    bound = []
+    await queryClient.invalidateQueries({ queryKey: convKeys.chatroomAgents('cr_1') })
+    await settle()
+    expect(bubbleFor(wrapper, 'm_1').props('agentColor')).toBeNull()
+    wrapper.unmount()
+    queryClient.clear()
+  })
+
   it('names an unbound author and a disclosed observer for a guest, and an unnamed agent as unknown', async () => {
     labels = [
       { agent_id: 'a_unbound', name: 'Tutor' },
