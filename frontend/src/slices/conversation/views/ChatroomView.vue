@@ -139,6 +139,7 @@
             <ChatroomMessageBubble
               v-if="item.kind === 'message'"
               :message="item.message"
+              :is-own="isOwnMessage(item.message)"
               :html="rendered[item.message.id] ?? ''"
               :sender-name="senderName(item.message)"
               :sender-is-guest="isGuestAuthor(item.message.sender_id, item.message.sender_type)"
@@ -560,7 +561,7 @@ const projectId = (route.params.projectId as string) || ''
 // otherwise the signed-in user. Guest first, because `session.me` can still be
 // set from an earlier sign-in while a guest token is active, and the server
 // knows this viewer only by the token it is sending.
-const viewerId = computed(() => guestSessionId.value ?? session.me?.id ?? null)
+const viewerId = computed(() => viewer.value?.id ?? null)
 // The stored name a rename returned, shown until the roster re-read carries it
 // (then cleared, so a later rename from another tab shows through the roster).
 const guestNameOverride = ref<string | null>(null)
@@ -620,6 +621,37 @@ const roomQuery = useQuery({
   queryFn: () => getChatroom(chatroomId),
   retry: false,
 })
+const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
+
+const {
+  messages,
+  viewer,
+  isOwnMessage,
+  hasOlderMessages,
+  loadingOlder,
+  loadEarlier,
+  isPending: messagesPending,
+  isError: messagesErrored,
+  refetchMessages,
+  rendered,
+  draft,
+  onSend,
+  confirmDelete,
+  downloadAttachment,
+  canEdit,
+  canDelete,
+  dropOlderMessage,
+  refreshOlderMessage,
+  reconcileOlder,
+} = useChatroomMessages(
+  chatroomId,
+  // Report the send; useChatroomScroll owns what happens to the feed's scroll
+  // position, so it is the one that resets the pill and the at-bottom flag.
+  () => scrollToBottom(),
+  () => agentList.value,
+  () => isModerator.value,
+)
+
 // This tab entered this room as an anonymous guest. Unlike `isGuestSession` it
 // survives the token: an ended session, or one a boot restore could not yet
 // refresh for want of a network, holds the context and no token.
@@ -972,35 +1004,6 @@ async function onObservationDelete(o: Observation): Promise<void> {
 }
 
 // ---- composables ----------------------------------------------------------
-
-const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
-
-const {
-  messages,
-  hasOlderMessages,
-  loadingOlder,
-  loadEarlier,
-  isPending: messagesPending,
-  isError: messagesErrored,
-  refetchMessages,
-  rendered,
-  draft,
-  onSend,
-  confirmDelete,
-  downloadAttachment,
-  canEdit,
-  canDelete,
-  dropOlderMessage,
-  refreshOlderMessage,
-  reconcileOlder,
-} = useChatroomMessages(
-  chatroomId,
-  // Report the send; useChatroomScroll owns what happens to the feed's scroll
-  // position, so it is the one that resets the pill and the at-bottom flag.
-  () => scrollToBottom(),
-  () => agentList.value,
-  () => isModerator.value,
-)
 
 const { moderateGuest } = useGuestModeration(chatroomId)
 

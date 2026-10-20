@@ -1,7 +1,7 @@
 <template>
   <article
     class="bubble"
-    :class="{ 'bubble--agent': agent }"
+    :class="{ 'bubble--agent': agent, 'bubble--own': own }"
   >
     <header class="bubble__meta">
       <slot name="meta" />
@@ -16,6 +16,7 @@
 // keeps the caller's scope, so per-variant styling stays in each component.
 defineProps<{
   agent?: boolean
+  own?: boolean
 }>()
 </script>
 
@@ -27,6 +28,10 @@ defineProps<{
   padding: var(--space-3) var(--space-4);
   max-width: 75%;
   min-width: 200px;
+}
+
+.bubble--own {
+  background: var(--color-bubble-own);
 }
 
 .bubble--agent {

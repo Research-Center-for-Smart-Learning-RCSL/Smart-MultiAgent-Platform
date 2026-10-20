@@ -40,11 +40,12 @@
     class="bubble-row"
     :class="{
       'bubble-row--agent': isAgent,
+      'bubble-row--own': isOwn,
       'msg--flash': flash,
       'bubble-row--pending': message._status === 'sending',
     }"
   >
-    <ChatroomBubbleShell :agent="isAgent">
+    <ChatroomBubbleShell :agent="isAgent" :own="isOwn">
       <template #meta>
         <SAvatar
           :name="senderName"
@@ -273,6 +274,7 @@ import { formatTime } from '../utils/format'
 import type { Attachment, DisplayMessage, RagSource } from '../types'
 
 const props = withDefaults(defineProps<{
+  isOwn?: boolean
   message: DisplayMessage
   html: string
   senderName: string
@@ -372,16 +374,13 @@ function isImage(mime: string): boolean {
 .bubble-row {
   display: flex;
   flex-direction: column;
-  /* Own (user) messages sit on the right; agent messages override to the left
-     below. System messages use the separate .sys layout, so this only ever
-     applies to user/agent bubbles. */
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--space-1);
   margin-bottom: var(--space-2);
 }
 
-.bubble-row--agent {
-  align-items: flex-start;
+.bubble-row--own {
+  align-items: flex-end;
 }
 
 /* Transient highlight when jumped to from search. Animates from the warning

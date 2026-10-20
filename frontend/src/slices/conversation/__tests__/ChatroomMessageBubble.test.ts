@@ -31,6 +31,20 @@ const baseProps = {
   canDelete: false,
 }
 
+describe('viewer-relative bubble sides', () => {
+  it('moves only an own message to the right and applies its tint', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, isOwn: false },
+    })
+    expect(wrapper.find('.bubble-row--own').exists()).toBe(false)
+    await wrapper.setProps({ isOwn: true })
+    expect(wrapper.find('.bubble-row--own').exists()).toBe(true)
+    expect(wrapper.find('.bubble--own').exists()).toBe(true)
+    await wrapper.setProps({ isOwn: false })
+    expect(wrapper.find('.bubble--own').exists()).toBe(false)
+  })
+})
+
 describe('ChatroomMessageBubble RAG citations', () => {
   it('reveals the cited source documents when the sources block is expanded', async () => {
     const wrapper = await renderView(ChatroomMessageBubble, {

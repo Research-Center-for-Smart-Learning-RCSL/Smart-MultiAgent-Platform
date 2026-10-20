@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-19
 requirements: [R13.77, R13.78, R15.25, R28.02, R28.10]
 depends_on: []
@@ -512,6 +512,11 @@ None.
 ## 15. Deviation Log
 
 Appended by /build.
+
+- D-1: Implementation plan approved on 2026-10-20. The unavailable `run` and
+  `frontend:verify` skills are replaced by direct browser verification, as approved
+  by the user. Task base: `792b316a73ce25b2a798301ff2faa6166cfbde8c`;
+  branch: `feat/chat-bubble-sides-and-agent-colors`.
 
 ## 16. Follow-ups
 

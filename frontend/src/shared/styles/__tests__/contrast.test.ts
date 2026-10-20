@@ -83,6 +83,9 @@ function lightness(hex: string): number {
  * in `--color-*-on` on `--color-*-tint`.
  */
 const TEXT_PAIRS: [fg: string, bg: string][] = [
+  ['--color-fg', '--color-bubble-own'],
+  ['--color-muted', '--color-bubble-own'],
+  ['--color-accent', '--color-bubble-own'],
   ['--color-fg', '--color-canvas'],
   ['--color-fg', '--color-bg'],
   ['--color-fg', '--color-surface'],

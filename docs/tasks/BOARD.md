@@ -24,15 +24,6 @@ doesn't need a `depends_on` backfill).
   `main.css` overlap with `2026-10-19-chat-bubble-sides-and-agent-colors` (disjoint regions, not
   a dependency; whoever builds second rebases, including `contrast.test.ts`).
 
-### Chat bubble sides and agent colours (2026-10-19)
-
-- `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **approved 2026-10-19**, SRS delta
-  [R13.77], [R13.78] and matrix row 29 applied) - `depends_on: []`. Part A: only the viewer's
-  own messages sit on the right (tinted), resolved from the access token so guests and
-  impersonation are correct; everyone else is on the left. Part B: a per-room colour from an
-  eight-key palette for participant (normal-role) agent bindings, set by row 29's audience,
-  refused for observers. Migration 0105. Built as two milestones, A then B.
-
 ### Peer deliberate errors (2026-10-19)
 
 - `2026-10-19-peer-deliberate-errors` (feature, **in progress 2026-10-19** on `feat/peer-deliberate-errors`, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
@@ -824,6 +815,15 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+### Chat bubble sides and agent colours (2026-10-19)
+
+- `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **in progress 2026-10-20**, SRS delta
+  [R13.77], [R13.78] and matrix row 29 applied) - `depends_on: []`. Part A: only the viewer's
+  own messages sit on the right (tinted), resolved from the access token so guests and
+  impersonation are correct; everyone else is on the left. Part B: a per-room colour from an
+  eight-key palette for participant (normal-role) agent bindings, set by row 29's audience,
+  refused for observers. Migration 0105. Built as two milestones, A then B.
 
 - `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
   2026-10-16 on `feat/crat-facilitation-phase2`, SRS delta applied) - `depends_on: []`. Bounded participant facts and

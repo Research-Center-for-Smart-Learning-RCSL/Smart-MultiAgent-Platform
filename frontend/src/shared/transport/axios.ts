@@ -161,6 +161,18 @@ export const guestSessionId: ComputedRef<string | null> = computed(() => {
   return typeof sub === 'string' ? sub : null
 })
 
+export interface TokenViewer {
+  kind: 'user' | 'guest'
+  id: string
+}
+
+/** Presentation identity follows token swaps, including impersonation. */
+export const tokenViewer: ComputedRef<TokenViewer | null> = computed(() => {
+  const claims = accessTokenClaims.value
+  if (typeof claims?.sub !== 'string') return null
+  return { kind: claims.token_use === 'guest_access' ? 'guest' : 'user', id: claims.sub }
+})
+
 // Refresh token is managed exclusively via the httpOnly `smap_refresh` cookie
 // set by the server. These stubs exist so callers need no changes.
 export function setRefreshToken(_token: string | null): void {}

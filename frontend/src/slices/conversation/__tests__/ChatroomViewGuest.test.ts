@@ -60,6 +60,26 @@ describe('guestSessionId', () => {
 })
 
 describe('ChatroomView for an anonymous guest', () => {
+  it('updates the roster you marker and moderation exclusion when impersonation ends', async () => {
+    setAccessToken(unsignedToken({ sub: 'u_2', impersonated_by: 'u_1' }))
+    server.use(http.get('/api/chatrooms/cr_1', () => HttpResponse.json({
+      id: 'cr_1', workspace_id: 'ws_1', name: 'Room', is_moderator: true,
+    })))
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    const session = useSessionStore()
+    session.me = { id: 'u_1', email: 'admin@smap.test', email_verified: true, is_admin: true, status: 'active' }
+    useConversationStore().setPresence('cr_1', ['u_1', 'u_2'])
+    await settle()
+    const users = () => wrapper.findComponent(ChatroomPresence).props('onlineUsers')
+    expect(users().find((u) => u.id === 'u_2')?.isYou).toBe(true)
+    expect(users().find((u) => u.id === 'u_2')?.removable).toBe(false)
+    expect(users().find((u) => u.id === 'u_1')?.isYou).toBe(false)
+    setAccessToken(unsignedToken({ sub: 'u_1' }))
+    await settle()
+    expect(users().find((u) => u.id === 'u_1')?.isYou).toBe(true)
+    expect(users().find((u) => u.id === 'u_2')?.isYou).toBe(false)
+  })
+
   it('shows no settings, export or Back even when the room read fails', async () => {
     enterAsGuest()
     server.use(http.get('/api/chatrooms/cr_1', () => HttpResponse.json({ status: 403 }, { status: 403 })))
