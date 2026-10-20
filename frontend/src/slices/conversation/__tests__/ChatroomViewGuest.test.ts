@@ -232,9 +232,16 @@ describe('ChatroomView when the guest session ends', () => {
     setAccessToken(null)
     socket.serverClose(4401)
     // A refused guest refresh is retried once after 500 ms before it ends the
-    // session (a sibling tab may have rotated the shared cookie).
-    await new Promise((r) => setTimeout(r, 700))
-    await settle()
+    // session (a sibling tab may have rotated the shared cookie). Wait for the
+    // outcome rather than a fixed 700 ms: the path takes about 550 ms locally,
+    // so a slower CI runner overran the fixed window.
+    await vi.waitFor(
+      async () => {
+        await settle()
+        expect(wrapper.text()).toContain(expiredKey)
+      },
+      { timeout: 3000, interval: 25 },
+    )
 
     expect(wrapper.text()).toContain(expiredKey)
     expect(wrapper.text()).toContain(rejoinKey)
