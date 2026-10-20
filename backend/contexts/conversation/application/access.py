@@ -563,6 +563,27 @@ def ensure_room_creator(access: RoomAccess, *, principal: Principal) -> None:
         raise NotRoomCreator("caller is not this chatroom's creator")
 
 
+def can_manage_room_wakeup(access: RoomAccess, *, principal: Principal, observer_binding: bool) -> bool:
+    return can_manage_normal_binding_settings(access, principal=principal, observer_binding=observer_binding)
+
+
+def can_manage_normal_binding_settings(
+    access: RoomAccess, *, principal: Principal, observer_binding: bool
+) -> bool:
+    """Matrix row 29: authority over room-owned normal-binding settings.
+
+    The room's creator (or Admin) for any binding; an editor of the room's project
+    (row 15's capability) for a normal binding. An observer binding stays behind
+    the creator rule of [R28.02]. Callers must already have passed
+    ``ensure_can_read``; this grants no read of the agent's configuration.
+    """
+    if is_room_creator(access, principal=principal):
+        return True
+    if observer_binding:
+        return False
+    return any(outcome_for(Capability.RESOURCE_CREATE_EDIT, role) is Outcome.ALLOW for role in access.roles)
+
+
 def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
     """Evaluate §21.1 flags against the caller's room-scoped roles (R13.04).
 
@@ -577,6 +598,7 @@ def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
 
 __all__ = [
     "RoomAccess",
+    "can_manage_room_wakeup",
     "can_read_orchestration_record",
     "ensure_can_manage_guest_link",
     "ensure_can_read",

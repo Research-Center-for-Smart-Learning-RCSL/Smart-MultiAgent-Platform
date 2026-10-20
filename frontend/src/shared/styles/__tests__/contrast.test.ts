@@ -75,6 +75,69 @@ function lightness(hex: string): number {
   return y <= 216 / 24389 ? y * (24389 / 27) : 116 * Math.cbrt(y) - 16
 }
 
+const CVD_MATRICES = {
+  protanopia: [
+    [0.152286, 1.052583, -0.204868],
+    [0.114503, 0.786281, 0.099216],
+    [-0.003882, -0.048116, 1.051998],
+  ],
+  deuteranopia: [
+    [0.367322, 0.860646, -0.227968],
+    [0.280085, 0.672501, 0.047413],
+    [-0.01182, 0.04294, 0.968881],
+  ],
+  tritanopia: [
+    [1.255528, -0.076749, -0.178779],
+    [-0.078411, 0.930809, 0.147602],
+    [0.004733, 0.691367, 0.3039],
+  ],
+} as const
+
+function linearChannel(channel: number): number {
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+}
+
+function colorBlindLab(hex: string, matrix: readonly (readonly number[])[]): number[] {
+  const value = hex.slice(1)
+  const channels = [0, 2, 4].map((index) =>
+    linearChannel(Number.parseInt(value.slice(index, index + 2), 16) / 255),
+  )
+  const transformed = matrix.map((row) =>
+    Math.max(
+      0,
+      Math.min(1, row.reduce((sum, item, index) => sum + item * (channels[index] ?? 0), 0)),
+    ),
+  )
+  const red = transformed[0] ?? 0
+  const green = transformed[1] ?? 0
+  const blue = transformed[2] ?? 0
+  const x = (0.4124564 * red + 0.3575761 * green + 0.1804375 * blue) / 0.95047
+  const y = 0.2126729 * red + 0.7151522 * green + 0.072175 * blue
+  const z = (0.0193339 * red + 0.119192 * green + 0.9503041 * blue) / 1.08883
+  const f = (coordinate: number): number =>
+    coordinate > 0.008856 ? Math.cbrt(coordinate) : 7.787 * coordinate + 16 / 116
+  const [fx, fy, fz] = [f(x), f(y), f(z)]
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)]
+}
+
+function cvdSeparationScores(tokens: Record<string, string>): [string, number][] {
+  return Object.entries(CVD_MATRICES).map(([visionType, matrix]) => {
+    const colors = CHART_COLORS.map((name) => colorBlindLab(tokens[name], matrix))
+    let minimum = Number.POSITIVE_INFINITY
+    for (let first = 0; first < colors.length; first++) {
+      for (let second = first + 1; second < colors.length; second++) {
+        const firstColor = colors[first] ?? []
+        const secondColor = colors[second] ?? []
+        const distance = Math.hypot(
+          ...firstColor.map((value, index) => value - (secondColor[index] ?? 0)),
+        )
+        minimum = Math.min(minimum, distance)
+      }
+    }
+    return [visionType, minimum]
+  })
+}
+
 /**
  * Every foreground-on-background pair AC-9 names.
  *
@@ -82,7 +145,23 @@ function lightness(hex: string): number {
  * same bar because they carry sentences, not glyphs - an SAlert's body renders
  * in `--color-*-on` on `--color-*-tint`.
  */
+// Read from the tokens rather than restated, so a palette key added to main.css
+// is measured without editing this file. The conversation slice's palette test
+// pins that main.css declares exactly the keys the API accepts.
+const AGENT_COLORS = Object.keys(light)
+  .map((name) => /^--color-agent-([a-z]+)$/.exec(name)?.[1])
+  .filter((key): key is string => key !== undefined)
+const CHART_COLORS = Object.keys(light)
+  .map((name) => /^--color-chart-(\d+)$/.exec(name)?.[0])
+  .filter((name): name is string => name !== undefined)
+
 const TEXT_PAIRS: [fg: string, bg: string][] = [
+  ...AGENT_COLORS.flatMap((key): [string, string][] =>
+    ['--color-fg', '--color-muted', '--color-accent'].map((fg) => [fg, `--color-agent-${key}-tint`]),
+  ),
+  ['--color-fg', '--color-bubble-own'],
+  ['--color-muted', '--color-bubble-own'],
+  ['--color-accent', '--color-bubble-own'],
   ['--color-fg', '--color-canvas'],
   ['--color-fg', '--color-bg'],
   ['--color-fg', '--color-surface'],
@@ -119,6 +198,9 @@ describe('WCAG contrast budget', () => {
     expect(Object.keys(light).length).toBeGreaterThan(25)
     expect(Object.keys(dark).length).toBeGreaterThan(25)
     expect(dark['--color-bg']).not.toBe(light['--color-bg'])
+    // The agent pairs are derived from the tokens, so they need the same guard.
+    expect(AGENT_COLORS.length).toBeGreaterThan(0)
+    expect(CHART_COLORS).toHaveLength(8)
   })
 
   describe.each(THEMES)('%s theme', (themeName, tokens) => {
@@ -153,6 +235,28 @@ describe('WCAG contrast budget', () => {
      * token drew both and neither could satisfy its own requirement without
      * ruining the other's.
      */
+    it.each(AGENT_COLORS)('draws the %s agent border at 3:1 on the feed', (key) => {
+      const color = tokens[`--color-agent-${key}`]
+      expect(color).toBeDefined()
+      expect(contrast(color, tokens['--color-canvas'])).toBeGreaterThanOrEqual(3)
+    })
+
+    it.each(CHART_COLORS)('draws %s at 3:1 on the chart surface', (name) => {
+      const color = tokens[name]
+      expect(color, `${name} is not declared for the ${themeName} theme`).toBeDefined()
+      const ratio = contrast(color, tokens['--color-surface'])
+      expect(ratio, `${name} (${color}) on --color-surface is ${ratio.toFixed(2)}:1`)
+        .toBeGreaterThanOrEqual(3)
+    })
+
+    it('keeps chart series separated under simulated colour-vision deficiencies', () => {
+      const minimum = Math.min(...cvdSeparationScores(tokens).map(([, distance]) => distance))
+      expect(
+        minimum,
+        `minimum simulated CIE76 distance is ${minimum.toFixed(1)}`,
+      ).toBeGreaterThanOrEqual(10)
+    })
+
     it('draws a form control boundary at 3:1', () => {
       const ratio = contrast(tokens['--color-border-strong'], tokens['--color-bg'])
       expect(ratio, `--color-border-strong is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)
@@ -216,13 +320,25 @@ describe('WCAG contrast budget', () => {
       for (const [fg, bg] of TEXT_PAIRS) {
         rows.push(`${themeName} ${fg}/${bg} ${contrast(tokens[fg], tokens[bg]).toFixed(2)}`)
       }
+      for (const name of CHART_COLORS) {
+        rows.push(
+          `${themeName} ${name}/--color-surface ${contrast(tokens[name], tokens['--color-surface']).toFixed(2)}`,
+        )
+      }
       for (const b of ['--color-border-strong', '--color-border', '--color-border-subtle']) {
         rows.push(`${themeName} ${b}/--color-bg ${contrast(tokens[b], tokens['--color-bg']).toFixed(2)}`)
       }
       const gap = Math.abs(lightness(tokens['--color-bg']) - lightness(tokens['--color-canvas']))
       rows.push(`${themeName} canvas-to-sheet L* gap ${gap.toFixed(2)}`)
     }
-    expect(rows.length).toBe(THEMES.length * (TEXT_PAIRS.length + 4))
+    expect(rows.length).toBe(THEMES.length * (TEXT_PAIRS.length + CHART_COLORS.length + 4))
     console.info(rows.join('\n'))
+    console.info(
+      `chart palette CVD minimum dE76 (Machado full-severity simulations): ${THEMES.map(([themeName, tokens]) =>
+        `${themeName} ${cvdSeparationScores(tokens)
+          .map(([visionType, distance]) => `${visionType} ${distance.toFixed(1)}`)
+          .join(', ')}`,
+      ).join('; ')}`,
+    )
   })
 })

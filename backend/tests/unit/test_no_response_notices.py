@@ -20,6 +20,7 @@ import pytest
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.orchestration.application.wakeup_service import WakeupService
 from contexts.tenancy.domain.models import ProjectMemberRole
+from tests.unit.room_wakeup_fakes import wire_wakeup_service
 
 # --------------------------------------------------------------------------- #
 # TurnEngine skip notices
@@ -381,7 +382,7 @@ async def test_every_n_presence_gate_notifies_and_skips(monkeypatch) -> None:
     async def _noop(*a, **k):
         return None
 
-    async def _count(aid, rid):
+    async def _count(aid, rid, bid):
         return 1  # count % n == 0 → trigger fires
 
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.touch_silence_timestamp", _noop)
@@ -391,7 +392,7 @@ async def test_every_n_presence_gate_notifies_and_skips(monkeypatch) -> None:
 
     svc = WakeupService.__new__(WakeupService)
     svc._db = _FakeDB()  # type: ignore[attr-defined]
-    svc._agents_facade = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
+    wire_wakeup_service(svc, agent)
     svc._presence = SimpleNamespace(list_room=_async_return([]))  # type: ignore[attr-defined]
 
     notified: list = []
@@ -435,7 +436,7 @@ async def test_every_n_does_not_gate_a_user_authored_message(monkeypatch) -> Non
     async def _noop(*a, **k):
         return None
 
-    async def _count(aid, rid):
+    async def _count(aid, rid, bid):
         return 1
 
     monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.touch_silence_timestamp", _noop)
@@ -451,7 +452,7 @@ async def test_every_n_does_not_gate_a_user_authored_message(monkeypatch) -> Non
 
     svc = WakeupService.__new__(WakeupService)
     svc._db = _FakeDB()  # type: ignore[attr-defined]
-    svc._agents_facade = SimpleNamespace(get_agent=_async_return(agent))  # type: ignore[attr-defined]
+    wire_wakeup_service(svc, agent)
     svc._presence = SimpleNamespace(list_room=_list_room)  # type: ignore[attr-defined]
 
     notified: list = []
@@ -464,7 +465,7 @@ async def test_every_n_does_not_gate_a_user_authored_message(monkeypatch) -> Non
     room = uuid.uuid4()
     wake = await svc.on_message_created(room_id=room, sender_is_user=True, agent_ids=[agent.id])
 
-    assert wake == [agent.id]
+    assert [t.agent_id for t in wake] == [agent.id]
     assert notified == []
     # Not merely "the empty roster was tolerated" -- the read is skipped outright,
     # so a Redis round-trip is spared on the hot send path too.

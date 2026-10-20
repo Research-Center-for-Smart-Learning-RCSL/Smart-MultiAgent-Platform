@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
+from contexts.conversation.domain.models import ChatroomAgentBubbleColor
 from shared_kernel.db import metadata
 
 workspaces = sa.Table(
@@ -84,6 +85,15 @@ chatroom_agents = sa.Table(
         nullable=False,
         server_default=sa.text("'normal'::chatroom_agent_role"),
     ),
+    sa.Column(
+        "bubble_color",
+        pg.ENUM(
+            *(c.value for c in ChatroomAgentBubbleColor),
+            name="chatroom_agent_bubble_color",
+            create_type=False,
+        ),
+        nullable=True,
+    ),
     # Delegated activity control ([R30.37], migration 0078). Two CHECK constraints
     # in the DB keep a live grant from being empty or unattributable; they are not
     # declared here because SQLAlchemy Core would then try to create them, and the
@@ -131,6 +141,17 @@ chatroom_agents = sa.Table(
         sa.ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    # Room-owned wake-up layers ([R15.09], migration 0104). `binding_id` is fresh
+    # per bind and per role change, so either is a new incarnation that inherits
+    # nothing; the two
+    # layers are sparse and parsed by `orchestration.domain.room_wakeup`.
+    sa.Column(
+        "binding_id", pg.UUID(as_uuid=True), nullable=False, server_default=sa.text("gen_random_uuid()")
+    ),
+    sa.Column("wakeup_version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("wakeup_room_overrides", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("wakeup_runtime_overrides", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("wakeup_runtime_started_at", sa.DateTime(timezone=True), nullable=True),
 )
 
 agent_observations = sa.Table(

@@ -6,6 +6,7 @@ export { useCsrfToken } from './useCsrfToken'
 export { useServerErrors } from './useServerErrors'
 export { useLocale } from './useLocale'
 export { useTheme, type Theme } from './useTheme'
+export { useChartTheme } from './useChartTheme'
 export { useToast, TOAST_DURATION_MS, type ToastOptions } from './useToast'
 export {
   useNetworkStatus,

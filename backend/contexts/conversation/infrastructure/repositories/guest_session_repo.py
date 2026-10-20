@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -79,6 +80,52 @@ class GuestSessionRepository:
             .limit(limit)
         )
         return [(r.id, r.display_name) for r in rows]
+
+    async def labels_for_ids(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-load display labels without reading token or browser fields."""
+        if not session_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.guest_sessions.c.id, t.guest_sessions.c.display_name).where(
+                    t.guest_sessions.c.id.in_(list(session_ids))
+                )
+            )
+        ).all()
+        return {row.id: row.display_name for row in rows}
+
+    async def seen_in_rounds(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
+    ) -> dict[uuid.UUID, set[uuid.UUID]]:
+        """Live guest sessions whose lifetime overlaps each room's round window."""
+        if not rounds:
+            return {}
+        scopes = []
+        for room_id, since, until in rounds:
+            clauses = [t.guest_sessions.c.chatroom_id == room_id, t.guest_sessions.c.last_seen_at >= since]
+            if until is not None:
+                clauses.append(t.guest_sessions.c.created_at <= until)
+            scopes.append(sa.and_(*clauses))
+        rows = (
+            await self._db.execute(
+                sa.select(t.guest_sessions.c.chatroom_id, t.guest_sessions.c.id).where(
+                    sa.and_(sa.or_(*scopes), t.guest_sessions.c.revoked_at.is_(None))
+                )
+            )
+        ).all()
+        result: dict[uuid.UUID, set[uuid.UUID]] = {room_id: set() for room_id, _, _ in rounds}
+        for row in rows:
+            result[row.chatroom_id].add(row.id)
+        return result
+
+    async def existing_ids(self, session_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """The subset of ids that name a guest session, whatever its last-seen time."""
+        if not session_ids:
+            return set()
+        rows = await self._db.execute(
+            sa.select(t.guest_sessions.c.id).where(t.guest_sessions.c.id.in_(list(session_ids)))
+        )
+        return set(rows.scalars())
 
     async def find_by_id(self, session_id: uuid.UUID) -> GuestSession | None:
         row = (

@@ -3,7 +3,10 @@
     class="streaming"
     data-testid="streaming-draft"
   >
-    <ChatroomBubbleShell agent>
+    <ChatroomBubbleShell
+      agent
+      :agent-color="agentColor ?? null"
+    >
       <template #meta>
         <SAvatar
           :name="agentName"
@@ -22,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+import type { AgentBubbleColor } from '../utils/agentBubbleColors'
 import { useI18n } from 'vue-i18n'
 import { SAvatar } from '@shared/ui'
 import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
@@ -29,6 +33,7 @@ import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
 defineProps<{
   html: string
   agentName: string
+  agentColor?: AgentBubbleColor | null
 }>()
 
 const { t } = useI18n()

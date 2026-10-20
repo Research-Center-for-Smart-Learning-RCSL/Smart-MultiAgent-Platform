@@ -11,14 +11,17 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
+from app.api.v1.deps import has_project_role
 from contexts.activities.infrastructure.channels import project_channel
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime import (
+    AccessOutcome,
     ChannelConnection,
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
+    refuse_after_accept,
 )
 
 router = APIRouter(tags=["ws"])
@@ -34,17 +37,22 @@ async def ws_project(ws: WebSocket, project_id: uuid.UUID) -> None:
 
     sm = get_sessionmaker()
     async with sm() as session:
-        if not auth.principal.is_admin and not await TenancyFacade(session).is_project_member(
-            auth.principal.user_id, project_id
-        ):
-            await ws.close(code=4403)
+        project = await TenancyFacade(session).get_project(project_id)
+        if project is None:
+            await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.GONE)
+            return
+        if not await has_project_role(db=session, principal=auth.principal, project_id=project_id):
+            await refuse_after_accept(ws, auth.subprotocol, AccessOutcome.FORBIDDEN)
             return
 
-    async def authorize(conn: ChannelConnection) -> bool:
-        if conn.principal.is_admin:
-            return True
+    async def authorize(conn: ChannelConnection) -> AccessOutcome:
         async with sm() as session:
-            return await TenancyFacade(session).is_project_member(conn.principal.user_id, project_id)
+            project = await TenancyFacade(session).get_project(project_id)
+            if project is None:
+                return AccessOutcome.GONE
+            if await has_project_role(db=session, principal=conn.principal, project_id=project_id):
+                return AccessOutcome.ALLOWED
+            return AccessOutcome.FORBIDDEN
 
     await connection_loop(
         ws=ws,
@@ -54,6 +62,7 @@ async def ws_project(ws: WebSocket, project_id: uuid.UUID) -> None:
         token_expires_at=auth.expires_at,
         token_jti=auth.jti,
         authorize=authorize,
+        authorize_every_n_ticks=1,
     )
 
 

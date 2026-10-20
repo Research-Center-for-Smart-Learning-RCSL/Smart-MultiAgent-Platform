@@ -26,6 +26,7 @@ from contexts.activities.domain.models import (
     ValidationResult,
     ValidatorKind,
 )
+from contexts.activities.interfaces.broadcast import dispatch_dashboard_submission_validated
 
 # TTL after which a still-``pending`` async validation is swept to ``error`` — the
 # single safety net for a stalled worker OR a dropped post-commit enqueue.
@@ -176,11 +177,7 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
 
     if chatroom_id is not None and result_status in ("validated", "error"):
         await _emit_validated(chatroom_id, sid, result_status)
-        from contexts.activities.interfaces.broadcast import dispatch_dashboard_submission_validated
-
-        type_key = activity_type.key if activity_type is not None else ""
-        is_valid = result_status == "validated"
-        await dispatch_dashboard_submission_validated(chatroom_id, type_key=type_key, is_valid=is_valid)
+        await dispatch_dashboard_submission_validated(chatroom_id)
     await _emit_activity_signal(signal_payload)
     return result_status
 
@@ -198,7 +195,7 @@ async def activities_watchdog(ctx: dict[str, Any]) -> str:
 
     # (chatroom_id, submission_id, signal_payload) built post-commit, emitted
     # outside the session — same ordering as validate_activity_submission.
-    to_emit: list[tuple[uuid.UUID, uuid.UUID, dict[str, Any] | None]] = []
+    to_emit: list[tuple[uuid.UUID, uuid.UUID, dict[str, Any] | None, bool]] = []
     async with async_session() as db:
         facade = ActivitiesFacade(db)
         swept = await facade.sweep_stalled(ttl_seconds=_PENDING_TTL_SECONDS)
@@ -217,20 +214,24 @@ async def activities_watchdog(ctx: dict[str, Any]) -> str:
         # documents); a build failure for one row must not drop the others, so the
         # per-row build is guarded — the write-back is already committed.
         for submission_id, chatroom_id in swept:
+            signal_built = True
             try:
                 payload = await facade.build_activity_signal(submission_id=submission_id)
             except Exception:
                 logger.bind(submission_id=str(submission_id)).warning(
                     "activity watchdog signal build failed", exc_info=True
                 )
-                continue
-            to_emit.append((chatroom_id, submission_id, payload))
+                payload = None
+                signal_built = False
+            to_emit.append((chatroom_id, submission_id, payload, signal_built))
 
     # Both emits already swallow their own failures, so one bad row cannot fail the
     # sweep or block the rest.
-    for chatroom_id, submission_id, payload in to_emit:
-        await _emit_validated(chatroom_id, submission_id, "error")
-        await _emit_activity_signal(payload)
+    for chatroom_id, submission_id, payload, signal_built in to_emit:
+        await dispatch_dashboard_submission_validated(chatroom_id)
+        if signal_built:
+            await _emit_validated(chatroom_id, submission_id, "error")
+            await _emit_activity_signal(payload)
 
     swept_count = len(swept)
     logger.bind(event="activities_watchdog_done", swept=swept_count).info(

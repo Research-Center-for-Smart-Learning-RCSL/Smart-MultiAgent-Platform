@@ -320,7 +320,17 @@ The `[...]` button (`EllipsisVerticalIcon`) opens an `SDropdown` with: Search, S
 
 ### 3.3 Message Bubbles
 
-All messages are left-aligned for consistent reading flow across multi-participant conversations.
+Only the current viewer's messages are right-aligned, with a light accent tint
+(`--color-bubble-own`). Other users', guests', and agents' messages are left-aligned.
+The viewer is the access token's identity, including guest sessions and impersonation;
+optimistic sends use that same identity, so their side stays unchanged on acknowledgement.
+System rows and released observations retain their full-width layouts.
+
+Normal-role agent bindings can have an optional room-specific bubble colour: cyan, teal,
+green, lime, amber, orange, rose or violet. The border and tint apply to both persisted
+and streaming replies, and every reader, including guests, sees the same colour.
+Uncoloured and unbound agents retain the default agent style. Sender names and avatars
+remain the primary identifiers.
 
 #### User Message
 
@@ -338,7 +348,7 @@ All messages are left-aligned for consistent reading flow across multi-participa
 ```
 
 **Visual spec**:
-- Background: `--color-bg` (white)
+- Background: `--color-bubble-own` for the viewer's own messages, `--color-bg` otherwise
 - Border: 1px `--color-border`
 - Border-radius: `--radius-md`
 - Padding: 12px 16px
@@ -401,8 +411,8 @@ All messages are left-aligned for consistent reading flow across multi-participa
 ```
 
 **Visual spec** (differences from user message):
-- Left border: 3px solid `--color-accent`
-- Background: `--color-surface`
+- Left border: 3px solid `--color-accent`, or `--color-agent-<key>` when coloured
+- Background: `--color-surface`, or `--color-agent-<key>-tint` when coloured
 - Avatar: `SAvatar` 28px with `CpuChipIcon` overlay or agent initial, `--color-accent` ring
 - Sender name: 13px 600 weight `--color-accent`
 - Max-width: 85% of feed width (agents produce longer content)
@@ -1229,6 +1239,13 @@ Pill style: `SBadge`-like, `--radius-full`, padding 2px 10px, 12px font.
 - `DlqViewer` (from workflow slice): inline expandable panel showing failed messages with retry actions
 - Orphaned bindings: agents that were deleted from the project but still bound — shown as truncated ID + "Unknown agent" label + remove button
 - Remove action: `SConfirmDialog` "Unbind this agent? It will no longer respond in this chatroom."
+
+In room settings, each participant agent has an accessible radio picker with "No colour"
+and the eight palette choices. The room creator, Admin, Project Owner and Org Owner may
+save colours when they can read the room (matrix row 29). Controls disable while saving;
+a failed write restores the saved selection and shows an error toast. Successful changes
+refresh all open clients through `chatroom.updated`. Observer bindings have no picker,
+cannot receive colours, and lose any stored colour when promoted to observer.
 
 #### Danger Zone
 

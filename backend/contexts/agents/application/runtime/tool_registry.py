@@ -399,8 +399,27 @@ _UPDATE_WAKEUP_SCHEMA: dict[str, Any] = {
 }
 
 
-def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID) -> Tool:
-    """R15.06 — agent self-adjusts its own wake-up cadence (hard/soft clamp R15.07)."""
+@dataclass(frozen=True, slots=True)
+class WakeupBinding:
+    """The live room binding a turn runs in; the only thing `update_wakeup` may change.
+
+    ``effect_sink`` receives the timer effects of each write. The write is in the
+    turn's open transaction, so the turn applies them after its commit and drops
+    them when it rolls back, as ``activity_tools`` does with its events.
+    """
+
+    room_id: uuid.UUID
+    binding_id: uuid.UUID
+    effect_sink: list[Any]
+
+
+def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID, binding: WakeupBinding) -> Tool:
+    """R15.06 — the agent adjusts its own cadence in this room only (clamps R15.07).
+
+    The room and binding come from this closure, never from the model's arguments,
+    and the facade refuses the write if that binding is no longer live. Nothing
+    here touches a timer; see ``WakeupBinding.effect_sink``.
+    """
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
@@ -412,21 +431,25 @@ def build_update_wakeup_tool(db: Any, *, agent_id: uuid.UUID) -> Tool:
             for key in ("every_n_messages_enabled", "silence_minutes_enabled")
             if isinstance(args.get(key), bool)
         }
-        cfg = await OrchestrationFacade(db).update_wakeup(
+        tuning = await OrchestrationFacade(db).update_room_wakeup(
             agent_id=agent_id,
+            room_id=binding.room_id,
+            binding_id=binding.binding_id,
             every_n_messages=_opt_int(args.get("every_n_messages")),
             silence_minutes=_opt_int(args.get("silence_minutes")),
-            actor_agent_id=agent_id,
             **toggles,
         )
-        return ToolResult(content=json.dumps(cfg.to_dict()))
+        if tuning.effects is not None:
+            binding.effect_sink.append(tuning.effects)
+        return ToolResult(content=json.dumps(tuning.config.to_dict()))
 
     return Tool(
         name="update_wakeup",
         description=(
-            "Adjust your own wake-up triggers: after how many room messages, or how many "
-            "minutes of silence, your next turn fires, and, where your designer allowed it, "
-            "whether each trigger is on. Values are clamped to safe bounds."
+            "Adjust your own wake-up triggers in this room: after how many room messages, or "
+            "how many minutes of silence, your next turn fires, and, where your designer allowed "
+            "it, whether each trigger is on. Values are clamped to safe bounds. The change applies "
+            "to this room only and is undone at your periodic refresh or by the room's teacher."
         ),
         input_schema=_UPDATE_WAKEUP_SCHEMA,
         invoke=_invoke,
@@ -839,8 +862,12 @@ def build_registry(
     reads: list[SkillRead] | None = None,
     extra: list[Tool] | None = None,
     is_infra_error: InfraErrorCheck | None = None,
+    wakeup_binding: WakeupBinding | None = None,
 ) -> ToolRegistry:
     """Assemble the per-turn tool table for ``agent_id``.
+
+    ``update_wakeup`` is offered only with ``wakeup_binding``, the live room binding
+    the turn runs in: a headless turn has no room cadence to change ([R15.06]).
 
     ``skills`` is the turn's validated bound-set snapshot and is **required**, not
     defaulted: a caller that forgets it is then a type error rather than an agent that
@@ -851,7 +878,9 @@ def build_registry(
     manifest, and the scan statuses that gate them are three views of one snapshot and
     must not be able to drift apart between the tap and the tool.
     """
-    tools: list[Tool] = [build_update_wakeup_tool(db, agent_id=agent_id)]
+    tools: list[Tool] = []
+    if wakeup_binding is not None:
+        tools.append(build_update_wakeup_tool(db, agent_id=agent_id, binding=wakeup_binding))
     if skills.skills:
         tools.append(build_read_skill_tool(skills, db=db, reads=reads))
     if extra:
@@ -874,6 +903,7 @@ __all__ = [
     "Tool",
     "ToolRegistry",
     "ToolResult",
+    "WakeupBinding",
     "build_cast_approval_vote_tool",
     "build_read_skill_tool",
     "build_registry",

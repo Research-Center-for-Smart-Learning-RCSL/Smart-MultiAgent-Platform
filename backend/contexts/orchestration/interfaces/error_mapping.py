@@ -56,6 +56,16 @@ _MAP: ErrorMap = {
         422,
         "Only every_n_messages and silence_minutes are self-modifiable",
     ),
+    errors.RoomWakeupVersionConflict: (
+        "orchestration/room-wakeup-version-conflict",
+        409,
+        "The room's wake-up settings changed since they were read; reload and retry",
+    ),
+    errors.RoomWakeupBindingGone: (
+        "orchestration/room-wakeup-binding-gone",
+        409,
+        "The agent was unbound or rebound since these settings were read; reload",
+    ),
     errors.InstructLoopDetected: (
         "instruct-loop-detected",
         409,

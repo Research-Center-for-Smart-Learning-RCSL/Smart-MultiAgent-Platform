@@ -1,6 +1,6 @@
-"""Conversation facade — read-only surface for the web and other contexts.
+"""Conversation facade — public use cases and reads for the web and other contexts.
 
-Writers must go through the use-case services. Cross-context consumers (e.g.
+Writes delegate to the use-case services. Cross-context consumers (e.g.
 the WS layer in F.6) read chatroom / message state through this facade so
 they never import repositories or tables directly.
 """
@@ -11,12 +11,14 @@ import asyncio
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.application.access import visible_room_ids
+from contexts.conversation.application.access import can_manage_normal_binding_settings, visible_room_ids
+from contexts.conversation.application.chatroom_service import ChatroomService
 from contexts.conversation.application.guest_session_service import (
     GuestRefreshResult,
     GuestRemovalResult,
@@ -24,12 +26,15 @@ from contexts.conversation.application.guest_session_service import (
     GuestSessionResult,
 )
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
+from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
     ActivityControlGrant,
     AgentObservation,
     AttachmentExtractionStatus,
     AttachmentStatus,
+    BindingWakeupState,
     Chatroom,
+    ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     DraftReadGrant,
     GuestBan,
@@ -87,6 +92,7 @@ class ConversationFacade:
         self._rooms = ChatroomRepository(db)
         self._messages = MessageRepository(db)
         self._guests = ChatroomGuestRepository(db)
+        self._guest_sessions = GuestSessionRepository(db)
         self._room_agents = ChatroomAgentRepository(db)
         self._attachments = MessageAttachmentRepository(db)
 
@@ -460,6 +466,69 @@ class ConversationFacade:
         """Human author ids present in the room's live message history (capped)."""
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
 
+    async def round_roster(
+        self,
+        rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]],
+        *,
+        presence: Mapping[uuid.UUID, Sequence[uuid.UUID]] | None,
+    ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]:
+        """Batch the message, guest-session, and live-presence roster for rounds.
+
+        Rounds are ``(room_id, started_at, ended_at)``; ``ended_at`` is ``None``
+        while the round is open. Each result pair is ``(principal_id, kind)``
+        where kind is ``user`` or ``guest``. ``presence`` comes from
+        ``room_presence`` and only counts for open rounds: being online now says
+        nothing about a round that already ended. ``None`` (Redis unavailable)
+        leaves the database-backed participants in place.
+        """
+        if not rounds:
+            return {}
+        roster: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id, _, _ in rounds}
+        message_senders = await self._messages.human_senders_in_rounds(rounds)
+        guests_by_room = await self._guest_sessions.seen_in_rounds(rounds)
+        for room_id, _, _ in rounds:
+            roster[room_id].update(message_senders.get(room_id, set()))
+            roster[room_id].update((guest_id, SenderType.GUEST.value) for guest_id in guests_by_room[room_id])
+        if not presence:
+            return roster
+        online = {room_id: list(presence.get(room_id, ())) for room_id, _, until in rounds if until is None}
+        # Presence holds user ids and guest session ids side by side; a guest who
+        # connected before the round began is not in guests_by_room, so ask the table.
+        guest_ids = await self._guest_sessions.existing_ids(
+            [principal_id for principal_ids in online.values() for principal_id in principal_ids]
+        )
+        for room_id, principal_ids in online.items():
+            roster[room_id].update(
+                (principal_id, SenderType.GUEST.value if principal_id in guest_ids else SenderType.USER.value)
+                for principal_id in principal_ids
+            )
+        return roster
+
+    async def message_counts_by_sender(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
+    ) -> dict[uuid.UUID, dict[str, int]]:
+        """Batch per-round message counts, excluding deleted and system messages."""
+        return await self._messages.counts_by_sender_in_rounds(rounds)
+
+    async def guest_labels(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Display names for a batch of guest session ids; token data is not selected."""
+        return await self._guest_sessions.labels_for_ids(session_ids)
+
+    async def room_presence(
+        self, chatroom_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[uuid.UUID]] | None:
+        """Live deduplicated principals per room, or ``None`` when Redis is unavailable."""
+        if not chatroom_ids:
+            return {}
+        try:
+            rosters = await PresenceTracker().list_rooms(chatroom_ids)
+        except Exception:
+            logger.bind(room_count=len(chatroom_ids)).opt(exception=True).warning(
+                "presence read for dashboard failed"
+            )
+            return None
+        return {room_id: list(rosters.get(room_id, [])) for room_id in chatroom_ids}
+
     async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Agent ids the room's live history shows: authors and disclosed observers (capped)."""
         return await self._messages.agent_label_ids(chatroom_id, limit=limit)
@@ -477,6 +546,63 @@ class ConversationFacade:
                 "presence read for roster failed"
             )
             return []
+
+    # Room-owned wake-up layers ([R15.09]). Orchestration owns their meaning;
+    # this context stores them on the binding row.
+
+    async def binding_wakeup_state(
+        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID
+    ) -> BindingWakeupState | None:
+        return await self._room_agents.wakeup_state(chatroom_id=chatroom_id, agent_id=agent_id)
+
+    async def room_binding_wakeup_states(self, chatroom_id: uuid.UUID) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.wakeup_states_for_room(chatroom_id)
+
+    async def live_binding_wakeup_states(self, *, limit: int, offset: int) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.live_wakeup_states(limit=limit, offset=offset)
+
+    async def runtime_layer_binding_states(
+        self, *, limit: int, after: tuple[datetime, uuid.UUID] | None = None
+    ) -> Sequence[BindingWakeupState]:
+        return await self._room_agents.runtime_layer_states(limit=limit, after=after)
+
+    async def write_binding_wakeup_layers(
+        self,
+        *,
+        binding_id: uuid.UUID,
+        expected_version: int,
+        room_overrides: dict[str, Any],
+        runtime_overrides: dict[str, Any],
+        runtime_started_at: datetime | None,
+    ) -> BindingWakeupState | None:
+        """CAS write; ``None`` when the version moved or the binding is gone."""
+        return await self._room_agents.cas_wakeup_layers(
+            binding_id=binding_id,
+            expected_version=expected_version,
+            room_overrides=room_overrides,
+            runtime_overrides=runtime_overrides,
+            runtime_started_at=runtime_started_at,
+        )
+
+    async def room_presence_snapshot(self, chatroom_id: uuid.UUID, *, limit: int) -> RoomPresenceSnapshot:
+        """Connected principals for an agent's participant facts, bounded at the read.
+
+        Unlike :meth:`present_user_ids`, a failed read is reported as unavailable
+        rather than as an empty room.
+        """
+        observed_at = now()
+        try:
+            ids, truncated = await PresenceTracker().list_room_bounded(chatroom_id, limit=limit)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "presence read for participant facts failed"
+            )
+            return RoomPresenceSnapshot(
+                observed_at=observed_at, available=False, user_ids=(), truncated=False
+            )
+        return RoomPresenceSnapshot(
+            observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
+        )
 
     async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
         """Tell every room the user is present in to re-read its roster ([R13.19]).
@@ -535,6 +661,25 @@ class ConversationFacade:
         back into exactly that.
         """
         return await project_id_for_room(self._db, chatroom_id)
+
+    async def set_agent_bubble_color(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        color: ChatroomAgentBubbleColor | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Literal["written", "unchanged", "not_bound", "observer"]:
+        return await ChatroomService(self._db).set_agent_bubble_color(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            color=color,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def agent_role_in_chatroom(
         self,
@@ -953,10 +1098,15 @@ __all__ = [
     "ActivityControlGrant",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
+    "BindingWakeupState",
+    "ChatroomAgentBubbleColor",
+    "ChatroomAgentRole",
     "ConversationFacade",
     "DraftReadGrant",
     "Message",
     "MessageAttachment",
     "RoomGuests",
+    "RoomPresenceSnapshot",
     "SenderType",
+    "can_manage_normal_binding_settings",
 ]

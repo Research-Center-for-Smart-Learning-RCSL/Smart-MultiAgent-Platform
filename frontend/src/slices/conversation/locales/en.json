@@ -1,5 +1,21 @@
 {
   "conversation": {
+    "appearance": {
+      "label": "Bubble colour",
+      "help": "Choose a colour for this participant agent in this room.",
+      "none": "No colour",
+      "failed": "Could not save the bubble colour. Try again.",
+      "colors": {
+        "cyan": "Cyan",
+        "teal": "Teal",
+        "green": "Green",
+        "lime": "Lime",
+        "amber": "Amber",
+        "orange": "Orange",
+        "rose": "Rose",
+        "violet": "Violet"
+      }
+    },
     "workspace": {
       "actions": {
         "dashboard": "Dashboard"
@@ -350,8 +366,6 @@
       "bindingsLoadFailed": "Failed to load agent bindings.",
       "bindFailed": "Failed to bind the agent.",
       "unbindFailed": "Failed to unbind the agent.",
-      "wakeupConfigSaved": "Wakeup config saved.",
-      "wakeupConfigFailed": "Failed to save wakeup config.",
       "roleChangeFailed": "Failed to change the agent role.",
       "loading": "Loading…",
       "loadFailed": "Failed to load chatroom settings.",
@@ -444,6 +458,48 @@
       "unresolved": "{count} previously selected activity is no longer available to this project and will not be offered to the agent.",
       "observerNote": "This agent is an observer: the class never sees it speak, but starting or ending a round is something the whole class sees.",
       "typesLoadFailed": "Could not load this project's activity types, so there is nothing to pick from. Reload the page; if it keeps failing, you may not have permission to list them."
+    },
+    "roomWakeup": {
+      "title": "Wake-up in this room",
+      "description": "These settings apply to this room only. The agent's own defaults and its other rooms are not changed.",
+      "loadFailed": "Could not load this agent's wake-up settings.",
+      "retry": "Retry",
+      "callOnly": "The agent's designer set it to answer only when called, so its own triggers stay off in every room.",
+      "everyNEnabled": "Reply after a number of messages",
+      "everyN": "Messages before a reply",
+      "count": "Messages that count",
+      "countAll": "All messages",
+      "countHuman": "Messages from people only",
+      "silenceEnabled": "Reply after a silence",
+      "silenceMinutes": "Minutes of silence",
+      "autostop": "Rounds without a person before it stops",
+      "designerValue": "Agent default: {value}",
+      "saveNumbers": "Save numbers",
+      "saved": "Wake-up settings saved for this room.",
+      "saveFailed": "Could not save the wake-up settings.",
+      "conflict": "These settings changed since you opened them. The latest values are shown; make your change again.",
+      "resetDone": "Wake-up settings reset for this room.",
+      "refreshAt": "The agent's own adjustments are undone automatically at {at}.",
+      "noRuntime": "The agent has not adjusted itself in this room.",
+      "ignored": "Some adjustments the agent made are not in effect under the current settings, for example because its designer no longer allows them.",
+      "source": {
+        "designer": "Agent default",
+        "room": "This room",
+        "runtime": "Agent adjusted"
+      },
+      "reset": {
+        "confirm": "Reset",
+        "runtime": {
+          "button": "Undo agent adjustments",
+          "title": "Undo the agent's adjustments?",
+          "message": "The agent's own changes in this room are removed. The room's settings stay."
+        },
+        "room": {
+          "button": "Reset to agent defaults",
+          "title": "Reset this room to the agent's defaults?",
+          "message": "Every wake-up setting chosen for this room, and every adjustment the agent made here, is removed."
+        }
+      }
     }
   }
 }

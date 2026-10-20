@@ -231,6 +231,7 @@ async def connection_loop(
     on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
     on_heartbeat: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     authorize: Callable[[ChannelConnection], Awaitable[bool | AccessOutcome]] | None = None,
+    authorize_every_n_ticks: int = _ROOM_REAUTH_EVERY_N_TICKS,
     max_frame_bytes: int = _MAX_FRAME_BYTES,
 ) -> None:
     """Drive a single WS connection until it closes.
@@ -251,7 +252,14 @@ async def connection_loop(
     resource no longer exists" to GONE rather than let it escape. Both are kept
     here (not imported from a context) so `shared_kernel` stays free of context
     dependencies.
+
+    `authorize_every_n_ticks` tunes the endpoint's access-probe cadence without
+    changing token-expiry/denylist checks. Chatroom ACLs keep the default 60s
+    cadence; project dashboard membership can use each 30s watchdog tick.
     """
+    if authorize_every_n_ticks < 1:
+        raise ValueError("authorize_every_n_ticks must be at least 1")
+
     conn = ChannelConnection(
         ws=ws,
         principal=principal,
@@ -429,7 +437,7 @@ async def connection_loop(
             # token probe, so a mid-socket ACL change (membership loss, guest
             # revoke) tears the connection down. A transient error fails open for
             # this window and retries — same posture as the denylist probe.
-            if authorize is not None and ticks % _ROOM_REAUTH_EVERY_N_TICKS == 0:
+            if authorize is not None and ticks % authorize_every_n_ticks == 0:
                 try:
                     verdict = await authorize(conn)
                 except Exception:
@@ -441,8 +449,10 @@ async def connection_loop(
                     if verdict is not True and verdict is not AccessOutcome.ALLOWED:
                         # Anything but an explicit allow refuses, so a probe that
                         # returns something unexpected fails closed.
-                        refusal = verdict if verdict in _REFUSAL_CODES else AccessOutcome.FORBIDDEN
-                        _request_close(*_REFUSAL_CODES[refusal])
+                        if isinstance(verdict, AccessOutcome) and verdict in _REFUSAL_CODES:
+                            _request_close(*_REFUSAL_CODES[verdict])
+                        else:
+                            _request_close(*_REFUSAL_CODES[AccessOutcome.FORBIDDEN])
                         return
             jti = conn.token_jti
             if jti is None:

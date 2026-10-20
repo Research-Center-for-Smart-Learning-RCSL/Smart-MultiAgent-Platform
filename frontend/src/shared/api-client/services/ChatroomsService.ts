@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
+import type { AgentAppearanceIn } from '../models/AgentAppearanceIn';
 import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
 import type { AgentCanvasWriteAccessIn } from '../models/AgentCanvasWriteAccessIn';
 import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
@@ -20,6 +21,9 @@ import type { GuestBanOut } from '../models/GuestBanOut';
 import type { GuestLinkOut } from '../models/GuestLinkOut';
 import type { GuestRemoveIn } from '../models/GuestRemoveIn';
 import type { PresenceOut } from '../models/PresenceOut';
+import type { RoomWakeupOut } from '../models/RoomWakeupOut';
+import type { RoomWakeupPatchIn } from '../models/RoomWakeupPatchIn';
+import type { RoomWakeupResetIn } from '../models/RoomWakeupResetIn';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -279,6 +283,34 @@ export class ChatroomsService {
         });
     }
     /**
+     * Patch Chatroom Agent Appearance
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentAppearanceApiChatroomsChatroomIdAgentsAgentIdAppearancePatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentAppearanceIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/appearance',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Patch Chatroom Agent Canvas Access
      * Let one bound agent read this room's canvas content ([R13.47]).
      * @returns void
@@ -369,6 +401,90 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/draft-access',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Room Wakeup
+     * @returns RoomWakeupOut Successful Response
+     * @throws ApiError
+     */
+    public static getRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupGet({
+        chatroomId,
+        agentId,
+    }: {
+        chatroomId: string,
+        agentId: string,
+    }): CancelablePromise<RoomWakeupOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/wakeup',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Room Wakeup
+     * Supplied fields replace the room's value and drop the agent's adjustment of
+     * the same field; nothing is written to the shared agent.
+     * @returns RoomWakeupOut Successful Response
+     * @throws ApiError
+     */
+    public static patchRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: RoomWakeupPatchIn,
+    }): CancelablePromise<RoomWakeupOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/wakeup',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Reset Room Wakeup
+     * ``runtime`` drops the agent's own adjustments; ``room`` also returns every
+     * room value to the designer's current defaults. Neither touches other rooms.
+     * @returns RoomWakeupOut Successful Response
+     * @throws ApiError
+     */
+    public static resetRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupResetPost({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: RoomWakeupResetIn,
+    }): CancelablePromise<RoomWakeupOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/wakeup/reset',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,

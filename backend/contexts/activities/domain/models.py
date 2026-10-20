@@ -612,13 +612,45 @@ class AttemptSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class RoomDashboardAggregate:
-    """Per-room aggregate for the teacher dashboard ([R33.01])."""
+class RoundDashboardAggregate:
+    """Current-round submission totals for one activation."""
 
-    chatroom_id: uuid.UUID
+    activation_id: uuid.UUID
     total_submissions: int
     valid_count: int
-    last_submission_at: dt.datetime | None
+    last_valid_submission_at: dt.datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RoundSubjectCount:
+    """Valid submission count for one subject in one activation."""
+
+    activation_id: uuid.UUID
+    subject_kind: SubjectKind
+    subject_id: uuid.UUID
+    valid_count: int
+    last_valid_submission_at: dt.datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RoundSubject:
+    """A subject who opened a session in an activation."""
+
+    subject_kind: SubjectKind
+    subject_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class WatchlistEntry:
+    """A present current-round subject and whether the teacher should check in."""
+
+    chatroom_id: uuid.UUID
+    subject_kind: SubjectKind
+    subject_id: uuid.UUID
+    valid_count: int
+    last_valid_submission_at: dt.datetime | None
+    needs_attention: bool
+    reason: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,15 +660,6 @@ class TimeseriesBucket:
     chatroom_id: uuid.UUID
     bucket: dt.datetime
     count: int
-
-
-@dataclass(frozen=True, slots=True)
-class WatchlistEntry:
-    """A participant below median submission count ([R33.02])."""
-
-    subject_code: str
-    submission_count: int
-    last_submission_at: dt.datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -685,7 +708,9 @@ __all__ = [
     "ProposalVote",
     "RecentActivityRow",
     "ResearchExportSubmission",
-    "RoomDashboardAggregate",
+    "RoundDashboardAggregate",
+    "RoundSubject",
+    "RoundSubjectCount",
     "SessionStatus",
     "SubjectKind",
     "TimeseriesBucket",

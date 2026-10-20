@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SButton, SProgressBar, SAlert, SSkeleton, STooltip } from '@shared/ui'
+import {
+  SButton,
+  SProgressBar,
+  SAlert,
+  SSkeleton,
+  STooltip,
+  SStatTile,
+  SSegmentedControl,
+} from '@shared/ui'
 import { useToast } from '@shared/composables'
 import { projectKeysApi, type KeyUsage, type UsageWindow } from '../api/project-keys'
 import type { Limits } from '../api/key-groups'
@@ -26,6 +34,7 @@ const WINDOWS: { value: UsageWindow; label: string }[] = [
   { value: '7d', label: '7d' },
   { value: '30d', label: '30d' },
 ]
+const windowLabel = computed(() => t('keys.usage.timeWindow'))
 
 const selectedWindow = ref<UsageWindow>('1h')
 const usage = ref<KeyUsage | null>(null)
@@ -105,21 +114,11 @@ const thresholdAlerts = computed(() =>
         v-if="!compact"
         class="text-sm font-medium"
       >{{ t('keys.usage.timeWindow') }}</span>
-      <div class="inline-flex rounded-[var(--radius-md)] border border-[var(--color-border)] overflow-hidden">
-        <SButton
-          v-for="(w, idx) in WINDOWS"
-          :key="w.value"
-          :variant="selectedWindow === w.value ? 'primary' : 'ghost'"
-          size="sm"
-          :class="[
-            'rounded-none border-0',
-            idx > 0 && 'border-l border-l-[var(--color-border-subtle)]',
-          ]"
-          @click="selectedWindow = w.value"
-        >
-          {{ w.label }}
-        </SButton>
-      </div>
+      <SSegmentedControl
+        v-model="selectedWindow"
+        :options="WINDOWS"
+        :accessible-label="windowLabel"
+      />
     </div>
 
     <!-- Loading state -->
@@ -156,26 +155,24 @@ const thresholdAlerts = computed(() =>
     <!-- Stats -->
     <template v-else-if="usage">
       <div :class="compact ? 'flex flex-wrap gap-8' : 'flex flex-wrap gap-4'">
-        <div
+        <SStatTile
           v-for="s in stats"
           :key="s.key"
-          :class="compact
-            ? 'flex flex-col'
-            : 'flex flex-col min-w-[140px] flex-1 bg-[var(--color-surface)] rounded-[var(--radius-md)] p-4'"
+          :label="s.label"
+          :value="s.value"
+          :tone="s.danger ? 'danger' : 'neutral'"
+          :compact="compact"
+          :class="{ 'usage-dashboard__stat': !compact }"
         >
-          <STooltip
-            :content="s.raw.toLocaleString()"
-            placement="top"
-          >
-            <span
-              :class="[
-                compact ? 'text-base font-semibold' : 'text-2xl font-semibold',
-                s.danger ? 'text-[var(--color-danger)]' : 'text-[var(--color-fg)]',
-              ]"
-            >{{ s.value }}</span>
-          </STooltip>
-          <span class="text-xs text-[var(--color-muted)]">{{ s.label }}</span>
-        </div>
+          <template #value>
+            <STooltip
+              :content="s.raw.toLocaleString()"
+              placement="top"
+            >
+              <span>{{ s.value }}</span>
+            </STooltip>
+          </template>
+        </SStatTile>
       </div>
 
       <!-- Hourly limit progress bars -->
@@ -223,3 +220,10 @@ const thresholdAlerts = computed(() =>
     </template>
   </div>
 </template>
+
+<style scoped>
+.usage-dashboard__stat {
+  min-width: 140px;
+  flex: 1;
+}
+</style>

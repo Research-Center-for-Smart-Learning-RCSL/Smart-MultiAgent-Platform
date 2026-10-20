@@ -24,7 +24,8 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     AttemptSummaryRow,
     RecentActivityRow,
-    RoomDashboardAggregate,
+    RoundDashboardAggregate,
+    RoundSubjectCount,
     SubjectKind,
     TimeseriesBucket,
     ValidationStatus,
@@ -611,35 +612,78 @@ class ActivitySubmissionRepository:
 
     # -- Teacher dashboard aggregates ([R33.01]) ----------------------------- #
 
-    async def aggregate_for_rooms(
+    async def round_aggregates(
         self,
         *,
-        chatroom_ids: Sequence[uuid.UUID],
-    ) -> list[RoomDashboardAggregate]:
-        if not chatroom_ids:
+        activation_ids: Sequence[uuid.UUID],
+    ) -> list[RoundDashboardAggregate]:
+        if not activation_ids:
             return []
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
         stmt = (
             sa.select(
-                _SUB.c.chatroom_id,
+                _SESS.c.activation_id,
                 sa.func.count().label("total"),
                 sa.func.count().filter(_SUB.c.is_valid.is_(True)).label("valid_count"),
-                sa.func.max(_SUB.c.created_at).label("last_at"),
+                sa.func.max(_SUB.c.created_at).filter(_SUB.c.is_valid.is_(True)).label("last_valid_at"),
             )
+            .select_from(joined)
             .where(
                 sa.and_(
-                    _SUB.c.chatroom_id.in_(list(chatroom_ids)),
+                    _SESS.c.activation_id.in_(list(activation_ids)),
                     _SUB.c.deleted_at.is_(None),
                 )
             )
-            .group_by(_SUB.c.chatroom_id)
+            .group_by(_SESS.c.activation_id)
         )
         rows = (await self._db.execute(stmt)).all()
         return [
-            RoomDashboardAggregate(
-                chatroom_id=r.chatroom_id,
+            RoundDashboardAggregate(
+                activation_id=r.activation_id,
                 total_submissions=int(r.total or 0),
                 valid_count=int(r.valid_count or 0),
-                last_submission_at=r.last_at,
+                last_valid_submission_at=r.last_valid_at,
+            )
+            for r in rows
+        ]
+
+    async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
+        """Valid-only per-subject counts for the requested activity rounds."""
+        if not activation_ids:
+            return []
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        subject_id = sa.func.coalesce(_SESS.c.subject_member_group_id, _SESS.c.subject_user_id)
+        subject_kind = sa.case(
+            (_SESS.c.subject_member_group_id.is_not(None), SubjectKind.MEMBER_GROUP.value),
+            else_=_SESS.c.subject_kind,
+        )
+        stmt = (
+            sa.select(
+                _SESS.c.activation_id,
+                subject_kind.label("subject_kind"),
+                subject_id.label("subject_id"),
+                sa.func.count().label("valid_count"),
+                sa.func.max(_SUB.c.created_at).label("last_valid_at"),
+            )
+            .select_from(joined)
+            .where(
+                sa.and_(
+                    _SESS.c.activation_id.in_(list(activation_ids)),
+                    _SUB.c.deleted_at.is_(None),
+                    _SUB.c.is_valid.is_(True),
+                    subject_id.is_not(None),
+                )
+            )
+            .group_by(_SESS.c.activation_id, subject_kind, subject_id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [
+            RoundSubjectCount(
+                activation_id=r.activation_id,
+                subject_kind=SubjectKind(r.subject_kind),
+                subject_id=r.subject_id,
+                valid_count=int(r.valid_count or 0),
+                last_valid_submission_at=r.last_valid_at,
             )
             for r in rows
         ]
@@ -682,42 +726,6 @@ class ActivitySubmissionRepository:
             )
             for r in rows
         ]
-
-    async def participant_submission_counts(
-        self,
-        *,
-        chatroom_ids: Sequence[uuid.UUID],
-    ) -> list[tuple[str, int, dt.datetime | None]]:
-        """Per-participant (subject_code, submission_count, last_at) across rooms."""
-        if not chatroom_ids:
-            return []
-        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
-        stmt = (
-            sa.select(
-                _SESS.c.subject_user_id,
-                _SESS.c.subject_member_group_id,
-                sa.func.count().label("cnt"),
-                sa.func.max(_SUB.c.created_at).label("last_at"),
-            )
-            .select_from(joined)
-            .where(
-                sa.and_(
-                    _SUB.c.chatroom_id.in_(list(chatroom_ids)),
-                    _SUB.c.deleted_at.is_(None),
-                )
-            )
-            .group_by(_SESS.c.subject_user_id, _SESS.c.subject_member_group_id)
-        )
-        rows = (await self._db.execute(stmt)).all()
-        result: list[tuple[str, int, dt.datetime | None]] = []
-        for r in rows:
-            code = (
-                group_subject_code(r.subject_member_group_id)
-                if r.subject_member_group_id is not None
-                else subject_code(r.subject_user_id)
-            )
-            result.append((code, int(r.cnt), r.last_at))
-        return result
 
     async def list_for_research_export(
         self,

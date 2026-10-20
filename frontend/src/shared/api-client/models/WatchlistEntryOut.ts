@@ -3,9 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WatchlistEntryOut = {
-    last_submission_at: (string | null);
+    display_name: (string | null);
+    kind: 'user' | 'guest' | 'group';
+    last_valid_submission_at: (string | null);
     needs_attention: boolean;
+    reason: ('no_valid_in_round' | 'idle' | null);
+    room_id: string;
     subject_code: string;
-    submission_count: number;
+    valid_count: number;
 };
 

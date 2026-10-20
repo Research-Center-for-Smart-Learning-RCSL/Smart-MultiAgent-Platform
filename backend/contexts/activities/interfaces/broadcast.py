@@ -116,7 +116,7 @@ async def dispatch_activation_started(
         await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
-    await dispatch_dashboard_activation_changed(activation.chatroom_id, "active")
+    await dispatch_dashboard_activation_changed(activation.chatroom_id)
 
 
 async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
@@ -129,7 +129,7 @@ async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.
         )
     except Exception:
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
-    await dispatch_dashboard_activation_changed(chatroom_id, "ended")
+    await dispatch_dashboard_activation_changed(chatroom_id)
 
 
 async def dispatch_activation_progress(facade: ActivitiesFacade, activation: ActivityActivation) -> None:
@@ -263,15 +263,15 @@ async def _resolve_project_id(chatroom_id: uuid.UUID) -> uuid.UUID | None:
         return None
 
 
-async def dispatch_dashboard_activation_changed(chatroom_id: uuid.UUID, status: str) -> None:
-    """Tell the project channel that an activation changed ([R33.03])."""
+async def dispatch_dashboard_activation_changed(chatroom_id: uuid.UUID) -> None:
+    """Invalidate project dashboards without exposing room-specific activity ([R33.03])."""
     pid = await _resolve_project_id(chatroom_id)
     if pid is None:
         return
     try:
         await Publisher(project_channel(pid)).emit(
-            "dashboard.activation.changed",
-            {"room_id": str(chatroom_id), "status": status},
+            "dashboard.invalidated",
+            {},
         )
     except Exception:
         _log.warning("dashboard activation emit failed for room %s", chatroom_id, exc_info=True)
@@ -279,22 +279,15 @@ async def dispatch_dashboard_activation_changed(chatroom_id: uuid.UUID, status: 
 
 async def dispatch_dashboard_submission_validated(
     chatroom_id: uuid.UUID,
-    *,
-    type_key: str,
-    is_valid: bool | None,
 ) -> None:
-    """Tell the project channel that a submission was validated ([R33.03])."""
+    """Invalidate project dashboards without exposing room-specific activity ([R33.03])."""
     pid = await _resolve_project_id(chatroom_id)
     if pid is None:
         return
     try:
         await Publisher(project_channel(pid)).emit(
-            "dashboard.submission.validated",
-            {
-                "room_id": str(chatroom_id),
-                "type_key": type_key,
-                "is_valid": is_valid,
-            },
+            "dashboard.invalidated",
+            {},
         )
     except Exception:
         _log.warning("dashboard submission emit failed for room %s", chatroom_id, exc_info=True)

@@ -8,8 +8,8 @@ Self-hosted platform for composing, orchestrating, and chatting with multi-LLM a
 backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
   app/            API routes (app/api/v1/), middleware, config, bootstrap, plugins, wiring
   contexts/       DDD bounded contexts (activities, agents, agent_groups, audit, conversation,
-                  identity, keys, knowledge, notification, orchestration, prompt_studio, skills,
-                  tenancy, workflow)
+                  dashboard, identity, keys, knowledge, notification, orchestration,
+                  prompt_studio, skills, tenancy, workflow)
   shared_kernel/  Cross-cutting: auth, db, errors, i18n, infra, logging, markdown,
                   observability, realtime, security (incl. Vault envelope crypto), storage,
                   text_extraction
@@ -19,7 +19,8 @@ backend/          Python 3.12 — FastAPI + Arq workers + Alembic migrations
 frontend/         Vue 3.5 + Tailwind v4 + TypeScript 5.6
   src/app/        Router, layouts, App.vue
   src/slices/     Feature slices (activities, admin, agent-groups, agents, conversation,
-                  identity, keys, notifications, prompt-studio, skills, tenancy, workflow)
+                  dashboard, identity, keys, notifications, prompt-studio, skills, tenancy,
+                  workflow)
   src/shared/     UI components, composables, styles, api-client (generated)
   e2e/            Playwright end-to-end specs
 deploy/           Docker Compose (base + staging/prod/override/test overlays), nginx, Vault,

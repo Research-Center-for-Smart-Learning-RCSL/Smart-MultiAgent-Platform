@@ -28,19 +28,14 @@
       v-else-if="query.data.value"
       class="admin-metrics__grid"
     >
-      <SCard
+      <SStatTile
         v-for="stat in stats"
         :key="stat.label"
         class="admin-metrics__card"
-      >
-        <component
-          :is="stat.icon"
-          class="admin-metrics__icon"
-          aria-hidden="true"
-        />
-        <span class="admin-metrics__value">{{ stat.value }}</span>
-        <span class="admin-metrics__label">{{ $t(stat.label) }}</span>
-      </SCard>
+        :icon="stat.icon"
+        :label="$t(stat.label)"
+        :value="stat.value"
+      />
     </div>
   </section>
 </template>
@@ -53,7 +48,7 @@ import {
   FolderIcon,
   ClipboardDocumentListIcon,
 } from '@heroicons/vue/24/outline'
-import { SPageHeader, SCard, SLoadingSpinner, SAlert, SButton } from '@shared/ui'
+import { SPageHeader, SStatTile, SLoadingSpinner, SAlert, SButton } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -88,19 +83,5 @@ const stats = computed(() => {
   align-items: center;
   text-align: center;
   gap: var(--space-1);
-}
-.admin-metrics__icon {
-  width: 1.5rem;
-  height: 1.5rem;
-  color: var(--color-muted);
-}
-.admin-metrics__value {
-  font-size: 2rem;
-  font-weight: var(--weight-bold);
-  color: var(--color-fg);
-}
-.admin-metrics__label {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
 }
 </style>

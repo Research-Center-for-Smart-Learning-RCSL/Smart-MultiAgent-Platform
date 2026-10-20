@@ -4,6 +4,8 @@ import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { i18n } from '@shared/i18n'
 import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
+import ChatroomStreamingBubble from '../components/ChatroomStreamingBubble.vue'
+import { AGENT_BUBBLE_COLORS } from '../utils/agentBubbleColors'
 import conversationEn from '../locales/en.json'
 import type { Attachment, DisplayMessage } from '../types'
 
@@ -30,6 +32,49 @@ const baseProps = {
   canEdit: false,
   canDelete: false,
 }
+
+describe('viewer-relative bubble sides', () => {
+  it.each(AGENT_BUBBLE_COLORS)('uses %s on persisted and streaming agent replies', async (color) => {
+    const bubble = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: agentMessage({}), agentColor: color },
+    })
+    const stream = await renderView(ChatroomStreamingBubble, {
+      props: { html: '<p>hi</p>', agentName: 'Bot', agentColor: color },
+    })
+    for (const wrapper of [bubble, stream]) {
+      const shell = wrapper.find(`.bubble--agent-colored[data-agent-color="${color}"]`)
+      expect(shell.exists()).toBe(true)
+      const style = (shell.element as HTMLElement).style
+      expect(style.getPropertyValue('--agent-color')).toBe(`var(--color-agent-${color})`)
+      expect(style.getPropertyValue('--agent-color-tint')).toBe(`var(--color-agent-${color}-tint)`)
+    }
+    await bubble.setProps({ agentColor: null })
+    await stream.setProps({ agentColor: null })
+    expect(bubble.find('.bubble--agent-colored').exists()).toBe(false)
+    expect(stream.find('.bubble--agent-colored').exists()).toBe(false)
+    expect(bubble.find('.bubble--agent').exists()).toBe(true)
+  })
+
+  it('ignores agent colours on human bubbles', async () => {
+    const bubble = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, agentColor: 'rose' },
+    })
+    expect(bubble.find('.bubble--agent-colored').exists()).toBe(false)
+    expect(bubble.find('[data-agent-color]').exists()).toBe(false)
+  })
+
+  it('moves only an own message to the right and applies its tint', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, message: { ...agentMessage({}), sender_type: 'user' }, isOwn: false },
+    })
+    expect(wrapper.find('.bubble-row--own').exists()).toBe(false)
+    await wrapper.setProps({ isOwn: true })
+    expect(wrapper.find('.bubble-row--own').exists()).toBe(true)
+    expect(wrapper.find('.bubble--own').exists()).toBe(true)
+    await wrapper.setProps({ isOwn: false })
+    expect(wrapper.find('.bubble--own').exists()).toBe(false)
+  })
+})
 
 describe('ChatroomMessageBubble RAG citations', () => {
   it('reveals the cited source documents when the sources block is expanded', async () => {

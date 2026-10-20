@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.models import ActivitySession, SessionStatus, SubjectKind
+from contexts.activities.domain.models import ActivitySession, RoundSubject, SessionStatus, SubjectKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.rowcount import rowcount
@@ -64,6 +64,41 @@ class ActivitySessionRepository:
             await self._db.execute(sa.select(*_SESSION_COLS).where(t.activity_sessions.c.id == session_id))
         ).first()
         return _row_to_session(row) if row is not None else None
+
+    async def subjects_for_activations(
+        self, activation_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, set[RoundSubject]]:
+        """Distinct session subjects grouped by their activity activation."""
+        if not activation_ids:
+            return {}
+        group_id = t.activity_sessions.c.subject_member_group_id
+        subject_id = sa.func.coalesce(group_id, t.activity_sessions.c.subject_user_id)
+        subject_kind = sa.case(
+            (group_id.is_not(None), SubjectKind.MEMBER_GROUP.value),
+            else_=t.activity_sessions.c.subject_kind,
+        )
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    t.activity_sessions.c.activation_id,
+                    subject_kind.label("subject_kind"),
+                    subject_id.label("subject_id"),
+                )
+                .where(
+                    sa.and_(
+                        t.activity_sessions.c.activation_id.in_(list(activation_ids)),
+                        subject_id.is_not(None),
+                    )
+                )
+                .distinct()
+            )
+        ).all()
+        result: dict[uuid.UUID, set[RoundSubject]] = {}
+        for row in rows:
+            result.setdefault(row.activation_id, set()).add(
+                RoundSubject(subject_kind=SubjectKind(row.subject_kind), subject_id=row.subject_id)
+            )
+        return result
 
     async def get_for_activation(
         self, *, activation_id: uuid.UUID, subject_user_id: uuid.UUID

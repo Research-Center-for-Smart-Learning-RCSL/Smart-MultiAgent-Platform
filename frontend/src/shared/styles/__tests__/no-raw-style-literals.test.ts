@@ -118,8 +118,6 @@ exempt(
   'app/views/Landing.vue:font-size:0.9375rem',
   'app/components/BrandLogo.vue:font-size:26px',
   'app/components/BrandLogo.vue:font-size:22px',
-  'slices/admin/views/AdminHomeView.vue:font-size:2rem',
-  'slices/admin/views/AdminMetricsView.vue:font-size:2rem',
 )
 
 // Q-2: geometry local to one component. A negative single pixel pulls an

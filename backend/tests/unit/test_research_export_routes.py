@@ -72,7 +72,7 @@ class TestCreateResearchExport:
                 return_value=facade_inst,
             ),
             patch(
-                "app.api.v1.deps.assert_project_owner",
+                "app.api.v1.research_export.assert_computed_project_owner",
                 new_callable=AsyncMock,
             ) as mock_owner,
             patch(
@@ -119,7 +119,7 @@ class TestCreateResearchExport:
                 return_value=facade_inst,
             ),
             patch(
-                "app.api.v1.deps.assert_project_owner",
+                "app.api.v1.research_export.assert_computed_project_owner",
                 new_callable=AsyncMock,
                 side_effect=HTTPException(status_code=403, detail="forbidden"),
             ),

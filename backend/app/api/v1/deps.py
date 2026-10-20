@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from fastapi import HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared_kernel.auth.permissions import Capability, Principal
+from shared_kernel.auth.permissions import Capability, Principal, Role, Scope
 
 # Both graph products expose an identical admin reset (R11a.02). The prose is shared so
 # the two Query descriptions cannot drift into describing different contracts.
@@ -130,6 +130,32 @@ async def assert_project_role(
     from shared_kernel.auth.dependencies import _raise_forbidden
 
     if not await has_project_role(db=db, principal=principal, project_id=project_id):
+        _raise_forbidden(reason)
+
+
+async def assert_computed_project_owner(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+    reason: str = "only a project owner may perform this action",
+) -> None:
+    """Require the computed PROJECT_OWNER role, including inherited Org Owners.
+
+    The project must still be live even for admins: soft deletion hides the
+    project and its derived workspace resources from every request path.
+    """
+    from contexts.tenancy.interfaces.facade import TenancyFacade
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+
+    if await TenancyFacade(db).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if principal.is_admin:
+        return
+
+    resolver = await get_role_resolver(db)
+    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
+    if Role.PROJECT_OWNER not in roles:
         _raise_forbidden(reason)
 
 

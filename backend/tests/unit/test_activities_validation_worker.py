@@ -83,7 +83,11 @@ def _patches(activities_facade: MagicMock, agents_facade: MagicMock, db: MagicMo
         patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=activities_facade),
         patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=agents_facade),
         patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
-        patch.object(worker, "_emit_validated", new=AsyncMock()),
+        patch.multiple(
+            worker,
+            _emit_validated=AsyncMock(),
+            dispatch_dashboard_submission_validated=AsyncMock(),
+        ),
     )
 
 
@@ -145,6 +149,38 @@ class TestValidateActivitySubmission:
         verdict = af.record_validation.await_args.kwargs["result"]
         assert verdict.is_valid is False
         assert verdict.error_class == "wrong"
+
+    async def test_invalid_verdict_invalidates_dashboard(self) -> None:
+        sub = _submission(ValidationStatus.PENDING)
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.get_type = AsyncMock(
+            return_value=_type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        )
+        af.record_validation = AsyncMock(return_value=True)
+        af.build_activity_signal = AsyncMock(return_value=None)
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(
+                blocked=None, status=200, body=b'{"is_valid": false, "error_class": "wrong"}'
+            )
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("shared_kernel.db.session.async_session", return_value=_FakeSession(db)),
+            patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=af),
+            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=agents),
+            patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
+            patch.object(worker, "_emit_validated", new=AsyncMock()),
+            patch.object(
+                worker, "dispatch_dashboard_submission_validated", new=AsyncMock()
+            ) as emit_dashboard,
+        ):
+            await worker.validate_activity_submission({}, str(sub.id))
+
+        emit_dashboard.assert_awaited_once_with(sub.chatroom_id)
 
     async def test_webhook_detail_is_parsed_onto_the_verdict(self) -> None:
         """Agent-visibility follow-up: ``result_from_json`` carries a remote
@@ -349,6 +385,7 @@ class TestWatchdog:
             patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
             patch("shared_kernel.audit.emit", new=AsyncMock()),
             patch.object(worker, "_emit_validated", new=AsyncMock()),
+            patch.object(worker, "dispatch_dashboard_submission_validated", new=AsyncMock()),
             patch("shared_kernel.queue.enqueue", new=AsyncMock()),
         ):
             result = await worker.activities_watchdog({})
@@ -382,6 +419,9 @@ class TestWatchdog:
             patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
             patch("shared_kernel.audit.emit", new=AsyncMock()),
             patch.object(worker, "_emit_validated", new=AsyncMock(side_effect=_record_emit)) as emit_v,
+            patch.object(
+                worker, "dispatch_dashboard_submission_validated", new=AsyncMock()
+            ) as emit_dashboard,
             patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq,
         ):
             result = await worker.activities_watchdog({})
@@ -389,6 +429,9 @@ class TestWatchdog:
         assert result == "swept=2"
         # One activity.validated per row, all with status='error'.
         assert emit_v.await_count == 2
+        assert emit_dashboard.await_count == 2
+        assert [call.args for call in emit_dashboard.await_args_list] == [(row[1],) for row in rows]
+        assert all(not call.kwargs for call in emit_dashboard.await_args_list)
         for call in emit_v.await_args_list:
             assert call.args[2] == "error"
         # One workflow_signal("activity", …) enqueue per row.
@@ -413,12 +456,18 @@ class TestWatchdog:
             patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()),
             patch("shared_kernel.audit.emit", new=AsyncMock()),
             patch.object(worker, "_emit_validated", new=AsyncMock()) as emit_v,
+            patch.object(
+                worker, "dispatch_dashboard_submission_validated", new=AsyncMock()
+            ) as emit_dashboard,
             patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq,
         ):
             result = await worker.activities_watchdog({})
 
         assert result == "swept=2"  # the count still reflects every swept row
         emit_v.assert_awaited_once()  # only the row whose signal built
+        assert emit_dashboard.await_count == 2
+        assert [call.args for call in emit_dashboard.await_args_list] == [(row[1],) for row in rows]
+        assert all(not call.kwargs for call in emit_dashboard.await_args_list)
         assert emit_v.await_args.args[:2] == (rows[1][1], rows[1][0])
         signal_calls = [c for c in enq.await_args_list if c.args[:2] == ("workflow_signal", "activity")]
         assert len(signal_calls) == 1

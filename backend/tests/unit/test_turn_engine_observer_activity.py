@@ -32,6 +32,7 @@ from contexts.agents.application.runtime.turn_engine import TurnEngine
 from contexts.conversation.application.room_guests import RoomGuests
 from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.skills.application.binding_service import BoundSet
+from tests.unit.turn_engine_fakes import stub_participant_reads
 
 _NOW = datetime(2026, 7, 25, tzinfo=UTC)
 
@@ -71,7 +72,6 @@ class TestActivityContextDelegation:
             return {}
 
         stub._room_display_labels = labels
-        stub._room_user_labels = AsyncMock(side_effect=AssertionError("must not use the email path"))
         roster = RoomGuests(sessions={uuid.uuid4(): "Guesty"}, registered={}, unaffiliated=frozenset())
         await TurnEngine._activity_context(stub, room, guests=roster)
 
@@ -255,6 +255,7 @@ def _wire_normal_engine(monkeypatch, agent, *, activity_block: str | None):
     engine._participant_labels = _labels  # type: ignore[attr-defined]
     engine._room_guests = _no_guests  # type: ignore[attr-defined]
     engine._room_owner_label = _none  # type: ignore[attr-defined]
+    stub_participant_reads(engine)
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]

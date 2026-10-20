@@ -28,7 +28,11 @@ import type {
   GuestDisplayNameOut,
   MessageOut,
   ObservationOut,
+  RoomWakeupOut,
+  RoomWakeupPatchIn,
+  RoomWakeupResetIn,
 } from '@shared/api-client'
+import type { AgentBubbleColor } from '../utils/agentBubbleColors'
 import { agentsApi, type Agent } from '@slices/agents'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import type {
@@ -220,6 +224,7 @@ export async function listChatroomAgentLabels(chatroomId: string): Promise<Agent
 // client-side; its absence means "you are not told". `may_control_activities` and
 // `activity_type_allowlist` are creator-only on exactly the same terms ([R30.37]).
 export interface BoundAgentRef {
+  bubble_color?: AgentBubbleColor | null
   agent_id: string
   role?: ChatroomAgentRole
   may_control_activities?: boolean
@@ -246,6 +251,7 @@ export async function listChatroomAgents(
   // would render an ungranted binding as "you are not told".
   return refs.map((r) => ({
     agent_id: r.agent_id,
+    ...(r.bubble_color ? { bubble_color: r.bubble_color } : {}),
     ...(r.name ? { name: r.name } : {}),
     ...(r.role ? { role: r.role } : {}),
     ...(r.may_control_activities != null
@@ -351,6 +357,14 @@ export async function addChatroomAgent(
   await ChatroomsService.addChatroomAgentApiChatroomsChatroomIdAgentsPost({
     chatroomId,
     requestBody: { agent_id: agentId, ...(role ? { role } : {}) },
+  })
+}
+
+export async function setChatroomAgentAppearance(
+  chatroomId: string, agentId: string, bubbleColor: AgentBubbleColor | null,
+): Promise<void> {
+  await ChatroomsService.patchChatroomAgentAppearanceApiChatroomsChatroomIdAgentsAgentIdAppearancePatch({
+    chatroomId, agentId, requestBody: { bubble_color: bubbleColor },
   })
 }
 
@@ -610,4 +624,43 @@ export async function compactChatroom(
   // The endpoint returns a 202 body (Record<string, string>); the caller only
   // awaits completion, so the wrapper stays Promise<void>.
   await ChatroomsService.compactChatroomApiChatroomsChatroomIdCompactPost({ chatroomId })
+}
+
+// ---- room wake-up settings ([R15.25]) --------------------------------------
+
+export type RoomWakeup = RoomWakeupOut
+export type RoomWakeupPatch = Omit<RoomWakeupPatchIn, 'binding_id' | 'expected_version'>
+
+/** One bound agent's wake-up settings in this room: effective values, where each
+ *  came from, and the binding version a write must name. */
+export async function getRoomWakeup(chatroomId: string, agentId: string): Promise<RoomWakeup> {
+  return ChatroomsService.getRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupGet({ chatroomId, agentId })
+}
+
+/** Change room overrides only; the shared agent is never written. A stale
+ *  `expected_version` or a rebound agent is a 409. */
+export async function patchRoomWakeup(
+  chatroomId: string,
+  agentId: string,
+  current: Pick<RoomWakeup, 'binding_id' | 'version'>,
+  patch: RoomWakeupPatch,
+): Promise<RoomWakeup> {
+  return ChatroomsService.patchRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupPatch({
+    chatroomId,
+    agentId,
+    requestBody: { ...patch, binding_id: current.binding_id, expected_version: current.version },
+  })
+}
+
+export async function resetRoomWakeup(
+  chatroomId: string,
+  agentId: string,
+  current: Pick<RoomWakeup, 'binding_id' | 'version'>,
+  scope: RoomWakeupResetIn['scope'],
+): Promise<RoomWakeup> {
+  return ChatroomsService.resetRoomWakeupApiChatroomsChatroomIdAgentsAgentIdWakeupResetPost({
+    chatroomId,
+    agentId,
+    requestBody: { binding_id: current.binding_id, expected_version: current.version, scope },
+  })
 }

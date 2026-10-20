@@ -40,17 +40,17 @@ class TestResolveWorkspaceRooms:
     """AC-1 through AC-5: workspace room resolution."""
 
     @pytest.mark.asyncio
-    async def test_returns_all_rooms_in_workspace(self) -> None:
-        """AC-1: all rooms returned regardless of creator."""
+    async def test_returns_only_visible_rooms_in_workspace(self) -> None:
+        """R13.32: a member cannot discover rooms the room ACL hides."""
         ws_id = _uid()
         proj_id = _uid()
-        r1, r2 = _uid(), _uid()
+        r1 = _uid()
         ws = FakeWorkspace(id=ws_id, project_id=proj_id)
 
         @dataclass(frozen=True)
         class FakeRoom:
+            id: uuid.UUID
             name: str
-            created_by_user_id: uuid.UUID
 
         db = AsyncMock()
         principal = _principal()
@@ -58,30 +58,35 @@ class TestResolveWorkspaceRooms:
         with (
             patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
             patch("app.api.v1.dashboard.assert_project_role") as assert_pm,
+            patch("app.api.v1.dashboard.TenancyFacade") as TenancyCls,
         ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)
-            facade.list_chatroom_ids_for_workspace = AsyncMock(return_value=[r1, r2])
-            facade.get_chatrooms = AsyncMock(
-                return_value={
-                    r1: FakeRoom(name="Room 1", created_by_user_id=_uid()),
-                    r2: FakeRoom(name="Room 2", created_by_user_id=_uid()),
-                }
-            )
+            facade.visible_rooms_in_workspace = AsyncMock(return_value=[FakeRoom(r1, "Room 1")])
+            TenancyCls.return_value.get_project = AsyncMock(return_value=object())
             assert_pm.return_value = None
 
-            result = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=ws_id)
+            project_id, result = await _resolve_workspace_rooms(
+                db=db, principal=principal, workspace_id=ws_id
+            )
 
-        assert len(result) == 2
+        assert project_id == proj_id
+        assert len(result) == 1
         assert result[r1] == "Room 1"
-        assert result[r2] == "Room 2"
         assert_pm.assert_awaited_once_with(db=db, principal=principal, project_id=proj_id)
+        facade.visible_rooms_in_workspace.assert_awaited_once_with(
+            principal=principal,
+            workspace_id=ws_id,
+        )
 
     @pytest.mark.asyncio
     async def test_404_when_workspace_not_found(self) -> None:
         """AC-4: missing workspace returns 404."""
         db = AsyncMock()
-        with patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls:
+        with (
+            patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
+            patch("app.api.v1.dashboard.TenancyFacade"),
+        ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=None)
 
@@ -98,13 +103,37 @@ class TestResolveWorkspaceRooms:
             deleted_at=dt.datetime.now(dt.UTC),
         )
         db = AsyncMock()
-        with patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls:
+        with (
+            patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
+            patch("app.api.v1.dashboard.TenancyFacade"),
+        ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)
 
             with pytest.raises(HTTPException) as exc_info:
                 await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
             assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_404_when_workspace_project_is_deleted(self) -> None:
+        ws = FakeWorkspace(id=_uid(), project_id=_uid())
+        db = AsyncMock()
+        principal = _principal()
+
+        with (
+            patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
+            patch("app.api.v1.dashboard.TenancyFacade") as TenancyCls,
+            patch("app.api.v1.dashboard.assert_project_role") as assert_role,
+        ):
+            FacadeCls.return_value.get_workspace = AsyncMock(return_value=ws)
+            TenancyCls.return_value.get_project = AsyncMock(return_value=None)
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=ws.id)
+
+        assert exc_info.value.status_code == 404
+        assert_role.assert_not_awaited()
+        FacadeCls.return_value.visible_rooms_in_workspace.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_403_when_not_project_member(self) -> None:
@@ -118,9 +147,11 @@ class TestResolveWorkspaceRooms:
                 "app.api.v1.dashboard.assert_project_role",
                 side_effect=HTTPException(status_code=403, detail="Not a member"),
             ),
+            patch("app.api.v1.dashboard.TenancyFacade") as TenancyCls,
         ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)
+            TenancyCls.return_value.get_project = AsyncMock(return_value=object())
 
             with pytest.raises(HTTPException) as exc_info:
                 await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
@@ -135,11 +166,13 @@ class TestResolveWorkspaceRooms:
         with (
             patch("app.api.v1.dashboard.ConversationFacade") as FacadeCls,
             patch("app.api.v1.dashboard.assert_project_role"),
+            patch("app.api.v1.dashboard.TenancyFacade") as TenancyCls,
         ):
             facade = FacadeCls.return_value
             facade.get_workspace = AsyncMock(return_value=ws)
-            facade.list_chatroom_ids_for_workspace = AsyncMock(return_value=[])
+            TenancyCls.return_value.get_project = AsyncMock(return_value=object())
+            facade.visible_rooms_in_workspace = AsyncMock(return_value=[])
 
             result = await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
 
-        assert result == {}
+        assert result == (ws.project_id, {})

@@ -356,6 +356,31 @@ class TestTheRecheckIsNotAnInjectionChannel:
         assert recheck[-1]["content"] == te._RECHECK_NOTICE
 
 
+class TestTheRecheckKeepsParticipantCodes:
+    async def test_a_newly_arrived_speaker_is_prefixed_with_their_code(self, monkeypatch) -> None:
+        """[R13.33] / phase 2 AC-5: the recheck renders new rows through the same
+        labels as the first pass, so a speaker who arrived meanwhile has a code."""
+        from contexts.agents.application.runtime.participant_facts import human_prefix
+
+        newcomer = uuid.uuid4()
+        row = tx.HistoryMessage(
+            id=uuid.uuid4(), sender_id=newcomer, role="user", content="me too", metadata={}, token_count=1
+        )
+        h = _Harness(monkeypatch, outcomes=[_out("Draft"), _out("Revised")], fresh=[row])
+        h.engine._provider_message = te.TurnEngine._provider_message  # type: ignore[attr-defined]
+
+        async def _labels(agent: Any, room: Any, history: list[Any], **kw: Any) -> tuple[dict, dict]:
+            users = {hm.sender_id: human_prefix(hm.sender_id, "Nia") for hm in history if hm.role == "user"}
+            return {}, users
+
+        h.engine._participant_labels = _labels  # type: ignore[attr-defined]
+
+        await h.run()
+
+        recheck = h.calls[1]["messages"]
+        assert recheck[-2] == {"role": "user", "content": f"{human_prefix(newcomer, 'Nia')}: me too"}
+
+
 class TestObserverTurns:
     async def test_a_withdrawn_observation_is_a_benign_skip(self, monkeypatch) -> None:
         """AC-7."""

@@ -71,6 +71,19 @@ class WakeupToggleNotAllowed(OrchestrationError):
     code = "orchestration/wakeup-toggle-not-allowed"
 
 
+class RoomWakeupBindingGone(OrchestrationError):
+    """The binding a room wake-up write named is no longer live: unbound, or
+    rebound under a new incarnation ([R15.09]). Never retried on a successor."""
+
+    code = "orchestration/room-wakeup-binding-gone"
+
+
+class RoomWakeupVersionConflict(OrchestrationError):
+    """Another write changed the binding's wake-up settings first ([R15.25])."""
+
+    code = "orchestration/room-wakeup-version-conflict"
+
+
 class InstructLoopDetected(OrchestrationError):
     """Instruct chain contains a cycle (R15.16 rule 1)."""
 
@@ -128,6 +141,8 @@ __all__ = [
     "InstructCapabilityDenied",
     "InstructLoopDetected",
     "OrchestrationError",
+    "RoomWakeupBindingGone",
+    "RoomWakeupVersionConflict",
     "SubagentConcurrencyExceeded",
     "SubagentDepthExceeded",
     "WakeupClampApplied",

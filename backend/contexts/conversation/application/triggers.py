@@ -22,11 +22,15 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import ChatroomAgent, ChatroomAgentRole
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+
+if TYPE_CHECKING:
+    from contexts.orchestration.interfaces.facade import WakeTarget
 
 __all__ = [
     "evaluate_message_wakeups",
@@ -53,10 +57,11 @@ async def evaluate_message_wakeups(
     sender_agent_id: uuid.UUID | None = None,
     bound_agents: Sequence[ChatroomAgent] | None = None,
     sender_is_human: bool | None = None,
-) -> list[uuid.UUID]:
-    """Return the agent ids whose ``every_n_messages`` trigger fired for this
-    message. Side effects (counter increment, autostop reset on user sends,
-    silence-timer touch) happen inside the orchestration facade.
+) -> list[WakeTarget]:
+    """Return the agents whose ``every_n_messages`` trigger fired for this
+    message, each with the binding incarnation that fired ([R15.09]). Side
+    effects (counter increment, autostop reset on user sends, silence-timer
+    touch) happen inside the orchestration facade.
 
     ``sender_agent_id`` — set when the message was authored by a room-bound
     agent; used to exclude the author from its own wake list (R15.01/Q49).
@@ -78,12 +83,17 @@ async def evaluate_message_wakeups(
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
     extra = {} if sender_is_human is None else {"sender_is_human": sender_is_human}
+    # Rows built by `list_bound_agents` already carry their wake-up layers; a row
+    # built elsewhere without them makes orchestration read the room's once.
+    layers = [r.wakeup for r in rows]
+    states = [s for s in layers if s is not None] if all(s is not None for s in layers) else None
     return await OrchestrationFacade(db).on_message_created(
         room_id=chatroom_id,
         sender_is_user=sender_is_user,
         sender_agent_id=sender_agent_id,
         agent_ids=agent_ids,
         observer_agent_ids=observer_ids,
+        states=states,
         **extra,
     )
 

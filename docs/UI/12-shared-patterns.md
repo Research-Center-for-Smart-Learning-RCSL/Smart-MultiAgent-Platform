@@ -627,3 +627,6 @@ Use `Intl.NumberFormat`:
 - Token counts: "1,234,567"
 - Percentages: "80%"
 - File sizes: "1.2 MB" (using helper function, not i18n)
+- Shared `formatNumber(value, locale)` switches to compact notation at 10,000.
+- Shared `formatPercent(numerator, denominator, locale)` returns a whole percentage or
+  `null` when the denominator is zero.

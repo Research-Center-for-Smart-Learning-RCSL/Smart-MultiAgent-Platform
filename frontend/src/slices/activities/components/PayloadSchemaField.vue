@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { SButton, SCodeEditor } from '@shared/ui'
+import { SCodeEditor, SSegmentedControl } from '@shared/ui'
 
 import type { JSONSchema } from '../sdk/types'
 import SchemaBuilder from './SchemaBuilder.vue'
@@ -92,34 +92,36 @@ function onRawUpdate(text: string): void {
 }
 
 const modes = computed(() => [
-  { value: 'builder' as const, label: t('activities.typeForm.schemaMode.builder') },
-  { value: 'raw' as const, label: t('activities.typeForm.schemaMode.raw') },
+  {
+    value: 'builder',
+    label: t('activities.typeForm.schemaMode.builder'),
+    ...(builderLocked.value
+      ? { disabled: true, title: t('activities.typeForm.schemaModeLockedHint') }
+      : {}),
+    testId: 'schema-mode-builder',
+  },
+  {
+    value: 'raw',
+    label: t('activities.typeForm.schemaMode.raw'),
+    testId: 'schema-mode-raw',
+  },
 ])
+
+function onModeChange(next: string): void {
+  if (next === 'raw') switchToRaw()
+  else switchToBuilder()
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <div
-      class="inline-flex self-start rounded-md border border-[var(--color-border)] p-0.5"
-      role="group"
-      :aria-label="t('activities.typeForm.schemaModeLabel')"
-    >
-      <SButton
-        v-for="m in modes"
-        :key="m.value"
-        size="sm"
-        :variant="mode === m.value ? 'primary' : 'ghost'"
-        :disabled="m.value === 'builder' && builderLocked"
-        :title="m.value === 'builder' && builderLocked
-          ? t('activities.typeForm.schemaModeLockedHint')
-          : undefined"
-        :aria-pressed="mode === m.value"
-        :data-testid="`schema-mode-${m.value}`"
-        @click="m.value === 'raw' ? switchToRaw() : switchToBuilder()"
-      >
-        {{ m.label }}
-      </SButton>
-    </div>
+    <SSegmentedControl
+      :model-value="mode"
+      class="self-start"
+      :options="modes"
+      :accessible-label="t('activities.typeForm.schemaModeLabel')"
+      @update:model-value="onModeChange"
+    />
 
     <SchemaBuilder
       v-if="mode === 'builder'"

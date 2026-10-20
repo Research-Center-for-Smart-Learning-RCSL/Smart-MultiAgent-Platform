@@ -1416,11 +1416,7 @@ async def _dispatch_submission(
         try:
             from contexts.activities.interfaces.broadcast import dispatch_dashboard_submission_validated
 
-            atype = await ActivitiesFacade(db).get_type(submission.activity_type_id)
-            type_key = atype.key if atype is not None else ""
-            await dispatch_dashboard_submission_validated(
-                chatroom_id, type_key=type_key, is_valid=submission.is_valid
-            )
+            await dispatch_dashboard_submission_validated(chatroom_id)
         except Exception:
             _log.warning("dashboard submission emit failed for %s", submission.id, exc_info=True)
 

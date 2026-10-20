@@ -8,7 +8,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
-import { guestSessionId, isGuestSession } from '@shared/transport'
+import { getAccessToken, getGuestChatroomId, tokenViewer, type TokenViewer } from '@shared/transport'
 import { ApiError } from '@shared/errors'
 import { triggerDownload } from '@shared/utils/download'
 import {
@@ -58,16 +58,21 @@ export function useChatroomMessages(
   const session = useSessionStore()
   const { confirm } = useConfirmDialog()
 
-  const myId = computed(() => session.me?.id ?? null)
+  const viewer = computed<TokenViewer | null>(() => {
+    if (tokenViewer.value) return tokenViewer.value
+    if (getAccessToken()) return null
+    // A held guest context with no token yet is a guest whose token is still
+    // being restored: `session.me` may be an earlier sign-in, not this viewer.
+    if (getGuestChatroomId()) return null
+    return session.me ? { kind: 'user', id: session.me.id } : null
+  })
   const isAdmin = computed(() => session.me?.is_admin ?? false)
-  const myGuestId = guestSessionId
 
   // ---------- permission helpers ------------------------------------------
 
   function isOwnMessage(m: Message): boolean {
-    if (m.sender_type === 'user' && !!myId.value && m.sender_id === myId.value) return true
-    if (m.sender_type === 'guest' && !!myGuestId.value && m.sender_id === myGuestId.value) return true
-    return false
+    const current = viewer.value
+    return current !== null && m.sender_type === current.kind && m.sender_id === current.id
   }
 
   function canEdit(m: Message): boolean {
@@ -277,8 +282,8 @@ export function useChatroomMessages(
     const optimistic: DisplayMessage = {
       id: tempId,
       chatroom_id: chatroomId,
-      sender_type: isGuestSession.value ? 'guest' : 'user',
-      sender_id: myGuestId.value ?? myId.value,
+      sender_type: viewer.value?.kind ?? 'user',
+      sender_id: viewer.value?.id ?? null,
       content_md: text,
       metadata: {},
       version: 0,
@@ -532,6 +537,8 @@ export function useChatroomMessages(
   }
 
   return {
+    viewer,
+    isOwnMessage,
     // pagination
     messages,
     hasOlderMessages,

@@ -141,12 +141,17 @@ async def _install(
 
 
 class TestInstallPack:
-    async def test_creates_every_agent_with_the_packs_own_values(self) -> None:
-        """AC-8, asserted against the shipped file field for field."""
+    @pytest.mark.parametrize(
+        "pack_key",
+        [_ROOM_PACK, "crat-word-puzzle-room", "character-building-room", "object-reinterpretation-room"],
+    )
+    async def test_creates_every_agent_with_the_packs_own_values(self, pack_key: str) -> None:
+        """AC-8, asserted against the shipped file field for field; the phase-2 course
+        packs are included so a fresh install carries their cadences (phase 2 AC-19)."""
         service, doubles = _service()
-        pack = load_pack(_ROOM_PACK)
+        pack = load_pack(pack_key)
 
-        report = await _install(service)
+        report = await _install(service, pack_key=pack_key)
 
         assert [a.name for a in report.created] == [a.name for a in pack.agents]
         assert report.already_present == ()
@@ -241,6 +246,23 @@ class TestInstallPack:
         assert report.group_created is False
         doubles["agents"].create.assert_not_awaited()
         doubles["groups"].create_group.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "pack_key", ["crat-word-puzzle-room", "character-building-room", "object-reinterpretation-room"]
+    )
+    async def test_a_reinstall_never_rewrites_a_customised_agent(self, pack_key: str) -> None:
+        """CRAT facilitation phase 2 AC-19: the phase-2 prompts and cadences reach an
+        existing project only by hand. The install path holds no update call, so the
+        only collaborator calls allowed are the read and the key-group check."""
+        pack = load_pack(pack_key)
+        service, doubles = _service(existing_names=[a.name for a in pack.agents])
+
+        report = await _install(service, pack_key=pack_key)
+
+        assert report.created == ()
+        assert report.already_present == tuple(a.name for a in pack.agents)
+        assert [c[0] for c in doubles["agents"].method_calls] == ["assert_key_group_in_project"]
+        assert [c[0] for c in doubles["repo"].method_calls] == ["list_for_project"]
 
     async def test_an_agent_the_project_already_had_still_joins_the_group(self) -> None:
         """The group is the pack's end state, not a log of what this run created.

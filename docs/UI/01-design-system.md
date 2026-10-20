@@ -99,6 +99,11 @@ above whatever its variant rests at.
 The colour tokens themselves are tabulated in `00-overview.md` §2, per theme and per
 role. What follows is everything else.
 
+Chart series use `--color-chart-1` through `--color-chart-8`, a status-neutral palette
+defined in both themes. Each token maintains at least 3:1 contrast against
+`--color-surface`; `contrast.test.ts` checks the contrast and colour-vision-deficiency
+separation.
+
 ```css
 @theme {
   /* Sidebar */
@@ -216,6 +221,22 @@ All components:
 - Support dark theme via CSS custom properties (no conditional class logic)
 - Meet WCAG 2.1 AA (focus visible, ARIA labels, keyboard nav)
 - Min touch target 44x44px on interactive elements
+
+Shared data primitives:
+
+- `SStatTile` accepts `label`, `value`, optional `hint` and Heroicon `icon`, `tone`
+  (`neutral`, `success`, `warning`, or `danger`), and `compact`. The value uses
+  `--font-size-2xl`, semibold weight and tabular numerals; compact values use
+  `--font-size-md`. Tone colours only the value and icon. The `#value` slot wraps custom
+  content such as a tooltip.
+- `SSegmentedControl` accepts `v-model`, `options` (`value`, `label`, optional `disabled`,
+  `title`, and `testId`), `accessibleLabel`, and `size`. It renders a labelled group of buttons
+  with `aria-pressed` and the selected option in `--color-accent`.
+- `useChartTheme` exposes reactive tick, grid, and legend colours from theme tokens plus
+  `seriesColor(key)`, which hashes the key onto the chart palette.
+- `formatNumber(value, locale)` in `src/shared/utils/number.ts` uses locale-aware
+  `Intl.NumberFormat`, switching to compact notation at 10,000. `formatPercent` returns a
+  whole percentage or `null` when the denominator is zero.
 
 ---
 

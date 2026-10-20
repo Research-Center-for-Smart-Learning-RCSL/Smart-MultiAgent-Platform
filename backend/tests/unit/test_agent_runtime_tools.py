@@ -15,10 +15,12 @@ from contexts.agents.application.runtime.tool_registry import (
     _SKILL_BODY_TOKEN_BUDGET,
     BUILTIN_TOOL_NAMES,
     ToolRegistry,
+    WakeupBinding,
     build_read_skill_tool,
     build_registry,
     build_update_wakeup_tool,
 )
+from contexts.orchestration.interfaces.facade import RuntimeTuning, TimerEffects
 from contexts.skills.application.binding_service import BoundSet
 from contexts.skills.domain.models import Skill, SkillFile, SkillFileKind, SkillRead, SkillScanStatus
 from shared_kernel.tokens import estimate_tokens
@@ -35,6 +37,13 @@ def _snap(*skills: Skill, files: dict | None = None) -> BoundSet:
     return BoundSet(skills=tuple(skills), files=files or {})
 
 
+def _binding() -> WakeupBinding:
+    return WakeupBinding(room_id=uuid.uuid4(), binding_id=uuid.uuid4(), effect_sink=[])
+
+
+_BINDING = _binding()
+
+
 @pytest.mark.asyncio
 async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
     captured: dict = {}
@@ -47,21 +56,27 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
         def __init__(self, _db) -> None:
             pass
 
-        async def update_wakeup(self, *, agent_id, every_n_messages, silence_minutes, actor_agent_id):
+        async def update_room_wakeup(
+            self, *, agent_id, room_id, binding_id, every_n_messages, silence_minutes
+        ):
             captured.update(
                 agent_id=agent_id,
+                room_id=room_id,
+                binding_id=binding_id,
                 every_n_messages=every_n_messages,
                 silence_minutes=silence_minutes,
-                actor_agent_id=actor_agent_id,
             )
-            return _Cfg()
+            return RuntimeTuning(config=_Cfg(), effects=None)
 
     import contexts.orchestration.interfaces.facade as facade_mod
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
     agent_id = uuid.uuid4()
-    tool = build_update_wakeup_tool(object(), agent_id=agent_id)
+    tool = build_update_wakeup_tool(object(), agent_id=agent_id, binding=_BINDING)
 
+    # A model-supplied room is not an argument the schema accepts; the binding is
+    # the closure's ([R15.06]).
+    assert "room_id" not in tool.spec()["input_schema"]["properties"]
     res = await tool.invoke({"every_n_messages": 3})
 
     assert not res.is_error
@@ -69,7 +84,7 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
     assert captured["every_n_messages"] == 3
     assert captured["silence_minutes"] is None
     assert captured["agent_id"] == agent_id
-    assert captured["actor_agent_id"] == agent_id
+    assert (captured["room_id"], captured["binding_id"]) == (_BINDING.room_id, _BINDING.binding_id)
 
 
 @pytest.mark.asyncio
@@ -85,14 +100,14 @@ async def test_update_wakeup_tool_passes_toggles_and_states_the_semantics(monkey
         def __init__(self, _db) -> None:
             pass
 
-        async def update_wakeup(self, **kwargs):
+        async def update_room_wakeup(self, **kwargs):
             captured.update(kwargs)
-            return _Cfg()
+            return RuntimeTuning(config=_Cfg(), effects=None)
 
     import contexts.orchestration.interfaces.facade as facade_mod
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
-    tool = build_update_wakeup_tool(object(), agent_id=uuid.uuid4())
+    tool = build_update_wakeup_tool(object(), agent_id=uuid.uuid4(), binding=_BINDING)
 
     await tool.invoke({"silence_minutes_enabled": True})
 
@@ -109,6 +124,40 @@ async def test_update_wakeup_tool_passes_toggles_and_states_the_semantics(monkey
 
 
 @pytest.mark.asyncio
+async def test_update_wakeup_hands_its_timer_effects_to_the_turn(monkeypatch) -> None:
+    """Phase 2 D-14: the write is in the turn's open transaction, so the tool only
+    queues its timer effects; the turn applies them after its commit."""
+    binding = _binding()
+    effects = TimerEffects(
+        agent_id=uuid.uuid4(), room_id=binding.room_id, binding_id=binding.binding_id, rearm_silence=True
+    )
+
+    class _Cfg:
+        def to_dict(self) -> dict:
+            return {}
+
+    class _Facade:
+        def __init__(self, _db) -> None:
+            pass
+
+        async def update_room_wakeup(self, **kwargs):
+            return RuntimeTuning(config=_Cfg(), effects=effects)
+
+        @staticmethod
+        async def apply_room_wakeup_effects(_effects) -> None:
+            raise AssertionError("the tool must not apply timer effects itself")
+
+    import contexts.orchestration.interfaces.facade as facade_mod
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    tool = build_update_wakeup_tool(object(), agent_id=uuid.uuid4(), binding=binding)
+
+    await tool.invoke({"silence_minutes_enabled": True})
+
+    assert binding.effect_sink == [effects]
+
+
+@pytest.mark.asyncio
 async def test_a_refused_toggle_reaches_the_model_as_a_tool_error(monkeypatch) -> None:
     from contexts.orchestration.domain.errors import WakeupToggleNotAllowed
 
@@ -116,13 +165,13 @@ async def test_a_refused_toggle_reaches_the_model_as_a_tool_error(monkeypatch) -
         def __init__(self, _db) -> None:
             pass
 
-        async def update_wakeup(self, **kwargs):
+        async def update_room_wakeup(self, **kwargs):
             raise WakeupToggleNotAllowed("not allowed to switch silence_minutes")
 
     import contexts.orchestration.interfaces.facade as facade_mod
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
-    reg = ToolRegistry([build_update_wakeup_tool(object(), agent_id=uuid.uuid4())])
+    reg = ToolRegistry([build_update_wakeup_tool(object(), agent_id=uuid.uuid4(), binding=_BINDING)])
 
     res = await reg.call("update_wakeup", {"silence_minutes_enabled": True})
 
@@ -132,12 +181,15 @@ async def test_a_refused_toggle_reaches_the_model_as_a_tool_error(monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_registry_dispatch_and_unknown() -> None:
-    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=_snap())
-    # update_wakeup is the only unconditional built-in: an agent with nothing bound
-    # is not offered read_skill and pays no tokens for a tool it cannot use.
+    reg = build_registry(object(), agent_id=uuid.uuid4(), skills=_snap(), wakeup_binding=_BINDING)
+    # An agent with nothing bound is not offered read_skill and pays no tokens for
+    # a tool it cannot use; update_wakeup comes with its room binding.
     assert len(reg) == 1
     assert reg.get("update_wakeup") is not None
     assert {s["name"] for s in reg.specs()} == {"update_wakeup"}
+
+    # A headless turn has no room cadence to change ([R15.06]).
+    assert build_registry(object(), agent_id=uuid.uuid4(), skills=_snap()).get("update_wakeup") is None
 
     unknown = await ToolRegistry([]).call("nope", {})
     assert unknown.is_error

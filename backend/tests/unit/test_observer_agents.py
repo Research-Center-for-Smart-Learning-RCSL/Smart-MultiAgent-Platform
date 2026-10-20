@@ -44,6 +44,7 @@ from contexts.skills.application.binding_service import BoundSet
 from shared_kernel.auth.permissions import Principal, Role
 from tests.unit.chatroom_fakes import chatroom_row
 from tests.unit.skill_fakes import make_skill
+from tests.unit.turn_engine_fakes import stub_participant_reads
 
 # --------------------------------------------------------------------------- #
 # is_room_creator / ensure_room_creator (R28.02)
@@ -2084,6 +2085,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id, bound_skills=()):
     engine._participant_labels = _labels  # type: ignore[attr-defined]
     engine._room_guests = _no_guests  # type: ignore[attr-defined]
     engine._room_owner_label = _none  # type: ignore[attr-defined]
+    stub_participant_reads(engine)
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]

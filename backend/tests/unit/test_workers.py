@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -207,45 +208,79 @@ class _FakeSweepSession:
 class TestWakeupRefresh:
     @patch("app.workers.tasks.orchestration.async_session")
     async def test_wakeup_refresh_rolls_back_a_failed_agent_and_keeps_the_rest(self, mock_session_cm) -> None:
-        """F-3: one agent's DB-level failure must not discard the sweep's
-        other already-completed refreshes. `refresh_wakeup_config` issues a
-        real UPDATE per agent, so isolating a failure requires a SAVEPOINT
-        (`db.begin_nested()`) per agent -- a bare session-wide `rollback()`
-        (this test's original, weaker form used an AsyncMock and could not
-        catch this) would discard every earlier agent's already-flushed write
-        too, not just the failing one's."""
+        """F-3: one binding's DB-level failure must not discard the sweep's
+        other already-completed refreshes. A refresh issues a real UPDATE per
+        binding, so isolating a failure requires a SAVEPOINT
+        (`db.begin_nested()`) per binding -- a bare session-wide `rollback()`
+        would discard every earlier binding's already-flushed write too."""
         from app.workers.tasks.orchestration import wakeup_refresh
 
         db = _FakeSweepSession()
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
         mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        agents = [MagicMock(id=uuid.uuid4()) for _ in range(3)]
-        facade = AsyncMock()
-        facade.list_agents_with_authored_snapshot.return_value = agents
+        states = [MagicMock(binding_id=uuid.uuid4()) for _ in range(3)]
+        conversation = AsyncMock()
+        conversation.runtime_layer_binding_states.return_value = states
 
-        async def _fake_refresh(agent_id):
-            if agent_id == agents[1].id:
+        async def _fake_refresh(state):
+            if state is states[1]:
                 raise RuntimeError("db blip")
-            db.pending.append(str(agent_id))
-            return True
+            db.pending.append(str(state.binding_id))
+            return SimpleNamespace(effects=state.binding_id)
 
         svc = AsyncMock()
-        svc.refresh_wakeup_config.side_effect = _fake_refresh
+        svc.refresh_if_due.side_effect = _fake_refresh
+        applied: list[tuple[list, int]] = []
+
+        async def _apply(effects):
+            applied.append((list(effects), db.commit_calls))
 
         with (
-            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=facade),
-            patch("contexts.orchestration.application.wakeup_service.WakeupService", return_value=svc),
+            patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
+            patch(
+                "contexts.orchestration.application.room_wakeup_service.RoomWakeupService", return_value=svc
+            ),
+            patch("contexts.orchestration.application.room_wakeup_service.apply_timer_effects", _apply),
         ):
             result = await wakeup_refresh({})
 
         assert result == "refreshed=2 failed=1"
-        # The load-bearing assertion: agent 1's write, flushed before agent 2
-        # failed, must survive agent 2's failure and reach the final commit --
-        # a bare `db.rollback()` would have discarded it despite `refreshed`
-        # already counting it.
-        assert db.committed == [str(agents[0].id), str(agents[2].id)]
+        # Phase 2 D-14: once, after the commit, and never for the binding whose
+        # savepoint rolled back.
+        assert applied == [([states[0].binding_id, states[2].binding_id], 1)]
+        # The load-bearing assertion: binding 1's write, flushed before binding 2
+        # failed, must survive and reach the final commit.
+        assert db.committed == [str(states[0].binding_id), str(states[2].binding_id)]
         assert db.commit_calls == 1
+
+    @patch("app.workers.tasks.orchestration.async_session")
+    async def test_wakeup_refresh_pages_by_the_last_start_seen(self, mock_session_cm) -> None:
+        """Keyset paging: a full page asks for the next one after its last row."""
+        from datetime import UTC, datetime
+
+        from app.workers.tasks import orchestration as orch
+
+        db = _FakeSweepSession()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+        at = datetime(2026, 10, 16, tzinfo=UTC)
+        page = [MagicMock(binding_id=uuid.uuid4(), runtime_started_at=at) for _ in range(orch._REFRESH_BATCH)]
+        conversation = AsyncMock()
+        conversation.runtime_layer_binding_states.side_effect = [page, []]
+        svc = AsyncMock()
+        svc.refresh_if_due.return_value = None
+
+        with (
+            patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
+            patch(
+                "contexts.orchestration.application.room_wakeup_service.RoomWakeupService", return_value=svc
+            ),
+        ):
+            await orch.wakeup_refresh({})
+
+        second = conversation.runtime_layer_binding_states.await_args_list[1]
+        assert second.kwargs["after"] == (at, page[-1].binding_id)
 
     @patch("app.workers.tasks.orchestration.async_session")
     async def test_wakeup_refresh_reports_a_failed_commit(self, mock_session_cm) -> None:
@@ -259,20 +294,24 @@ class TestWakeupRefresh:
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
         mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        agents = [MagicMock(id=uuid.uuid4())]
-        facade = AsyncMock()
-        facade.list_agents_with_authored_snapshot.return_value = agents
+        conversation = AsyncMock()
+        conversation.runtime_layer_binding_states.return_value = [MagicMock(binding_id=uuid.uuid4())]
 
         svc = AsyncMock()
-        svc.refresh_wakeup_config.return_value = True
+        svc.refresh_if_due.return_value = SimpleNamespace(effects="owed")
+        apply = AsyncMock()
 
         with (
-            patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=facade),
-            patch("contexts.orchestration.application.wakeup_service.WakeupService", return_value=svc),
+            patch("contexts.conversation.interfaces.facade.ConversationFacade", return_value=conversation),
+            patch(
+                "contexts.orchestration.application.room_wakeup_service.RoomWakeupService", return_value=svc
+            ),
+            patch("contexts.orchestration.application.room_wakeup_service.apply_timer_effects", apply),
         ):
             result = await wakeup_refresh({})
 
         assert result == "sweep_failed lost=1 failed=0"
+        apply.assert_not_awaited()
 
 
 # ===========================================================================

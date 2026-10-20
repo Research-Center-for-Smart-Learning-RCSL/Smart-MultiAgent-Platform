@@ -1,153 +1,193 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import SPageHeader from '@shared/ui/SPageHeader.vue'
-import SCard from '@shared/ui/SCard.vue'
-import SSkeleton from '@shared/ui/SSkeleton.vue'
-import SAlert from '@shared/ui/SAlert.vue'
-import SEmptyState from '@shared/ui/SEmptyState.vue'
-import { useDashboardSummary } from '../composables/useDashboardSummary'
-import { useDashboardTimeseries } from '../composables/useDashboardTimeseries'
-import { useDashboardWatchlist } from '../composables/useDashboardWatchlist'
-import type { TimeWindow, BucketSize } from '@shared/api-client'
-import { useDashboardSocket } from '../composables/useDashboardSocket'
-import { useProjectRole } from '@slices/tenancy'
-import { useWorkspaceStore } from '@shared/stores/workspace'
+import {
+  SEmptyState,
+  SPageHeader,
+  SQueryError,
+  SRelativeTime,
+  SSkeleton,
+} from '@shared/ui'
+import { useDashboardViewModel } from '../composables/useDashboardViewModel'
 import RoomStatusCard from '../components/RoomStatusCard.vue'
 import ResearchExportButton from '../components/ResearchExportButton.vue'
-import OutputChart from '../components/OutputChart.vue'
-import StudentWatchlist from '../components/StudentWatchlist.vue'
-import DashboardAlerts from '../components/DashboardAlerts.vue'
-import TimeWindowSelector from '../components/TimeWindowSelector.vue'
+import DashboardOverview from '../components/DashboardOverview.vue'
+import DashboardAttentionPanel from '../components/DashboardAttentionPanel.vue'
+import DashboardChartPanel from '../components/DashboardChartPanel.vue'
+import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel.vue'
 
-const { t } = useI18n()
 const route = useRoute()
-
+const { t } = useI18n()
 const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
-const timeWindow = ref<TimeWindow>('1h')
-const bucketSize = ref<BucketSize>('5m')
-
-const wid = () => workspaceId.value
 const {
-  data: summary,
-  isLoading: summaryLoading,
-  error: summaryError,
-} = useDashboardSummary(wid)
-const {
-  data: timeseries,
-  isLoading: tsLoading,
-} = useDashboardTimeseries(
-  wid,
-  () => timeWindow.value,
-  () => bucketSize.value,
-)
-const {
-  data: watchlist,
-  isLoading: wlLoading,
-} = useDashboardWatchlist(wid)
-
-const rooms = computed(() => summary.value?.rooms ?? [])
-const roomIds = computed(() => new Set(rooms.value.map((r) => String(r.room_id))))
-
-useDashboardSocket(wid, roomIds)
-const buckets = computed(() => timeseries.value?.buckets ?? [])
-const watchlistEntries = computed(() => watchlist.value?.entries ?? [])
-
-const workspace = useWorkspaceStore()
-const { isAuthorized: canExport, decided: roleDecided } = useProjectRole(
-  () => workspace.projectId ?? undefined,
-)
+  connected,
+  workspace,
+  workspaceError,
+  refetchWorkspace,
+  canExport,
+  roleDecided,
+  rooms,
+  sortedRooms,
+  buckets,
+  watchlistEntries,
+  thresholds,
+  summaryLoading,
+  summaryError,
+  summaryUpdatedAt,
+  refetchSummary,
+  timeseriesLoading,
+  timeseriesError,
+  refetchTimeseries,
+  watchlistLoading,
+  watchlistError,
+  refetchWatchlist,
+  roomFilter,
+  roomFilterOptions,
+  filteredEntries,
+  attentionEntries,
+  timeWindow,
+  bucketSize,
+  attentionCount,
+} = useDashboardViewModel(workspaceId)
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto space-y-6">
-    <SPageHeader :title="t('dashboard.title')">
-      <template
-        v-if="roleDecided && canExport"
-        #actions
-      >
-        <ResearchExportButton :workspace-id="workspaceId" />
+  <div class="mx-auto max-w-7xl space-y-6">
+    <SPageHeader
+      :title="t('dashboard.title')"
+      :subtitle="workspace?.name ?? ''"
+    >
+      <template #actions>
+        <div class="flex flex-wrap items-center gap-3">
+          <div
+            class="flex items-center gap-2 text-xs text-[var(--color-muted)]"
+            role="status"
+            :aria-label="connected ? t('dashboard.live') : t('dashboard.reconnecting')"
+          >
+            <span
+              class="h-2 w-2 rounded-full"
+              :class="connected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-muted)]'"
+              aria-hidden="true"
+            />
+            <span>{{ connected ? t('dashboard.live') : t('dashboard.reconnecting') }}</span>
+            <span aria-hidden="true">·</span>
+            <SRelativeTime
+              v-if="summaryUpdatedAt"
+              :value="summaryUpdatedAt"
+            />
+            <span v-else>{{ t('dashboard.waitingForUpdate') }}</span>
+          </div>
+          <ResearchExportButton
+            v-if="roleDecided && canExport"
+            :workspace-id="workspaceId"
+          />
+        </div>
       </template>
     </SPageHeader>
 
-    <SAlert
-      v-if="summaryError"
-      variant="danger"
-    >
-      {{ (summaryError as Error).message }}
-    </SAlert>
+    <SQueryError
+      v-if="workspaceError"
+      :message="workspaceError.message"
+      :retry-label="t('dashboard.retry')"
+      @retry="refetchWorkspace()"
+    />
 
     <template v-if="summaryLoading">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <SSkeleton
-          v-for="i in 3"
-          :key="i"
-          height="8rem"
+          v-for="index in 4"
+          :key="`kpi-${index}`"
+          height="6.5rem"
         />
       </div>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-12">
+        <SSkeleton
+          class="md:col-span-8"
+          height="18rem"
+        />
+        <SSkeleton
+          class="md:col-span-4"
+          height="18rem"
+        />
+      </div>
+      <SSkeleton height="17rem" />
+      <SSkeleton height="14rem" />
     </template>
 
-    <template v-else-if="rooms.length === 0">
-      <SEmptyState :text="t('dashboard.noRooms')" />
-    </template>
+    <SQueryError
+      v-else-if="summaryError"
+      :message="summaryError.message"
+      :retry-label="t('dashboard.retry')"
+      @retry="refetchSummary()"
+    />
+
+    <SEmptyState
+      v-else-if="rooms.length === 0"
+      :text="t('dashboard.noRooms')"
+    />
 
     <template v-else>
-      <section>
-        <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-3">
-          {{ t('dashboard.alerts') }}
-        </h2>
-        <DashboardAlerts :rooms="rooms" />
-      </section>
+      <DashboardOverview
+        :rooms="rooms"
+        :watchlist-entries="watchlistEntries"
+        :watchlist-loading="watchlistLoading"
+        :watchlist-error="watchlistError"
+        :thresholds="thresholds"
+      />
 
-      <section>
-        <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-3">
-          {{ t('dashboard.roomStatus') }}
-        </h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <RoomStatusCard
-            v-for="room in rooms"
-            :key="room.room_id"
-            :room="room"
-          />
-        </div>
-      </section>
-
-      <section>
-        <SCard class="p-4">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-[var(--color-fg)]">
-              {{ t('dashboard.timeseries') }}
-            </h2>
-            <TimeWindowSelector v-model="timeWindow" />
-          </div>
-          <SSkeleton
-            v-if="tsLoading"
-            height="13rem"
-          />
-          <OutputChart
-            v-else
-            :buckets="buckets"
-            :rooms="rooms"
-          />
-        </SCard>
-      </section>
-
-      <section>
-        <SCard class="p-4">
-          <h2 class="text-lg font-semibold text-[var(--color-fg)] mb-4">
-            {{ t('dashboard.watchlist') }}
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-12">
+        <section
+          class="space-y-3 md:col-span-8"
+          :aria-labelledby="'dashboard-room-status-heading'"
+        >
+          <h2
+            id="dashboard-room-status-heading"
+            class="text-lg font-semibold text-[var(--color-fg)]"
+          >
+            {{ t('dashboard.roomStatus') }}
           </h2>
-          <SSkeleton
-            v-if="wlLoading"
-            height="8rem"
-          />
-          <StudentWatchlist
-            v-else
-            :entries="watchlistEntries"
-          />
-        </SCard>
-      </section>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <RoomStatusCard
+              v-for="room in sortedRooms"
+              :key="room.room_id"
+              :room="room"
+            />
+          </div>
+        </section>
+
+        <DashboardAttentionPanel
+          :rooms="rooms"
+          :attention-entries="attentionEntries"
+          :attention-count="attentionCount"
+          :room-filter="roomFilter"
+          :room-filter-options="roomFilterOptions"
+          :is-loading="watchlistLoading"
+          :error="watchlistError"
+          :idle-minutes="thresholds?.idle_minutes ?? 10"
+          @update:room-filter="roomFilter = $event"
+          @retry="refetchWatchlist()"
+        />
+      </div>
+
+      <DashboardChartPanel
+        v-model="timeWindow"
+        :buckets="buckets"
+        :rooms="rooms"
+        :bucket="bucketSize"
+        :is-loading="timeseriesLoading"
+        :error="timeseriesError"
+        @retry="refetchTimeseries()"
+      />
+
+      <DashboardParticipantsPanel
+        :entries="filteredEntries"
+        :rooms="rooms"
+        :is-loading="watchlistLoading"
+        :error="watchlistError"
+        :idle-minutes="thresholds?.idle_minutes ?? 10"
+        @retry="refetchWatchlist()"
+      />
     </template>
   </div>
 </template>

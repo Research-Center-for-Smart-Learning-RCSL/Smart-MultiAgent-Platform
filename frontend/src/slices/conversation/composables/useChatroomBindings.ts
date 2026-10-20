@@ -1,11 +1,12 @@
 // Composable: chatroom agent binding management (list, add, remove).
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
-import { computed, ref } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
-
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
+import type { AgentBubbleColor } from '../utils/agentBubbleColors'
+import { computed, ref } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+
 import {
   addChatroomAgent,
   getWorkspace,
@@ -18,19 +19,17 @@ import {
   setChatroomAgentCanvasWriteAccess,
   setChatroomAgentDraftAccess,
   setChatroomAgentRole,
+  setChatroomAgentAppearance,
 } from '../api'
-import { patchAgentWakeupConfig } from '@slices/workflow'
+import { convKeys } from '../queries'
 import { activityKeys, listActivityTypes, type ActivityType } from '@slices/activities'
-import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
 
 export interface BoundAgent {
+  bubble_color?: AgentBubbleColor | null
   id: string
   name?: string
-  // Present only for a caller who may edit agents (matrix row 28): a non-editor
-  // resolves bound agents through the names projection, which carries no config.
-  wakeup_config?: WakeupConfig
   // Present only when the caller is the room creator (R28.10).
   role?: ChatroomAgentRole
   // Delegated activity control ([R30.37]), creator-only on the same terms as
@@ -52,7 +51,6 @@ interface AgentName {
 
 interface KnownAgent extends AgentName {
   deleted: boolean
-  wakeup_config?: WakeupConfig
 }
 
 export function useChatroomBindings(
@@ -70,9 +68,10 @@ export function useChatroomBindings(
     needsActivityTypes: () => boolean
   },
 ) {
-  const { t } = useI18n()
+  const qc = useQueryClient()
   const toast = useToast()
-
+  const { t } = useI18n()
+  const boundColors = ref<Record<string, AgentBubbleColor | null>>({})
   const projectAgents = ref<Agent[]>([])
   // The names projection, loaded instead of `projectAgents` for a caller who may
   // not read agent configuration (matrix row 28). Exactly one of the two is
@@ -125,7 +124,6 @@ export function useChatroomBindings(
           id: a.id,
           name: a.name,
           deleted: !!a.deleted_at,
-          wakeup_config: normalizeWakeupConfig(a.wakeup_config),
         }))
       : agentNames.value.map((a) => ({ id: a.id, name: a.name, deleted: false })),
   )
@@ -143,7 +141,7 @@ export function useChatroomBindings(
         return {
           id: a.id,
           name: a.name,
-          ...(a.wakeup_config !== undefined && { wakeup_config: a.wakeup_config }),
+          bubble_color: boundColors.value[a.id] ?? null,
           ...(role !== undefined && { role }),
           ...(grant !== undefined && {
             may_control_activities: grant.granted,
@@ -184,6 +182,7 @@ export function useChatroomBindings(
       projectAgents.value = agents
       agentNames.value = names
       boundAgentIds.value = bound.map((b) => b.agent_id)
+      boundColors.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.bubble_color ?? null]))
       boundRoles.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.role]))
       boundGrants.value = Object.fromEntries(
         bound.map((b) => [
@@ -233,6 +232,9 @@ export function useChatroomBindings(
     bindingError.value = null
     try {
       await setChatroomAgentRole(chatroomId, agentId, role)
+      // The server starts the binding over (new binding id, empty layers, new
+      // version), so a wake-up panel still holding the old read would save into a 409.
+      void qc.invalidateQueries({ queryKey: convKeys.roomWakeup(chatroomId, agentId) })
       await loadBindings()
     } catch {
       bindingError.value = 'conversation.settings.roleChangeFailed'
@@ -324,6 +326,25 @@ export function useChatroomBindings(
     }
   }
 
+  /** Unlike the grant writes, a 204 here means the server now holds exactly
+   *  `color` (written or already equal), so the local map is patched instead of
+   *  reloading the whole card. A failure reloads: a 404/409 means another tab
+   *  unbound the agent or made it an observer, and the row must show that. */
+  async function onSetBubbleColor(agentId: string, color: AgentBubbleColor | null): Promise<void> {
+    if (bindingBusy.value) return
+    bindingBusy.value = true
+    try {
+      await setChatroomAgentAppearance(chatroomId, agentId, color)
+      boundColors.value = { ...boundColors.value, [agentId]: color }
+      void qc.invalidateQueries({ queryKey: convKeys.chatroomAgents(chatroomId) })
+    } catch {
+      toast.error(t('conversation.appearance.failed'))
+      await loadBindings()
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
   async function onRemoveAgent(agentId: string): Promise<void> {
     if (bindingBusy.value) return
     bindingBusy.value = true
@@ -335,43 +356,6 @@ export function useChatroomBindings(
       bindingError.value = 'conversation.settings.unbindFailed'
     } finally {
       bindingBusy.value = false
-    }
-  }
-
-  // Per-agent save coordination: the editor emits on every field commit, so a
-  // second edit can arrive while the first save is in flight. Stash the latest
-  // config and flush it after the running save returns, so no edit is dropped
-  // and consecutive saves don't reuse a stale version (409). We deliberately do
-  // not mutate the agent's local wakeup_config — that would re-render the editor
-  // and revert in-progress edits; only the version needs to advance.
-  const wakeupInFlight = new Set<string>()
-  const wakeupPending = new Map<string, WakeupConfig>()
-
-  async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
-    if (wakeupInFlight.has(agentId)) {
-      wakeupPending.set(agentId, config)
-      return
-    }
-    const agent = projectAgents.value.find((a) => a.id === agentId)
-    if (!agent) {
-      toast.error(t('conversation.settings.wakeupConfigFailed'))
-      return
-    }
-    wakeupInFlight.add(agentId)
-    try {
-      // The agent PATCH needs an If-Match precondition; pass the current
-      // version and adopt the bumped one so the next save doesn't conflict.
-      agent.version = await patchAgentWakeupConfig(agentId, config, agent.version)
-      toast.success(t('conversation.settings.wakeupConfigSaved'))
-    } catch {
-      toast.error(t('conversation.settings.wakeupConfigFailed'))
-    } finally {
-      wakeupInFlight.delete(agentId)
-    }
-    const next = wakeupPending.get(agentId)
-    if (next) {
-      wakeupPending.delete(agentId)
-      await saveWakeupConfig(agentId, next)
     }
   }
 
@@ -396,6 +380,6 @@ export function useChatroomBindings(
     onSetCanvasAccess,
     onSetCanvasWriteAccess,
     onSetRole,
-    saveWakeupConfig,
+    onSetBubbleColor,
   }
 }

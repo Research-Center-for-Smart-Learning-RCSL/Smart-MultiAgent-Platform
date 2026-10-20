@@ -605,6 +605,23 @@ class ProjectMemberRepository:
         ).all()
         return {r.user_id for r in rows}
 
+    async def owner_user_ids(self, *, project_id: uuid.UUID, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Of `user_ids`, those with an explicit owner role in this project."""
+        if not user_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.project_members.c.user_id).where(
+                    sa.and_(
+                        t.project_members.c.project_id == project_id,
+                        t.project_members.c.role == ProjectMemberRole.OWNER.value,
+                        t.project_members.c.user_id.in_(list(user_ids)),
+                    )
+                )
+            )
+        ).all()
+        return {r.user_id for r in rows}
+
     async def remove(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self._db.execute(
             t.project_members.delete().where(

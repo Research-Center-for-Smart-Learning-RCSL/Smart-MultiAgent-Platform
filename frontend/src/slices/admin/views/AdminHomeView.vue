@@ -28,21 +28,20 @@
       v-else-if="metricsQuery.data.value"
       class="admin-home__stats"
     >
-      <SCard
+      <SStatTile
         v-for="stat in stats"
         :key="stat.label"
         class="admin-home__card"
-      >
-        <span class="admin-home__value">{{ stat.value }}</span>
-        <span class="admin-home__label">{{ $t(stat.label) }}</span>
-      </SCard>
+        :label="$t(stat.label)"
+        :value="stat.value"
+      />
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SPageHeader, SLoadingSpinner, SCard, SAlert, SButton } from '@shared/ui'
+import { SPageHeader, SLoadingSpinner, SStatTile, SAlert, SButton } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -76,14 +75,5 @@ const stats = computed(() => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-}
-.admin-home__value {
-  font-size: 2rem;
-  font-weight: var(--weight-bold);
-  color: var(--color-fg);
-}
-.admin-home__label {
-  font-size: var(--font-size-sm);
-  color: var(--color-muted);
 }
 </style>

@@ -43,6 +43,17 @@ class ChatroomAgentRole(str, enum.Enum):
     OBSERVER = "observer"
 
 
+class ChatroomAgentBubbleColor(str, enum.Enum):
+    CYAN = "cyan"
+    TEAL = "teal"
+    GREEN = "green"
+    LIME = "lime"
+    AMBER = "amber"
+    ORANGE = "orange"
+    ROSE = "rose"
+    VIOLET = "violet"
+
+
 class AttachmentStatus(str, enum.Enum):
     ACTIVE = "active"
     QUARANTINED = "quarantined"
@@ -119,6 +130,28 @@ class ChatroomAgent:
     may_read_drafts: bool = False
     may_read_canvas: bool = False
     may_write_canvas: bool = False
+    # The same row's wake-up layers, when the read that built this selected them,
+    # so a message's wake-up evaluation needs no second read of the room's rows.
+    wakeup: BindingWakeupState | None = None
+    bubble_color: ChatroomAgentBubbleColor | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BindingWakeupState:
+    """One live binding's stored wake-up layers ([R15.09]).
+
+    The layers stay raw here: their meaning is orchestration's
+    (``orchestration.domain.room_wakeup``), and conversation only stores them.
+    """
+
+    chatroom_id: uuid.UUID
+    agent_id: uuid.UUID
+    binding_id: uuid.UUID
+    role: ChatroomAgentRole
+    version: int
+    room_overrides: dict[str, Any]
+    runtime_overrides: dict[str, Any]
+    runtime_started_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,8 +312,10 @@ __all__ = [
     "AgentObservation",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
+    "BindingWakeupState",
     "Chatroom",
     "ChatroomAgent",
+    "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
     "ChatroomGuest",
     "DraftReadGrant",

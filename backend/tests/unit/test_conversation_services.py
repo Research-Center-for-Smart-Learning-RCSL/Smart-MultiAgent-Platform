@@ -41,6 +41,7 @@ from contexts.conversation.domain.models import (
     AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
+    ChatroomAgentBubbleColor,
     ChatroomAgentRole,
     Message,
     MessageAttachment,
@@ -358,7 +359,7 @@ class TestChatroomSetAgentRole:
     @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
     async def test_changes_role_and_audits_once(self, _audit) -> None:
         agents_repo = AsyncMock()
-        agents_repo.role_of.return_value = ChatroomAgentRole.NORMAL
+        agents_repo.locked_appearance.return_value = (ChatroomAgentRole.NORMAL, None)
         agents_repo.set_role.return_value = True
         svc = _make_chatroom_service(agents=agents_repo)
 
@@ -381,9 +382,53 @@ class TestChatroomSetAgentRole:
         assert _audit.call_args[0][1].metadata["old_role"] == "normal"
         assert _audit.call_args[0][1].metadata["new_role"] == "observer"
 
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_demotion_audits_the_colour_it_clears(self, _audit) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.locked_appearance.return_value = (ChatroomAgentRole.NORMAL, ChatroomAgentBubbleColor.TEAL)
+        agents_repo.set_role.return_value = True
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        await svc.set_agent_role(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            role=ChatroomAgentRole.OBSERVER,
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        events = [call.args[1] for call in _audit.await_args_list]
+        assert [e.action for e in events] == [
+            "chatroom.observer_role_changed",
+            "chatroom.agent_appearance_changed",
+        ]
+        assert events[1].metadata == {
+            "agent_id": str(_AGENT),
+            "old_color": "teal",
+            "new_color": None,
+            "cause": "role_changed",
+        }
+
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_promotion_keeps_no_colour_audit(self, _audit) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.locked_appearance.return_value = (ChatroomAgentRole.OBSERVER, None)
+        agents_repo.set_role.return_value = True
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        await svc.set_agent_role(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            role=ChatroomAgentRole.NORMAL,
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        assert [c.args[1].action for c in _audit.await_args_list] == ["chatroom.observer_role_changed"]
+
     async def test_unbound_agent_returns_false_without_audit(self) -> None:
         agents_repo = AsyncMock()
-        agents_repo.role_of.return_value = None
+        agents_repo.locked_appearance.return_value = None
         svc = _make_chatroom_service(agents=agents_repo)
 
         with patch(
@@ -404,7 +449,7 @@ class TestChatroomSetAgentRole:
 
     async def test_already_at_target_role_is_a_noop(self) -> None:
         agents_repo = AsyncMock()
-        agents_repo.role_of.return_value = ChatroomAgentRole.OBSERVER
+        agents_repo.locked_appearance.return_value = (ChatroomAgentRole.OBSERVER, None)
         svc = _make_chatroom_service(agents=agents_repo)
 
         with patch(
@@ -431,7 +476,10 @@ class TestChatroomSetAgentRole:
         the retry must re-read the fresh role, discover the target is already
         reached, and audit nothing — never double-logging old_role=normal."""
         agents_repo = AsyncMock()
-        agents_repo.role_of.side_effect = [ChatroomAgentRole.NORMAL, ChatroomAgentRole.OBSERVER]
+        agents_repo.locked_appearance.side_effect = [
+            (ChatroomAgentRole.NORMAL, None),
+            (ChatroomAgentRole.OBSERVER, None),
+        ]
         agents_repo.set_role.return_value = False  # CAS miss: role changed underneath us
         svc = _make_chatroom_service(agents=agents_repo)
 
@@ -449,7 +497,7 @@ class TestChatroomSetAgentRole:
 
     async def test_exhausting_retries_on_persistent_contention_returns_false(self) -> None:
         agents_repo = AsyncMock()
-        agents_repo.role_of.return_value = ChatroomAgentRole.NORMAL
+        agents_repo.locked_appearance.return_value = (ChatroomAgentRole.NORMAL, None)
         agents_repo.set_role.return_value = False  # always loses the CAS
         svc = _make_chatroom_service(agents=agents_repo)
 
