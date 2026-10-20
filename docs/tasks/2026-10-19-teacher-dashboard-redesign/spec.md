@@ -727,6 +727,17 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
   reproduced `socket.gaierror: [Errno 11001] getaddrinfo failed`. The OpenAPI shell gate also
   cannot use the Windows `bash.exe` WSL launcher, so its export and client regeneration were
   checked directly instead. AC-27 remains for CI.
+- D-6. Post-build code review fixes. The current round is now a time window: an ended round is
+  bounded by its `ended_at`, so later messages, guest sessions and live presence no longer count
+  toward it, and presence counts only for an active round. A group round's watchlist lists its
+  groups only (Q-11, AC-17); individual people present are not separate rows.
+  `participant_count` counts people (users and guests, Project Owners excluded per Q-6) and never
+  member groups, so in a group round it still answers "how many people took part".
+  The human message count sums the `user` and `guest` rows instead of keeping the last one.
+  A guest whose live connection predates the round is classified by the guest-session table
+  instead of the round's guest list. Presence is read once per request and shared by the online
+  count and the roster. Commit `e6cf0b8e` carries Stage C and Stage E backend work under a
+  `feat(frontend)` subject; history is left as is.
 
 ## 16. Follow-ups
 
