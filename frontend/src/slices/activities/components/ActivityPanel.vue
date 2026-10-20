@@ -278,11 +278,15 @@ async function startForRoom(): Promise<void> {
 
 async function endForRoom(): Promise<void> {
   if (!activation.value) return
+  // Read the id before awaiting: the room socket's `activity.activation.ended`
+  // can clear the activation before this request resolves, and reading it
+  // afterwards threw, reporting a successful end as a failure.
+  const activationId = activation.value.id
   actionPending.value = true
   errorMessage.value = null
   try {
-    await endActivation(props.chatroomId, activation.value.id)
-    store.clearActivation(props.chatroomId, activation.value.id)
+    await endActivation(props.chatroomId, activationId)
+    store.clearActivation(props.chatroomId, activationId)
   } catch (err) {
     errorMessage.value = err instanceof ApiError ? err.message : t('activities.panel.endFailed')
   } finally {

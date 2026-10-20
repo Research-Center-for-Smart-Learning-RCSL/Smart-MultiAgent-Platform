@@ -773,6 +773,33 @@ describe('ActivityPanel — facilitator progress (AC-6)', () => {
   })
 })
 
+describe('ActivityPanel — ending a round', () => {
+  it('reports success when the room socket clears the round before the request resolves', async () => {
+    // Seen on staging: the `activity.activation.ended` broadcast cleared the
+    // activation mid-request and the panel showed "could not end" for an end
+    // that had succeeded.
+    sessionMe.value = { id: 'u1' }
+    getActiveActivationMock.mockResolvedValue(activeActivation())
+    listActivityTypesMock.mockResolvedValue([])
+    const store = useActivitiesStore()
+    endActivationMock.mockImplementation(async () => {
+      store.clearActivation('c1', 'act_1')
+    })
+
+    const wrapper = await renderView(ActivityPanel, {
+      props: { chatroomId: 'c1', projectId: 'p1', isCreator: true },
+    })
+    await flushPromises()
+    const endButton = wrapper.findAll('button').find((b) => b.text().includes('activities.panel.end'))
+    expect(endButton).toBeDefined()
+    await endButton!.trigger('click')
+    await flushPromises()
+
+    expect(endActivationMock).toHaveBeenCalledWith('c1', 'act_1')
+    expect(wrapper.text()).not.toContain('activities.panel.endFailed')
+  })
+})
+
 describe('ActivityPanel — cross-scope key collision (AC-5)', () => {
   // A project's usable set can hold its own type and an opted-in platform type
   // under one key ([R30.02]). The two are then identical in this picker unless
