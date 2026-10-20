@@ -524,6 +524,45 @@ Appended by /build.
   rather than exposing an unlocked role read in the route. This preserves [R28.10]
   and removes an observer-enumeration oracle found during the security gate.
 
+The entries below come from the `/code-review` of `792b316a..85ade4a5` on 2026-10-20.
+All ten findings were accepted and fixed in `8a05ff1b`, `53605585` and `18b4a2df`.
+
+- D-3: Migration 0105 also installs a `BEFORE UPDATE OF role` trigger
+  (`trg_chatroom_agents_clear_observer_color`) that clears `bubble_color` when the role
+  changes to observer. §6 had only the `CHECK`. On its own, the CHECK would make
+  pre-0105 code fail with a 500 when it demotes a coloured binding after a code
+  rollback or on a replica that has not yet been upgraded, because that code never
+  names the column. That breaks the forward-compatibility rule in `backend/CLAUDE.md`.
+  A colour written directly onto an observer row still violates the CHECK. The
+  repository's own clearing in `set_role` is kept, so the code does not depend on the
+  trigger. The db-tier test covers the old-code demotion and the trigger's removal on
+  downgrade. 0105 was edited in place because it had not reached any remote.
+- D-4: A demotion that clears a colour now emits a second audit event,
+  `chatroom.agent_appearance_changed`, with `old_color`, `new_color: null` and
+  `cause: "role_changed"`. §7 had treated `chatroom.observer_role_changed` as
+  sufficient, but that event never records the colour that was lost. To capture the
+  colour, `set_agent_role` now reads the role and colour under the row lock
+  (`locked_appearance`) instead of the unlocked `role_of`. The CAS and its retry loop
+  are unchanged.
+- D-5: On the client, the viewer stays unresolved while a guest context is held but its
+  token has not been restored yet. Rule 3 of §5 is narrowed to say that the
+  `session.me` fallback applies only when no guest context is held. Without this,
+  Q-3's stale-account case came back during the restore window.
+- D-6: The palette now has one source per side. The backend request model and table
+  column derive from the domain enum; the migration keeps its literals, and a unit test
+  pins all three as equal. The frontend palette is a `Record` keyed by the generated
+  `ChatroomAgentBubbleColor`, so the typecheck fails if a key is added or dropped
+  (verified: TS2741). `contrast.test.ts` reads the keys from `main.css`, and a slice
+  test pins those to the palette. Colour styling is one rule per component, fed by
+  per-element custom properties (`agentColorVars`), instead of sixteen per-key rules.
+  The CSS fallbacks keep an uncoloured agent look if the binding is missing. The
+  bubble's colour hook is now `.bubble--agent-colored[data-agent-color]`; the dead
+  `bubble-row--agent` class is removed.
+- D-7: A successful colour save patches the local binding map instead of reloading
+  the whole card. A refused save (403/404/409) reloads, so a row that another tab made
+  an observer loses its picker. A failed re-read after a good save can no longer
+  revert the picker.
+
 ## 16. Follow-ups
 
 - FU-1: While impersonating, `session.me` and `isAdmin` still describe the admin
