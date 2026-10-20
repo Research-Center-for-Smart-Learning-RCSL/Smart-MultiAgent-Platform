@@ -95,6 +95,98 @@ function seededClient(rooms: Chatroom[]): QueryClient {
 }
 
 describe('ChatroomSettingsView', () => {
+  it.each([
+    { role: 'normal', moderator: true, visible: true },
+    { role: 'observer', moderator: true, visible: false },
+    { role: 'normal', moderator: false, visible: false },
+  ])('gates the colour picker for $role moderator=$moderator', async ({ role, moderator, visible }) => {
+    const room = makeChatroom({ is_moderator: moderator, created_by_user_id: 'other' })
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/projects/:id/agents/names', () => HttpResponse.json([{ id: 'agent_1', name: 'Bot' }])),
+      http.get('/api/chatrooms/:id/agents', () => HttpResponse.json([{ agent_id: 'agent_1', role }])),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.find('.color-picker').exists()).toBe(visible)
+  })
+
+  it.each([false, true])('saves a colour and restores the saved selection on failure=%s', async (fail) => {
+    const room = makeChatroom()
+    let color = 'teal'
+    const save = deferred<Response>()
+    const writes: unknown[] = []
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/chatrooms/:id/agents', () => HttpResponse.json([{ agent_id: 'agent_1', bubble_color: color }])),
+      http.patch('/api/chatrooms/:id/agents/:agentId/appearance', async ({ request }) => {
+        writes.push(await request.json())
+        return save.promise
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    const picker = wrapper.find('.color-picker')
+    await picker.find('input[value="rose"]').setValue()
+    await flushPromises()
+    expect(picker.find('input[value="rose"]').attributes('disabled')).toBeDefined()
+    if (!fail) color = 'rose'
+    save.resolve(new HttpResponse(null, { status: fail ? 403 : 204 }))
+    await flushPromises()
+    await flushPromises()
+    expect(writes).toEqual([{ bubble_color: 'rose' }])
+    expect((picker.find(`input[value="${fail ? 'teal' : 'rose'}"]`).element as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('re-reads the bindings when a save is refused because another tab made the agent an observer', async () => {
+    const room = makeChatroom()
+    let role = 'normal'
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/chatrooms/:id/agents', () => HttpResponse.json([{ agent_id: 'agent_1', role }])),
+      http.patch('/api/chatrooms/:id/agents/:agentId/appearance', () => {
+        role = 'observer'
+        return new HttpResponse(null, { status: 409 })
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    await wrapper.find('.color-picker input[value="rose"]').setValue()
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.find('.color-picker').exists()).toBe(false)
+  })
+
+  it('keeps a saved colour without re-reading the bindings, so a failed re-read cannot revert it', async () => {
+    const room = makeChatroom()
+    let listings = 0
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:id/agents', () => HttpResponse.json([makeAgent('agent_1', 'Bot')])),
+      http.get('/api/chatrooms/:id/agents', () => {
+        listings += 1
+        return listings === 1
+          ? HttpResponse.json([{ agent_id: 'agent_1', bubble_color: 'teal' }])
+          : new HttpResponse(null, { status: 500 })
+      }),
+      http.patch('/api/chatrooms/:id/agents/:agentId/appearance', () => new HttpResponse(null, { status: 204 })),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, { routes, initialRoute: '/chatrooms/cr_1/settings', queryClient: seededClient([room]) })
+    await flushPromises()
+    await flushPromises()
+    const picker = wrapper.find('.color-picker')
+    await picker.find('input[value="rose"]').setValue()
+    await flushPromises()
+    await flushPromises()
+    expect((picker.find('input[value="rose"]').element as HTMLInputElement).checked).toBe(true)
+  })
+
   // The default caller holds a role in the project ([R5.07]); the bare org
   // member's view has its own describe block below.
   beforeEach(() => {

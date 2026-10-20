@@ -1189,6 +1189,122 @@ class TestPhase2CoursePacks:
         assert "使用它結束活動" not in prompt, teacher_key
 
 
+_PEERS = ("sa-crat-peer", "sa-charbuilding-peer", "sa-objreinterpret-peer")
+_DESIGNERS = ("da-crat-designer", "da-charbuilding-designer", "da-objreinterpret-designer")
+_PEER_ERROR_POSITIONS = "第 2、5、8 個"
+_TEACHER_DISCLOSURE = "討論室裡的 AI 同學也會分享它的想法，但它的想法可能有錯，要靠你們自己判斷。"
+_TEACHER_WAIT_FIRST = "在至少一位學生回應它之前，不要說它對或錯，也不要糾正它"
+
+
+class TestPeerDeliberateErrors:
+    """The college peers err on purpose; the teachers disclose it and let students judge first.
+
+    Spec: ``docs/tasks/2026-10-19-peer-deliberate-errors/spec.md`` (AC-1..AC-8). These pin
+    what the prompts say; whether a model keeps the ratio is the live half (AC-11).
+    """
+
+    @staticmethod
+    def _prompt(key: str) -> str:
+        return next(a for _, a in SHIPPED_AGENTS if a.key == key).system_prompt
+
+    # -- AC-1 / AC-3: ratio, counting and conduct --------------------------------
+
+    @pytest.mark.parametrize("key", _PEERS)
+    def test_peer_errs_on_every_third_proposal_counted_from_its_own_history(self, key: str) -> None:
+        block = _section(self._prompt(key), "刻意出錯")
+        assert _PEER_ERROR_POSITIONS in block, key
+        assert "只算你自己的發言" in block, key
+        assert "不要連續兩次都提錯的" in block, key
+        # A self-flagged near miss is neither a proposal nor an error, so a planned
+        # error right after one does not break the no-two-in-a-row rule.
+        assert "不算答案，也不算提錯" in block, key
+        assert "包括「差點就對了」的嘗試，都算一個答案" not in block, key
+
+    @pytest.mark.parametrize("key", _PEERS)
+    def test_peer_presents_errors_plainly_and_never_admits_intent(self, key: str) -> None:
+        block = _section(self._prompt(key), "刻意出錯")
+        for rule in (
+            "用跟平常一樣的語氣說",  # no self-flagging
+            "爽快承認",  # a valid challenge wins
+            "說一次你為什麼這樣想",  # an invalid one gets one explanation
+            "不要承認，也不要否認",  # "was that on purpose?"
+        ):
+            assert rule in block, f"{key}: {rule}"
+
+    # -- AC-2: an error the peer can check without the bank -----------------------
+
+    @pytest.mark.parametrize(
+        ("key", "definition"),
+        [
+            ("sa-crat-peer", "和第三個線索字組不成詞"),
+            ("sa-charbuilding-peer", "用這次給定的部件組不出來"),
+            ("sa-objreinterpret-peer", "因為這個物品的材質或大小，實際上做不到"),
+        ],
+    )
+    def test_peer_error_is_one_it_can_verify(self, key: str, definition: str) -> None:
+        block = _section(self._prompt(key), "刻意出錯")
+        assert definition in block, key
+        assert "自己確認過" in block, key
+
+    def test_crat_peer_does_not_self_flag_the_error_as_a_near_miss(self) -> None:
+        """Strategy 3 names the failing clue; the deliberate error must not borrow it."""
+        assert "不要用第 3 點「差點就對了」的說法自己點破" in self._prompt("sa-crat-peer")
+
+    def test_object_peer_keeps_the_safety_exclusions_for_its_errors(self) -> None:
+        block = _section(self._prompt("sa-objreinterpret-peer"), "刻意出錯")
+        assert "跟火、吃進肚子、或拋射有關的危險用途" in block
+
+    # -- AC-4: the rules that forbade an error are gone ---------------------------
+
+    @pytest.mark.parametrize(
+        ("key", "retired"),
+        [
+            ("sa-charbuilding-peer", "確保你分享的字確實可以由給定部件組成"),
+            ("sa-crat-peer", "不要猜一個答案說成是正確的"),
+            ("sa-crat-peer", "不要直接給出你認為的正確答案"),
+        ],
+    )
+    def test_peer_no_longer_forbids_the_error(self, key: str, retired: str) -> None:
+        assert retired not in self._prompt(key)
+
+    # -- AC-5 / AC-6: teacher disclosure and wait-first ---------------------------
+
+    @pytest.mark.parametrize("key", list(_PHASE2_TEACHERS.values()))
+    def test_teacher_discloses_at_the_opening_without_saying_it_is_deliberate(self, key: str) -> None:
+        opening = _section(self._prompt(key), "步驟A1")
+        assert _TEACHER_DISCLOSURE in opening, key
+        for word in ("刻意", "故意", "設計"):
+            assert word not in opening, f"{key}: {word}"
+
+    @pytest.mark.parametrize("key", list(_PHASE2_TEACHERS.values()))
+    def test_teacher_waits_for_a_student_before_judging_a_peer_proposal(self, key: str) -> None:
+        prompt = self._prompt(key)
+        assert _TEACHER_WAIT_FIRST in prompt, key
+        assert "不要先說出你的判斷" in prompt, key
+
+    def test_no_teacher_reveals_that_the_errors_are_deliberate(self) -> None:
+        for key in _PHASE2_TEACHERS.values():
+            prompt = self._prompt(key)
+            assert "刻意出錯" not in prompt, key
+            assert _PEER_ERROR_POSITIONS not in prompt, key
+
+    # -- AC-7: the designers carry both rules into their drafts -------------------
+
+    @pytest.mark.parametrize("key", _DESIGNERS)
+    def test_designer_carries_the_peer_error_and_teacher_rules(self, key: str) -> None:
+        block = _section(self._prompt(key), "提示詞規範")
+        assert _PEER_ERROR_POSITIONS in block, key
+        assert _TEACHER_DISCLOSURE in block, key
+        assert "在至少一位學生回應之前" in block, key
+
+    # -- AC-8: the junior-high course is untouched --------------------------------
+
+    @pytest.mark.parametrize("agent", [a for _, a in CT_COURSE_AGENTS], ids=lambda a: a.key)
+    def test_creative_thinking_does_not_carry_the_behaviour(self, agent: Any) -> None:
+        for marker in ("刻意出錯", _PEER_ERROR_POSITIONS, _TEACHER_DISCLOSURE, _TEACHER_WAIT_FIRST):
+            assert marker not in agent.system_prompt, f"{agent.key}: {marker}"
+
+
 class TestTheAnalystAsksOnlyWhatItsInputSupports:
     """A prompt may not ask for a report its context cannot ground.
 

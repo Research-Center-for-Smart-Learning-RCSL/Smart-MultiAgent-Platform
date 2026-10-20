@@ -164,6 +164,7 @@ class TestWhichAgentIsTheCreatorsToKnow:
                     SimpleNamespace(
                         agent_id=uuid.uuid4(),
                         role=ChatroomAgentRole.NORMAL,
+                        bubble_color=None,
                         may_control_activities=False,
                         activity_type_allowlist=(),
                         may_read_drafts=True,

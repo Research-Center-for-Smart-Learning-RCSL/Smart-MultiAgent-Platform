@@ -489,30 +489,30 @@ Triaged with the requester on 2026-10-05: every finding is fixed, grouped by roo
 
 | Finding | Decision | Task dossier |
 |---|---|---|
-| F-1 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-2 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-3 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
-| F-4 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
+| F-1 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-2 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-3 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-watchlist-correctness` never created) |
+| F-4 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-watchlist-correctness` never created) |
 | F-5 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
 | F-6 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
-| F-7 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
-| F-8 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
-| F-9 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-7 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-and-export-authz` never created) |
+| F-8 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-and-export-authz` never created) |
+| F-9 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-and-export-authz` never created) |
 | F-10 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-data-shape/` |
-| F-11 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-watchlist-correctness/` |
+| F-11 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-watchlist-correctness` never created) |
 | F-12 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
 | F-13 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
 | F-14 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-delivery/` |
 | F-15 | fix (2026-10-05) | `docs/tasks/2026-10-05-research-export-data-shape/` |
-| F-16 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-17 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
-| F-18 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
-| F-19 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-chart-and-error-states/` |
-| F-20 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-chart-and-error-states/` |
-| F-21 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-22 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-23 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-status-semantics/` |
-| F-24 | fix (2026-10-05) | `docs/tasks/2026-10-05-dashboard-and-export-authz/` |
+| F-16 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-17 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-and-export-authz` never created) |
+| F-18 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-and-export-authz` never created) |
+| F-19 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-chart-and-error-states` never created) |
+| F-20 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-chart-and-error-states` never created) |
+| F-21 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-22 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-23 | fix (2026-10-05) | `docs/tasks/2026-10-19-teacher-dashboard-redesign/` (planned `-dashboard-status-semantics` never created) |
+| F-24 | fix (2026-10-05) | fixed by `docs/tasks/2026-10-13-agent-config-visibility-and-project-reads/` (planned `-dashboard-and-export-authz` never created) |
 
 ## 6. Out-of-scope Observations
 

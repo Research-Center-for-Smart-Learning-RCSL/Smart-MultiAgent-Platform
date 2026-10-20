@@ -139,6 +139,8 @@
             <ChatroomMessageBubble
               v-if="item.kind === 'message'"
               :message="item.message"
+              :is-own="isOwnMessage(item.message)"
+              :agent-color="item.message.sender_type === 'agent' ? agentColors[item.message.sender_id ?? ''] ?? null : null"
               :html="rendered[item.message.id] ?? ''"
               :sender-name="senderName(item.message)"
               :sender-is-guest="isGuestAuthor(item.message.sender_id, item.message.sender_type)"
@@ -177,6 +179,7 @@
           :key="`stream-${agentId}`"
           :html="html"
           :agent-name="agentNames[agentId] ?? agentId.slice(0, 8)"
+          :agent-color="agentColors[agentId] ?? null"
           aria-live="off"
         />
 
@@ -512,6 +515,7 @@ import { readGuestHint, writeGuestHint } from '../utils/guestHint'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useDraftReporting } from '../composables/useDraftReporting'
 import { useObservations } from '../composables/useObservations'
+import { isAgentBubbleColor, type AgentBubbleColor } from '../utils/agentBubbleColors'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
 import { useChatroomAttachments } from '../composables/useChatroomAttachments'
@@ -560,7 +564,7 @@ const projectId = (route.params.projectId as string) || ''
 // otherwise the signed-in user. Guest first, because `session.me` can still be
 // set from an earlier sign-in while a guest token is active, and the server
 // knows this viewer only by the token it is sending.
-const viewerId = computed(() => guestSessionId.value ?? session.me?.id ?? null)
+const viewerId = computed(() => viewer.value?.id ?? null)
 // The stored name a rename returned, shown until the roster re-read carries it
 // (then cleared, so a later rename from another tab shows through the roster).
 const guestNameOverride = ref<string | null>(null)
@@ -620,6 +624,37 @@ const roomQuery = useQuery({
   queryFn: () => getChatroom(chatroomId),
   retry: false,
 })
+const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
+
+const {
+  messages,
+  viewer,
+  isOwnMessage,
+  hasOlderMessages,
+  loadingOlder,
+  loadEarlier,
+  isPending: messagesPending,
+  isError: messagesErrored,
+  refetchMessages,
+  rendered,
+  draft,
+  onSend,
+  confirmDelete,
+  downloadAttachment,
+  canEdit,
+  canDelete,
+  dropOlderMessage,
+  refreshOlderMessage,
+  reconcileOlder,
+} = useChatroomMessages(
+  chatroomId,
+  // Report the send; useChatroomScroll owns what happens to the feed's scroll
+  // position, so it is the one that resets the pill and the at-bottom flag.
+  () => scrollToBottom(),
+  () => agentList.value,
+  () => isModerator.value,
+)
+
 // This tab entered this room as an anonymous guest. Unlike `isGuestSession` it
 // survives the token: an ended session, or one a boot restore could not yet
 // refresh for want of a network, holds the context and no token.
@@ -696,6 +731,12 @@ const agentLabelsQuery = useQuery({
   enabled: historyFirstPageSettled,
   retry: false,
 })
+
+const agentColors = computed<Record<string, AgentBubbleColor>>(() =>
+  Object.fromEntries((boundAgentsQuery.data.value ?? []).flatMap((a) =>
+    a.role !== 'observer' && isAgentBubbleColor(a.bubble_color) ? [[a.agent_id, a.bubble_color]] : [],
+  )),
+)
 
 // History labels underneath; the project's names and the room's own agent list,
 // which names every bound agent, layered on top.
@@ -972,35 +1013,6 @@ async function onObservationDelete(o: Observation): Promise<void> {
 }
 
 // ---- composables ----------------------------------------------------------
-
-const isModerator = computed(() => roomQuery.data.value?.is_moderator ?? false)
-
-const {
-  messages,
-  hasOlderMessages,
-  loadingOlder,
-  loadEarlier,
-  isPending: messagesPending,
-  isError: messagesErrored,
-  refetchMessages,
-  rendered,
-  draft,
-  onSend,
-  confirmDelete,
-  downloadAttachment,
-  canEdit,
-  canDelete,
-  dropOlderMessage,
-  refreshOlderMessage,
-  reconcileOlder,
-} = useChatroomMessages(
-  chatroomId,
-  // Report the send; useChatroomScroll owns what happens to the feed's scroll
-  // position, so it is the one that resets the pill and the at-bottom flag.
-  () => scrollToBottom(),
-  () => agentList.value,
-  () => isModerator.value,
-)
 
 const { moderateGuest } = useGuestModeration(chatroomId)
 

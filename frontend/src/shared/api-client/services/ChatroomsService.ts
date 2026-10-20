@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
+import type { AgentAppearanceIn } from '../models/AgentAppearanceIn';
 import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
 import type { AgentCanvasWriteAccessIn } from '../models/AgentCanvasWriteAccessIn';
 import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
@@ -270,6 +271,34 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/activity-control',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Appearance
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentAppearanceApiChatroomsChatroomIdAgentsAgentIdAppearancePatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentAppearanceIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/appearance',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,

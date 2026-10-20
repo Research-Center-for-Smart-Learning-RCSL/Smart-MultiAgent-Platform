@@ -1884,6 +1884,25 @@
         "title": "AgentActivityControlIn",
         "type": "object"
       },
+      "AgentAppearanceIn": {
+        "properties": {
+          "bubble_color": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatroomAgentBubbleColor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "bubble_color"
+        ],
+        "title": "AgentAppearanceIn",
+        "type": "object"
+      },
       "AgentCanvasAccessIn": {
         "description": "Grant or revoke one bound agent's canvas reading ([R13.47]).",
         "properties": {
@@ -2937,6 +2956,16 @@
             "format": "uuid",
             "title": "Agent Id",
             "type": "string"
+          },
+          "bubble_color": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatroomAgentBubbleColor"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "may_control_activities": {
             "anyOf": [
@@ -5389,6 +5418,20 @@
         ],
         "title": "ChatModelSpecOut",
         "type": "object"
+      },
+      "ChatroomAgentBubbleColor": {
+        "enum": [
+          "cyan",
+          "teal",
+          "green",
+          "lime",
+          "amber",
+          "orange",
+          "rose",
+          "violet"
+        ],
+        "title": "ChatroomAgentBubbleColor",
+        "type": "string"
       },
       "ChatroomCreateIn": {
         "properties": {
@@ -21461,6 +21504,62 @@
           }
         },
         "summary": "Patch Chatroom Agent Activity Control",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/agents/{agent_id}/appearance": {
+      "patch": {
+        "operationId": "patch_chatroom_agent_appearance_api_chatrooms__chatroom_id__agents__agent_id__appearance_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAppearanceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Patch Chatroom Agent Appearance",
         "tags": [
           "chatrooms"
         ]

@@ -34,7 +34,11 @@ from contexts.conversation.domain.models import Chatroom, ChatroomAgentRole
 from contexts.conversation.interfaces import room_channel
 from contexts.conversation.interfaces.access import ensure_can_manage_guest_link
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
-from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.conversation.interfaces.facade import (
+    ChatroomAgentBubbleColor,
+    ConversationFacade,
+    can_manage_normal_binding_settings,
+)
 from contexts.identity.interfaces import user_channel
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
@@ -178,10 +182,17 @@ class AgentRef(BaseModel):
     # messages and to @-mention the agent; the name is already on every message
     # the agent posts, so it discloses nothing the room did not.
     name: str | None = None
+    # Response-side only; every reader sees normal bindings' appearance.
+    bubble_color: ChatroomAgentBubbleColor | None = None
 
 
 class AgentRolePatchIn(BaseModel):
     role: Literal["normal", "observer"]
+
+
+class AgentAppearanceIn(BaseModel):
+    # Required with no default, so clearing is an explicit `null`, never an omitted field.
+    bubble_color: ChatroomAgentBubbleColor | None
 
 
 class AgentDraftAccessIn(BaseModel):
@@ -770,6 +781,7 @@ async def list_chatroom_agents(
         AgentRef(
             agent_id=r.agent_id,
             name=names.get(r.agent_id),
+            bubble_color=r.bubble_color,
             role=r.role.value if creator else None,
             # [R30.37] / [R28.10]: the delegation layout is the creator's to see.
             # `None` for everyone else, which `response_model_exclude_none` drops,
@@ -915,6 +927,44 @@ async def patch_chatroom_agent_role(
         room_visible=True,
         creator_user_id=access.chatroom.created_by_user_id,
     )
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}/appearance",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_appearance(
+    body: AgentAppearanceIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    facade = ConversationFacade(db)
+    if not can_manage_normal_binding_settings(access, principal=principal, observer_binding=False):
+        raise HTTPException(status_code=403, detail="cannot manage this binding's appearance")
+    result = await facade.set_agent_bubble_color(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        color=body.bubble_color,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if result == "not_bound":
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+    if result == "observer":
+        if not is_room_creator(access, principal=principal):
+            raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
+        raise HTTPException(status_code=409, detail="observer bindings cannot have a bubble colour")
+    if result == "written":
+        await _emit_chatroom_updated(
+            db, chatroom_id, room_visible=True, creator_user_id=access.chatroom.created_by_user_id
+        )
 
 
 @chatroom_router.patch(

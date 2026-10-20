@@ -214,6 +214,23 @@
   --color-surface-hover: #eef2f7;
   --color-surface-active: #e2e8f0;
   --color-accent-tint-hover: #bfdbfe;
+  --color-bubble-own: #eff6ff;
+  --color-agent-cyan: #0e7490;
+  --color-agent-cyan-tint: #f0fcff;
+  --color-agent-teal: #0f766e;
+  --color-agent-teal-tint: #f0fdfa;
+  --color-agent-green: #15803d;
+  --color-agent-green-tint: #f0fdf4;
+  --color-agent-lime: #4d7c0f;
+  --color-agent-lime-tint: #f7fee7;
+  --color-agent-amber: #a16207;
+  --color-agent-amber-tint: #fffbeb;
+  --color-agent-orange: #c2410c;
+  --color-agent-orange-tint: #fff7ed;
+  --color-agent-rose: #be123c;
+  --color-agent-rose-tint: #fff1f2;
+  --color-agent-violet: #6d28d9;
+  --color-agent-violet-tint: #faf5ff;
 
   /* ── Spacing scale (4px grid, expressed in rem) ──
      Named --space-* (not --spacing-*) so Tailwind's spacing namespace and
@@ -466,6 +483,23 @@
     --color-surface-hover: #273549;
     --color-surface-active: #2f3f55;
     --color-accent-tint-hover: #27476e;
+    --color-bubble-own: #102139;
+    --color-agent-cyan: #22d3ee;
+    --color-agent-cyan-tint: #10242a;
+    --color-agent-teal: #2dd4bf;
+    --color-agent-teal-tint: #10251f;
+    --color-agent-green: #4ade80;
+    --color-agent-green-tint: #12241c;
+    --color-agent-lime: #a3e635;
+    --color-agent-lime-tint: #1b2414;
+    --color-agent-amber: #fbbf24;
+    --color-agent-amber-tint: #27200f;
+    --color-agent-orange: #fb923c;
+    --color-agent-orange-tint: #281c13;
+    --color-agent-rose: #fb7185;
+    --color-agent-rose-tint: #271820;
+    --color-agent-violet: #a78bfa;
+    --color-agent-violet-tint: #211b2e;
   }
 
   /* Restore Preflight-stripped form element chrome (appearance only —

@@ -82,7 +82,20 @@ function lightness(hex: string): number {
  * same bar because they carry sentences, not glyphs - an SAlert's body renders
  * in `--color-*-on` on `--color-*-tint`.
  */
+// Read from the tokens rather than restated, so a palette key added to main.css
+// is measured without editing this file. The conversation slice's palette test
+// pins that main.css declares exactly the keys the API accepts.
+const AGENT_COLORS = Object.keys(light)
+  .map((name) => /^--color-agent-([a-z]+)$/.exec(name)?.[1])
+  .filter((key): key is string => key !== undefined)
+
 const TEXT_PAIRS: [fg: string, bg: string][] = [
+  ...AGENT_COLORS.flatMap((key): [string, string][] =>
+    ['--color-fg', '--color-muted', '--color-accent'].map((fg) => [fg, `--color-agent-${key}-tint`]),
+  ),
+  ['--color-fg', '--color-bubble-own'],
+  ['--color-muted', '--color-bubble-own'],
+  ['--color-accent', '--color-bubble-own'],
   ['--color-fg', '--color-canvas'],
   ['--color-fg', '--color-bg'],
   ['--color-fg', '--color-surface'],
@@ -119,6 +132,8 @@ describe('WCAG contrast budget', () => {
     expect(Object.keys(light).length).toBeGreaterThan(25)
     expect(Object.keys(dark).length).toBeGreaterThan(25)
     expect(dark['--color-bg']).not.toBe(light['--color-bg'])
+    // The agent pairs are derived from the tokens, so they need the same guard.
+    expect(AGENT_COLORS.length).toBeGreaterThan(0)
   })
 
   describe.each(THEMES)('%s theme', (themeName, tokens) => {
@@ -153,6 +168,12 @@ describe('WCAG contrast budget', () => {
      * token drew both and neither could satisfy its own requirement without
      * ruining the other's.
      */
+    it.each(AGENT_COLORS)('draws the %s agent border at 3:1 on the feed', (key) => {
+      const color = tokens[`--color-agent-${key}`]
+      expect(color).toBeDefined()
+      expect(contrast(color, tokens['--color-canvas'])).toBeGreaterThanOrEqual(3)
+    })
+
     it('draws a form control boundary at 3:1', () => {
       const ratio = contrast(tokens['--color-border-strong'], tokens['--color-bg'])
       expect(ratio, `--color-border-strong is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)

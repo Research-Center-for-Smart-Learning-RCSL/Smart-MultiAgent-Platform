@@ -20,8 +20,10 @@ export {
   isGuestRestorePending,
   isGuestSession,
   guestSessionId,
+  tokenViewer,
 } from './axios'
 export type { GuestSessionEnd } from './axios'
+export type { TokenViewer } from './axios'
 
 export { wsManager, Channel } from './ws-manager'
 export type { ChannelEvent } from './ws-manager'

@@ -148,6 +148,21 @@ model and key group the class will use.
 - **Different but valid answers.** When a 字詞拼圖 group submits a target that differs from the
   bank, the teacher does not mark it wrong; it shows the words the group formed and asks the
   room creator to judge.
+- **Deliberate peer errors.** The peer agent (SA) in all three courses proposes a deliberately
+  wrong answer on its 2nd, 5th, 8th ... own answer proposal ([R13.76]): a 字詞拼圖 character
+  that fits two clues but not the third, a 拆字蓋樓 character the given components cannot
+  build, or a 萬物新解 use the object's material or size cannot support (still never fire,
+  eating or projectiles). It says it the same way as its other ideas, concedes a valid
+  challenge, and neither confirms nor denies that an error was on purpose. It counts from its
+  own messages in the visible room history, so the ratio is approximate and drifts in long or
+  compacted sessions. The teacher tells the group at the opening that the AI classmate's ideas
+  may be wrong and that they should judge them, and does not confirm or correct a peer proposal
+  until a student has responded. The designers carry both rules into the drafts they write.
+  No message is marked as deliberately wrong anywhere in the platform or the research export;
+  researchers identify these errors by checking the content. Anyone who can edit agents in the
+  project can read the SA instruction and so learn that the errors are deliberate: in a research
+  project, do not give students agent-edit rights, and plan the debrief with your ethics
+  protocol.
 - **Quoting.** Each agent may quote submissions only for its own course's activity type, and
   never volunteers a student's answer. AA's notes use participant codes, not names, and do not
   claim to score flexibility, originality or convergence, which have no validated rubric.

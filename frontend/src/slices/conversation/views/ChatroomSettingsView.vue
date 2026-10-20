@@ -46,6 +46,7 @@ import GuestBansCard from '../components/GuestBansCard.vue'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
 import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
+import AgentBubbleColorPicker from '../components/AgentBubbleColorPicker.vue'
 import RoomWakeupPanel from '../components/RoomWakeupPanel.vue'
 
 const { t } = useI18n()
@@ -131,6 +132,7 @@ const {
   onSetCanvasWriteAccess,
   onSetDraftAccess,
   onSetRole,
+  onSetBubbleColor,
 } = useChatroomBindings(chatroomId, () => room.value, {
   projectId: () => projectId.value,
   // The types feed only the creator's activity-control picker.
@@ -851,6 +853,16 @@ watchEffect(() => {
               :busy="bindingBusy"
               @save-read="(granted) => onSetCanvasAccess(agent.id, granted)"
               @save-write="(granted) => onSetCanvasWriteAccess(agent.id, granted)"
+            />
+            <!-- Bubble colour ([R13.78]): matrix row 29's audience, normal
+                 bindings only. A refused save re-reads the bindings, so a row
+                 another tab made an observer drops its picker. -->
+            <AgentBubbleColorPicker
+              v-if="agent.role !== 'observer' && (isCreator || canEditAgents)"
+              :name="`bubble-color-${agent.id}`"
+              :model-value="agent.bubble_color ?? null"
+              :disabled="bindingBusy"
+              @save="(color) => onSetBubbleColor(agent.id, color)"
             />
             <!-- Room wake-up settings ([R15.25], matrix row 29): the room's
                  creator for any binding, a project editor for a normal one. The

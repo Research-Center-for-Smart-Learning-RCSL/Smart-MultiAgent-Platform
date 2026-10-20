@@ -13,6 +13,27 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Teacher dashboard redesign (2026-10-19)
+
+- `2026-10-19-teacher-dashboard-redesign` (feature, **approved 2026-10-20**, SRS delta amending
+  [R33.02] and [R33.10] and adding [R33.05]-[R33.07] applied) - `depends_on: []`. Rebuilds the teacher
+  dashboard around the room's current round and absorbs the dashboard findings of the 2026-10-05
+  audit, whose planned fix dossiers were never created (F-1..F-4, F-7..F-9, F-11, F-16..F-23).
+  Five stages: shared primitives and chart tokens, authorization, round semantics and a named
+  watchlist, the page rebuild, and per-room presence and message figures. Its Q-9 records the
+  `main.css` overlap with `2026-10-19-chat-bubble-sides-and-agent-colors` (disjoint regions, not
+  a dependency; whoever builds second rebases, including `contrast.test.ts`).
+
+### Peer deliberate errors (2026-10-19)
+
+- `2026-10-19-peer-deliberate-errors` (feature, **in progress 2026-10-19** on `feat/peer-deliberate-errors`, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
+  the three college course packs proposes a deliberately wrong answer for every third of its own
+  proposals; the teacher agents disclose at the opening that the AI classmate may be wrong and do
+  not judge a peer proposal before a student responds; the designers carry both rules. Prompt-only.
+  Edits the same six pack files as the in-progress
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`; not a declared dependency
+  (Q-5), but this branch must not reach any room used for that dossier's live runs until they finish.
+
 ### Agent configuration and project read scope (2026-10-13)
 
 - (implemented 2026-10-15) `2026-10-13-agent-config-visibility-and-project-reads`.
@@ -794,6 +815,17 @@ each row for its own list — the frontmatter wins over this preamble.
   submission at all.
 
 ## In progress
+
+### Chat bubble sides and agent colours (2026-10-19)
+
+- `2026-10-19-chat-bubble-sides-and-agent-colors` (feature, **in progress 2026-10-20**, SRS delta
+  [R13.77], [R13.78] and matrix row 29 applied) - `depends_on: []`. Part A: only the viewer's
+  own messages sit on the right (tinted), resolved from the access token so guests and
+  impersonation are correct; everyone else is on the left. Part B: a per-room colour from an
+  eight-key palette for participant (normal-role) agent bindings, set by row 29's audience,
+  refused for observers. Migration 0105. Both milestones committed locally;
+  pending DB/e2e/live-stack verification, clean backend typecheck and a stacked PR
+  on the existing source branch. See the dossier verification record.
 
 - `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
   2026-10-16 on `feat/crat-facilitation-phase2`, SRS delta applied) - `depends_on: []`. Bounded participant facts and

@@ -60,6 +60,26 @@ describe('guestSessionId', () => {
 })
 
 describe('ChatroomView for an anonymous guest', () => {
+  it('updates the roster you marker and moderation exclusion when impersonation ends', async () => {
+    setAccessToken(unsignedToken({ sub: 'u_2', impersonated_by: 'u_1' }))
+    server.use(http.get('/api/chatrooms/cr_1', () => HttpResponse.json({
+      id: 'cr_1', workspace_id: 'ws_1', name: 'Room', is_moderator: true,
+    })))
+    const wrapper = await renderView(ChatroomView, { routes, initialRoute: '/chatrooms/cr_1' })
+    const session = useSessionStore()
+    session.me = { id: 'u_1', email: 'admin@smap.test', email_verified: true, is_admin: true, status: 'active' }
+    useConversationStore().setPresence('cr_1', ['u_1', 'u_2'])
+    await settle()
+    const users = () => wrapper.findComponent(ChatroomPresence).props('onlineUsers')
+    expect(users().find((u) => u.id === 'u_2')?.isYou).toBe(true)
+    expect(users().find((u) => u.id === 'u_2')?.removable).toBe(false)
+    expect(users().find((u) => u.id === 'u_1')?.isYou).toBe(false)
+    setAccessToken(unsignedToken({ sub: 'u_1' }))
+    await settle()
+    expect(users().find((u) => u.id === 'u_1')?.isYou).toBe(true)
+    expect(users().find((u) => u.id === 'u_2')?.isYou).toBe(false)
+  })
+
   it('shows no settings, export or Back even when the room read fails', async () => {
     enterAsGuest()
     server.use(http.get('/api/chatrooms/cr_1', () => HttpResponse.json({ status: 403 }, { status: 403 })))
@@ -212,9 +232,16 @@ describe('ChatroomView when the guest session ends', () => {
     setAccessToken(null)
     socket.serverClose(4401)
     // A refused guest refresh is retried once after 500 ms before it ends the
-    // session (a sibling tab may have rotated the shared cookie).
-    await new Promise((r) => setTimeout(r, 700))
-    await settle()
+    // session (a sibling tab may have rotated the shared cookie). Wait for the
+    // outcome rather than a fixed 700 ms: the path takes about 550 ms locally,
+    // so a slower CI runner overran the fixed window.
+    await vi.waitFor(
+      async () => {
+        await settle()
+        expect(wrapper.text()).toContain(expiredKey)
+      },
+      { timeout: 3000, interval: 25 },
+    )
 
     expect(wrapper.text()).toContain(expiredKey)
     expect(wrapper.text()).toContain(rejoinKey)

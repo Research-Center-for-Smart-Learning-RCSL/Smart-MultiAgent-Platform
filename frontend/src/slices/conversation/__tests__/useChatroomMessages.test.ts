@@ -11,6 +11,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useSessionStore } from '@shared/stores/session'
 import { ValidationError } from '@shared/errors'
+import { clearGuestContext, setAccessToken, setGuestContext } from '@shared/transport'
 import { deferred } from '../../../../tests/utils'
 import type { Message } from '../types'
 
@@ -133,12 +134,77 @@ function mountEditing() {
 }
 
 beforeEach(() => {
+  setAccessToken(null)
   Object.values(api).forEach((fn) => fn.mockReset())
   onSentSpy.mockClear()
   toast.error.mockClear()
   toast.success.mockClear()
   dialog.confirm.mockClear()
   dialog.confirm.mockResolvedValue(true)
+})
+
+afterEach(() => setAccessToken(null))
+
+function token(sub: string, guest = false): string {
+  return `header.${btoa(JSON.stringify({ sub, ...(guest ? { token_use: 'guest_access' } : {}) }))}.sig`
+}
+
+describe('token-derived message ownership', () => {
+  it('uses the account only until a token is held, and follows impersonation without remounting', () => {
+    api.listMessages.mockResolvedValue([])
+    mountHost()
+    expect(composable.isOwnMessage(msg())).toBe(true)
+    expect(composable.isOwnMessage(msg({ sender_id: 'u2' }))).toBe(false)
+    setAccessToken(token('u2'))
+    expect(composable.viewer.value).toEqual({ kind: 'user', id: 'u2' })
+    expect(composable.isOwnMessage(msg())).toBe(false)
+    expect(composable.isOwnMessage(msg({ sender_id: 'u2' }))).toBe(true)
+    expect(composable.isOwnMessage(msg({ sender_type: 'agent', sender_id: 'u2' }))).toBe(false)
+    setAccessToken(token('u1'))
+    expect(composable.isOwnMessage(msg())).toBe(true)
+  })
+
+  it('gives a guest token priority over an earlier signed-in account', () => {
+    api.listMessages.mockResolvedValue([])
+    mountHost()
+    setAccessToken(token('g1', true))
+    expect(composable.isOwnMessage(msg())).toBe(false)
+    expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g1' }))).toBe(true)
+    expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g2' }))).toBe(false)
+    expect(composable.isOwnMessage(msg({ sender_id: 'g1' }))).toBe(false)
+  })
+
+  it('claims no viewer while a held guest context waits for its token', () => {
+    api.listMessages.mockResolvedValue([])
+    mountHost()
+    setGuestContext('room-1')
+    try {
+      expect(composable.viewer.value).toBeNull()
+      expect(composable.isOwnMessage(msg())).toBe(false)
+      setAccessToken(token('g1', true))
+      expect(composable.isOwnMessage(msg({ sender_type: 'guest', sender_id: 'g1' }))).toBe(true)
+    } finally {
+      clearGuestContext()
+    }
+  })
+
+  it.each([false, true])('keeps a pending send own through its echo (guest=%s)', async (guest) => {
+    api.listMessages.mockResolvedValue([])
+    const send = deferred<Message>()
+    api.sendMessage.mockReturnValue(send.promise)
+    mountHost()
+    setAccessToken(token('effective-viewer', guest))
+    composable.draft.value = 'hello'
+    const sending = composable.onSend()
+    await nextTick()
+    const pending = composable.messages.value.find((m) => m._status === 'sending')!
+    expect(pending.sender_id).toBe('effective-viewer')
+    expect(composable.isOwnMessage(pending)).toBe(true)
+    send.resolve(msg({ sender_type: guest ? 'guest' : 'user', sender_id: 'effective-viewer', content_md: 'hello' }))
+    await sending
+    expect(composable.messages.value).toHaveLength(1)
+    expect(composable.isOwnMessage(composable.messages.value[0]!)).toBe(true)
+  })
 })
 
 describe('useChatroomMessages optimistic send', () => {

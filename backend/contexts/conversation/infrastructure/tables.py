@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql as pg
 
+from contexts.conversation.domain.models import ChatroomAgentBubbleColor
 from shared_kernel.db import metadata
 
 workspaces = sa.Table(
@@ -83,6 +84,15 @@ chatroom_agents = sa.Table(
         pg.ENUM("normal", "observer", name="chatroom_agent_role", create_type=False),
         nullable=False,
         server_default=sa.text("'normal'::chatroom_agent_role"),
+    ),
+    sa.Column(
+        "bubble_color",
+        pg.ENUM(
+            *(c.value for c in ChatroomAgentBubbleColor),
+            name="chatroom_agent_bubble_color",
+            create_type=False,
+        ),
+        nullable=True,
     ),
     # Delegated activity control ([R30.37], migration 0078). Two CHECK constraints
     # in the DB keep a live grant from being empty or unattributable; they are not

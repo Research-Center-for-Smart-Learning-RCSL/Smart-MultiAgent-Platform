@@ -564,7 +564,13 @@ def ensure_room_creator(access: RoomAccess, *, principal: Principal) -> None:
 
 
 def can_manage_room_wakeup(access: RoomAccess, *, principal: Principal, observer_binding: bool) -> bool:
-    """[R15.25], matrix row 29: who may read and change a binding's room wake-up settings.
+    return can_manage_normal_binding_settings(access, principal=principal, observer_binding=observer_binding)
+
+
+def can_manage_normal_binding_settings(
+    access: RoomAccess, *, principal: Principal, observer_binding: bool
+) -> bool:
+    """Matrix row 29: authority over room-owned normal-binding settings.
 
     The room's creator (or Admin) for any binding; an editor of the room's project
     (row 15's capability) for a normal binding. An observer binding stays behind
