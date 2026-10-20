@@ -59,7 +59,7 @@ async def test_watchlist_includes_zero_invalid_idle_and_active_participants() ->
 
 
 @pytest.mark.asyncio
-async def test_watchlist_merges_group_sessions_and_flags_ended_round_only_for_no_valid() -> None:
+async def test_group_round_lists_groups_only_and_ended_round_is_never_idle() -> None:
     service = AggregationService(AsyncSession())
     room_id = _uid()
     activation_id = _uid()
@@ -78,10 +78,13 @@ async def test_watchlist_merges_group_sessions_and_flags_ended_round_only_for_no
             now_at=now,
         )
 
-    by_id = {entry.subject_id: entry for entry in entries}
-    assert by_id[group_id].subject_kind is SubjectKind.MEMBER_GROUP
-    assert by_id[group_id].reason is None
-    assert by_id[user_id].reason == "no_valid_in_round"
+    # Q-11 / AC-17: validity exists per group only, so the student present in
+    # the room must not become a row of their own.
+    assert [(entry.subject_kind, entry.subject_id) for entry in entries] == [
+        (SubjectKind.MEMBER_GROUP, group_id)
+    ]
+    assert entries[0].reason is None
+    assert user_id not in {entry.subject_id for entry in entries}
 
 
 @pytest.mark.asyncio

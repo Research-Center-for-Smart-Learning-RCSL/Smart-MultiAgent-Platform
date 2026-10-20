@@ -25,8 +25,19 @@ from contexts.dashboard.domain.models import (
     TrafficLight,
 )
 
-_GREEN_MINUTES = 5
-_YELLOW_MINUTES = 15
+GREEN_MINUTES = 5
+YELLOW_MINUTES = 15
+
+_RoundWindow = tuple[uuid.UUID, dt.datetime, dt.datetime | None]
+_Roster = dict[uuid.UUID, set[tuple[uuid.UUID, str]]]
+_SessionSubjects = dict[uuid.UUID, set[DashboardRoundSubject]]
+
+
+def _round_window(room_id: uuid.UUID, activation: DashboardActivation) -> _RoundWindow:
+    """``(room_id, started_at, ended_at)``; the end is open only while the round is active."""
+    if activation.is_active:
+        return (room_id, activation.started_at, None)
+    return (room_id, activation.started_at, activation.ended_at or activation.started_at)
 
 
 def _traffic_light(
@@ -40,9 +51,9 @@ def _traffic_light(
         return TrafficLight.INACTIVE
     latest = max(started_at, last_valid_submission_at or started_at)
     elapsed = (now_at - latest).total_seconds() / 60
-    if elapsed <= _GREEN_MINUTES:
+    if elapsed <= GREEN_MINUTES:
         return TrafficLight.GREEN
-    if elapsed <= _YELLOW_MINUTES:
+    if elapsed <= YELLOW_MINUTES:
         return TrafficLight.YELLOW
     return TrafficLight.RED
 
@@ -76,15 +87,20 @@ class ActivitiesReader(Protocol):
 
 
 class ConversationReader(Protocol):
-    async def room_online_counts(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int | None]: ...
+    async def room_presence(
+        self, chatroom_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[uuid.UUID]] | None: ...
 
     async def message_counts_by_sender(
-        self, rounds: Sequence[tuple[uuid.UUID, dt.datetime]]
+        self, rounds: Sequence[_RoundWindow]
     ) -> dict[uuid.UUID, dict[str, int]]: ...
 
     async def round_roster(
-        self, rounds: Sequence[tuple[uuid.UUID, dt.datetime]]
-    ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]: ...
+        self,
+        rounds: Sequence[_RoundWindow],
+        *,
+        presence: Mapping[uuid.UUID, Sequence[uuid.UUID]] | None,
+    ) -> _Roster: ...
 
     async def guest_labels(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]: ...
 
@@ -117,12 +133,58 @@ class DashboardReadService:
 
     def thresholds(self) -> DashboardThresholds:
         return DashboardThresholds(
-            green_minutes=_GREEN_MINUTES,
-            yellow_minutes=_YELLOW_MINUTES,
+            green_minutes=GREEN_MINUTES,
+            yellow_minutes=YELLOW_MINUTES,
             idle_minutes=self._idle_minutes,
         )
 
-    async def summary(self, room_map: Mapping[uuid.UUID, str]) -> DashboardSummary:
+    async def _round_participants(
+        self,
+        activations: Mapping[uuid.UUID, DashboardActivation],
+        *,
+        presence: Mapping[uuid.UUID, Sequence[uuid.UUID]] | None,
+        project_id: uuid.UUID,
+    ) -> tuple[_Roster, _SessionSubjects]:
+        """Each round's roster and session subjects, minus Project Owners (Q-6)."""
+        roster = await self._conversation.round_roster(
+            [_round_window(room_id, activation) for room_id, activation in activations.items()],
+            presence=presence,
+        )
+        session_subjects = await self._activities.round_session_subjects(
+            activation_ids=[activation.activation_id for activation in activations.values()]
+        )
+        candidate_users = {
+            subject_id
+            for members in roster.values()
+            for subject_id, kind in members
+            if kind == DashboardSubjectKind.USER.value
+        }
+        candidate_users.update(
+            subject.subject_id
+            for subjects in session_subjects.values()
+            for subject in subjects
+            if subject.kind is DashboardSubjectKind.USER
+        )
+        owner_ids = await self._tenancy.project_owner_ids(list(candidate_users), project_id=project_id)
+        filtered_roster = {
+            room_id: {
+                (subject_id, kind)
+                for subject_id, kind in members
+                if kind != DashboardSubjectKind.USER.value or subject_id not in owner_ids
+            }
+            for room_id, members in roster.items()
+        }
+        filtered_subjects = {
+            activation_id: {
+                subject
+                for subject in subjects
+                if subject.kind is not DashboardSubjectKind.USER or subject.subject_id not in owner_ids
+            }
+            for activation_id, subjects in session_subjects.items()
+        }
+        return filtered_roster, filtered_subjects
+
+    async def summary(self, room_map: Mapping[uuid.UUID, str], *, project_id: uuid.UUID) -> DashboardSummary:
         generated_at = dt.datetime.now(dt.UTC)
         if not room_map:
             return DashboardSummary(rooms=[], thresholds=self.thresholds(), generated_at=generated_at)
@@ -131,18 +193,22 @@ class DashboardReadService:
         activation_ids = [activation.activation_id for activation in activations.values()]
         aggregates = await self._activities.round_aggregates(activation_ids=activation_ids)
         aggregate_by_activation = {aggregate.activation_id: aggregate for aggregate in aggregates}
-        round_scopes = [(room_id, activation.started_at) for room_id, activation in activations.items()]
-        online_counts = await self._conversation.room_online_counts(list(room_map))
-        message_counts = await self._conversation.message_counts_by_sender(round_scopes)
-        roster = await self._conversation.round_roster(round_scopes)
-        session_subjects = await self._activities.round_session_subjects(activation_ids=activation_ids)
+        message_counts = await self._conversation.message_counts_by_sender(
+            [_round_window(room_id, activation) for room_id, activation in activations.items()]
+        )
+        presence = await self._conversation.room_presence(list(room_map))
+        roster, session_subjects = await self._round_participants(
+            activations, presence=presence, project_id=project_id
+        )
 
+        # People, not watchlist rows: in a group round the groups are not counted.
         participant_counts: dict[uuid.UUID, int] = {}
         for room_id, activation in activations.items():
             participants = set(roster.get(room_id, set()))
             participants.update(
                 (subject.subject_id, subject.kind.value)
                 for subject in session_subjects.get(activation.activation_id, set())
+                if subject.kind is not DashboardSubjectKind.MEMBER_GROUP
             )
             participant_counts[room_id] = len(participants)
 
@@ -178,7 +244,7 @@ class DashboardReadService:
                         last_valid_submission_at=last_valid_at,
                         now_at=generated_at,
                     ),
-                    online_count=online_counts.get(room_id),
+                    online_count=len(presence.get(room_id, [])) if presence is not None else None,
                     participant_count=participant_counts.get(room_id, 0),
                     message_counts=DashboardMessageCounts(
                         **message_counts.get(room_id, {"human": 0, "agent": 0})
@@ -210,57 +276,21 @@ class DashboardReadService:
             return DashboardWatchlist(entries=[])
         activities = self._activities
         activations = await activities.current_activations_for_rooms(chatroom_ids=list(room_map))
-        current_rounds = [(room_id, activation) for room_id, activation in activations.items()]
-        if not current_rounds:
+        if not activations:
             return DashboardWatchlist(entries=[])
 
-        roster = await self._conversation.round_roster(
-            [(room_id, activation.started_at) for room_id, activation in current_rounds]
+        presence = await self._conversation.room_presence(list(activations))
+        roster, session_subjects = await self._round_participants(
+            activations, presence=presence, project_id=project_id
         )
-        activation_ids = [activation.activation_id for _, activation in current_rounds]
-        session_subjects = await activities.round_session_subjects(activation_ids=activation_ids)
-        candidate_users = {
-            subject_id
-            for members in roster.values()
-            for subject_id, kind in members
-            if kind == DashboardSubjectKind.USER.value
-        }
-        candidate_users.update(
-            subject.subject_id
-            for subjects in session_subjects.values()
-            for subject in subjects
-            if subject.kind is DashboardSubjectKind.USER
-        )
-        project_owner_ids = await self._tenancy.project_owner_ids(
-            list(candidate_users), project_id=project_id
-        )
-        filtered_roster = {
-            room_id: {
-                (subject_id, kind)
-                for subject_id, kind in members
-                if kind != DashboardSubjectKind.USER.value or subject_id not in project_owner_ids
-            }
-            for room_id, members in roster.items()
-        }
-        filtered_session_subjects = {
-            activation_id: {
-                subject
-                for subject in subjects
-                if (
-                    subject.kind is not DashboardSubjectKind.USER
-                    or subject.subject_id not in project_owner_ids
-                )
-            }
-            for activation_id, subjects in session_subjects.items()
-        }
         rounds = [
             (room_id, activation.activation_id, activation.started_at, activation.is_active)
-            for room_id, activation in current_rounds
+            for room_id, activation in activations.items()
         ]
         entries = await activities.watchlist_for_rounds(
             rounds=rounds,
-            roster=filtered_roster,
-            session_subjects=filtered_session_subjects,
+            roster=roster,
+            session_subjects=session_subjects,
         )
         user_ids = [entry.subject_id for entry in entries if entry.kind is DashboardSubjectKind.USER]
         guest_ids = [entry.subject_id for entry in entries if entry.kind is DashboardSubjectKind.GUEST]

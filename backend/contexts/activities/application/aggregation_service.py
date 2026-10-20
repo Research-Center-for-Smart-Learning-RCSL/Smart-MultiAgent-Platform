@@ -20,7 +20,6 @@ from contexts.activities.domain.models import (
     ResearchExportSubmission,
     RoundDashboardAggregate,
     RoundSubject,
-    RoundSubjectCount,
     SubjectKind,
     TimeseriesBucket,
     WatchlistEntry,
@@ -79,9 +78,6 @@ class AggregationService:
     ) -> list[RoundDashboardAggregate]:
         return await self._repo.round_aggregates(activation_ids=activation_ids)
 
-    async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
-        return await self._repo.round_subject_counts(activation_ids=activation_ids)
-
     async def timeseries_for_rooms(
         self,
         *,
@@ -131,11 +127,12 @@ class AggregationService:
         }
         entries: list[WatchlistEntry] = []
         for room_id, activation_id, started_at, is_active in rounds:
-            participants = set(roster.get(room_id, set()))
-            participants.update(
-                (subject.subject_id, subject.subject_kind.value)
-                for subject in session_subjects.get(activation_id, set())
-            )
+            sessions = session_subjects.get(activation_id, set())
+            participants = {(subject.subject_id, subject.subject_kind.value) for subject in sessions}
+            # A group round attributes validity to groups only, so listing the
+            # individual people present would flag every one of them.
+            if not any(subject.subject_kind is SubjectKind.MEMBER_GROUP for subject in sessions):
+                participants.update(roster.get(room_id, set()))
             for subject_id, subject_kind in participants:
                 count_row = count_by_subject.get((activation_id, subject_kind, subject_id))
                 valid_count = count_row.valid_count if count_row is not None else 0

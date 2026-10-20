@@ -467,32 +467,37 @@ class ConversationFacade:
         return await self._messages.distinct_user_sender_ids(chatroom_id, limit=limit)
 
     async def round_roster(
-        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+        self,
+        rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]],
+        *,
+        presence: Mapping[uuid.UUID, Sequence[uuid.UUID]] | None,
     ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]:
         """Batch the message, guest-session, and live-presence roster for rounds.
 
-        Each result pair is ``(principal_id, kind)`` where kind is ``user`` or
-        ``guest``. Redis is an opportunistic source; failure cannot hide the
-        database-backed message and guest-session participants.
+        Rounds are ``(room_id, started_at, ended_at)``; ``ended_at`` is ``None``
+        while the round is open. Each result pair is ``(principal_id, kind)``
+        where kind is ``user`` or ``guest``. ``presence`` comes from
+        ``room_presence`` and only counts for open rounds: being online now says
+        nothing about a round that already ended. ``None`` (Redis unavailable)
+        leaves the database-backed participants in place.
         """
         if not rounds:
             return {}
-        room_ids = [room_id for room_id, _ in rounds]
-        roster: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id in room_ids}
-        message_senders = await self._messages.human_senders_since_by_room(rounds)
-        guests_by_room = await self._guest_sessions.seen_since_by_room(rounds)
-        for room_id in room_ids:
+        roster: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id, _, _ in rounds}
+        message_senders = await self._messages.human_senders_in_rounds(rounds)
+        guests_by_room = await self._guest_sessions.seen_in_rounds(rounds)
+        for room_id, _, _ in rounds:
             roster[room_id].update(message_senders.get(room_id, set()))
             roster[room_id].update((guest_id, SenderType.GUEST.value) for guest_id in guests_by_room[room_id])
-        try:
-            presence_by_room = await PresenceTracker().list_rooms(room_ids)
-        except Exception:
-            logger.bind(room_ids=[str(room_id) for room_id in room_ids]).opt(exception=True).warning(
-                "presence read for dashboard roster failed"
-            )
+        if not presence:
             return roster
-        for room_id, principal_ids in presence_by_room.items():
-            guest_ids = guests_by_room.get(room_id, set())
+        online = {room_id: list(presence.get(room_id, ())) for room_id, _, until in rounds if until is None}
+        # Presence holds user ids and guest session ids side by side; a guest who
+        # connected before the round began is not in guests_by_room, so ask the table.
+        guest_ids = await self._guest_sessions.existing_ids(
+            [principal_id for principal_ids in online.values() for principal_id in principal_ids]
+        )
+        for room_id, principal_ids in online.items():
             roster[room_id].update(
                 (principal_id, SenderType.GUEST.value if principal_id in guest_ids else SenderType.USER.value)
                 for principal_id in principal_ids
@@ -500,16 +505,18 @@ class ConversationFacade:
         return roster
 
     async def message_counts_by_sender(
-        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
     ) -> dict[uuid.UUID, dict[str, int]]:
-        """Batch current-round message counts, excluding deleted and system messages."""
-        return await self._messages.counts_by_sender_since_by_room(rounds)
+        """Batch per-round message counts, excluding deleted and system messages."""
+        return await self._messages.counts_by_sender_in_rounds(rounds)
 
     async def guest_labels(self, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Display names for a batch of guest session ids; token data is not selected."""
         return await self._guest_sessions.labels_for_ids(session_ids)
 
-    async def room_online_counts(self, chatroom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int | None]:
+    async def room_presence(
+        self, chatroom_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[uuid.UUID]] | None:
         """Live deduplicated principals per room, or ``None`` when Redis is unavailable."""
         if not chatroom_ids:
             return {}
@@ -517,10 +524,10 @@ class ConversationFacade:
             rosters = await PresenceTracker().list_rooms(chatroom_ids)
         except Exception:
             logger.bind(room_count=len(chatroom_ids)).opt(exception=True).warning(
-                "presence read for dashboard counts failed"
+                "presence read for dashboard failed"
             )
-            return dict.fromkeys(chatroom_ids, None)
-        return {room_id: len(rosters.get(room_id, [])) for room_id in chatroom_ids}
+            return None
+        return {room_id: list(rosters.get(room_id, [])) for room_id in chatroom_ids}
 
     async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Agent ids the room's live history shows: authors and disclosed observers (capped)."""

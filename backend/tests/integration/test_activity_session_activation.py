@@ -302,8 +302,16 @@ class TestDashboardCurrentRoundAggregates:
                 )
             await session.commit()
 
-            roster = await ConversationFacade(session).round_roster([(room, since)])
+            facade = ConversationFacade(session)
+            roster = await facade.round_roster([(room, since, None)], presence=None)
             subjects = await ActivitySessionRepository(session).subjects_for_activations([activation_id])
+            # The earlier guest is still connected: presence must name them a guest
+            # even though their last_seen_at predates the round.
+            online_roster = await facade.round_roster([(room, since, None)], presence={room: [old_guest_id]})
+            # Presence says nothing about a round that already ended.
+            ended_roster = await facade.round_roster(
+                [(room, since, since + dt.timedelta(seconds=30))], presence={room: [old_guest_id]}
+            )
 
         assert roster[room] >= {
             (user_id, SenderType.USER.value),
@@ -311,6 +319,10 @@ class TestDashboardCurrentRoundAggregates:
         }
         assert all(subject_id != old_guest_id for subject_id, _ in roster[room])
         assert subjects[activation_id] == {RoundSubject(SubjectKind.USER, user_id)}
+        assert (old_guest_id, SenderType.GUEST.value) in online_roster[room]
+        assert (old_guest_id, SenderType.USER.value) not in online_roster[room]
+        # The user's message lands a minute in, after this window closed.
+        assert all(subject_id not in (old_guest_id, user_id) for subject_id, _ in ended_roster[room])
 
     async def test_message_counts_split_live_human_and_agent_messages_by_round(
         self,
@@ -342,9 +354,15 @@ class TestDashboardCurrentRoundAggregates:
                     )
                 )
             await session.commit()
-            counts = await ConversationFacade(session).message_counts_by_sender([(room, since)])
+            facade = ConversationFacade(session)
+            counts = await facade.message_counts_by_sender([(room, since, None)])
+            ended_counts = await facade.message_counts_by_sender(
+                [(room, since, now_at - dt.timedelta(seconds=1))]
+            )
 
+        # USER and GUEST arrive as separate GROUP BY rows and must be summed.
         assert counts[room] == {"human": 2, "agent": 1}
+        assert ended_counts[room] == {"human": 0, "agent": 0}
 
 
 class TestRoundSessionUniqueness:

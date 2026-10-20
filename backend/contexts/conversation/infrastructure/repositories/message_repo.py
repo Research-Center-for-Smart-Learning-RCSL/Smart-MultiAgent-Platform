@@ -37,6 +37,17 @@ def _row_to_message(row: Any) -> Message:
     )
 
 
+def _round_scopes(rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]) -> list[Any]:
+    """One predicate per round: the room, from round start to round end (open while active)."""
+    scopes: list[Any] = []
+    for room_id, since, until in rounds:
+        clauses = [t.messages.c.chatroom_id == room_id, t.messages.c.created_at >= since]
+        if until is not None:
+            clauses.append(t.messages.c.created_at <= until)
+        scopes.append(sa.and_(*clauses))
+    return scopes
+
+
 class MessageRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -197,16 +208,13 @@ class MessageRepository:
         ).all()
         return {r.sender_id for r in rows}
 
-    async def human_senders_since_by_room(
-        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    async def human_senders_in_rounds(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
     ) -> dict[uuid.UUID, set[tuple[uuid.UUID, str]]]:
-        """Distinct user and guest message senders since each round began."""
+        """Distinct user and guest message senders inside each round's window."""
         if not rounds:
             return {}
-        scopes = [
-            sa.and_(t.messages.c.chatroom_id == room_id, t.messages.c.created_at >= since)
-            for room_id, since in rounds
-        ]
+        scopes = _round_scopes(rounds)
         rows = (
             await self._db.execute(
                 sa.select(
@@ -225,22 +233,19 @@ class MessageRepository:
                 .distinct()
             )
         ).all()
-        result: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id, _ in rounds}
+        result: dict[uuid.UUID, set[tuple[uuid.UUID, str]]] = {room_id: set() for room_id, _, _ in rounds}
         for row in rows:
             result[row.chatroom_id].add((row.sender_id, row.sender_type))
         return result
 
-    async def counts_by_sender_since_by_room(
-        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    async def counts_by_sender_in_rounds(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
     ) -> dict[uuid.UUID, dict[str, int]]:
-        """Count live human and agent messages since each room's round began."""
-        result = {room_id: {"human": 0, "agent": 0} for room_id, _ in rounds}
+        """Count live human and agent messages inside each room's round window."""
+        result = {room_id: {"human": 0, "agent": 0} for room_id, _, _ in rounds}
         if not rounds:
             return result
-        scopes = [
-            sa.and_(t.messages.c.chatroom_id == room_id, t.messages.c.created_at >= since)
-            for room_id, since in rounds
-        ]
+        scopes = _round_scopes(rounds)
         rows = (
             await self._db.execute(
                 sa.select(
@@ -262,9 +267,9 @@ class MessageRepository:
         ).all()
         for row in rows:
             if row.sender_type in (SenderType.USER.value, SenderType.GUEST.value):
-                result[row.chatroom_id]["human"] = int(row.message_count)
+                result[row.chatroom_id]["human"] += int(row.message_count)
             elif row.sender_type == SenderType.AGENT.value:
-                result[row.chatroom_id]["agent"] = int(row.message_count)
+                result[row.chatroom_id]["agent"] += int(row.message_count)
         return result
 
     async def agent_label_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:

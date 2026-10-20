@@ -66,8 +66,11 @@ class TestResolveWorkspaceRooms:
             TenancyCls.return_value.get_project = AsyncMock(return_value=object())
             assert_pm.return_value = None
 
-            result = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=ws_id)
+            project_id, result = await _resolve_workspace_rooms(
+                db=db, principal=principal, workspace_id=ws_id
+            )
 
+        assert project_id == proj_id
         assert len(result) == 1
         assert result[r1] == "Room 1"
         assert_pm.assert_awaited_once_with(db=db, principal=principal, project_id=proj_id)
@@ -172,4 +175,4 @@ class TestResolveWorkspaceRooms:
 
             result = await _resolve_workspace_rooms(db=db, principal=_principal(), workspace_id=ws.id)
 
-        assert result == {}
+        assert result == (ws.project_id, {})

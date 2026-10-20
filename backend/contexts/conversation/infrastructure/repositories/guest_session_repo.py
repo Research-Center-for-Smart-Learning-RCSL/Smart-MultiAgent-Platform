@@ -94,16 +94,18 @@ class GuestSessionRepository:
         ).all()
         return {row.id: row.display_name for row in rows}
 
-    async def seen_since_by_room(
-        self, rounds: Sequence[tuple[uuid.UUID, datetime]]
+    async def seen_in_rounds(
+        self, rounds: Sequence[tuple[uuid.UUID, datetime, datetime | None]]
     ) -> dict[uuid.UUID, set[uuid.UUID]]:
-        """Guest sessions seen since each room's current activation began."""
+        """Live guest sessions whose lifetime overlaps each room's round window."""
         if not rounds:
             return {}
-        scopes = [
-            sa.and_(t.guest_sessions.c.chatroom_id == room_id, t.guest_sessions.c.last_seen_at >= since)
-            for room_id, since in rounds
-        ]
+        scopes = []
+        for room_id, since, until in rounds:
+            clauses = [t.guest_sessions.c.chatroom_id == room_id, t.guest_sessions.c.last_seen_at >= since]
+            if until is not None:
+                clauses.append(t.guest_sessions.c.created_at <= until)
+            scopes.append(sa.and_(*clauses))
         rows = (
             await self._db.execute(
                 sa.select(t.guest_sessions.c.chatroom_id, t.guest_sessions.c.id).where(
@@ -111,10 +113,19 @@ class GuestSessionRepository:
                 )
             )
         ).all()
-        result: dict[uuid.UUID, set[uuid.UUID]] = {room_id: set() for room_id, _ in rounds}
+        result: dict[uuid.UUID, set[uuid.UUID]] = {room_id: set() for room_id, _, _ in rounds}
         for row in rows:
             result[row.chatroom_id].add(row.id)
         return result
+
+    async def existing_ids(self, session_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """The subset of ids that name a guest session, whatever its last-seen time."""
+        if not session_ids:
+            return set()
+        rows = await self._db.execute(
+            sa.select(t.guest_sessions.c.id).where(t.guest_sessions.c.id.in_(list(session_ids)))
+        )
+        return set(rows.scalars())
 
     async def find_by_id(self, session_id: uuid.UUID) -> GuestSession | None:
         row = (

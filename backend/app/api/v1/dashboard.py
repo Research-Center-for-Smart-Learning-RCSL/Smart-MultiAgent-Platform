@@ -133,8 +133,8 @@ async def _resolve_workspace_rooms(
     db: AsyncSession,
     principal: Principal,
     workspace_id: uuid.UUID,
-) -> dict[uuid.UUID, str]:
-    """Live rooms in this workspace that the caller may open."""
+) -> tuple[uuid.UUID, dict[uuid.UUID, str]]:
+    """The workspace's project id and its live rooms that the caller may open."""
     facade = ConversationFacade(db)
     workspace = await facade.get_workspace(workspace_id)
     if workspace is None or workspace.deleted_at is not None:
@@ -143,7 +143,7 @@ async def _resolve_workspace_rooms(
         raise HTTPException(status_code=404, detail="Workspace not found")
     await assert_project_role(db=db, principal=principal, project_id=workspace.project_id)
     rooms = await facade.visible_rooms_in_workspace(principal=principal, workspace_id=workspace_id)
-    return {room.id: room.name for room in rooms}
+    return workspace.project_id, {room.id: room.name for room in rooms}
 
 
 @router.get("/{workspace_id}/dashboard/summary")
@@ -152,8 +152,10 @@ async def dashboard_summary(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardSummaryOut:
-    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
-    result = await DashboardFacade(db).summary(room_map)
+    project_id, room_map = await _resolve_workspace_rooms(
+        db=db, principal=principal, workspace_id=workspace_id
+    )
+    result = await DashboardFacade(db).summary(room_map, project_id=project_id)
     return DashboardSummaryOut.model_validate(asdict(result))
 
 
@@ -165,7 +167,7 @@ async def dashboard_timeseries(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardTimeseriesOut:
-    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
+    _, room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
     since = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=_WINDOW_SECONDS[window])
     buckets = await DashboardFacade(db).timeseries(
         room_map,
@@ -181,9 +183,8 @@ async def dashboard_watchlist(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardWatchlistOut:
-    room_map = await _resolve_workspace_rooms(db=db, principal=principal, workspace_id=workspace_id)
-    workspace = await ConversationFacade(db).get_workspace(workspace_id)
-    if workspace is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    result = await DashboardFacade(db).watchlist(room_map, project_id=workspace.project_id)
+    project_id, room_map = await _resolve_workspace_rooms(
+        db=db, principal=principal, workspace_id=workspace_id
+    )
+    result = await DashboardFacade(db).watchlist(room_map, project_id=project_id)
     return DashboardWatchlistOut.model_validate(asdict(result))

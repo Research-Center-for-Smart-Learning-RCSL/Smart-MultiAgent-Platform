@@ -96,7 +96,7 @@ async def test_summary_marks_new_active_round_green_and_ended_or_missing_round_i
         },
     }
     conversation = AsyncMock()
-    conversation.room_online_counts.return_value = {active_room: None, ended_room: 2, no_round_room: 0}
+    conversation.room_presence.return_value = None
     conversation.message_counts_by_sender.return_value = {
         active_room: {"human": 3, "agent": 4},
         ended_room: {"human": 2, "agent": 1},
@@ -105,20 +105,26 @@ async def test_summary_marks_new_active_round_green_and_ended_or_missing_round_i
         active_room: {(uuid.uuid4(), "guest")},
         ended_room: set(),
     }
+    tenancy = AsyncMock()
+    tenancy.project_owner_ids.return_value = set()
     result = await DashboardReadService(
         activities=activities,
         conversation=conversation,
         identity=AsyncMock(),
-        tenancy=AsyncMock(),
+        tenancy=tenancy,
         idle_minutes=10,
     ).summary(
         {
             active_room: "Active",
             ended_room: "Ended",
             no_round_room: "Not started",
-        }
+        },
+        project_id=uuid.uuid4(),
     )
 
+    windows = conversation.message_counts_by_sender.await_args.args[0]
+    assert (active_room, active.started_at, None) in windows
+    assert (ended_room, ended.started_at, ended.ended_at) in windows
     by_room = {room.room_id: room for room in result.rooms}
     assert by_room[active_room].status is TrafficLight.GREEN
     assert by_room[active_room].round is not None
@@ -135,6 +141,44 @@ async def test_summary_marks_new_active_round_green_and_ended_or_missing_round_i
     assert by_room[no_round_room].message_counts.agent == 0
     assert result.thresholds.green_minutes == 5
     assert result.thresholds.yellow_minutes == 15
+
+
+@pytest.mark.asyncio
+async def test_summary_counts_people_without_owners_or_groups_and_reads_presence_once() -> None:
+    now = dt.datetime.now(dt.UTC)
+    room_id, owner_id, student_id, group_id = (uuid.uuid4() for _ in range(4))
+    activation = DashboardActivation(
+        activation_id=uuid.uuid4(), is_active=True, started_at=now, ended_at=None
+    )
+    activities = AsyncMock()
+    activities.current_activations_for_rooms.return_value = {room_id: activation}
+    activities.round_aggregates.return_value = []
+    activities.round_session_subjects.return_value = {
+        activation.activation_id: {
+            DashboardRoundSubject(subject_id=group_id, kind=DashboardSubjectKind.MEMBER_GROUP)
+        }
+    }
+    presence = {room_id: [owner_id, student_id]}
+    conversation = AsyncMock()
+    conversation.room_presence.return_value = presence
+    conversation.message_counts_by_sender.return_value = {}
+    conversation.round_roster.return_value = {room_id: {(owner_id, "user"), (student_id, "user")}}
+    tenancy = AsyncMock()
+    tenancy.project_owner_ids.return_value = {owner_id}
+
+    result = await DashboardReadService(
+        activities=activities,
+        conversation=conversation,
+        identity=AsyncMock(),
+        tenancy=tenancy,
+        idle_minutes=10,
+    ).summary({room_id: "Room"}, project_id=uuid.uuid4())
+
+    room = result.rooms[0]
+    assert room.online_count == 2
+    assert room.participant_count == 1
+    conversation.room_presence.assert_awaited_once()
+    assert conversation.round_roster.await_args.kwargs["presence"] is presence
 
 
 @pytest.mark.asyncio
@@ -167,7 +211,7 @@ async def test_summary_route_maps_facade_read_model_to_api_response() -> None:
     with (
         patch(
             "app.api.v1.dashboard._resolve_workspace_rooms",
-            new=AsyncMock(return_value={room_id: "Classroom"}),
+            new=AsyncMock(return_value=(uuid.uuid4(), {room_id: "Classroom"})),
         ),
         patch.object(DashboardFacade, "summary", new=AsyncMock(return_value=summary)),
     ):
@@ -189,7 +233,7 @@ async def test_timeseries_route_maps_facade_buckets_to_api_response() -> None:
     with (
         patch(
             "app.api.v1.dashboard._resolve_workspace_rooms",
-            new=AsyncMock(return_value={room_id: "Classroom"}),
+            new=AsyncMock(return_value=(uuid.uuid4(), {room_id: "Classroom"})),
         ),
         patch.object(
             DashboardFacade,

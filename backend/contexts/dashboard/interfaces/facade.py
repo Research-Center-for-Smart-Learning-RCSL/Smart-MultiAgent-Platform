@@ -15,7 +15,11 @@ from contexts.activities.interfaces.facade import (
     SubjectKind,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
-from contexts.dashboard.application.read_service import DashboardReadService
+from contexts.dashboard.application.read_service import (
+    GREEN_MINUTES,
+    YELLOW_MINUTES,
+    DashboardReadService,
+)
 from contexts.dashboard.domain.models import (
     DashboardActivation,
     DashboardRoundAggregate,
@@ -134,22 +138,21 @@ class _ActivitiesDashboardReader:
 
 
 class DashboardFacade:
-    GREEN_MINUTES = 5
-    YELLOW_MINUTES = 15
+    GREEN_MINUTES = GREEN_MINUTES
+    YELLOW_MINUTES = YELLOW_MINUTES
     IDLE_MINUTES = ActivitiesFacade.WATCHLIST_IDLE_MINUTES
 
     def __init__(self, db: AsyncSession) -> None:
-        activities = ActivitiesFacade(db)
         self._service = DashboardReadService(
-            activities=_ActivitiesDashboardReader(activities),
+            activities=_ActivitiesDashboardReader(ActivitiesFacade(db)),
             conversation=ConversationFacade(db),
             identity=IdentityFacade(db),
             tenancy=TenancyFacade(db),
-            idle_minutes=activities.WATCHLIST_IDLE_MINUTES,
+            idle_minutes=self.IDLE_MINUTES,
         )
 
-    async def summary(self, room_map: Mapping[uuid.UUID, str]) -> DashboardSummary:
-        return await self._service.summary(room_map)
+    async def summary(self, room_map: Mapping[uuid.UUID, str], *, project_id: uuid.UUID) -> DashboardSummary:
+        return await self._service.summary(room_map, project_id=project_id)
 
     async def timeseries(
         self,
