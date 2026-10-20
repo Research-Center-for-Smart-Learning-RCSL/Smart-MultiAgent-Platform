@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-19
 requirements: [R13.75, R13.76, R30.35, R33.10]
 depends_on: []
@@ -171,7 +171,7 @@ Agent/LLM prompt surface, so the check-security LLM dimensions apply.
 - [x] AC-8: Neither `creative-thinking-room` nor `creative-thinking-design` contains the deliberate-error rule or the disclosure sentence.
 - [x] AC-9: No SA or DA prompt contains `<題庫>` or any bank answer string, and no edited prompt contains `秒`, `instruct`, a decimal minute or the forbidden pacing and trigger phrases (existing tests pass unchanged).
 - [x] AC-10: `docs/examples/chinese-character-courses-adoption.md` describes the behaviour as guidance and tells research operators not to give students agent-edit rights; `REQUIREMENTS.md` carries `[R13.76]` and `docs/traceability.csv` is regenerated.
-- [ ] AC-11: A live run in one CRAT room (staging, not a phase-2 live-run room) shows the TA disclosure at the opening and at least one SA proposal that fails a clue, with the TA not judging it before a student responds; transcript excerpt recorded in this dossier.
+- [x] AC-11: A live run in one CRAT room (staging, not a phase-2 live-run room) shows the TA disclosure at the opening and at least one SA proposal that fails a clue, with the TA not judging it before a student responds; transcript excerpt recorded in this dossier.
 
 ## 12. Test Plan
 
@@ -199,6 +199,23 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - D-1: The new tests live in their own class `TestPeerDeliberateErrors` in `backend/tests/unit/test_agent_example_packs.py`, not inside `TestPhase2CoursePacks` as §6 and §12 said. A separate class keeps the tests traceable to this dossier and leaves the phase-2 class to phase 2; the tests reuse the module's existing helpers (`_section`, `SHIPPED_AGENTS`, `_PHASE2_TEACHERS`, `CT_COURSE_AGENTS`).
 - D-2: Two prompt lines beyond §6. The CRAT SA gains strategy 4, telling it not to present the deliberate error through strategy 3's self-flagged near-miss wording, which would otherwise give the error away. The character-building TA's D1 feedback step gains a pointer to the new wait-first rule, because D1 is where that TA gives feedback on any share and would otherwise confirm or correct an SA character immediately.
 - D-3: The branch code review found that the first SA wording counted a self-flagged near miss as an answer. A near miss is itself a wrong candidate, so a planned error right after one put two wrong candidates in a row, against the no-two-in-a-row rule, with no tie-break. All three SA prompts now say that an attempt the SA has already flagged as not fitting counts as neither an answer nor an error; `test_peer_errs_on_every_third_proposal_counted_from_its_own_history` pins it.
+- D-4 (AC-11 evidence): Live run on staging (`smap.rcsl.online`, `main` at `96bce6a9` plus the pack
+  prompts at the same revision) in a new room `驗證-CRAT-1020` (`a74a64cd-a0fb-4bac-a9fb-3928945f8143`),
+  not a phase-2 live-run room, on 2026-10-20 (times UTC+8). Instead of a fresh install, the TEST
+  PROJECT copies were re-synced from the shipped pack by a one-off script through
+  `AgentsFacade.patch_agent` (TA and SA of all three courses; AAs were already identical), following
+  the hand re-sync in `docs/examples/chinese-character-courses-adoption.md:99-123`. One room
+  override deviated from the pack: SA `every_n_messages` was enabled (3, all messages) at 20:25 so
+  the SA would reach its second proposal within the session; its prompt was unchanged. Participants:
+  the room creator and one guest (測試同學B). Excerpt:
+  - 20:12 TA: 「討論室裡的 AI 同學也會分享自己的想法，但它的想法可能有錯，要靠你們自己判斷。」 (opening disclosure)
+  - 20:25 SA (first proposal): 「我先從「粗」想到「粗心」，再拿「心」去試另外兩個線索……」
+  - 20:33 TA opens round 2: 「口、淚、香」.
+  - 20:38 SA (second proposal, the planned error): 「我從「香」想到「香味」，再想到「口味」，所以先浮出「味」這個字。」 (「淚味」 is not a word.)
+  - 20:38 to 20:41: TA was woken (silence) and returned an empty reply; it did not judge the proposal.
+  - 20:41 student: 「「味」的話，香味、口味可以，但「淚味」好像不是詞耶。」
+  - 20:41 SA: 「對耶，「淚味」不太像常見詞，謝謝你提醒。」 TA then summarised both candidates without
+    naming the answer. Wake-up audit rows for the room confirm the TA and SA triggers above.
 
 ## 16. Follow-ups
 

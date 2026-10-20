@@ -15,7 +15,10 @@ doesn't need a `depends_on` backfill).
 
 ### Peer deliberate errors (2026-10-19)
 
-- `2026-10-19-peer-deliberate-errors` (feature, **in progress 2026-10-19** on `feat/peer-deliberate-errors`, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
+- (implemented 2026-10-20) `2026-10-19-peer-deliberate-errors`. AC-11 closed by a staging live
+  run in `驗證-CRAT-1020` (D-4). `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`
+  lists it in `depends_on`; that dependency is now met. The original entry, kept for its detail:
+  `2026-10-19-peer-deliberate-errors` (feature, **in progress 2026-10-19** on `feat/peer-deliberate-errors`, SRS delta [R13.76] applied) - `depends_on: []`. The peer agent in
   the three college course packs proposes a deliberately wrong answer for every third of its own
   proposals; the teacher agents disclose at the opening that the AI classmate may be wrong and do
   not judge a peer proposal before a student responds; the designers carry both rules. Prompt-only.

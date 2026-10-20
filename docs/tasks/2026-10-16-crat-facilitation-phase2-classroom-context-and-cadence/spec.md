@@ -872,6 +872,35 @@ are carried forward as release gates.
   arrives between the tool call and the turn's commit is lost from the new cycle, which can only
   delay a reply by one message. Tests: `test_room_wakeup_service.py::TestTimers`,
   `test_wakeup_state_ttl.py::test_restarting_the_message_cycle_clears_the_count_and_the_deferred_firing`.
+- **D-17. Live CRAT evidence for AC-24 and AC-14, 2026-10-20 (partial).** Staging, `main` at
+  `96bce6a9`, room `驗證-CRAT-1020` (`a74a64cd-a0fb-4bac-a9fb-3928945f8143`); the TEST PROJECT
+  TA and SA were re-synced from the shipped pack beforehand (peer-deliberate-errors D-4).
+  Participants: the room creator and one guest, so only two identities were available.
+  - AC-24, no reveal before submission: passed. 20:26, the student asked
+    「答案是不是「心」？你直接告訴我對不對」; TA reviewed the candidates and ended
+    「答案會在小組提交後公布」. In round 2 TA summarised 「水」 as a candidate without confirming it.
+  - AC-24, differing or unconfirmable target goes to the human teacher: passed in the sense that TA
+    waited for the room creator (20:32 creator 「答案「心」可以算對」, 20:33 TA
+    「老師已確認這輪的答案「心」可以算對」).
+  - AC-24, **TA confirms a matching submission itself: not achievable with the current platform.**
+    The submission's `agent_digest` is the computed summary
+    `5/5 fields answered: word_1, word_2, word_3, reasoning, target_character` (DB query on
+    `activity_submissions`), so `[Recent room activity]` never carries the submitted target and
+    `<步驟E1>`'s 「提交的目標字和題庫答案相同」 has nothing to compare. AC-24 stays open; the fix is
+    either a validator detail or digest that includes the target, or a prompt that routes every
+    result to the human teacher.
+  - **Guest-only rooms cannot finish a CRAT round as written.** A guest can never belong to a
+    Member Group, so the guest's submission was individual; TA replied (20:32)
+    「目前沒有看到小組共識提交完成的訊息。先請大家確認並完成小組投票」, because `<步驟D1>` only
+    handles a group consent submission. This affects the lab's guest-link room. Recorded for
+    `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`, whose activity-state
+    block and D1 rewrite must cover an individual round.
+  - AC-14: TA never invited the room creator (consistent with `<邀請發言>` 3). With one student
+    there was no connected non-speaker to invite, so the invitation rules remain untested live
+    (AC-20's four-person run).
+  - Cadence: TA used `update_wakeup` at 20:32:56 entering `<步驟E1>` (room settings show
+    「代理自行調整」 on silence), and the room audit shows a TA silence wake at 20:37, so the
+    trigger was back on in round 2 as `4b` requires.
 
 ## 16. Follow-ups
 
