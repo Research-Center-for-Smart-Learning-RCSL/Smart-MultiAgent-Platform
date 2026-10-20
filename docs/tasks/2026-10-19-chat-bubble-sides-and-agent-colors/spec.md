@@ -421,10 +421,10 @@ Part A
 
 Part B
 
-- [ ] AC-7: Migration 0105 upgrades and downgrades cleanly on a database with existing
+- [x] AC-7: Migration 0105 upgrades and downgrades cleanly on a database with existing
   bindings; after upgrade every existing binding has `bubble_color IS NULL`, and inserting
   an observer row with a colour violates the `CHECK`.
-- [ ] AC-8: `PATCH .../appearance` with a palette key, by the room creator, by a Project
+- [x] AC-8: `PATCH .../appearance` with a palette key, by the room creator, by a Project
   Owner, and by an Org Owner, returns 204, stores the key, writes one
   `chatroom.agent_appearance_changed` audit row, and emits a room-visible
   `chatroom.updated`; a repeat with the same key writes no second audit row. `null` clears
@@ -432,7 +432,7 @@ Part B
 - [x] AC-9: The same PATCH returns 403 for a Project Member who is not the creator, an Org
   Member who is not the creator, and a guest; 404 for an unbound agent; 409 for an observer
   binding; 422 for a key outside the palette.
-- [ ] AC-10: Changing a coloured binding's role to observer clears its colour in the same
+- [x] AC-10: Changing a coloured binding's role to observer clears its colour in the same
   write; demoting it back to normal leaves it uncoloured.
 - [x] AC-11: `contrast.test.ts` asserts, in both themes: `--color-fg`, `--color-muted`, and
   `--color-accent` at 4.5:1 on `--color-bubble-own` and on every `--color-agent-<key>-tint`;
@@ -449,13 +449,13 @@ Part B
 
 Both
 
-- [ ] AC-15: The e2e specs selecting `.bubble-row`/`.bubble-row--pending` pass unchanged.
+- [x] AC-15: The e2e specs selecting `.bubble-row`/`.bubble-row--pending` pass unchanged.
 - [x] AC-16: `docs/UI/07-conversation.md` describes both rules and the settings control;
   `REQUIREMENTS.md` carries §13's delta and `docs/traceability.csv` is regenerated.
 - [ ] AC-17: Manual check on a running stack, light and dark, desktop and mobile width:
   two signed-in users, one guest and two coloured agents in one room; each person sees
   only their own messages on the right, and both agents on the left in their colours.
-- [ ] AC-18: Backend `ruff`, `mypy`, `pytest`; frontend `pnpm lint`, `typecheck`, `test`,
+- [x] AC-18: Backend `ruff`, `mypy`, `pytest`; frontend `pnpm lint`, `typecheck`, `test`,
   `build`, `check:openapi-drift` pass.
 
 ## 12. Test Plan
@@ -585,6 +585,28 @@ All ten findings were accepted and fixed in `8a05ff1b`, `53605585` and `18b4a2df
   errors recorded in §17; do not silence the type checker in this task.
 
 ## 17. Implementation verification (2026-10-20)
+
+**Remote CI, PR #265, run `39353611488` at `77d0639f`: every job green.** This closes
+the CI half of the paragraph below.
+
+- **backend-db** (307 passed, 4 skipped): the 4 skips are sandbox and traceability
+  files that need mounts this tier lacks. The tier has `SMAP_SCRATCH_DATABASE_URL`, so
+  the 0105 roundtrip ran, including the trigger-cleared old-code demotion (D-3). Both
+  colour tests in `test_room_wakeup_persistence.py` ran: the persisted audit
+  transitions, and the enum roundtrip with role clearing. This ticks AC-7, AC-8 and
+  AC-10.
+- **frontend-e2e** passed, including the `.bubble-row` specs, which ticks AC-15.
+- **Remaining gates**: backend lint and typecheck, frontend lint, typecheck, test
+  (2256), bundle and `openapi-drift` all passed, which ticks AC-18. FU-6's three local
+  typecheck errors do not reproduce in CI's `backend-typecheck`.
+- **Earlier failure**: run `39351488928` failed twice on
+  `ChatroomViewGuest` > "shows the expired banner ... answered 404". The test waited a
+  fixed 700 ms for a path that takes about 550 ms locally, because the code retries
+  after 500 ms. Instrumentation ruled out a refresh left in flight by an earlier test.
+  `77d0639f` now waits for the banner itself (3 s bound) with the same assertions; no
+  product code changed.
+- **Still open**: AC-13's cross-client half and AC-17 need a running multi-client
+  stack.
 
 Implementation is present on `feat/chat-bubble-sides-and-agent-colors`. Status remains
 `in-progress`: database execution, the existing e2e suite, full multi-client verification
