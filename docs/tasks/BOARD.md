@@ -578,6 +578,17 @@ rows are added as each is written.
 
 ## Blocked
 
+### Classroom facilitation phase 3 (2026-10-20)
+
+- `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state` (feature, draft) - waiting on
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (Q-4: its live validation must
+  finish on the current prompts first). Agent-only arrival notices and an opt-in `on_join` wake
+  trigger with a 30-minute per-person window; the [R15.02] fix so any joiner re-arms silence; an
+  `[Activity state]` block on every room turn including group proposal counts and outcomes
+  (amends [R30.42]); room-visible activation start/end notices; the three course packs re-orient
+  late joiners and guide the flow from the state. Also edits the six pack files touched by the
+  in-progress `2026-10-19-peer-deliberate-errors`.
+
 ### From the 2026-10-12 CRAT facilitation audit
 
 - (moved to Ready now on 2026-10-12, unblocked by the implemented
