@@ -221,16 +221,14 @@ async def send_message(
     # bindings to orchestration (O-2/R28.04).
     bound_rows = await _list_bound_agents_for_dispatch(db, chatroom_id)
     bound_ids = None if bound_rows is None else [a.agent_id for a in bound_rows]
-    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_rows, trigger_message_id=msg.id)
-    await _dispatch_graphrag_builds(db, chatroom_id)
-    await _dispatch_mention_wakeups(
-        db,
-        chatroom_id,
-        body.mention_agent_ids,
-        already_woken=woken,
-        bound_agent_ids=bound_ids,
-        trigger_message_id=msg.id,
+    mentioned = await _resolve_mentioned_agents(
+        db, chatroom_id, body.mention_agent_ids, bound_agent_ids=bound_ids
     )
+    await _dispatch_message_wakeups(
+        db, chatroom_id, bound_rows, trigger_message_id=msg.id, defer_to_mention=set(mentioned)
+    )
+    await _dispatch_graphrag_builds(db, chatroom_id)
+    await _dispatch_mention_wakeups(chatroom_id, mentioned, trigger_message_id=msg.id)
     await _dispatch_message_workflow_signal(
         chatroom_id,
         body.content_md,
@@ -265,17 +263,25 @@ async def _dispatch_message_wakeups(
     bound_agents: Sequence[ChatroomAgent] | None = None,
     *,
     trigger_message_id: uuid.UUID,
+    defer_to_mention: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
 ) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
-    ``wakeup_agent`` turn for each that fired. Returns the woken agent ids so the
-    caller can skip re-waking the same agent via @mention. Best-effort: a Redis /
-    dispatch hiccup must never fail the user's send (the message is committed)."""
+    ``wakeup_agent`` turn for each that fired. Returns the woken agent ids.
+    Best-effort: a Redis / dispatch hiccup must never fail the user's send (the
+    message is committed).
+
+    An agent in ``defer_to_mention`` is still counted, but its turn is left to
+    the mention dispatch: woken as ``every_n_messages`` it is told only that new
+    messages arrived, may stay silent, and the person who called it gets nothing.
+    """
     woken: set[uuid.UUID] = set()
     try:
         fired = await evaluate_message_wakeups(
             db, chatroom_id=chatroom_id, sender_is_user=True, bound_agents=bound_agents
         )
         for target in fired:
+            if target.agent_id in defer_to_mention:
+                continue
             await enqueue(
                 "wakeup_agent",
                 str(target.agent_id),
@@ -329,31 +335,47 @@ async def _dispatch_graphrag_builds(
         await _rollback_quietly(db)
 
 
-async def _dispatch_mention_wakeups(
+async def _resolve_mentioned_agents(
     db: AsyncSession,
     chatroom_id: uuid.UUID,
     mention_agent_ids: list[uuid.UUID],
     *,
-    already_woken: set[uuid.UUID],
     bound_agent_ids: list[uuid.UUID] | None = None,
-    trigger_message_id: uuid.UUID,
-) -> None:
-    """Wake each @mentioned agent that is bound to the room and wasn't already
-    woken by every_n_messages. A mention is an explicit call, so the turn runs
-    regardless of the agent's wakeup config (an inert / call-only agent still
-    replies when summoned). Best-effort and post-commit — never fails the send."""
+) -> list[uuid.UUID]:
+    """The @mentioned agents that are bound to the room as participants.
+    Best-effort: a failed read means no mention wake-ups, never a failed send."""
     if not mention_agent_ids:
-        return
+        return []
     try:
-        bound = await filter_mentioned_bound_agents(
+        return await filter_mentioned_bound_agents(
             db,
             chatroom_id=chatroom_id,
             mention_agent_ids=mention_agent_ids,
             bound_agent_ids=bound_agent_ids,
         )
-        for agent_id in bound:
-            if agent_id in already_woken:
-                continue
+    except Exception:  # pragma: no cover — defensive; exercised via wiring tier
+        _log.warning(
+            "mention resolution failed for room %s; message persisted",
+            chatroom_id,
+            exc_info=True,
+        )
+        await _rollback_quietly(db)
+        return []
+
+
+async def _dispatch_mention_wakeups(
+    chatroom_id: uuid.UUID,
+    mentioned: list[uuid.UUID],
+    *,
+    trigger_message_id: uuid.UUID,
+) -> None:
+    """Wake each @mentioned agent as an explicit call. The turn runs regardless
+    of the agent's wakeup config (an inert / call-only agent still replies when
+    summoned). Best-effort and post-commit — never fails the send."""
+    if not mentioned:
+        return
+    try:
+        for agent_id in mentioned:
             await enqueue(
                 "wakeup_agent",
                 str(agent_id),
@@ -367,7 +389,6 @@ async def _dispatch_mention_wakeups(
             chatroom_id,
             exc_info=True,
         )
-        await _rollback_quietly(db)
 
 
 async def _dispatch_message_workflow_signal(

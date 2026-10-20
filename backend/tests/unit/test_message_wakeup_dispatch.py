@@ -245,15 +245,41 @@ async def test_dispatch_mention_wakeups_enqueues_with_trigger_message_id(monkeyp
     monkeypatch.setattr(messages_mod, "filter_mentioned_bound_agents", _filter_mentioned_bound_agents)
     monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
 
-    await messages_mod._dispatch_mention_wakeups(
-        object(),
-        room_id,
-        [agent_id],
-        already_woken=set(),
-        trigger_message_id=trigger_message_id,
-    )
+    mentioned = await messages_mod._resolve_mentioned_agents(object(), room_id, [agent_id])
+    await messages_mod._dispatch_mention_wakeups(room_id, mentioned, trigger_message_id=trigger_message_id)
 
     assert enqueued == [("wakeup_agent", str(agent_id), str(room_id), "mention", str(trigger_message_id))]
+
+
+@pytest.mark.asyncio
+async def test_a_mention_on_the_nth_message_wakes_the_agent_as_a_mention(monkeypatch) -> None:
+    # Seen on staging: an @mention that was also the agent's every_n message woke
+    # it once as `every_n_messages`, the mention was dropped as already woken, and
+    # the agent, told only that new messages arrived, chose silence.
+    from contexts.orchestration.interfaces.facade import WakeTarget
+
+    mentioned_id, other_id = uuid.uuid4(), uuid.uuid4()
+    room_id, trigger_message_id = uuid.uuid4(), uuid.uuid4()
+    enqueued: list[tuple[object, ...]] = []
+
+    async def _evaluate_message_wakeups(*_a, **_k):
+        return [WakeTarget(mentioned_id, uuid.uuid4()), WakeTarget(other_id, uuid.uuid4())]
+
+    async def _enqueue(*args, **_kwargs) -> None:
+        enqueued.append(args)
+
+    monkeypatch.setattr(messages_mod, "evaluate_message_wakeups", _evaluate_message_wakeups)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    await messages_mod._dispatch_message_wakeups(
+        object(), room_id, None, trigger_message_id=trigger_message_id, defer_to_mention={mentioned_id}
+    )
+    await messages_mod._dispatch_mention_wakeups(
+        room_id, [mentioned_id], trigger_message_id=trigger_message_id
+    )
+
+    turns = [(args[1], args[3]) for args in enqueued]
+    assert turns == [(str(other_id), "every_n_messages"), (str(mentioned_id), "mention")]
 
 
 # --------------------------------------------------------------------------- #
