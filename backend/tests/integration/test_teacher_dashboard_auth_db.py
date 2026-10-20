@@ -144,7 +144,7 @@ async def test_dashboard_routes_filter_rooms_by_the_real_room_gate(
         scenario = await _room_scenario(db)
         await db.commit()
 
-        async def summary(_facade, room_map):
+        async def summary(_facade, room_map, *, project_id):
             return DashboardSummary(
                 rooms=[
                     DashboardRoom(
@@ -281,27 +281,39 @@ async def test_watchlist_excludes_project_owner_and_names_recent_guest(
             member_group_id=group_id,
             activation_id=activation_id,
         )
-        activation = await ActivationRepository(db).get(activation_id)
-        assert activation is not None
-        await db.execute(
-            conversation_t.messages.insert().values(
-                id=uuid.uuid4(),
-                chatroom_id=scenario.visible_room_id,
-                sender_type=SenderType.USER.value,
-                sender_id=scenario.owner_id,
-                content_md="teacher message",
-                created_at=activation.created_at + dt.timedelta(seconds=1),
-            )
+        # A second, individual round in the other room carries the guest: in a
+        # group round only groups are rows (Q-11), so a guest there is not listed.
+        individual_id = await ActivationRepository(db).create_active(
+            chatroom_id=scenario.owners_only_room_id,
+            activity_type_id=type_id,
+            started_by_user_id=scenario.owner_id,
         )
-        await db.execute(
-            conversation_t.guest_sessions.insert().values(
-                id=guest_id,
-                chatroom_id=scenario.visible_room_id,
-                display_name="Guest Learner",
-                refresh_token_hash=uuid.uuid4().hex,
-                last_seen_at=activation.created_at + dt.timedelta(seconds=2),
+        assert individual_id is not None
+        for room_id, activation_ref in (
+            (scenario.visible_room_id, activation_id),
+            (scenario.owners_only_room_id, individual_id),
+        ):
+            activation = await ActivationRepository(db).get(activation_ref)
+            assert activation is not None
+            await db.execute(
+                conversation_t.messages.insert().values(
+                    id=uuid.uuid4(),
+                    chatroom_id=room_id,
+                    sender_type=SenderType.USER.value,
+                    sender_id=scenario.owner_id,
+                    content_md="teacher message",
+                    created_at=activation.created_at + dt.timedelta(seconds=1),
+                )
             )
-        )
+            await db.execute(
+                conversation_t.guest_sessions.insert().values(
+                    id=guest_id if room_id == scenario.owners_only_room_id else uuid.uuid4(),
+                    chatroom_id=room_id,
+                    display_name="Guest Learner",
+                    refresh_token_hash=uuid.uuid4().hex,
+                    last_seen_at=activation.created_at + dt.timedelta(seconds=2),
+                )
+            )
         await db.commit()
 
         result = await dashboard_watchlist(
@@ -310,13 +322,18 @@ async def test_watchlist_excludes_project_owner_and_names_recent_guest(
             db=db,
         )
 
-        assert len(result.entries) == 2
-        entries_by_kind = {entry.kind: entry for entry in result.entries}
-        assert entries_by_kind["guest"].room_id == scenario.visible_room_id
-        assert entries_by_kind["guest"].display_name == "Guest Learner"
-        assert entries_by_kind["guest"].reason == "no_valid_in_round"
-        assert entries_by_kind["group"].display_name == "Team North"
-        assert entries_by_kind["group"].reason == "no_valid_in_round"
+        # The owner's own message in both rooms never makes them a row.
+        by_room = {(entry.room_id, entry.kind): entry for entry in result.entries}
+        assert set(by_room) == {
+            (scenario.visible_room_id, "group"),
+            (scenario.owners_only_room_id, "guest"),
+        }
+        group = by_room[(scenario.visible_room_id, "group")]
+        assert group.display_name == "Team North"
+        assert group.reason == "no_valid_in_round"
+        guest = by_room[(scenario.owners_only_room_id, "guest")]
+        assert guest.display_name == "Guest Learner"
+        assert guest.reason == "no_valid_in_round"
 
         await _cleanup_project_and_users(
             sessionmaker,
