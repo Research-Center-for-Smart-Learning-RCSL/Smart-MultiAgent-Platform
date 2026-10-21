@@ -14,7 +14,13 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import app.api.ws.project as ws_project_mod
-from app.api.v1.dashboard import dashboard_summary, dashboard_timeseries, dashboard_watchlist
+from app.api.v1.dashboard import (
+    BucketSize,
+    TimeWindow,
+    dashboard_summary,
+    dashboard_timeseries,
+    dashboard_watchlist,
+)
 from app.api.v1.research_export import create_research_export
 from contexts.activities.domain.models import ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
@@ -209,6 +215,8 @@ async def test_dashboard_routes_filter_rooms_by_the_real_room_gate(
                     )
                     ts = await dashboard_timeseries(
                         workspace_id=scenario.workspace_id,
+                        window=TimeWindow.H1,
+                        bucket=BucketSize.M5,
                         principal=_principal(user_id),
                         db=db,
                     )
