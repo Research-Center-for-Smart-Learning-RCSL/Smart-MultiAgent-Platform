@@ -31,7 +31,7 @@ bleach==6.4.0
     # via smap-backend (pyproject.toml)
 brotli==1.2.0
     # via fonttools
-certifi==2026.7.22
+certifi==2026.10.19
     # via
     #   httpcore
     #   httpx
@@ -132,7 +132,7 @@ numpy==2.5.1
     # via qdrant-client
 orjson==3.12.0
     # via smap-backend (pyproject.toml)
-pillow==12.3.0
+pillow==13.0.0
     # via weasyprint
 portalocker==2.10.1
     # via qdrant-client
