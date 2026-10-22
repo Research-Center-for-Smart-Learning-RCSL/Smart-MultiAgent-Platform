@@ -1000,6 +1000,9 @@ are carried forward as release gates.
   matching submission. Either a CRAT validator detail or digest that carries the target (the type
   already sets `expose_payload_to_agent: true`) or a prompt that routes every result to the human
   teacher; decide before AC-24 can close.
+  **2026-10-23: folded into `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`
+  (its Q-12, §6.6, AC-21 to AC-25).** The type quotes `target_character` after the participant
+  marker; AC-24's remaining half closes with that dossier's AC-25.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 

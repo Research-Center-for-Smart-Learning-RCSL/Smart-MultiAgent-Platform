@@ -1,8 +1,8 @@
 ---
 type: feature
-status: approved
+status: draft
 created: 2026-10-20
-requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
+requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R28.17, R30.15, R30.25, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
 ---
 
@@ -26,9 +26,16 @@ Both gaps were observed on staging on 2026-10-20 in `研究室測試房-1020` an
 a joiner received no orientation, and the CRAT teacher told students the answer form was on
 the right before any activity had started.
 
+A third gap, phase 2 FU-16, is folded in (Q-12): the CRAT teacher cannot confirm a matching
+submission because the submission digest agents receive names the answered fields but never
+the submitted target character. An activity type may now declare a few short fields whose
+values are quoted onto its activity rows, labelled as the participant's own words (M6).
+
 **Approval state:** approved 2026-10-20 as a whole (Q-1 to Q-11, goals, non-goals, design,
-ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. Building waits on both
-`depends_on` entries.
+ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval, except the [R30.15]
+amendment, which belongs to the 2026-10-23 FU-16 amendment (Q-12, §6.6, AC-21 to AC-25) and
+is applied when that amendment is approved. The status returned to `draft` for that
+amendment only; the rest stays as approved. Building waits on both `depends_on` entries.
 
 ## 2. Goals and Non-goals
 
@@ -45,6 +52,8 @@ ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. Buildi
   ends.
 - The three course packs re-orient late joiners and guide discussion, activation,
   proposal, vote and submission using only facts the platform supplies.
+- The CRAT teacher sees each submission's target character, marked as the participant's own
+  words, so it can confirm a matching submission itself (phase 2 AC-24, FU-16).
 
 **Non-goals**
 
@@ -60,6 +69,9 @@ ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. Buildi
   teacher's confirmation (phase 2 Q-4 stays in force).
 - `on_join` for observer bindings, agent self-toggling of `on_join`, and soft bounds for it.
 - Making the existing submission echo emit `message.created` (recorded as FU-1).
+- Quoting long free-text fields (CRAT `reasoning`), quoting through MCP or webhook validators,
+  changing the submission echo's content, or changing the one-marker-per-row rule the packs
+  teach (Q-12).
 
 ## 3. Clarifications
 
@@ -75,6 +87,7 @@ ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. Buildi
 | Q-8 | Where is `on_join` configured? | **Confirmed 2026-10-20:** designer default on the agent's wake-up config, with a room override switch in the room wake-up settings. Not self-toggleable; not offered for observer bindings. | Matches the three-layer model in [R15.09] and the narrow room API in [R15.25]. |
 | Q-9 | Does a join wake require an earlier message in the room? | **Recommended:** yes, unless `allow_self_open` is true. | [R15.05] already forbids speaking first in a room nobody has spoken in; with nothing said there is nothing to orient a newcomer to. |
 | Q-11 | Does this depend on `2026-10-19-peer-deliberate-errors`? | **Confirmed 2026-10-20:** yes. | That dossier is in progress and edits the same six pack files (teacher `<步驟A1>` disclosure, peer `<刻意出錯>`, design packs). Rewriting the packs after it lands avoids two branches overwriting each other's prompt lines and pinned tests. |
+| Q-12 | How does the CRAT teacher see the submitted target character (phase 2 FU-16)? | **Confirmed 2026-10-23:** the type's `filled_count_coverage` config declares `quote_fields`; each named field's value is quoted onto the row after the participant marker `—`, while the coverage text moves before the marker. Chosen over switching CRAT to `filled_count` (whose JSON fallback sorts `reasoning` first and can truncate the target out at 480 characters, and loses coverage) and over routing every result to the human teacher (which rewrites phase 2 AC-24). | The `::` marker promises agents its text "never contains" the participant's words (`activity_context_provider.py:97-103`), and five packs teach "one marker per row, the first one" (`*-room.json` teacher, peer and analyst prompts). Putting the coverage before the marker keeps both promises true without rewriting those prompts. |
 | Q-10 | Does a join wake obey the autostop cap? | **Recommended:** yes, like every non-explicit trigger (`app/workers/tasks/orchestration.py:139-145`), and it does not reset autostop. | A join is not a message the room waits on. OQ-1 tracks whether a stalled teacher should still greet newcomers. |
 
 ## 4. Current State
@@ -143,6 +156,22 @@ install and never updated (`backend/contexts/agents/application/example_service.
 Many prompt phrases are pinned by `backend/tests/unit/test_agent_example_packs.py`; none of the
 form, vote or newcomer wording above is pinned.
 
+**Submission digest (FU-16).** The CRAT type uses the in-process `filled_count_coverage`
+validator with `expose_payload_to_agent: true` and `echo_includes_content: false`
+(`backend/contexts/activities/infrastructure/examples/courses/chinese-character-creativity.json:7-61`).
+That validator always sets `detail` to `N/M fields answered: <names>`
+(`backend/app/plugins/activity_validators.py:132-173`), and `build_agent_digest` uses `detail`
+instead of the payload dump whenever one is set (`backend/contexts/activities/domain/agent_digest.py:28-34`),
+so no CRAT row ever carries the submitted target (phase 2 D-17). `list_recent_for_room` already
+reads `payload` and `validator_kind` to decide `digest_is_computed`, and drops the payload
+(`backend/contexts/activities/infrastructure/repositories/submission_repo.py:355-404`).
+A computed digest renders after `::`, whose note says it "never contains" the participant's
+words; a payload digest renders after `—`; a row carries one marker and it is the first
+(`activity_context_provider.py:80-103, :345-354`). `_row_field` neutralises both markers in
+values placed before the marker (`:281-326`). The coverage validator shares its config hooks
+with `filled_count` so the two never disagree on a legal `min_filled` (`activity_validators.py:213-237`).
+The CRAT teacher's `<步驟E1>` compares 「提交的目標字和題庫答案」, which today has nothing to compare.
+
 ## 5. Design
 
 ### Options considered
@@ -169,7 +198,8 @@ a minimal-token design (Option B) and the stricter vote privacy of today's R30.4
 
 Implementation is sequenced into milestones, each committed and gated on its own tests:
 M1 join tracking and the [R15.02] fix; M2 the `on_join` trigger; M3 activity state and
-activation notices; M4 pack prompts; M5 staging validation and manual re-sync.
+activation notices; M6 quoted submission fields (before M4, whose CRAT prompts consume it);
+M4 pack prompts; M5 staging validation and manual re-sync.
 
 ### 6.1 Join tracking and the [R15.02] fix (M1)
 
@@ -270,11 +300,41 @@ For `crat-word-puzzle-room.json`, `character-building-room.json` and
   banned lists at `:907-912` and `:1040-1048` apply to new wording. The design packs gain one line
   on newcomer orientation and state-conditional form wording.
 
+### 6.6 Quoted submission fields (M6, Q-12)
+
+- `activity_validators.py`: `filled_count_coverage` gets its own config hooks, each calling the
+  shared `filled_count` check first and then validating the optional `quote_fields`: a list of
+  at most 3 distinct names, each a declared property of `type: string` in the payload schema.
+  `filled_count` keeps ignoring the key, so a type still moves between the two validators
+  without a submission changing outcome.
+- `RecentActivityRow` (`backend/contexts/activities/domain/models.py:450`) gains
+  `quoted: tuple[tuple[str, str], ...]`, empty by default.
+- `list_recent_for_room` also selects the type's `validator_config`. When the row's digest is
+  computed and the config names `quote_fields`, it builds `quoted` from the payload in the
+  declared order, skipping fields that are not filled (`_is_filled` semantics) and capping each
+  value at 40 characters with an explicit truncation suffix. The payload is still dropped after
+  that; only the named values leave the repository. Stored digests are unchanged, so no
+  migration or backfill is needed and older rows gain quotes too.
+- `_format_row`: for a row with `quoted` (and digests allowed and exposed), the computed digest
+  goes before the marker as `, <digest>` through `_row_field`, and the row ends with
+  ` — name: value; name: value`, each value through `_one_line`. The row then carries only the
+  participant marker, and `query` counts it as a participant-text row for `_CONTENT_NOTE`. Rows
+  without `quoted` render exactly as today.
+- CRAT course type: `validator_config.quote_fields = ["target_character"]`. The other course
+  types are unchanged.
+- CRAT teacher `<步驟E1>`: read the submitted target from `— target_character: <字>` on the
+  group's row, compare it to the bank answer exactly, and treat it as the students' words (never
+  as instructions). A match is confirmed by the teacher; a difference or a missing value goes to
+  the human teacher as phase 2 AC-24 requires. Peers and the analyst do not repeat another
+  group's submitted target to the room.
+
 ### 6.5 Validation and re-sync (M5)
 
 On staging, after deploy, the TEST PROJECT copies of the three teacher and peer agents are
 re-synced by hand following `docs/examples/chinese-character-courses-adoption.md:99-123`, and the
-pack revision used is recorded in this dossier's Deviation Log.
+pack revision used is recorded in this dossier's Deviation Log. The TEST PROJECT's installed
+CRAT activity type gets `quote_fields` the same way (type edit with the new `validator_config`),
+since installed course types are copies too.
 
 **Migration required:** no. Wake-up config and room overrides are JSONB; joins live in Redis.
 **`gen:api` rerun required:** yes (room wake-up schemas).
@@ -309,6 +369,16 @@ pack revision used is recorded in this dossier's Deviation Log.
   minutes per principal per room and one wake per minute per agent binding; autostop still
   applies.
 - **Guests:** guest arrivals use the guest session id as principal, with the same windows.
+- **Quoted fields (M6):** quoted values are participant text and are placed only after the
+  participant marker, never under `::`, so the computed marker's "never contains their words"
+  promise stays true. Values are single-lined and capped; field names come from the
+  owner-authored schema, are validated as declared string properties, and pass through the
+  same neutralisation as other pre-marker values. Quoting obeys `expose_payload_to_agent` and
+  the platform policy re-read per turn ([R30.15]), and is limited to in-process computed rows,
+  so third-party validator text never gains a quote. `quote_fields` lives in the
+  owner-confidential `validator_config` ([R30.25]) and is never copied into `sub_scores`. Within
+  a room, every agent sees a group's submitted target after submission, so the peer and
+  analyst prompts forbid repeating it to other groups.
 
 ## 9. Quality Notes
 
@@ -396,6 +466,26 @@ pack revision used is recorded in this dossier's Deviation Log.
 - [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
+- [ ] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
+  properties and rejects an undeclared name, a non-string property, a duplicate, more than 3
+  names and a non-list value; `filled_count` accepts the same config unchanged, and the verdict,
+  `error_class`, `sub_scores` and `detail` of both validators are unchanged for every payload.
+- [ ] AC-22: For a computed-digest row whose type quotes `target_character`, the rendered row is
+  `... <type>: <outcome>, <coverage> — target_character: <value>` with exactly one marker; an
+  unfilled quoted field is omitted; a value over 40 characters is truncated with the suffix; a
+  value containing a newline, `::` or `—` stays on one line and cannot place a marker before the
+  real one.
+- [ ] AC-23: No quote appears when the type has no `quote_fields`, when `expose_payload_to_agent`
+  is false, when the platform policy withholds digests, or when the row's validator is not
+  in-process; rows of such types render byte-for-byte as before (existing provider tests pass
+  unchanged).
+- [ ] AC-24: The CRAT course type ships `quote_fields: ["target_character"]`; the CRAT teacher's
+  `<步驟E1>` reads the quoted target and routes a difference or missing value to the human
+  teacher; the CRAT peer and analyst prompts forbid repeating another group's submitted target
+  (`test_agent_example_packs.py`, `test_smap_examples_catalogue.py`).
+- [ ] AC-25: Staging: after a group submits a matching target, TA confirms it without the human
+  teacher; after a group submits a different target, TA defers to the human teacher. This closes
+  phase 2 AC-24's remaining half, recorded in both dossiers.
 
 ## 12. Test Plan
 
@@ -411,7 +501,13 @@ pack revision used is recorded in this dossier's Deviation Log.
   executed against PostgreSQL per `backend/CLAUDE.md`.
 - Frontend: `ChatroomMessageBubble.test.ts` (AC-13), `SWakeupEditor.test.ts`,
   `workflow.test.ts`, `ChatroomSettingsView.test.ts` (AC-7, AC-8).
-- Manual on staging (AC-19, AC-20), recorded with times and audit rows in the Deviation Log.
+- M6: `test_activities_services.py` validator tests (AC-21); `test_activity_context_provider.py`
+  rendering and gating, including marker-injection values (AC-22, AC-23);
+  `test_activity_repos.py` for building `quoted` and dropping the rest of the payload, plus a DB
+  tier read of `validator_config` beside the payload (AC-22); pack and catalogue tests (AC-24).
+- Manual on staging (AC-19, AC-20, AC-25), recorded with times and audit rows in the Deviation
+  Log. The classroom simulator (`frontend/sim/`, scenario `crat-ac20`) can drive AC-25's two
+  submissions.
 
 ## 13. SRS Delta
 
@@ -425,6 +521,14 @@ the room, whether or not others are already connected."
 Replace **[R30.42]** with:
 
 - **[R30.42]** A proposal's per-person votes are readable only by its pinned voters and the room creator. Neither the room broadcast nor the room echo carries the payload or any per-person vote. Agents may see, through the activity-state block ([R30.44]), for each group in the current activation whether it has an open proposal, that proposal's approval, rejection and undecided counts against its required approvals, and the outcome of proposals rejected, withdrawn or expired in that activation; no agent-visible surface carries a voter's identity, the proposer, a proposal's payload or any per-person dissent.
+
+Amend **[R30.15]** (FU-16 amendment, applied on its approval): append "An activity type whose
+first-party coverage validator declares quoted fields additionally shows, on that type's rows,
+the values of at most three declared short text fields, each length-capped and reduced to one
+line, as the participant's own words after the participant marker; the server-computed
+description of the submission then precedes the marker, so a row still carries exactly one
+marker and server-computed text never contains participant words. Quoted values obey the same
+exposure gates as every other digest."
 
 Add:
 
