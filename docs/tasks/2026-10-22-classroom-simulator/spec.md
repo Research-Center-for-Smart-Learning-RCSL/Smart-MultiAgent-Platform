@@ -323,17 +323,17 @@ running a scenario, for a class run by people.
 
 ## 7. NFR Checklist
 
-- [ ] i18n: N/A. No user-facing product string; the tool's CLI output is English operator text.
-- [ ] Audit log: the tool adds no event. Its rate-limit change is audited by the existing
+- [x] i18n: N/A. No user-facing product string; the tool's CLI output is English operator text.
+- [x] Audit log: the tool adds no event. Its rate-limit change is audited by the existing
   `admin.rate_limit_patched` (`admin_rate_limits.py:110-120`), and account creation, invites and
   room changes by their existing events, so a run is visible in the audit log.
-- [ ] Tenant isolation: N/A for new endpoints (none). The tool acts only through the public API
+- [x] Tenant isolation: N/A for new endpoints (none). The tool acts only through the public API
   with the roles the server already checks.
-- [ ] Error handling UX: every step outcome is recorded; a `when` timeout follows `onTimeout`; a
+- [x] Error handling UX: every step outcome is recorded; a `when` timeout follows `onTimeout`; a
   failed setup aborts before any participant connects; the rate-limit restore runs on every exit
   path.
-- [ ] Performance: up to ten Chromium contexts (about 150 to 250 MB each headless, OQ-2). Room
-  observation is DOM-based; API polling during a run is limited to proposals every 15 seconds.
+- [x] Performance: up to ten Chromium contexts (about 150 to 250 MB each headless, OQ-2). Room
+  observation polls the facilitator's API (D-1); proposals are polled every 5 seconds (D-2).
 
 ## 8. Security Considerations
 
@@ -341,8 +341,8 @@ running a scenario, for a class run by people.
   `SMAP_SIM_FACILITATOR_PASSWORD` or a hidden prompt; LLM keys from `OPENAI_API_KEY` and
   `ANTHROPIC_API_KEY`; the derivation secret from `SMAP_SIM_SECRET`. None is written to a target
   file, the state file, the run directory or the console. The logger redacts any configured
-  secret value and every `Authorization` header and token field before writing, and traces are
-  recorded with request bodies of `/api/auth/` and `/api/guest/` excluded. CLAUDE.md "Never log
+  secret value and every `Authorization` header and token field before writing; no Playwright
+  trace is recorded (D-4). CLAUDE.md "Never log
   API keys, tokens, or passwords" applies.
 - **Blast radius of the raised limit.** For the run, the AUTH bucket of the whole target is
   raised, which weakens brute-force protection for every user. Mitigations: the change requires
@@ -392,61 +392,61 @@ running a scenario, for a class run by people.
 
 Setup and safety
 
-- [ ] AC-1: `provision` on a local stack creates the configured number of simulated accounts as
+- [x] AC-1: `provision` on a local stack creates the configured number of simulated accounts as
   verified project members in the named Member Group; a second run creates no account, invite or
   membership and succeeds (verified by the admin user list and the group's member list).
-- [ ] AC-2: After a run, no file under `frontend/sim/runs/`, `.state/` or `targets/`, and no
+- [x] AC-2: After a run, no file under `frontend/sim/runs/`, `.state/` or `targets/`, and no
   console line, contains any configured password, `SMAP_SIM_SECRET`, an LLM key, an access token
   or a refresh token (scripted search of the run output for those values, plus a logger unit
   test).
-- [ ] AC-3: `run` refuses to start when the base URL host differs from `allowedHost`, and refuses
+- [x] AC-3: `run` refuses to start when the base URL host differs from `allowedHost`, and refuses
   to raise the AUTH policy when `allowRateLimitChange` is not `true` (unit tests on config).
-- [ ] AC-4: After a normal end, a `SIGINT` during a run, and an exception thrown inside a step,
+- [x] AC-4: After a normal end, a `SIGINT` during a run, and an exception thrown inside a step,
   `GET /api/admin/rate-limits` shows the `auth` policy equal to its pre-run value; with a leftover
   state file from a killed process, the next command restores it first and reports it (local
   stack).
-- [ ] AC-5: `room.create` produces a room with the scenario's agents, roles, grant, Member Group
+- [x] AC-5: `room.create` produces a room with the scenario's agents, roles, grant, Member Group
   and guest links; `room.existing` with a missing binding fails before any participant connects.
 
 Participants and scheduling
 
-- [ ] AC-6: In `smoke-local`, two registered students, one guest named like one of them, and the
+- [x] AC-6: In `smoke-local`, two registered students, one guest named like one of them, and the
   facilitator appear as four distinct presence entries; each message is attributed to its own
   sender; the guest's bubbles carry the guest badge.
-- [ ] AC-7: On the local stack, `at` steps fire within 2 seconds of their planned offset, and two
+- [x] AC-7: On the local stack, `at` steps fire within 2 seconds of their planned offset, and two
   steps planned 5 seconds apart fire inside a 10-second window; `events.jsonl` records planned and
   actual times for both.
-- [ ] AC-8: A `when` step fires after the condition is observed; a step whose condition is never
+- [x] AC-8: A `when` step fires after the condition is observed; a step whose condition is never
   met records `timeout` and the run continues under `skip` or stops under `abort`.
-- [ ] AC-9: `smoke-local` exercises every action of §6.4 with a recorded success outcome, and
+- [x] AC-9: `smoke-local` exercises every action of §6.4 with a recorded success outcome, and
   `typePause` makes another context show the typing indicator without a message being created.
 
 LLM personas
 
-- [ ] AC-10: A persona replies through its own composer, may choose silence, respects
+- [x] AC-10: A persona replies through its own composer, may choose silence, respects
   `minIntervalSec`, and stops (silent, logged) when its turn cap or the run's call or token cap is
   reached (unit tests with a stub provider).
 - [ ] AC-11: The OpenAI and Anthropic adapters build the documented request shape and parse a
   `say`, a `silent` and a malformed reply (unit tests against recorded fixtures); one live call per
   provider succeeds with an operator key (manual, recorded in §15).
-- [ ] AC-12: For a `hybrid` actor, a due script step cancels a pending persona reply, and the
+- [x] AC-12: For a `hybrid` actor, a due script step cancels a pending persona reply, and the
   persona resumes after the step.
-- [ ] AC-13: A `human` actor gets no browser context, is provisioned, and its messages appear in
+- [x] AC-13: A `human` actor gets no browser context, is provisioned, and its messages appear in
   `transcript.json`.
 
 Evidence and scenarios
 
-- [ ] AC-14: After a run, the run directory holds `events.jsonl`, `transcript.json`, `audit.json`
+- [x] AC-14: After a run, the run directory holds `events.jsonl`, `transcript.json`, `audit.json`
   (wake-up rows of the room's agents only), `proposals.json` (including proposals that ended
   during the run) and `report.md` with the planned and actual timeline, wake counts per trigger,
   `rate_limited` skips, persona usage, the restored limit and the manual worker-log command.
-- [ ] AC-15: `collect --room --from --to` rebuilds the transcript, audit and report for a room
+- [x] AC-15: `collect --room --from --to` rebuilds the transcript, audit and report for a room
   run by people.
-- [ ] AC-16: `dry-run` of `crat-ac20` prints one scheduled step per row of
+- [x] AC-16: `dry-run` of `crat-ac20` prints one scheduled step per row of
   `ac20-live-run-protocol.md` §2 without connecting, and `crat-ac20` declares the protocol's
   preconditions (three registered members in one group, one same-name guest, TA and SA normal, AA
   observer, CRAT-only grant).
-- [ ] AC-17: `--headed` opens one window per browser actor; the default is headless.
+- [x] AC-17: `--headed` opens one window per browser actor; the default is headless.
 
 Repository and live
 
@@ -478,17 +478,104 @@ administration) already covers the policy change it makes.
 
 ## 14. Open Questions
 
-- **OQ-1:** Whether `GET /api/chatrooms/{id}/activity-proposals` lists resolved proposals (its
-  docstring says live). The design polls and merges, which is correct either way; if resolved
-  proposals are listed, polling can be reduced to one call at the end.
-- **OQ-2:** Memory per headless context on the operator's machine; measure in the local run and
-  state a recommended maximum in the README.
-- **OQ-3:** Default persona model per provider; chosen at build time from the cheapest model that
-  follows the JSON reply shape, recorded in the README.
+- **OQ-1 (resolved, D-2):** The list endpoint returns open proposals only
+  (`proposal_repo.py:192`). The observer re-fetches by id any proposal that leaves the list, so
+  settled proposals reach `proposals.json` and `when` conditions.
+- **OQ-2 (resolved):** On the Windows operator machine, a five-participant `smoke-local` run used
+  about 830 to 890 MB of Chromium private memory across eight processes (about 170 MB per
+  participant) and 126 MB for Node. The README states the figure and a 2.5 GB budget for ten.
+- **OQ-3 (resolved, D-5):** Anthropic personas default to `claude-haiku-5-5`; OpenAI has no
+  default and the scenario or `SMAP_SIM_OPENAI_MODEL` must name one. Recorded in the README.
 
 ## 15. Deviation Log
 
 Appended by /build. Empty means the implementation matches this spec exactly.
+
+- **D-1, room observation through the API.** §6.5 planned DOM-based observation. The observer
+  instead polls the facilitator's API (latest messages, members, active activation, proposals),
+  because the DOM of one participant only shows what that participant can see and a class
+  selector change would silently blind every `when` condition. Browsers are still the only path
+  for participant actions, and the typing indicator is still read from another participant's DOM.
+- **D-2, settled proposals re-fetched; 5-second polling.** OQ-1 found the list endpoint returns
+  open proposals only, so the observer fetches `GET .../activity-proposals/{id}` for any proposal
+  that leaves the list. Polling runs every 5 seconds rather than 15, so a `when` on a proposal
+  state fires within the 2-second-plus-poll budget a scripted timeline needs.
+- **D-3, form fields located by element id.** The schema form renders each control with
+  `id=<field key>`, so `fillFields` uses `[id="key"]` rather than accessible names, which are
+  localised and may repeat.
+- **D-4, no Playwright traces; end-of-run screenshots instead.** §8 described traces with auth
+  bodies excluded. Playwright traces cannot exclude request bodies selectively, and a trace would
+  carry login passwords and tokens. Each connected participant instead opens the People tab and
+  writes `screens/end-<actor>.png` before leaving.
+- **D-5, persona model defaults (OQ-3).** Anthropic defaults to `claude-haiku-5-5`. OpenAI has no
+  default, because no single model was verified against the JSON reply shape; a scenario or
+  `SMAP_SIM_OPENAI_MODEL` must name one.
+- **D-6, observation release and personas are not exercised by `smoke-local`.** The local smoke
+  scenario has no agents and no LLM key, so `releaseObservation` and `persona` are covered by unit
+  tests and by `crat-ac20` / `crat-llm-class` on a stack with agents and keys. AC-9 is ticked for
+  the remaining actions.
+- **D-7, own ESLint block for `sim/`.** `eslint.config.js` gains a TypeScript-parser block for
+  `sim/**/*.ts`, adds it to gate 13's file list, and ignores `sim/runs/**` and `sim/.state/**`.
+- **D-8, AC-20 scenario detail.** In `crat-ac20` the first proposal is rejected by both P1 and P2,
+  so the protocol's rejection path is visible in `proposals.json` with two votes; the scenario
+  notes record this.
+- **D-9, simulator unit tests run in jsdom.** The shared `tests/setup.ts` uses DOM globals such as
+  `Range`, so a `node` environment for `sim/` would need a second setup file. The tests run in the
+  default jsdom environment and use no DOM API themselves.
+- **D-10, module layout.** §6.2 named `actions/` and a single evidence module. The build has
+  `browser/` (participant and selectors), `observe/`, `session.ts` (login, admin client, AUTH
+  guard wiring), `sources.ts` (API adapters behind `RoomSource`, `TranscriptSource` and
+  `AuditSource`), `evidence/write.ts` and `lib/time.ts`, after the quality audit split the runner
+  and the evidence source interface.
+- **D-11, security hardening beyond §8.** The check-security audit led to: the simulated email
+  domain must be reserved (`example.*`, `.test`, `.invalid`, `.example`, `.localhost`) unless the
+  target sets `simDomainIsOperatorControlled`; non-loopback targets must use https; the AUTH
+  restore is compare-and-set against the applied value and the state file names its owner pid, so
+  a second run on the same machine is refused and a concurrent change is never overwritten;
+  persona output starting with `/` is treated as silence, since the composer would run it as a
+  slash command; HTTP redirects are refused; `SMAP_SIM_SECRET` must be at least 16 characters;
+  guest-link, invite and activation tokens are registered with the redactor, and every evidence
+  file is written through it.
+- **D-12, exit codes.** `run` exits 1 only when a step failed or the run aborted. A `when` timeout
+  under `skip` is an expected outcome and is reported as "N timed out" without failing the run.
+- **D-13, 20-second action timeout.** Playwright used as a library has no default action timeout,
+  so a missing element hung a step indefinitely in the first local run. Each context sets 20
+  seconds.
+- **D-14, SIGINT verified in a Linux container.** Windows cannot deliver SIGINT to a process
+  programmatically, so the signal path of AC-4 ran in `node:24-alpine` against the local stack via
+  `host.docker.internal`, with the real guard, both with a working restore and with an injected
+  restore failure.
+- **D-15, Playwright signal handlers disabled.** `chromium.launch` sets `handleSIGINT`,
+  `handleSIGTERM` and `handleSIGHUP` to false; Playwright's handlers would otherwise close the
+  browser and exit before the AUTH restore ran.
+
+### Verification record (2026-10-22, local test stack)
+
+Mechanical gates: `pnpm lint` and `pnpm typecheck` clean (a planted type error under `sim/`
+confirmed typecheck covers it); 79 simulator unit tests pass. The full `pnpm test` and the
+`frontend-e2e` count are left to CI (AC-18).
+
+`provision` run twice produced three active, verified simulated accounts, four project members
+and one group of three, with no duplicate on the second run (database check, AC-1). `smoke-local`
+ran headless and headed: every step succeeded except its deliberate timeout, `at` steps fired
+within 0.1 seconds of plan, `typing.observed` recorded `visible: true` with no message created,
+`proposals.json` held the withdrawn and the accepted proposal, and the guest named "Sim Amy" was
+attributed as a guest with its own id and badge; the People tab showed both "Sim Amy" entries
+(AC-6 to AC-9, AC-14, AC-17). A search of the run directory and console for both passwords, the
+secret, the derived passwords, `eyJ` and the guest token found nothing, while the room id as a
+positive control matched 15 times (AC-2). A human facilitator got no browser and its API-posted
+message reached the transcript and satisfied a student's `when` (AC-13). The AUTH policy returned
+to its pre-run value after a normal end and after a failing step; after `Stop-Process -Force` the
+policy stayed raised with the state file present, and `restore-limits` restored it and removed
+the file; SIGINT restored and exited 130, and with an injected failure printed the recovery
+command and exited 2 (AC-4, D-14). `collect` rebuilt a ten-message room (AC-15). An existing room
+without guest links failed before any participant connected, and a created room carried TA and SA
+as normal agents with the CRAT-only grant, AA as observer, the group binding and guest links
+(AC-5); the wake audit captured the fake provider's `wakeup.failed`. `dry-run` of `crat-ac20`
+printed the protocol timeline without connecting (AC-16).
+
+Still open: AC-11's live call per provider needs an operator key; AC-18 needs CI; AC-19 is the
+operator's staging run.
 
 ## 16. Follow-ups
 
@@ -499,3 +586,13 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   class selectors in `actions/selectors.ts`.
 - **FU-3:** A server-side room filter on `GET /api/admin/audit` (`metadata.room_id`), which would
   remove the client-side filtering in `evidence/`.
+- **FU-4:** A `deprovision` command (or account rotation) that deactivates the simulated accounts
+  and removes their memberships, so a target can be cleaned without the admin UI.
+- **FU-5:** Two operators running the simulator against one target from two machines are not
+  coordinated: the state file is per machine, so the second run finds the limit already raised,
+  leaves it alone, and loses the raise when the first run restores while it is still connecting
+  participants. A server-side marker (for example a
+  note on the policy) would close this; the README documents the residual.
+- **FU-6:** Persona live calls are summarised by usage counts in `report.md`, but the prompts and
+  raw model replies are not kept. A redacted per-call log would make persona behaviour reviewable
+  after a run.

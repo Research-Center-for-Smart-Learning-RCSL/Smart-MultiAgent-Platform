@@ -145,4 +145,6 @@ Each run writes `sim/runs/<UTC timestamp>-<scenario>/` (gitignored):
 
 ## Resource use
 
-Each headless context takes roughly 150 to 250 MB. Up to ten participants is the supported range.
+Each headless context takes roughly 150 to 250 MB (measured on Windows: five participants used
+about 850 MB of Chromium private memory in total, plus about 130 MB for the Node process). Up to
+ten participants is the supported range, so plan on 2.5 GB of free memory for a full class.
