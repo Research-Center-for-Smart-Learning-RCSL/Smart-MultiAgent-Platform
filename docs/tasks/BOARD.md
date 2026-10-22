@@ -13,6 +13,16 @@ doesn't need a `depends_on` backfill).
 
 ## Ready now
 
+### Classroom simulator (2026-10-22)
+
+- `2026-10-22-classroom-simulator` (feature, **draft**, SRS delta None) - `depends_on: []`. An
+  operator-run tool under `frontend/sim/` that runs a live multi-participant classroom from one
+  machine against staging or local compose: one Playwright context per participant, scripted
+  timelines plus OpenAI/Anthropic student personas, self-provisioned reusable accounts, an AUTH
+  rate-limit raise that is always restored, and an evidence directory. No app source, endpoint or
+  migration change. First consumer: the AC-20 run of
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (its AC-19).
+
 ### Peer deliberate errors (2026-10-19)
 
 - (implemented 2026-10-20) `2026-10-19-peer-deliberate-errors`. AC-11 closed by a staging live
