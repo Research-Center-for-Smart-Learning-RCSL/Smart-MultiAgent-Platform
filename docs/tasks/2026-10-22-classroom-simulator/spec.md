@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-22
 requirements: [R6.03, R13.06a, R19.04]
 depends_on: []
@@ -71,9 +71,9 @@ protocol of `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`.
 | Q-4 | Which LLM providers for personas? | **Confirmed 2026-10-22:** OpenAI and Anthropic, through a small provider interface over plain HTTP, no SDK dependency. | Covers the platform's main providers; `frontend/package.json` carries no LLM SDK today. |
 | Q-5 | Where does the tool live and in what language? | **Confirmed 2026-10-22:** `frontend/sim/`, TypeScript, using the pinned `@playwright/test` 1.63.0 as a library, outside the e2e `testDir`. | Reuses the e2e harness's login lessons and the installed Chromium; keeps it out of the `frontend-e2e` CI job. |
 | Q-6 | Where do simulated accounts come from? | **Confirmed 2026-10-22:** the tool provisions them through the admin API and reuses them by a fixed email prefix. | Repeated runs need no manual preparation; only admin credentials are required. |
-| Q-7 | Should this depend on an open dossier? | **Decided by the spec author, open for review:** no. | The six open dossiers (`docs/tasks/BOARD.md`) edit backend contexts, pack JSON and `src/` components; this task adds `frontend/sim/` and touches only `vite.config.ts`, `tsconfig.json` and `.gitignore` in regions none of them edit. Phase 2's AC-20 is a consumer, not a dependency. |
-| Q-8 | How are scenarios written? | **Decided by the spec author, open for review:** as TypeScript modules exporting a typed scenario object, validated with `zod` at load. | Type-checked, allows comments, and adds no dependency (`zod` is already at `frontend/package.json:62`); YAML would add a parser. |
-| Q-9 | May the app source gain `data-testid`s for the simulator? | **Decided by the spec author, open for review:** not in this task. | Adding them would edit `ChatroomComposer.vue`, `ActivityPanel.vue` and the bubble component, which phase 3 also edits. Selectors use accessible names with the locale pinned to `en` (§6.5); testids are FU-2. |
+| Q-7 | Should this depend on an open dossier? | **Decided by the spec author, approved by the user 2026-10-22:** no. | The six open dossiers (`docs/tasks/BOARD.md`) edit backend contexts, pack JSON and `src/` components; this task adds `frontend/sim/` and touches only `vite.config.ts`, `tsconfig.json` and `.gitignore` in regions none of them edit. Phase 2's AC-20 is a consumer, not a dependency. |
+| Q-8 | How are scenarios written? | **Decided by the spec author, approved by the user 2026-10-22:** as TypeScript modules exporting a typed scenario object, validated with `zod` at load. | Type-checked, allows comments, and adds no dependency (`zod` is already at `frontend/package.json:62`); YAML would add a parser. |
+| Q-9 | May the app source gain `data-testid`s for the simulator? | **Decided by the spec author, approved by the user 2026-10-22:** not in this task. | Adding them would edit `ChatroomComposer.vue`, `ActivityPanel.vue` and the bubble component, which phase 3 also edits. Selectors use accessible names with the locale pinned to `en` (§6.5); testids are FU-2. |
 
 ## 4. Current State
 

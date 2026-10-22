@@ -15,7 +15,7 @@ doesn't need a `depends_on` backfill).
 
 ### Classroom simulator (2026-10-22)
 
-- `2026-10-22-classroom-simulator` (feature, **draft**, SRS delta None) - `depends_on: []`. An
+- `2026-10-22-classroom-simulator` (feature, **approved 2026-10-22**, SRS delta None) - `depends_on: []`. An
   operator-run tool under `frontend/sim/` that runs a live multi-participant classroom from one
   machine against staging or local compose: one Playwright context per participant, scripted
   timelines plus OpenAI/Anthropic student personas, self-provisioned reusable accounts, an AUTH
