@@ -180,8 +180,9 @@ export async function withRaisedAuthLimit<T>(
       },
     )
   }
-  process.once('SIGINT', onSignal)
-  process.once('SIGTERM', onSignal)
+  // `on`, not `once`: a second Ctrl-C would otherwise hit Node's default handler and exit mid-restore.
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
   let result: { ok: true; value: T } | { ok: false; error: unknown }
   try {
     result = { ok: true, value: await body() }

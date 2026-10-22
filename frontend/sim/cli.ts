@@ -34,9 +34,16 @@ function fail(err: unknown): never {
   process.exit(2)
 }
 
-// A stray library rejection would otherwise print natively, unredacted.
-process.on('unhandledRejection', fail)
-process.on('uncaughtException', fail)
+// A stray library rejection would otherwise print natively, unredacted. It is logged rather
+// than fatal so that a run in progress still reaches its AUTH-limit restore.
+process.on('unhandledRejection', (err: unknown) => {
+  process.stderr.write(redactor.redact(`[sim] unhandled rejection: ${err instanceof Error ? err.message : String(err)}`) + '\n')
+})
+process.on('uncaughtException', (err: unknown) => {
+  process.stderr.write(redactor.redact(`[sim] error: ${err instanceof Error ? err.message : String(err)}`) + '\n')
+  process.stderr.write('[sim] if a run or provision was in progress, run `pnpm sim restore-limits --target <name>`\n')
+  process.exit(2)
+})
 
 function targetPath(name: string): string {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error('--target must be a target file name like "local"')
