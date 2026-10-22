@@ -450,7 +450,7 @@ Evidence and scenarios
 
 Repository and live
 
-- [ ] AC-18: `pnpm typecheck`, `pnpm lint` and `pnpm test` cover `frontend/sim/` and pass in CI;
+- [x] AC-18: `pnpm typecheck`, `pnpm lint` and `pnpm test` cover `frontend/sim/` and pass in CI;
   the `frontend-e2e` job's test count is unchanged (the simulator is not in `testDir`).
 - [ ] AC-19: One run of `crat-ac20` on staging completes with every participant connected for
   the 30 minutes, the AUTH policy restored, and a run directory that the phase 2 dossier's D-n
@@ -582,8 +582,13 @@ as normal agents with the CRAT-only grant, AA as observer, the group binding and
 (AC-5); the wake audit captured the fake provider's `wakeup.failed`. `dry-run` of `crat-ac20`
 printed the protocol timeline without connecting (AC-16).
 
-Still open: AC-11's live call per provider needs an operator key; AC-18 needs CI; AC-19 is the
-operator's staging run.
+CI run 39812881866 on `025a42ae`: every frontend and backend job passed, including
+`frontend-test`, `frontend-lint`, `frontend-typecheck` and `frontend-e2e` (AC-18). `gate` was red only
+through `dependency-audit`, which flagged newly published `pypdf 6.19.0` advisories unrelated to
+this task.
+
+Still open: AC-11's live call per provider needs an operator key; AC-19 is the operator's
+staging run.
 
 ## 16. Follow-ups
 
