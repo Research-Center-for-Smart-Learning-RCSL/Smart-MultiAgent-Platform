@@ -252,7 +252,14 @@ async function play(st: Stage): Promise<{ result: RunResult; evidence: EvidenceI
     await Promise.all([...runtimes.values()].map((rt) => rt.acting?.catch(() => undefined)))
     observer.stop()
     await observer.pollProposals().catch((err: unknown) => s.log.event('observe.error', { where: 'final proposals', error: String(err) }))
-    for (const rt of runtimes.values()) await rt.participant?.leave().catch(() => undefined)
+    for (const rt of runtimes.values()) {
+      // What each person saw at the end: presence list, badges, the last messages.
+      if (rt.participant?.connected) {
+        await rt.participant.showPeople().catch(() => undefined)
+        await rt.participant.screenshot(join(st.runDir, 'screens', `end-${rt.actor.name}.png`))
+      }
+      await rt.participant?.leave().catch(() => undefined)
+    }
   }
   const endedAt = new Date().toISOString()
   s.log.event('run.end', { aborted: abortReason })

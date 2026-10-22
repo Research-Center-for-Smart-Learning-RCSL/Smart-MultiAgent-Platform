@@ -22,8 +22,8 @@ All commands run from `frontend/`.
 | `pnpm sim collect --target <name> --room <id> --from <iso> --to <iso>` | Builds evidence for a room run by people, without a scenario. |
 | `pnpm sim restore-limits --target <name>` | Restores an AUTH rate limit left raised by a killed run. |
 
-Exit codes are 0 when every step succeeded, 1 when a step failed or the run aborted, and 2 on a
-setup or usage error. The tool needs Node 22.18 or later, which runs the TypeScript sources
+Exit codes are 0 when no step failed (a `when` step that timed out under `onTimeout: "skip"` does not
+count), 1 when a step failed or the run aborted, and 2 on a setup or usage error. The tool needs Node 22.18 or later, which runs the TypeScript sources
 directly, and the Playwright Chromium already installed for the e2e suite
 (`pnpm exec playwright install chromium`).
 
@@ -139,7 +139,8 @@ Each run writes `sim/runs/<UTC timestamp>-<scenario>/` (gitignored):
 - `proposals.json`: group proposals seen during the run, merged by id.
 - `report.md`: the timeline, wake counts per trigger, rate-limited skips, persona usage, the
   restored limit and the worker-log command to run by hand.
-- Screenshots of the failing participant's page when a step fails. Playwright traces are not
+- `screens/`: each participant's page at the end of the run, and the failing participant's page when a
+  step fails. Playwright traces are not
   recorded, because they capture tokens.
 
 ## Resource use

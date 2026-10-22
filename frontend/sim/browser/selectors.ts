@@ -22,6 +22,7 @@ export const sel = {
     p.getByRole('log').locator('li.bubble-row.bubble-row--own:not(.bubble-row--pending)').filter({ hasText: snippet }),
   typingIndicator: (p: Page): Locator => p.locator('p.typing.typing--visible'),
   activityTab: (p: Page): Locator => p.getByRole('tab', { name: 'Activity' }),
+  peopleTab: (p: Page): Locator => p.getByRole('tab', { name: 'People' }),
   activityPanel: (p: Page): Locator => p.locator('section.activity-panel'),
   schemaForm: (p: Page): Locator => p.locator('section.activity-panel form.schema-form'),
   formSubmit: (p: Page): Locator => p.locator('section.activity-panel form.schema-form button[type="submit"]'),

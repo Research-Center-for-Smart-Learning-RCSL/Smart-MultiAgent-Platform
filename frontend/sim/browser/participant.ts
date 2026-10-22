@@ -15,6 +15,7 @@ export interface ParticipantOptions {
 }
 
 const VIEWPORT = { width: 1440, height: 900 }
+const ACTION_TIMEOUT_MS = 20_000
 
 /**
  * One simulated person: an isolated browser context (its own cookie jar, so its own
@@ -51,6 +52,8 @@ export class Participant {
       viewport: VIEWPORT,
       ignoreHTTPSErrors: this.opts.ignoreHttpsErrors,
     })
+    // Outside the test runner an action has no timeout, so a missing element would hang the step forever.
+    context.setDefaultTimeout(ACTION_TIMEOUT_MS)
     try {
       const page = await this.enter(context)
       this.context = context
@@ -134,6 +137,12 @@ export class Participant {
     this.context = null
     this._page = null
     if (ctx) await ctx.close()
+  }
+
+  /** Shows the presence list, for an end-of-run screenshot. */
+  async showPeople(): Promise<void> {
+    const tab = sel.peopleTab(this.page)
+    if (await tab.isVisible()) await tab.click()
   }
 
   async screenshot(path: string): Promise<void> {

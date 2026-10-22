@@ -108,8 +108,12 @@ async function main(): Promise<number> {
       const opts: Parameters<typeof runScenario>[2] = { headed: values.headed, facilitatorHuman: values.facilitator === 'human' }
       if (room) opts.roomOverride = room
       const result = await runScenario(session, scenario, opts)
-      const failed = result.steps.filter((r) => r.outcome !== 'ok').length
-      session.log.info(`run finished: ${result.steps.length} steps, ${failed} not ok${result.aborted ? `, aborted: ${result.aborted}` : ''}`)
+      // A timeout under onTimeout "skip" is an outcome the scenario allowed for; only failures and aborts fail the run.
+      const failed = result.steps.filter((r) => r.outcome === 'failed').length
+      const timedOut = result.steps.filter((r) => r.outcome === 'timeout').length
+      session.log.info(
+        `run finished: ${result.steps.length} steps, ${failed} failed, ${timedOut} timed out${result.aborted ? `, aborted: ${result.aborted}` : ''}`,
+      )
       session.log.info(`evidence: ${result.runDir}`)
       return failed > 0 || result.aborted ? 1 : 0
     }
