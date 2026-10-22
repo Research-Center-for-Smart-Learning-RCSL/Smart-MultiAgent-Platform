@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-22
 requirements: [R6.03, R13.06a, R19.04]
 depends_on: []

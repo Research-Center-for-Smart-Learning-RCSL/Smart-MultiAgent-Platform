@@ -1,0 +1,60 @@
+import { defineScenario } from '../scenario/schema.ts'
+
+// The simulator's own end-to-end check (spec AC-6 to AC-9). No agents and no LLM key.
+// Needs the chinese-character-creativity course installed and enabled for the target
+// project (frontend/sim/README.md, "Local stack").
+export default defineScenario({
+  name: 'smoke-local',
+  description: 'Three students, a same-name guest and a scripted facilitator exercise every action.',
+  durationSec: 210,
+  room: { mode: 'create', name: 'sim-smoke-{ts}', access: 'memberGroups', guestLinks: true, agents: [] },
+  memberGroup: { name: 'Sim Smoke Group', members: ['S1', 'S2', 'S3'] },
+  actors: [
+    { name: 'F', role: 'facilitator' },
+    { name: 'S1', role: 'student', account: 1, displayName: 'Sim Amy' },
+    { name: 'S2', role: 'student', account: 2, displayName: 'Sim Ben' },
+    { name: 'S3', role: 'student', account: 3, displayName: 'Sim Cara' },
+    { name: 'G', role: 'guest', displayName: 'Sim Amy' },
+  ],
+  steps: [
+    { actor: 'F', at: 3, do: 'say', text: '開始模擬器冒煙測試' },
+    { actor: 'G', at: 5, do: 'connect', label: 'guest joins late' },
+    { actor: 'F', at: 6, when: { type: 'message', from: 'S1', match: 'Amy' }, timeoutSec: 30, do: 'say', text: '收到 Amy 的報到', label: 'condition on S1' },
+    { actor: 'S1', at: 10, do: 'say', text: '我是 Amy，報到' },
+    { actor: 'S2', at: 12, do: 'say', text: '我是 Ben，報到' },
+    { actor: 'G', at: 14, do: 'say', text: '訪客 Amy 報到' },
+    { actor: 'S3', at: 20, do: 'typePause', text: '我想一下這一題再回答', typeChars: 4, pauseSec: 6, then: 'send' },
+    { actor: 'G', at: 30, do: 'silent', sec: 10 },
+    { actor: 'F', at: 35, do: 'startActivity', type: 'character-building' },
+    { actor: 'S1', at: 42, do: 'openActivity' },
+    { actor: 'S1', at: 46, do: 'submit', fields: { char_01: '杏', char_02: '呆' } },
+    { actor: 'G', at: 46, do: 'openActivity' },
+    { actor: 'G', at: 50, do: 'submit', fields: { char_01: '困' } },
+    { actor: 'F', at: 65, do: 'endActivity' },
+    { actor: 'F', at: 75, do: 'startActivity', type: 'crat-word-puzzle' },
+    { actor: 'S1', at: 82, do: 'openActivity' },
+    { actor: 'S2', at: 82, do: 'openActivity' },
+    { actor: 'S3', at: 82, do: 'openActivity' },
+    {
+      actor: 'S1',
+      at: 90,
+      do: 'propose',
+      fields: { target_character: '火', word_1: '點火', word_2: '放火', word_3: '粗火', reasoning: '先試試看火' },
+    },
+    { actor: 'S2', at: 100, do: 'vote', approve: false },
+    { actor: 'S1', at: 108, do: 'withdraw' },
+    {
+      actor: 'S2',
+      at: 118,
+      when: { type: 'proposal', status: 'withdrawn' },
+      timeoutSec: 30,
+      do: 'propose',
+      fields: { target_character: '心', word_1: '點心', word_2: '放心', word_3: '粗心', reasoning: '三個詞都常用' },
+    },
+    { actor: 'S1', at: 128, do: 'vote', approve: true },
+    { actor: 'F', at: 140, when: { type: 'proposal', status: 'accepted' }, timeoutSec: 30, do: 'endActivity' },
+    { actor: 'S2', at: 150, do: 'leave' },
+    { actor: 'F', at: 160, when: { type: 'message', match: 'NEVER-MATCHES' }, timeoutSec: 5, do: 'say', text: 'unreachable', label: 'timeout check' },
+    { actor: 'F', at: 170, do: 'say', text: '冒煙測試結束' },
+  ],
+})

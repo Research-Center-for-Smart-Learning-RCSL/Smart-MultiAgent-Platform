@@ -1,0 +1,14 @@
+{
+  "name": "staging",
+  "baseUrl": "https://smap.rcsl.online",
+  "allowedHost": "smap.rcsl.online",
+  "adminEmail": "admin@example.com",
+  "facilitatorEmail": "teacher@example.com",
+  "projectId": "00000000-0000-0000-0000-000000000000",
+  "workspaceId": "00000000-0000-0000-0000-000000000000",
+  "simEmailPrefix": "sim",
+  "simEmailDomain": "example.com",
+  "allowRateLimitChange": false,
+  "authLimitPerMin": 300,
+  "ignoreHttpsErrors": false
+}

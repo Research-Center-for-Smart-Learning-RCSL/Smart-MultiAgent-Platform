@@ -76,6 +76,10 @@ frontend/playwright/.cache/
 frontend/test-results*.txt
 frontend/*test-output*.txt
 frontend/e2e/.e2e-seed.json
+frontend/sim/runs/
+frontend/sim/.state/
+frontend/sim/targets/*.json
+!frontend/sim/targets/*.example.json
 frontend/public/excalidraw-assets/
 vite.config.*.timestamp*
 

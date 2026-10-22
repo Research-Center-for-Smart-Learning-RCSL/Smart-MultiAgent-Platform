@@ -1,0 +1,14 @@
+{
+  "name": "local",
+  "baseUrl": "http://localhost:5173",
+  "allowedHost": "localhost:5173",
+  "adminEmail": "admin@example.com",
+  "facilitatorEmail": "teacher@example.com",
+  "projectId": "00000000-0000-0000-0000-000000000000",
+  "workspaceId": "00000000-0000-0000-0000-000000000000",
+  "simEmailPrefix": "sim",
+  "simEmailDomain": "example.com",
+  "allowRateLimitChange": true,
+  "authLimitPerMin": 600,
+  "ignoreHttpsErrors": false
+}

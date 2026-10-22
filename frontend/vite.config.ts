@@ -111,7 +111,7 @@ export default defineConfig({
     globals: true,
     clearMocks: false,
     setupFiles: ['./tests/setup.ts'],
-    include: ['src/**/*.{test,spec}.ts', 'src/**/__tests__/**/*.{test,spec}.ts'],
+    include: ['src/**/*.{test,spec}.ts', 'src/**/__tests__/**/*.{test,spec}.ts', 'sim/**/__tests__/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'json-summary'],

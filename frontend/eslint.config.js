@@ -102,7 +102,7 @@ function buildNoRestrictedImports() {
 export default [
   // Global ignores
   {
-    ignores: ['dist/**', 'node_modules/**', '.vite/**', 'src/shared/api-client/**'],
+    ignores: ['dist/**', 'node_modules/**', '.vite/**', 'src/shared/api-client/**', 'sim/runs/**', 'sim/.state/**'],
   },
 
   // Playwright e2e tests — needs the TS parser for non-null assertions etc.
@@ -120,6 +120,18 @@ export default [
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
+  // Classroom simulator: a Node CLI outside the app bundle, so none of the slice gates apply.
+  {
+    files: ['sim/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
     },
   },
 
@@ -163,6 +175,7 @@ export default [
       'tests/**/*.ts',
       'e2e/**/*.ts',
       'e2e-csp/**/*.ts',
+      'sim/**/*.ts',
     ],
     languageOptions: {
       parser: vueParser,

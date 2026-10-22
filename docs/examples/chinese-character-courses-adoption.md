@@ -175,3 +175,8 @@ settings at the start of individual work and restore them when you say time is u
 that a second room bound to the same agents keeps its own settings. Record the pack revision,
 model and settings you tested with, so that a later difference in behavior can be traced to a
 change rather than guessed at.
+
+The test session does not need several people at several machines. The classroom simulator in
+`frontend/sim/` (see its `README.md`) plays registered students, a guest and the teacher from
+one computer through the real interface, on a scripted timeline or with LLM-driven students, and
+collects the transcript and the agents' wake-up records afterwards.

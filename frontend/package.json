@@ -22,6 +22,7 @@
     "check:type-coverage": "bash scripts/check-type-coverage.sh",
     "check:typecheck-gate": "bash scripts/check-typecheck-gate.sh",
     "test:e2e": "playwright test",
+    "sim": "node sim/cli.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
