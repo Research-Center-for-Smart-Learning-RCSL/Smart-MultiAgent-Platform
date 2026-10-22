@@ -544,10 +544,18 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - **D-14, SIGINT verified in a Linux container.** Windows cannot deliver SIGINT to a process
   programmatically, so the signal path of AC-4 ran in `node:24-alpine` against the local stack via
   `host.docker.internal`, with the real guard, both with a working restore and with an injected
-  restore failure.
+  restore failure. The self-audit found that a second Ctrl-C during the restore reached Node's
+  default handler and killed the process mid-restore; the handlers are now persistent. With
+  `--init` (so the process is not PID 1, which ignores default-action signals) and a slowed
+  restore, two SIGINTs 300 ms apart left the limit raised before the fix and restored it after.
 - **D-15, Playwright signal handlers disabled.** `chromium.launch` sets `handleSIGINT`,
   `handleSIGTERM` and `handleSIGHUP` to false; Playwright's handlers would otherwise close the
   browser and exit before the AUTH restore ran.
+- **D-16, stray rejections are logged, not fatal.** The CLI catches `unhandledRejection` to keep
+  library errors redacted. Exiting there (the first version) would skip the AUTH restore of a run
+  in progress, so the handler logs and lets the run's own error path finish; `uncaughtException`
+  still exits 2 and prints the `restore-limits` command. A rejection injected through `--import`
+  during `restore-limits` was logged and the command still completed with exit 0.
 
 ### Verification record (2026-10-22, local test stack)
 
