@@ -17,6 +17,13 @@ export function requireEnv(name: string): string {
   return v
 }
 
+/** SMAP_SIM_SECRET: long enough to resist guessing, and to be redactable at all (log.ts ignores short values). */
+export function requireSimSecret(): string {
+  const v = requireEnv('SMAP_SIM_SECRET')
+  if (v.length < 16) throw new Error('SMAP_SIM_SECRET must be at least 16 characters')
+  return v
+}
+
 /** Reads a value from the environment, else asks for it on a TTY without echoing it. */
 export async function secretFromEnvOrPrompt(envName: string, prompt: string): Promise<string> {
   const v = process.env[envName]
@@ -30,6 +37,9 @@ function hiddenPrompt(prompt: string): Promise<string> {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
     const out = rl as unknown as { _writeToOutput?: (s: string) => void; output: NodeJS.WritableStream }
     process.stdout.write(prompt)
+    // readline has no public no-echo mode; replacing its private writer is the standard
+    // workaround. If a Node release renames it, the prompt echoes and no test notices,
+    // so check by hand after a Node upgrade.
     out._writeToOutput = () => {}
     rl.question('', (answer) => {
       rl.close()

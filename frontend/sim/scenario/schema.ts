@@ -17,7 +17,17 @@ export const ConditionSchema = z.discriminatedUnion('type', [
     /** An actor name, `agent`, `agent:<name>`, `human` or `anyone`. */
     from: z.string().default('anyone'),
     /** A regular expression the message text must match. */
-    match: z.string().optional(),
+    match: z
+      .string()
+      .refine((s) => {
+        try {
+          new RegExp(s)
+          return true
+        } catch {
+          return false
+        }
+      }, 'match is not a valid regular expression')
+      .optional(),
     /** Only messages created after the step was armed count. */
     sinceArmed: z.boolean().default(true),
   }),

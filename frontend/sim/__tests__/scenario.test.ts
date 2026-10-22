@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ScenarioSchema, type ScenarioInput } from '../scenario/schema.ts'
-import { scheduleLines } from '../scenario/load.ts'
-import { applyFacilitatorOverride } from '../runner.ts'
+import { applyFacilitatorOverride, scheduleLines } from '../scenario/load.ts'
 import smoke from '../scenarios/smoke-local.ts'
 import ac20 from '../scenarios/crat-ac20.ts'
 import llmClass from '../scenarios/crat-llm-class.ts'
@@ -64,6 +63,11 @@ describe('scenario validation', () => {
   it('accepts "m:ss" offsets', () => {
     const s = ScenarioSchema.parse({ ...minimal, steps: [{ actor: 'S1', at: '12:05', do: 'say', text: 'x' }] })
     expect(s.steps[0]?.at).toBe(725)
+  })
+
+  it('rejects an invalid message pattern at load time rather than mid-run', () => {
+    const bad = { ...minimal, steps: [{ actor: 'F', at: 1, when: { type: 'message' as const, match: '老師(' }, do: 'leave' as const }] }
+    expect(issues(bad)).toContain('match is not a valid regular expression')
   })
 
   it('requires exactly one facilitator', () => {

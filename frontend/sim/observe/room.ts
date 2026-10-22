@@ -59,7 +59,6 @@ export class RoomObserver {
   readonly messages: Seen[] = []
   private readonly ids = new Set<string>()
   readonly names = new Map<string, string>()
-  readonly agentIds = new Set<string>()
   /** Sender id to scenario actor name, filled in as identities become known. */
   readonly actorBySender = new Map<string, string>()
   readonly proposals = new Map<string, Proposal>()
@@ -124,10 +123,7 @@ export class RoomObserver {
   async refreshNames(): Promise<void> {
     const [members, agents] = await Promise.all([this.source.members(), this.source.agents()])
     for (const m of members) if (m.display_name) this.names.set(m.user_id, m.display_name)
-    for (const a of agents) {
-      this.agentIds.add(a.agent_id)
-      if (a.name) this.names.set(a.agent_id, a.name)
-    }
+    for (const a of agents) if (a.name) this.names.set(a.agent_id, a.name)
   }
 
   async pollActivation(): Promise<void> {

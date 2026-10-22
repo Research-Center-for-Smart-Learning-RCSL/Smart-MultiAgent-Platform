@@ -1,17 +1,32 @@
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ScenarioSchema, type Scenario, type Step } from './schema.ts'
+import { formatOffset } from '../lib/time.ts'
+import { ScenarioSchema, type Actor, type Scenario, type Step } from './schema.ts'
 
+/** Imports and runs the file: a scenario is trusted operator code, like a test spec. */
 export async function loadScenario(path: string): Promise<Scenario> {
   const mod = (await import(pathToFileURL(resolve(path)).href)) as { default?: unknown }
   if (!mod.default) throw new Error(`${path} has no default export`)
   return ScenarioSchema.parse(mod.default)
 }
 
-export function formatOffset(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+/** The schema guarantees exactly one. */
+export function facilitatorOf(scenario: Scenario): Actor {
+  return scenario.actors.find((a) => a.role === 'facilitator') as Actor
+}
+
+/** Applies `--facilitator human`: the facilitator's steps become printed cues for the operator. */
+export function applyFacilitatorOverride(scenario: Scenario, human: boolean): { scenario: Scenario; cues: Step[] } {
+  if (!human) return { scenario, cues: [] }
+  const fac = facilitatorOf(scenario)
+  return {
+    scenario: {
+      ...scenario,
+      actors: scenario.actors.map((a) => (a === fac ? { ...a, drive: 'human' as const } : a)),
+      steps: scenario.steps.filter((s) => s.actor !== fac.name),
+    },
+    cues: scenario.steps.filter((s) => s.actor === fac.name),
+  }
 }
 
 export function describeStep(step: Step): string {

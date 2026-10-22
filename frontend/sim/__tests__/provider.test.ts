@@ -76,6 +76,12 @@ describe('parseDecision', () => {
     expect(parseDecision('Sure:\n```json\n{"action":"say","text":"好"}\n```', 100)).toEqual({ action: 'say', text: '好' })
   })
 
+  it('never posts a slash command, which the composer would run', () => {
+    expect(parseDecision('{"action":"say","text":"/compact"}', 100)).toEqual({ action: 'silent' })
+    expect(parseDecision('{"action":"type_pause","text":"  /compact"}', 100)).toEqual({ action: 'silent' })
+    expect(parseDecision('{"action":"say","text":"a/b 都可以"}', 100)).toEqual({ action: 'say', text: 'a/b 都可以' })
+  })
+
   it('treats silence, empty text, unknown actions and malformed JSON as silence', () => {
     for (const raw of ['{"action":"silent"}', '{"action":"say","text":"   "}', '{"action":"shout","text":"x"}', '{"action":"say"', 'no json', '[1,2]']) {
       expect(parseDecision(raw, 100)).toEqual({ action: 'silent' })

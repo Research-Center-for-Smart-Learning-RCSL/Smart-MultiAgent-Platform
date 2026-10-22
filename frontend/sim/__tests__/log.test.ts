@@ -28,10 +28,17 @@ describe('Redactor (AC-2)', () => {
     expect(out).toContain('"email":"a@b.c"')
   })
 
-  it('removes bearer tokens and fragment tokens', () => {
+  it('removes bearer tokens and link tokens in fragment or query', () => {
     const r = new Redactor()
     expect(r.redact('Authorization: Bearer abc.def-ghi')).toBe('Authorization: Bearer [redacted]')
     expect(r.redact('https://x/reset#token=abcdef123&next=1')).toBe('https://x/reset#token=[redacted]&next=1')
+    expect(r.redact('https://x/invite?a=1&token=abcdef123')).toBe('https://x/invite?a=1&token=[redacted]')
+  })
+
+  it('removes the token from a guest link path, as in a Playwright navigation error', () => {
+    const r = new Redactor()
+    const msg = 'page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/g/0b6f3c1e-1d2a-4c3b-9e8f-1234567890ab/Zx9-tok_en'
+    expect(r.redact(msg)).toBe('page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/g/0b6f3c1e-1d2a-4c3b-9e8f-1234567890ab/[redacted]')
   })
 })
 

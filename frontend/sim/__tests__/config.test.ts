@@ -27,6 +27,25 @@ describe('target guards (AC-3)', () => {
     expect(() => parseTarget({ ...base, baseUrl: 'http://localhost:8080' })).toThrow(/not the allowed host/)
   })
 
+  it('requires https for a non-local host', () => {
+    expect(() => parseTarget({ ...base, baseUrl: 'http://smap.example.org', allowedHost: 'smap.example.org' })).toThrow(/https/)
+    expect(() => parseTarget({ ...base, baseUrl: 'https://smap.example.org', allowedHost: 'smap.example.org' })).not.toThrow()
+    expect(() => parseTarget({ ...base, baseUrl: 'http://127.0.0.1:5173', allowedHost: '127.0.0.1:5173' })).not.toThrow()
+  })
+
+  it('refuses a real email domain unless the operator controls it', () => {
+    expect(() => parseTarget({ ...base, simEmailDomain: 'school.edu.tw' })).toThrow(/real domain/)
+    expect(() => parseTarget({ ...base, simEmailDomain: 'school.edu.tw', simDomainIsOperatorControlled: true })).not.toThrow()
+    for (const d of ['example.com', 'example.org', 'sim.test', 'classroom.invalid']) {
+      expect(() => parseTarget({ ...base, simEmailDomain: d }), d).not.toThrow()
+    }
+    expect(() => parseTarget({ ...base, simEmailDomain: 'notexample.com' })).toThrow(/real domain/)
+  })
+
+  it('accepts only a file-safe target name', () => {
+    expect(() => parseTarget({ ...base, name: '../etc' })).toThrow()
+  })
+
   it('refuses to raise the AUTH limit unless the target opts in', () => {
     expect(() => assertRateLimitChangeAllowed(parseTarget(base))).toThrow(/allowRateLimitChange/)
     expect(() => assertRateLimitChangeAllowed(parseTarget({ ...base, allowRateLimitChange: true }))).not.toThrow()

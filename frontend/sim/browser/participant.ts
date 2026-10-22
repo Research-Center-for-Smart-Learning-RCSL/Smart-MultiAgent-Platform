@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { retryAfterSec } from '../lib/time.ts'
 import { LOCALE_KEY, sel } from './selectors.ts'
 
 export type FieldValue = string | number | boolean | string[]
@@ -42,14 +43,26 @@ export class Participant {
     return this._page
   }
 
+  /** Becomes `connected` only once in the room; a failure closes the half-made context. */
   async connect(browser: Browser): Promise<void> {
     if (this._page) return
-    this.context = await browser.newContext({
+    const context = await browser.newContext({
       baseURL: this.opts.baseUrl,
       viewport: VIEWPORT,
       ignoreHTTPSErrors: this.opts.ignoreHttpsErrors,
     })
-    await this.context.addInitScript(
+    try {
+      const page = await this.enter(context)
+      this.context = context
+      this._page = page
+    } catch (err) {
+      await context.close().catch(() => undefined)
+      throw err
+    }
+  }
+
+  private async enter(context: BrowserContext): Promise<Page> {
+    await context.addInitScript(
       ([key]) => {
         try {
           localStorage.setItem(key as string, 'en')
@@ -59,8 +72,7 @@ export class Participant {
       },
       [LOCALE_KEY],
     )
-    const page = await this.context.newPage()
-    this._page = page
+    const page = await context.newPage()
     if (this.opts.identity.kind === 'account') {
       await this.login(page, this.opts.identity.email, this.opts.identity.password)
       await page.goto(`/chatrooms/${this.opts.roomId}`)
@@ -72,6 +84,7 @@ export class Participant {
     await expect(page).toHaveURL(new RegExp(`/chatrooms/${this.opts.roomId}$`, 'i'), { timeout: 30_000 })
     await expect(sel.composer(page)).toBeVisible({ timeout: 30_000 })
     if (this.opts.identity.kind === 'guest') this.senderId = await this.readGuestSessionId(page)
+    return page
   }
 
   private async login(page: Page, email: string, password: string): Promise<void> {
@@ -89,8 +102,7 @@ export class Participant {
         continue
       }
       if (resp.status() === 429) {
-        const wait = Math.min(Math.max(Number(resp.headers()['retry-after'] ?? '10'), 1), 60)
-        await page.waitForTimeout(wait * 1000 + 500)
+        await page.waitForTimeout(retryAfterSec(resp.headers()['retry-after'], 10) * 1000 + 500)
         continue
       }
       if (!resp.ok()) throw new Error(`login for ${this.name} failed with status ${resp.status()}`)

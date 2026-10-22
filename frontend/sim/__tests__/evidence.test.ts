@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildReport, collectTranscript, collectWakeAudit, type AuditRow, type EvidenceSource } from '../evidence/collect.ts'
+import { buildReport, collectTranscript, collectWakeAudit, type AuditRow, type AuditSource, type TranscriptSource } from '../evidence/collect.ts'
 import type { RoomMessage } from '../observe/room.ts'
 
 const ROOM = 'aaaaaaaa-0000-4000-8000-000000000001'
@@ -22,15 +22,15 @@ describe('collectTranscript (AC-14 logic)', () => {
       m2: [msg('m1', '2026-10-22T09:00:00Z')],
     }
     const asked: Array<string | null> = []
-    const src: EvidenceSource = {
+    const src: TranscriptSource = {
       messagesPage: async (before) => {
         asked.push(before)
         return pages[before ?? 'first'] ?? []
       },
-      auditPage: async () => ({ items: [], next_cursor: null }),
     }
     const out = await collectTranscript(src, '2026-10-22T10:00:00Z', '2026-10-22T10:30:00Z')
-    expect(out.map((m) => m.id)).toEqual(['m3', 'm4'])
+    expect(out.rows.map((m) => m.id)).toEqual(['m3', 'm4'])
+    expect(out.truncated).toBe(false)
     expect(asked).toEqual([null, 'm4'])
   })
 })
@@ -38,8 +38,7 @@ describe('collectTranscript (AC-14 logic)', () => {
 describe('collectWakeAudit (AC-14 logic)', () => {
   it('reads every wake action for every agent, follows cursors, and keeps this room only', async () => {
     const calls: string[] = []
-    const src: EvidenceSource = {
-      messagesPage: async () => [],
+    const src: AuditSource = {
       auditPage: async ({ action, resourceId, cursor }) => {
         calls.push(`${resourceId}:${action}:${cursor}`)
         if (resourceId === 'ta' && action === 'wakeup.fired') {
@@ -54,7 +53,8 @@ describe('collectWakeAudit (AC-14 logic)', () => {
       },
     }
     const rows = await collectWakeAudit(src, ROOM, ['ta', 'sa'], 'f', 't')
-    expect(rows.map((r) => r.id)).toEqual([3, 2])
+    expect(rows.rows.map((r) => r.id)).toEqual([3, 2])
+    expect(rows.truncated).toBe(false)
     expect(calls).toHaveLength(7)
     expect(calls).toContain('ta:wakeup.fired:2')
   })
@@ -86,6 +86,7 @@ describe('buildReport (AC-14)', () => {
         { id: 'p1', activation_id: 'a', member_group_id: 'g', status: 'rejected', required_approvals: 2, approvals: 1, rejections: 2, undecided: 0, created_at: 'x', resolved_at: 'y', submission_id: null },
       ],
       transcriptCount: 42,
+      truncated: [],
       persona: { calls: 5, inputTokens: 1000, outputTokens: 50 },
       restoredLimit: 'restored to 10 per 60s',
       notes: ['Pass criteria: protocol §4.'],
@@ -107,10 +108,11 @@ describe('buildReport (AC-14)', () => {
   it('names an aborted run at the top', () => {
     const report = buildReport({
       scenario: 's', target: 't', roomId: ROOM, startedAt: 'a', endedAt: 'b', steps: [], audit: [], agentNames: new Map(),
-      proposals: [], transcriptCount: 0, persona: null, restoredLimit: 'x', notes: [], aborted: 'step 3 timed out',
+      proposals: [], transcriptCount: 0, truncated: ['audit'], persona: null, restoredLimit: 'x', notes: [], aborted: 'step 3 timed out',
     })
     expect(report.split('\n').slice(0, 6).join('\n')).toContain('aborted:** step 3 timed out')
     expect(report).toContain('No wake-up audit rows')
+    expect(report).toContain('**Incomplete evidence:** audit hit a page cap.')
     expect(report).not.toContain('Persona usage')
   })
 })

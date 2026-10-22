@@ -35,11 +35,12 @@ command that talks to a server names one.
 
 | Field | Meaning |
 |---|---|
-| `baseUrl`, `allowedHost` | The host of `baseUrl` must equal `allowedHost`, or the tool refuses to run. |
+| `baseUrl`, `allowedHost` | The host of `baseUrl` must equal `allowedHost`, or the tool refuses to run. A host other than localhost must use https. Redirects are refused. |
 | `adminEmail` | A platform admin, used to create accounts, change the rate limit and read the audit log. |
 | `facilitatorEmail` | The project owner who creates rooms and plays the teacher. |
 | `projectId`, `workspaceId` | Where rooms are created and accounts become members. |
-| `simEmailPrefix`, `simEmailDomain` | Simulated accounts are `<prefix>-<n>@<domain>`. The domain must pass the deployment's email-domain policy. |
+| `simEmailPrefix`, `simEmailDomain` | Simulated accounts are `<prefix>-<n>@<domain>`. The domain must pass the deployment's email-domain policy, and must be a reserved one (`example.com`, `example.org`, `example.net`, `*.test`, `*.invalid`, `*.example`), because whoever reads a simulated address's mail could reset that account. |
+| `simDomainIsOperatorControlled` | Set `true` to allow any other domain, only when every mailbox in it is yours. |
 | `allowRateLimitChange` | Must be `true` for the tool to raise the AUTH limit. Off in the staging example on purpose. |
 | `authLimitPerMin` | The raised AUTH limit, at most 2000 per minute. |
 | `ignoreHttpsErrors` | For a local stack behind a self-signed certificate only. |
@@ -53,7 +54,7 @@ bearer token or token field.
 | Variable | Purpose |
 |---|---|
 | `SMAP_SIM_ADMIN_PASSWORD`, `SMAP_SIM_FACILITATOR_PASSWORD` | Prompted for (hidden) when unset. |
-| `SMAP_SIM_SECRET` | Derives each simulated account's password. Keep it stable: a changed secret cannot log in to accounts created with the old one. Use a new `simEmailPrefix` instead, or reset those accounts as an admin. |
+| `SMAP_SIM_SECRET` | At least 16 characters. Derives each simulated account's password, so anyone who holds it can log in as the simulated students. Keep it stable: a changed secret cannot log in to accounts created with the old one. Use a new `simEmailPrefix` instead, or reset those accounts as an admin. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Needed only by scenarios with personas. |
 | `SMAP_SIM_ANTHROPIC_MODEL`, `SMAP_SIM_OPENAI_MODEL` | Persona model when the scenario names none. Anthropic defaults to `claude-haiku-5-5`; OpenAI has no default. |
 | `SMAP_SIM_OPENAI_BASE_URL` | An OpenAI-compatible endpoint other than `api.openai.com`. |
@@ -66,7 +67,15 @@ tool raises the bucket for the run through `PATCH /api/admin/rate-limits/auth` a
 previous value afterwards, also on Ctrl-C and on a failed step. The previous value is written to
 `sim/.state/<target>.json` before the change, so a run killed outright is repaired by the next
 command that names the same target, such as `restore-limits`. A machine that never runs the tool again leaves the
-limit raised; the change is visible in the audit log as `admin.rate_limit_patched`.
+limit raised; the change is visible in the audit log as `admin.rate_limit_patched`. A restore that fails is
+printed with the command to run, and the exit code is 2.
+
+The restore is compare-and-set: the previous value is written back only while the live policy still
+holds what this run set. If an admin changes the policy during a run, or a second simulator on another
+machine raised it further, the tool leaves it and says so in the report. A second run against the same
+target on the same machine is refused while the first is alive. Two operators on two machines should
+not run against one target at the same time: the second one sees the first one's raised value as the
+original, and the platform can end up with the raised value if the runs end in the wrong order.
 
 The raise weakens brute-force protection for every user of the target for the length of the
 run. Set `allowRateLimitChange` only for a deployment where that is acceptable.
@@ -74,7 +83,8 @@ run. Set `allowRateLimitChange` only for a deployment where that is acceptable.
 ## Scenarios
 
 A scenario is a TypeScript module whose default export is `defineScenario({...})`
-(`sim/scenario/schema.ts`). It names the room (created per run, or an existing one), the Member
+(`sim/scenario/schema.ts`). Loading one runs it, so a scenario file is trusted code, like a test spec:
+run only scenarios you have read. It names the room (created per run, or an existing one), the Member
 Group, the actors and the steps.
 
 An actor has a `role` (`facilitator`, `student` or `guest`) and a `drive`: `script` follows
@@ -114,7 +124,8 @@ students in the CRAT room).
 
 A persona reads the room through the facilitator's message API, waits a reading delay, and asks
 its model for a JSON decision: `{"action":"say","text":"..."}`, `{"action":"type_pause","text":"..."}`
-(starts typing, hesitates, then sends) or `{"action":"silent"}`; anything else counts as silence. It never speaks twice within `minIntervalSec`, stops after
+(starts typing, hesitates, then sends) or `{"action":"silent"}`; anything else counts as silence, and so
+does text starting with `/`, which the composer would run as a command. It never speaks twice within `minIntervalSec`, stops after
 `maxTurns`, and the scenario `budget` caps calls and output tokens for the whole run. Personas only
 speak; proposals and votes stay scripted.
 

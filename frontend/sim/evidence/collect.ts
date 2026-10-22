@@ -1,8 +1,6 @@
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { RoomMessage, Proposal } from '../observe/room.ts'
 import type { StepRecord } from '../scheduler/run.ts'
-import { formatOffset } from '../scenario/load.ts'
+import { formatOffset } from '../lib/time.ts'
 
 export interface AuditRow {
   id: number
@@ -13,9 +11,13 @@ export interface AuditRow {
   created_at: string
 }
 
-/** The calls evidence collection makes, as the facilitator and the admin. */
-export interface EvidenceSource {
+/** Read as the facilitator, who can read the room. */
+export interface TranscriptSource {
   messagesPage(before: string | null): Promise<RoomMessage[]>
+}
+
+/** Read as the admin, who can read the audit log. */
+export interface AuditSource {
   auditPage(params: { action: string; resourceId: string; from: string; to: string; cursor: number | null }): Promise<{
     items: AuditRow[]
     next_cursor: number | null
@@ -24,24 +26,33 @@ export interface EvidenceSource {
 
 export const WAKE_ACTIONS = ['wakeup.fired', 'wakeup.skipped', 'wakeup.failed'] as const
 
+const MAX_MESSAGE_PAGES = 500
+const MAX_AUDIT_PAGES = 200
+
+export interface Collected<T> {
+  rows: T[]
+  /** True when a page cap stopped collection, so the rows are incomplete. */
+  truncated: boolean
+}
+
 /** Every room message created inside the window, oldest first. */
-export async function collectTranscript(src: EvidenceSource, fromIso: string, toIso: string): Promise<RoomMessage[]> {
+export async function collectTranscript(src: TranscriptSource, fromIso: string, toIso: string): Promise<Collected<RoomMessage>> {
   const from = Date.parse(fromIso)
   const to = Date.parse(toIso)
   const out: RoomMessage[] = []
   let before: string | null = null
-  for (let page = 0; page < 500; page++) {
+  for (let page = 0; page < MAX_MESSAGE_PAGES; page++) {
     const rows = await src.messagesPage(before)
-    if (rows.length === 0) break
+    if (rows.length === 0) return { rows: out.reverse(), truncated: false }
     for (const m of rows) {
       const t = m.created_at ? Date.parse(m.created_at) : NaN
       if (t >= from && t <= to) out.push(m)
     }
     const oldest = rows[rows.length - 1] as RoomMessage
-    if (!oldest.created_at || Date.parse(oldest.created_at) < from) break
+    if (!oldest.created_at || Date.parse(oldest.created_at) < from) return { rows: out.reverse(), truncated: false }
     before = oldest.id
   }
-  return out.reverse()
+  return { rows: out.reverse(), truncated: true }
 }
 
 /**
@@ -49,25 +60,28 @@ export async function collectTranscript(src: EvidenceSource, fromIso: string, to
  * action and resource but not by room, so the room filter is applied here (FU-3).
  */
 export async function collectWakeAudit(
-  src: EvidenceSource,
+  src: AuditSource,
   roomId: string,
   agentIds: string[],
   fromIso: string,
   toIso: string,
-): Promise<AuditRow[]> {
+): Promise<Collected<AuditRow>> {
   const rows: AuditRow[] = []
+  let truncated = false
   for (const agentId of agentIds) {
     for (const action of WAKE_ACTIONS) {
       let cursor: number | null = null
-      for (let page = 0; page < 200; page++) {
+      let done = false
+      for (let page = 0; page < MAX_AUDIT_PAGES && !done; page++) {
         const res = await src.auditPage({ action, resourceId: agentId, from: fromIso, to: toIso, cursor })
         rows.push(...res.items.filter((r) => String(r.metadata.room_id ?? '').toLowerCase() === roomId.toLowerCase()))
-        if (res.next_cursor === null) break
+        done = res.next_cursor === null
         cursor = res.next_cursor
       }
+      if (!done) truncated = true
     }
   }
-  return rows.sort((a, b) => a.created_at.localeCompare(b.created_at))
+  return { rows: rows.sort((a, b) => a.created_at.localeCompare(b.created_at)), truncated }
 }
 
 export interface ReportInput {
@@ -81,6 +95,8 @@ export interface ReportInput {
   agentNames: Map<string, string>
   proposals: Proposal[]
   transcriptCount: number
+  /** Which collections hit a page cap and are incomplete. */
+  truncated: string[]
   persona: { calls: number; inputTokens: number; outputTokens: number } | null
   restoredLimit: string
   notes: string[]
@@ -96,6 +112,7 @@ export function buildReport(r: ReportInput): string {
   lines.push(`# Simulator run: ${r.scenario}`, '')
   lines.push(`Target ${r.target}, room \`${r.roomId}\`, from ${r.startedAt} to ${r.endedAt}.`)
   if (r.aborted) lines.push('', `**The run was aborted:** ${r.aborted}`)
+  if (r.truncated.length > 0) lines.push('', `**Incomplete evidence:** ${r.truncated.join(', ')} hit a page cap.`)
   lines.push('', '## Timeline', '', '| # | Actor | Action | Planned | Armed | Started | Ended | Outcome |', '|---|---|---|---|---|---|---|---|')
   for (const s of [...r.steps].sort((a, b) => a.index - b.index)) {
     const outcome = s.error ? `${s.outcome}: ${s.error.replace(/\|/g, '/')}` : s.outcome
@@ -140,8 +157,4 @@ export function buildReport(r: ReportInput): string {
     for (const n of r.notes) lines.push(`- ${n}`)
   }
   return lines.join('\n') + '\n'
-}
-
-export function writeJson(dir: string, name: string, value: unknown): void {
-  writeFileSync(join(dir, name), JSON.stringify(value, null, 2))
 }

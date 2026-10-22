@@ -1,4 +1,5 @@
 import type { Redactor } from './log.ts'
+import { retryAfterSec } from './time.ts'
 
 export class HttpError extends Error {
   readonly status: number
@@ -92,12 +93,13 @@ export class ApiClient {
       const h: Record<string, string> = { Accept: 'application/json', ...headers }
       if (body !== undefined) h['Content-Type'] = 'application/json'
       if (auth && this.token) h.Authorization = `Bearer ${this.token}`
-      const init: RequestInit = { method, headers: h }
+      // A redirect is refused: fetch would re-send the body (a password, on login) to a
+      // host the allowedHost guard never checked.
+      const init: RequestInit = { method, headers: h, redirect: 'error' }
       if (body !== undefined) init.body = JSON.stringify(body)
       const resp = await this.fetchImpl(this.baseUrl + path, init)
       if (resp.status === 429) {
-        const wait = Math.min(Math.max(Number(resp.headers.get('retry-after') ?? '5'), 1), 60)
-        await new Promise((r) => setTimeout(r, wait * 1000 + 250))
+        await new Promise((r) => setTimeout(r, retryAfterSec(resp.headers.get('retry-after'), 5) * 1000 + 250))
         continue
       }
       const text = await resp.text()
@@ -108,11 +110,12 @@ export class ApiClient {
   }
 }
 
-/** The token carried in an activation or invite link's fragment (`#token=...`). */
-export function tokenFromLink(url: string): string {
-  const u = new URL(url)
+/** The token carried in an activation or invite link (`#token=...` or `?token=...`), registered for redaction. */
+export function tokenFromLink(url: string, redactor: Redactor): string {
+  const u = new URL(url, 'http://placeholder.invalid')
   const fromHash = new URLSearchParams(u.hash.replace(/^#/, '')).get('token')
   const token = fromHash ?? u.searchParams.get('token')
   if (!token) throw new Error('link carries no token')
+  redactor.add(token)
   return token
 }

@@ -2,7 +2,9 @@ import { appendFileSync } from 'node:fs'
 
 const TOKEN_FIELD = /("(?:access_token|refresh_token|guest_token|token|password|new_password|api_key)"\s*:\s*")[^"]*(")/gi
 const BEARER = /(Bearer\s+)[A-Za-z0-9._~+/=-]+/g
-const FRAGMENT_TOKEN = /(#token=)[^&\s"]+/g
+const LINK_TOKEN = /([#?&]token=)[^&\s"]+/g
+/** A guest link path, `/g/<room id>/<guest token>`. */
+const GUEST_PATH = /(\/g\/[0-9a-fA-F-]{36}\/)[^/?#\s"']+/g
 
 /**
  * Removes every configured secret value and every token-shaped field from text before it
@@ -17,7 +19,11 @@ export class Redactor {
   }
 
   redact(text: string): string {
-    let out = text.replace(TOKEN_FIELD, '$1[redacted]$2').replace(BEARER, '$1[redacted]').replace(FRAGMENT_TOKEN, '$1[redacted]')
+    let out = text
+      .replace(TOKEN_FIELD, '$1[redacted]$2')
+      .replace(BEARER, '$1[redacted]')
+      .replace(LINK_TOKEN, '$1[redacted]')
+      .replace(GUEST_PATH, '$1[redacted]')
     for (const s of this.secrets) out = out.split(s).join('[redacted]')
     return out
   }

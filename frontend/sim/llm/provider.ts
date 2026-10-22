@@ -22,7 +22,12 @@ export class ProviderError extends Error {}
 type FetchLike = typeof fetch
 
 async function postJson(fetchImpl: FetchLike, url: string, headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<unknown> {
-  const init: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+    redirect: 'error',
+  }
   if (signal) init.signal = signal
   const resp = await fetchImpl(url, init)
   const text = await resp.text()
@@ -117,7 +122,9 @@ export type PersonaDecision = { action: 'say'; text: string } | { action: 'type_
 
 /**
  * Reads the model's reply. Anything that is not a well-formed decision is treated as
- * silence: a persona that cannot be understood should not post into a class.
+ * silence: a persona that cannot be understood should not post into a class. Text
+ * starting with `/` is silence too, because the composer runs `/compact` as a command
+ * and room content steering the model must not reach one.
  */
 export function parseDecision(raw: string, maxChars: number): PersonaDecision {
   const start = raw.indexOf('{')
@@ -131,7 +138,7 @@ export function parseDecision(raw: string, maxChars: number): PersonaDecision {
   }
   if (!obj || typeof obj !== 'object') return { action: 'silent' }
   const { action, text } = obj as { action?: unknown; text?: unknown }
-  if ((action === 'say' || action === 'type_pause') && typeof text === 'string' && text.trim()) {
+  if ((action === 'say' || action === 'type_pause') && typeof text === 'string' && text.trim() && !text.trim().startsWith('/')) {
     return { action, text: text.trim().slice(0, maxChars) }
   }
   return { action: 'silent' }

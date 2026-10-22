@@ -1,6 +1,6 @@
 import type { Target } from '../config/target.ts'
 import type { ApiClient } from '../lib/http.ts'
-import type { Logger } from '../lib/log.ts'
+import type { Logger, Redactor } from '../lib/log.ts'
 import type { Scenario } from '../scenario/schema.ts'
 
 export interface ActivityTypeRef {
@@ -62,7 +62,7 @@ export async function setupRoom(
   facilitator: ApiClient,
   target: Target,
   scenario: Scenario,
-  opts: { roomOverride?: string; groupId: string | null; runTag: string; log: Logger },
+  opts: { roomOverride?: string; groupId: string | null; runTag: string; log: Logger; redactor: Redactor },
 ): Promise<RoomSetup> {
   const room = scenario.room
   const types = await listActivityTypes(facilitator, target)
@@ -108,6 +108,8 @@ export async function setupRoom(
   let guestPath: string | null = null
   if (room.guestLinks) {
     const link = await facilitator.get<{ chatroom_id: string; guest_token: string }>(`/api/chatrooms/${roomId}/guest-link`)
+    // Anyone holding the link joins the room as a guest; it must not reach a log or report.
+    opts.redactor.add(link.guest_token)
     guestPath = `/g/${link.chatroom_id}/${link.guest_token}`
   }
   return { roomId, created, guestPath, agentIds, activityTypes: types }
