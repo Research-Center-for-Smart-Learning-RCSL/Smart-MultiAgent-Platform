@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-20
 requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R28.17, R30.15, R30.25, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
@@ -32,10 +32,9 @@ the submitted target character. An activity type may now declare a few short fie
 values are quoted onto its activity rows, labelled as the participant's own words (M6).
 
 **Approval state:** approved 2026-10-20 as a whole (Q-1 to Q-11, goals, non-goals, design,
-ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval, except the [R30.15]
-amendment, which belongs to the 2026-10-23 FU-16 amendment (Q-12, §6.6, AC-21 to AC-25) and
-is applied when that amendment is approved. The status returned to `draft` for that
-amendment only; the rest stays as approved. Building waits on both `depends_on` entries.
+ACs). The SRS Delta in §13 was applied to `REQUIREMENTS.md` at approval. The FU-16 amendment
+(Q-12, §6.6, AC-21 to AC-25) was approved 2026-10-23 and its [R30.15] change applied then.
+Building waits on both `depends_on` entries.
 
 ## 2. Goals and Non-goals
 
@@ -522,7 +521,7 @@ Replace **[R30.42]** with:
 
 - **[R30.42]** A proposal's per-person votes are readable only by its pinned voters and the room creator. Neither the room broadcast nor the room echo carries the payload or any per-person vote. Agents may see, through the activity-state block ([R30.44]), for each group in the current activation whether it has an open proposal, that proposal's approval, rejection and undecided counts against its required approvals, and the outcome of proposals rejected, withdrawn or expired in that activation; no agent-visible surface carries a voter's identity, the proposer, a proposal's payload or any per-person dissent.
 
-Amend **[R30.15]** (FU-16 amendment, applied on its approval): append "An activity type whose
+Amend **[R30.15]** (FU-16 amendment, applied 2026-10-23): append "An activity type whose
 first-party coverage validator declares quoted fields additionally shows, on that type's rows,
 the values of at most three declared short text fields, each length-capped and reduced to one
 line, as the participant's own words after the participant marker; the server-computed

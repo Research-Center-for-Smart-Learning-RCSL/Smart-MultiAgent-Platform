@@ -594,9 +594,8 @@ rows are added as each is written.
 ### Classroom facilitation phase 3 (2026-10-20)
 
 - `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state` (feature, **approved
-  2026-10-20; FU-16 amendment drafted 2026-10-23, awaiting re-approval**, SRS delta applied:
-  [R13.73], [R15.02] and [R30.42] amended; [R13.79], [R15.26], [R30.44], [R30.45] added; the
-  amendment's [R30.15] change is pending) - waiting on
+  2026-10-20; FU-16 amendment approved 2026-10-23**, SRS delta applied: [R13.73], [R15.02],
+  [R30.15] and [R30.42] amended; [R13.79], [R15.26], [R30.44], [R30.45] added) - waiting on
   `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (Q-4: its live validation must
   finish on the current prompts first) and `2026-10-19-peer-deliberate-errors` (Q-11: same six pack
   files). Agent-only arrival notices and an opt-in `on_join` wake
