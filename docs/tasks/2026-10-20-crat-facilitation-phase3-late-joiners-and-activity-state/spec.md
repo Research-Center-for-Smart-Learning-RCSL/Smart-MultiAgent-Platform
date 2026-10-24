@@ -582,7 +582,13 @@ Add:
   of rounds the teacher has posted, and treats a rejected, withdrawn or expired proposal as
   current only when it is newer than the round's posting. A per-round state would need the
   activation to know its rounds, which no activity type models today (FU-6).
-
+- D-7. The arrival notice quotes the label: `[Room notice] [u:xxxxxxxx] "Label" connected to the
+  room.`, not the unquoted form §6.1 and AC-3 give. The security gate found that a guest chooses
+  their own label (up to 100 characters) and that, unquoted, a sentence-shaped label read as the
+  platform's own words inside a turn the participant note vouches for. Quotes are already
+  stripped from model-facing labels and are stripped again in `_join_notice`, so the slot cannot
+  be closed early. The three teacher prompts quote the new form and say the quoted name is
+  self-chosen; `test_turn_join_notices.py` and `test_agent_example_packs.py` pin both sides.
 ## 16. Follow-ups
 
 - FU-1: Emit `message.created` for the submission echo so other participants see it live
@@ -597,3 +603,33 @@ Add:
 - FU-6: Rounds inside one activation (for example a `round` counter on submissions or a per-round
   activation) so `[Activity state]` can report the current CRAT round directly instead of the
   teacher prompt inferring it from counts and time order (D-6).
+- FU-7: `ActivityContextProvider.query()` reads recent activity on the turn's session without a
+  SAVEPOINT, so a failed read aborts the turn's transaction; `state()` got one in this task.
+  Pre-existing.
+- FU-8: Bound the provider cost of `on_join` across many principals. Each new principal (for
+  example fresh guest sessions from a share link) can win one wake per binding per minute, and a
+  turn that reaches the provider but posts nothing does not count toward autostop, so a teacher
+  prompt that stays silent during individual work pays for those turns on the owner's key.
+  Options: count a provider-reaching empty `on_join` turn toward autostop, a per-binding hourly
+  `on_join` budget, or skipping `on_join` while the state block shows individual work. Security
+  gate MEDIUM, deferred with the requester's knowledge.
+- FU-9: Arrival side effects for non-arrivals. `_re_arm_silence` runs on every first connection,
+  including a reconnect inside the 30-minute window, so a reader who reconnects every few minutes
+  keeps `silence_minutes` from firing; a platform admin opening a tenant room is recorded as an
+  arrival and can wake `on_join`. Re-arm only on a recorded arrival, and skip recording for
+  principals who reach the room only through the admin bypass.
+- FU-10: Bound the `[Activity state]` reads themselves. Settled proposals of one activation and
+  `submitted_groups` are fetched in full and capped only when rendered; a `LIMIT` of
+  `STATE_MAX_GROUP_ROWS + 1` per section with a separate count keeps the stated truncation exact.
+- FU-11: Whether the CRAT teacher may name one group's submitted target in the room while other
+  groups are still working. Peers and the analyst are told not to repeat it; the teacher's
+  `<步驟E1>` confirms it publicly. Product decision before the prompt changes.
+- FU-12: Wake-path tidy-ups from the quality gate: the room-creator lookup returns `None` on
+  failure, which then shows the creator's arrivals; the join-batch claim TTL equals the defer
+  window, so an arrival just after it can cost a second turn; one arrival reads the room's
+  bindings two or three times; the observer `on_join_enabled` rule sits in the route rather than
+  in `RoomWakeupService`.
+- FU-13: Agent-text hardening from the security gate: quote each quoted-field value (`name:
+  "value"`) so a value cannot fake further fields after the marker; cap `quote_fields` names
+  (about 64 characters, `[A-Za-z0-9_]`); consider withholding the reject and undecided split for
+  groups of two or three, where counts beside the chat can identify the dissenter.
