@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useForm } from 'vee-validate'
-import { toTypedSchema } from '@vee-validate/zod'
+import { toTypedSchema } from '@shared/utils/zodTypedSchema'
 import { z } from 'zod'
 import { useI18n } from 'vue-i18n'
 import { LockClosedIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'

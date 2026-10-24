@@ -114,28 +114,28 @@ export const activityTypeCreateSchema = z
   .superRefine((val, ctx) => {
     if (val.validator_kind === 'webhook') {
       if (!val.webhook_url) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['webhook_url'], message: 'required' })
+        ctx.addIssue({ code: 'custom', path: ['webhook_url'], message: 'required' })
       }
     } else if (val.validator_kind === 'mcp') {
       for (const f of ['mcp_agent_id', 'mcp_binding_id', 'mcp_tool_name'] as const) {
         if (!val[f]) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f], message: 'required' })
+          ctx.addIssue({ code: 'custom', path: [f], message: 'required' })
         }
       }
     } else if (val.validator_kind === 'in_process') {
       if (!val.in_process_validator_id) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: ['in_process_validator_id'],
           message: 'required',
         })
       } else if (val.in_process_validator_id === EXACT_MATCH_VALIDATOR_ID) {
         if (!val.exact_match_field) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['exact_match_field'], message: 'required' })
+          ctx.addIssue({ code: 'custom', path: ['exact_match_field'], message: 'required' })
         }
         if (val.exact_match_expected === '') {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: 'custom',
             path: ['exact_match_expected'],
             message: 'required',
           })
@@ -144,7 +144,7 @@ export const activityTypeCreateSchema = z
         const min = val.filled_count_min
         if (min === null || !Number.isInteger(min) || min < 0) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: 'custom',
             path: ['filled_count_min'],
             message: 'required',
           })
@@ -155,7 +155,7 @@ export const activityTypeCreateSchema = z
           // config validator cannot catch this — it only receives the config, not
           // the schema — so this check has to live here.
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: 'custom',
             path: ['filled_count_min'],
             message: 'exceedsFieldCount',
           })
