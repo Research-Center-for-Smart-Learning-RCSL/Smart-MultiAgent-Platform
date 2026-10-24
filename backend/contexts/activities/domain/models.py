@@ -511,6 +511,10 @@ class RecentActivityRow:
     # Set exactly when ``subject_user_id`` is not. Defaulted so every existing
     # construction site keeps describing a personal row.
     subject_member_group_id: uuid.UUID | None = None
+    # ``(field, value)`` the type's ``quote_fields`` names, already one-lined and
+    # capped (``domain/quote_fields.py``). Set only on a computed-digest row of a
+    # type that exposes payloads; the only participant words this row carries.
+    quoted: tuple[tuple[str, str], ...] = ()
 
     @property
     def subject_kind(self) -> SubjectKind:

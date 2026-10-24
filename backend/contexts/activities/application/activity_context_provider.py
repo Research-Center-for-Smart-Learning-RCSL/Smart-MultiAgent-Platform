@@ -142,9 +142,9 @@ class ActivityContextProvider:
         group_labels = await self._group_labels(rows, facade)
         parts = ["[Recent room activity]", _PREAMBLE]
         shown = [r for r in rows if digests_allowed and r.expose_payload_to_agent and r.agent_digest]
-        if any(not r.digest_is_computed for r in shown):
+        if any(_carries_participant_text(r) for r in shown):
             parts.append(_CONTENT_NOTE)
-        if any(r.digest_is_computed for r in shown):
+        if any(not _carries_participant_text(r) for r in shown):
             parts.append(_COMPUTED_NOTE)
         legend = _legend(rows, labels, group_labels)
         if legend:
@@ -382,10 +382,20 @@ def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     outcome = outcome_word(row.validation_status, row.is_valid)
     suffix = f" [{_row_field(row.error_class)}]" if row.error_class else ""
     line = f"- ({ts}) {subject} #{row.attempt_no} {_row_field(row.type_key)}: {outcome}{suffix}"
-    if digests_allowed and row.expose_payload_to_agent and row.agent_digest:
-        marker = _COMPUTED_MARKER if row.digest_is_computed else _PARTICIPANT_MARKER
-        line += f" {marker} {_one_line(row.agent_digest)}"
-    return line
+    if not (digests_allowed and row.expose_payload_to_agent and row.agent_digest):
+        return line
+    if row.quoted:
+        # [R30.15] amended: the computed description moves before the only marker,
+        # neutralised like any pre-marker field, and the quoted words follow it.
+        # Names and values are neutralised too, so the row keeps exactly one marker.
+        quotes = "; ".join(f"{_row_field(name)}: {_row_field(value)}" for name, value in row.quoted)
+        return f"{line}, {_row_field(row.agent_digest)} {_PARTICIPANT_MARKER} {quotes}"
+    marker = _COMPUTED_MARKER if row.digest_is_computed else _PARTICIPANT_MARKER
+    return f"{line} {marker} {_one_line(row.agent_digest)}"
+
+
+def _carries_participant_text(row: RecentActivityRow) -> bool:
+    return bool(row.quoted) or not row.digest_is_computed
 
 
 STATE_HEADER = "[Activity state]"

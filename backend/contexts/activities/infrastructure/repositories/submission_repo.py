@@ -32,6 +32,7 @@ from contexts.activities.domain.models import (
     ValidationStatus,
     ValidatorKind,
 )
+from contexts.activities.domain.quote_fields import quoted_values
 from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.db.rowcount import rowcount
@@ -375,6 +376,7 @@ class ActivitySubmissionRepository:
                     # and the kind is a trust question, not a fact about the row.
                     _SUB.c.payload,
                     _TYPE.c.validator_kind,
+                    _TYPE.c.validator_config,
                     _TYPE.c.expose_payload_to_agent,
                 )
                 .select_from(
@@ -387,22 +389,32 @@ class ActivitySubmissionRepository:
                 .limit(limit)
             )
         ).all()
-        return [
-            RecentActivityRow(
-                created_at=r.created_at,
-                subject_user_id=r.subject_user_id,
-                subject_member_group_id=r.subject_member_group_id,
-                attempt_no=r.attempt_no,
-                type_key=r.type_key,
-                validation_status=ValidationStatus(r.validation_status),
-                is_valid=r.is_valid,
-                error_class=r.error_class,
-                agent_digest=r.agent_digest,
-                expose_payload_to_agent=r.expose_payload_to_agent,
-                digest_is_computed=_digest_is_computed(r.agent_digest, r.payload, r.validator_kind),
+        out: list[RecentActivityRow] = []
+        for r in rows:
+            computed = _digest_is_computed(r.agent_digest, r.payload, r.validator_kind)
+            # Only the named values leave this method; the payload itself is dropped.
+            quoted = (
+                quoted_values(r.payload or {}, r.validator_config or {})
+                if computed and r.expose_payload_to_agent
+                else ()
             )
-            for r in rows
-        ]
+            out.append(
+                RecentActivityRow(
+                    created_at=r.created_at,
+                    subject_user_id=r.subject_user_id,
+                    subject_member_group_id=r.subject_member_group_id,
+                    attempt_no=r.attempt_no,
+                    type_key=r.type_key,
+                    validation_status=ValidationStatus(r.validation_status),
+                    is_valid=r.is_valid,
+                    error_class=r.error_class,
+                    agent_digest=r.agent_digest,
+                    expose_payload_to_agent=r.expose_payload_to_agent,
+                    digest_is_computed=computed,
+                    quoted=quoted,
+                )
+            )
+        return out
 
     async def list_filtered(
         self,

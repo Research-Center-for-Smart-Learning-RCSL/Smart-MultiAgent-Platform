@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -142,10 +143,80 @@ class TestSubmissionRepoScoping:
             "agent_digest": None,
             "payload": {},
             "validator_kind": "in_process",
+            "validator_config": {},
             "expose_payload_to_agent": True,
         }
         base.update(over)
         return SimpleNamespace(**base)
+
+    async def _rows(self, *rows: SimpleNamespace) -> list:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = list(rows)
+        db.execute.return_value = page
+        return list(
+            await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+        )
+
+    _QUOTING: ClassVar[dict[str, object]] = {
+        "validator_id": "filled_count_coverage",
+        "min_filled": 1,
+        "quote_fields": ["target", "why"],
+    }
+
+    async def test_a_quoting_type_projects_only_the_named_values(self) -> None:
+        """M6 / AC-22: declared order, unfilled skipped, the rest of the payload dropped."""
+        payload = {"why": "  because\nof 木 ", "target": "林", "secret": "do not quote"}
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="2/3 fields answered: target, why",
+                payload=payload,
+                validator_config=self._QUOTING,
+            )
+        )
+
+        assert row.quoted == (("target", "林"), ("why", "because of 木"))
+        assert "do not quote" not in repr(row)
+
+    async def test_an_unfilled_quoted_field_is_omitted(self) -> None:
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: why",
+                payload={"target": "   ", "why": "x"},
+                validator_config=self._QUOTING,
+            )
+        )
+        assert row.quoted == (("why", "x"),)
+
+    async def test_a_long_value_is_capped_with_a_stated_suffix(self) -> None:
+        from contexts.activities.domain.quote_fields import QUOTE_TRUNCATED_SUFFIX, QUOTE_VALUE_MAX
+
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: target",
+                payload={"target": "字" * 100},
+                validator_config=self._QUOTING,
+            )
+        )
+        assert row.quoted == (("target", "字" * QUOTE_VALUE_MAX + QUOTE_TRUNCATED_SUFFIX),)
+
+    async def test_no_quote_without_quote_fields_a_computed_digest_or_exposure(self) -> None:
+        """AC-23 at the repository: each gate alone withholds the values."""
+        payload = {"target": "林"}
+        computed = "1/3 fields answered: target"
+        rows = await self._rows(
+            self._recent_row(agent_digest=computed, payload=payload),
+            self._recent_row(
+                agent_digest=computed, payload=payload, validator_config=self._QUOTING, validator_kind="mcp"
+            ),
+            self._recent_row(
+                agent_digest=computed,
+                payload=payload,
+                validator_config=self._QUOTING,
+                expose_payload_to_agent=False,
+            ),
+        )
+        assert [r.quoted for r in rows] == [(), (), ()]
 
     async def test_recent_rows_say_where_each_digest_came_from(self) -> None:
         """AC-18. Derived by rebuilding the deterministic payload fallback and

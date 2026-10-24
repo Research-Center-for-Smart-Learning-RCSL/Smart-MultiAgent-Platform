@@ -9,7 +9,8 @@
       "validator_kind": "in_process",
       "validator_config": {
         "validator_id": "filled_count_coverage",
-        "min_filled": 2
+        "min_filled": 2,
+        "quote_fields": ["target_character"]
       },
       "retention_days": null,
       "expose_payload_to_agent": true,
