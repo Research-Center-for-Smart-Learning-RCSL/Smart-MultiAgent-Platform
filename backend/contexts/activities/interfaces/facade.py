@@ -37,9 +37,11 @@ from contexts.activities.domain.errors import (
     PlatformActivityTypeReadOnly,
 )
 from contexts.activities.domain.models import (
+    ActivationNotice,
     ActivationStatus,
     ActivityActivation,
     ActivityActivationEndResult,
+    ActivityActivationStartResult,
     ActivityAggregate,
     ActivityPolicy,
     ActivitySession,
@@ -48,15 +50,20 @@ from contexts.activities.domain.models import (
     ActivityType,
     ActivityTypeScope,
     AttemptSummary,
+    EndedActivation,
     FieldCoverage,
     GroupProposalResolution,
     GroupProposalTally,
     GroupRoundView,
+    GroupSubmissionState,
     MandalaGrid,
     MemberGroupRef,
     PolicyImpact,
+    ProposalStateRow,
+    ProposalStatus,
     RecentActivityRow,
     ResearchExportSubmission,
+    RoomActivityState,
     RoundDashboardAggregate,
     RoundSubject,
     RoundSubjectCount,
@@ -70,7 +77,9 @@ from contexts.activities.infrastructure.repositories.activation_repo import Acti
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
+from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
+from contexts.activities.infrastructure.repositories.submission_repo import ActivitySubmissionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 
 # Upper bound on the admin form's "how many types would this break" preview. A
@@ -79,10 +88,12 @@ from contexts.activities.infrastructure.repositories.type_repo import ActivityTy
 _POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
+    "ActivationNotice",
     "ActivationStatus",
     "ActivitiesFacade",
     "ActivityActivation",
     "ActivityActivationEndResult",
+    "ActivityActivationStartResult",
     "ActivityAggregate",
     "ActivitySession",
     "ActivitySessionCompletionResult",
@@ -91,15 +102,19 @@ __all__ = [
     "ActivityTypeScope",
     "AttemptSummary",
     "CatalogueEntry",
+    "EndedActivation",
     "FieldCoverage",
     "GroupProposalResolution",
     "GroupProposalTally",
     "GroupRoundView",
+    "GroupSubmissionState",
     "InstallReport",
     "MandalaGrid",
     "MemberGroupRef",
     "PlatformExample",
+    "ProposalStateRow",
     "RecentActivityRow",
+    "RoomActivityState",
     "RoundDashboardAggregate",
     "RoundSubject",
     "RoundSubjectCount",
@@ -437,7 +452,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[EndedActivation]:
         """Revoke access, ending only this project's activations ([R30.33])."""
         return await self._examples.opt_out(
             project_id=project_id,
@@ -459,12 +474,13 @@ class ActivitiesFacade:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
         started_by_agent_id: uuid.UUID | None = None,
-    ) -> ActivityActivation:
+    ) -> ActivityActivationStartResult:
         """Start a round; ``started_by_agent_id`` marks a delegated start ([R30.37]).
 
         The delegated caller is the agent runtime's ``start_activity`` tool, and it
         reaches the same service method the HTTP route does — so type reachability
-        and the governance policy are enforced once, for both.
+        and the governance policy are enforced once, for both. The result's
+        ``notice`` is the room message to publish after commit ([R30.45]).
         """
         return await self._activation.start(
             project_id=project_id,
@@ -498,6 +514,29 @@ class ActivitiesFacade:
     async def get_active_activation(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         return await self._activation.get_active(chatroom_id)
 
+    async def room_activity_state(self, chatroom_id: uuid.UUID) -> RoomActivityState:
+        """The room's activity state for its agents ([R30.44]).
+
+        The running activation, else the most recently ended one, with the
+        proposal counts and submitting groups of that activation. Raises on a
+        failed read: the caller must say "unavailable", never "not started".
+        """
+        current = (await self._activation_repo.current_for_rooms([chatroom_id])).get(chatroom_id)
+        if current is None:
+            return RoomActivityState(activation=None)
+        activity_type = await self._type_repo.get(current.activity_type_id)
+        proposals = await GroupProposalRepository(self._db).state_for_activation(
+            chatroom_id=chatroom_id, activation_id=current.id
+        )
+        submitted = await ActivitySubmissionRepository(self._db).submitted_groups(activation_id=current.id)
+        return RoomActivityState(
+            activation=current,
+            activity_type=activity_type,
+            open_proposals=tuple(p for p in proposals if p.status is ProposalStatus.OPEN),
+            settled_proposals=tuple(p for p in proposals if p.status is not ProposalStatus.OPEN),
+            submitted_groups=tuple(submitted),
+        )
+
     async def delete_type(
         self,
         *,
@@ -506,7 +545,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[EndedActivation]:
         """Cascade-delete a *project's* type: end every active activation
         referencing it, then soft-delete the type, all on the caller's transaction
         (R30.23).
@@ -541,7 +580,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[EndedActivation]:
         """Admin-only removal of an installed example ([R30.31], [R30.32]).
 
         The cascade legitimately spans every tenant here: the type is going away
@@ -588,14 +627,14 @@ class ActivitiesFacade:
         actor_ip: str | None,
         request_id: uuid.UUID | None,
         extra_metadata: dict[str, str] | None = None,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[EndedActivation]:
         """End every activation and close every open session for a type, then
         tombstone it. Unbounded across rooms — every caller must have established
         that the type is going away platform-wide or project-wide first.
 
         ``extra_metadata`` rides onto the delete's audit event, so a caller can
         record what its own cascade did beyond the shared part done here."""
-        ended: list[tuple[uuid.UUID, uuid.UUID]] = []
+        ended: list[EndedActivation] = []
         for activation in await self._activation_repo.list_active_for_type(type_id):
             result = await self._activation.end(
                 chatroom_id=activation.chatroom_id,
@@ -605,7 +644,7 @@ class ActivitiesFacade:
                 request_id=request_id,
             )
             if result.transitioned:
-                ended.append((activation.chatroom_id, activation.id))
+                ended.append(EndedActivation(activation.chatroom_id, activation.id, result.notice))
 
         # Force-close any in-flight session so none outlives its type (FU-4).
         await self._sessions.close_open_for_type(type_id)

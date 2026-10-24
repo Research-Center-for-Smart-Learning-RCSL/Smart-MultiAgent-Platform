@@ -13,6 +13,7 @@ LLM inference.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -20,8 +21,16 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.models import RecentActivityRow
+from contexts.activities.domain.group_consent import parse_group_config
+from contexts.activities.domain.models import (
+    ActivationStatus,
+    ActivityActivation,
+    ActivityType,
+    RecentActivityRow,
+    RoomActivityState,
+)
 from contexts.activities.domain.subject_code import group_subject_code, outcome_word, subject_code
+from shared_kernel.tokens import estimate_tokens
 
 if TYPE_CHECKING:
     # Type-only: `from __future__ import annotations` keeps the annotation a
@@ -185,6 +194,31 @@ class ActivityContextProvider:
         except Exception:
             _log.warning("activity group-name resolution failed; block keeps bare codes", exc_info=True)
             return {}
+
+    async def state(self, *, chatroom_id: uuid.UUID) -> str:
+        """The ``[Activity state]`` block ([R30.44]); never ``None``.
+
+        Always present on a room turn, because an absent block would leave the
+        model to infer "not started" from silence, which is the inference this
+        block exists to replace. A failed read says so instead of guessing.
+        """
+        from contexts.activities.interfaces.facade import ActivitiesFacade
+
+        facade = ActivitiesFacade(self._db)
+        try:
+            state = await facade.room_activity_state(chatroom_id)
+        except Exception:
+            _log.warning("activity state read failed for room %s", chatroom_id, exc_info=True)
+            return f"{STATE_HEADER}\n{STATE_UNAVAILABLE}"
+        group_ids = {p.member_group_id for p in (*state.open_proposals, *state.settled_proposals)}
+        group_ids |= {g.member_group_id for g in state.submitted_groups}
+        names: Mapping[uuid.UUID, str] = {}
+        if group_ids:
+            try:
+                names = await facade.resolve_member_group_names(sorted(group_ids))
+            except Exception:
+                _log.warning("activity state group names failed; block keeps bare codes", exc_info=True)
+        return render_activity_state(state, group_names=names)
 
     async def _digests_allowed(self, facade: ActivitiesFacade) -> bool:
         """Whether the platform policy still permits submission content in a prompt.
@@ -354,4 +388,125 @@ def _format_row(row: RecentActivityRow, *, digests_allowed: bool) -> str:
     return line
 
 
-__all__ = ["ActivityContextProvider", "LabelResolver", "subject_code"]
+STATE_HEADER = "[Activity state]"
+STATE_UNAVAILABLE = "Activity state unavailable."
+STATE_NEVER_RUN = "No activity has been run in this room."
+
+#: [R30.44] bounds. Rows past either are dropped and the drop is stated, so a
+#: truncated list never reads as a complete one.
+STATE_MAX_GROUP_ROWS = 30
+STATE_MAX_TOKENS = 1500
+
+_STATE_PREAMBLE = (
+    "Computed by the platform from server state for this turn, not inferred from the chat. "
+    "A g: code is a group of several people, not one person. The counts say what each group "
+    "has done; this block makes no claim about whether the whole class has finished."
+)
+_TYPE_NAME_MAX = 120
+_GROUP_NAME_MAX = 60
+
+
+def _ts(value: dt.datetime | None) -> str:
+    return value.isoformat() if value else "an unknown time"
+
+
+def _quoted(text: str, limit: int) -> str:
+    return f'"{_one_line(text)[:limit]}"'
+
+
+def _group_ref(group_id: uuid.UUID, names: Mapping[uuid.UUID, str]) -> str:
+    code = group_subject_code(group_id)
+    name = names.get(group_id)
+    return f"{code} {_quoted(name, _GROUP_NAME_MAX)}" if name else code
+
+
+def _activity_line(activation: ActivityActivation, activity_type: ActivityType | None) -> str:
+    name = _quoted(activity_type.name, _TYPE_NAME_MAX) if activity_type else "(a deleted activity type)"
+    try:
+        consent = parse_group_config(activity_type.group_config) if activity_type else None
+    except ValueError:
+        consent = None
+    if consent is None:
+        mode = "individual activity: each participant submits for themselves"
+    else:
+        mode = (
+            f"group activity: a group's proposal is accepted when {consent[0]}/{consent[1]} "
+            "of its pinned members approve"
+        )
+    if activation.status is ActivationStatus.ACTIVE:
+        return f"Current activity: {name}, {mode}, started at {_ts(activation.created_at)}."
+    return (
+        f"No activity is running. The most recent was {name} ({mode}), "
+        f"started at {_ts(activation.created_at)} and ended at {_ts(activation.ended_at)}."
+    )
+
+
+def _state_sections(state: RoomActivityState, names: Mapping[uuid.UUID, str]) -> list[tuple[str, list[str]]]:
+    open_rows = [
+        f"- {_group_ref(p.member_group_id, names)}: {p.approvals} approve, {p.rejections} reject, "
+        f"{p.undecided} undecided; {p.required_approvals} approvals needed."
+        for p in state.open_proposals
+    ]
+    settled_rows = [
+        f"- {_group_ref(p.member_group_id, names)}: proposal {p.status.value} at {_ts(p.resolved_at)}."
+        for p in state.settled_proposals
+    ]
+    submitted_rows = [
+        f"- {_group_ref(g.member_group_id, names)}: submitted {g.submissions} time"
+        f"{'' if g.submissions == 1 else 's'}, latest at {_ts(g.last_submitted_at)}."
+        for g in state.submitted_groups
+    ]
+    return [
+        ("Open group proposals, awaiting votes:", open_rows),
+        ("Proposals in this activity that did not pass (rejected, withdrawn or expired):", settled_rows),
+        ("Groups that have submitted in this activity:", submitted_rows),
+    ]
+
+
+def _assemble(head: list[str], sections: list[tuple[str, list[str]]], dropped: int) -> str:
+    lines = list(head)
+    for title, rows in sections:
+        if rows:
+            lines.append(title)
+            lines.extend(rows)
+    if dropped:
+        lines.append(f"({dropped} more group row{'' if dropped == 1 else 's'} not shown.)")
+    return "\n".join(lines)
+
+
+def render_activity_state(state: RoomActivityState, *, group_names: Mapping[uuid.UUID, str]) -> str:
+    """Render ``[Activity state]`` within its row and token bounds ([R30.44])."""
+    head = [STATE_HEADER, _STATE_PREAMBLE]
+    if state.activation is None:
+        return "\n".join([*head, STATE_NEVER_RUN])
+    head.append(_activity_line(state.activation, state.activity_type))
+    if state.activation.status is not ActivationStatus.ACTIVE:
+        return "\n".join(head)
+
+    sections = _state_sections(state, group_names)
+    total = sum(len(rows) for _, rows in sections)
+    kept = min(total, STATE_MAX_GROUP_ROWS)
+    while True:
+        budget = kept
+        trimmed: list[tuple[str, list[str]]] = []
+        for title, rows in sections:
+            take = rows[: max(0, budget)]
+            budget -= len(take)
+            trimmed.append((title, take))
+        text = _assemble(head, trimmed, total - kept)
+        if kept == 0 or estimate_tokens(text) <= STATE_MAX_TOKENS:
+            return text
+        kept -= 1
+
+
+__all__ = [
+    "STATE_HEADER",
+    "STATE_MAX_GROUP_ROWS",
+    "STATE_MAX_TOKENS",
+    "STATE_NEVER_RUN",
+    "STATE_UNAVAILABLE",
+    "ActivityContextProvider",
+    "LabelResolver",
+    "render_activity_state",
+    "subject_code",
+]

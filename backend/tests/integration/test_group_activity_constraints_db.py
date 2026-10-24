@@ -484,3 +484,151 @@ class TestOneOpenProposalPerGroupAndRound:
                     )
                 )
             await second.rollback()
+
+
+class TestRoomActivityStateQueries:
+    """AC-10 and AC-11 for the two [Activity state] reads.
+
+    ``FILTER`` and ``jsonb_array_length`` are PostgreSQL-specific, so the counts
+    are only proven by executing them. The seeded proposal carries a distinctive
+    payload and real voter ids, which is what lets AC-11's absence check fail if
+    a column ever leaks into the projection.
+    """
+
+    async def test_counts_statuses_and_projection(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        room_round: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    ) -> None:
+        from contexts.activities.application.activity_context_provider import render_activity_state
+        from contexts.activities.domain.models import ProposalStatus, RoomActivityState
+        from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
+        from contexts.activities.infrastructure.repositories.submission_repo import (
+            ActivitySubmissionRepository,
+        )
+        from contexts.identity.infrastructure.tables import users as users_t
+
+        activation_id, type_id, user_id = room_round
+        voter_b, voter_c = uuid.uuid4(), uuid.uuid4()
+        open_group, rejected_group, accepted_group, submitted_group = (uuid.uuid4() for _ in range(4))
+        secret = "PAYLOAD-SECRET-7f3a"
+        async with sessionmaker() as session:
+            chatroom_id = await _chatroom_of(session, activation_id)
+            for uid in (voter_b, voter_c):
+                await session.execute(
+                    users_t.insert().values(id=uid, email=f"itest-{uid}@test.invalid", password_hash="x")
+                )
+            base = {
+                "activation_id": activation_id,
+                "type_id": type_id,
+                "chatroom_id": chatroom_id,
+                "user_id": user_id,
+            }
+            open_values = _proposal_values(**base, group_id=open_group)
+            open_values["payload"] = {"answer": secret}
+            open_values["voter_user_ids"] = [str(user_id), str(voter_b), str(voter_c)]
+            open_values["required_approvals"] = 2
+            await session.execute(at.activity_group_proposals.insert().values(**open_values))
+            await session.execute(
+                at.activity_group_proposal_votes.insert().values(
+                    [
+                        {"proposal_id": open_values["id"], "user_id": user_id, "choice": "approve"},
+                        {"proposal_id": open_values["id"], "user_id": voter_b, "choice": "reject"},
+                    ]
+                )
+            )
+            rejected = _proposal_values(**base, group_id=rejected_group, status="rejected")
+            rejected["resolved_at"] = now()
+            await session.execute(at.activity_group_proposals.insert().values(**rejected))
+            await session.execute(
+                at.activity_group_proposals.insert().values(
+                    **_proposal_values(**base, group_id=accepted_group, status="accepted")
+                )
+            )
+
+            group_session = _session_values(
+                activation_id=activation_id, type_id=type_id, chatroom_id=chatroom_id
+            )
+            own_session = _session_values(
+                activation_id=activation_id, type_id=type_id, chatroom_id=chatroom_id
+            )
+            await session.execute(
+                at.activity_sessions.insert().values(**group_session, subject_member_group_id=submitted_group)
+            )
+            await session.execute(
+                at.activity_sessions.insert().values(**own_session, subject_user_id=user_id)
+            )
+            session_id, individual = group_session["id"], own_session["id"]
+            for sid, attempt, deleted in (
+                (session_id, 1, None),
+                (session_id, 2, None),
+                (session_id, 3, now()),
+                (individual, 1, None),
+            ):
+                await session.execute(
+                    at.activity_submissions.insert().values(
+                        session_id=sid,
+                        activity_type_id=type_id,
+                        chatroom_id=chatroom_id,
+                        producer_user_id=user_id,
+                        payload={"answer": secret},
+                        attempt_no=attempt,
+                        deleted_at=deleted,
+                    )
+                )
+            await session.commit()
+
+        try:
+            async with sessionmaker() as read:
+                proposals = await GroupProposalRepository(read).state_for_activation(
+                    chatroom_id=chatroom_id, activation_id=activation_id
+                )
+                crossed = await GroupProposalRepository(read).state_for_activation(
+                    chatroom_id=uuid.uuid4(), activation_id=activation_id
+                )
+                groups = await ActivitySubmissionRepository(read).submitted_groups(
+                    activation_id=activation_id
+                )
+                activation = await ActivationRepository(read).get(activation_id)
+
+            by_group = {p.member_group_id: p for p in proposals}
+            # Accepted proposals are reported from the submission side.
+            assert set(by_group) == {open_group, rejected_group}
+            assert crossed == []
+            op = by_group[open_group]
+            assert (op.status, op.approvals, op.rejections, op.undecided, op.required_approvals) == (
+                ProposalStatus.OPEN,
+                1,
+                1,
+                1,
+                2,
+            )
+            rj = by_group[rejected_group]
+            assert (rj.status, rj.approvals, rj.rejections, rj.undecided) == (
+                ProposalStatus.REJECTED,
+                0,
+                0,
+                1,
+            )
+            assert rj.resolved_at is not None
+
+            # The deleted attempt and the individual session do not count.
+            assert [(g.member_group_id, g.submissions) for g in groups] == [(submitted_group, 2)]
+
+            assert activation is not None
+            text = render_activity_state(
+                RoomActivityState(
+                    activation=activation,
+                    open_proposals=tuple(p for p in proposals if p.status is ProposalStatus.OPEN),
+                    settled_proposals=tuple(p for p in proposals if p.status is not ProposalStatus.OPEN),
+                    submitted_groups=tuple(groups),
+                ),
+                group_names={},
+            )
+            for leaked in (secret, str(user_id), str(voter_b), str(voter_c)):
+                assert leaked not in text
+            assert "1 approve, 1 reject, 1 undecided; 2 approvals needed." in text
+        finally:
+            async with sessionmaker() as cleanup:
+                await cleanup.execute(users_t.delete().where(users_t.c.id.in_([voter_b, voter_c])))
+                await cleanup.commit()

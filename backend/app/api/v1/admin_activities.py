@@ -469,8 +469,8 @@ async def delete_platform_activity_type(
         request_id=ctx.request_id,
     )
     await db.commit()
-    for chatroom_id, activation_id in ended:
-        await dispatch_activation_ended(chatroom_id, activation_id)
+    for e in ended:
+        await dispatch_activation_ended(e.chatroom_id, e.activation_id, notice=e.notice)
 
 
 @router.get("/activity-activations")

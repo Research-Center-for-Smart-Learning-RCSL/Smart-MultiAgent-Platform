@@ -33,6 +33,7 @@ from contexts.activities.domain.models import (
     ActivityPolicy,
     ActivityType,
     ActivityTypeScope,
+    EndedActivation,
     PolicyImpact,
     ValidatorKind,
 )
@@ -558,7 +559,7 @@ class TestExampleCatalogueRoutes:
             patch.object(
                 ActivitiesFacade,
                 "delete_platform_type",
-                new=AsyncMock(return_value=[(room_a, act_a), (room_b, act_b)]),
+                new=AsyncMock(return_value=[EndedActivation(room_a, act_a), EndedActivation(room_b, act_b)]),
             ),
             patch.object(admin_activities, "dispatch_activation_ended", new=dispatch),
         ):

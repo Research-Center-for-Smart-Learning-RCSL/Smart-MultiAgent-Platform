@@ -6,8 +6,14 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.activation_notice import (
+    EVENT_ENDED,
+    EVENT_STARTED,
+    ConversationActivationNotices,
+)
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.ports import (
+    ActivationNoticeWriter,
     ActivityActivationRepository,
     ActivitySessionCloser,
     ActivityTypeOptInReader,
@@ -19,7 +25,11 @@ from contexts.activities.domain.errors import (
     ActivityActivationNotFound,
     ActivityAlreadyActive,
 )
-from contexts.activities.domain.models import ActivityActivation, ActivityActivationEndResult
+from contexts.activities.domain.models import (
+    ActivityActivation,
+    ActivityActivationEndResult,
+    ActivityActivationStartResult,
+)
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
@@ -58,6 +68,7 @@ class ActivationService:
         optin_repo: ActivityTypeOptInReader | None = None,
         session_repo: ActivitySessionCloser | None = None,
         proposal_repo: GroupProposalExpirer | None = None,
+        notices: ActivationNoticeWriter | None = None,
     ) -> None:
         self._db = db
         self._repo = activation_repo
@@ -74,6 +85,7 @@ class ActivationService:
         # for the same reason it closes the sessions: a vote that outlives its
         # round would otherwise produce a submission after the class moved on.
         self._proposal_repo: GroupProposalExpirer = proposal_repo or GroupProposalRepository(db)
+        self._notices: ActivationNoticeWriter = notices or ConversationActivationNotices(db)
         self._policy = ActivityPolicyService(db)
 
     async def start(
@@ -86,7 +98,7 @@ class ActivationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
         started_by_agent_id: uuid.UUID | None = None,
-    ) -> ActivityActivation:
+    ) -> ActivityActivationStartResult:
         """Start a round. ``started_by_agent_id`` marks a delegated start ([R30.37]).
 
         The delegated path differs only in what is *recorded*: both gates below run
@@ -122,7 +134,8 @@ class ActivationService:
                 raise ActivityActivationNotFound(str(chatroom_id))
             if active.activity_type_id != activity_type_id:
                 raise ActivityAlreadyActive(str(active.id))
-            return active
+            # [R30.45]: nothing began, so no notice.
+            return ActivityActivationStartResult(activation=active)
 
         activation = await self._repo.get(activation_id)
         if activation is None:  # pragma: no cover - inserted in this transaction
@@ -147,7 +160,13 @@ class ActivationService:
                 request_id=request_id,
             ),
         )
-        return activation
+        notice = await self._notices.write(
+            chatroom_id=chatroom_id,
+            activation_id=activation.id,
+            activity_type=activity_type,
+            event=EVENT_STARTED,
+        )
+        return ActivityActivationStartResult(activation=activation, notice=notice)
 
     async def end(
         self,
@@ -197,9 +216,19 @@ class ActivationService:
                     request_id=request_id,
                 ),
             )
+            # Written on every end path, since every one comes through here. The
+            # type may already be soft-deleted by a cascade's caller; the notice
+            # then names no activity rather than failing the end.
+            notice = await self._notices.write(
+                chatroom_id=chatroom_id,
+                activation_id=activation_id,
+                activity_type=await self._type_repo.get(activation.activity_type_id),
+                event=EVENT_ENDED,
+            )
             updated = await self._repo.get(activation_id)
-            if updated is not None:
-                return ActivityActivationEndResult(activation=updated, transitioned=True)
+            return ActivityActivationEndResult(
+                activation=updated or activation, transitioned=True, notice=notice
+            )
         return ActivityActivationEndResult(activation=activation, transitioned=False)
 
     async def get_active(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:

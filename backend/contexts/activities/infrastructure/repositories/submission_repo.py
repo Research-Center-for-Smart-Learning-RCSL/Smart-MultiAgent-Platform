@@ -23,6 +23,7 @@ from contexts.activities.domain.models import (
     ActivityAggregate,
     ActivitySubmission,
     AttemptSummaryRow,
+    GroupSubmissionState,
     RecentActivityRow,
     RoundDashboardAggregate,
     RoundSubjectCount,
@@ -643,6 +644,37 @@ class ActivitySubmissionRepository:
                 total_submissions=int(r.total or 0),
                 valid_count=int(r.valid_count or 0),
                 last_valid_submission_at=r.last_valid_at,
+            )
+            for r in rows
+        ]
+
+    async def submitted_groups(self, *, activation_id: uuid.UUID) -> list[GroupSubmissionState]:
+        """The groups that have submitted in one round, longest-standing first ([R30.44])."""
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    _SESS.c.subject_member_group_id,
+                    sa.func.count().label("submissions"),
+                    sa.func.max(_SUB.c.created_at).label("last_at"),
+                )
+                .select_from(joined)
+                .where(
+                    sa.and_(
+                        _SESS.c.activation_id == activation_id,
+                        _SESS.c.subject_member_group_id.is_not(None),
+                        _SUB.c.deleted_at.is_(None),
+                    )
+                )
+                .group_by(_SESS.c.subject_member_group_id)
+                .order_by(sa.func.min(_SUB.c.created_at), _SESS.c.subject_member_group_id)
+            )
+        ).all()
+        return [
+            GroupSubmissionState(
+                member_group_id=r.subject_member_group_id,
+                submissions=int(r.submissions or 0),
+                last_submitted_at=r.last_at,
             )
             for r in rows
         ]

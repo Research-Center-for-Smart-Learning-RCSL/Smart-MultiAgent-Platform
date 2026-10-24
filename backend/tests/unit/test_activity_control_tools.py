@@ -18,9 +18,11 @@ import pytest
 
 from contexts.activities.domain.errors import ActivityTypeNotFound, ActivityTypeViolatesPolicy
 from contexts.activities.domain.models import (
+    ActivationNotice,
     ActivationStatus,
     ActivityActivation,
     ActivityActivationEndResult,
+    ActivityActivationStartResult,
     ActivityType,
     ValidatorKind,
 )
@@ -113,11 +115,11 @@ class _FakeActivitiesFacade:
             raise ActivityTypeNotFound(str(activity_type_id))
         return found
 
-    async def start_activation(self, **kw: Any) -> ActivityActivation:
+    async def start_activation(self, **kw: Any) -> ActivityActivationStartResult:
         if _FakeActivitiesFacade.start_error is not None:
             raise _FakeActivitiesFacade.start_error
         _FakeActivitiesFacade.started.append(kw)
-        return ActivityActivation(
+        activation = ActivityActivation(
             id=uuid.uuid4(),
             chatroom_id=kw["chatroom_id"],
             activity_type_id=kw["activity_type_id"],
@@ -126,6 +128,8 @@ class _FakeActivitiesFacade:
             created_at=_NOW,
             started_by_agent_id=kw.get("started_by_agent_id"),
         )
+        notice = ActivationNotice(message_id=uuid.uuid4(), chatroom_id=kw["chatroom_id"], created_at=_NOW)
+        return ActivityActivationStartResult(activation=activation, notice=notice)
 
     async def get_active_activation(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         return _FakeActivitiesFacade.active
@@ -133,9 +137,14 @@ class _FakeActivitiesFacade:
     async def end_activation(self, **kw: Any) -> ActivityActivationEndResult:
         _FakeActivitiesFacade.ended.append(kw)
         assert _FakeActivitiesFacade.active is not None
+        transitioned = _FakeActivitiesFacade.end_transitioned
+        notice = (
+            ActivationNotice(message_id=uuid.uuid4(), chatroom_id=kw["chatroom_id"], created_at=_NOW)
+            if transitioned
+            else None
+        )
         return ActivityActivationEndResult(
-            activation=_FakeActivitiesFacade.active,
-            transitioned=_FakeActivitiesFacade.end_transitioned,
+            activation=_FakeActivitiesFacade.active, transitioned=transitioned, notice=notice
         )
 
 

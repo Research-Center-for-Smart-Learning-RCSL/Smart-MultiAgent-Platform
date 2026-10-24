@@ -1393,6 +1393,7 @@ class _SystemBlocks:
         notify_block: str | None,
         with_time: bool = False,
         with_participants: bool = False,
+        activity_state: str | None = None,
     ) -> _SystemBlocks:
         blocks: list[_SystemBlock] = [
             _SystemBlock("base_system", _BlockRole.MEASURED_AND_RENDERED, text=base_system)
@@ -1412,6 +1413,8 @@ class _SystemBlocks:
         # exists to declare rather than to hand-maintain in two places.
         blocks.append(_SystemBlock("skills", _BlockRole.MEASURED_AND_RENDERED, text=skills_note))
         blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
+        # [R30.44]: fixed for the turn, so plain text measured in both passes.
+        blocks.append(_SystemBlock("activity_state", _BlockRole.MEASURED_AND_RENDERED, text=activity_state))
         blocks.append(_SystemBlock("canvas", _BlockRole.MEASURED_AND_RENDERED, text=canvas_block))
         blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
         blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
@@ -2146,9 +2149,12 @@ class TurnEngine:
                     event["activation"],
                     event.get("activity_type"),
                     initiating_agent=initiator,
+                    notice=event.get("notice"),
                 )
             elif event.get("kind") == EVENT_ENDED:
-                await dispatch_activation_ended(event["chatroom_id"], event["activation_id"])
+                await dispatch_activation_ended(
+                    event["chatroom_id"], event["activation_id"], notice=event.get("notice")
+                )
 
     async def _resolve_agent_tools(self, agent: Agent) -> list[AgentTool]:
         """Resolve the agent's configured tools once per turn.
@@ -3208,6 +3214,7 @@ class TurnEngine:
             # its own transcript window can place. The creator's are never shown.
             joins = [(who, at) for who, at in await self._recent_joins(chatroom_id) if who != creator_id]
             activity_block = await self._activity_context(chatroom_id, guests=guests)
+            activity_state = await self._activity_state(chatroom_id)
             canvas_block = await self._canvas_context(chatroom_id, agent_id=agent.id)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
@@ -3240,6 +3247,7 @@ class TurnEngine:
                 notify_block=notify_block,
                 with_time=True,
                 with_participants=True,
+                activity_state=activity_state,
             )
 
             # F-17: compaction is decided against the whole non-knowledge request
@@ -5288,6 +5296,10 @@ class TurnEngine:
             chatroom_id=chatroom_id,
             resolve_labels=lambda ids: self._room_display_labels(chatroom_id, ids, guests=guests),
         )
+
+    async def _activity_state(self, chatroom_id: uuid.UUID) -> str:
+        """The ``[Activity state]`` block ([R30.44]), on every normal and observer room turn."""
+        return await self._activity_provider.state(chatroom_id=chatroom_id)
 
     async def _canvas_context(
         self,

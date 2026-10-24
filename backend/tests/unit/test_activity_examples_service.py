@@ -476,7 +476,7 @@ class TestOptOut:
 
         mine = next(a for a in activations if a.chatroom_id == my_room)
         theirs = next(a for a in activations if a.chatroom_id == their_room)
-        assert ended == [(my_room, mine.id)]
+        assert [(e.chatroom_id, e.activation_id) for e in ended] == [(my_room, mine.id)]
         assert theirs.id not in ended_ids
 
         # Sessions are closed room-by-room too, never with the unbounded

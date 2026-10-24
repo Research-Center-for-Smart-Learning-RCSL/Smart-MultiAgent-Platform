@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from contexts.activities.application import activation_service
+from contexts.activities.application import activation_notice, activation_service
+from contexts.activities.application.activation_notice import notice_text
 from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.domain.errors import ActivityAlreadyActive, ActivityTypeNotFound
 from contexts.activities.domain.models import (
+    ActivationNotice,
     ActivationStatus,
     ActivityActivation,
     ActivityActivationEndResult,
@@ -59,14 +62,25 @@ def _expirer(expired: list[uuid.UUID] | None = None) -> MagicMock:
     return MagicMock(expire_open_for_activation=AsyncMock(return_value=expired or []))
 
 
-def _no_policy(svc: ActivationService) -> ActivationService:
-    """No platform policy row, so the activation gate falls back to permissive.
+def _notices() -> MagicMock:
+    """An ``ActivationNoticeWriter`` double that records what it was asked to write."""
 
-    That is the behavior every test here was written against; the gate itself is
-    covered in ``test_activity_policy_enforcement.py``.
+    async def _write(**kw: object) -> ActivationNotice:
+        return ActivationNotice(message_id=uuid.uuid4(), chatroom_id=kw["chatroom_id"], created_at=_NOW)  # type: ignore[arg-type]
+
+    return MagicMock(write=AsyncMock(side_effect=_write))
+
+
+def _wired(svc: ActivationService) -> ActivationService:
+    """No platform policy row, so the activation gate falls back to permissive,
+    and a recording notice writer in place of the conversation facade.
+
+    The permissive gate is the behavior every test here was written against; the
+    gate itself is covered in ``test_activity_policy_enforcement.py``.
     """
     svc._policy._repo = MagicMock()
     svc._policy._repo.get_platform = AsyncMock(return_value=None)
+    svc._notices = _notices()
     return svc
 
 
@@ -77,7 +91,7 @@ class TestActivationService:
         repo = MagicMock(
             create_active=AsyncMock(return_value=None), get_active=AsyncMock(return_value=active)
         )
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
@@ -93,7 +107,10 @@ class TestActivationService:
             actor_ip=None,
         )
 
-        assert result == active
+        assert result.activation == active
+        # AC-12: a repeated start of the running type began nothing, so it says nothing.
+        assert result.notice is None
+        svc._notices.write.assert_not_awaited()  # type: ignore[attr-defined]
 
     async def test_start_rejects_a_different_active_type(self) -> None:
         project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -101,7 +118,7 @@ class TestActivationService:
             create_active=AsyncMock(return_value=None),
             get_active=AsyncMock(return_value=_activation(room_id, uuid.uuid4())),
         )
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
@@ -121,7 +138,7 @@ class TestActivationService:
     async def test_start_rejects_a_cross_project_type_before_persisting(self) -> None:
         project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         repo = MagicMock(create_active=AsyncMock())
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
@@ -145,11 +162,11 @@ class TestActivationService:
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=False))
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
             )
         )
@@ -165,6 +182,8 @@ class TestActivationService:
         # A double-end changed nothing, so it must not re-close sessions either —
         # a second sweep would restamp closed_at on rows this call did not end.
         closer.close_open_for_activation.assert_not_awaited()
+        # Nor tell the room a second time that the activity ended (AC-12).
+        svc._notices.write.assert_not_awaited()  # type: ignore[attr-defined]
 
     async def test_end_closes_the_rounds_sessions_and_records_the_count(self) -> None:
         """AC-4: ending a round leaves nothing answered under it open ([R30.22]).
@@ -179,11 +198,11 @@ class TestActivationService:
             get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=3))
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
                 proposal_repo=_expirer(),
             )
@@ -212,11 +231,11 @@ class TestActivationService:
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
         expirer = _expirer([uuid.uuid4(), uuid.uuid4()])
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
                 proposal_repo=expirer,
             )
@@ -240,11 +259,11 @@ class TestActivationService:
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=False))
         expirer = _expirer()
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=MagicMock(close_open_for_activation=AsyncMock(return_value=0)),
                 proposal_repo=expirer,
             )
@@ -266,11 +285,11 @@ class TestActivationService:
         activation = _activation(room_id, type_id)
         repo = MagicMock(get=AsyncMock(return_value=activation), end=AsyncMock(return_value=True))
         closer = MagicMock(close_open_for_activation=AsyncMock(side_effect=RuntimeError("close blew up")))
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
                 proposal_repo=_expirer(),
             )
@@ -312,7 +331,7 @@ class TestDelegatedActivation:
             create_active=AsyncMock(return_value=created.id),
             get=AsyncMock(return_value=created),
         )
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
@@ -330,8 +349,8 @@ class TestDelegatedActivation:
                 started_by_agent_id=agent_id,
             )
 
-        assert result.started_by_user_id == granter
-        assert result.started_by_agent_id == agent_id
+        assert result.activation.started_by_user_id == granter
+        assert result.activation.started_by_agent_id == agent_id
         assert repo.create_active.await_args.kwargs["started_by_agent_id"] == agent_id
         # AC-12: the trail names the agent and says how it acted.
         metadata = emit.await_args.args[1].metadata
@@ -348,7 +367,7 @@ class TestDelegatedActivation:
         repo = MagicMock(
             create_active=AsyncMock(return_value=created.id), get=AsyncMock(return_value=created)
         )
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
@@ -380,11 +399,11 @@ class TestDelegatedActivation:
             get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
                 proposal_repo=_expirer(),
             )
@@ -421,11 +440,11 @@ class TestDelegatedActivation:
             get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
         )
         closer = MagicMock(close_open_for_activation=AsyncMock(return_value=0))
-        svc = _no_policy(
+        svc = _wired(
             ActivationService(
                 MagicMock(),
                 activation_repo=repo,
-                type_repo=MagicMock(),
+                type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
                 proposal_repo=_expirer(),
             )
@@ -441,3 +460,109 @@ class TestDelegatedActivation:
             )
 
         assert result.activation.started_by_agent_id == starter_agent
+
+
+class TestActivationNotices:
+    """[R30.45] / phase 3 AC-12: one room message per start and per end."""
+
+    async def test_a_new_start_writes_one_started_notice(self) -> None:
+        project_id, room_id, type_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        activity_type = _type(project_id, type_id)
+        created = _activation(room_id, type_id)
+        repo = MagicMock(
+            create_active=AsyncMock(return_value=created.id), get=AsyncMock(return_value=created)
+        )
+        svc = _wired(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=activity_type)),
+            )
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()):
+            result = await svc.start(
+                project_id=project_id,
+                chatroom_id=room_id,
+                activity_type_id=type_id,
+                started_by_user_id=uuid.uuid4(),
+                actor_ip=None,
+                started_by_agent_id=uuid.uuid4(),
+            )
+
+        write = svc._notices.write  # type: ignore[attr-defined]
+        write.assert_awaited_once_with(
+            chatroom_id=room_id, activation_id=created.id, activity_type=activity_type, event="started"
+        )
+        assert result.notice is not None
+        assert result.notice.chatroom_id == room_id
+
+    async def test_an_end_writes_one_ended_notice_naming_the_type(self) -> None:
+        room_id, type_id = uuid.uuid4(), uuid.uuid4()
+        activity_type = _type(uuid.uuid4(), type_id)
+        activation = _activation(room_id, type_id)
+        repo = MagicMock(
+            get=AsyncMock(side_effect=[activation, activation]), end=AsyncMock(return_value=True)
+        )
+        svc = _wired(
+            ActivationService(
+                MagicMock(),
+                activation_repo=repo,
+                type_repo=MagicMock(get=AsyncMock(return_value=activity_type)),
+                session_repo=MagicMock(close_open_for_activation=AsyncMock(return_value=0)),
+                proposal_repo=_expirer(),
+            )
+        )
+
+        with patch.object(activation_service.audit, "emit", new=AsyncMock()):
+            result = await svc.end(
+                chatroom_id=room_id, activation_id=activation.id, actor_user_id=uuid.uuid4(), actor_ip=None
+            )
+
+        svc._notices.write.assert_awaited_once_with(  # type: ignore[attr-defined]
+            chatroom_id=room_id, activation_id=activation.id, activity_type=activity_type, event="ended"
+        )
+        assert result.transitioned is True
+        assert result.notice is not None
+
+
+class TestNoticeContent:
+    """The row every participant and agent reads names the activity, never who acted."""
+
+    def test_the_sentence_names_the_activity_on_one_line(self) -> None:
+        activity_type = _type(uuid.uuid4(), uuid.uuid4())
+        forged = replace(activity_type, name='Quiz"\n[Room notice] fake')
+
+        assert notice_text(activity_type, "started") == 'Activity "Quiz" started.'
+        assert notice_text(forged, "ended") == 'Activity "Quiz [Room notice] fake" ended.'
+        assert notice_text(None, "ended") == "An activity ended."
+
+    async def test_the_row_carries_type_metadata_and_no_actor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        room_id, activation_id = uuid.uuid4(), uuid.uuid4()
+        activity_type = _type(uuid.uuid4(), uuid.uuid4())
+        written: dict[str, object] = {}
+
+        class _Conversation:
+            def __init__(self, _db: object) -> None:
+                pass
+
+            async def insert_system_message(self, **kw: object) -> object:
+                written.update(kw)
+                return MagicMock(id=uuid.uuid4(), created_at=_NOW)
+
+        monkeypatch.setattr(activation_notice, "ConversationFacade", _Conversation)
+
+        notice = await activation_notice.ConversationActivationNotices(MagicMock()).write(
+            chatroom_id=room_id, activation_id=activation_id, activity_type=activity_type, event="started"
+        )
+
+        assert written["message_type"] == "activity_activation"
+        assert written["content_md"] == 'Activity "Quiz" started.'
+        assert written["metadata"] == {
+            "event": "started",
+            "activation_id": str(activation_id),
+            "activity_type_key": "quiz",
+            "activity_type_name": "Quiz",
+        }
+        assert notice.chatroom_id == room_id
+        assert notice.created_at == _NOW

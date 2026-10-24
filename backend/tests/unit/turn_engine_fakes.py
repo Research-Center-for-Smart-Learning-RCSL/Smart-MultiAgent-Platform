@@ -141,6 +141,9 @@ def stub_participant_reads(engine: Any, *, facts: str = "") -> None:
     engine._participant_facts = _facts
     # [R13.79]: the arrival read is Redis.
     engine._recent_joins = _no_joins
+    # [R30.44]: the activity state is a DB read. Absent here, so turns that predate
+    # the block keep their exact system text; its own tests supply one.
+    engine._activity_state = _no_binding
     # The binding read that scopes update_wakeup ([R15.06]) is a DB read too.
     engine._wakeup_binding = _no_binding
 
