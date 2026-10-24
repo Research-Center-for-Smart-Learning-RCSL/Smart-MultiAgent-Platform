@@ -127,6 +127,7 @@ async def wakeup_agent(
             still_on = {
                 "every_n_messages": triggers.every_n_messages.enabled,
                 "silence_minutes": triggers.silence_minutes.enabled,
+                "on_join": triggers.on_join.enabled,
             }.get(trigger, True)
             if triggers.call_only.enabled or not still_on:
                 logger.bind(agent_id=agent_id, room_id=room_id, trigger=trigger).info(

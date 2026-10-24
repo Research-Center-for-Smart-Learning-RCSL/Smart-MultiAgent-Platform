@@ -12,6 +12,7 @@ Keys (`{b}` = `{agent_id}:{room_id}:{binding_id}`):
   wakeup:autostop:{b}   — consecutive agent-only rounds
   wakeup:msg_due:{b}    — every_n firing deferred past the agent's own message
   wakeup:gated_notice:{agent_id}:{room_id} — owner-notice debounce (not cadence)
+  wakeup:join_batch:{b} — one on_join wake per coalescing window
 
 SoC: pure Redis state; no domain logic, no DB access.
 """
@@ -61,6 +62,14 @@ async def claim_gated_notice(
     r = get_redis()
     key = _gated_notice_key(agent_id, room_id)
     return bool(await r.set(key, "1", nx=True, ex=cooldown_s))
+
+
+async def claim_join_batch(
+    agent_id: uuid.UUID, room_id: uuid.UUID, binding_id: uuid.UUID, window_s: int
+) -> bool:
+    """The first arrival of a coalescing window owns its one ``on_join`` wake ([R15.26])."""
+    key = f"wakeup:join_batch:{agent_id}:{room_id}:{binding_id}"
+    return bool(await get_redis().set(key, "1", nx=True, ex=window_s))
 
 
 async def release_gated_notice(agent_id: uuid.UUID, room_id: uuid.UUID) -> None:
@@ -194,6 +203,7 @@ async def get_autostop_count(
 
 
 __all__ = [
+    "claim_join_batch",
     "get_autostop_count",
     "get_message_count",
     "get_silence_timestamp",

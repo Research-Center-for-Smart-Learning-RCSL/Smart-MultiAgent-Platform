@@ -198,10 +198,81 @@ async def test_evaluate_presence_change_forwards_to_on_users_present(monkeypatch
         async def on_users_present(self, *, room_id, agent_ids):
             captured.update(room_id=room_id, agent_ids=list(agent_ids))
 
+        async def on_participant_joined(self, *, room_id, principal_id):
+            captured["asked"] = (room_id, principal_id)
+            return ["target"]
+
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
 
-    await triggers.evaluate_presence_change(object(), chatroom_id=room)
-    assert captured == {"room_id": room, "agent_ids": [a1]}
+    async def _record(room_id, principal_id, *, at):
+        captured["recorded"] = (room_id, principal_id)
+        return True
+
+    monkeypatch.setattr(triggers.room_joins, "record_join", _record)
+    joiner = uuid.uuid4()
+
+    targets = await triggers.evaluate_presence_change(object(), chatroom_id=room, principal_id=joiner)
+    assert targets == ["target"]
+    assert captured == {
+        "room_id": room,
+        "agent_ids": [a1],
+        "recorded": (room, joiner),
+        "asked": (room, joiner),
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_reconnection_inside_the_window_owes_no_wake(monkeypatch) -> None:
+    """AC-2: it still re-arms silence, but is not an arrival."""
+    a1, room = uuid.uuid4(), uuid.uuid4()
+    captured: dict = {}
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([a1]))
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_users_present(self, *, room_id, agent_ids):
+            captured["re_armed"] = list(agent_ids)
+
+        async def on_participant_joined(self, **kw):
+            raise AssertionError("a repeat connection must not be evaluated as an arrival")
+
+    async def _seen(*a, **kw):
+        return False
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(triggers.room_joins, "record_join", _seen)
+
+    assert (
+        await triggers.evaluate_presence_change(object(), chatroom_id=room, principal_id=uuid.uuid4()) == []
+    )
+    assert captured == {"re_armed": [a1]}
+
+
+@pytest.mark.asyncio
+async def test_evaluate_presence_change_re_arms_even_when_join_record_fails(monkeypatch) -> None:
+    """[R13.79]: a Redis failure costs the arrival record, never the [R15.02] re-arm."""
+    a1, room = uuid.uuid4(), uuid.uuid4()
+    captured: dict = {}
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([a1]))
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_users_present(self, *, room_id, agent_ids):
+            captured["re_armed"] = list(agent_ids)
+
+    async def _boom(*a, **kw):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(triggers.room_joins, "record_join", _boom)
+
+    targets = await triggers.evaluate_presence_change(object(), chatroom_id=room, principal_id=uuid.uuid4())
+    assert targets == []
+    assert captured == {"re_armed": [a1]}
 
 
 @pytest.mark.asyncio
@@ -717,6 +788,54 @@ async def test_wakeup_agent_skips_a_trigger_the_room_has_since_paused(monkeypatc
     rec["room_overrides"] = {"silence_minutes_enabled": False}
 
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "silence_minutes")
+
+    assert out == "skipped:trigger_off"
+    assert rec["run_turn"] == []
+
+
+def _on_join_agent(autostop_rounds=5):
+    agent = _agent(autostop_rounds)
+    agent.wakeup_config["triggers"]["on_join"] = {"enabled": True}
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_an_on_join_wake_runs_and_counts_a_round(monkeypatch) -> None:
+    """Phase 3 AC-6."""
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch, room=SimpleNamespace(id=rid), agent=_on_join_agent(), turn_status="completed"
+    )
+
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "on_join", None, str(rec["binding_id"]))
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "on_join", None)]
+    assert rec["on_agent_message_sent"] == [(aid, rid)]
+
+
+@pytest.mark.asyncio
+async def test_an_on_join_wake_obeys_autostop(monkeypatch) -> None:
+    """Phase 3 AC-6 / Q-10: a non-explicit trigger."""
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=uuid.uuid4()),
+        agent=_on_join_agent(autostop_rounds=3),
+        autostop_count=3,
+    )
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "on_join")
+
+    assert out == "skipped:autostop"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_on_join_wake_is_dropped_once_the_room_turned_it_off(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(), agent=_on_join_agent())
+    rec["room_overrides"] = {"on_join_enabled": False}
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "on_join")
 
     assert out == "skipped:trigger_off"
     assert rec["run_turn"] == []

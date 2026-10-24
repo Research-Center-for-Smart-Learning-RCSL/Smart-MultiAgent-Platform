@@ -20,7 +20,7 @@ import datetime as dt
 import enum
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 
 class ValidatorKind(str, enum.Enum):
@@ -274,11 +274,47 @@ class ActivityActivation:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivationNotice:
+    """The room system message a start or end wrote ([R30.45]).
+
+    Carried back so the caller can publish it after its own commit: the row is
+    written in the request transaction, and a ``message.created`` naming a row
+    that a rollback could still undo would send clients after nothing.
+    """
+
+    message_id: uuid.UUID
+    chatroom_id: uuid.UUID
+    created_at: dt.datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityActivationStartResult:
+    """The activation a start returned, and the notice it wrote.
+
+    ``notice`` is ``None`` when the start returned an already running activation
+    of the same type: nothing began, so the room is told nothing.
+    """
+
+    activation: ActivityActivation
+    notice: ActivationNotice | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityActivationEndResult:
     """The persisted activation and whether this request ended it."""
 
     activation: ActivityActivation
     transitioned: bool
+    # Set exactly when ``transitioned``: a repeat end changed nothing.
+    notice: ActivationNotice | None = None
+
+
+class EndedActivation(NamedTuple):
+    """One activation a bulk operation (type delete, opt-out) ended."""
+
+    chatroom_id: uuid.UUID
+    activation_id: uuid.UUID
+    notice: ActivationNotice | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,6 +511,10 @@ class RecentActivityRow:
     # Set exactly when ``subject_user_id`` is not. Defaulted so every existing
     # construction site keeps describing a personal row.
     subject_member_group_id: uuid.UUID | None = None
+    # ``(field, value)`` the type's ``quote_fields`` names, already one-lined and
+    # capped (``domain/quote_fields.py``). Set only on a computed-digest row of a
+    # type that exposes payloads; the only participant words this row carries.
+    quoted: tuple[tuple[str, str], ...] = ()
 
     @property
     def subject_kind(self) -> SubjectKind:
@@ -679,14 +719,59 @@ class ResearchExportSubmission:
     sub_scores: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ProposalStateRow:
+    """One group proposal of a round as agents may see it ([R30.42] amended, [R30.44]).
+
+    Counts and outcome only. There is deliberately no proposer, no voter id and
+    no payload field, so nothing built from this type can carry one.
+    """
+
+    member_group_id: uuid.UUID
+    status: ProposalStatus
+    approvals: int
+    rejections: int
+    undecided: int
+    required_approvals: int
+    created_at: dt.datetime
+    resolved_at: dt.datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GroupSubmissionState:
+    """A group that has submitted in a round, and how often."""
+
+    member_group_id: uuid.UUID
+    submissions: int
+    last_submitted_at: dt.datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RoomActivityState:
+    """What a room's agents are told about its activity ([R30.44]).
+
+    ``activation`` is the running round, else the most recently ended one, else
+    ``None`` when the room has never run an activity. The proposal and
+    submission rows describe that activation only.
+    """
+
+    activation: ActivityActivation | None
+    activity_type: ActivityType | None = None
+    open_proposals: tuple[ProposalStateRow, ...] = ()
+    settled_proposals: tuple[ProposalStateRow, ...] = ()
+    submitted_groups: tuple[GroupSubmissionState, ...] = ()
+
+
 __all__ = [
     "FILLED_FIELDS_SUB_SCORE",
     "MAX_COVERAGE_FIELDS",
     "PERMISSIVE_POLICY",
     "PLATFORM_SCOPE",
+    "ActivationNotice",
     "ActivationStatus",
     "ActivityActivation",
     "ActivityActivationEndResult",
+    "ActivityActivationStartResult",
     "ActivityAggregate",
     "ActivityPolicy",
     "ActivitySession",
@@ -696,18 +781,22 @@ __all__ = [
     "ActivityTypeScope",
     "AttemptSummary",
     "AttemptSummaryRow",
+    "EndedActivation",
     "FieldCoverage",
     "FieldCoverageCell",
     "GroupProposal",
     "GroupProposalResolution",
     "GroupProposalTally",
+    "GroupSubmissionState",
     "MandalaGrid",
     "PolicyImpact",
     "ProjectActivityTypeOptIn",
+    "ProposalStateRow",
     "ProposalStatus",
     "ProposalVote",
     "RecentActivityRow",
     "ResearchExportSubmission",
+    "RoomActivityState",
     "RoundDashboardAggregate",
     "RoundSubject",
     "RoundSubjectCount",

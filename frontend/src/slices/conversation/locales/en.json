@@ -449,6 +449,12 @@
       "confirmBodyUndisclosed": "This agent will be able to read what people in this room are typing before they send it, including half-finished activity answers. This room currently does NOT tell them it is happening. Nobody in the room will know.",
       "confirmAction": "Give permission"
     },
+    "system": {
+      "activityStarted": "Activity \"{name}\" started",
+      "activityEnded": "Activity \"{name}\" ended",
+      "activityStartedUnnamed": "An activity started",
+      "activityEndedUnnamed": "An activity ended"
+    },
     "activityControl": {
       "label": "May start and end activities",
       "help": "Lets this agent start and end the activities you tick below, in this room only. You can still start and end anything yourself, and you can revoke this at any time.",
@@ -471,6 +477,7 @@
       "countAll": "All messages",
       "countHuman": "Messages from people only",
       "silenceEnabled": "Reply after a silence",
+      "onJoinEnabled": "Reply when someone joins",
       "silenceMinutes": "Minutes of silence",
       "autostop": "Rounds without a person before it stops",
       "designerValue": "Agent default: {value}",

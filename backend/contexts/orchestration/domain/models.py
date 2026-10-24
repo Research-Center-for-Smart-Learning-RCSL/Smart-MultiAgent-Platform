@@ -234,6 +234,17 @@ class CallOnlyTrigger:
     enabled: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class OnJoinTrigger:
+    """[R15.26]: wake once for the arrivals of one coalescing window."""
+
+    enabled: bool = False
+
+
+# [R15.26]: arrivals inside this window share one wake, which runs at its end.
+ON_JOIN_COALESCE_SECONDS: Final = 60
+
+
 # R28.07: trigger kinds that represent an explicit call the room's own
 # participants made -- a @mention or a creator's release-wake -- as opposed to
 # an autonomous every_n_messages/silence_minutes round. Single source so the
@@ -248,6 +259,7 @@ class WakeupTriggers:
     every_n_messages: EveryNMessagesTrigger = field(default_factory=EveryNMessagesTrigger)
     silence_minutes: SilenceMinutesTrigger = field(default_factory=SilenceMinutesTrigger)
     call_only: CallOnlyTrigger = field(default_factory=CallOnlyTrigger)
+    on_join: OnJoinTrigger = field(default_factory=OnJoinTrigger)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +278,7 @@ class WakeupConfig:
         enm = _tolerant_dict(triggers_raw.get("every_n_messages"))
         sm = _tolerant_dict(triggers_raw.get("silence_minutes"))
         co = _tolerant_dict(triggers_raw.get("call_only"))
+        oj = _tolerant_dict(triggers_raw.get("on_join"))
         soft_raw = raw.get("soft_bounds")
         soft_bounds = (
             WakeupSoftBounds(
@@ -314,6 +327,7 @@ class WakeupConfig:
                 call_only=CallOnlyTrigger(
                     enabled=_tolerant_bool(co.get("enabled", False)),
                 ),
+                on_join=OnJoinTrigger(enabled=_tolerant_bool(oj.get("enabled", False))),
             ),
             allow_self_open=_tolerant_bool(raw.get("allow_self_open", False)),
             refresh_every_hours=_default_below_one(
@@ -342,6 +356,9 @@ class WakeupConfig:
                 "call_only": {
                     "enabled": self.triggers.call_only.enabled,
                 },
+                "on_join": {
+                    "enabled": self.triggers.on_join.enabled,
+                },
             },
             "allow_self_open": self.allow_self_open,
             "refresh_every_hours": self.refresh_every_hours,
@@ -366,6 +383,7 @@ class WakeupConfig:
             not self.triggers.every_n_messages.enabled
             and not self.triggers.silence_minutes.enabled
             and not self.triggers.call_only.enabled
+            and not self.triggers.on_join.enabled
         )
 
 
@@ -585,6 +603,7 @@ __all__ = [
     "EveryNMessagesTrigger",
     "Instruction",
     "InstructionState",
+    "OnJoinTrigger",
     "SilenceMinutesTrigger",
     "WakeupConfig",
     "WakeupSoftBounds",

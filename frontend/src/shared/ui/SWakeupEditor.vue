@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   ClockIcon,
   Cog6ToothIcon,
+  UserPlusIcon,
 } from '@heroicons/vue/24/outline'
 import { SInput, SSelect, SToggle } from '@shared/ui'
 import { useCloneModel } from '@shared/composables'
@@ -35,8 +36,8 @@ function fid(key: string): string {
   return `${uid}-${key}`
 }
 
-// A wake mode is either "auto" (message/silence triggers drive it) or "call"
-// (responds only when @mentioned). call_only is mutually exclusive with the two
+// A wake mode is either "auto" (message/silence/join triggers drive it) or "call"
+// (responds only when @mentioned). call_only is mutually exclusive with the
 // autonomous triggers, so entering call mode clears their enabled flags — this
 // keeps the stored config self-consistent rather than leaving a contradictory
 // "call_only + every_n both on" state the backend would silently ignore.
@@ -47,6 +48,7 @@ const mode = computed<'auto' | 'call'>({
     if (m === 'call') {
       local.triggers.every_n_messages.enabled = false
       local.triggers.silence_minutes.enabled = false
+      local.triggers.on_join.enabled = false
     }
     emitUpdate()
   },
@@ -57,13 +59,14 @@ function selectMode(m: 'auto' | 'call'): void {
   mode.value = m
 }
 
-// Mirrors the backend WakeupConfig.is_inert(): in auto mode with neither trigger
-// enabled the agent never speaks up on its own (it can still be @mentioned).
+// Mirrors the backend WakeupConfig.is_inert(): in auto mode with no autonomous
+// trigger enabled the agent never speaks up on its own (it can still be @mentioned).
 const isInert = computed(
   () =>
     mode.value === 'auto'
     && !local.triggers.every_n_messages.enabled
-    && !local.triggers.silence_minutes.enabled,
+    && !local.triggers.silence_minutes.enabled
+    && !local.triggers.on_join.enabled,
 )
 
 const showAdvanced = ref(false)
@@ -110,6 +113,10 @@ function onAutostopRounds(v: string | number): void {
 }
 function onAutostopMax(v: string | number): void {
   local.triggers.silence_minutes.autostop_max_default = clampRange(v, 1, AUTOSTOP_MAX_DEFAULT_MAX)
+  emitUpdate()
+}
+function onJoinEnabled(v: boolean): void {
+  local.triggers.on_join.enabled = v
   emitUpdate()
 }
 function onAllowSelfOpen(v: boolean): void {
@@ -331,6 +338,37 @@ function onSelfToggle(name: WakeupToggleableTrigger, allowed: boolean): void {
           </div>
           <p class="wakeup-field__help">
             {{ t('app.wakeup.autostopHelp') }}
+          </p>
+        </div>
+      </section>
+
+      <!-- on_join -->
+      <section
+        class="wakeup-card"
+        :class="{ 'wakeup-card--on': local.triggers.on_join.enabled }"
+      >
+        <div class="wakeup-card__head">
+          <UserPlusIcon
+            class="wakeup-card__icon"
+            aria-hidden="true"
+          />
+          <label
+            :for="fid('onjoin-toggle')"
+            class="wakeup-card__title"
+          >{{ t('app.wakeup.onJoinTitle') }}</label>
+          <SToggle
+            :id="fid('onjoin-toggle')"
+            :model-value="local.triggers.on_join.enabled"
+            :disabled="disabled"
+            @update:model-value="onJoinEnabled"
+          />
+        </div>
+        <div
+          v-if="local.triggers.on_join.enabled"
+          class="wakeup-card__body"
+        >
+          <p class="wakeup-field__help">
+            {{ t('app.wakeup.onJoinHelp') }}
           </p>
         </div>
       </section>

@@ -584,6 +584,53 @@ describe('ChatroomSettingsView', () => {
     expect(roomPatches[1]).toEqual({ every_n_messages: 9, binding_id: 'bind_1', expected_version: 5 })
   })
 
+  // Phase 3 AC-7: the room may switch arrival wakes for a normal binding; an
+  // observer binding never wakes on arrivals, so the server omits the field.
+  it.each([
+    { role: 'normal', shown: true },
+    { role: 'observer', shown: false },
+  ])('offers the arrival switch for a $role binding', async ({ role, shown }) => {
+    const roomPatches: Record<string, unknown>[] = []
+    const onJoin = role === 'normal' ? { value: false, designer_value: false, source: 'designer' } : null
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(makeChatroom())),
+      http.get('/api/projects/:projectId/agents', () =>
+        HttpResponse.json([makeAgent('agent_1', 'Bound Agent')]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([{ agent_id: 'agent_1', role }]),
+      ),
+      http.get('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', () =>
+        HttpResponse.json(roomWakeup({ role, on_join_enabled: onJoin })),
+      ),
+      http.patch('/api/chatrooms/:chatroomId/agents/:agentId/wakeup', async ({ request }) => {
+        roomPatches.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json(
+          roomWakeup({ version: 5, on_join_enabled: { value: true, designer_value: false, source: 'room' } }),
+        )
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    const toggle = wrapper.find('.room-wakeup [id$="-onjoin"]')
+    expect(toggle.exists()).toBe(shown)
+    if (!shown) return
+    await toggle.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(roomPatches).toEqual([{ on_join_enabled: true, binding_id: 'bind_1', expected_version: 4 }])
+    const row = wrapper.findAll('.room-wakeup__row').find((r) => r.find('[id$="-onjoin"]').exists())
+    expect(row!.text()).toContain('conversation.roomWakeup.source.room')
+  })
+
   it('reloads instead of overwriting when the room settings changed underneath', async () => {
     let reads = 0
     server.use(

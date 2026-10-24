@@ -186,6 +186,8 @@ class TestActivationGate:
             activation_repo=activation_repo,
             type_repo=type_repo,
             optin_repo=MagicMock(exists=AsyncMock(return_value=opted_in)),
+            # The room notice a start writes is covered in test_activity_activation_service.py.
+            notices=MagicMock(write=AsyncMock()),
         )
         svc._policy._repo = MagicMock()
         svc._policy._repo.get_platform = AsyncMock(return_value=policy)
@@ -260,7 +262,7 @@ class TestActivationGate:
                 actor_ip=None,
             )
 
-        assert result.id == activation_id
+        assert result.activation.id == activation_id
 
     async def test_the_stored_type_is_not_modified(self) -> None:
         """AC-9: the platform never rewrites a type to match a policy change."""

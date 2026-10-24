@@ -207,6 +207,15 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
         co = triggers.get("call_only")
         if isinstance(co, dict) and "enabled" in co:
             _check_wakeup_bool(co["enabled"], field="wakeup_config.triggers.call_only.enabled")
+        if triggers.get("on_join") is not None:
+            oj = triggers["on_join"]
+            _check_wakeup_container(oj, field="wakeup_config.triggers.on_join")
+            # [R15.26] has no other setting: the window is a server constant, so a
+            # key here is a designer expecting a knob that does nothing.
+            if set(oj) - {"enabled"}:
+                raise ValueError("wakeup_config.triggers.on_join accepts only enabled")
+            if "enabled" in oj:
+                _check_wakeup_bool(oj["enabled"], field="wakeup_config.triggers.on_join.enabled")
     if "refresh_every_hours" in value:
         _check_wakeup_int(
             value["refresh_every_hours"],

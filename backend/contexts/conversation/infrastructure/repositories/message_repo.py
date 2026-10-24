@@ -92,6 +92,21 @@ class MessageRepository:
             )
         ).scalar_one_or_none()
 
+    async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
+        """Whether any live message exists in the room ([R15.05])."""
+        return bool(
+            (
+                await self._db.execute(
+                    sa.select(
+                        sa.exists().where(
+                            t.messages.c.chatroom_id == chatroom_id,
+                            t.messages.c.deleted_at.is_(None),
+                        )
+                    )
+                )
+            ).scalar()
+        )
+
     async def get(self, message_id: uuid.UUID) -> Message | None:
         row = (
             await self._db.execute(

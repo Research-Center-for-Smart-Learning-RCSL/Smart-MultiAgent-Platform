@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.activities.domain.errors import GroupProposalAlreadyOpen
 from contexts.activities.domain.models import (
     GroupProposal,
+    ProposalStateRow,
     ProposalStatus,
     ProposalVote,
     VoteChoice,
@@ -231,6 +232,82 @@ class GroupProposalRepository:
             )
         ).all()
         return [_row_to_proposal(r) for r in rows]
+
+    async def state_for_activation(
+        self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID
+    ) -> Sequence[ProposalStateRow]:
+        """Every non-accepted proposal of one round with its vote counts ([R30.44]).
+
+        One statement: votes are counted in a grouped subquery and joined on, so
+        a room with thirty groups costs one round trip, not thirty. Accepted
+        proposals are left out because each one produced a submission, which the
+        state block reports from the submission side.
+
+        Selects no proposer, voter or payload column, so the rows cannot carry
+        one ([R30.42] amended). ``FILTER`` and ``jsonb_array_length`` are
+        PostgreSQL-specific, hence the ``db``-tier test (backend/CLAUDE.md).
+        ``chatroom_id`` is checked for the reason ``list_open_for_groups`` gives.
+        """
+        # Scoped to this round inside the subquery: PostgreSQL does not push the outer
+        # join condition into a grouped subquery, so unscoped it would count every
+        # vote on the platform on every agent turn.
+        round_props = _PROP.alias("round_props")
+        votes = (
+            sa.select(
+                _VOTE.c.proposal_id,
+                sa.func.count().filter(_VOTE.c.choice == VoteChoice.APPROVE.value).label("approvals"),
+                sa.func.count().filter(_VOTE.c.choice == VoteChoice.REJECT.value).label("rejections"),
+            )
+            .select_from(_VOTE.join(round_props, round_props.c.id == _VOTE.c.proposal_id))
+            .where(
+                sa.and_(
+                    round_props.c.chatroom_id == chatroom_id,
+                    round_props.c.activation_id == activation_id,
+                    round_props.c.status != ProposalStatus.ACCEPTED.value,
+                )
+            )
+            .group_by(_VOTE.c.proposal_id)
+            .subquery()
+        )
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    _PROP.c.member_group_id,
+                    _PROP.c.status,
+                    _PROP.c.required_approvals,
+                    _PROP.c.created_at,
+                    _PROP.c.resolved_at,
+                    sa.func.jsonb_array_length(_PROP.c.voter_user_ids).label("voters"),
+                    sa.func.coalesce(votes.c.approvals, 0).label("approvals"),
+                    sa.func.coalesce(votes.c.rejections, 0).label("rejections"),
+                )
+                .select_from(_PROP.outerjoin(votes, votes.c.proposal_id == _PROP.c.id))
+                .where(
+                    sa.and_(
+                        _PROP.c.chatroom_id == chatroom_id,
+                        _PROP.c.activation_id == activation_id,
+                        _PROP.c.status != ProposalStatus.ACCEPTED.value,
+                    )
+                )
+                .order_by(_PROP.c.created_at, _PROP.c.id)
+            )
+        ).all()
+        out: list[ProposalStateRow] = []
+        for r in rows:
+            approvals, rejections = int(r.approvals or 0), int(r.rejections or 0)
+            out.append(
+                ProposalStateRow(
+                    member_group_id=r.member_group_id,
+                    status=ProposalStatus(r.status),
+                    approvals=approvals,
+                    rejections=rejections,
+                    undecided=max(0, int(r.voters or 0) - approvals - rejections),
+                    required_approvals=int(r.required_approvals),
+                    created_at=r.created_at,
+                    resolved_at=r.resolved_at,
+                )
+            )
+        return out
 
     async def resolve(
         self,

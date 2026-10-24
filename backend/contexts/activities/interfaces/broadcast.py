@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from contexts.activities.domain.models import (
+    ActivationNotice,
     ActivityActivation,
     ActivityType,
     GroupProposalTally,
@@ -82,11 +83,42 @@ def activity_type_public_payload(activity_type: ActivityType) -> dict[str, Any]:
     }
 
 
+async def dispatch_activation_notice(notice: ActivationNotice) -> None:
+    """Publish an activation's room message and re-arm silence ([R30.45]).
+
+    The row is an ordinary system message to clients, so it goes out as
+    ``message.created``; to the wake-up system it is room activity, not a message
+    agents wait on, so it re-arms the silence clock without counting toward
+    ``every_n_messages`` or resetting autostop (``note_room_activity``).
+    """
+    try:
+        await Publisher(room_channel(notice.chatroom_id)).emit(
+            "message.created",
+            {
+                "message_id": str(notice.message_id),
+                "sender_type": "system",
+                "sender_id": None,
+                "created_at": notice.created_at.isoformat() if notice.created_at else None,
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for activation notice %s", notice.message_id, exc_info=True)
+    from contexts.conversation.interfaces.facade import ConversationFacade
+    from shared_kernel.db.session import async_session
+
+    try:
+        async with async_session() as db:
+            await ConversationFacade(db).note_room_activity(chatroom_id=notice.chatroom_id)
+    except Exception:
+        _log.warning("silence re-arm failed for activation notice %s", notice.message_id, exc_info=True)
+
+
 async def dispatch_activation_started(
     activation: ActivityActivation,
     activity_type: ActivityType | None,
     *,
     initiating_agent: InitiatingAgent | None = None,
+    notice: ActivationNotice | None = None,
 ) -> None:
     """Tell one room a round began.
 
@@ -116,10 +148,17 @@ async def dispatch_activation_started(
         await Publisher(room_channel(activation.chatroom_id)).emit("activity.activation.started", payload)
     except Exception:
         _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
+    if notice is not None:
+        await dispatch_activation_notice(notice)
     await dispatch_dashboard_activation_changed(activation.chatroom_id)
 
 
-async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+async def dispatch_activation_ended(
+    chatroom_id: uuid.UUID,
+    activation_id: uuid.UUID,
+    *,
+    notice: ActivationNotice | None = None,
+) -> None:
     """Tell one room its activation ended. Public because several routes across two
     modules, plus the agent runtime's ``end_activity`` tool, end activations — and
     each must broadcast the same event after its own commit."""
@@ -129,6 +168,8 @@ async def dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.
         )
     except Exception:
         _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
+    if notice is not None:
+        await dispatch_activation_notice(notice)
     await dispatch_dashboard_activation_changed(chatroom_id)
 
 
@@ -297,6 +338,7 @@ __all__ = [
     "InitiatingAgent",
     "activity_type_public_payload",
     "dispatch_activation_ended",
+    "dispatch_activation_notice",
     "dispatch_activation_progress",
     "dispatch_activation_started",
     "dispatch_dashboard_activation_changed",

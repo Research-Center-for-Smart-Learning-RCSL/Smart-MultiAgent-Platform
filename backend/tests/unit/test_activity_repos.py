@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -142,10 +143,91 @@ class TestSubmissionRepoScoping:
             "agent_digest": None,
             "payload": {},
             "validator_kind": "in_process",
+            "validator_config": {},
             "expose_payload_to_agent": True,
         }
         base.update(over)
         return SimpleNamespace(**base)
+
+    async def _rows(self, *rows: SimpleNamespace) -> list:
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = list(rows)
+        db.execute.return_value = page
+        return list(
+            await ActivitySubmissionRepository(db).list_recent_for_room(chatroom_id=uuid.uuid4(), limit=30)
+        )
+
+    _QUOTING: ClassVar[dict[str, object]] = {
+        "validator_id": "filled_count_coverage",
+        "min_filled": 1,
+        "quote_fields": ["target", "why"],
+    }
+
+    async def test_a_quoting_type_projects_only_the_named_values(self) -> None:
+        """M6 / AC-22: declared order, unfilled skipped, the rest of the payload dropped."""
+        payload = {"why": "  because\nof 木 ", "target": "林", "secret": "do not quote"}
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="2/3 fields answered: target, why",
+                payload=payload,
+                validator_config=self._QUOTING,
+            )
+        )
+
+        assert row.quoted == (("target", "林"), ("why", "because of 木"))
+        assert "do not quote" not in repr(row)
+
+    async def test_an_unfilled_quoted_field_is_omitted(self) -> None:
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: why",
+                payload={"target": "   ", "why": "x"},
+                validator_config=self._QUOTING,
+            )
+        )
+        assert row.quoted == (("why", "x"),)
+
+    async def test_a_long_value_is_capped_with_a_stated_suffix(self) -> None:
+        from contexts.activities.domain.quote_fields import QUOTE_TRUNCATED_SUFFIX, QUOTE_VALUE_MAX
+
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: target",
+                payload={"target": "字" * 100},
+                validator_config=self._QUOTING,
+            )
+        )
+        assert row.quoted == (("target", "字" * QUOTE_VALUE_MAX + QUOTE_TRUNCATED_SUFFIX),)
+
+    async def test_no_quote_without_quote_fields_a_computed_digest_or_exposure(self) -> None:
+        """AC-23 at the repository: each gate alone withholds the values."""
+        payload = {"target": "林"}
+        computed = "1/3 fields answered: target"
+        rows = await self._rows(
+            self._recent_row(agent_digest=computed, payload=payload),
+            self._recent_row(
+                agent_digest=computed, payload=payload, validator_config=self._QUOTING, validator_kind="mcp"
+            ),
+            self._recent_row(
+                agent_digest=computed,
+                payload=payload,
+                validator_config=self._QUOTING,
+                expose_payload_to_agent=False,
+            ),
+        )
+        assert [r.quoted for r in rows] == [(), (), ()]
+
+    async def test_a_validator_that_does_not_check_quote_fields_quotes_nothing(self) -> None:
+        """``filled_count`` accepts the key unchecked, so its names are not declared fields."""
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: target",
+                payload={"target": "林"},
+                validator_config={**self._QUOTING, "validator_id": "filled_count"},
+            )
+        )
+        assert row.quoted == ()
 
     async def test_recent_rows_say_where_each_digest_came_from(self) -> None:
         """AC-18. Derived by rebuilding the deterministic payload fallback and
@@ -598,3 +680,24 @@ class TestTypeRepoScoping:
         compiled = _compiled(db.execute.await_args_list[0].args[0])
         assert str(type_id) in compiled
         assert "deleted_at IS NULL" in compiled
+
+
+class TestProposalStateQuery:
+    async def test_the_vote_count_reads_only_this_rounds_proposals(self) -> None:
+        """An unscoped grouped subquery would aggregate every vote on the platform per turn."""
+        from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
+
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = []
+        db.execute.return_value = page
+        room, activation = uuid.uuid4(), uuid.uuid4()
+        await GroupProposalRepository(db).state_for_activation(chatroom_id=room, activation_id=activation)
+
+        stmt = db.execute.await_args.args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        # The subquery sits in the FROM, so its WHERE is everything before its GROUP BY.
+        inner = sql.split("GROUP BY", maxsplit=1)[0]
+        assert inner.count(str(activation)) == 1
+        assert inner.count(str(room)) == 1
+        assert sql.count(str(activation)) == 2

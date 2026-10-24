@@ -31,6 +31,7 @@ from contexts.activities.domain.models import (
     ActivityType,
     ValidationResult,
 )
+from contexts.activities.domain.quote_fields import QUOTING_VALIDATOR_ID, quote_field_errors
 
 EXACT_MATCH_ID = "exact_match"
 _MISMATCH = "mismatch"
@@ -38,7 +39,8 @@ _MISMATCH = "mismatch"
 FILLED_COUNT_ID = "filled_count"
 _TOO_FEW_FILLED = "too_few_filled"
 
-FILLED_COUNT_COVERAGE_ID = "filled_count_coverage"
+#: The repository quotes only this validator's types, so the two names are one.
+FILLED_COUNT_COVERAGE_ID = QUOTING_VALIDATOR_ID
 #: Re-exported so a reader of this module sees which key it writes. The name is
 #: owned by ``contexts.activities.domain`` because the coverage aggregates read it
 #: in SQL and that context cannot import ``app.plugins``.
@@ -210,6 +212,24 @@ def validate_filled_count_against_schema(config: dict[str, Any], payload_schema:
         )
 
 
+def validate_filled_count_coverage_config(config: dict[str, Any]) -> None:
+    """``filled_count``'s config check, then the shape of the optional ``quote_fields``."""
+    validate_filled_count_config(config)
+    error = quote_field_errors(config, None)
+    if error:
+        raise ValidatorConfigInvalid(error)
+
+
+def validate_filled_count_coverage_against_schema(
+    config: dict[str, Any], payload_schema: dict[str, Any]
+) -> None:
+    """``filled_count``'s schema check, then that each quoted name is a declared string."""
+    validate_filled_count_against_schema(config, payload_schema)
+    error = quote_field_errors(config, payload_schema)
+    if error:
+        raise ValidatorConfigInvalid(error)
+
+
 def register_first_party_validators() -> None:
     register_in_process_validator(
         EXACT_MATCH_ID,
@@ -224,16 +244,15 @@ def register_first_party_validators() -> None:
         config_validator=validate_filled_count_config,
         schema_config_validator=validate_filled_count_against_schema,
     )
-    # Same config contract as `filled_count`, so both hooks are registered
-    # unchanged rather than copied: the two must never disagree about which
-    # `min_filled` is legal, or moving a type between them would change whether
-    # it can be saved.
+    # Its hooks call `filled_count`'s first, so the two never disagree about
+    # which `min_filled` is legal; they add only the `quote_fields` check, a key
+    # `filled_count` ignores, so a type still moves between them unchanged.
     register_in_process_validator(
         FILLED_COUNT_COVERAGE_ID,
         filled_count_coverage_scorer,
         title="Filled count with field coverage",
-        config_validator=validate_filled_count_config,
-        schema_config_validator=validate_filled_count_against_schema,
+        config_validator=validate_filled_count_coverage_config,
+        schema_config_validator=validate_filled_count_coverage_against_schema,
     )
 
 
@@ -252,4 +271,6 @@ __all__ = [
     "validate_exact_match_config",
     "validate_filled_count_against_schema",
     "validate_filled_count_config",
+    "validate_filled_count_coverage_against_schema",
+    "validate_filled_count_coverage_config",
 ]

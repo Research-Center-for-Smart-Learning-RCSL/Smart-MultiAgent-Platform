@@ -253,7 +253,7 @@ def _build_start_tool(
                 is_error=True,
             )
         try:
-            activation = await ActivitiesFacade(db).start_activation(
+            started = await ActivitiesFacade(db).start_activation(
                 project_id=control.project_id,
                 chatroom_id=control.chatroom_id,
                 activity_type_id=target.id,
@@ -271,6 +271,7 @@ def _build_start_tool(
             # audit row or broadcast was produced, because the service checks
             # before it inserts.
             return ToolResult(content=_start_failure(exc), is_error=True)
+        activation = started.activation
 
         recorded = await _audit_activity_tool(
             db, agent=agent, tool_name="start_activity", chatroom_id=control.chatroom_id, ok=True
@@ -281,6 +282,7 @@ def _build_start_tool(
                     "kind": EVENT_STARTED,
                     "activation": activation,
                     "activity_type": target,
+                    "notice": started.notice,
                 }
             )
         body = f"Started {target.name!r} for this room. Activation id {activation.id}."
@@ -354,6 +356,7 @@ def _build_end_tool(
                     "kind": EVENT_ENDED,
                     "chatroom_id": control.chatroom_id,
                     "activation_id": result.activation.id,
+                    "notice": result.notice,
                 }
             )
         body = (

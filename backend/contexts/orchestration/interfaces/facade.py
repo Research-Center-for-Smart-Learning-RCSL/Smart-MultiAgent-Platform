@@ -36,6 +36,7 @@ from contexts.orchestration.application.wakeup_service import WakeTarget, Wakeup
 from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
     N_MAX,
+    ON_JOIN_COALESCE_SECONDS,
     T_MINUTES_MAX,
     A2AEnvelope,
     AgentInstance,
@@ -173,6 +174,9 @@ class OrchestrationFacade:
             room_id=room_id,
             agent_ids=agent_ids,
         )
+
+    async def on_participant_joined(self, *, room_id: uuid.UUID, principal_id: uuid.UUID) -> list[WakeTarget]:
+        return await self._wakeup.on_participant_joined(room_id=room_id, principal_id=principal_id)
 
     async def on_agent_message_sent(
         self,
@@ -472,6 +476,7 @@ class OrchestrationFacade:
 __all__ = [
     "AUTOSTOP_HARD_CAP",
     "N_MAX",
+    "ON_JOIN_COALESCE_SECONDS",
     "T_MINUTES_MAX",
     "OrchestrationFacade",
     "ResetScope",

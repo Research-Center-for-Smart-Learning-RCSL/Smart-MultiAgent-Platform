@@ -20,7 +20,13 @@ from app.api.v1 import activities
 from contexts.activities.application.example_service import PlatformExample
 from contexts.activities.application.type_service import TypeRegistration
 from contexts.activities.domain.errors import ActivityTypeNotFound
-from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
+from contexts.activities.domain.models import (
+    ActivationNotice,
+    ActivityType,
+    ActivityTypeScope,
+    EndedActivation,
+    ValidatorKind,
+)
 
 _NOW = dt.datetime(2026, 7, 28, tzinfo=dt.UTC)
 _SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
@@ -289,8 +295,11 @@ class TestPlatformExampleRoutes:
         activation ended before that is durable."""
         room_a, room_b = uuid.uuid4(), uuid.uuid4()
         act_a, act_b = uuid.uuid4(), uuid.uuid4()
+        notice = ActivationNotice(message_id=uuid.uuid4(), chatroom_id=room_a, created_at=None)
         facade = MagicMock()
-        facade.opt_project_out = AsyncMock(return_value=[(room_a, act_a), (room_b, act_b)])
+        facade.opt_project_out = AsyncMock(
+            return_value=[EndedActivation(room_a, act_a, notice), EndedActivation(room_b, act_b)]
+        )
         db = MagicMock()
         db.commit = AsyncMock()
         dispatch = AsyncMock()
@@ -308,6 +317,8 @@ class TestPlatformExampleRoutes:
 
         db.commit.assert_awaited_once()
         assert [c.args for c in dispatch.await_args_list] == [(room_a, act_a), (room_b, act_b)]
+        # [R30.45]: each room's notice goes out with its own end event.
+        assert [c.kwargs["notice"] for c in dispatch.await_args_list] == [notice, None]
 
     async def test_a_non_owner_cannot_opt_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
         facade = MagicMock()

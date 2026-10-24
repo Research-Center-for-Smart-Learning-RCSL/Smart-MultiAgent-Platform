@@ -30,6 +30,8 @@
       "silenceFieldLabel": "Speak up after silence of",
       "autostopFieldLabel": "Stop after at most",
       "autostopHelp": "Once this many consecutive self-turns are reached the agent stops, preventing an endless self-conversation.",
+      "onJoinTitle": "When someone joins",
+      "onJoinHelp": "Wakes once when a participant arrives in the room; arrivals within a minute share one wake, and the room creator's own arrival never wakes it.",
       "advanced": "Advanced settings",
       "maxCapLabel": "Auto-stop round ceiling",
       "allowSelfOpenLabel": "May reply to messages while nobody is present",

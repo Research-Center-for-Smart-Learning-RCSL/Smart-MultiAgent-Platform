@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-20
 requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R28.17, R30.15, R30.25, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
@@ -413,51 +413,51 @@ since installed course types are copies too.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A participant connecting to a room that already has another live participant
+- [x] AC-1: A participant connecting to a room that already has another live participant
   re-arms every bound agent's silence clock (unit test on `on_open` with roster size above 1).
-- [ ] AC-2: A refresh within 30 minutes of the same principal's previous join writes no new
+- [x] AC-2: A refresh within 30 minutes of the same principal's previous join writes no new
   join and wakes nothing; a reconnection after 30 minutes counts as a new join.
-- [ ] AC-3: A room or observer turn whose window includes a join shows
+- [x] AC-3: A room or observer turn whose window includes a join shows
   `[Room notice] [u:xxxxxxxx] <label> connected to the room.` at the join's position; a join by
   the room creator is omitted; a label containing `[Room notice]` is defanged.
-- [ ] AC-4: The participant facts row of a principal who joined within the window carries
+- [x] AC-4: The participant facts row of a principal who joined within the window carries
   `joined in this window`.
-- [ ] AC-5: With `on_join` enabled for a normal binding, two participants joining within one
+- [x] AC-5: With `on_join` enabled for a normal binding, two participants joining within one
   minute enqueue exactly one `wakeup_agent` with `trigger = on_join` deferred about 60 seconds;
   an observer binding, a `call_only` binding, or a room with no messages and
   `allow_self_open = false` enqueues none.
-- [ ] AC-6: The `on_join` turn's time line names "a participant joining"; an autostop-tripped
+- [x] AC-6: The `on_join` turn's time line names "a participant joining"; an autostop-tripped
   binding skips it; a completed turn counts a round.
-- [ ] AC-7: `on_join_enabled` can be read and changed through the room wake-up API and
+- [x] AC-7: `on_join_enabled` can be read and changed through the room wake-up API and
   `RoomWakeupPanel` for a normal binding, shows its field source, is absent for observer
   bindings, and `update_wakeup` refuses to change it.
-- [ ] AC-8: The agent wake-up editor shows and saves `on_join`; an agent with only `on_join`
+- [x] AC-8: The agent wake-up editor shows and saves `on_join`; an agent with only `on_join`
   enabled is not inert in both backend and frontend.
-- [ ] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
+- [x] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
   stating no activity has been run; with an active individual activity it states the name,
   mode and start time; after end it states the ended activity and end time.
-- [ ] AC-10: For an active group activity, the block lists each group's open proposal with
+- [x] AC-10: For an active group activity, the block lists each group's open proposal with
   approvals, rejections, undecided and required approvals, lists rejected, withdrawn or expired
   proposals of the current activation, and lists groups that have submitted.
-- [ ] AC-11: The rendered state block never contains a voter id, a proposer id, a participant
+- [x] AC-11: The rendered state block never contains a voter id, a proposer id, a participant
   code of a voter, or any payload string from a proposal (unit test with seeded values).
-- [ ] AC-12: Starting a new activation writes exactly one `activity_activation` system message
+- [x] AC-12: Starting a new activation writes exactly one `activity_activation` system message
   with `event = started`; a repeated start of the same running type writes none; every end path
   writes exactly one with `event = ended`; neither names the starter; both re-arm silence and
   neither increments `every_n_messages` nor resets autostop.
-- [ ] AC-13: Other participants receive the activation divider live (`message.created`), rendered
+- [x] AC-13: Other participants receive the activation divider live (`message.created`), rendered
   in their locale with the activity name, including guests.
-- [ ] AC-14: In all three room packs the teacher prompt has the newcomer section, contains no
+- [x] AC-14: In all three room packs the teacher prompt has the newcomer section, contains no
   unconditional form statement, conditions starting the activity on `[Activity state]` and the
   grant, and every phrase pinned by `test_agent_example_packs.py` today still passes; banned
   phrase lists pass for the new wording.
-- [ ] AC-15: The CRAT teacher's `<步驟D1>` branches on an open proposal, a rejected or expired
+- [x] AC-15: The CRAT teacher's `<步驟D1>` branches on an open proposal, a rejected or expired
   proposal, and a submission as shown in `[Activity state]`; `<活動控制>` ends only on the room
   creator's confirmation.
-- [ ] AC-16: The peers' silence rules reference `[Activity state]`; the object peer is not
+- [x] AC-16: The peers' silence rules reference `[Activity state]`; the object peer is not
   silenced during D1 and D2.
-- [ ] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
-- [ ] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
+- [x] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
+- [x] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
   build and `check:theme-tokens` pass in CI; `gen:api` output is committed.
 - [ ] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
   receives a one-to-two sentence orientation from TA within about two minutes, without being
@@ -465,20 +465,20 @@ since installed course types are copies too.
 - [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
-- [ ] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
+- [x] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
   properties and rejects an undeclared name, a non-string property, a duplicate, more than 3
   names and a non-list value; `filled_count` accepts the same config unchanged, and the verdict,
   `error_class`, `sub_scores` and `detail` of both validators are unchanged for every payload.
-- [ ] AC-22: For a computed-digest row whose type quotes `target_character`, the rendered row is
+- [x] AC-22: For a computed-digest row whose type quotes `target_character`, the rendered row is
   `... <type>: <outcome>, <coverage> — target_character: <value>` with exactly one marker; an
   unfilled quoted field is omitted; a value over 40 characters is truncated with the suffix; a
   value containing a newline, `::` or `—` stays on one line and cannot place a marker before the
   real one.
-- [ ] AC-23: No quote appears when the type has no `quote_fields`, when `expose_payload_to_agent`
+- [x] AC-23: No quote appears when the type has no `quote_fields`, when `expose_payload_to_agent`
   is false, when the platform policy withholds digests, or when the row's validator is not
   in-process; rows of such types render byte-for-byte as before (existing provider tests pass
   unchanged).
-- [ ] AC-24: The CRAT course type ships `quote_fields: ["target_character"]`; the CRAT teacher's
+- [x] AC-24: The CRAT course type ships `quote_fields: ["target_character"]`; the CRAT teacher's
   `<步驟E1>` reads the quoted target and routes a difference or missing value to the human
   teacher; the CRAT peer and analyst prompts forbid repeating another group's submitted target
   (`test_agent_example_packs.py`, `test_smap_examples_catalogue.py`).
@@ -532,7 +532,7 @@ exposure gates as every other digest."
 Add:
 
 - **[R13.79]** **Arrivals in the agent transcript.** A principal's first live connection to a room, counted at most once per principal per room in any 30-minute window, is recorded server-side. Normal and observer room turns show each recorded arrival inside the transcript window as a platform room notice naming the participant's code and label, using the room-notice channel's protections; arrivals of the room creator are omitted. The notice states a connection, not attendance or lateness, and is never shown to humans. Arrival records are bounded, expire, and are absent rather than an error when presence storage is unavailable.
-- **[R15.26]** **`on_join` trigger.** A designer may enable `triggers.on_join` for an agent, and a room creator or permitted editor may override it per normal binding ([R15.25]). It is not self-toggleable and is not available to observer bindings. When an arrival is recorded ([R13.79]) in a room where at least one message exists or `allow_self_open` is true, each normal binding with `on_join` effective and not `call_only` is woken once, 60 seconds later, for all arrivals in that minute. The wake is non-explicit: autostop applies and it does not reset autostop or count toward `every_n_messages`.
+- **[R15.26]** **`on_join` trigger.** A designer may enable `triggers.on_join` for an agent, and a room creator or permitted editor may override it per normal binding ([R15.25]). It is not self-toggleable and is not available to observer bindings. When an arrival other than the room creator's is recorded ([R13.79]) in a room where at least one message exists or `allow_self_open` is true, each normal binding with `on_join` effective and not `call_only` is woken once, 60 seconds later, for all arrivals in that minute. The wake is non-explicit: autostop applies and it does not reset autostop or count toward `every_n_messages`.
 - **[R30.44]** **Activity state for agents.** Every normal and observer room turn includes a bounded activity-state block computed from server state: whether an activity is active in the room, its name, individual or group mode, consent fraction and start time, or else the most recently ended activity and its end time, or that none has been run; and for the current activation the groups that have submitted and the proposal facts permitted by [R30.42]. It states that it makes no whole-class completion claim, is capped at 30 group rows and 1,500 estimated tokens with stated truncation, and reads as unavailable rather than "not started" when the read fails.
 - **[R30.45]** **Activation notices.** Creating an activation and ending one each write one room system message visible to every participant, naming the activity but not who started or ended it. A repeated start of an already running type writes none. The message re-arms the silence clock ([R15.02]) but is not counted by `every_n_messages` and does not reset autostop, and it is delivered live to connected participants.
 
@@ -546,6 +546,59 @@ Add:
 
 ## 15. Deviation Log
 
+- D-1. Build started 2026-10-24 on branch `feat/crat-facilitation-phase3` (base `283c3de2`) while
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` is still `in-progress`, by the
+  requester's decision. Q-4's purpose, keeping phase 2's classroom evidence tied to one prompt
+  revision, is kept by a constraint instead of by the `depends_on` gate: the branch is not merged
+  to `main` and not deployed to staging until phase 2 is `implemented`. Deploying it to staging
+  would change every room on that host, including phase 2's live-run rooms, so the staging ACs
+  (AC-19, AC-20, AC-25) and the M5 re-sync wait for that merge. If phase 2's runs change the pack
+  prompts, this branch rebases onto them before merge.
+- D-2. The room creator's own arrival does not wake `on_join` (requester's decision, 2026-10-24).
+  §6.2 as approved woke on every recorded arrival, while §6.1 and [R13.79] omit the creator's
+  arrival from the transcript; an agent woken by it would find no arrival to respond to and
+  could only speak unprompted. The creator's arrival is still recorded and still re-arms the
+  silence clock. The [R15.26] text in §13 is amended to say so, and
+  `test_on_join_trigger.py::TestWakeSelection::test_the_room_creators_arrival_wakes_nothing`
+  pins it.
+- D-3. `[Activity state]` is a fixed text block in `_SystemBlocks`, measured and rendered in both
+  passes, not a new `_BlockSlot.ACTIVITY_STATE` as §6.3 named. A slot exists for text the render
+  pass supplies later than the measure pass (knowledge, the participant note); the state is read
+  once before either pass and does not change within the turn, so a slot would add a second
+  supply point with nothing to supply. It sits after the recent-activity block and before the
+  canvas block, and `test_turn_system_blocks.py` pins that position in both passes.
+- D-4. AC-10 and AC-11 are checked by unit tests locally; their `db`-tier half
+  (`test_group_activity_constraints_db.py::TestRoomActivityStateQueries`) cannot run on the
+  local Windows host and is verified in CI on the draft PR before those two ACs are ticked.
+  CI run 40060044755 on PR #270 (head 97c7da81) passed `backend-db` (`pytest -m db`, 314
+  passed), so AC-10, AC-11 and AC-18 are ticked. The same run's `dependency-audit` job failed on
+  advisories for brotli 1.2.0, pypdf 6.21.1 and setuptools 83.0.0 published after `main` last
+  passed at 283c3de2; this branch changes no dependency manifest, so the fix belongs on `main`.
+- D-5. `ActivityTypeForm` now carries `quote_fields` through an edit, which §6.6 did not list. The
+  form rebuilds `validator_config` from its own fields, so without this a rename of the CRAT type
+  in the UI would silently stop quoting. A quoted field the schema edit removed or retyped is
+  dropped on save rather than failing it. The form still has no control to author the list
+  (FU-5).
+- D-6. The CRAT teacher's `<步驟D1>` branches on counts and time order, not on a per-round state.
+  One CRAT activation spans all eight rounds, so `[Activity state]` for the current activation
+  lists submissions and closed proposals from earlier rounds too. The prompt therefore treats a
+  group as having submitted the current round only when its submission count reaches the number
+  of rounds the teacher has posted, and treats a rejected, withdrawn or expired proposal as
+  current only when it is newer than the round's posting. A per-round state would need the
+  activation to know its rounds, which no activity type models today (FU-6).
+- D-7. The arrival notice quotes the label: `[Room notice] [u:xxxxxxxx] "Label" connected to the
+  room.`, not the unquoted form §6.1 and AC-3 give. The security gate found that a guest chooses
+  their own label (up to 100 characters) and that, unquoted, a sentence-shaped label read as the
+  platform's own words inside a turn the participant note vouches for. Quotes are already
+  stripped from model-facing labels and are stripped again in `_join_notice`, so the slot cannot
+  be closed early. The three teacher prompts quote the new form and say the quoted name is
+  self-chosen; `test_turn_join_notices.py` and `test_agent_example_packs.py` pin both sides.
+- D-8. Merged to `main` and deployed to staging on 2026-10-24 before phase 2 is `implemented`
+  (requester's decision), lifting D-1's constraint. Phase 2's open live ACs (AC-14, AC-20, AC-21,
+  AC-24) are therefore observed on this dossier's pack prompts, not on the revision phase 2
+  shipped; its D-19 records the same. The staging ACs here (AC-19, AC-20, AC-25) and the M5
+  re-sync proceed after that deployment.
+
 ## 16. Follow-ups
 
 - FU-1: Emit `message.created` for the submission echo so other participants see it live
@@ -555,3 +608,38 @@ Add:
 - FU-3: Correct the `broadcast.py:198-199` docstring that says agents read WebSocket events.
 - FU-4: A pack revision field so classroom evidence can name the exact prompt revision
   (`catalogue.py:42-55` rejects unknown fields today).
+- FU-5: An authoring control for `quote_fields` in `ActivityTypeForm` (a pick list of the
+  declared text fields, at most three); today it is set through the course file or the API.
+- FU-6: Rounds inside one activation (for example a `round` counter on submissions or a per-round
+  activation) so `[Activity state]` can report the current CRAT round directly instead of the
+  teacher prompt inferring it from counts and time order (D-6).
+- FU-7: `ActivityContextProvider.query()` reads recent activity on the turn's session without a
+  SAVEPOINT, so a failed read aborts the turn's transaction; `state()` got one in this task.
+  Pre-existing.
+- FU-8: Bound the provider cost of `on_join` across many principals. Each new principal (for
+  example fresh guest sessions from a share link) can win one wake per binding per minute, and a
+  turn that reaches the provider but posts nothing does not count toward autostop, so a teacher
+  prompt that stays silent during individual work pays for those turns on the owner's key.
+  Options: count a provider-reaching empty `on_join` turn toward autostop, a per-binding hourly
+  `on_join` budget, or skipping `on_join` while the state block shows individual work. Security
+  gate MEDIUM, deferred with the requester's knowledge.
+- FU-9: Arrival side effects for non-arrivals. `_re_arm_silence` runs on every first connection,
+  including a reconnect inside the 30-minute window, so a reader who reconnects every few minutes
+  keeps `silence_minutes` from firing; a platform admin opening a tenant room is recorded as an
+  arrival and can wake `on_join`. Re-arm only on a recorded arrival, and skip recording for
+  principals who reach the room only through the admin bypass.
+- FU-10: Bound the `[Activity state]` reads themselves. Settled proposals of one activation and
+  `submitted_groups` are fetched in full and capped only when rendered; a `LIMIT` of
+  `STATE_MAX_GROUP_ROWS + 1` per section with a separate count keeps the stated truncation exact.
+- FU-11: Whether the CRAT teacher may name one group's submitted target in the room while other
+  groups are still working. Peers and the analyst are told not to repeat it; the teacher's
+  `<步驟E1>` confirms it publicly. Product decision before the prompt changes.
+- FU-12: Wake-path tidy-ups from the quality gate: the room-creator lookup returns `None` on
+  failure, which then shows the creator's arrivals; the join-batch claim TTL equals the defer
+  window, so an arrival just after it can cost a second turn; one arrival reads the room's
+  bindings two or three times; the observer `on_join_enabled` rule sits in the route rather than
+  in `RoomWakeupService`.
+- FU-13: Agent-text hardening from the security gate: quote each quoted-field value (`name:
+  "value"`) so a value cannot fake further fields after the marker; cap `quote_fields` names
+  (about 64 characters, `[A-Za-z0-9_]`); consider withholding the reject and undecided split for
+  groups of two or three, where counts beside the chat can identify the dissenter.

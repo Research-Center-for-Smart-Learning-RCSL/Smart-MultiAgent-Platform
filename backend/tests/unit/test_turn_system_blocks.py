@@ -397,3 +397,54 @@ def test_summaries_are_both_measured_and_rendered_in_place() -> None:
     rendered = blocks.render(summaries, ["[RAG]"], include_conditional=[])
     # Order is declared once: summaries precede knowledge in both passes.
     assert rendered.index(summaries[0]) < rendered.index("[RAG]")
+
+
+# --------------------------------------------------------------------------- #
+# [R30.44] - the activity state block is fixed for the turn
+# --------------------------------------------------------------------------- #
+
+
+def test_activity_state_is_measured_and_rendered_between_activity_and_canvas() -> None:
+    case = {**_CASES[0], "activity_state": "[Activity state]\nSTATE"}
+    blocks = _SystemBlocks.build(**case)
+
+    for text in (blocks.measure([]), blocks.render([], [], include_conditional=[])):
+        assert text.index(case["activity_block"]) < text.index("STATE") < text.index(case["canvas_block"])
+
+
+async def test_a_room_turn_carries_the_activity_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    import uuid
+    from typing import Any
+
+    from contexts.agents.application.runtime import turn_engine as te
+    from tests.unit.turn_engine_fakes import make_agent, wire_engine
+
+    agent = make_agent()
+    engine, _ = wire_engine(monkeypatch, agent, note={})
+    room = uuid.uuid4()
+    asked: list[uuid.UUID] = []
+
+    async def _state(chatroom_id: uuid.UUID) -> str:
+        asked.append(chatroom_id)
+        return "[Activity state]\nNo activity has been run in this room."
+
+    seen: dict[str, Any] = {}
+
+    async def _stream(**kw: Any) -> te.ToolLoopOutcome:
+        seen.update(kw)
+        return te.ToolLoopOutcome(text="reply", rounds=0)
+
+    engine._activity_state = _state  # type: ignore[method-assign]
+    engine._stream_with_tools = _stream  # type: ignore[method-assign]
+    await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=room,
+        trigger="silence_minutes",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert asked == [room]
+    assert "[Activity state]\nNo activity has been run in this room." in seen["system_text"]

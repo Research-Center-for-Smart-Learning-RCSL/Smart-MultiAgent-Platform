@@ -318,6 +318,30 @@ class TestEveryShippedCourse:
         assert course.activity_types
 
 
+class TestTheCratTypeQuotesItsTarget:
+    """M6 / AC-24: the teacher agent checks the submitted target against the bank,
+    so the CRAT type, and only it, quotes that one field."""
+
+    def test_crat_quotes_only_the_target_character(self) -> None:
+        course = load_course("chinese-character-creativity")
+        configs = {t.key: t.validator_config for t in course.activity_types}
+
+        assert configs["crat-word-puzzle"]["quote_fields"] == ["target_character"]
+        assert [k for k, c in configs.items() if "quote_fields" in c] == ["crat-word-puzzle"]
+
+    def test_an_undeclared_quote_field_fails_the_load(self, tmp_path: Path) -> None:
+        document = _course_document()
+        document["activity_types"][0]["validator_config"] = {
+            "validator_id": "filled_count_coverage",
+            "min_filled": 1,
+            "quote_fields": ["missing"],
+        }
+        _write_course(tmp_path, document)
+
+        with pytest.raises(CourseFileInvalid, match="quote_fields"):
+            load_course("fixture-course", root=tmp_path)
+
+
 def _course_document() -> dict[str, Any]:
     """A minimal course that loads cleanly; each test breaks one thing in it."""
     return {

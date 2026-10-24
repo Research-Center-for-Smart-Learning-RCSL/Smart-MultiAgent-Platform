@@ -107,6 +107,9 @@ export const activityTypeCreateSchema = z
       blankToNull,
       z.coerce.number().int().min(0).nullable().default(0),
     ),
+    // filled_count_coverage's quote_fields (R30.15 amended). The form has no
+    // control for it yet; it is carried through so an edit does not drop it.
+    quote_fields: z.array(z.string()).default([]),
   })
   .superRefine((val, ctx) => {
     if (val.validator_kind === 'webhook') {
@@ -180,6 +183,14 @@ export function assembleValidatorConfig(
       config.case_sensitive = values.exact_match_case_sensitive
     } else if (usesMinFilled(values.in_process_validator_id)) {
       config.min_filled = values.filled_count_min ?? 0
+      if (values.in_process_validator_id === FILLED_COUNT_COVERAGE_VALIDATOR_ID) {
+        // A quoted field the schema edit removed or retyped would make the save
+        // fail server-side; dropping it is what removing the field means.
+        const quoted = values.quote_fields.filter(
+          (name) => schemaFieldType(values.payload_schema, name) === 'string',
+        )
+        if (quoted.length > 0) config.quote_fields = quoted
+      }
     }
     return config
   }

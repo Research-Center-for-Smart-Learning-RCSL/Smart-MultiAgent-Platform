@@ -449,6 +449,12 @@
       "confirmBodyUndisclosed": "這個代理將可以讀取這間討論室裡大家送出前正在打的字，包括還沒寫完的活動作答。這間討論室目前**不會**告訴他們這件事，室內沒有人會知道。",
       "confirmAction": "給予權限"
     },
+    "system": {
+      "activityStarted": "活動「{name}」開始",
+      "activityEnded": "活動「{name}」結束",
+      "activityStartedUnnamed": "一項活動開始了",
+      "activityEndedUnnamed": "一項活動結束了"
+    },
     "activityControl": {
       "label": "可以開始與結束活動",
       "help": "讓這個代理在這間討論室開始與結束你勾選的活動。你自己隨時仍可以開始或結束任何活動，也隨時可以收回這項授權。",
@@ -471,6 +477,7 @@
       "countAll": "所有訊息",
       "countHuman": "只計真人的訊息",
       "silenceEnabled": "沉默一段時間後回覆",
+      "onJoinEnabled": "有人進房時回覆",
       "silenceMinutes": "沉默分鐘數",
       "autostop": "沒有真人參與時，最多連續幾輪後停止",
       "designerValue": "代理預設：{value}",

@@ -25,7 +25,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from prometheus_client import Counter, Histogram
@@ -583,6 +583,7 @@ _GAP_NOTICE_MIN_SECONDS = 60
 _WAKE_REASONS: Mapping[str, str] = {
     "every_n_messages": "new messages",
     "silence_minutes": "a period of silence",
+    "on_join": "a participant joining",
     "mention": "a mention",
     "release": "a released observation",
 }
@@ -647,19 +648,65 @@ def _gap_notice_tokens(rows: Sequence[Any]) -> int:
     return gaps * _GAP_NOTICE_TOKENS
 
 
-def _with_gap_notices(rows: Sequence[Any], messages: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """``messages`` (one per row, in order) with a gap notice wherever one is due.
+def _join_notice(principal_id: uuid.UUID, label: str | None) -> dict[str, Any]:
+    """[R13.79]: a connection fact, worded so it cannot read as attendance or lateness.
 
-    Never before the first row: what came before the window is not a gap the
-    model can see the other side of.
+    The label is self-chosen and sits inside a sentence in the platform's voice, so it
+    gets a quoted slot: a sentence-shaped name then reads as a name, not as the
+    notice's own words. Quotes are dropped from it here as well as upstream, since
+    one inside would close the slot early."""
+    who = human_prefix(principal_id, None)
+    if label:
+        who = f'{who} "{_defang_notice_marker(label).replace(chr(34), "")}"'
+    return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {who} connected to the room."}
+
+
+# How far back the arrival read reaches: the arrival set's own lifetime. Older
+# arrivals are filtered by the window anyway; this only bounds the read.
+_JOIN_LOOKBACK_SECONDS = 6 * 3600
+
+# Worst case per arrival, for budgets counted before labels are resolved.
+_JOIN_NOTICE_TOKENS = tx.estimate_tokens(
+    _join_notice(uuid.UUID(int=0), "王" * MAX_GUEST_LABEL + GUEST_LABEL_MARKER)["content"]
+)
+
+
+def _joins_in_window(
+    rows: Sequence[Any], joins: Sequence[tuple[uuid.UUID, datetime]]
+) -> list[tuple[uuid.UUID, datetime]]:
+    """The arrivals from the first dated row on. Before it the model sees nothing an
+    arrival could be placed against, and a turn with no dated row shows none."""
+    dated = [t for t in (getattr(r, "created_at", None) for r in rows) if t is not None]
+    if not dated:
+        return []
+    start = min(dated)
+    return sorted(((who, at) for who, at in joins if at >= start), key=lambda j: j[1])
+
+
+def _with_gap_notices(
+    rows: Sequence[Any],
+    messages: Sequence[dict[str, Any]],
+    arrivals: Sequence[tuple[datetime, dict[str, Any]]] = (),
+) -> list[dict[str, Any]]:
+    """``messages`` (one per row, in order) with a gap notice wherever one is due,
+    and each arrival notice before the first row sent after it.
+
+    Never a gap notice before the first row: what came before the window is not
+    a gap the model can see the other side of. ``arrivals`` is in time order;
+    those after the last row close the stream.
     """
     out: list[dict[str, Any]] = []
+    pending = list(arrivals)
     for index, message in enumerate(messages):
         if index:
             notice = _gap_notice(rows[index - 1], rows[index])
             if notice is not None:
                 out.append(notice)
+        sent_at = getattr(rows[index], "created_at", None)
+        while pending and sent_at is not None and pending[0][0] <= sent_at:
+            out.append(pending.pop(0)[1])
         out.append(message)
+    out.extend(notice for _, notice in pending)
     return out
 
 
@@ -1353,6 +1400,7 @@ class _SystemBlocks:
         notify_block: str | None,
         with_time: bool = False,
         with_participants: bool = False,
+        activity_state: str | None = None,
     ) -> _SystemBlocks:
         blocks: list[_SystemBlock] = [
             _SystemBlock("base_system", _BlockRole.MEASURED_AND_RENDERED, text=base_system)
@@ -1372,6 +1420,8 @@ class _SystemBlocks:
         # exists to declare rather than to hand-maintain in two places.
         blocks.append(_SystemBlock("skills", _BlockRole.MEASURED_AND_RENDERED, text=skills_note))
         blocks.append(_SystemBlock("activity", _BlockRole.MEASURED_AND_RENDERED, text=activity_block))
+        # [R30.44]: fixed for the turn, so plain text measured in both passes.
+        blocks.append(_SystemBlock("activity_state", _BlockRole.MEASURED_AND_RENDERED, text=activity_state))
         blocks.append(_SystemBlock("canvas", _BlockRole.MEASURED_AND_RENDERED, text=canvas_block))
         blocks.append(_SystemBlock("staged", _BlockRole.MEASURED_AND_RENDERED, text=staged_note))
         blocks.append(_SystemBlock("notify", _BlockRole.MEASURED_AND_RENDERED, text=notify_block))
@@ -2106,9 +2156,12 @@ class TurnEngine:
                     event["activation"],
                     event.get("activity_type"),
                     initiating_agent=initiator,
+                    notice=event.get("notice"),
                 )
             elif event.get("kind") == EVENT_ENDED:
-                await dispatch_activation_ended(event["chatroom_id"], event["activation_id"])
+                await dispatch_activation_ended(
+                    event["chatroom_id"], event["activation_id"], notice=event.get("notice")
+                )
 
     async def _resolve_agent_tools(self, agent: Agent) -> list[AgentTool]:
         """Resolve the agent's configured tools once per turn.
@@ -3164,7 +3217,11 @@ class TurnEngine:
             # snapshot time in the block describe one observation.
             presence = await self._room_presence(chatroom_id)
             creator_id = await self._room_creator_id(chatroom_id)
+            # [R13.79]: read once, like presence; each assembly pass keeps the ones
+            # its own transcript window can place. The creator's are never shown.
+            joins = [(who, at) for who, at in await self._recent_joins(chatroom_id) if who != creator_id]
             activity_block = await self._activity_context(chatroom_id, guests=guests)
+            activity_state = await self._activity_state(chatroom_id)
             canvas_block = await self._canvas_context(chatroom_id, agent_id=agent.id)
             skills_note = SkillsFacade.render_index(bound_skills.skills)
             # AC-19 / [R31.17]: the tool appends one entry per served body read, and the
@@ -3197,6 +3254,7 @@ class TurnEngine:
                 notify_block=notify_block,
                 with_time=True,
                 with_participants=True,
+                activity_state=activity_state,
             )
 
             # F-17: compaction is decided against the whole non-knowledge request
@@ -3206,6 +3264,7 @@ class TurnEngine:
                 + tool_tokens
                 + input_tokens
                 + _DEFAULT_MAX_TOKENS
+                + len(joins) * _JOIN_NOTICE_TOKENS
             )
             history = await self._assemble_history(
                 agent,
@@ -3246,9 +3305,16 @@ class TurnEngine:
                 agent_names, user_names = await self._participant_labels(
                     agent, chatroom_id, history, guests=guests
                 )
+                window_joins = _joins_in_window(stream_rows, joins)
                 participants = await self._participant_facts(
-                    chatroom_id, stream_rows, presence=presence, creator_id=creator_id, guests=guests
+                    chatroom_id,
+                    stream_rows,
+                    presence=presence,
+                    creator_id=creator_id,
+                    guests=guests,
+                    joined=frozenset(who for who, _ in window_joins),
                 )
+                arrivals = await self._arrival_notices(chatroom_id, stream_rows, window_joins, guests=guests)
                 # F-16: distribute the knowledge budget by narrow-scope precedence
                 # over what remains after the fixed context (system blocks + tools
                 # + message history + response reserve). Counting only the stream
@@ -3260,6 +3326,7 @@ class TurnEngine:
                     + input_tokens
                     + sum(h.token_count for h in stream_rows)
                     + _gap_notice_tokens(stream_rows)
+                    + sum(tx.estimate_tokens(notice["content"]) for _, notice in arrivals)
                     + _prefix_tokens(stream_rows, agent.id, agent_names, user_names)
                 )
                 total_budget = ctxmod.knowledge_budget(
@@ -3321,10 +3388,11 @@ class TurnEngine:
                         )
                         for hm in stream_rows
                     ],
+                    arrivals,
                 )
                 # The blocks fold into the system prompt (providers take system as a
                 # top-level field, not an in-array role).
-                labelled_turn = _shows_participant_note(stream_rows, agent.id, user_names)
+                labelled_turn = _shows_participant_note(stream_rows, agent.id, user_names) or bool(arrivals)
                 # Who set this room up, folded into that note rather than given a
                 # block of its own: it is a fact *about* the "Name:" labels, and an
                 # agent that reads the two apart is the one that treats a name as
@@ -4206,6 +4274,30 @@ class TurnEngine:
             return None
         return room.created_by_user_id if room is not None else None
 
+    async def _recent_joins(self, chatroom_id: uuid.UUID) -> list[tuple[uuid.UUID, datetime]]:
+        """Recorded arrivals the turn may place in its window ([R13.79]); empty on failure."""
+        return await ConversationFacade(self._db).recent_joins(
+            chatroom_id, since=_now() - timedelta(seconds=_JOIN_LOOKBACK_SECONDS)
+        )
+
+    async def _arrival_notices(
+        self,
+        chatroom_id: uuid.UUID,
+        stream_rows: Sequence[tx.HistoryMessage],
+        window_joins: Sequence[tuple[uuid.UUID, datetime]],
+        *,
+        guests: RoomGuests | None,
+    ) -> list[tuple[datetime, dict[str, Any]]]:
+        """One ``[Room notice]`` per arrival, labelled like the transcript prefixes."""
+        if not window_joins:
+            return []
+        session_senders = frozenset(
+            hm.sender_id for hm in stream_rows if hm.from_guest_session and hm.sender_id is not None
+        )
+        ids = list(dict.fromkeys(who for who, _ in window_joins))
+        labels = await self._prefix_labels(chatroom_id, ids, guests=guests, guest_senders=session_senders)
+        return [(at, _join_notice(who, labels.get(who))) for who, at in window_joins]
+
     async def _participant_facts(
         self,
         chatroom_id: uuid.UUID,
@@ -4214,6 +4306,7 @@ class TurnEngine:
         presence: RoomPresenceSnapshot,
         creator_id: uuid.UUID | None,
         guests: RoomGuests | None,
+        joined: frozenset[uuid.UUID] = frozenset(),
     ) -> str:
         """The [R13.74] block for the rows this request includes.
 
@@ -4243,6 +4336,7 @@ class TurnEngine:
             window_size=len(stream_rows),
             window_start=min(dated) if dated else None,
             window_end=max(dated) if dated else None,
+            joined=joined,
         )
 
     async def _room_display_labels(
@@ -5209,6 +5303,10 @@ class TurnEngine:
             chatroom_id=chatroom_id,
             resolve_labels=lambda ids: self._room_display_labels(chatroom_id, ids, guests=guests),
         )
+
+    async def _activity_state(self, chatroom_id: uuid.UUID) -> str:
+        """The ``[Activity state]`` block ([R30.44]), on every normal and observer room turn."""
+        return await self._activity_provider.state(chatroom_id=chatroom_id)
 
     async def _canvas_context(
         self,

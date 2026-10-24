@@ -29,7 +29,12 @@ from contexts.activities.domain.errors import (
     ExampleCourseNotFound,
     ValidatorConfigInvalid,
 )
-from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
+from contexts.activities.domain.models import (
+    ActivityType,
+    ActivityTypeScope,
+    EndedActivation,
+    ValidatorKind,
+)
 from contexts.activities.infrastructure.examples.catalogue import (
     CourseDefinition,
     CourseFileInvalid,
@@ -314,7 +319,7 @@ class ActivityExampleService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[EndedActivation]:
         """Revoke one project's access, ending only that project's activations.
 
         Deliberately not a code path shared with ``delete_platform_type``: that one
@@ -324,8 +329,8 @@ class ActivityExampleService:
 
         The bound comes from the project's own room ids, resolved through the
         conversation facade rather than a join ([R30.09]). Returns the
-        ``(chatroom_id, activation_id)`` pairs ended so the route can broadcast
-        ``activity.activation.ended`` post-commit.
+        activations ended so the route can broadcast ``activity.activation.ended``
+        and each one's notice post-commit.
         """
         activity_type = await self._type_repo.get(activity_type_id)
         if activity_type is None or activity_type.scope is not ActivityTypeScope.PLATFORM:
@@ -342,7 +347,7 @@ class ActivityExampleService:
         activation_repo = ActivationRepository(self._db)
         activations = ActivationService(self._db, activation_repo=activation_repo, type_repo=self._type_repo)
 
-        ended: list[tuple[uuid.UUID, uuid.UUID]] = []
+        ended: list[EndedActivation] = []
         for activation in await activation_repo.list_active_for_type(activity_type_id):
             if activation.chatroom_id not in room_ids:
                 continue
@@ -354,7 +359,7 @@ class ActivityExampleService:
                 request_id=request_id,
             )
             if result.transitioned:
-                ended.append((activation.chatroom_id, activation.id))
+                ended.append(EndedActivation(activation.chatroom_id, activation.id, result.notice))
 
         await self._session_repo.close_open_for_type_in_rooms(activity_type_id, sorted(room_ids))
 

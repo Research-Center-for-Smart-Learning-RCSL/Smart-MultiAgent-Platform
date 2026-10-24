@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Protocol
 
-from contexts.activities.domain.models import ActivityActivation, ActivityType
+from contexts.activities.domain.models import ActivationNotice, ActivityActivation, ActivityType
 
 
 class ActivityTypeReader(Protocol):
@@ -47,6 +47,19 @@ class GroupProposalExpirer(Protocol):
     async def expire_open_for_activation(self, activation_id: uuid.UUID) -> Sequence[uuid.UUID]: ...
 
 
+class ActivationNoticeWriter(Protocol):
+    """Writes the room system message a start or an end owes ([R30.45])."""
+
+    async def write(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        activity_type: ActivityType | None,
+        event: str,
+    ) -> ActivationNotice: ...
+
+
 class ActivityActivationRepository(Protocol):
     async def get(self, activation_id: uuid.UUID) -> ActivityActivation | None: ...
 
@@ -69,6 +82,7 @@ class ActivityActivationRepository(Protocol):
 
 
 __all__ = [
+    "ActivationNoticeWriter",
     "ActivityActivationRepository",
     "ActivitySessionCloser",
     "ActivityTypeOptInReader",

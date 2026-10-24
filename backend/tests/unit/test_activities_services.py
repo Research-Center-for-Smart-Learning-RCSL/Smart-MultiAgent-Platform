@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -892,6 +892,115 @@ class TestFilledCountCoverageValidator:
             config_check({"min_filled": -1})
         with pytest.raises(ValidatorConfigInvalid):
             schema_check({"min_filled": 3}, {"properties": {"a": {}}})
+
+
+class TestQuoteFieldsConfig:
+    """AC-21: ``quote_fields`` on ``filled_count_coverage`` (M6, [R30.15] amended)."""
+
+    _SCHEMA: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string"},
+            "why": {"type": "string"},
+            "extra": {"type": "string"},
+            "more": {"type": "string"},
+            "count": {"type": "integer"},
+        },
+    }
+
+    def teardown_method(self) -> None:
+        registry.clear_registry()
+
+    @staticmethod
+    def _hooks() -> tuple[Any, Any]:
+        from app.plugins.activity_validators import register_first_party_validators
+
+        register_first_party_validators()
+        config_check = registry.get_config_validator("filled_count_coverage")
+        schema_check = registry.get_schema_config_validator("filled_count_coverage")
+        assert config_check is not None
+        assert schema_check is not None
+        return config_check, schema_check
+
+    def test_up_to_three_declared_string_fields_are_accepted(self) -> None:
+        config_check, schema_check = self._hooks()
+        config = {"min_filled": 1, "quote_fields": ["target", "why", "extra"]}
+        config_check(config)
+        schema_check(config, self._SCHEMA)
+
+    @pytest.mark.parametrize(
+        ("quote_fields", "match", "needs_schema"),
+        [
+            ("target", "must be a list", False),
+            (["target", "why", "extra", "more"], "at most 3", False),
+            (["target", "target"], "must not repeat", False),
+            (["target", ""], "non-empty strings", False),
+            (["target", 7], "non-empty strings", False),
+            (["missing"], "does not declare", True),
+            (["count"], "not a string property", True),
+        ],
+        ids=["not-a-list", "four", "duplicate", "empty-name", "non-string-name", "undeclared", "non-string"],
+    )
+    def test_a_bad_quote_fields_is_rejected(self, quote_fields: Any, match: str, needs_schema: bool) -> None:
+        config_check, schema_check = self._hooks()
+        config = {"min_filled": 1, "quote_fields": quote_fields}
+        if needs_schema:
+            # The config-only hook cannot see the schema, so it lets these through.
+            config_check(config)
+            with pytest.raises(ValidatorConfigInvalid, match=match):
+                schema_check(config, self._SCHEMA)
+        else:
+            with pytest.raises(ValidatorConfigInvalid, match=match):
+                config_check(config)
+
+    def test_the_min_filled_rules_still_apply_first(self) -> None:
+        config_check, schema_check = self._hooks()
+        with pytest.raises(ValidatorConfigInvalid, match="min_filled"):
+            config_check({"min_filled": -1, "quote_fields": ["target"]})
+        with pytest.raises(ValidatorConfigInvalid, match="min_filled"):
+            schema_check({"min_filled": 9, "quote_fields": ["target"]}, self._SCHEMA)
+
+    def test_filled_count_accepts_the_same_config_unchanged(self) -> None:
+        from app.plugins.activity_validators import FILLED_COUNT_ID, register_first_party_validators
+
+        register_first_party_validators()
+        config = {"min_filled": 1, "quote_fields": ["target"]}
+        config_check = registry.get_config_validator(FILLED_COUNT_ID)
+        schema_check = registry.get_schema_config_validator(FILLED_COUNT_ID)
+        assert config_check is not None
+        assert schema_check is not None
+        config_check(config)
+        schema_check(config, self._SCHEMA)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{"target": "林", "why": "SECRET-WHY"}, {"target": "", "why": ""}, {"target": "林"}],
+        ids=["both", "none", "one"],
+    )
+    def test_scoring_is_unchanged_by_quote_fields(self, payload: dict[str, Any]) -> None:
+        """The verdict, error class, sub-scores and detail ignore the key entirely,
+        for both validators, so quoting changes what agents see and nothing else."""
+        from app.plugins.activity_validators import filled_count_coverage_scorer, filled_count_scorer
+
+        def _type(validator_id: str, **extra: Any) -> Any:
+            return _make_type(
+                payload_schema=self._SCHEMA,
+                validator_config={"validator_id": validator_id, "min_filled": 1, **extra},
+            )
+
+        for scorer, vid in (
+            (filled_count_scorer, "filled_count"),
+            (filled_count_coverage_scorer, "filled_count_coverage"),
+        ):
+            plain = scorer(payload, _type(vid), db=MagicMock())
+            quoting = scorer(payload, _type(vid, quote_fields=["target", "why"]), db=MagicMock())
+            assert (quoting.is_valid, quoting.error_class, quoting.sub_scores, quoting.detail) == (
+                plain.is_valid,
+                plain.error_class,
+                plain.sub_scores,
+                plain.detail,
+            )
+            assert "SECRET" not in f"{quoting.sub_scores}{quoting.detail}"
 
 
 class TestIsFilledRule:

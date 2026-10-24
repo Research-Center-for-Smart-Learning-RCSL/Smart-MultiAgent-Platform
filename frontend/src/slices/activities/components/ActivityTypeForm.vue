@@ -74,6 +74,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       exact_match_expected: '',
       exact_match_case_sensitive: false,
       filled_count_min: 0,
+      quote_fields: [],
     }
   }
   const cfg = (row.validator_config ?? {}) as Record<string, unknown>
@@ -94,6 +95,9 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     exact_match_expected: cfg.expected === undefined || cfg.expected === null ? '' : String(cfg.expected),
     exact_match_case_sensitive: cfg.case_sensitive === true,
     filled_count_min: typeof cfg.min_filled === 'number' ? cfg.min_filled : 0,
+    quote_fields: Array.isArray(cfg.quote_fields)
+      ? cfg.quote_fields.filter((n): n is string => typeof n === 'string')
+      : [],
   }
 }
 

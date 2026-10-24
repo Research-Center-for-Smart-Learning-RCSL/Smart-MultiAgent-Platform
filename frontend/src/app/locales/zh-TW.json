@@ -30,6 +30,8 @@
       "silenceFieldLabel": "靜默多久後主動發言",
       "autostopFieldLabel": "最多連續回合數",
       "autostopHelp": "達到指定回合數後自動停止，避免無限自問自答。",
+      "onJoinTitle": "有人進房時",
+      "onJoinHelp": "有參與者進入房間時喚醒一次；一分鐘內的多位進房者共用一次喚醒，房間建立者本人進房不會觸發。",
       "advanced": "進階設定",
       "maxCapLabel": "自動停止回合上限",
       "allowSelfOpenLabel": "無人在場時仍可回應訊息",

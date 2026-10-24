@@ -688,8 +688,8 @@ async def delete_activity_type(
     # Durable-commit before the WS fan-out: the tombstone and every activation-end
     # must be persisted before any room is told its activation ended.
     await db.commit()
-    for chatroom_id, activation_id in ended:
-        await dispatch_activation_ended(chatroom_id, activation_id)
+    for e in ended:
+        await dispatch_activation_ended(e.chatroom_id, e.activation_id, notice=e.notice)
 
 
 @project_router.get("/{project_id}/activity-types")
@@ -812,8 +812,8 @@ async def opt_project_out_of_activity_type(
         request_id=ctx.request_id,
     )
     await db.commit()
-    for chatroom_id, activation_id in ended:
-        await dispatch_activation_ended(chatroom_id, activation_id)
+    for e in ended:
+        await dispatch_activation_ended(e.chatroom_id, e.activation_id, notice=e.notice)
 
 
 @chatroom_router.get("/{chatroom_id}/activity-types/{type_id}")
@@ -909,7 +909,7 @@ async def start_activity_activation(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_room_creator(access, principal=principal)
     facade = ActivitiesFacade(db)
-    activation = await facade.start_activation(
+    started = await facade.start_activation(
         project_id=access.project_id,
         chatroom_id=chatroom_id,
         activity_type_id=body.activity_type_id,
@@ -918,6 +918,7 @@ async def start_activity_activation(
         request_id=ctx.request_id,
     )
     await db.commit()
+    activation = started.activation
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=activation
     )
@@ -925,7 +926,9 @@ async def start_activity_activation(
     # lookup short-circuits. Threaded anyway so the broadcast and the response
     # carry the same attribution whichever path produced the activation.
     initiating_agent = await _resolve_initiating_agent(db, activation)
-    await dispatch_activation_started(activation, activity_type, initiating_agent=initiating_agent)
+    await dispatch_activation_started(
+        activation, activity_type, initiating_agent=initiating_agent, notice=started.notice
+    )
     return _activation_out(activation, activity_type, initiating_agent=initiating_agent)
 
 
@@ -949,7 +952,7 @@ async def end_activity_activation(
     )
     await db.commit()
     if result.transitioned:
-        await dispatch_activation_ended(chatroom_id, result.activation.id)
+        await dispatch_activation_ended(chatroom_id, result.activation.id, notice=result.notice)
     activity_type = await _resolve_activation_type(
         facade, project_id=access.project_id, activation=result.activation
     )

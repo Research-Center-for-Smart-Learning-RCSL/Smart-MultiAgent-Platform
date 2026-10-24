@@ -24,6 +24,7 @@ from contexts.activities.domain.models import (
     ActivityActivationEndResult,
     ActivityType,
     ActivityTypeScope,
+    EndedActivation,
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -109,7 +110,7 @@ class TestDeleteTypeCascade:
             actor_ip=None,
         )
 
-        assert set(ended) == {(room_a, act_a.id), (room_b, act_b.id)}
+        assert {(e.chatroom_id, e.activation_id) for e in ended} == {(room_a, act_a.id), (room_b, act_b.id)}
         assert facade._activation.end.await_count == 2
         facade._sessions.close_open_for_type.assert_awaited_once_with(type_id)
         facade._types.soft_delete.assert_awaited_once()
@@ -220,7 +221,7 @@ class TestPlatformTypeDeleteAuthority:
             actor_ip=None,
         )
 
-        assert set(ended) == {(room_a, act_a.id), (room_b, act_b.id)}
+        assert {(e.chatroom_id, e.activation_id) for e in ended} == {(room_a, act_a.id), (room_b, act_b.id)}
         facade._sessions.close_open_for_type.assert_awaited_once_with(type_id)
         facade._types.soft_delete.assert_awaited_once()
 
@@ -369,7 +370,9 @@ class TestDeleteRoute:
         room_a, room_b = uuid.uuid4(), uuid.uuid4()
         act_a, act_b = uuid.uuid4(), uuid.uuid4()
         facade = MagicMock()
-        facade.delete_type = AsyncMock(return_value=[(room_a, act_a), (room_b, act_b)])
+        facade.delete_type = AsyncMock(
+            return_value=[EndedActivation(room_a, act_a), EndedActivation(room_b, act_b)]
+        )
         db = MagicMock()
         db.commit = AsyncMock()
         dispatch = AsyncMock()

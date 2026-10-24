@@ -98,9 +98,11 @@ def render_participant_facts(
     window_size: int,
     window_start: datetime | None,
     window_end: datetime | None,
+    joined: Collection[uuid.UUID] = frozenset(),
 ) -> str:
     """The [R13.74] block. ``labels`` maps a user id to its marked display label;
-    an id without one is listed by code alone."""
+    an id without one is listed by code alone. ``joined`` are the listed people
+    with a recorded arrival inside the window ([R13.79])."""
     speaking = {s.user_id for s in speakers}
     connected = set(presence.user_ids)
     ordered = [s.user_id for s in speakers] + sorted(connected - speaking, key=str)
@@ -138,6 +140,8 @@ def render_participant_facts(
         else:
             state = "connected" if uid in connected else "not connected"
         facts = [state, "message in this window" if uid in speaking else "no message in this window"]
+        if uid in joined:
+            facts.append("joined in this window")
         if uid == creator_id:
             facts.insert(0, "room creator")
         if uid in ambiguous:
