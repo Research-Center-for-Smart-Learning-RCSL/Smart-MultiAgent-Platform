@@ -31,7 +31,7 @@ from contexts.activities.domain.models import (
     ActivityType,
     ValidationResult,
 )
-from contexts.activities.domain.quote_fields import quote_field_errors
+from contexts.activities.domain.quote_fields import QUOTING_VALIDATOR_ID, quote_field_errors
 
 EXACT_MATCH_ID = "exact_match"
 _MISMATCH = "mismatch"
@@ -39,7 +39,8 @@ _MISMATCH = "mismatch"
 FILLED_COUNT_ID = "filled_count"
 _TOO_FEW_FILLED = "too_few_filled"
 
-FILLED_COUNT_COVERAGE_ID = "filled_count_coverage"
+#: The repository quotes only this validator's types, so the two names are one.
+FILLED_COUNT_COVERAGE_ID = QUOTING_VALIDATOR_ID
 #: Re-exported so a reader of this module sees which key it writes. The name is
 #: owned by ``contexts.activities.domain`` because the coverage aggregates read it
 #: in SQL and that context cannot import ``app.plugins``.

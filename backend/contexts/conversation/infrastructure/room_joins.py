@@ -44,7 +44,13 @@ async def record_join(room_id: uuid.UUID, principal_id: uuid.UUID, *, at: dateti
     pipe.zadd(key, {str(principal_id): at.timestamp()})
     pipe.zremrangebyrank(key, 0, -(MAX_RECORDED_JOINS + 1))
     pipe.expire(key, _JOINS_TTL_SECONDS)
-    await pipe.execute()
+    try:
+        await pipe.execute()
+    except Exception:
+        # Without the release, the window key would keep this arrival and every
+        # reconnect within the window out of the join set.
+        await r.delete(_seen_key(room_id, principal_id))
+        raise
     return True
 
 

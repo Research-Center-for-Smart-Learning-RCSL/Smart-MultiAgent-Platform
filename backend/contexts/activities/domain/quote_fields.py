@@ -16,6 +16,9 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 QUOTE_FIELDS_KEY: Final = "quote_fields"
+#: The one validator that checks ``quote_fields`` against the payload schema. Any
+#: other validator accepts the key unchecked, so its names are never quoted.
+QUOTING_VALIDATOR_ID: Final = "filled_count_coverage"
 MAX_QUOTE_FIELDS: Final = 3
 QUOTE_VALUE_MAX: Final = 40
 QUOTE_TRUNCATED_SUFFIX: Final = " (truncated)"
@@ -64,6 +67,8 @@ def quoted_values(payload: Mapping[str, Any], config: Mapping[str, Any]) -> tupl
     Defensive about a config that predates validation or a payload that drifted:
     anything that is not a usable list or a string value is skipped, never raised.
     """
+    if config.get("validator_id") != QUOTING_VALIDATOR_ID:
+        return ()
     names = config.get(QUOTE_FIELDS_KEY)
     if not isinstance(names, list):
         return ()
@@ -80,6 +85,7 @@ __all__ = [
     "QUOTE_FIELDS_KEY",
     "QUOTE_TRUNCATED_SUFFIX",
     "QUOTE_VALUE_MAX",
+    "QUOTING_VALIDATOR_ID",
     "quote_field_errors",
     "quoted_values",
 ]

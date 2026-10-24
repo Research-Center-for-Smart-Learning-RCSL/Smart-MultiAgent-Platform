@@ -218,6 +218,17 @@ class TestSubmissionRepoScoping:
         )
         assert [r.quoted for r in rows] == [(), (), ()]
 
+    async def test_a_validator_that_does_not_check_quote_fields_quotes_nothing(self) -> None:
+        """``filled_count`` accepts the key unchecked, so its names are not declared fields."""
+        (row,) = await self._rows(
+            self._recent_row(
+                agent_digest="1/3 fields answered: target",
+                payload={"target": "林"},
+                validator_config={**self._QUOTING, "validator_id": "filled_count"},
+            )
+        )
+        assert row.quoted == ()
+
     async def test_recent_rows_say_where_each_digest_came_from(self) -> None:
         """AC-18. Derived by rebuilding the deterministic payload fallback and
         comparing, so it is exact for rows written before the distinction existed

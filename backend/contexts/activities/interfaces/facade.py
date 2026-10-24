@@ -525,6 +525,9 @@ class ActivitiesFacade:
         if current is None:
             return RoomActivityState(activation=None)
         activity_type = await self._type_repo.get(current.activity_type_id)
+        if current.status is not ActivationStatus.ACTIVE:
+            # An ended activation's proposals and submissions are not rendered.
+            return RoomActivityState(activation=current, activity_type=activity_type)
         proposals = await GroupProposalRepository(self._db).state_for_activation(
             chatroom_id=chatroom_id, activation_id=current.id
         )

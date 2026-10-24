@@ -159,3 +159,31 @@ async def test_each_owed_arrival_wake_is_deferred_to_the_end_of_the_window(
             {"_defer_by": timedelta(seconds=ON_JOIN_COALESCE_SECONDS)},
         )
     ]
+
+
+async def test_one_failed_enqueue_does_not_cost_the_other_targets_their_wake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each target already holds its batch claim, so a skipped enqueue is a lost wake."""
+    first, second = (SimpleNamespace(agent_id=uuid.uuid4(), binding_id=uuid.uuid4()) for _ in range(2))
+    enqueued: list[str] = []
+
+    async def _evaluate(_db: object, **_k: object) -> list[Any]:
+        return [first, second]
+
+    async def _enqueue(_name: str, agent_id: str, *_a: Any, **_k: Any) -> None:
+        if agent_id == str(first.agent_id):
+            raise ConnectionError("queue down")
+        enqueued.append(agent_id)
+
+    class _Db(_Session):
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(chatroom_mod, "async_session", _Db)
+    monkeypatch.setattr(chatroom_mod, "evaluate_presence_change", _evaluate)
+    monkeypatch.setattr(chatroom_mod, "enqueue", _enqueue)
+
+    await chatroom_mod._notify_presence(uuid.uuid4(), uuid.uuid4())
+
+    assert enqueued == [str(second.agent_id)]

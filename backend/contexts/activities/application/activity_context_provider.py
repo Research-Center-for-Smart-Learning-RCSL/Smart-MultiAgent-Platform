@@ -205,8 +205,11 @@ class ActivityContextProvider:
         from contexts.activities.interfaces.facade import ActivitiesFacade
 
         facade = ActivitiesFacade(self._db)
+        # Under a SAVEPOINT because this runs on the turn's own session: a failed read
+        # must cost the block, not abort the transaction the turn's reply needs.
         try:
-            state = await facade.room_activity_state(chatroom_id)
+            async with self._db.begin_nested():
+                state = await facade.room_activity_state(chatroom_id)
         except Exception:
             _log.warning("activity state read failed for room %s", chatroom_id, exc_info=True)
             return f"{STATE_HEADER}\n{STATE_UNAVAILABLE}"
@@ -215,7 +218,8 @@ class ActivityContextProvider:
         names: Mapping[uuid.UUID, str] = {}
         if group_ids:
             try:
-                names = await facade.resolve_member_group_names(sorted(group_ids))
+                async with self._db.begin_nested():
+                    names = await facade.resolve_member_group_names(sorted(group_ids))
             except Exception:
                 _log.warning("activity state group names failed; block keeps bare codes", exc_info=True)
         return render_activity_state(state, group_names=names)

@@ -59,7 +59,13 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
             await db.commit()
         # [R15.26]: deferred to the end of the coalescing window, so every arrival
         # of that minute is in the one turn's transcript.
-        for target in targets:
+    except Exception:  # pragma: no cover — defensive; a failure must not drop the socket
+        _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
+        return
+    # Each target already holds its batch claim, so one failed enqueue must not
+    # cost the others their wake.
+    for target in targets:
+        try:
             await enqueue(
                 "wakeup_agent",
                 str(target.agent_id),
@@ -69,8 +75,10 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
                 str(target.binding_id),
                 _defer_by=timedelta(seconds=ON_JOIN_COALESCE_SECONDS),
             )
-    except Exception:  # pragma: no cover — defensive; presence is fire-and-forget
-        _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
+        except Exception:
+            _log.warning(
+                "on_join enqueue failed for agent %s in room %s", target.agent_id, chatroom_id, exc_info=True
+            )
 
 
 @router.websocket("/ws/chatroom/{chatroom_id}")

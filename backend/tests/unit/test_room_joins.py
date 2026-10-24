@@ -123,3 +123,26 @@ async def test_set_is_trimmed_to_the_newest_joins_and_expires(redis: _FakeRedis)
     joins = await room_joins.recent_joins(room, since=_T0 - timedelta(hours=1))
     assert [who for who, _ in joins] == people[5:]
     assert redis.ttls[f"ws:joins:{room}"] == 6 * 3600
+
+
+async def test_a_failed_join_set_write_releases_the_window(
+    redis: _FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otherwise the arrival, and every reconnect inside the window, is lost to the join set."""
+    room, who = uuid.uuid4(), uuid.uuid4()
+
+    async def _fail(_self: _FakePipe) -> list:
+        raise ConnectionError("redis down")
+
+    async def _delete(key: str) -> int:
+        return 1 if redis.strings.pop(key, None) else 0
+
+    redis.delete = _delete  # type: ignore[attr-defined]
+    monkeypatch.setattr(_FakePipe, "execute", _fail)
+    with pytest.raises(ConnectionError):
+        await room_joins.record_join(room, who, at=_T0)
+    monkeypatch.undo()
+    monkeypatch.setattr(room_joins, "get_redis", lambda: redis)
+
+    assert await room_joins.record_join(room, who, at=_T0) is True
+    assert await room_joins.recent_joins(room, since=_T0) == [(who, _T0)]

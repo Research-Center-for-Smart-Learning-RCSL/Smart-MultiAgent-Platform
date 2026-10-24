@@ -983,6 +983,49 @@ class TestActivityStateProvider:
         assert text == f"{STATE_HEADER}\n{STATE_UNAVAILABLE}"
         assert STATE_NEVER_RUN not in text
 
+    async def test_a_failed_state_read_rolls_back_only_its_savepoint(self) -> None:
+        """The read shares the turn's session; an aborted transaction would fail the reply."""
+        exits: list[object] = []
+
+        class _Savepoint:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(self, exc_type: object, *_rest: object) -> bool:
+                exits.append(exc_type)
+                return False
+
+        db = MagicMock()
+        db.begin_nested = MagicMock(side_effect=_Savepoint)
+        facade = MagicMock()
+        facade.room_activity_state = AsyncMock(side_effect=RuntimeError("db down"))
+        with patch(_FACADE, return_value=facade):
+            text = await ActivityContextProvider(db).state(chatroom_id=uuid.uuid4())
+
+        assert text == f"{STATE_HEADER}\n{STATE_UNAVAILABLE}"
+        assert exits == [RuntimeError]
+
+    async def test_an_ended_activation_reads_no_proposals_or_submissions(self) -> None:
+        """Those rows are not rendered once it ended, and each read is one more way to fail."""
+        from contexts.activities.interfaces.facade import ActivitiesFacade
+
+        ended = _activation(status=ActivationStatus.ENDED, ended_at=_NOW)
+        facade = ActivitiesFacade(MagicMock())
+        facade._activation_repo = MagicMock(
+            current_for_rooms=AsyncMock(return_value={ended.chatroom_id: ended})
+        )
+        facade._type_repo = MagicMock(get=AsyncMock(return_value=_activity_type()))
+        with (
+            patch("contexts.activities.interfaces.facade.GroupProposalRepository") as proposals,
+            patch("contexts.activities.interfaces.facade.ActivitySubmissionRepository") as submissions,
+        ):
+            state = await facade.room_activity_state(ended.chatroom_id)
+
+        assert state.activation is ended
+        assert (state.open_proposals, state.settled_proposals, state.submitted_groups) == ((), (), ())
+        proposals.assert_not_called()
+        submissions.assert_not_called()
+
     async def test_a_room_with_no_groups_skips_the_name_lookup(self) -> None:
         facade = MagicMock()
         facade.room_activity_state = AsyncMock(return_value=RoomActivityState(activation=None))
