@@ -413,25 +413,25 @@ since installed course types are copies too.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A participant connecting to a room that already has another live participant
+- [x] AC-1: A participant connecting to a room that already has another live participant
   re-arms every bound agent's silence clock (unit test on `on_open` with roster size above 1).
-- [ ] AC-2: A refresh within 30 minutes of the same principal's previous join writes no new
+- [x] AC-2: A refresh within 30 minutes of the same principal's previous join writes no new
   join and wakes nothing; a reconnection after 30 minutes counts as a new join.
-- [ ] AC-3: A room or observer turn whose window includes a join shows
+- [x] AC-3: A room or observer turn whose window includes a join shows
   `[Room notice] [u:xxxxxxxx] <label> connected to the room.` at the join's position; a join by
   the room creator is omitted; a label containing `[Room notice]` is defanged.
-- [ ] AC-4: The participant facts row of a principal who joined within the window carries
+- [x] AC-4: The participant facts row of a principal who joined within the window carries
   `joined in this window`.
-- [ ] AC-5: With `on_join` enabled for a normal binding, two participants joining within one
+- [x] AC-5: With `on_join` enabled for a normal binding, two participants joining within one
   minute enqueue exactly one `wakeup_agent` with `trigger = on_join` deferred about 60 seconds;
   an observer binding, a `call_only` binding, or a room with no messages and
   `allow_self_open = false` enqueues none.
-- [ ] AC-6: The `on_join` turn's time line names "a participant joining"; an autostop-tripped
+- [x] AC-6: The `on_join` turn's time line names "a participant joining"; an autostop-tripped
   binding skips it; a completed turn counts a round.
-- [ ] AC-7: `on_join_enabled` can be read and changed through the room wake-up API and
+- [x] AC-7: `on_join_enabled` can be read and changed through the room wake-up API and
   `RoomWakeupPanel` for a normal binding, shows its field source, is absent for observer
   bindings, and `update_wakeup` refuses to change it.
-- [ ] AC-8: The agent wake-up editor shows and saves `on_join`; an agent with only `on_join`
+- [x] AC-8: The agent wake-up editor shows and saves `on_join`; an agent with only `on_join`
   enabled is not inert in both backend and frontend.
 - [ ] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
   stating no activity has been run; with an active individual activity it states the name,
@@ -532,7 +532,7 @@ exposure gates as every other digest."
 Add:
 
 - **[R13.79]** **Arrivals in the agent transcript.** A principal's first live connection to a room, counted at most once per principal per room in any 30-minute window, is recorded server-side. Normal and observer room turns show each recorded arrival inside the transcript window as a platform room notice naming the participant's code and label, using the room-notice channel's protections; arrivals of the room creator are omitted. The notice states a connection, not attendance or lateness, and is never shown to humans. Arrival records are bounded, expire, and are absent rather than an error when presence storage is unavailable.
-- **[R15.26]** **`on_join` trigger.** A designer may enable `triggers.on_join` for an agent, and a room creator or permitted editor may override it per normal binding ([R15.25]). It is not self-toggleable and is not available to observer bindings. When an arrival is recorded ([R13.79]) in a room where at least one message exists or `allow_self_open` is true, each normal binding with `on_join` effective and not `call_only` is woken once, 60 seconds later, for all arrivals in that minute. The wake is non-explicit: autostop applies and it does not reset autostop or count toward `every_n_messages`.
+- **[R15.26]** **`on_join` trigger.** A designer may enable `triggers.on_join` for an agent, and a room creator or permitted editor may override it per normal binding ([R15.25]). It is not self-toggleable and is not available to observer bindings. When an arrival other than the room creator's is recorded ([R13.79]) in a room where at least one message exists or `allow_self_open` is true, each normal binding with `on_join` effective and not `call_only` is woken once, 60 seconds later, for all arrivals in that minute. The wake is non-explicit: autostop applies and it does not reset autostop or count toward `every_n_messages`.
 - **[R30.44]** **Activity state for agents.** Every normal and observer room turn includes a bounded activity-state block computed from server state: whether an activity is active in the room, its name, individual or group mode, consent fraction and start time, or else the most recently ended activity and its end time, or that none has been run; and for the current activation the groups that have submitted and the proposal facts permitted by [R30.42]. It states that it makes no whole-class completion claim, is capped at 30 group rows and 1,500 estimated tokens with stated truncation, and reads as unavailable rather than "not started" when the read fails.
 - **[R30.45]** **Activation notices.** Creating an activation and ending one each write one room system message visible to every participant, naming the activity but not who started or ended it. A repeated start of an already running type writes none. The message re-arms the silence clock ([R15.02]) but is not counted by `every_n_messages` and does not reset autostop, and it is delivered live to connected participants.
 
@@ -554,6 +554,13 @@ Add:
   would change every room on that host, including phase 2's live-run rooms, so the staging ACs
   (AC-19, AC-20, AC-25) and the M5 re-sync wait for that merge. If phase 2's runs change the pack
   prompts, this branch rebases onto them before merge.
+- D-2. The room creator's own arrival does not wake `on_join` (requester's decision, 2026-10-24).
+  §6.2 as approved woke on every recorded arrival, while §6.1 and [R13.79] omit the creator's
+  arrival from the transcript; an agent woken by it would find no arrival to respond to and
+  could only speak unprompted. The creator's arrival is still recorded and still re-arms the
+  silence clock. The [R15.26] text in §13 is amended to say so, and
+  `test_on_join_trigger.py::TestWakeSelection::test_the_room_creators_arrival_wakes_nothing`
+  pins it.
 
 ## 16. Follow-ups
 
