@@ -697,7 +697,7 @@ class TestProposalStateQuery:
         stmt = db.execute.await_args.args[0]
         sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
         # The subquery sits in the FROM, so its WHERE is everything before its GROUP BY.
-        inner = sql.split("GROUP BY")[0]
+        inner = sql.split("GROUP BY", maxsplit=1)[0]
         assert inner.count(str(activation)) == 1
         assert inner.count(str(room)) == 1
         assert sql.count(str(activation)) == 2
