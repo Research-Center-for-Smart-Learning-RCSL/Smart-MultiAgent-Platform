@@ -465,16 +465,16 @@ since installed course types are copies too.
 - [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
-- [ ] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
+- [x] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
   properties and rejects an undeclared name, a non-string property, a duplicate, more than 3
   names and a non-list value; `filled_count` accepts the same config unchanged, and the verdict,
   `error_class`, `sub_scores` and `detail` of both validators are unchanged for every payload.
-- [ ] AC-22: For a computed-digest row whose type quotes `target_character`, the rendered row is
+- [x] AC-22: For a computed-digest row whose type quotes `target_character`, the rendered row is
   `... <type>: <outcome>, <coverage> — target_character: <value>` with exactly one marker; an
   unfilled quoted field is omitted; a value over 40 characters is truncated with the suffix; a
   value containing a newline, `::` or `—` stays on one line and cannot place a marker before the
   real one.
-- [ ] AC-23: No quote appears when the type has no `quote_fields`, when `expose_payload_to_agent`
+- [x] AC-23: No quote appears when the type has no `quote_fields`, when `expose_payload_to_agent`
   is false, when the platform policy withholds digests, or when the row's validator is not
   in-process; rows of such types render byte-for-byte as before (existing provider tests pass
   unchanged).
@@ -570,6 +570,11 @@ Add:
 - D-4. AC-10 and AC-11 are checked by unit tests locally; their `db`-tier half
   (`test_group_activity_constraints_db.py::TestRoomActivityStateQueries`) cannot run on the
   local Windows host and is verified in CI on the draft PR before those two ACs are ticked.
+- D-5. `ActivityTypeForm` now carries `quote_fields` through an edit, which §6.6 did not list. The
+  form rebuilds `validator_config` from its own fields, so without this a rename of the CRAT type
+  in the UI would silently stop quoting. A quoted field the schema edit removed or retyped is
+  dropped on save rather than failing it. The form still has no control to author the list
+  (FU-5).
 
 ## 16. Follow-ups
 
@@ -580,3 +585,5 @@ Add:
 - FU-3: Correct the `broadcast.py:198-199` docstring that says agents read WebSocket events.
 - FU-4: A pack revision field so classroom evidence can name the exact prompt revision
   (`catalogue.py:42-55` rejects unknown fields today).
+- FU-5: An authoring control for `quote_fields` in `ActivityTypeForm` (a pick list of the
+  declared text fields, at most three); today it is set through the course file or the API.
