@@ -436,10 +436,10 @@ since installed course types are copies too.
 - [x] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
   stating no activity has been run; with an active individual activity it states the name,
   mode and start time; after end it states the ended activity and end time.
-- [ ] AC-10: For an active group activity, the block lists each group's open proposal with
+- [x] AC-10: For an active group activity, the block lists each group's open proposal with
   approvals, rejections, undecided and required approvals, lists rejected, withdrawn or expired
   proposals of the current activation, and lists groups that have submitted.
-- [ ] AC-11: The rendered state block never contains a voter id, a proposer id, a participant
+- [x] AC-11: The rendered state block never contains a voter id, a proposer id, a participant
   code of a voter, or any payload string from a proposal (unit test with seeded values).
 - [x] AC-12: Starting a new activation writes exactly one `activity_activation` system message
   with `event = started`; a repeated start of the same running type writes none; every end path
@@ -457,7 +457,7 @@ since installed course types are copies too.
 - [x] AC-16: The peers' silence rules reference `[Activity state]`; the object peer is not
   silenced during D1 and D2.
 - [x] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
-- [ ] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
+- [x] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
   build and `check:theme-tokens` pass in CI; `gen:api` output is committed.
 - [ ] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
   receives a one-to-two sentence orientation from TA within about two minutes, without being
@@ -570,6 +570,10 @@ Add:
 - D-4. AC-10 and AC-11 are checked by unit tests locally; their `db`-tier half
   (`test_group_activity_constraints_db.py::TestRoomActivityStateQueries`) cannot run on the
   local Windows host and is verified in CI on the draft PR before those two ACs are ticked.
+  CI run 40060044755 on PR #270 (head 97c7da81) passed `backend-db` (`pytest -m db`, 314
+  passed), so AC-10, AC-11 and AC-18 are ticked. The same run's `dependency-audit` job failed on
+  advisories for brotli 1.2.0, pypdf 6.21.1 and setuptools 83.0.0 published after `main` last
+  passed at 283c3de2; this branch changes no dependency manifest, so the fix belongs on `main`.
 - D-5. `ActivityTypeForm` now carries `quote_fields` through an edit, which §6.6 did not list. The
   form rebuilds `validator_config` from its own fields, so without this a rename of the CRAT type
   in the UI would silently stop quoting. A quoted field the schema edit removed or retyped is
