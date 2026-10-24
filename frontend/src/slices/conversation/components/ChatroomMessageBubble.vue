@@ -27,6 +27,11 @@
   >
     <span class="sys__line" />
     <span
+      v-if="activationText"
+      class="sys__text"
+    >{{ activationText }}</span>
+    <span
+      v-else
       class="sys__text"
       v-html="html"
     />
@@ -339,6 +344,25 @@ const releasedHeader = computed(() => {
           (props.agentNamesSettled ? t('conversation.chatroom.unknownAgent') : observer.slice(0, 8)),
       })
     : t('conversation.observers.releasedByOwner')
+})
+
+// An activity start/end divider (R30.45). The stored text is the English line
+// agents read; viewers get it in their own locale from the metadata. An unknown
+// event falls back to the stored text rather than guessing a wording.
+const activationText = computed<string | null>(() => {
+  const meta = props.message.metadata
+  if (props.message.sender_type !== 'system' || meta?.type !== 'activity_activation') return null
+  const event = meta.event
+  if (event !== 'started' && event !== 'ended') return null
+  const name = typeof meta.activity_type_name === 'string' ? meta.activity_type_name : ''
+  if (event === 'started') {
+    return name
+      ? t('conversation.system.activityStarted', { name })
+      : t('conversation.system.activityStartedUnnamed')
+  }
+  return name
+    ? t('conversation.system.activityEnded', { name })
+    : t('conversation.system.activityEndedUnnamed')
 })
 
 // RAG citations the backend attached to this agent reply (R10.09).

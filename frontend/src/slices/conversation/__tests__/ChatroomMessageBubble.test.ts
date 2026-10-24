@@ -7,6 +7,7 @@ import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
 import ChatroomStreamingBubble from '../components/ChatroomStreamingBubble.vue'
 import { AGENT_BUBBLE_COLORS } from '../utils/agentBubbleColors'
 import conversationEn from '../locales/en.json'
+import conversationZh from '../locales/zh-TW.json'
 import type { Attachment, DisplayMessage } from '../types'
 
 function agentMessage(metadata: Record<string, unknown>): DisplayMessage {
@@ -228,6 +229,77 @@ describe('ChatroomMessageBubble released observation (R28.06)', () => {
     })
     expect(wrapper.find('.released').exists()).toBe(false)
     expect(wrapper.find('.sys').exists()).toBe(true)
+  })
+})
+
+// R30.45 / AC-13: the activation divider every participant (guests included)
+// receives live, rendered from metadata in the viewer's locale.
+describe('ChatroomMessageBubble activity activation divider', () => {
+  function activationMessage(metadata: Record<string, unknown>): DisplayMessage {
+    return {
+      ...systemMessage({ type: 'activity_activation', activation_id: 'a1', ...metadata }),
+      content_md: 'Activity "CRAT round" started.',
+    }
+  }
+
+  afterEach(() => {
+    i18n.global.setLocaleMessage('en', {})
+    i18n.global.setLocaleMessage('zh-TW', {})
+    i18n.global.locale.value = 'en'
+  })
+
+  it('shows the activity name in English', async () => {
+    i18n.global.mergeLocaleMessage('en', conversationEn)
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        html: '<p>stored</p>',
+        message: activationMessage({ event: 'started', activity_type_name: 'CRAT round' }),
+      },
+    })
+    expect(wrapper.find('.sys__text').text()).toBe('Activity "CRAT round" started')
+    expect(wrapper.find('.sys__text').html()).not.toContain('stored')
+  })
+
+  it('shows the end in the viewer locale', async () => {
+    i18n.global.mergeLocaleMessage('zh-TW', conversationZh)
+    i18n.global.locale.value = 'zh-TW'
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        html: '<p>stored</p>',
+        message: activationMessage({ event: 'ended', activity_type_name: 'CRAT round' }),
+      },
+    })
+    expect(wrapper.find('.sys__text').text()).toBe('活動「CRAT round」結束')
+  })
+
+  it('uses the unnamed wording when the type was deleted', async () => {
+    i18n.global.mergeLocaleMessage('en', conversationEn)
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, html: '<p>stored</p>', message: activationMessage({ event: 'ended' }) },
+    })
+    expect(wrapper.find('.sys__text').text()).toBe('An activity ended')
+  })
+
+  it('renders a name as text, never as markup', async () => {
+    i18n.global.mergeLocaleMessage('en', conversationEn)
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        html: '<p>stored</p>',
+        message: activationMessage({ event: 'started', activity_type_name: '<img src=x onerror=1>' }),
+      },
+    })
+    expect(wrapper.find('.sys__text img').exists()).toBe(false)
+    expect(wrapper.find('.sys__text').text()).toContain('<img src=x onerror=1>')
+  })
+
+  it('falls back to the stored text for an unknown event', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, html: '<p>stored</p>', message: activationMessage({ event: 'paused' }) },
+    })
+    expect(wrapper.find('.sys__text').text()).toBe('stored')
   })
 })
 
