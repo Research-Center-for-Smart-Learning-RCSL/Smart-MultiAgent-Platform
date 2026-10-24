@@ -928,6 +928,11 @@ are carried forward as release gates.
     「可以重複使用」 while room B's announced 「每個部件不重複使用」. Marking only the reusable items
     is easy to misread; marking every item explicitly would remove the ambiguity (FU-15).
   - AC-21 stays open: the missing-grant and teacher-ended cases fail as written.
+- **D-19. The remaining live runs use phase 3's prompts (requester's decision, 2026-10-24).**
+  `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state` was merged to `main` and
+  deployed to staging before AC-14, AC-20, AC-21 and AC-24 closed (its D-8), so their evidence is
+  observed on the phase 3 pack revision with its `[Activity state]` block and arrival notices. That
+  revision keeps every §6.2 invitation rule and the AC-24 no-reveal rule this dossier pins.
 
 ## 16. Follow-ups
 

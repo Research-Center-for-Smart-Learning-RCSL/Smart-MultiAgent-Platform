@@ -593,6 +593,12 @@ Add:
   stripped from model-facing labels and are stripped again in `_join_notice`, so the slot cannot
   be closed early. The three teacher prompts quote the new form and say the quoted name is
   self-chosen; `test_turn_join_notices.py` and `test_agent_example_packs.py` pin both sides.
+- D-8. Merged to `main` and deployed to staging on 2026-10-24 before phase 2 is `implemented`
+  (requester's decision), lifting D-1's constraint. Phase 2's open live ACs (AC-14, AC-20, AC-21,
+  AC-24) are therefore observed on this dossier's pack prompts, not on the revision phase 2
+  shipped; its D-19 records the same. The staging ACs here (AC-19, AC-20, AC-25) and the M5
+  re-sync proceed after that deployment.
+
 ## 16. Follow-ups
 
 - FU-1: Emit `message.created` for the submission echo so other participants see it live
