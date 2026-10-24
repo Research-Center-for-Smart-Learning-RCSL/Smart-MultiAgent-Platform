@@ -29,6 +29,7 @@ from contexts.orchestration.domain.models import (
     T_MINUTES_MIN,
     CountMode,
     EveryNMessagesTrigger,
+    OnJoinTrigger,
     SilenceMinutesTrigger,
     WakeupConfig,
     WakeupSoftBounds,
@@ -48,6 +49,7 @@ ROOM_FIELDS: Final = (
     "silence_minutes_enabled",
     "silence_minutes",
     "autostop_rounds",
+    "on_join_enabled",
 )
 #: The subset the agent's own tool may set ([R15.06]).
 RUNTIME_FIELDS: Final = (
@@ -68,6 +70,7 @@ class WakeupOverrides:
     silence_minutes_enabled: bool | None = None
     silence_minutes: int | None = None
     autostop_rounds: int | None = None
+    on_join_enabled: bool | None = None
 
     @classmethod
     def from_dict(cls, raw: Any, *, allowed: tuple[str, ...] = ROOM_FIELDS) -> WakeupOverrides:
@@ -172,6 +175,12 @@ def resolve_room_wakeup(
         t_minutes = take("silence_minutes", clamp(room.silence_minutes, T_MINUTES_MIN, T_MINUTES_MAX), "room")
     if room.autostop_rounds is not None:
         autostop = take("autostop_rounds", _autostop_value(room.autostop_rounds), "room")
+    # [R15.26]: room layer only, never runtime, and never for an observer binding.
+    on_join_enabled = defaults.triggers.on_join.enabled
+    if room.on_join_enabled is not None:
+        on_join_enabled = take("on_join_enabled", room.on_join_enabled, "room")
+    if is_observer:
+        on_join_enabled = False
 
     ignored: set[str] = set()
     if runtime.every_n_messages is not None:
@@ -210,6 +219,7 @@ def resolve_room_wakeup(
             defaults.triggers,
             every_n_messages=EveryNMessagesTrigger(enabled=every_enabled, n=every_n, count=count),
             silence_minutes=silence_trigger,
+            on_join=OnJoinTrigger(enabled=on_join_enabled),
         ),
     )
     return EffectiveWakeup(config=config, sources=sources, ignored_runtime=frozenset(ignored))

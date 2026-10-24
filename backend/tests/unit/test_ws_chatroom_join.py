@@ -1,4 +1,5 @@
-"""AC-1: any first connection to a room is an arrival, not only the first into an empty room.
+"""AC-1: any first connection to a room is an arrival, not only the first into an empty room;
+AC-5: the arrival wakes it owes are enqueued deferred.
 
 Harness follows test_ws_chatroom_typing_retract.py: ``connection_loop`` is
 replaced with a stub that captures the route's callbacks, which are driven directly.
@@ -7,11 +8,14 @@ replaced with a stub that captures the route's callbacks, which are driven direc
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
 
 from app.api.ws import chatroom as chatroom_mod
+from contexts.orchestration.interfaces.facade import ON_JOIN_COALESCE_SECONDS
 from shared_kernel.auth.permissions import Principal
 
 
@@ -122,3 +126,36 @@ async def test_second_tab_of_a_connected_principal_is_not_an_arrival(harness: di
 
     assert harness["notified"] == []
     assert _Publisher.emitted == []
+
+
+async def test_each_owed_arrival_wake_is_deferred_to_the_end_of_the_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-5: one ``on_join`` job per target, deferred by the coalescing window."""
+    room, who = uuid.uuid4(), uuid.uuid4()
+    target = SimpleNamespace(agent_id=uuid.uuid4(), binding_id=uuid.uuid4())
+    jobs: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    async def _evaluate(_db: object, *, chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> list[Any]:
+        assert (chatroom_id, principal_id) == (room, who)
+        return [target]
+
+    async def _enqueue(*args: Any, **kwargs: Any) -> None:
+        jobs.append((args, kwargs))
+
+    class _Db(_Session):
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(chatroom_mod, "async_session", _Db)
+    monkeypatch.setattr(chatroom_mod, "evaluate_presence_change", _evaluate)
+    monkeypatch.setattr(chatroom_mod, "enqueue", _enqueue)
+
+    await chatroom_mod._notify_presence(room, who)
+
+    assert jobs == [
+        (
+            ("wakeup_agent", str(target.agent_id), str(room), "on_join", None, str(target.binding_id)),
+            {"_defer_by": timedelta(seconds=ON_JOIN_COALESCE_SECONDS)},
+        )
+    ]

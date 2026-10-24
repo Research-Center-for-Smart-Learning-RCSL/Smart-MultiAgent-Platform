@@ -10719,6 +10719,16 @@
             "title": "Ignored Agent Fields",
             "type": "array"
           },
+          "on_join_enabled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WakeupBoolFieldOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "enum": [
               "normal",
@@ -10832,6 +10842,17 @@
             "minimum": 1.0,
             "title": "Expected Version",
             "type": "integer"
+          },
+          "on_join_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Join Enabled"
           },
           "silence_minutes": {
             "anyOf": [

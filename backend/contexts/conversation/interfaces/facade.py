@@ -605,6 +605,9 @@ class ConversationFacade:
             observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
         )
 
+    async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
+        return await self._messages.room_has_messages(chatroom_id)
+
     async def recent_joins(
         self, chatroom_id: uuid.UUID, *, since: datetime
     ) -> list[tuple[uuid.UUID, datetime]]:

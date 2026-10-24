@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import timedelta
 
 from fastapi import APIRouter, WebSocket
 
@@ -23,8 +24,10 @@ from contexts.conversation.interfaces import (
     room_channel,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.orchestration.interfaces.facade import ON_JOIN_COALESCE_SECONDS
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import async_session, get_sessionmaker
+from shared_kernel.queue import enqueue
 from shared_kernel.realtime import (
     AccessOutcome,
     ChannelConnection,
@@ -52,8 +55,20 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
     write audit rows in future."""
     try:
         async with async_session() as db:
-            await evaluate_presence_change(db, chatroom_id=chatroom_id, principal_id=principal_id)
+            targets = await evaluate_presence_change(db, chatroom_id=chatroom_id, principal_id=principal_id)
             await db.commit()
+        # [R15.26]: deferred to the end of the coalescing window, so every arrival
+        # of that minute is in the one turn's transcript.
+        for target in targets:
+            await enqueue(
+                "wakeup_agent",
+                str(target.agent_id),
+                str(chatroom_id),
+                "on_join",
+                None,
+                str(target.binding_id),
+                _defer_by=timedelta(seconds=ON_JOIN_COALESCE_SECONDS),
+            )
     except Exception:  # pragma: no cover — defensive; presence is fire-and-forget
         _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
 

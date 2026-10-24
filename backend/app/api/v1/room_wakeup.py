@@ -74,6 +74,8 @@ class RoomWakeupOut(BaseModel):
     silence_minutes_enabled: WakeupBoolFieldOut
     silence_minutes: WakeupIntFieldOut
     autostop_rounds: WakeupIntFieldOut
+    # [R15.26]: absent for an observer binding, which cannot wake on arrivals.
+    on_join_enabled: WakeupBoolFieldOut | None = None
     # Designer policy the room cannot change, shown so the editor can say why.
     call_only: bool
     agent_may_toggle: list[Literal["every_n_messages", "silence_minutes"]]
@@ -91,6 +93,7 @@ class RoomWakeupPatchIn(BaseModel):
     silence_minutes_enabled: bool | None = None
     silence_minutes: int | None = Field(default=None, ge=1, le=T_MINUTES_MAX)
     autostop_rounds: int | None = Field(default=None, ge=1, le=AUTOSTOP_HARD_CAP)
+    on_join_enabled: bool | None = None
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> RoomWakeupPatchIn:
@@ -106,6 +109,7 @@ class RoomWakeupPatchIn(BaseModel):
             silence_minutes_enabled=self.silence_minutes_enabled,
             silence_minutes=self.silence_minutes,
             autostop_rounds=self.autostop_rounds,
+            on_join_enabled=self.on_join_enabled,
         )
 
 
@@ -151,6 +155,13 @@ def _out(current: RoomWakeup) -> RoomWakeupOut:
             value=eff.silence_minutes.autostop_limit_for(is_observer=observer),
             designer_value=base.silence_minutes.autostop_limit_for(is_observer=observer),
             source=src["autostop_rounds"],
+        ),
+        on_join_enabled=None
+        if observer
+        else WakeupBoolFieldOut(
+            value=eff.on_join.enabled,
+            designer_value=base.on_join.enabled,
+            source=src["on_join_enabled"],
         ),
         call_only=base.call_only.enabled,
         agent_may_toggle=sorted(current.defaults.self_toggle),
@@ -211,7 +222,9 @@ async def patch_room_wakeup(
     the same field; nothing is written to the shared agent."""
     # The write re-reads the binding and agent itself; loading them here too was
     # a third read of each.
-    await _authorized_state(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
+    state = await _authorized_state(db, principal=principal, chatroom_id=chatroom_id, agent_id=agent_id)
+    if body.on_join_enabled is not None and state.role is ChatroomAgentRole.OBSERVER:
+        raise HTTPException(status_code=422, detail="an observer binding cannot wake on arrivals")
     change = await OrchestrationFacade(db).patch_room_wakeup(
         agent_id=agent_id,
         room_id=chatroom_id,

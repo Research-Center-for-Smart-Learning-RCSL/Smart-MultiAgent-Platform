@@ -29,6 +29,7 @@ from contexts.agents.interfaces.facade import Agent
 from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.conversation.interfaces.facade import BindingWakeupState, ConversationFacade
 from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
+from contexts.orchestration.domain.models import ON_JOIN_COALESCE_SECONDS
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
 
@@ -312,6 +313,53 @@ class WakeupService:
         for state in await self._conversation.room_binding_wakeup_states(room_id):
             if state.agent_id in wanted:
                 await wakeup_state.touch_silence_timestamp(state.agent_id, room_id, state.binding_id)
+
+    # ------------------------------------------------------------------
+    # Arrival: the on_join trigger ([R15.26])
+    # ------------------------------------------------------------------
+
+    async def on_participant_joined(self, *, room_id: uuid.UUID, principal_id: uuid.UUID) -> list[WakeTarget]:
+        """The bindings that owe one ``on_join`` wake for this arrival.
+
+        Only the first arrival of a coalescing window returns a binding; the
+        caller defers its wake to the end of the window, so later arrivals in the
+        same minute are in that turn's transcript. The room creator's own arrival
+        wakes nothing: agents are never shown it ([R13.79]), so the turn would have
+        no arrival to act on.
+        """
+        room = await self._conversation.get_chatroom(room_id)
+        if room is None or room.created_by_user_id == principal_id:
+            return []
+        has_messages: bool | None = None
+        targets: list[WakeTarget] = []
+        for state in await self._conversation.room_binding_wakeup_states(room_id):
+            try:
+                current = await self._room_wakeup.for_state(state)
+                if current is None or current.is_observer:
+                    continue
+                cfg = current.effective.config
+                if not cfg.triggers.on_join.enabled or cfg.triggers.call_only.enabled:
+                    continue
+                if not cfg.allow_self_open:
+                    # [R15.05]: nothing said yet means nothing to orient anyone to.
+                    if has_messages is None:
+                        has_messages = await self._conversation.room_has_messages(room_id)
+                    if not has_messages:
+                        continue
+                if await wakeup_state.claim_join_batch(
+                    state.agent_id, room_id, state.binding_id, ON_JOIN_COALESCE_SECONDS
+                ):
+                    WAKEUP_FIRES.labels(kind="on_join").inc()
+                    targets.append(WakeTarget(state.agent_id, state.binding_id))
+            except Exception:
+                await self._db.rollback()
+                logger.warning(
+                    "on_participant_joined: evaluation failed agent=%s room=%s",
+                    state.agent_id,
+                    room_id,
+                    exc_info=True,
+                )
+        return targets
 
     # ------------------------------------------------------------------
     # Agent spoke without user reply → bump autostop

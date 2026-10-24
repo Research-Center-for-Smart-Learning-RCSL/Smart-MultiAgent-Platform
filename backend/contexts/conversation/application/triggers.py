@@ -146,12 +146,13 @@ async def evaluate_presence_change(
     *,
     chatroom_id: uuid.UUID,
     principal_id: uuid.UUID,
-) -> bool:
-    """A principal's first live connection to the room ([R15.02], [R13.79]).
+) -> list[WakeTarget]:
+    """A principal's first live connection to the room ([R15.02], [R13.79], [R15.26]).
 
     Re-arms the silence timer for every bound agent whoever else is connected,
-    and records the arrival. Returns whether it counts as a new arrival: a
-    reconnection inside the principal's join window does not.
+    and records the arrival. Returns the ``on_join`` wakes a new arrival owes; a
+    reconnection inside the principal's join window is not one and owes none.
+    Like the message path, the caller enqueues them.
 
     The empty-room half of this call was retired
     (2026-07-27-wakeup-sweep-failure-isolation C2): the live roster read in
@@ -165,7 +166,11 @@ async def evaluate_presence_change(
         _log.warning("join record failed for room %s", chatroom_id, exc_info=True)
         is_new = False
     await _re_arm_silence(db, chatroom_id=chatroom_id)
-    return is_new
+    if not is_new:
+        return []
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    return await OrchestrationFacade(db).on_participant_joined(room_id=chatroom_id, principal_id=principal_id)
 
 
 async def evaluate_room_activity(

@@ -246,6 +246,70 @@ class TestRoutes:
         # Code review #8: the write loads the binding and agent itself.
         assert calls.loaded == 0
 
+    async def test_on_join_is_shown_with_its_source_for_a_normal_binding(self, monkeypatch) -> None:
+        """Phase 3 AC-7."""
+        uid = uuid.uuid4()
+        _wire(
+            monkeypatch,
+            access=_access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER})),
+            current=_current(),
+        )
+
+        out = await _get(_principal(uid))
+
+        assert out.on_join_enabled is not None
+        assert (out.on_join_enabled.value, out.on_join_enabled.source) == (False, "designer")
+
+    async def test_on_join_is_absent_for_an_observer_binding(self, monkeypatch) -> None:
+        """Phase 3 AC-7: the creator manages the observer, which cannot wake on arrivals."""
+        uid = uuid.uuid4()
+        _wire(
+            monkeypatch,
+            access=_access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER})),
+            current=_current(ChatroomAgentRole.OBSERVER),
+        )
+
+        out = await _get(_principal(uid))
+
+        assert out.on_join_enabled is None
+
+    async def test_on_join_cannot_be_set_on_an_observer_binding(self, monkeypatch) -> None:
+        uid = uuid.uuid4()
+        calls = _wire(
+            monkeypatch,
+            access=_access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER})),
+            current=_current(ChatroomAgentRole.OBSERVER),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await mod.patch_room_wakeup(
+                body=mod.RoomWakeupPatchIn(binding_id=uuid.uuid4(), expected_version=4, on_join_enabled=True),
+                chatroom_id=uuid.uuid4(),
+                agent_id=uuid.uuid4(),
+                principal=_principal(uid),
+                db=SimpleNamespace(commit=AsyncMock()),
+            )
+        assert exc.value.status_code == 422
+        assert calls.patched == []
+
+    async def test_on_join_is_patched_on_a_normal_binding(self, monkeypatch) -> None:
+        uid = uuid.uuid4()
+        calls = _wire(
+            monkeypatch,
+            access=_access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER})),
+            current=_current(),
+        )
+
+        await mod.patch_room_wakeup(
+            body=mod.RoomWakeupPatchIn(binding_id=uuid.uuid4(), expected_version=4, on_join_enabled=True),
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            principal=_principal(uid),
+            db=SimpleNamespace(commit=AsyncMock()),
+        )
+
+        assert calls.patched[0]["patch"].to_dict() == {"on_join_enabled": True}
+
     async def test_reset_names_its_scope(self, monkeypatch) -> None:
         uid = uuid.uuid4()
         calls = _wire(
