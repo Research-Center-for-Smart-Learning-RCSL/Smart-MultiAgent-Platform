@@ -20,6 +20,7 @@ module free of any arq / app dependency and unit-testable in isolation.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -27,10 +28,14 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import ChatroomAgent, ChatroomAgentRole
+from contexts.conversation.infrastructure import room_joins
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+from shared_kernel.auth.clients import now
 
 if TYPE_CHECKING:
     from contexts.orchestration.interfaces.facade import WakeTarget
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "evaluate_message_wakeups",
@@ -140,16 +145,27 @@ async def evaluate_presence_change(
     db: AsyncSession,
     *,
     chatroom_id: uuid.UUID,
-) -> None:
-    """Notify orchestration that a user joined the room, re-arming the
-    silence timer for every bound agent.
+    principal_id: uuid.UUID,
+) -> bool:
+    """A principal's first live connection to the room ([R15.02], [R13.79]).
+
+    Re-arms the silence timer for every bound agent whoever else is connected,
+    and records the arrival. Returns whether it counts as a new arrival: a
+    reconnection inside the principal's join window does not.
 
     The empty-room half of this call was retired
     (2026-07-27-wakeup-sweep-failure-isolation C2): the live roster read in
     `evaluate_silence_trigger` is the sole, level-triggered authority on an
     empty room now, so there is no longer a pause edge to deliver here.
     """
+    try:
+        is_new = await room_joins.record_join(chatroom_id, principal_id, at=now())
+    except Exception:
+        # [R13.79]: no arrival record is a missing fact, never a failed connection.
+        _log.warning("join record failed for room %s", chatroom_id, exc_info=True)
+        is_new = False
     await _re_arm_silence(db, chatroom_id=chatroom_id)
+    return is_new
 
 
 async def evaluate_room_activity(

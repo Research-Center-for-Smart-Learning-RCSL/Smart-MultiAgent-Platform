@@ -200,8 +200,41 @@ async def test_evaluate_presence_change_forwards_to_on_users_present(monkeypatch
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
 
-    await triggers.evaluate_presence_change(object(), chatroom_id=room)
-    assert captured == {"room_id": room, "agent_ids": [a1]}
+    async def _record(room_id, principal_id, *, at):
+        captured["recorded"] = (room_id, principal_id)
+        return True
+
+    monkeypatch.setattr(triggers.room_joins, "record_join", _record)
+    joiner = uuid.uuid4()
+
+    is_new = await triggers.evaluate_presence_change(object(), chatroom_id=room, principal_id=joiner)
+    assert is_new is True
+    assert captured == {"room_id": room, "agent_ids": [a1], "recorded": (room, joiner)}
+
+
+@pytest.mark.asyncio
+async def test_evaluate_presence_change_re_arms_even_when_join_record_fails(monkeypatch) -> None:
+    """[R13.79]: a Redis failure costs the arrival record, never the [R15.02] re-arm."""
+    a1, room = uuid.uuid4(), uuid.uuid4()
+    captured: dict = {}
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([a1]))
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_users_present(self, *, room_id, agent_ids):
+            captured["re_armed"] = list(agent_ids)
+
+    async def _boom(*a, **kw):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(triggers.room_joins, "record_join", _boom)
+
+    is_new = await triggers.evaluate_presence_change(object(), chatroom_id=room, principal_id=uuid.uuid4())
+    assert is_new is False
+    assert captured == {"re_armed": [a1]}
 
 
 @pytest.mark.asyncio

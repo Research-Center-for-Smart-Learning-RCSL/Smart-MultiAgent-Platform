@@ -43,6 +43,7 @@ from contexts.conversation.domain.models import (
     SenderType,
     Workspace,
 )
+from contexts.conversation.infrastructure import room_joins
 from contexts.conversation.infrastructure.channels import emit_members_changed
 from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.conversation.infrastructure.repositories import (
@@ -603,6 +604,16 @@ class ConversationFacade:
         return RoomPresenceSnapshot(
             observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
         )
+
+    async def recent_joins(
+        self, chatroom_id: uuid.UUID, *, since: datetime
+    ) -> list[tuple[uuid.UUID, datetime]]:
+        """Recorded arrivals since ``since`` ([R13.79]); empty, never an error, when Redis fails."""
+        try:
+            return await room_joins.recent_joins(chatroom_id, since=since)
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning("recent joins read failed")
+            return []
 
     async def announce_participant_renamed(self, user_id: uuid.UUID) -> None:
         """Tell every room the user is present in to re-read its roster ([R13.19]).

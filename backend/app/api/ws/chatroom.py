@@ -40,8 +40,8 @@ _log = logging.getLogger(__name__)
 router = APIRouter(tags=["ws"])
 
 
-async def _notify_presence(chatroom_id: uuid.UUID) -> None:
-    """Re-arm the silence timer for the room's bound agents on join (R15.05b).
+async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> None:
+    """A principal's first connection to the room: re-arm silence, record the arrival.
 
     Join-edge only: the empty-room pause this used to also drive on leave was
     retired (2026-07-27-wakeup-sweep-failure-isolation C2) -- the live roster
@@ -52,7 +52,7 @@ async def _notify_presence(chatroom_id: uuid.UUID) -> None:
     write audit rows in future."""
     try:
         async with async_session() as db:
-            await evaluate_presence_change(db, chatroom_id=chatroom_id)
+            await evaluate_presence_change(db, chatroom_id=chatroom_id, principal_id=principal_id)
             await db.commit()
     except Exception:  # pragma: no cover — defensive; presence is fire-and-forget
         _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
@@ -280,7 +280,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         return await room_read_outcome(lambda: _check_read(conn.principal))
 
     async def on_open(conn: ChannelConnection) -> None:
-        added, roster_size = await presence.join(
+        added, _roster_size = await presence.join(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
@@ -290,13 +290,10 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.joined",
                 {"user_id": str(conn.principal.user_id)},
             )
-            # FIX-03: atomic Lua guarantees exactly one concurrent first-joiner
-            # observes roster_size == 1, so the transition fires exactly once.
-            # Must stay nested under `added` — the roster SADD is idempotent,
-            # so a second tab/reconnect of an already-present lone user would
-            # also see roster_size == 1 and must NOT re-fire the transition.
-            if roster_size == 1:
-                await _notify_presence(chatroom_id)
+            # [R15.02]: any participant joining is room activity, not only the
+            # first one into an empty room. Must stay nested under `added`: a
+            # second tab of an already-connected principal is not an arrival.
+            await _notify_presence(chatroom_id, conn.principal.user_id)
 
     async def on_close(conn: ChannelConnection) -> None:
         nonlocal _typing_active
