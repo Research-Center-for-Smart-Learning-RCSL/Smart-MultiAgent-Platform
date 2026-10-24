@@ -53,8 +53,8 @@ const ActionSchema = z.discriminatedUnion('do', [
   z.object({ do: z.literal('silent'), sec: z.number().positive() }),
   z.object({ do: z.literal('wait'), sec: z.number().positive() }),
   z.object({ do: z.literal('openActivity') }),
-  z.object({ do: z.literal('submit'), fields: z.record(FieldValue) }),
-  z.object({ do: z.literal('propose'), fields: z.record(FieldValue), group: z.string().optional() }),
+  z.object({ do: z.literal('submit'), fields: z.record(z.string(), FieldValue) }),
+  z.object({ do: z.literal('propose'), fields: z.record(z.string(), FieldValue), group: z.string().optional() }),
   z.object({ do: z.literal('vote'), approve: z.boolean() }),
   z.object({ do: z.literal('withdraw') }),
   /** By activity type key or name. */
@@ -132,7 +132,7 @@ export const RoomSchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('existing'),
     /** May be supplied with `--room` instead. */
-    id: z.string().uuid().optional(),
+    id: z.guid().optional(),
     agents: z.array(AgentBindingSchema).default([]),
     guestLinks: z.boolean().default(false),
   }),
@@ -149,7 +149,7 @@ export const ScenarioSchema = z
     steps: z.array(StepSchema),
     budget: z
       .object({ maxCalls: z.number().int().positive().default(200), maxOutputTokens: z.number().int().positive().default(60_000) })
-      .default({}),
+      .prefault({}),
     typingCps: z.number().positive().default(6),
     /** Optional notes printed in the report, such as the protocol's pass criteria. */
     notes: z.array(z.string()).default([]),

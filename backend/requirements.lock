@@ -29,7 +29,7 @@ attrs==26.1.0
     #   referencing
 bleach==6.4.0
     # via smap-backend (pyproject.toml)
-brotli==1.2.0
+brotli==1.2.1
     # via fonttools
 certifi==2026.10.19
     # via
@@ -168,7 +168,7 @@ pygments==2.20.0
     # via rich
 pyjwt==2.15.0
     # via smap-backend (pyproject.toml)
-pypdf==6.21.1
+pypdf==6.21.2
     # via smap-backend (pyproject.toml)
 pyphen==0.17.2
     # via weasyprint
@@ -275,5 +275,5 @@ zopfli==0.4.3
     # via fonttools
 
 # The following packages are considered to be unsafe in a requirements file:
-setuptools==83.0.0
+setuptools==84.1.0
     # via grpcio-tools

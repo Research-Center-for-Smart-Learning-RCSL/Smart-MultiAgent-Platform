@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
-import { toTypedSchema } from '@vee-validate/zod'
+import { toTypedSchema } from '@shared/utils/zodTypedSchema'
 import { PlusIcon, UserGroupIcon, PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,

@@ -4,7 +4,7 @@
 // boolean, enum, array-of-enum. Anything else degrades to a labelled JSON
 // textarea — a field is never silently dropped.
 
-import { z, type ZodTypeAny } from 'zod'
+import { z } from 'zod'
 import type { JSONSchema } from '../sdk/types'
 
 export type SchemaFieldKind = 'string' | 'number' | 'boolean' | 'enum' | 'enum-array' | 'json'
@@ -171,8 +171,8 @@ export function assemblePayload(
   return { payload, fieldErrors }
 }
 
-function zodForField(f: SchemaField): ZodTypeAny {
-  let field: ZodTypeAny
+function zodForField(f: SchemaField): z.ZodType {
+  let field: z.ZodType
   switch (f.kind) {
     case 'string':
       field = f.required ? z.string().min(1) : z.string()
@@ -206,9 +206,9 @@ function zodForField(f: SchemaField): ZodTypeAny {
 export function jsonSchemaToZod(
   schema: JSONSchema | null | undefined,
 ): z.ZodType<Record<string, unknown>> {
-  const shape: Record<string, ZodTypeAny> = {}
+  const shape: Record<string, z.ZodType> = {}
   for (const f of fieldsFromSchema(schema)) shape[f.name] = zodForField(f)
-  return z.object(shape).passthrough()
+  return z.looseObject(shape)
 }
 
 /** Client-side (UX-only) validation. Returns a per-field i18n key suffix; the
