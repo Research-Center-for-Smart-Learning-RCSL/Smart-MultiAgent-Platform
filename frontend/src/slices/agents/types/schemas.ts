@@ -30,10 +30,10 @@ export const agentCreateSchema = z.object({
     emptyToNull,
     z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).nullable().default(null),
   ),
-  key_group_id: z.string().uuid(),
+  key_group_id: z.guid(),
   system_prompt: z.string().max(100_000).default(''),
-  rag_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
-  knowmap_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
+  rag_config_id: z.preprocess(emptyToNull, z.guid().nullable().default(null)),
+  knowmap_config_id: z.preprocess(emptyToNull, z.guid().nullable().default(null)),
   context_mode: z.enum(['general', 'compact']).default('general'),
   context_token_cap: z.preprocess(
     zeroOrEmptyToNull,
@@ -70,8 +70,8 @@ export const agentCreateSchema = z.object({
   a2a_enabled: z.boolean().default(false),
   // Free-form JSON dicts assembled from the orchestration tab's decomposed
   // fields; kept in the schema so create/patch/duplicate share one payload type.
-  wakeup_config: z.record(z.unknown()).default({}),
-  workflow_capabilities: z.record(z.unknown()).default({}),
+  wakeup_config: z.record(z.string(), z.unknown()).default({}),
+  workflow_capabilities: z.record(z.string(), z.unknown()).default({}),
 })
 
 export type AgentCreateInput = z.infer<typeof agentCreateSchema>
@@ -81,12 +81,12 @@ export type AgentCreateInput = z.infer<typeof agentCreateSchema>
 export const ragConfigCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   chunk_strategy: z.enum(['fixed', 'semantic']),
-  chunk_params: z.record(z.unknown()).default({}),
-  embed_key_id: z.string().uuid(),
+  chunk_params: z.record(z.string(), z.unknown()).default({}),
+  embed_key_id: z.guid(),
   embed_provider: z.enum(['openai', 'gemini', 'voyage']),
   embed_model: z.string().trim().min(1),
   rerank_enabled: z.boolean().default(false),
-  rerank_key_id: z.string().uuid().nullable().default(null),
+  rerank_key_id: z.guid().nullable().default(null),
   // 'cohere' is BYO-key; 'bge' is the keyless bundled local reranker (F-19).
   rerank_provider: z.enum(['cohere', 'bge']).nullable().default(null),
   rerank_model: z.string().trim().min(1).nullable().default(null),
@@ -100,9 +100,9 @@ export type RagConfigCreateInput = z.infer<typeof ragConfigCreateSchema>
 // server-side from `builder_key_group_id`, same as GraphRAG's builder group.
 export const knowmapConfigCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
-  builder_key_group_id: z.string().uuid(),
+  builder_key_group_id: z.guid(),
   chunk_strategy: z.enum(['fixed', 'semantic']).default('fixed'),
-  chunk_params: z.record(z.unknown()).default({}),
+  chunk_params: z.record(z.string(), z.unknown()).default({}),
 })
 
 export type KnowmapConfigCreateInput = z.infer<typeof knowmapConfigCreateSchema>
@@ -112,8 +112,8 @@ export type KnowmapConfigCreateInput = z.infer<typeof knowmapConfigCreateSchema>
 // (an indexed corpus can't switch chunking strategy), same as RAG.
 export const knowmapConfigPatchSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
-  builder_key_group_id: z.string().uuid().optional(),
-  chunk_params: z.record(z.unknown()).optional(),
+  builder_key_group_id: z.guid().optional(),
+  chunk_params: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type KnowmapConfigPatchInput = z.infer<typeof knowmapConfigPatchSchema>
@@ -135,9 +135,9 @@ export const RECENCY_HALF_LIFE_MAX_DAYS = 3650
 // and positive; null inherits the platform default.
 export const graphragConfigCreateSchema = z.object({
   owner_kind: z.enum(CONCEPT_MAP_OWNER_KINDS),
-  owner_id: z.string().uuid(),
-  builder_key_group_id: z.string().uuid(),
-  trigger_config: z.record(z.unknown()).default({}),
+  owner_id: z.guid(),
+  builder_key_group_id: z.guid(),
+  trigger_config: z.record(z.string(), z.unknown()).default({}),
   recency_half_life_days: z.preprocess(
     zeroOrEmptyToNull,
     z.number().positive().max(RECENCY_HALF_LIFE_MAX_DAYS).nullable().default(null),
@@ -149,8 +149,8 @@ export type GraphragConfigCreateInput = z.infer<typeof graphragConfigCreateSchem
 // Mirrors backend `GraphRagConfigPatchIn` — all fields optional (omitted =
 // unchanged). Drives the WS4 temporal control and any builder/trigger edit.
 export const graphragConfigPatchSchema = z.object({
-  builder_key_group_id: z.string().uuid().optional(),
-  trigger_config: z.record(z.unknown()).optional(),
+  builder_key_group_id: z.guid().optional(),
+  trigger_config: z.record(z.string(), z.unknown()).optional(),
   recency_half_life_days: z
     .preprocess(zeroOrEmptyToNull, z.number().positive().max(RECENCY_HALF_LIFE_MAX_DAYS).nullable())
     .optional(),
@@ -170,7 +170,7 @@ export const mcpToolCreateSchema = z.object({
     // field); an empty allowlist yields zero runtime tools and is rejected there.
     allowed_tools: z.array(z.string().trim().min(1)).max(200).default([]),
   }),
-  auth: z.record(z.unknown()).optional(),
+  auth: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const functionToolCreateSchema = z.object({
@@ -180,7 +180,7 @@ export const functionToolCreateSchema = z.object({
     name: z.string().trim().min(1).max(64).regex(/^[a-z0-9_]+$/),
     description: z.string().trim().min(1).max(1000),
     parameters: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .default({ type: 'object', properties: {} })
       .refine((p) => p.type === 'object', 'Parameters must have type "object"'),
     http: z.object({
@@ -192,7 +192,7 @@ export const functionToolCreateSchema = z.object({
         .min(1)
         .max(2000)
         .refine((u) => u.startsWith('https://'), 'Must use HTTPS'),
-      headers: z.record(z.string()).default({}),
+      headers: z.record(z.string(), z.string()).default({}),
     }),
   }),
   auth: z

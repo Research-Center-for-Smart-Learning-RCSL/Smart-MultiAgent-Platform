@@ -6,7 +6,7 @@
 - **Router**: Vue Router 4.4
 - **State**: Pinia 2.2 (client state) + TanStack Vue Query 5.59 (server state)
 - **Styling**: Tailwind CSS 4.3 via @tailwindcss/vite, CSS custom properties in `shared/styles/main.css`
-- **Forms**: vee-validate 4.14 + Zod 3.23
+- **Forms**: vee-validate 4.15 + Zod 4, bridged by `shared/utils/zodTypedSchema.ts` (not `@vee-validate/zod`, which peers on Zod 3)
 - **Icons**: @heroicons/vue 2.2 (24/outline, 24/solid, 20/solid)
 - **API Client**: Auto-generated from backend OpenAPI spec (`pnpm run gen:api`)
 - **Build**: Vite 6.4, pnpm (required — not npm/yarn)

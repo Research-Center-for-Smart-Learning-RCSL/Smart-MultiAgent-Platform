@@ -18,8 +18,8 @@ export const TargetSchema = z.object({
   allowedHost: z.string().min(1),
   adminEmail: z.string().email(),
   facilitatorEmail: z.string().email(),
-  projectId: z.string().uuid(),
-  workspaceId: z.string().uuid(),
+  projectId: z.guid(),
+  workspaceId: z.guid(),
   simEmailPrefix: z.string().regex(/^[a-z0-9-]+$/).default('sim'),
   simEmailDomain: z.string().min(3).default('example.com'),
   /** Allows a non-reserved simEmailDomain; set only when the operator controls every mailbox in it. */
