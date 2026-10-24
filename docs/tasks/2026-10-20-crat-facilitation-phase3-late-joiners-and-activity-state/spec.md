@@ -447,16 +447,16 @@ since installed course types are copies too.
   neither increments `every_n_messages` nor resets autostop.
 - [x] AC-13: Other participants receive the activation divider live (`message.created`), rendered
   in their locale with the activity name, including guests.
-- [ ] AC-14: In all three room packs the teacher prompt has the newcomer section, contains no
+- [x] AC-14: In all three room packs the teacher prompt has the newcomer section, contains no
   unconditional form statement, conditions starting the activity on `[Activity state]` and the
   grant, and every phrase pinned by `test_agent_example_packs.py` today still passes; banned
   phrase lists pass for the new wording.
-- [ ] AC-15: The CRAT teacher's `<步驟D1>` branches on an open proposal, a rejected or expired
+- [x] AC-15: The CRAT teacher's `<步驟D1>` branches on an open proposal, a rejected or expired
   proposal, and a submission as shown in `[Activity state]`; `<活動控制>` ends only on the room
   creator's confirmation.
-- [ ] AC-16: The peers' silence rules reference `[Activity state]`; the object peer is not
+- [x] AC-16: The peers' silence rules reference `[Activity state]`; the object peer is not
   silenced during D1 and D2.
-- [ ] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
+- [x] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
 - [ ] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
   build and `check:theme-tokens` pass in CI; `gen:api` output is committed.
 - [ ] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
@@ -478,7 +478,7 @@ since installed course types are copies too.
   is false, when the platform policy withholds digests, or when the row's validator is not
   in-process; rows of such types render byte-for-byte as before (existing provider tests pass
   unchanged).
-- [ ] AC-24: The CRAT course type ships `quote_fields: ["target_character"]`; the CRAT teacher's
+- [x] AC-24: The CRAT course type ships `quote_fields: ["target_character"]`; the CRAT teacher's
   `<步驟E1>` reads the quoted target and routes a difference or missing value to the human
   teacher; the CRAT peer and analyst prompts forbid repeating another group's submitted target
   (`test_agent_example_packs.py`, `test_smap_examples_catalogue.py`).
@@ -575,6 +575,13 @@ Add:
   in the UI would silently stop quoting. A quoted field the schema edit removed or retyped is
   dropped on save rather than failing it. The form still has no control to author the list
   (FU-5).
+- D-6. The CRAT teacher's `<步驟D1>` branches on counts and time order, not on a per-round state.
+  One CRAT activation spans all eight rounds, so `[Activity state]` for the current activation
+  lists submissions and closed proposals from earlier rounds too. The prompt therefore treats a
+  group as having submitted the current round only when its submission count reaches the number
+  of rounds the teacher has posted, and treats a rejected, withdrawn or expired proposal as
+  current only when it is newer than the round's posting. A per-round state would need the
+  activation to know its rounds, which no activity type models today (FU-6).
 
 ## 16. Follow-ups
 
@@ -587,3 +594,6 @@ Add:
   (`catalogue.py:42-55` rejects unknown fields today).
 - FU-5: An authoring control for `quote_fields` in `ActivityTypeForm` (a pick list of the
   declared text fields, at most three); today it is set through the course file or the API.
+- FU-6: Rounds inside one activation (for example a `round` counter on submissions or a per-round
+  activation) so `[Activity state]` can report the current CRAT round directly instead of the
+  teacher prompt inferring it from counts and time order (D-6).
