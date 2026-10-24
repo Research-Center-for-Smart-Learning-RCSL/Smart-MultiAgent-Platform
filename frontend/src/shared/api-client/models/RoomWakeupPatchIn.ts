@@ -9,6 +9,7 @@ export type RoomWakeupPatchIn = {
     every_n_messages?: (number | null);
     every_n_messages_enabled?: (boolean | null);
     expected_version: number;
+    on_join_enabled?: (boolean | null);
     silence_minutes?: (number | null);
     silence_minutes_enabled?: (boolean | null);
 };

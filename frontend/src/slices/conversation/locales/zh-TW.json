@@ -471,6 +471,7 @@
       "countAll": "所有訊息",
       "countHuman": "只計真人的訊息",
       "silenceEnabled": "沉默一段時間後回覆",
+      "onJoinEnabled": "有人進房時回覆",
       "silenceMinutes": "沉默分鐘數",
       "autostop": "沒有真人參與時，最多連續幾輪後停止",
       "designerValue": "代理預設：{value}",

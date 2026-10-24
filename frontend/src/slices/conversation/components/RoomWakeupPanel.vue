@@ -202,7 +202,8 @@ const hasRoom = computed(() => {
     value.silence_minutes_enabled,
     value.silence_minutes,
     value.autostop_rounds,
-  ].some((f) => f.source === 'room')
+    value.on_join_enabled,
+  ].some((f) => f?.source === 'room')
 })
 
 function fid(name: string): string {
@@ -374,6 +375,28 @@ function fid(name: string): string {
         <span class="room-wakeup__inherited">
           {{ t('conversation.roomWakeup.designerValue', { value: current.autostop_rounds.designer_value }) }}
         </span>
+      </div>
+
+      <!-- The server omits this for an observer binding, which never wakes on arrivals. -->
+      <div
+        v-if="current.on_join_enabled"
+        class="room-wakeup__row"
+      >
+        <SToggle
+          :id="fid('onjoin')"
+          :model-value="current.on_join_enabled.value"
+          size="sm"
+          :disabled="busy"
+          @update:model-value="(v) => save({ on_join_enabled: v })"
+        >
+          {{ t('conversation.roomWakeup.onJoinEnabled') }}
+        </SToggle>
+        <SBadge
+          size="sm"
+          :variant="SOURCE_VARIANT[current.on_join_enabled.source]"
+        >
+          {{ t(`conversation.roomWakeup.source.${current.on_join_enabled.source}`) }}
+        </SBadge>
       </div>
 
       <div class="room-wakeup__actions">

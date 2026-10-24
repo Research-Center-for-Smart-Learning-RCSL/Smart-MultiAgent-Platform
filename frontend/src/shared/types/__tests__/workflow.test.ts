@@ -61,6 +61,30 @@ describe('wakeup config defaults', () => {
   })
 })
 
+describe('wakeup arrival trigger (R15.26)', () => {
+  it('defaults to off and keeps a stored value', () => {
+    expect(defaultWakeupConfig().triggers.on_join).toEqual({ enabled: false })
+    expect(normalizeWakeupConfig({ triggers: { on_join: { enabled: true } } }).triggers.on_join.enabled)
+      .toBe(true)
+  })
+
+  it('reads a non-boolean as off, as the server does', () => {
+    const config = normalizeWakeupConfig({ triggers: { on_join: { enabled: 'true' } } })
+
+    expect(config.triggers.on_join.enabled).toBe(false)
+  })
+
+  it('is off under call_only and on the legacy flat shape', () => {
+    const callOnly = normalizeWakeupConfig({
+      triggers: { call_only: { enabled: true }, on_join: { enabled: true } },
+    })
+    const legacy = normalizeWakeupConfig({ every_n_messages: 4 })
+
+    expect(callOnly.triggers.on_join.enabled).toBe(false)
+    expect(legacy.triggers.on_join.enabled).toBe(false)
+  })
+})
+
 describe('wakeup counting mode and self-toggle grant (R15.01, R15.06)', () => {
   it('defaults to counting every message and granting nothing', () => {
     const config = defaultWakeupConfig()

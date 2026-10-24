@@ -15,6 +15,7 @@ export type RoomWakeupOut = {
     every_n_messages: WakeupIntFieldOut;
     every_n_messages_enabled: WakeupBoolFieldOut;
     ignored_agent_fields: Array<string>;
+    on_join_enabled?: (WakeupBoolFieldOut | null);
     role: 'normal' | 'observer';
     runtime_refresh_at: (string | null);
     silence_minutes: WakeupIntFieldOut;

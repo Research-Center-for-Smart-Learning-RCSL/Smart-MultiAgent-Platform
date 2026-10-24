@@ -61,6 +61,8 @@ export interface WakeupConfig {
       observer_autostop_rounds: number
     }
     call_only: WakeupTriggerConfig
+    /** Wakes on a participant's first arrival in a window (R15.26); not agent-toggleable. */
+    on_join: WakeupTriggerConfig
   }
   allow_self_open: boolean
   refresh_every_hours: number
@@ -96,6 +98,7 @@ const DEFAULT_WAKEUP: WakeupConfig = {
       observer_autostop_rounds: 50,
     },
     call_only: { enabled: false },
+    on_join: { enabled: false },
   },
   allow_self_open: false,
   refresh_every_hours: 24,
@@ -114,6 +117,7 @@ function normalizeNestedTriggers(
     every_n_messages: { ...DEFAULT_WAKEUP.triggers.every_n_messages, ...(tg.every_n_messages ?? {}) },
     silence_minutes: { ...DEFAULT_WAKEUP.triggers.silence_minutes, ...(tg.silence_minutes ?? {}) },
     call_only: { ...DEFAULT_WAKEUP.triggers.call_only, ...(tg.call_only ?? {}) },
+    on_join: { ...DEFAULT_WAKEUP.triggers.on_join, ...(tg.on_join ?? {}) },
   }
 }
 
@@ -139,6 +143,7 @@ function normalizeLegacyFlatTriggers(r: Record<string, unknown>): WakeupConfig['
       ...DEFAULT_WAKEUP.triggers.call_only,
       enabled: (r.call_only as boolean) ?? false,
     },
+    on_join: { ...DEFAULT_WAKEUP.triggers.on_join },
   }
 }
 
@@ -172,7 +177,10 @@ export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
   if (triggers.call_only.enabled) {
     triggers.every_n_messages.enabled = false
     triggers.silence_minutes.enabled = false
+    triggers.on_join.enabled = false
   }
+  // The server reads a non-boolean as off; showing it as on would misreport.
+  triggers.on_join.enabled = triggers.on_join.enabled === true
   // Same tolerance as the server parser: an unknown mode reads as today's "all",
   // and only known trigger names survive in the grant.
   if (!COUNT_MODES.includes(triggers.every_n_messages.count)) {

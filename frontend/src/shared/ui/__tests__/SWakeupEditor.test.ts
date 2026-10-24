@@ -39,6 +39,37 @@ describe('SWakeupEditor counting mode', () => {
   })
 })
 
+// Phase 3 AC-8 (docs/tasks/2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state).
+describe('SWakeupEditor arrival trigger', () => {
+  function onJoinSwitch(w: ReturnType<typeof mountEditor>) {
+    return w.find('[id$="-onjoin-toggle"]')
+  }
+
+  it('saves on_join', async () => {
+    const w = mountEditor({ triggers: {} })
+
+    await onJoinSwitch(w).trigger('click')
+
+    expect(lastEmitted(w).triggers.on_join.enabled).toBe(true)
+  })
+
+  it('does not call an agent with only on_join inert', () => {
+    const onlyJoin = mountEditor({ triggers: { on_join: { enabled: true } } })
+    const nothing = mountEditor({ triggers: {} })
+
+    expect(onlyJoin.find('.wakeup-editor__inert').exists()).toBe(false)
+    expect(nothing.find('.wakeup-editor__inert').exists()).toBe(true)
+  })
+
+  it('clears on_join on entering call mode', async () => {
+    const w = mountEditor({ triggers: { on_join: { enabled: true } } })
+
+    await w.findAll('.wakeup-mode')[1]!.trigger('click')
+
+    expect(lastEmitted(w).triggers.on_join.enabled).toBe(false)
+  })
+})
+
 describe('SWakeupEditor self-toggle grant', () => {
   it('grants and revokes one trigger at a time', async () => {
     const w = mountEditor({ triggers: { silence_minutes: { enabled: false } } })

@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   ClockIcon,
   Cog6ToothIcon,
+  UserPlusIcon,
 } from '@heroicons/vue/24/outline'
 import { SInput, SSelect, SToggle } from '@shared/ui'
 import { useCloneModel } from '@shared/composables'
@@ -47,6 +48,7 @@ const mode = computed<'auto' | 'call'>({
     if (m === 'call') {
       local.triggers.every_n_messages.enabled = false
       local.triggers.silence_minutes.enabled = false
+      local.triggers.on_join.enabled = false
     }
     emitUpdate()
   },
@@ -63,7 +65,8 @@ const isInert = computed(
   () =>
     mode.value === 'auto'
     && !local.triggers.every_n_messages.enabled
-    && !local.triggers.silence_minutes.enabled,
+    && !local.triggers.silence_minutes.enabled
+    && !local.triggers.on_join.enabled,
 )
 
 const showAdvanced = ref(false)
@@ -110,6 +113,10 @@ function onAutostopRounds(v: string | number): void {
 }
 function onAutostopMax(v: string | number): void {
   local.triggers.silence_minutes.autostop_max_default = clampRange(v, 1, AUTOSTOP_MAX_DEFAULT_MAX)
+  emitUpdate()
+}
+function onJoinEnabled(v: boolean): void {
+  local.triggers.on_join.enabled = v
   emitUpdate()
 }
 function onAllowSelfOpen(v: boolean): void {
@@ -331,6 +338,37 @@ function onSelfToggle(name: WakeupToggleableTrigger, allowed: boolean): void {
           </div>
           <p class="wakeup-field__help">
             {{ t('app.wakeup.autostopHelp') }}
+          </p>
+        </div>
+      </section>
+
+      <!-- on_join -->
+      <section
+        class="wakeup-card"
+        :class="{ 'wakeup-card--on': local.triggers.on_join.enabled }"
+      >
+        <div class="wakeup-card__head">
+          <UserPlusIcon
+            class="wakeup-card__icon"
+            aria-hidden="true"
+          />
+          <label
+            :for="fid('onjoin-toggle')"
+            class="wakeup-card__title"
+          >{{ t('app.wakeup.onJoinTitle') }}</label>
+          <SToggle
+            :id="fid('onjoin-toggle')"
+            :model-value="local.triggers.on_join.enabled"
+            :disabled="disabled"
+            @update:model-value="onJoinEnabled"
+          />
+        </div>
+        <div
+          v-if="local.triggers.on_join.enabled"
+          class="wakeup-card__body"
+        >
+          <p class="wakeup-field__help">
+            {{ t('app.wakeup.onJoinHelp') }}
           </p>
         </div>
       </section>

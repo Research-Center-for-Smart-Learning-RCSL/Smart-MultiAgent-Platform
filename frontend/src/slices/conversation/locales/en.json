@@ -471,6 +471,7 @@
       "countAll": "All messages",
       "countHuman": "Messages from people only",
       "silenceEnabled": "Reply after a silence",
+      "onJoinEnabled": "Reply when someone joins",
       "silenceMinutes": "Minutes of silence",
       "autostop": "Rounds without a person before it stops",
       "designerValue": "Agent default: {value}",
