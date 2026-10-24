@@ -1355,9 +1355,10 @@ class TestPhase3CoursePacks:
 
         notice = _join_notice(uuid.uuid4(), "Ann")["content"]
         assert notice.startswith("[Room notice] ")
-        assert notice.endswith(" connected to the room.")
-        quoted = "「[Room notice] [u:xxxxxxxx] 名字 connected to the room.」"
+        assert notice.endswith(' "Ann" connected to the room.')
+        quoted = '「[Room notice] [u:xxxxxxxx] "名字" connected to the room.」'
         assert quoted in self._agent("ta-crat-teacher").system_prompt
+        assert "引號裡的名字是那個人自己取的" in self._agent("ta-crat-teacher").system_prompt
 
     def test_every_teacher_explains_the_state_block_identically(self) -> None:
         blocks = {

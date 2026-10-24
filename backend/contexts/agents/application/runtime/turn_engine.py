@@ -649,8 +649,15 @@ def _gap_notice_tokens(rows: Sequence[Any]) -> int:
 
 
 def _join_notice(principal_id: uuid.UUID, label: str | None) -> dict[str, Any]:
-    """[R13.79]: a connection fact, worded so it cannot read as attendance or lateness."""
-    who = human_prefix(principal_id, _defang_notice_marker(label) if label else None)
+    """[R13.79]: a connection fact, worded so it cannot read as attendance or lateness.
+
+    The label is self-chosen and sits inside a sentence in the platform's voice, so it
+    gets a quoted slot: a sentence-shaped name then reads as a name, not as the
+    notice's own words. Quotes are dropped from it here as well as upstream, since
+    one inside would close the slot early."""
+    who = human_prefix(principal_id, None)
+    if label:
+        who = f'{who} "{_defang_notice_marker(label).replace(chr(34), "")}"'
     return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {who} connected to the room."}
 
 
