@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-20
 requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R28.17, R30.15, R30.25, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
@@ -545,6 +545,15 @@ Add:
   window is a constant, not a setting, until classroom evidence says otherwise.
 
 ## 15. Deviation Log
+
+- D-1. Build started 2026-10-24 on branch `feat/crat-facilitation-phase3` (base `283c3de2`) while
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` is still `in-progress`, by the
+  requester's decision. Q-4's purpose, keeping phase 2's classroom evidence tied to one prompt
+  revision, is kept by a constraint instead of by the `depends_on` gate: the branch is not merged
+  to `main` and not deployed to staging until phase 2 is `implemented`. Deploying it to staging
+  would change every room on that host, including phase 2's live-run rooms, so the staging ACs
+  (AC-19, AC-20, AC-25) and the M5 re-sync wait for that merge. If phase 2's runs change the pack
+  prompts, this branch rebases onto them before merge.
 
 ## 16. Follow-ups
 
