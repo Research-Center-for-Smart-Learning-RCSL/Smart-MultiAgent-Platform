@@ -433,7 +433,7 @@ since installed course types are copies too.
   bindings, and `update_wakeup` refuses to change it.
 - [x] AC-8: The agent wake-up editor shows and saves `on_join`; an agent with only `on_join`
   enabled is not inert in both backend and frontend.
-- [ ] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
+- [x] AC-9: In a room with no activation ever, every room turn includes `[Activity state]`
   stating no activity has been run; with an active individual activity it states the name,
   mode and start time; after end it states the ended activity and end time.
 - [ ] AC-10: For an active group activity, the block lists each group's open proposal with
@@ -441,11 +441,11 @@ since installed course types are copies too.
   proposals of the current activation, and lists groups that have submitted.
 - [ ] AC-11: The rendered state block never contains a voter id, a proposer id, a participant
   code of a voter, or any payload string from a proposal (unit test with seeded values).
-- [ ] AC-12: Starting a new activation writes exactly one `activity_activation` system message
+- [x] AC-12: Starting a new activation writes exactly one `activity_activation` system message
   with `event = started`; a repeated start of the same running type writes none; every end path
   writes exactly one with `event = ended`; neither names the starter; both re-arm silence and
   neither increments `every_n_messages` nor resets autostop.
-- [ ] AC-13: Other participants receive the activation divider live (`message.created`), rendered
+- [x] AC-13: Other participants receive the activation divider live (`message.created`), rendered
   in their locale with the activity name, including guests.
 - [ ] AC-14: In all three room packs the teacher prompt has the newcomer section, contains no
   unconditional form statement, conditions starting the activity on `[Activity state]` and the
@@ -561,6 +561,15 @@ Add:
   silence clock. The [R15.26] text in §13 is amended to say so, and
   `test_on_join_trigger.py::TestWakeSelection::test_the_room_creators_arrival_wakes_nothing`
   pins it.
+- D-3. `[Activity state]` is a fixed text block in `_SystemBlocks`, measured and rendered in both
+  passes, not a new `_BlockSlot.ACTIVITY_STATE` as §6.3 named. A slot exists for text the render
+  pass supplies later than the measure pass (knowledge, the participant note); the state is read
+  once before either pass and does not change within the turn, so a slot would add a second
+  supply point with nothing to supply. It sits after the recent-activity block and before the
+  canvas block, and `test_turn_system_blocks.py` pins that position in both passes.
+- D-4. AC-10 and AC-11 are checked by unit tests locally; their `db`-tier half
+  (`test_group_activity_constraints_db.py::TestRoomActivityStateQueries`) cannot run on the
+  local Windows host and is verified in CI on the draft PR before those two ACs are ticked.
 
 ## 16. Follow-ups
 
