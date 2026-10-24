@@ -9,6 +9,7 @@ import { flushPromises } from '@vue/test-utils'
 import type * as AgentsSlice from '@slices/agents'
 import { renderView } from '../../../../tests/utils'
 import ActivityTypeForm from '../components/ActivityTypeForm.vue'
+import { activityTypeCreateSchema, assembleValidatorConfig } from '../types/schemas'
 
 const registerMock = vi.hoisted(() => vi.fn())
 const updateMock = vi.hoisted(() => vi.fn())
@@ -645,6 +646,59 @@ describe('ActivityTypeForm', () => {
 
     await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
     expect(updateMock.mock.calls[0][2]).toMatchObject({ group_config: consent })
+  })
+
+  // M6: the form has no quote_fields control, so an edit must carry the stored
+  // value through rather than clear it.
+  const COVERAGE_TYPE = {
+    ...EDIT_TYPE,
+    payload_schema: {
+      type: 'object',
+      properties: { target: { type: 'string' }, why: { type: 'string' } },
+      required: [],
+    },
+    validator_kind: 'in_process',
+    validator_config: {
+      validator_id: 'filled_count_coverage',
+      min_filled: 1,
+      quote_fields: ['target'],
+    },
+  }
+
+  it('round-trips quote_fields on an edit rather than clearing it', async () => {
+    listValidatorsMock.mockResolvedValue([
+      { id: 'filled_count_coverage', title: 'Filled count with field coverage' },
+    ])
+    updateMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: COVERAGE_TYPE },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('CRAT v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2].validator_config).toEqual({
+      validator_id: 'filled_count_coverage',
+      min_filled: 1,
+      quote_fields: ['target'],
+    })
+  })
+
+  it('drops a quoted field the schema no longer declares as text', async () => {
+    const config = assembleValidatorConfig({
+      ...activityTypeCreateSchema.parse({
+        key: 'k',
+        name: 'n',
+        payload_schema: { type: 'object', properties: { why: { type: 'string' }, n: { type: 'integer' } } },
+        validator_kind: 'in_process',
+        in_process_validator_id: 'filled_count_coverage',
+        filled_count_min: 1,
+        quote_fields: ['target', 'n', 'why'],
+      }),
+    })
+    expect(config).toEqual({ validator_id: 'filled_count_coverage', min_filled: 1, quote_fields: ['why'] })
   })
 
   it('sends a null group_config for a type that never had one', async () => {
