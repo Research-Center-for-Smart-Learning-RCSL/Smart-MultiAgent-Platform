@@ -248,11 +248,23 @@ class GroupProposalRepository:
         PostgreSQL-specific, hence the ``db``-tier test (backend/CLAUDE.md).
         ``chatroom_id`` is checked for the reason ``list_open_for_groups`` gives.
         """
+        # Scoped to this round inside the subquery: PostgreSQL does not push the outer
+        # join condition into a grouped subquery, so unscoped it would count every
+        # vote on the platform on every agent turn.
+        round_props = _PROP.alias("round_props")
         votes = (
             sa.select(
                 _VOTE.c.proposal_id,
                 sa.func.count().filter(_VOTE.c.choice == VoteChoice.APPROVE.value).label("approvals"),
                 sa.func.count().filter(_VOTE.c.choice == VoteChoice.REJECT.value).label("rejections"),
+            )
+            .select_from(_VOTE.join(round_props, round_props.c.id == _VOTE.c.proposal_id))
+            .where(
+                sa.and_(
+                    round_props.c.chatroom_id == chatroom_id,
+                    round_props.c.activation_id == activation_id,
+                    round_props.c.status != ProposalStatus.ACCEPTED.value,
+                )
             )
             .group_by(_VOTE.c.proposal_id)
             .subquery()

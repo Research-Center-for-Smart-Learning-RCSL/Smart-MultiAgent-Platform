@@ -680,3 +680,24 @@ class TestTypeRepoScoping:
         compiled = _compiled(db.execute.await_args_list[0].args[0])
         assert str(type_id) in compiled
         assert "deleted_at IS NULL" in compiled
+
+
+class TestProposalStateQuery:
+    async def test_the_vote_count_reads_only_this_rounds_proposals(self) -> None:
+        """An unscoped grouped subquery would aggregate every vote on the platform per turn."""
+        from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
+
+        db = AsyncMock()
+        page = MagicMock()
+        page.all.return_value = []
+        db.execute.return_value = page
+        room, activation = uuid.uuid4(), uuid.uuid4()
+        await GroupProposalRepository(db).state_for_activation(chatroom_id=room, activation_id=activation)
+
+        stmt = db.execute.await_args.args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        # The subquery sits in the FROM, so its WHERE is everything before its GROUP BY.
+        inner = sql.split("GROUP BY")[0]
+        assert inner.count(str(activation)) == 1
+        assert inner.count(str(room)) == 1
+        assert sql.count(str(activation)) == 2
