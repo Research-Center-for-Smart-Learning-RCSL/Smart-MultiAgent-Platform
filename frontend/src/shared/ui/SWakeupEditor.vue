@@ -36,8 +36,8 @@ function fid(key: string): string {
   return `${uid}-${key}`
 }
 
-// A wake mode is either "auto" (message/silence triggers drive it) or "call"
-// (responds only when @mentioned). call_only is mutually exclusive with the two
+// A wake mode is either "auto" (message/silence/join triggers drive it) or "call"
+// (responds only when @mentioned). call_only is mutually exclusive with the
 // autonomous triggers, so entering call mode clears their enabled flags — this
 // keeps the stored config self-consistent rather than leaving a contradictory
 // "call_only + every_n both on" state the backend would silently ignore.
@@ -59,8 +59,8 @@ function selectMode(m: 'auto' | 'call'): void {
   mode.value = m
 }
 
-// Mirrors the backend WakeupConfig.is_inert(): in auto mode with neither trigger
-// enabled the agent never speaks up on its own (it can still be @mentioned).
+// Mirrors the backend WakeupConfig.is_inert(): in auto mode with no autonomous
+// trigger enabled the agent never speaks up on its own (it can still be @mentioned).
 const isInert = computed(
   () =>
     mode.value === 'auto'
