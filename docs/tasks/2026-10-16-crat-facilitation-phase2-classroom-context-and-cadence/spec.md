@@ -946,6 +946,44 @@ are carried forward as release gates.
   itself and handed the differing 「油」 to the room creator, naming the reference answer only
   after the group had submitted. With D-17's no-reveal evidence and the pack tests, AC-24 is
   ticked.
+- **D-22. First four-person AC-20 run, 2026-10-25.** The simulator ran
+  `frontend/sim/scenarios/crat-ac20.ts` in room `97f917ca-7d21-4100-829d-a65ac85ad572` against TA
+  v49. Three registered students sat in a new three-member group, so consent needed two approvals,
+  and a guest took the name 小安, which P1 also uses.
+
+  Six of the protocol's §4 items passed on the transcript.
+  - Near-simultaneous candidates: TA's turn after 「心」 and 「火」 named both and asked the group to
+    check them.
+  - Same-name guest: TA used 小安 only when restating P1's own messages. It never named the guest's
+    two messages and never called on either person.
+  - No reveal: nothing was revealed before submission, including when a student asked for a hint.
+  - Proposal outcomes: the rejection drew 「這一題的提案沒有通過。先回到討論」, and TA confirmed the
+    accepted 「心」 itself.
+  - Rate limits: the window had no `rate_limited` skip. The worker log showed no rate-limit line and
+    no 429; the grep matched only timestamp digits.
+  - Wake counts: TA's `every_n_messages` fired 11 times and skipped 2 as empty replies, and its
+    `silence_minutes` fired 3 times. AA's `every_n_messages` fired once.
+
+  Two items failed.
+  - Disclosure: TA's first message skipped step A1 and opened with the demonstration, so the AI-peer
+    disclosure was never said. The three phase 3 runs on the same script all said it.
+  - AA release: the scripted release at minute 20 found no observation to release. AA wakes every 20
+    human messages and first woke at about minute 25.
+
+  The SA item was not exercised. SA wakes only after three quiet minutes, and the script never left
+  that gap. Phase 3's first run (room `22078b95-5011-441c-93fc-9b320bac69f1`) supplies it: TA
+  answered SA's 「水」 with 「請大家一起驗證這個新想法」 without judging it.
+
+  For AC-14, TA invited no one in round 1, which the rules allow. In round 2 it invited 小晴, and
+  after she answered asked her again whether she wanted to add more, which breaks the rotation rule.
+
+  The requester chose to fix the prompts and run again.
+  - Step A1 now states that it is TA's first message even when a student has already said they are
+    ready.
+  - Every teacher's rotation rule now applies whether or not the invited person answered.
+  - The scenario's release moves to minute 27:30.
+
+  AC-20 and AC-14 stay open for that run.
 
 ## 16. Follow-ups
 

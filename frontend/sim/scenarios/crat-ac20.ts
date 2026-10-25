@@ -100,7 +100,6 @@ export default defineScenario({
     { actor: 'P2', at: '17:50', do: 'say', text: '口水、淚水、香水，會是「水」嗎' },
     { actor: 'P3', at: '18:40', do: 'say', text: '我覺得是水，三個都很常用' },
     { actor: 'P4', at: '19:30', do: 'say', text: '我也覺得是水', label: 'guest speaks for the first time' },
-    { actor: 'F', at: '20:00', do: 'releaseObservation', label: 'releases one AA observation' },
     { actor: 'P1', at: '20:20', do: 'say', text: '還有沒有別的可能？口味、香味？' },
     { actor: 'P2', at: '21:10', do: 'say', text: '淚味不是詞，所以應該還是水' },
     { actor: 'P3', at: '22:00', do: 'say', text: '同意，水比較好' },
@@ -110,6 +109,9 @@ export default defineScenario({
     { actor: 'P3', at: '25:20', do: 'say', text: '下一題會不會更難' },
     { actor: 'P1', at: '26:10', do: 'say', text: '我覺得這種題目很好玩' },
     { actor: 'P2', at: '27:00', do: 'say', text: '可以再給一點提示嗎' },
+    // AA wakes every 20 human messages, first at about minute 25 in this script (phase 2
+    // D-22), so the release waits until an observation exists.
+    { actor: 'F', at: '27:30', do: 'releaseObservation', label: 'releases one AA observation' },
     { actor: 'P3', at: '27:50', do: 'say', text: '我想到另一個字，但不太確定' },
     { actor: 'P1', at: '28:40', do: 'say', text: '說說看嘛' },
     { actor: 'P3', at: '29:30', do: 'say', text: '算了，我覺得還是水' },
