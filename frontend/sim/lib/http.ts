@@ -98,7 +98,9 @@ export class ApiClient {
       const init: RequestInit = { method, headers: h, redirect: 'error' }
       if (body !== undefined) init.body = JSON.stringify(body)
       const resp = await this.fetchImpl(this.baseUrl + path, init)
-      if (resp.status === 429) {
+      // The edge nginx's limit_req on /api/auth/ answers 503 rather than 429. A 503 elsewhere
+      // is the backend's own and is not retried.
+      if (resp.status === 429 || (resp.status === 503 && path.startsWith('/api/auth/'))) {
         await new Promise((r) => setTimeout(r, retryAfterSec(resp.headers.get('retry-after'), 5) * 1000 + 250))
         continue
       }
