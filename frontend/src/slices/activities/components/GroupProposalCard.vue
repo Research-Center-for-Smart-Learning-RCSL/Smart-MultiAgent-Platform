@@ -20,8 +20,9 @@ const props = defineProps<{
   pending: boolean
   /** No identity resolved yet: show the state, disable the controls. */
   canVote: boolean
-  /** This proposal settled without being accepted, so the group may try again.
-   *  False for an accepted one — that is the round's answer. */
+  /** This proposal settled, so the group may write another: a new try after a
+   *  rejected, withdrawn or expired one, the next round's answer after an
+   *  accepted one. */
   canRetry?: boolean
 }>()
 
@@ -70,6 +71,12 @@ const statusText = computed(() => {
       return t('activities.group.statusOpen')
   }
 })
+
+const retryText = computed(() =>
+  props.proposal.status === 'accepted'
+    ? t('activities.group.proposeNextRound')
+    : t('activities.group.proposeAgain'),
+)
 
 const myVoteText = computed(() =>
   props.myVote === true ? t('activities.group.myVoteApproved') : t('activities.group.myVoteRejected'),
@@ -175,9 +182,8 @@ const answerRows = computed(() =>
       </SButton>
     </div>
 
-    <!-- Settled without accepting: the group may write another one. An accepted
-         proposal gets no such control — that is the round's answer, and a second
-         one would be a duplicate attempt for the same group. -->
+    <!-- The control is never automatic: the card stays up after it settles so the
+         deciding voter sees the outcome, and the form returns only on this click. -->
     <div
       v-else-if="canRetry"
       class="proposal-card__actions"
@@ -187,7 +193,7 @@ const answerRows = computed(() =>
         data-testid="group-proposal-retry"
         @click="emit('retry')"
       >
-        {{ t('activities.group.proposeAgain') }}
+        {{ retryText }}
       </SButton>
     </div>
   </section>

@@ -41,6 +41,7 @@
       "reject": "Disagree",
       "withdraw": "Withdraw",
       "proposeAgain": "Propose another answer",
+      "proposeNextRound": "Propose the next round's answer",
       "myVoteApproved": "You agreed.",
       "myVoteRejected": "You disagreed. If it still reaches the threshold, it is submitted as your group's answer.",
       "loadFailed": "Could not load your group's proposal. Please try again.",

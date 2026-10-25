@@ -72,9 +72,9 @@ export interface UseGroupProposal {
   pending: Ref<boolean>
   errorMessage: Ref<string | null>
   groupName(groupId: string): string | null
-  /** Put the settled outcome away and go back to the propose form. Only for a
-   *  proposal that did NOT accept: a rejected, withdrawn or expired one leaves
-   *  the group free to try again, an accepted one is the round's answer. */
+  /** Put the settled outcome away and go back to the propose form: a new try
+   *  after a rejected, withdrawn or expired proposal, or the next round's answer
+   *  after an accepted one (one activation can hold several rounds). */
   dismissSettled(): void
   refresh(): Promise<void>
   propose(memberGroupId: string, payload: Record<string, unknown>): Promise<void>
