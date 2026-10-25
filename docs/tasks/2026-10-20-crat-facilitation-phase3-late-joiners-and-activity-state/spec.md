@@ -462,7 +462,7 @@ since installed course types are copies too.
 - [x] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
   receives a one-to-two sentence orientation from TA within about two minutes, without being
   named as late; a refresh by that account within 30 minutes produces no second orientation.
-- [x] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
+- [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
 - [x] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
@@ -482,7 +482,7 @@ since installed course types are copies too.
   `<步驟E1>` reads the quoted target and routes a difference or missing value to the human
   teacher; the CRAT peer and analyst prompts forbid repeating another group's submitted target
   (`test_agent_example_packs.py`, `test_smap_examples_catalogue.py`).
-- [ ] AC-25: Staging: after a group submits a matching target, TA confirms it without the human
+- [x] AC-25: Staging: after a group submits a matching target, TA confirms it without the human
   teacher; after a group submits a different target, TA defers to the human teacher. This closes
   phase 2 AC-24's remaining half, recorded in both dossiers.
 
@@ -639,6 +639,28 @@ Add:
   was accepted. The accepted card now offers the same explicit control as a failed one, labelled
   `activities.group.proposeNextRound`; the card still stays up after it settles.
   `ActivityPanel.test.ts` and `GroupProposalCard.test.ts` pin both labels and the form's return.
+- D-12. Second live run, 2026-10-25 (times UTC+8), after D-11 was deployed (`main` at
+  `b5160c30`). Same scenario and agents as D-10, room `345abfe0-560c-496f-b9e4-74686b55efd5`;
+  evidence under `frontend/sim/runs/20261025-032203-crat-phase3/`.
+  - AC-25: passed, both halves, so it is ticked. 「心」 was submitted at 11:37:55 and TA confirmed
+    it at 11:40:07 without the room creator. 「油」 was submitted at 11:45:55; at 11:48:06 TA said
+    it differed from the reference answer, gave the reference 「水」 and asked the teacher to
+    judge, then relayed the creator's ruling (11:51:23).
+  - AC-19: passed again. Arrival 11:29:18, `on_join` turn 11:30:27 addressed to the room
+    (「剛加入的同學也可以一起接著看」), no second wake after the 11:32:33 reconnect.
+  - AC-20: the form went unmentioned before the 11:27:22 start, and the accepted submission led to
+    reflection (11:40:07), but **the rejection clause failed**. 「火」 was rejected at 11:34:55;
+    TA's next turn (11:35:35, a silence wake) made no mention of the rejection and asked a member
+    to fill in the form and submit. Only the turn after (11:36:25) said the proposal had not
+    passed and asked the group to re-check. With D-10 this is one pass and one failure, so AC-20
+    is unticked. Cause: `<步驟D1>` opened with the submission guidance unconditionally and read the
+    submission state only after it, so a wake inside D1 replayed the guidance. The state check now
+    comes first, the guidance runs only when the round has no proposal yet (case 4), and a
+    rejected, withdrawn or expired proposal is answered alone, without a pointer to the form
+    (`test_agent_example_packs.py::TestPhase3CoursePacks::test_crat_d1_reads_the_state_before_guiding_a_submission`).
+    AC-20 waits for a re-sync of TA and a further run.
+  - Outside the ACs: at 11:51:23, in the turn that asked the creator whether to continue, TA also
+    announced the next bank item's clues 「主、客、詩」 before the creator decided (FU-16).
 
 ## 16. Follow-ups
 
@@ -690,3 +712,6 @@ Add:
   shows nothing in Windows PowerShell and the typed value was not read, so the run failed with
   401 until the password came through the environment. The 503 retries and one-at-a-time startup
   connects for the edge `limit_req` are in `7029255b`.
+- FU-16: The CRAT teacher announced the next round's clues while asking the room creator whether
+  to continue (D-12). `<步驟E2>` leaves the move to the creator; the bank section could say the
+  next item is posted only after the creator's go-ahead.
