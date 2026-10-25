@@ -663,7 +663,7 @@ Invitations and courses:
   prompt asks the human teacher for round content or adopts a creator-posted round.
   Verification tables in §17; the requester's item-by-item approval is recorded on PR #261
   (issuecomment-6218027017), cross-checked against the banks in the three shipped teacher prompts.
-- [ ] AC-24: Answers and reference items appear only in teacher prompts: no peer, analyst or
+- [x] AC-24: Answers and reference items appear only in teacher prompts: no peer, analyst or
   designer prompt carries them. The CRAT teacher confirms a matching submission itself,
   routes a differing target to the human teacher, and in a live run does not reveal the
   target or a full word before the group submits, including when a student asks for it.
@@ -941,6 +941,11 @@ are carried forward as release gates.
   different target) could not be submitted in that run because the panel offered no second
   proposal after an accepted one (phase 3 D-11), so AC-24 stays open for phase 3 AC-25's
   differing run.
+- **D-21. AC-24 closed, 2026-10-25.** Phase 3's second run (its D-12, room
+  `345abfe0-560c-496f-b9e4-74686b55efd5`) observed both halves: TA confirmed the matching 「心」
+  itself and handed the differing 「油」 to the room creator, naming the reference answer only
+  after the group had submitted. With D-17's no-reveal evidence and the pack tests, AC-24 is
+  ticked.
 
 ## 16. Follow-ups
 
