@@ -55,7 +55,8 @@ describe('shipped scenarios', () => {
     expect(lines[0]).toMatch(/^00:05 {2}F/)
     expect(lines.some((l) => l.startsWith('05:00  P1'))).toBe(true)
     expect(lines.some((l) => l.startsWith('16:00  F'))).toBe(true)
-    expect(lines.some((l) => l.startsWith('20:00  F') && l.includes('observation'))).toBe(true)
+    // Phase 2 D-22: the release waits for AA's first observation, at about minute 25.
+    expect(lines.some((l) => l.startsWith('27:30  F') && l.includes('observation'))).toBe(true)
   })
 })
 

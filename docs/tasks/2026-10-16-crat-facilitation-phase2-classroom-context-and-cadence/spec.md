@@ -651,9 +651,10 @@ Invitations and courses:
   room packs) and `::test_a_second_install_reports_already_present_and_creates_nothing`; install
   has no binding or grant path. Guide: `docs/examples/chinese-character-courses-adoption.md`
   (manual application, delete-and-reinstall cost, missing grants, guidance-not-enforcement).
-- [ ] AC-20: Four-person CRAT live validation includes simultaneous candidates, a connected
+- [x] AC-20: Four-person CRAT live validation includes simultaneous candidates, a connected
   non-speaker, same-name/guest identities, drafting, optional invitations and observer release.
   The 30-minute steady-discussion run records reply/wake counts and any rate-limit failures.
+  D-22 to D-24 (rooms `97f917ca`, `b43f9794`, `82f59a53`); the SA item from phase 3's room `22078b95`.
 - [ ] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
   stay in different phases without changing each other's cadence. Confirm quiet-work behavior,
   teacher-confirmed transitions, missing grants and teacher-ended activities.
@@ -946,6 +947,100 @@ are carried forward as release gates.
   itself and handed the differing 「油」 to the room creator, naming the reference answer only
   after the group had submitted. With D-17's no-reveal evidence and the pack tests, AC-24 is
   ticked.
+- **D-22. First four-person AC-20 run, 2026-10-25.** The simulator ran
+  `frontend/sim/scenarios/crat-ac20.ts` in room `97f917ca-7d21-4100-829d-a65ac85ad572` against TA
+  v49. Three registered students sat in a new three-member group, so consent needed two approvals,
+  and a guest took the name 小安, which P1 also uses.
+
+  Six of the protocol's §4 items passed on the transcript.
+  - Near-simultaneous candidates: TA's turn after 「心」 and 「火」 named both and asked the group to
+    check them.
+  - Same-name guest: TA used 小安 only when restating P1's own messages. It never named the guest's
+    two messages and never called on either person.
+  - No reveal: nothing was revealed before submission, including when a student asked for a hint.
+  - Proposal outcomes: the rejection drew 「這一題的提案沒有通過。先回到討論」, and TA confirmed the
+    accepted 「心」 itself.
+  - Rate limits: the window had no `rate_limited` skip. The worker log showed no rate-limit line and
+    no 429; the grep matched only timestamp digits.
+  - Wake counts: TA's `every_n_messages` fired 11 times and skipped 2 as empty replies, and its
+    `silence_minutes` fired 3 times. AA's `every_n_messages` fired once.
+
+  Two items failed.
+  - Disclosure: TA's first message skipped step A1 and opened with the demonstration, so the AI-peer
+    disclosure was never said. The three phase 3 runs on the same script all said it.
+  - AA release: the scripted release at minute 20 found no observation to release. AA wakes every 20
+    human messages and first woke at about minute 25.
+
+  The SA item was not exercised. SA wakes only after three quiet minutes, and the script never left
+  that gap. Phase 3's first run (room `22078b95-5011-441c-93fc-9b320bac69f1`) supplies it: TA
+  answered SA's 「水」 with 「請大家一起驗證這個新想法」 without judging it.
+
+  For AC-14, TA invited no one in round 1, which the rules allow. In round 2 it invited 小晴, and
+  after she answered asked her again whether she wanted to add more, which breaks the rotation rule.
+
+  The requester chose to fix the prompts and run again.
+  - Step A1 now states that it is TA's first message even when a student has already said they are
+    ready.
+  - Every teacher's rotation rule now applies whether or not the invited person answered.
+  - The scenario's release moves to minute 27:30.
+
+  AC-20 and AC-14 stay open for that run.
+- **D-23. Second four-person AC-20 run, 2026-10-25.** The run used room
+  `b43f9794-4a8c-4868-996f-5e200d11073d`, with TA v50 carrying D-22's fixes.
+
+  D-22's two failures passed.
+  - Disclosure: TA's first message, at 08:00:42, gave the step A1 opening including
+    「討論室裡的 AI 同學也會分享它的想法，但它的想法可能有錯」.
+  - AA release: the 27:30 release posted the observation to the room. It named participants only by
+    code and did not show which agent wrote it.
+
+  The items that passed in D-22 passed again: both candidates were named and checked, no name was
+  used at all, the hint request drew 「先不用我給答案提示」, the rejection returned the group to
+  discussion and TA confirmed the accepted 「心」, and no wake was skipped for a rate limit. TA's
+  `every_n_messages` fired 10 times and skipped 3, its `silence_minutes` fired 3 times, and AA's
+  `every_n_messages` fired once.
+
+  One item failed: TA's next turn after the release ignored it. The acknowledgement clause exists
+  only in `ac20-live-run-protocol.md` §4. AC-20 itself names only the release, and no teacher prompt
+  covered released analyses. A release to the room also does not wake anyone: it counts as a
+  non-human message, and the explicit `release` wake applies only to a release aimed at agents. TA
+  therefore sees it only as `[Room notice] An analysis was released to the room: …` in the history of
+  its next student-triggered turn. The requester chose to add a rule and run again. The CRAT TA's new
+  `<放出的分析>` section tells it to pick up one discussion process from the analysis in a sentence at
+  the start of its next message, once. TA must not read out codes, say who or which agent wrote it,
+  or treat its suggested next step as a stage change, and must not use the submission table as a
+  ranking.
+
+  TA invited no one in this run. The requester chose to keep AC-14 open and gather its invitation
+  evidence, including rotation after the D-22 fix, from the AC-21 runs, whose teachers share the
+  same invitation block.
+- **D-24. AC-20 closed on the third four-person run, 2026-10-25.** The run used room
+  `82f59a53-0c43-4a63-8244-6c74b3832359` with TA v51, which carries D-23's rule. The script was
+  unchanged, and all 38 steps ran; the only timeout was the facilitator's fallback confirmation,
+  which is meant to stay unused when TA confirms a match itself.
+
+  Every protocol §4 item that a run can show passed.
+  - Disclosure: TA's opening at 08:42:07 included the AI-peer sentence.
+  - Candidates: TA's turn at 08:46:43 named both 「心」 and 「火」 and asked the group to check them.
+  - Same-name guest: TA called P1 小安 only when restating P1's own message. It referred to the guest
+    as 「另一位同學」, so the two were not merged and neither was called on.
+  - No reveal: no target or word was revealed before submission, including after the hint request.
+  - Proposal outcomes: the rejection drew 「這一題的提案沒有通過…我們回到討論看看」, and TA confirmed
+    the accepted 「心」.
+  - Release: the 27:30 release reached the room. TA's next message, at 09:08:02, opened with
+    「剛才分享到討論室的整理提到，大家有把候選字放回線索裡檢查，也比較了不同的聯想路徑」. It read
+    out no code and did not say who or which agent wrote the analysis.
+  - Wake counts: TA's `every_n_messages` fired 12 times and skipped 1 as an empty reply, its
+    `silence_minutes` fired 3 times, and AA's `every_n_messages` fired once.
+  - Rate limits: no wake was skipped for a rate limit. The worker log for the two hours covering
+    D-23's run and this one returned no line for `rate.?limit| 429 |status.?429|too many requests`.
+
+  The SA item is taken from phase 3's room `22078b95`, as in D-22. With this, AC-20 is ticked.
+
+  For AC-14, the same run shows the rotation fix live. At 09:08:02 TA invited 小晴 optionally
+  (「如果願意，可以說說」). After she answered, TA's next message at 09:09:39 said 「不用勉強補充」
+  instead of inviting her again. AC-14 stays open, as the requester decided in D-23, until the
+  AC-21 runs add the character and object teachers' invitations.
 
 ## 16. Follow-ups
 
