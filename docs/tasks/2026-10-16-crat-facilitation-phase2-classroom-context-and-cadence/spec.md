@@ -984,6 +984,35 @@ are carried forward as release gates.
   - The scenario's release moves to minute 27:30.
 
   AC-20 and AC-14 stay open for that run.
+- **D-23. Second four-person AC-20 run, 2026-10-25.** The run used room
+  `b43f9794-4a8c-4868-996f-5e200d11073d`, with TA v50 carrying D-22's fixes.
+
+  D-22's two failures passed.
+  - Disclosure: TA's first message, at 08:00:42, gave the step A1 opening including
+    「討論室裡的 AI 同學也會分享它的想法，但它的想法可能有錯」.
+  - AA release: the 27:30 release posted the observation to the room. It named participants only by
+    code and did not show which agent wrote it.
+
+  The items that passed in D-22 passed again: both candidates were named and checked, no name was
+  used at all, the hint request drew 「先不用我給答案提示」, the rejection returned the group to
+  discussion and TA confirmed the accepted 「心」, and no wake was skipped for a rate limit. TA's
+  `every_n_messages` fired 10 times and skipped 3, its `silence_minutes` fired 3 times, and AA's
+  `every_n_messages` fired once.
+
+  One item failed: TA's next turn after the release ignored it. The acknowledgement clause exists
+  only in `ac20-live-run-protocol.md` §4. AC-20 itself names only the release, and no teacher prompt
+  covered released analyses. A release to the room also does not wake anyone: it counts as a
+  non-human message, and the explicit `release` wake applies only to a release aimed at agents. TA
+  therefore sees it only as `[Room notice] An analysis was released to the room: …` in the history of
+  its next student-triggered turn. The requester chose to add a rule and run again. The CRAT TA's new
+  `<放出的分析>` section tells it to pick up one discussion process from the analysis in a sentence at
+  the start of its next message, once. TA must not read out codes, say who or which agent wrote it,
+  or treat its suggested next step as a stage change, and must not use the submission table as a
+  ranking.
+
+  TA invited no one in this run. The requester chose to keep AC-14 open and gather its invitation
+  evidence, including rotation after the D-22 fix, from the AC-21 runs, whose teachers share the
+  same invitation block.
 
 ## 16. Follow-ups
 
