@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-20
 requirements: [R13.72, R13.73, R13.74, R13.75, R13.79, R28.17, R30.15, R30.25, R15.01, R15.02, R15.03, R15.05, R15.05b, R15.06, R15.06a, R15.09, R15.25, R15.26, R28.01, R28.04, R28.09, R28.10, R30.15, R30.21, R30.22, R30.37, R30.38, R30.40, R30.41, R30.42, R30.43, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence, 2026-10-19-peer-deliberate-errors]
@@ -462,7 +462,7 @@ since installed course types are copies too.
 - [x] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
   receives a one-to-two sentence orientation from TA within about two minutes, without being
   named as late; a refresh by that account within 30 minutes produces no second orientation.
-- [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
+- [x] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
 - [x] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
@@ -661,6 +661,23 @@ Add:
     AC-20 waits for a re-sync of TA and a further run.
   - Outside the ACs: at 11:51:23, in the turn that asked the creator whether to continue, TA also
     announced the next bank item's clues 「主、客、詩」 before the creator decided (FU-16).
+- D-13. Third live run, 2026-10-25 (times UTC+8), on the D-12 prompt (PR #276). TA 字詞拼圖 on
+  TEST PROJECT was re-synced from that pack beforehand, v48 to v49, with the stored prompt's hash
+  matching the pack's; no other agent changed. Room `90ec95ea-20c4-4881-86c9-397594189e39`,
+  evidence under `frontend/sim/runs/20261025-041203-crat-phase3/`.
+  - AC-20: passed, so it is ticked. No form mention before the 12:17:21 start. 「火」 was rejected
+    at 12:24:56 and TA's next turn (12:25:36, a silence wake) opened with
+    「這一題的提案沒有通過，我們先回到討論確認答案」 and asked for other candidates, with no
+    pointer to the form. The accepted 「心」 (12:27:56) led to reflection at 12:30:04.
+  - AC-25: passed again. TA confirmed 「心」 itself (12:30:04) and, for 「油」 (12:35:56), named the
+    difference and the reference answer and asked the creator to judge (12:38:08), then relayed the
+    ruling (12:41:25).
+  - AC-19: passed again. Arrival about 12:19:18, `on_join` turn 12:20:23 to the whole room with no
+    name; none after the reconnect. The FU-16 behaviour did not recur: TA asked the creator whether
+    to continue without posting the next clues.
+  - Outside the ACs: in all three runs the creator's closing 「請助教幫大家總結今天的活動」 got no
+    TA turn before the activity ended two minutes later; the message trigger had not reached its
+    count and no silence wake fell in the window.
 
 ## 16. Follow-ups
 

@@ -825,18 +825,13 @@ each row for its own list — the frontmatter wins over this preamble.
 
 ### Classroom facilitation phase 3 (2026-10-20)
 
-- `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state` (feature, **in progress
-  2026-10-24** on `feat/crat-facilitation-phase3`, SRS delta applied: [R13.73], [R15.02], [R30.15]
-  and [R30.42] amended; [R13.79], [R15.26], [R30.44], [R30.45] added). Its `depends_on` still names
-  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`, which is not implemented; the
-  requester chose to build ahead on a branch (D-1). **The branch must not be merged or deployed to
-  staging until phase 2 is `implemented`**, because staging is where phase 2's live runs happen.
-  Agent-only arrival notices and an opt-in `on_join` wake trigger with a 30-minute per-person
-  window; the [R15.02] fix so any joiner re-arms silence; an `[Activity state]` block on every room
-  turn including group proposal counts and outcomes (amends [R30.42]); room-visible activation
-  start/end notices; the three course packs re-orient late joiners and guide the flow from the
-  state. M6 (phase 2 FU-16): the CRAT type quotes `target_character` onto its activity rows after
-  the participant marker, so the teacher can confirm a matching submission.
+- (implemented 2026-10-25) `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`
+  (feature, SRS delta applied), PR #270, follow-up fixes PR #275 and PR #276. Merged and deployed
+  before phase 2 (its `depends_on`) is implemented, by the requester's decision (D-8). Agent-only
+  arrival notices and an opt-in `on_join` wake; an `[Activity state]` block on every room turn;
+  activation notices; the CRAT type quotes `target_character` so the teacher can confirm a
+  matching submission. Staging ACs AC-19, AC-20 and AC-25 verified with the classroom simulator
+  (D-10, D-12, D-13); open follow-ups FU-1 to FU-16.
 
 ### Teacher dashboard redesign (2026-10-19)
 
