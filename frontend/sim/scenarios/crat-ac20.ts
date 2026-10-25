@@ -6,6 +6,8 @@ import { defineScenario } from '../scenario/schema.ts'
 //
 // Preconditions the tool cannot check: the TA prompt contains 「但它的想法可能有錯」 (the
 // re-synced revision), and the deployed commit is written down. Record both before running.
+// Since phase 3 (phase 2 D-19) TA confirms a target matching its bank itself, so the facilitator
+// answers only when TA defers to the teacher.
 const ROUND_1 = { target_character: '心', word_1: '點心', word_2: '放心', word_3: '粗心' }
 
 export default defineScenario({
@@ -23,7 +25,9 @@ export default defineScenario({
       { name: 'AA 字詞拼圖分析代理', role: 'observer' },
     ],
   },
-  memberGroup: { name: 'Sim CRAT 第一組', members: ['P1', 'P2', 'P3'] },
+  // Its own group: provisioning only adds members, and crat-phase3 put a fourth account into
+  // 「Sim CRAT 第一組」, which would raise the 2/3 consent to three approvals.
+  memberGroup: { name: 'Sim CRAT AC-20 組', members: ['P1', 'P2', 'P3'] },
   actors: [
     { name: 'F', role: 'facilitator' },
     { name: 'P1', role: 'student', account: 1, displayName: '小安' },
@@ -79,15 +83,15 @@ export default defineScenario({
       label: 'second proposal',
     },
     { actor: 'P1', at: '13:30', do: 'vote', approve: true },
-    // Minute 15: the facilitator confirms when TA asks.
+    // Minute 15: the facilitator confirms only if TA hands the result over.
     {
       actor: 'F',
       at: '14:00',
-      when: { type: 'message', from: 'agent:TA', match: '老師|確認' },
-      timeoutSec: 240,
+      when: { type: 'message', from: 'agent:TA', match: '老師' },
+      timeoutSec: 150,
       do: 'say',
       text: '這輪答案「心」是對的，可以算對。',
-      label: 'confirms the result when TA asks',
+      label: 'confirms the result if TA defers it',
     },
     // Minute 16: teacher-confirmed transition.
     { actor: 'F', at: '16:00', do: 'say', text: '進行下一輪' },
@@ -124,5 +128,6 @@ export default defineScenario({
     'Pass criteria: ac20-live-run-protocol.md §4. Judge them from transcript.json and record a D-n in the phase 2 dossier.',
     'Protocol deviation: the first proposal is rejected by P1 and P2 together, because the proposer approves implicitly and P1 approving would already reach 2 of 3.',
     'Minute 2 answers are fixed texts, not responses to what TA actually asked; read TA turns around 02:00 with that in mind.',
+    'AC-14: every TA invitation is optional, names one connected participant, is not repeated to the person last invited, never targets the facilitator, and never uses the shared name 小安 to call on P1 or P4.',
   ],
 })
