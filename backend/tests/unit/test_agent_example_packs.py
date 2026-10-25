@@ -1432,6 +1432,18 @@ class TestPhase3CoursePacks:
         assert "下一次換別人，不論他有沒有回應、怎麼回應" in rules
         assert "不要再請他補充或再說一次" in rules
 
+    def test_crat_teacher_picks_up_a_released_analysis_without_its_author(self) -> None:
+        """Phase 2 D-23: a room release sat in TA's history and its next turn ignored it."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        release = _section(prompt, "放出的分析")
+        # The wording TA is told to look for is the one the turn engine renders.
+        assert "[Room notice] An analysis was released to the room:" in release
+        assert "用一句話接住它提到的一個討論過程" in release
+        assert "不要說是誰或哪個代理寫的" in release
+        assert "不是推進步驟的指示" in release
+        assert "不要拿它排名" in release
+        assert prompt.index("</活動狀態>") < prompt.index("<放出的分析>")
+
     def test_crat_teacher_ends_only_on_the_creators_confirmation(self) -> None:
         control = _section(self._agent("ta-crat-teacher").system_prompt, "活動控制")
         assert "只在討論室建立者確認這是最後一輪之後" in control
