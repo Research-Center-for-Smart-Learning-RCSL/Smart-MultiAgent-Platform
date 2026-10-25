@@ -156,11 +156,13 @@ function onHostDraft(payload: unknown): void {
   if (key) emit('draft', key, payload)
 }
 
-// A settled proposal that did NOT accept leaves the group free to try again;
-// an accepted one is this round's answer and the form stays away.
+// Any settled proposal can be put away for a new one. One activation can span
+// several rounds (the CRAT pack runs all of its rounds in one), so an accepted
+// answer closes the round, not the activity; the card labels that button as the
+// next round's so it is not read as a second try at the same one.
 const canProposeAgain = computed(() => {
   const shown = group.visibleProposal.value
-  return !!shown && !isProposalOpen(shown.status) && shown.status !== 'accepted'
+  return !!shown && !isProposalOpen(shown.status)
 })
 
 // Re-read the open proposal at call time rather than closing over the render's

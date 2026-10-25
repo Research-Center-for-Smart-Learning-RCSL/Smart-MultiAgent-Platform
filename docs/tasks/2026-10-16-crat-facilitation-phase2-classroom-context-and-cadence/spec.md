@@ -933,6 +933,14 @@ are carried forward as release gates.
   deployed to staging before AC-14, AC-20, AC-21 and AC-24 closed (its D-8), so their evidence is
   observed on the phase 3 pack revision with its `[Activity state]` block and arrival notices. That
   revision keeps every §6.2 invitation rule and the AC-24 no-reveal rule this dossier pins.
+- **D-20. AC-24's matching half observed live, 2026-10-24.** In the phase 3 staging run recorded
+  in that dossier's D-10 (room `22078b95-5011-441c-93fc-9b320bac69f1`, four registered students in
+  one member group), the group submitted 「心」 and TA confirmed it against the bank and announced
+  the three words without the room creator. TA also withheld the answer before submission and,
+  in round 2, did not name the peer's correct candidate. The differing half (a group submitting a
+  different target) could not be submitted in that run because the panel offered no second
+  proposal after an accepted one (phase 3 D-11), so AC-24 stays open for phase 3 AC-25's
+  differing run.
 
 ## 16. Follow-ups
 

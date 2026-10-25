@@ -122,9 +122,25 @@ describe('once it has settled', () => {
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
 
-  it('offers none after an acceptance, which is the round answer', async () => {
-    // A second proposal here is not blocked by the partial unique -- that bars
-    // only concurrent OPEN ones -- so it would land as a duplicate attempt.
+  it('labels the control as another try after a failed proposal', async () => {
+    const wrapper = await mount({ proposal: proposal({ status: 'rejected' }), canRetry: true })
+
+    expect(wrapper.find('[data-testid="group-proposal-retry"]').text()).toBe(
+      'activities.group.proposeAgain',
+    )
+  })
+
+  it("labels it as the next round's answer after an acceptance", async () => {
+    // One activation can hold several rounds, so an accepted answer still leaves
+    // the next one to write; the label keeps it from reading as a second try.
+    const wrapper = await mount({ proposal: proposal({ status: 'accepted' }), canRetry: true })
+
+    expect(wrapper.find('[data-testid="group-proposal-retry"]').text()).toBe(
+      'activities.group.proposeNextRound',
+    )
+  })
+
+  it('offers no control when the caller does not allow one', async () => {
     const wrapper = await mount({ proposal: proposal({ status: 'accepted' }), canRetry: false })
 
     expect(wrapper.find('[data-testid="group-proposal-retry"]').exists()).toBe(false)

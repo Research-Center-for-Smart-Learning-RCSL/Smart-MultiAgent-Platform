@@ -459,10 +459,10 @@ since installed course types are copies too.
 - [x] AC-17: Each teacher pack enables `on_join`; peers and analysts do not.
 - [x] AC-18: Backend unit, DB and integration tests, ruff, mypy, frontend tests, lint, typecheck,
   build and `check:theme-tokens` pass in CI; `gen:api` output is committed.
-- [ ] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
+- [x] AC-19: Staging: with the re-synced CRAT agents, a second account joining mid-discussion
   receives a one-to-two sentence orientation from TA within about two minutes, without being
   named as late; a refresh by that account within 30 minutes produces no second orientation.
-- [ ] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
+- [x] AC-20: Staging: TA does not mention the answer form before the activity starts; after a
   group proposal is rejected, TA's next turn returns the group to discussion; after submission
   it moves to reflection.
 - [x] AC-21: `filled_count_coverage` accepts `quote_fields` naming up to 3 declared string
@@ -598,6 +598,47 @@ Add:
   AC-24) are therefore observed on this dossier's pack prompts, not on the revision phase 2
   shipped; its D-19 records the same. The staging ACs here (AC-19, AC-20, AC-25) and the M5
   re-sync proceed after that deployment.
+- D-9. M5 re-sync, 2026-10-24, from the packs at `95ee9a06`. The TEST PROJECT agents were patched
+  through `PATCH /api/agents/{id}` and their stored prompts compared by hash with the pack: TA
+  字詞拼圖 v47 to v48, SA 字詞拼圖 v14 to v15, AA 字詞拼圖 v9 to v10, TA 拆字蓋樓 v6 to v7, SA 拆字蓋樓
+  v6 to v7, TA 萬物新解 v5 to v6 and SA 萬物新解 v6 to v7; the three teachers also gained `on_join`.
+  AA 拆字蓋樓 and AA 萬物新解 already matched. §6.5 has the CRAT type edited with the new
+  `validator_config`, but the staging type is a platform type and
+  `PATCH /api/admin/activity-types/{id}` accepts only its name, payload exposure, echo and
+  retention, so `quote_fields: ["target_character"]` was written by the requester in SQL on type
+  `15ab862d-784f-4f54-bb37-5ed35d6644b1` (version 2). An admin path for a platform type's
+  validator config does not exist yet.
+- D-10. Live evidence for AC-19, AC-20 and AC-25, 2026-10-24 (times UTC+8). Classroom simulator,
+  scenario `crat-phase3`, room `sim-phase3-20261024-145744`
+  (`22078b95-5011-441c-93fc-9b320bac69f1`) with TA, SA and AA from D-9, the room creator and four
+  registered students in one member group (three approvals required); evidence under
+  `frontend/sim/runs/20261024-145744-crat-phase3/` (local, not committed).
+  - AC-19: passed. The fourth student first connected at 23:05:06; TA's `on_join` wake fired at
+    23:06:14 and posted to the whole room where the discussion stood (comparing 「心」 and 「火」)
+    and what to check next, addressing 「剛加入的同學」 without a name and without calling anyone late.
+    It ran two orientation sentences plus a question back to the group, slightly over the stated
+    one to two. The same account reconnected at 23:08:21 and the audit log shows no second
+    `on_join` wake.
+  - AC-20: passed. TA's greeting at 23:00:14 described the game with no mention of the form; TA
+    started the activity itself at 23:02:35 and mentioned the form only after the start. The
+    proposal 「火」 was rejected at 23:10:42 (one approval, two rejections); TA's next turn (23:11:08)
+    said the vote had not passed and asked whether the group wanted to adjust the answer or the
+    reasoning before submitting again, and its following turn (23:12:10) asked the group to
+    re-check the three words. It did not use the prompt's 「我們再討論一下？」 wording. After the
+    accepted submission (23:13:42) TA's next turn moved to reflection on the path the group took.
+  - AC-25, matching half: passed. On the submission of 「心」, TA's turn at 23:16:06 said it matched
+    the reference answer and announced the three words, without the room creator; the scenario's
+    fallback step for the creator, armed on a TA message naming 「老師」, never fired.
+  - AC-25, differing half: not observed. After round 1's accepted proposal the panel offered the
+    group no way to propose again, so round 2's 「油」 could not be submitted (D-11). AC-25 stays open.
+  - Outside the ACs: in round 2 SA proposed 「水」, the reference answer, at 23:23:09; TA's next turn
+    referred to it as 「另一個字」 without naming it.
+- D-11. A group could not submit a second round (found by D-10, fixed on the requester's decision).
+  D-6 has one CRAT activation span all eight rounds, and the backend accepts a further proposal in
+  the same activation, but `ActivityPanel` hid the propose form for good once the group's proposal
+  was accepted. The accepted card now offers the same explicit control as a failed one, labelled
+  `activities.group.proposeNextRound`; the card still stays up after it settles.
+  `ActivityPanel.test.ts` and `GroupProposalCard.test.ts` pin both labels and the form's return.
 
 ## 16. Follow-ups
 
@@ -643,3 +684,9 @@ Add:
   "value"`) so a value cannot fake further fields after the marker; cap `quote_fields` names
   (about 64 characters, `[A-Za-z0-9_]`); consider withholding the reject and undecided split for
   groups of two or three, where counts beside the chat can identify the dissenter.
+- FU-14: An admin path for a platform activity type's `validator_config` (D-9). Today
+  `quote_fields` on a platform type can be set only by the course file at seed time or by SQL.
+- FU-15: Classroom simulator on Windows and behind the edge proxy. Its hidden password prompt
+  shows nothing in Windows PowerShell and the typed value was not read, so the run failed with
+  401 until the password came through the environment. The 503 retries and one-at-a-time startup
+  connects for the edge `limit_req` are in `7029255b`.

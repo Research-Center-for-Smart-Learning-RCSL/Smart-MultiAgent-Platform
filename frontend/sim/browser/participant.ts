@@ -45,7 +45,7 @@ export class Participant {
   }
 
   /** Becomes `connected` only once in the room; a failure closes the half-made context. */
-  async connect(browser: Browser): Promise<void> {
+  async connect(browser: Browser, failureShot?: string): Promise<void> {
     if (this._page) return
     const context = await browser.newContext({
       baseURL: this.opts.baseUrl,
@@ -59,6 +59,8 @@ export class Participant {
       this.context = context
       this._page = page
     } catch (err) {
+      const page = context.pages()[0]
+      if (failureShot && page) await page.screenshot({ path: failureShot }).catch(() => undefined)
       await context.close().catch(() => undefined)
       throw err
     }
@@ -104,7 +106,9 @@ export class Participant {
         await page.waitForTimeout(500)
         continue
       }
-      if (resp.status() === 429) {
+      // The edge nginx's limit_req on /api/auth/ answers 503 (its default status), not the
+      // backend's 429, when several contexts log in within the same second.
+      if (resp.status() === 429 || resp.status() === 503) {
         await page.waitForTimeout(retryAfterSec(resp.headers()['retry-after'], 10) * 1000 + 500)
         continue
       }

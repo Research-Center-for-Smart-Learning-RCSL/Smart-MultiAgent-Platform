@@ -280,10 +280,29 @@ describe('ActivityPanel — group mode ([R30.40], [R30.41])', () => {
       'activities.group.statusAccepted',
     )
     expect(wrapper.find('form').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="group-proposal-retry"]').exists()).toBe(false)
   })
 
-  it('lets the group write another answer after one fails, but not after one lands', async () => {
+  it("returns the form for the next round's answer only when asked, after an acceptance", async () => {
+    // One activation spans every CRAT round, so without this control a group
+    // could not submit anything after its first accepted answer.
+    voteOnGroupProposalMock.mockResolvedValue(
+      buildGroupProposal({ status: 'accepted', approvals: 2, submission_id: 'sub_1' }),
+    )
+    const wrapper = await panel({ items: [buildGroupProposal()] })
+
+    await wrapper.find('[data-testid="group-proposal-approve"]').trigger('click')
+    await flushPromises()
+    const retry = wrapper.find('[data-testid="group-proposal-retry"]')
+    expect(retry.text()).toBe('activities.group.proposeNextRound')
+
+    await retry.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="group-proposal-card"]').exists()).toBe(false)
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+
+  it('lets the group write another answer after one fails', async () => {
     voteOnGroupProposalMock.mockResolvedValue(buildGroupProposal({ status: 'rejected' }))
     const wrapper = await panel({ items: [buildGroupProposal()] })
 

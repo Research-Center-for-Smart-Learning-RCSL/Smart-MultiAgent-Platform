@@ -199,16 +199,14 @@ async function play(st: Stage): Promise<{ result: RunResult; evidence: EvidenceI
 
   // Actors without a connect step join at the start; a connect step makes a late joiner.
   const byActor = stepsByActor(scenario.steps)
-  await Promise.all(
-    [...runtimes.values()]
-      .filter((rt) => rt.participant && !(byActor.get(rt.actor.name) ?? []).some((x) => x.step.do === 'connect'))
-      .map(async (rt, i) => {
-        await new Promise((r) => setTimeout(r, i * 400))
-        await (rt.participant as Participant).connect(st.browser)
-        registerActor(rt)
-        s.log.event('actor.connected', { actor: rt.actor.name })
-      }),
-  )
+  // One at a time: each SPA boot fires a burst of /api calls, and parallel boots from one IP
+  // trip the edge nginx's per-IP limit_req, which answers 503 to the room's own reads.
+  for (const rt of runtimes.values()) {
+    if (!rt.participant || (byActor.get(rt.actor.name) ?? []).some((x) => x.step.do === 'connect')) continue
+    await rt.participant.connect(st.browser, join(st.runDir, 'screens', `${rt.actor.name}-connect-failed.png`))
+    registerActor(rt)
+    s.log.event('actor.connected', { actor: rt.actor.name })
+  }
 
   observer.start()
   const t0 = Date.now()
@@ -308,7 +306,7 @@ async function executeStep(st: Stage, step: Step, rt: ActorRuntime, runtimes: Ma
   if (!p) throw new Error(`${rt.actor.name} has no browser`)
   switch (step.do) {
     case 'connect':
-      return p.connect(st.browser)
+      return p.connect(st.browser, join(st.runDir, 'screens', `${rt.actor.name}-connect-failed-${Date.now()}.png`))
     case 'leave':
       return p.leave()
     case 'say':
