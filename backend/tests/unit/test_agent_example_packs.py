@@ -1408,6 +1408,16 @@ class TestPhase3CoursePacks:
         ):
             assert branch in d1, f"D1 lacks: {branch}"
 
+    def test_crat_d1_reads_the_state_before_guiding_a_submission(self) -> None:
+        """Phase 3 D-12: a silence wake after a rejection re-ran D1's opening, which
+        sent the group to the form instead of back to discussion."""
+        d1 = _section(self._agent("ta-crat-teacher").system_prompt, "步驟D1")
+        state = d1.index("判斷這一題的提交狀況（")
+        guide = d1.index("才引導小組提交答案")
+        assert d1.index("先判斷這一題的提交狀況") < state < guide
+        assert "只有在這一題還沒有人送出提案（上面的情況 4）時" in d1
+        assert "不要在同一則裡再請大家去表單提交" in d1
+
     def test_crat_teacher_ends_only_on_the_creators_confirmation(self) -> None:
         control = _section(self._agent("ta-crat-teacher").system_prompt, "活動控制")
         assert "只在討論室建立者確認這是最後一輪之後" in control
