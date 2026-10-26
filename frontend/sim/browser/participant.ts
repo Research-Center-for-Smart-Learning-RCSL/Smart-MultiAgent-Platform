@@ -267,10 +267,19 @@ export class Participant {
     await this.ensureActivityOpen()
     const picker = sel.activityPanel(this.page).locator('select').first()
     await expect(picker).toBeEnabled({ timeout: 30_000 })
-    const value = await picker.evaluate((el, name) => {
-      const options = Array.from((el as HTMLSelectElement).options)
-      return options.find((o) => o.text.includes(name))?.value ?? null
-    }, typeName)
+    // The picker is enabled before the project's types load, so wait for the option itself.
+    const optionValue = (): Promise<string | null> =>
+      picker.evaluate((el, name) => {
+        const options = Array.from((el as HTMLSelectElement).options)
+        return options.find((o) => o.text.includes(name))?.value ?? null
+      }, typeName)
+    let value: string | null = null
+    try {
+      await expect.poll(async () => (value = await optionValue()), { timeout: 30_000 }).not.toBeNull()
+    } catch {
+      const seen = await picker.evaluate((el) => Array.from((el as HTMLSelectElement).options).map((o) => o.text.trim()))
+      throw new Error(`no activity named ${typeName} in the facilitator's list (options: ${seen.join(' | ')})`)
+    }
     if (!value) throw new Error(`no activity named ${typeName} in the facilitator's list`)
     await picker.selectOption(value)
     await sel.startForRoom(this.page).click()
