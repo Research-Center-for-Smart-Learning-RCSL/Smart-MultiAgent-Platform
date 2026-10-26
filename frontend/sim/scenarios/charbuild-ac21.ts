@@ -39,11 +39,12 @@ export default defineScenario({
     // B1 reveals K1 with a demo; then the students are ready.
     { actor: 'P2', at: '6:40', do: 'say', text: '懂了，可以開始了' },
     { actor: 'P3', at: '7:00', do: 'say', text: '好' },
-    // B2 without a grant: the creator starts the activity only after TA asks for it.
+    // B2 without a grant: the creator starts the activity only after TA asks for it. The ask can
+    // come right after B1 (04:26 in the 2026-10-26 run), so any earlier TA message counts.
     {
       actor: 'F',
-      at: '7:00',
-      when: { type: 'message', from: 'agent:TA', match: '(老師|建立者).*開始|開始.*活動' },
+      at: '6:00',
+      when: { type: 'message', from: 'agent:TA', match: '(老師|建立者).*開始|開始.*活動', sinceArmed: false },
       timeoutSec: 240,
       do: 'startActivity',
       type: 'character-building',

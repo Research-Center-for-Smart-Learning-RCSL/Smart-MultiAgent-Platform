@@ -87,10 +87,11 @@ export default defineScenario({
     { actor: 'P1', at: '16:40', do: 'say', text: '一般人只拿它夾紙，我是把它的材質拿來用' },
     { actor: 'P2', at: '17:40', do: 'say', text: '我選當書籤' },
     { actor: 'P2', at: '18:50', do: 'say', text: '嗯…其實它還是在夾東西，好像沒打破什麼' },
-    // D3: the creator confirms the end only after the teacher asks.
+    // D3: the creator confirms the end only after the teacher asks. Armed when P2's last share
+    // is sent, since the ask can follow it within seconds and a condition ignores earlier messages.
     {
       actor: 'F',
-      at: '19:30',
+      at: '18:50',
       when: { type: 'message', from: 'agent:TA', match: '結束' },
       timeoutSec: 240,
       do: 'say',
