@@ -4,6 +4,8 @@ import { applyFacilitatorOverride, scheduleLines } from '../scenario/load.ts'
 import smoke from '../scenarios/smoke-local.ts'
 import ac20 from '../scenarios/crat-ac20.ts'
 import llmClass from '../scenarios/crat-llm-class.ts'
+import charAc21 from '../scenarios/charbuild-ac21.ts'
+import objAc21 from '../scenarios/objreinterp-ac21.ts'
 
 const minimal: ScenarioInput = {
   name: 'x',
@@ -27,6 +29,8 @@ describe('shipped scenarios', () => {
     ['smoke-local', smoke],
     ['crat-ac20', ac20],
     ['crat-llm-class', llmClass],
+    ['charbuild-ac21', charAc21],
+    ['objreinterp-ac21', objAc21],
   ])('%s parses', (_name, s) => {
     expect(issues(s)).toEqual([])
   })
@@ -36,6 +40,17 @@ describe('shipped scenarios', () => {
     for (const a of ['connect', 'leave', 'say', 'typePause', 'silent', 'openActivity', 'submit', 'propose', 'vote', 'withdraw', 'startActivity', 'endActivity']) {
       expect(used, a).toContain(a)
     }
+  })
+
+  it('the AC-21 runs cover a teacher without a grant and one with it, plus a panel end', () => {
+    const char = ScenarioSchema.parse(charAc21)
+    const obj = ScenarioSchema.parse(objAc21)
+    const teacher = (s: typeof char) => s.room.agents.find((a) => a.name.startsWith('TA'))
+    expect(teacher(char)?.grantActivityTypes).toEqual([])
+    expect(char.steps.some((s) => s.do === 'startActivity' && s.actor === 'F')).toBe(true)
+    expect(teacher(obj)?.grantActivityTypes).toEqual(['object-reinterpretation'])
+    expect(obj.steps.filter((s) => s.do === 'startActivity')).toEqual([])
+    expect(obj.steps.some((s) => s.do === 'endActivity' && s.when?.type === 'activation')).toBe(true)
   })
 
   it('crat-ac20 declares the protocol preconditions (AC-16)', () => {
