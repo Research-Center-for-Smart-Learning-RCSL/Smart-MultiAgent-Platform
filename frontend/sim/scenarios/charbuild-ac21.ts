@@ -11,7 +11,7 @@ import { defineScenario } from '../scenario/schema.ts'
 export default defineScenario({
   name: 'charbuild-ac21',
   description: 'AC-21 character-building class without a teacher grant: four students, a facilitator.',
-  durationSec: 28 * 60,
+  durationSec: 32 * 60,
   room: {
     mode: 'create',
     name: 'sim-ac21-char-{ts}',
@@ -75,22 +75,25 @@ export default defineScenario({
       do: 'endActivity',
       label: 'ends the activity from the panel after TA announces time up',
     },
-    // D1 sharing; P4 stays silent.
+    // D1 sharing stays with P1 and P3 at first, so the invitation condition (sharing concentrated
+    // in a few people while connected students say nothing) holds; P2 shares later, P4 never.
     { actor: 'P1', at: '18:00', do: 'say', text: '我想到「困」，木被口包起來，算包圍結構' },
     { actor: 'P3', at: '19:00', do: 'say', text: '我寫了「呆」和「杏」，同樣兩個部件上下換一下就不一樣' },
-    { actor: 'P2', at: '20:00', do: 'say', text: '我只想到兩個，「束」是木中間加一個口' },
-    { actor: 'P3', at: '21:10', do: 'say', text: '原來還可以穿過去，我沒想到' },
-    // D2 and D3: the creator decides the next round.
-    { actor: 'P1', at: '23:00', do: 'say', text: '所以擺法越多越好' },
-    { actor: 'F', at: '24:30', do: 'say', text: '進行下一輪', label: 'creator confirms the next round' },
-    { actor: 'P2', at: '26:00', do: 'say', text: '這次的部件可以重複用嗎？' },
-    { actor: 'F', at: '27:20', do: 'say', text: '今天先到這裡，謝謝大家。' },
+    { actor: 'P1', at: '20:00', do: 'say', text: '我也有寫「杏」' },
+    { actor: 'P2', at: '21:30', do: 'say', text: '我只想到兩個，「束」是木中間加一個口' },
+    { actor: 'P3', at: '22:30', do: 'say', text: '原來還可以穿過去，我沒想到' },
+    // D2 and D3: the creator decides the next round, and TA reveals K2.
+    { actor: 'P1', at: '23:30', do: 'say', text: '所以擺法越多越好' },
+    { actor: 'F', at: '25:00', do: 'say', text: '進行下一輪', label: 'creator confirms the next round' },
+    { actor: 'P2', at: '27:00', do: 'say', text: '這次的部件可以重複用嗎？' },
+    { actor: 'P1', at: '27:20', do: 'say', text: '好' },
+    { actor: 'F', at: '31:00', do: 'say', text: '今天先到這裡，謝謝大家。' },
   ],
   notes: [
     'Missing grant: before the 07:00 start step fires, TA asks the room creator to start and does not say 「開始個人作答」 or mention the form; after the activation it announces the work once.',
     'Quiet work: no TA or SA message between the work announcement and 15:00.',
     'Creator-confirmed end: TA announces time up only after 15:00, does not claim to have closed the form, and moves to sharing (D1) after the panel end.',
-    'Stages: A1 (with the AI-peer disclosure), A2, B1 with K1 and a demo on other components, B2, C1, D1, D2, D3, then B1 with K2 after 24:30. No reference character is revealed before a student shares it.',
+    'Stages: A1 (with the AI-peer disclosure), A2, B1 with K1 and a demo on other components, B2, C1, D1 opened right after the time-up (not left to SA), D2, D3, then B1 with K2 after 25:00. No reference character is revealed before a student shares it.',
     'AC-14: invitations only in D1 to D3, one connected participant at a time, never the creator, not the person last invited.',
   ],
 })
