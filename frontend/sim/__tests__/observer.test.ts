@@ -67,6 +67,8 @@ describe('RoomObserver', () => {
     expect(obs.fromMatches('agent', ta)).toBe(true)
     expect(obs.fromMatches('human', guest)).toBe(true)
     expect(obs.fromMatches('anyone', sys)).toBe(false)
+    expect(obs.fromMatches('system', sys)).toBe(true)
+    expect(obs.fromMatches('system', ta)).toBe(false)
     obs.actorBySender.set('g1', 'P4')
     expect(obs.fromMatches('P4', guest)).toBe(true)
     expect(obs.fromMatches('P1', guest)).toBe(false)

@@ -180,6 +180,7 @@ export class RoomObserver {
     if (from === 'anyone') return m.sender_type !== 'system'
     if (from === 'human') return m.sender_type === 'user' || m.sender_type === 'guest'
     if (from === 'agent') return m.sender_type === 'agent'
+    if (from === 'system') return m.sender_type === 'system'
     if (from.startsWith('agent:')) {
       const want = from.slice('agent:'.length)
       return m.sender_type === 'agent' && !!m.sender_id && (this.names.get(m.sender_id) ?? '').includes(want)

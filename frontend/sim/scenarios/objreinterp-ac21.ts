@@ -12,7 +12,7 @@ import { defineScenario } from '../scenario/schema.ts'
 export default defineScenario({
   name: 'objreinterp-ac21',
   description: 'AC-21 object-reinterpretation class with a teacher grant and a panel end in round 2.',
-  durationSec: 35 * 60,
+  durationSec: 43 * 60,
   room: {
     mode: 'create',
     name: 'sim-ac21-obj-{ts}',
@@ -41,10 +41,10 @@ export default defineScenario({
     { actor: 'P2', at: '6:40', do: 'say', text: '可以開始了' },
     { actor: 'P3', at: '7:00', do: 'say', text: '好' },
     // C1: quiet ideation. P3 has not submitted when ideation ends, so C2's reminder applies to it.
-    { actor: 'P1', at: '8:30', do: 'openActivity' },
-    { actor: 'P2', at: '8:30', do: 'openActivity' },
-    { actor: 'P3', at: '8:30', do: 'openActivity' },
-    { actor: 'P4', at: '8:30', do: 'openActivity' },
+    { actor: 'P1', at: '8:30', when: { type: 'activation', state: 'active' }, timeoutSec: 240, do: 'openActivity' },
+    { actor: 'P2', at: '8:30', when: { type: 'activation', state: 'active' }, timeoutSec: 240, do: 'openActivity' },
+    { actor: 'P3', at: '8:30', when: { type: 'activation', state: 'active' }, timeoutSec: 240, do: 'openActivity' },
+    { actor: 'P4', at: '8:30', when: { type: 'activation', state: 'active' }, timeoutSec: 240, do: 'openActivity' },
     {
       actor: 'P1',
       at: '10:30',
@@ -105,18 +105,20 @@ export default defineScenario({
     // Round 2 B1 and B2; then the creator ends the activity from the panel during ideation.
     { actor: 'P1', at: '27:30', do: 'say', text: '好' },
     { actor: 'P2', at: '27:45', do: 'say', text: '開始吧' },
+    // The round-2 start drifts (31:09 in the 2026-10-26 run), so the panel end waits for TA's work
+    // announcement and the reactions follow the platform's end notice, not the clock.
     {
       actor: 'F',
-      at: '29:30',
-      when: { type: 'activation', state: 'active' },
-      timeoutSec: 90,
+      at: '28:00',
+      when: { type: 'message', from: 'agent:TA', match: '開始.*作答' },
+      timeoutSec: 600,
       do: 'endActivity',
       label: 'ends round 2 from the panel during ideation (teacher-ended case)',
     },
-    { actor: 'P3', at: '30:10', do: 'say', text: '咦，表單不見了？' },
-    { actor: 'P1', at: '30:30', do: 'say', text: '我還沒寫完' },
-    { actor: 'P2', at: '30:50', do: 'say', text: '老師是結束了嗎？' },
-    { actor: 'F', at: '34:00', do: 'say', text: '今天先到這裡，謝謝大家。' },
+    { actor: 'P3', at: '29:00', when: { type: 'message', from: 'system', match: 'ended' }, timeoutSec: 600, do: 'say', text: '咦，表單不見了？' },
+    { actor: 'P1', at: '29:00', when: { type: 'message', from: 'P3', match: '表單不見' }, timeoutSec: 660, do: 'say', text: '我還沒寫完' },
+    { actor: 'P2', at: '29:00', when: { type: 'message', from: 'P1', match: '還沒寫完' }, timeoutSec: 720, do: 'say', text: '老師是結束了嗎？' },
+    { actor: 'F', at: '42:00', do: 'say', text: '今天先到這裡，謝謝大家。' },
   ],
   notes: [
     'Grant: TA calls start_activity at B2 and announces the form only after the activation; it calls end_activity in the same turn as the creator\'s 19:30 confirmation.',

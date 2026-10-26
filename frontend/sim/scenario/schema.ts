@@ -14,7 +14,7 @@ const FieldValue = z.union([z.string(), z.number(), z.boolean(), z.array(z.strin
 export const ConditionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message'),
-    /** An actor name, `agent`, `agent:<name>`, `human` or `anyone`. */
+    /** An actor name, `agent`, `agent:<name>`, `human`, `system` or `anyone` (which excludes system). */
     from: z.string().default('anyone'),
     /** A regular expression the message text must match. */
     match: z
