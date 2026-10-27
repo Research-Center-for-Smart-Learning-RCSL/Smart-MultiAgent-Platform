@@ -356,14 +356,35 @@ class TestAPlatformNoticeSurvivesCoalescing:
 
         await te.drain_queued_trigger(agent_id, room, None)
 
-        ((*_head, notice),) = enqueued
+        ((_job, _agent, _room, trigger, message_id, _binding, notice),) = enqueued
         assert notice == "The class is starting: 3 participants are connected."
+        # Under the parked message trigger the follow-up would face that
+        # trigger's gates (off, autostop, already covered) and could drop the
+        # notice, so the platform wake names the follow-up.
+        assert (trigger, message_id) == ("class_start", None)
+        assert fake.notices == {}
+
+    async def test_the_drain_keeps_an_ordinary_follow_up_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _use(monkeypatch, _FakeRedis())
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        enqueued: list[tuple[Any, ...]] = []
+
+        async def _enqueue(*args: Any) -> None:
+            enqueued.append(args)
+
+        monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", mid)
+
+        await te.drain_queued_trigger(agent_id, room, None)
+
+        ((_job, _agent, _room, trigger, message_id, _binding, notice),) = enqueued
+        assert (trigger, message_id, notice) == ("every_n_messages", str(mid), None)
         assert fake.notices == {}
 
     async def test_the_drain_discards_a_notice_with_no_parked_trigger(self, redis: _FakeRedis) -> None:
         """A re-check served the trigger; its notice must not ride the next follow-up."""
         agent_id, room = uuid.uuid4(), uuid.uuid4()
-        await te._park_notice(agent_id, room, "stale")
+        await te._park_notice(agent_id, room, "class_start", "stale")
 
         await te.drain_queued_trigger(agent_id, room, None)
 
@@ -374,10 +395,10 @@ class TestAPlatformNoticeSurvivesCoalescing:
     ) -> None:
         fake = _FakeRedis()
         engine, _ran = _wire_run_turn(monkeypatch, acquires=[False, True], fake=fake)
-        seen: list[str | None] = []
+        seen: list[tuple[str, str | None]] = []
 
         async def _locked(*, trigger: str, platform_notice: str | None = None, **kw: Any) -> te.TurnResult:
-            seen.append(platform_notice)
+            seen.append((trigger, platform_notice))
             return te.TurnResult(status="completed")
 
         engine._run_locked = _locked  # type: ignore[attr-defined]
@@ -389,8 +410,29 @@ class TestAPlatformNoticeSurvivesCoalescing:
             platform_notice='The time limit of "x" was reached.',
         )
 
-        assert seen == ['The time limit of "x" was reached.']
+        assert seen == [("activity_deadline", 'The time limit of "x" was reached.')]
         assert fake.notices == {}
+
+    async def test_a_retry_behind_a_parked_message_trigger_runs_as_the_platform_wake(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeRedis()
+        engine, _ran = _wire_run_turn(monkeypatch, acquires=[False, True], fake=fake)
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        seen: list[tuple[str, str | None]] = []
+
+        async def _locked(*, trigger: str, platform_notice: str | None = None, **kw: Any) -> te.TurnResult:
+            seen.append((trigger, platform_notice))
+            return te.TurnResult(status="completed")
+
+        engine._run_locked = _locked  # type: ignore[attr-defined]
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", uuid.uuid4())
+
+        await engine.run_turn(
+            agent_id=agent_id, chatroom_id=room, trigger="all_submitted", platform_notice="all in"
+        )
+
+        assert seen == [("all_submitted", "all in")]
 
     async def test_an_ordinary_mark_parks_no_notice(self, redis: _FakeRedis) -> None:
         await te._mark_trigger_queued(uuid.uuid4(), uuid.uuid4(), "mention", uuid.uuid4())

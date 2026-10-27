@@ -782,21 +782,34 @@ def _queued_notice_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
 # A platform wake's notice ([R15.27], [R15.28]) rides beside the parked trigger,
 # not inside it: the trigger key is first-wins, so a class-start wake that lands
 # behind a parked message trigger would otherwise lose the only input that keeps
-# its turn out of `no_input` in an empty room. Last write wins, and every drain
+# its turn out of `no_input` in an empty room. The notice keeps its own trigger
+# and, when present, names the follow-up turn: run under the parked message
+# trigger instead, the follow-up would face that trigger's gates (off, autostop,
+# already covered) and could drop the notice. Last write wins, and every drain
 # clears it, so a notice never outlives the turn that follows it.
 _POP_NOTICE_LUA = "local v = redis.call('get', KEYS[1]) if v then redis.call('del', KEYS[1]) end return v"
 
 
-async def _park_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID, notice: str) -> None:
+@dataclass(frozen=True, slots=True)
+class ParkedNotice:
+    trigger: str
+    text: str
+
+
+async def _park_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str, notice: str) -> None:
     try:
         from shared_kernel.auth.clients import get_redis
 
-        await get_redis().set(_queued_notice_key(agent_id, chatroom_id), notice, ex=_QUEUED_TRIGGER_TTL_S)
+        await get_redis().set(
+            _queued_notice_key(agent_id, chatroom_id),
+            json.dumps({"trigger": trigger, "text": notice}),
+            ex=_QUEUED_TRIGGER_TTL_S,
+        )
     except Exception:
         _log.warning("failed to park platform notice agent=%s room=%s", agent_id, chatroom_id, exc_info=True)
 
 
-async def _pop_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str | None:
+async def _pop_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> ParkedNotice | None:
     try:
         from shared_kernel.auth.clients import get_redis
 
@@ -804,7 +817,14 @@ async def _pop_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str | None
     except Exception:
         _log.warning("failed to read platform notice agent=%s room=%s", agent_id, chatroom_id, exc_info=True)
         return None
-    return _decode(raw) if raw else None
+    if not raw:
+        return None
+    try:
+        data = json.loads(_decode(raw))
+        return ParkedNotice(trigger=str(data["trigger"]), text=str(data["text"]))
+    except (ValueError, KeyError, TypeError):
+        _log.warning("discarding malformed platform notice agent=%s room=%s", agent_id, chatroom_id)
+        return None
 
 
 # Both scripts span the trigger key and its message-id key, which the protocol
@@ -1109,6 +1129,13 @@ async def drain_queued_trigger(
         # Redis failure, already logged by the pop: there is nothing safe to
         # enqueue, since the trigger that would name it was never read.
         return
+    trigger = queued.trigger
+    message_id = str(queued.message_id) if queued.message_id else None
+    if notice is not None:
+        # The platform wake names the follow-up. No message id: a platform turn
+        # reads the latest message, and a pinned id another turn has since
+        # answered would skip the follow-up as already covered.
+        trigger, message_id = notice.trigger, None
     try:
         from shared_kernel.queue import enqueue
 
@@ -1116,10 +1143,10 @@ async def drain_queued_trigger(
             "wakeup_agent",
             str(agent_id),
             str(chatroom_id),
-            queued.trigger,
-            str(queued.message_id) if queued.message_id else None,
+            trigger,
+            message_id,
             str(binding_id) if binding_id is not None else None,
-            notice,
+            notice.text if notice is not None else None,
         )
     except Exception:
         _log.warning(
@@ -1684,7 +1711,9 @@ class TurnEngine:
                             if parked.state is TriggerPopState.PARKED:
                                 trigger = parked.trigger or trigger
                                 trigger_message_id = parked.message_id or trigger_message_id
-                                platform_notice = await _pop_notice(agent_id, chatroom_id) or platform_notice
+                                notice = await _pop_notice(agent_id, chatroom_id)
+                                if notice is not None:
+                                    trigger, platform_notice = notice.trigger, notice.text
                             # UNKNOWN falls through deliberately: Redis could not
                             # say whether a mark is parked, and we hold the lock.
                             # Serving the trigger we were called for answers the
@@ -1706,7 +1735,7 @@ class TurnEngine:
                     # The notice lands before the mark, so a drain that sees the mark
                     # also sees its notice.
                     if platform_notice:
-                        await _park_notice(agent_id, chatroom_id, platform_notice)
+                        await _park_notice(agent_id, chatroom_id, trigger, platform_notice)
                     marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
                     # Re-check: the holder may have released AND popped before our
                     # mark landed — if the lock is now free we take it; if still
