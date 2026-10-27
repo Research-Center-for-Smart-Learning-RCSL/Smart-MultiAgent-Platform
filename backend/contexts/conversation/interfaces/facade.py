@@ -624,10 +624,33 @@ class ConversationFacade:
         return await ClassStartRepository(self._db).claim_start(chatroom_id)
 
     async def write_class_start(
-        self, chatroom_id: uuid.UUID, *, config: ClassStartConfig | None, reset: bool
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        config: ClassStartConfig | None,
+        reset: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
     ) -> ClassStartState | None:
-        """Caller owns commit, authorization and the audit event."""
-        return await ClassStartRepository(self._db).write(chatroom_id, config=config, reset=reset)
+        """Replace the setting and audit it; caller owns commit and authorization."""
+        from shared_kernel import audit
+
+        state = await ClassStartRepository(self._db).write(chatroom_id, config=config, reset=reset)
+        if state is not None:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="chatroom.class_start_updated",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="chatroom",
+                    resource_id=chatroom_id,
+                    metadata={**(config.to_stored() if config else {"configured": False}), "reset": reset},
+                    request_id=request_id,
+                ),
+            )
+        return state
 
     async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
         return await self._messages.room_has_messages(chatroom_id)

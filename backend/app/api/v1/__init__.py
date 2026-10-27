@@ -66,6 +66,9 @@ def _build_registry() -> list[RouterEntry]:
         chatrooms as chatroom_routes,
     )
     from app.api.v1 import (
+        class_flow as class_flow_routes,
+    )
+    from app.api.v1 import (
         csp_report as csp_routes,
     )
     from app.api.v1 import (
@@ -261,6 +264,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(chatroom_routes.workspace_router),
         RouterEntry(chatroom_routes.chatroom_router),
         RouterEntry(room_wakeup_routes.chatroom_router),
+        RouterEntry(class_flow_routes.chatroom_router),
         RouterEntry(message_routes.chatroom_router),
         RouterEntry(message_routes.message_router),
         RouterEntry(observation_routes.observation_router),

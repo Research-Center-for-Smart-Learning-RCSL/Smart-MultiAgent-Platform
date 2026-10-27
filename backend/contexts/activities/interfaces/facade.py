@@ -85,6 +85,7 @@ from contexts.activities.infrastructure.repositories.session_repo import Activit
 from contexts.activities.infrastructure.repositories.submission_repo import ActivitySubmissionRepository
 from contexts.activities.infrastructure.repositories.time_limit_repo import RoomTimeLimitRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
+from shared_kernel import audit
 from shared_kernel.auth.clients import now
 
 # Upper bound on the admin form's "how many types would this break" preview. A
@@ -575,10 +576,32 @@ class ActivitiesFacade:
         return await RoomTimeLimitRepository(self._db).for_room(chatroom_id)
 
     async def replace_room_time_limits(
-        self, chatroom_id: uuid.UUID, limits: Mapping[uuid.UUID, int | None]
+        self,
+        chatroom_id: uuid.UUID,
+        limits: Mapping[uuid.UUID, int | None],
+        *,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
     ) -> None:
-        """Caller owns commit, authorization, type reachability and the audit event."""
+        """Replace the overrides and audit it; caller owns commit, authorization and
+        having resolved every type id for the room's project.
+
+        A running round keeps the limit it snapshotted at start ([R30.46]).
+        """
         await RoomTimeLimitRepository(self._db).replace(chatroom_id, limits)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.activity_time_limits_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom",
+                resource_id=chatroom_id,
+                metadata={"limits": {str(k): v for k, v in limits.items()}},
+                request_id=request_id,
+            ),
+        )
 
     async def delete_type(
         self,
