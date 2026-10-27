@@ -63,6 +63,7 @@
     },
     {
       "key": "character-building",
+      "default_time_limit_minutes": 5,
       "name": "拆字蓋樓（部件擴散思考任務）",
       "validator_kind": "in_process",
       "validator_config": {
@@ -131,6 +132,7 @@
     },
     {
       "key": "object-reinterpretation",
+      "default_time_limit_minutes": 5,
       "name": "萬物新解（改編自創意用途測驗）",
       "validator_kind": "in_process",
       "validator_config": {

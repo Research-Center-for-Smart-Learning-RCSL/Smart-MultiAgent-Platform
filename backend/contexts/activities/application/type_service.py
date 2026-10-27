@@ -29,7 +29,7 @@ from contexts.activities.domain.errors import (
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.group_consent import validate_group_config
-from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
+from contexts.activities.domain.models import ActivityType, ActivityTypeScope, Keep, ValidatorKind
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
@@ -94,6 +94,7 @@ class ActivityTypeService:
         echo_includes_content: bool = False,
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | None = None,
         request_id: uuid.UUID | None = None,
     ) -> TypeRegistration:
         if (project_id is None) is (scope is ActivityTypeScope.PROJECT):
@@ -131,6 +132,7 @@ class ActivityTypeService:
             echo_includes_content=echo_includes_content,
             scope=scope,
             group_config=group_config,
+            default_time_limit_minutes=default_time_limit_minutes,
         )
         await audit.emit(
             self._db,
@@ -182,6 +184,7 @@ class ActivityTypeService:
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | Keep | None = Keep.KEEP,
         request_id: uuid.UUID | None = None,
     ) -> ActivityType:
         """Edit an existing type's fields (``key`` is never editable, R30.23).
@@ -248,6 +251,9 @@ class ActivityTypeService:
             echo_includes_content=echo_includes_content,
             bump_version=behavioral_changed,
             group_config=group_config,
+            # [R30.46]: when the next round ends, not how it is scored, so it is
+            # safe metadata: no version bump, editable while a round runs.
+            default_time_limit_minutes=default_time_limit_minutes,
         )
         await audit.emit(
             self._db,

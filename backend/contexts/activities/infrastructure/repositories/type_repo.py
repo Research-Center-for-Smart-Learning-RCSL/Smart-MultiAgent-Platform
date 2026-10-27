@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.errors import ActivityTypeKeyConflict
-from contexts.activities.domain.models import ActivityType, ActivityTypeScope, ValidatorKind
+from contexts.activities.domain.models import ActivityType, ActivityTypeScope, Keep, ValidatorKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 from shared_kernel.db.rowcount import rowcount
@@ -85,6 +85,7 @@ class ActivityTypeRepository:
         echo_includes_content: bool,
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | None = None,
     ) -> uuid.UUID:
         """Insert a type and return its id (caller owns commit).
 
@@ -115,6 +116,7 @@ class ActivityTypeRepository:
                     expose_payload_to_agent=expose_payload_to_agent,
                     echo_includes_content=echo_includes_content,
                     group_config=group_config,
+                    default_time_limit_minutes=default_time_limit_minutes,
                 )
                 .returning(t.activity_types.c.id)
             )
@@ -305,6 +307,7 @@ class ActivityTypeRepository:
         echo_includes_content: bool,
         bump_version: bool,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | Keep | None = Keep.KEEP,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
         ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op
@@ -320,6 +323,8 @@ class ActivityTypeRepository:
             "echo_includes_content": echo_includes_content,
             "group_config": group_config,
         }
+        if not isinstance(default_time_limit_minutes, Keep):
+            values["default_time_limit_minutes"] = default_time_limit_minutes
         if bump_version:
             values["version"] = t.activity_types.c.version + 1
         result = await self._db.execute(

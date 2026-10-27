@@ -20,7 +20,7 @@ import datetime as dt
 import enum
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 
 
 class ValidatorKind(str, enum.Enum):
@@ -776,6 +776,16 @@ class RoomActivityState:
     connected_progress: ConnectedProgress | None = None
 
 
+#: [R30.46] bounds, mirrored by the 0106 CHECKs.
+TIME_LIMIT_MINUTES_RANGE: Final = (1, 180)
+
+
+class Keep(enum.Enum):
+    """An update argument meaning "leave the stored value as it is"."""
+
+    KEEP = "keep"
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectedProgress:
     """Who is connected now and how many of them have a valid submission.
@@ -810,6 +820,7 @@ __all__ = [
     "MAX_COVERAGE_FIELDS",
     "PERMISSIVE_POLICY",
     "PLATFORM_SCOPE",
+    "TIME_LIMIT_MINUTES_RANGE",
     "ActivationNotice",
     "ActivationStatus",
     "ActivityActivation",
@@ -832,6 +843,7 @@ __all__ = [
     "GroupProposalResolution",
     "GroupProposalTally",
     "GroupSubmissionState",
+    "Keep",
     "MandalaGrid",
     "PlatformActivityEvent",
     "PolicyImpact",
