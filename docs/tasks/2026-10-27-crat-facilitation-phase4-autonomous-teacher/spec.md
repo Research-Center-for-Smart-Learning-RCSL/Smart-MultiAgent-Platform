@@ -619,6 +619,18 @@ above. The user chose to verify and fix all ten of its findings.
   all-submitted call and the departure check share `check_all_submitted`, which opens its own
   session; the worker's outer `try` it replaced was not redundant, since it also covered a
   session that failed to open.
+- **D-21. Two phase 2 findings fixed after the rebase onto phase 2's merge (2026-10-27).** Phase
+  2 closed on PR #283 and this branch was rebased onto it without conflict. Its D-27 and D-29
+  found that the object teacher's two panel-ended branches jump to `<步驟E2>` without wake-up
+  restore b). Since `<步驟B2>` turns silence off, a teacher that saw the panel end then stayed
+  silent for nine minutes. With no creator to move the class on, that stalls the class, so both
+  branches now restore the cadence in the same turn, as the character teacher's already did.
+  Phase 2's FU-17 found that the character teacher's A2 described the worksheet before any
+  activity ran, against its own `[Activity state]` rule. A2 now explains only how to answer, and
+  the worksheet's ten slots and minimum move into the B2 announcement, which follows the
+  activation. Pinned by `test_a_panel_ended_round_restores_the_cadence` and
+  `test_the_character_rules_do_not_describe_a_form_before_it_exists`; both failed before the
+  prompt edits.
 
 ## 16. Follow-ups
 
