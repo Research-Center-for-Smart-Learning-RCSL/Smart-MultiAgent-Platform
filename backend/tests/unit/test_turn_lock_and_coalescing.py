@@ -44,6 +44,7 @@ class _FakeRedis:
     ) -> None:
         self.store: dict[str, str] = {}
         self.sets: dict[str, set[str]] = {}
+        self.notices: dict[str, str] = {}
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self._fail_pop = fail_pop
         self._fail_mark = fail_mark
@@ -73,6 +74,8 @@ class _FakeRedis:
         if script == te._COVER_LUA:
             self.sets.setdefault(keys[0], set()).update(argv[1:])
             return 1
+        if script == te._POP_NOTICE_LUA:
+            return self.notices.pop(keys[0], None)
         if script == te._REPARK_QUEUED_LUA:
             if keys[0] not in self.store:  # absent-only: never displaces a newer mark
                 self.store[keys[0]] = argv[0]
@@ -106,8 +109,10 @@ class _FakeRedis:
     async def getdel(self, key: str) -> None:
         self.calls.append(("getdel", (key,)))
 
-    async def set(self, key: str, *a: Any, **k: Any) -> bool:
+    async def set(self, key: str, value: str, *a: Any, **k: Any) -> bool:
         self.calls.append(("set", (key,)))
+        # Kept apart from `store`, which models only the two trigger keys.
+        self.notices[key] = value
         return True
 
     @property
@@ -315,6 +320,82 @@ class TestRunTurnStopsReportingLockedForADroppedMessage:
 
         assert result.status == "completed"
         assert ran == ["mention"]
+
+
+class TestAPlatformNoticeSurvivesCoalescing:
+    """[R15.27]/[R15.28]: a platform wake that lands mid-turn keeps its notice.
+
+    Without it a class-start follow-up in an empty room has no input and skips,
+    and the trigger key's first-wins rule means the wake may not even be the
+    parked trigger.
+    """
+
+    async def test_a_locked_platform_wake_parks_its_notice_for_the_drain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeRedis()
+        engine, _ran = _wire_run_turn(monkeypatch, acquires=[False, False], fake=fake)
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        enqueued: list[tuple[Any, ...]] = []
+
+        async def _enqueue(*args: Any) -> None:
+            enqueued.append(args)
+
+        monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
+        # A message trigger is parked already, so the class-start trigger itself
+        # loses the first-wins race.
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", uuid.uuid4())
+
+        result = await engine.run_turn(
+            agent_id=agent_id,
+            chatroom_id=room,
+            trigger="class_start",
+            platform_notice="The class is starting: 3 participants are connected.",
+        )
+        assert (result.status, result.reason) == ("skipped", "locked")
+
+        await te.drain_queued_trigger(agent_id, room, None)
+
+        ((*_head, notice),) = enqueued
+        assert notice == "The class is starting: 3 participants are connected."
+        assert fake.notices == {}
+
+    async def test_the_drain_discards_a_notice_with_no_parked_trigger(self, redis: _FakeRedis) -> None:
+        """A re-check served the trigger; its notice must not ride the next follow-up."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        await te._park_notice(agent_id, room, "stale")
+
+        await te.drain_queued_trigger(agent_id, room, None)
+
+        assert redis.notices == {}
+
+    async def test_a_retry_that_takes_the_lock_serves_the_parked_notice(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeRedis()
+        engine, _ran = _wire_run_turn(monkeypatch, acquires=[False, True], fake=fake)
+        seen: list[str | None] = []
+
+        async def _locked(*, trigger: str, platform_notice: str | None = None, **kw: Any) -> te.TurnResult:
+            seen.append(platform_notice)
+            return te.TurnResult(status="completed")
+
+        engine._run_locked = _locked  # type: ignore[attr-defined]
+
+        await engine.run_turn(
+            agent_id=uuid.uuid4(),
+            chatroom_id=uuid.uuid4(),
+            trigger="activity_deadline",
+            platform_notice='The time limit of "x" was reached.',
+        )
+
+        assert seen == ['The time limit of "x" was reached.']
+        assert fake.notices == {}
+
+    async def test_an_ordinary_mark_parks_no_notice(self, redis: _FakeRedis) -> None:
+        await te._mark_trigger_queued(uuid.uuid4(), uuid.uuid4(), "mention", uuid.uuid4())
+
+        assert redis.commands == ["eval"]
 
 
 # ---------------------------------------------------------------------------
