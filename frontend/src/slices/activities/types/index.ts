@@ -41,6 +41,10 @@ export interface ActivationView {
    *  since been deleted, which is why they are two fields and not one. */
   startedByAgentId?: string | null
   startedByAgentName?: string | null
+  /** ISO time the round's limit runs out, snapshotted at start. Absent or null
+   *  when the round has no limit, or when the source (the room broadcast) does
+   *  not carry one. */
+  deadlineAt?: string | null
 }
 
 /** A group's proposal and where its vote stands ([R30.41]). Carries the payload,

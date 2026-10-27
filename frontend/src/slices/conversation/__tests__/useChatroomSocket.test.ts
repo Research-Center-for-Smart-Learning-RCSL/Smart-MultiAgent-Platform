@@ -432,6 +432,25 @@ describe('useChatroomSocket agent streaming', () => {
     expect(activities.getActivation(ROOM)).toBeNull()
   })
 
+  it('carries a live start deadline so the countdown shows without a reload', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+
+    emit({
+      type: 'activity.activation.started',
+      activation_id: 'activation_1',
+      activity_type_id: 'type_1',
+      started_by: 'user_1',
+      deadline_at: '2026-10-27T10:05:00+00:00',
+    })
+    expect(activities.getActivation(ROOM)?.deadlineAt).toBe('2026-10-27T10:05:00+00:00')
+
+    emit({ type: 'activity.activation.ended', activation_id: 'activation_1' })
+    emit({ type: 'activity.activation.started', activation_id: 'activation_2', activity_type_id: 'type_1', started_by: 'user_1' })
+    expect(activities.getActivation(ROOM)?.deadlineAt).toBeNull()
+  })
+
   it('routes a proposal broadcast into the store as counts', () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper

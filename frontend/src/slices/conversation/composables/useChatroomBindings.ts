@@ -111,6 +111,9 @@ export function useChatroomBindings(
   // instruction the teacher can act on, and telling them that when the listing
   // merely failed sends them to create something that already exists.
   const activityTypesFailed = computed(() => typesQuery.isError.value)
+  // Pending also while the project id is unresolved, so the time-limit card
+  // never shows its empty state for a listing that has not been asked for yet.
+  const activityTypesLoading = computed(() => typesQuery.isPending.value)
   const selectedAgentId = ref('')
   const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
@@ -365,6 +368,7 @@ export function useChatroomBindings(
     boundAgentIds,
     activityTypes,
     activityTypesFailed,
+    activityTypesLoading,
     selectedAgentId,
     selectedRole,
     bindingBusy,

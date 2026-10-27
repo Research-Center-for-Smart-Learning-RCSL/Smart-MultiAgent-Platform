@@ -465,6 +465,48 @@
       "observerNote": "這個代理是觀察者：全班看不到它發言，但開始或結束一輪活動是全班都看得見的動作。",
       "typesLoadFailed": "無法載入這個專案的活動類型，所以沒有可以勾選的項目。請重新整理；若持續失敗，可能是你沒有列出活動類型的權限。"
     },
+    "classStart": {
+      "title": "開始上課",
+      "description": "讓聊天室的教師代理在學生人數足夠，或第一位學生已等待夠久時，自行開始上課。",
+      "enabled": "自動開始上課",
+      "minParticipants": "最少學生人數",
+      "maxWait": "第一位學生到場後最長等待時間（分鐘）",
+      "invalid": "最少學生人數須為 1 到 100 的整數，最長等待時間須為 1 到 60 分鐘。",
+      "save": "儲存",
+      "saved": "已儲存開始上課設定。",
+      "saveFailed": "無法儲存開始上課設定，請再試一次。",
+      "loadFailed": "無法載入開始上課設定。",
+      "retry": "重試",
+      "reset": "重設以進行下一堂課",
+      "resetTitle": "要重設開始上課狀態嗎？",
+      "resetMessage": "聊天室會重新等待學生，條件達成時教師代理會開始下一堂課。",
+      "resetDone": "已可進行下一堂課。",
+      "state": {
+        "unconfigured": "尚未設定。",
+        "off": "自動開始上課已關閉。",
+        "idle": "尚未開始，正在等待第一位學生。",
+        "waiting": "尚未開始，自第一位學生於 {since} 到場後等待中。",
+        "started": "已於 {at} 開始。"
+      }
+    },
+    "timeLimits": {
+      "title": "活動時間限制",
+      "description": "每個活動在此聊天室進行的時間。變更只會套用到下一回合，不會影響進行中的回合。",
+      "useDefaultMinutes": "使用類型預設（{n} 分鐘）",
+      "useDefaultNone": "使用類型預設（不限時）",
+      "noLimit": "不限時",
+      "custom": "自訂",
+      "modeLabel": "{name} 的時間限制",
+      "minutesLabel": "{name} 的分鐘數",
+      "invalid": "自訂時間須為 1 到 180 的整數分鐘。",
+      "save": "儲存時間限制",
+      "saved": "已儲存時間限制。",
+      "saveFailed": "無法儲存時間限制，請再試一次。",
+      "loadFailed": "無法載入時間限制。",
+      "retry": "重試",
+      "typesLoadFailed": "無法載入這個專案的活動類型，所以沒有可以設定時間的項目。請重新整理後再試一次。",
+      "noTypes": "這個專案還沒有活動類型。"
+    },
     "roomWakeup": {
       "title": "本討論室的喚醒設定",
       "description": "這些設定只套用在這間討論室，不會改動代理的預設值或其他討論室。",

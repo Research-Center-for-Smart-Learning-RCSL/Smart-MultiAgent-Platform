@@ -192,7 +192,14 @@
       "createFailed": "Could not create the activity type. Please try again.",
       "updateFailed": "Could not update the activity type. Please try again.",
       "lockedByPolicy": "Set by the platform policy and cannot be changed here.",
-      "retentionCapped": "How long submissions are kept. The platform policy caps this at {max} days. Leave blank for no limit."
+      "retentionCapped": "How long submissions are kept. The platform policy caps this at {max} days. Leave blank for no limit.",
+      "defaultTimeLimit": "Default time limit (minutes)",
+      "defaultTimeLimitHelp": "How long a round of this activity runs when the room sets no limit of its own. Leave blank for no default limit.",
+      "defaultTimeLimitInvalid": "Enter a whole number of minutes from 1 to 180, or leave it blank."
+    },
+    "countdown": {
+      "minutesLeft": "{n} min left",
+      "timeUp": "Time is up"
     },
     "schemaBuilder": {
       "intro": "Add each field a participant submits. Give it a name and type, and mark whether it is required.",

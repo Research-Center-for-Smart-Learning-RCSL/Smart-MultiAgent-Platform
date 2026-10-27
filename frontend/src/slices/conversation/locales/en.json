@@ -465,6 +465,48 @@
       "observerNote": "This agent is an observer: the class never sees it speak, but starting or ending a round is something the whole class sees.",
       "typesLoadFailed": "Could not load this project's activity types, so there is nothing to pick from. Reload the page; if it keeps failing, you may not have permission to list them."
     },
+    "classStart": {
+      "title": "Class start",
+      "description": "Let the room's teacher agents open the class on their own once enough students are present, or once the first student has waited long enough.",
+      "enabled": "Start the class automatically",
+      "minParticipants": "Minimum students",
+      "maxWait": "Maximum wait after the first arrival (minutes)",
+      "invalid": "Minimum students must be a whole number from 1 to 100, and the maximum wait from 1 to 60 minutes.",
+      "save": "Save",
+      "saved": "Class start settings saved.",
+      "saveFailed": "Could not save the class start settings. Please try again.",
+      "loadFailed": "Could not load the class start settings.",
+      "retry": "Retry",
+      "reset": "Reset for another class",
+      "resetTitle": "Reset the class start?",
+      "resetMessage": "The room will wait for students again and the teacher agents will open the next class when the conditions are met.",
+      "resetDone": "Ready for another class.",
+      "state": {
+        "unconfigured": "Not set up yet.",
+        "off": "Automatic start is off.",
+        "idle": "Not started. Waiting for the first student.",
+        "waiting": "Not started. Waiting since the first arrival at {since}.",
+        "started": "Started at {at}."
+      }
+    },
+    "timeLimits": {
+      "title": "Activity time limits",
+      "description": "How long each activity runs in this room. A change applies to the next round, never to one already running.",
+      "useDefaultMinutes": "Use type default ({n} min)",
+      "useDefaultNone": "Use type default (no limit)",
+      "noLimit": "No limit",
+      "custom": "Custom",
+      "modeLabel": "Time limit for {name}",
+      "minutesLabel": "Minutes for {name}",
+      "invalid": "A custom limit must be a whole number from 1 to 180 minutes.",
+      "save": "Save time limits",
+      "saved": "Time limits saved.",
+      "saveFailed": "Could not save the time limits. Please try again.",
+      "loadFailed": "Could not load the time limits.",
+      "retry": "Retry",
+      "typesLoadFailed": "Could not load this project's activity types, so there is nothing to set a limit for. Reload the page to try again.",
+      "noTypes": "This project has no activity types yet."
+    },
     "roomWakeup": {
       "title": "Wake-up in this room",
       "description": "These settings apply to this room only. The agent's own defaults and its other rooms are not changed.",

@@ -698,6 +698,7 @@ export function useChatroomSocket(
             // agent so the class can see who paced it.
             startedByAgentId: (ev.started_by_agent_id as string | undefined) ?? null,
             startedByAgentName: (ev.started_by_agent_name as string | undefined) ?? null,
+            deadlineAt: (ev.deadline_at as string | undefined) ?? null,
           })
         }
         break

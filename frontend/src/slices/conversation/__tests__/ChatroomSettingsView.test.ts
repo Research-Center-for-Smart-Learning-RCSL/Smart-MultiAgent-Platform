@@ -860,6 +860,65 @@ describe('ChatroomSettingsView', () => {
       expect(wrapper.text()).not.toContain('conversation.activityControl.noTypes')
       expect(wrapper.text()).not.toContain('conversation.settings.bindingsLoadFailed')
     })
+
+    it('shows the creator the class start and time limit cards fed by the same type listing', async () => {
+      const typeReads = serveGrantedBinding(() =>
+        HttpResponse.json([{ id: 'at_1', name: 'Quiz Type', default_time_limit_minutes: 5 }]),
+      )
+      server.use(
+        http.get('/api/chatrooms/:chatroomId/class-start', () =>
+          HttpResponse.json({
+            configured: false,
+            enabled: false,
+            min_participants: null,
+            max_wait_minutes: null,
+            first_arrival_at: null,
+            started_at: null,
+          }),
+        ),
+        http.get('/api/chatrooms/:chatroomId/activity-time-limits', () => HttpResponse.json({ limits: [] })),
+      )
+      const wrapper = await render()
+      expect(wrapper.find('[data-testid="class-start-card"]').exists()).toBe(false)
+
+      settleCreator()
+      await flushPromises()
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="class-start-card"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="time-limit-at_1"]').exists()).toBe(true)
+      expect(typeReads()).toBe(1)
+    })
+  })
+
+  it('never shows a non-creator the class start or time limit cards', async () => {
+    const reads: string[] = []
+    const room = makeChatroom({ created_by_user_id: 'other' } as Partial<Chatroom>)
+    server.use(
+      http.get('/api/chatrooms/:id', () => HttpResponse.json(room)),
+      http.get('/api/projects/:projectId/agents', () => HttpResponse.json([])),
+      http.get('/api/chatrooms/:chatroomId/agents', () => HttpResponse.json([])),
+      http.get('/api/chatrooms/:chatroomId/class-start', () => {
+        reads.push('class-start')
+        return HttpResponse.json({})
+      }),
+      http.get('/api/chatrooms/:chatroomId/activity-time-limits', () => {
+        reads.push('activity-time-limits')
+        return HttpResponse.json({ limits: [] })
+      }),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([room]),
+    })
+    useSessionStore().me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="class-start-card"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="time-limits-card"]').exists()).toBe(false)
+    expect(reads).toEqual([])
   })
 
   it('shows a moderator the room wake-up panel and the dead-letter viewer', async () => {

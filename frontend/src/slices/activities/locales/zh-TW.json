@@ -192,7 +192,14 @@
       "createFailed": "無法建立活動類型，請再試一次。",
       "updateFailed": "無法更新活動類型，請再試一次。",
       "lockedByPolicy": "由平台政策設定，此處無法變更。",
-      "retentionCapped": "提交紀錄的保留時間。平台政策上限為 {max} 天。留空表示不設限。"
+      "retentionCapped": "提交紀錄的保留時間。平台政策上限為 {max} 天。留空表示不設限。",
+      "defaultTimeLimit": "預設時間限制（分鐘）",
+      "defaultTimeLimitHelp": "聊天室未自行設定時，此活動每一回合進行的時間。留空表示沒有預設限制。",
+      "defaultTimeLimitInvalid": "請輸入 1 到 180 之間的整數分鐘數，或留空。"
+    },
+    "countdown": {
+      "minutesLeft": "剩餘 {n} 分鐘",
+      "timeUp": "時間到"
     },
     "schemaBuilder": {
       "intro": "新增參與者要提交的每個欄位。給定名稱與型別，並標記是否必填。",

@@ -48,6 +48,8 @@ import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
 import AgentBubbleColorPicker from '../components/AgentBubbleColorPicker.vue'
 import RoomWakeupPanel from '../components/RoomWakeupPanel.vue'
+import ClassStartCard from '../components/ClassStartCard.vue'
+import ActivityTimeLimitsCard from '../components/ActivityTimeLimitsCard.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -124,6 +126,7 @@ const {
   orphanAgentIds,
   activityTypes,
   activityTypesFailed,
+  activityTypesLoading,
   loadBindings,
   onAddAgent,
   onRemoveAgent,
@@ -135,7 +138,7 @@ const {
   onSetBubbleColor,
 } = useChatroomBindings(chatroomId, () => room.value, {
   projectId: () => projectId.value,
-  // The types feed only the creator's activity-control picker.
+  // The types feed only the creator's activity-control picker and time limits.
   needsActivityTypes: () => isCreator.value,
 })
 
@@ -900,6 +903,18 @@ watchEffect(() => {
             </div>
           </div>
         </SCard>
+
+        <!-- Autonomous class pacing: creator-only, like the activity grant it
+             works with; the server refuses everyone else. -->
+        <template v-if="isCreator">
+          <ClassStartCard :chatroom-id="chatroomId" />
+          <ActivityTimeLimitsCard
+            :chatroom-id="chatroomId"
+            :activity-types="activityTypes"
+            :activity-types-failed="activityTypesFailed"
+            :activity-types-loading="activityTypesLoading"
+          />
+        </template>
 
         <!-- Concept Map (chatroom-owned; access inherited from the room) -->
         <template v-if="projectId && hasProjectRole">

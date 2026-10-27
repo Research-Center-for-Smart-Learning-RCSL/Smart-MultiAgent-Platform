@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ActivityTimeLimitsBody } from '../models/ActivityTimeLimitsBody';
 import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
 import type { AgentAppearanceIn } from '../models/AgentAppearanceIn';
 import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
@@ -17,6 +18,8 @@ import type { ChatroomMemberGroupsOut } from '../models/ChatroomMemberGroupsOut'
 import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
 import type { ChatroomPatchIn } from '../models/ChatroomPatchIn';
+import type { ClassStartOut } from '../models/ClassStartOut';
+import type { ClassStartPatchIn } from '../models/ClassStartPatchIn';
 import type { GuestBanOut } from '../models/GuestBanOut';
 import type { GuestLinkOut } from '../models/GuestLinkOut';
 import type { GuestRemoveIn } from '../models/GuestRemoveIn';
@@ -92,6 +95,56 @@ export class ChatroomsService {
             },
             headers: {
                 'If-Match': ifMatch,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Activity Time Limits
+     * @returns ActivityTimeLimitsBody Successful Response
+     * @throws ApiError
+     */
+    public static getActivityTimeLimitsApiChatroomsChatroomIdActivityTimeLimitsGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<ActivityTimeLimitsBody> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-time-limits',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Put Activity Time Limits
+     * Replace the overrides. A type left out falls back to its default.
+     *
+     * Every type id is resolved for the room's own project first, as the grant
+     * route does, so another tenant's type id is a 422 and never a stored row.
+     * @returns ActivityTimeLimitsBody Successful Response
+     * @throws ApiError
+     */
+    public static putActivityTimeLimitsApiChatroomsChatroomIdActivityTimeLimitsPut({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: ActivityTimeLimitsBody,
+    }): CancelablePromise<ActivityTimeLimitsBody> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/chatrooms/{chatroom_id}/activity-time-limits',
+            path: {
+                'chatroom_id': chatroomId,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -534,6 +587,52 @@ export class ChatroomsService {
                 'limit': limit,
                 'offset': offset,
             },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Get Class Start
+     * @returns ClassStartOut Successful Response
+     * @throws ApiError
+     */
+    public static getClassStartApiChatroomsChatroomIdClassStartGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<ClassStartOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/class-start',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Class Start
+     * @returns ClassStartOut Successful Response
+     * @throws ApiError
+     */
+    public static patchClassStartApiChatroomsChatroomIdClassStartPatch({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: ClassStartPatchIn,
+    }): CancelablePromise<ClassStartOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/class-start',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Request Validation Problem`,
             },
