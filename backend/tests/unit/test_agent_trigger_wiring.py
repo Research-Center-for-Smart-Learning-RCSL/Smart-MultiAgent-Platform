@@ -877,6 +877,9 @@ async def test_a_platform_wake_bypasses_autostop_and_carries_its_notice(monkeypa
     assert out == "completed"
     assert rec["run_turn"] == [(aid, rid, trigger, None)]
     assert rec["platform_notice"] == ["N"]
+    # Not an agent-only round: counting it would trip autostop for the agent's
+    # own message and silence wakes in a class run through activities.
+    assert rec["on_agent_message_sent"] == []
 
 
 @pytest.mark.asyncio

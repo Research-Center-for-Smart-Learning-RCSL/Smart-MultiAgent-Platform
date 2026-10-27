@@ -211,7 +211,10 @@ async def wakeup_agent(
         await db.commit()
 
         # Count the round for autostop only when a reply was actually produced.
-        if result.status == "completed":
+        # A platform wake is not an agent-only round: it fires once per class or
+        # round, and counting it would trip autostop for the agent's own message
+        # and silence wakes in a class whose students work through activities.
+        if result.status == "completed" and trigger not in PLATFORM_TRIGGERS:
             await OrchestrationFacade(db).on_agent_message_sent(
                 agent_id=aid, room_id=rid, binding_id=turn_binding
             )
