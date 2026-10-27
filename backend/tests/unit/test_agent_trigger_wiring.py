@@ -405,8 +405,10 @@ def _patch_task_env(
             trigger_message_id=None,
             turn_job_id=None,
             binding_id=None,
+            platform_notice=None,
         ):
             rec["run_turn"].append((agent_id, chatroom_id, trigger, trigger_message_id))
+            rec.setdefault("platform_notice", []).append(platform_notice)
             rec["turn_job_id"].append(turn_job_id)
             rec["turn_binding"].append(binding_id)
             return SimpleNamespace(status=turn_status, reason=None)
@@ -849,3 +851,43 @@ async def test_a_mention_still_runs_when_the_room_paused_its_triggers(monkeypatc
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "mention")
 
     assert out == "completed"
+
+
+def _class_start_agent(autostop_rounds=3):
+    agent = _agent(autostop_rounds)
+    agent.wakeup_config["triggers"]["class_start"] = {"enabled": True}
+    return agent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["class_start", "activity_deadline", "all_submitted"])
+async def test_a_platform_wake_bypasses_autostop_and_carries_its_notice(monkeypatch, trigger) -> None:
+    """Phase 4 AC-2: fired once per class or round, so the runaway-loop cap does not apply."""
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=rid),
+        agent=_class_start_agent(autostop_rounds=3),
+        autostop_count=3,
+        turn_status="completed",
+    )
+
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), trigger, None, str(rec["binding_id"]), "N")
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, trigger, None)]
+    assert rec["platform_notice"] == ["N"]
+
+
+@pytest.mark.asyncio
+async def test_a_class_start_wake_is_skipped_once_the_trigger_is_off(monkeypatch) -> None:
+    rec = _patch_task_env(
+        monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=_agent(), turn_status="completed"
+    )
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), "class_start", None, str(rec["binding_id"]), "N"
+    )
+
+    assert out == "skipped:trigger_off"
+    assert rec["run_turn"] == []

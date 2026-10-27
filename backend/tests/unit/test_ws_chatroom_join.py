@@ -187,3 +187,88 @@ async def test_one_failed_enqueue_does_not_cost_the_other_targets_their_wake(
     await chatroom_mod._notify_presence(uuid.uuid4(), uuid.uuid4())
 
     assert enqueued == [str(second.agent_id)]
+
+
+class _Facade:
+    wake: Any = None
+    fail = False
+
+    def __init__(self, _db: object) -> None:
+        pass
+
+    async def on_class_start_check(self, *, room_id: uuid.UUID, arriving_principal_id: uuid.UUID) -> Any:
+        if _Facade.fail:
+            raise RuntimeError("db down")
+        return _Facade.wake
+
+
+async def test_a_class_start_wake_follows_the_arrival_wakes_with_its_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 4 AC-1: the check runs on the connection and enqueues the claimed wake."""
+    from app.wiring import platform_wakes
+    from contexts.orchestration.interfaces.facade import PlatformWake
+
+    room = uuid.uuid4()
+    teacher = SimpleNamespace(agent_id=uuid.uuid4(), binding_id=uuid.uuid4())
+    _Facade.wake, _Facade.fail = (
+        PlatformWake([teacher], "The class is starting: 3 participants are connected."),
+        False,
+    )
+    platform_jobs: list[tuple[Any, ...]] = []
+
+    async def _evaluate(_db: object, **_k: object) -> list[Any]:
+        return []
+
+    async def _platform_enqueue(*args: Any, **_k: Any) -> None:
+        platform_jobs.append(args)
+
+    class _Db(_Session):
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(chatroom_mod, "async_session", _Db)
+    monkeypatch.setattr(chatroom_mod, "evaluate_presence_change", _evaluate)
+    monkeypatch.setattr(chatroom_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(platform_wakes, "enqueue", _platform_enqueue)
+
+    await chatroom_mod._notify_presence(room, uuid.uuid4())
+
+    assert platform_jobs == [
+        (
+            "wakeup_agent",
+            str(teacher.agent_id),
+            str(room),
+            "class_start",
+            None,
+            str(teacher.binding_id),
+            "The class is starting: 3 participants are connected.",
+        )
+    ]
+
+
+async def test_a_failed_class_start_check_never_costs_the_arrival_wakes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = SimpleNamespace(agent_id=uuid.uuid4(), binding_id=uuid.uuid4())
+    _Facade.wake, _Facade.fail = None, True
+    jobs: list[str] = []
+
+    async def _evaluate(_db: object, **_k: object) -> list[Any]:
+        return [target]
+
+    async def _enqueue(_name: str, agent_id: str, *_a: Any, **_k: Any) -> None:
+        jobs.append(agent_id)
+
+    class _Db(_Session):
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(chatroom_mod, "async_session", _Db)
+    monkeypatch.setattr(chatroom_mod, "evaluate_presence_change", _evaluate)
+    monkeypatch.setattr(chatroom_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(chatroom_mod, "enqueue", _enqueue)
+
+    await chatroom_mod._notify_presence(uuid.uuid4(), uuid.uuid4())
+
+    assert jobs == [str(target.agent_id)]

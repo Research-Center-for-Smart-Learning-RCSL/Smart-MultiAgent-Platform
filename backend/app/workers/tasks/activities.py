@@ -178,6 +178,17 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     if chatroom_id is not None and result_status in ("validated", "error"):
         await _emit_validated(chatroom_id, sid, result_status)
         await dispatch_dashboard_submission_validated(chatroom_id)
+    if chatroom_id is not None and result_status == "validated":
+        # [R15.28]: an invalid verdict counts for no one, so the check finds
+        # nothing new; running it unconditionally keeps one decision point.
+        from app.wiring.platform_wakes import dispatch_all_submitted
+
+        try:
+            async with async_session() as db:
+                await dispatch_all_submitted(db, chatroom_id)
+        except Exception:
+            # The verdict is committed; a lost wake must not fail the job.
+            logger.bind(submission_id=str(sid)).exception("all-submitted dispatch failed")
     await _emit_activity_signal(signal_payload)
     return result_status
 

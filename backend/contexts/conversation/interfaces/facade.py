@@ -36,6 +36,8 @@ from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgentBubbleColor,
     ChatroomAgentRole,
+    ClassStartConfig,
+    ClassStartState,
     DraftReadGrant,
     GuestBan,
     Message,
@@ -55,6 +57,7 @@ from contexts.conversation.infrastructure.repositories import (
     MessageRepository,
     WorkspaceRepository,
 )
+from contexts.conversation.infrastructure.repositories.class_start_repo import ClassStartRepository
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
 
@@ -605,6 +608,27 @@ class ConversationFacade:
             observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
         )
 
+    # Autonomous class start ([R15.27]). Orchestration decides when it fires;
+    # this context stores the setting and owns the once-per-class claim.
+
+    async def class_start_state(self, chatroom_id: uuid.UUID) -> ClassStartState | None:
+        return await ClassStartRepository(self._db).get(chatroom_id)
+
+    async def rooms_awaiting_class_start(self, *, limit: int) -> list[ClassStartState]:
+        return await ClassStartRepository(self._db).awaiting_start(limit=limit)
+
+    async def record_class_first_arrival(self, chatroom_id: uuid.UUID) -> None:
+        await ClassStartRepository(self._db).record_first_arrival(chatroom_id)
+
+    async def claim_class_start(self, chatroom_id: uuid.UUID) -> bool:
+        return await ClassStartRepository(self._db).claim_start(chatroom_id)
+
+    async def write_class_start(
+        self, chatroom_id: uuid.UUID, *, config: ClassStartConfig | None, reset: bool
+    ) -> ClassStartState | None:
+        """Caller owns commit, authorization and the audit event."""
+        return await ClassStartRepository(self._db).write(chatroom_id, config=config, reset=reset)
+
     async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
         return await self._messages.room_has_messages(chatroom_id)
 
@@ -1115,6 +1139,8 @@ __all__ = [
     "BindingWakeupState",
     "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
+    "ClassStartConfig",
+    "ClassStartState",
     "ConversationFacade",
     "DraftReadGrant",
     "Message",

@@ -42,6 +42,7 @@ async def wakeup_agent(
     trigger: str = "every_n_messages",
     trigger_message_id: str | None = None,
     binding_id: str | None = None,
+    platform_notice: str | None = None,
 ) -> str:
     """Fire a wake-up for a single agent in a single room (K.3, link b).
 
@@ -73,7 +74,7 @@ async def wakeup_agent(
     from contexts.agents.application.runtime.turn_engine import TurnEngine
     from contexts.agents.interfaces.facade import AgentsFacade
     from contexts.conversation.infrastructure.repositories import ChatroomRepository
-    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS
+    from contexts.orchestration.domain.models import EXPLICIT_TRIGGERS, PLATFORM_TRIGGERS
     from contexts.orchestration.infrastructure import wakeup_state
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel import audit
@@ -128,6 +129,7 @@ async def wakeup_agent(
                 "every_n_messages": triggers.every_n_messages.enabled,
                 "silence_minutes": triggers.silence_minutes.enabled,
                 "on_join": triggers.on_join.enabled,
+                "class_start": triggers.class_start.enabled,
             }.get(trigger, True)
             if triggers.call_only.enabled or not still_on:
                 logger.bind(agent_id=agent_id, room_id=room_id, trigger=trigger).info(
@@ -137,9 +139,15 @@ async def wakeup_agent(
             # O-3 (R28.12): an observer binding uses its own, higher round cap —
             # autostop resets only on user messages, and the prime observer use
             # case is a room no human is currently speaking in.
-            autostop_limit = triggers.silence_minutes.autostop_limit_for(is_observer=current.is_observer)
+            # [R15.27], [R15.28]: a platform wake fires once per class or round, so
+            # the round cap that stops runaway agent loops does not apply to it.
+            autostop_limit = (
+                None
+                if trigger in PLATFORM_TRIGGERS
+                else triggers.silence_minutes.autostop_limit_for(is_observer=current.is_observer)
+            )
             autostop_count = await wakeup_state.get_autostop_count(aid, rid, current.state.binding_id)
-            if autostop_count >= autostop_limit:
+            if autostop_limit is not None and autostop_count >= autostop_limit:
                 logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                     "wakeup skipped: autostop tripped"
                 )
@@ -177,6 +185,7 @@ async def wakeup_agent(
             trigger_message_id=mid,
             turn_job_id=ctx.get("job_id"),
             binding_id=turn_binding,
+            platform_notice=platform_notice,
         )
 
         # Result-accurate audit slug: `wakeup.fired` is reserved for turns that
@@ -337,7 +346,70 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     logger.bind(event="silence_sweep_done", checked=checked, fired=fired).info(
         f"silence sweep: {fired}/{checked} bound agents woken"
     )
+    platform = await _sweep_platform_wakes()
+    if platform:
+        logger.bind(event="platform_sweep_done", queued=platform).info(
+            f"platform sweep: {platform} wakes queued"
+        )
     return f"fired={fired}"
+
+
+_CLASS_START_SWEEP_LIMIT = 200
+_DEADLINE_SWEEP_LIMIT = 100
+
+
+async def _sweep_platform_wakes() -> int:
+    """The time-based platform wakes: reached deadlines and max-wait class starts.
+
+    Each claim commits before its wakes are enqueued, so a turn never runs on a
+    fact that was rolled back; a failure costs that sweep's wakes, never the
+    silence sweep before it. Returns the number of wakes enqueued.
+    """
+    from app.wiring.platform_wakes import (
+        TRIGGER_ACTIVITY_DEADLINE,
+        TRIGGER_CLASS_START,
+        enqueue_platform_wake,
+        wake_for_activity_event,
+    )
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+    from contexts.conversation.interfaces.facade import ConversationFacade
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    queued = 0
+    try:
+        async with async_session() as db:
+            # [R15.28]
+            events = await ActivitiesFacade(db).claim_due_deadlines(limit=_DEADLINE_SWEEP_LIMIT)
+            await db.commit()
+            for event in events:
+                try:
+                    queued += await wake_for_activity_event(db, event, TRIGGER_ACTIVITY_DEADLINE)
+                except Exception:
+                    await db.rollback()
+                    logger.bind(activation_id=str(event.activation_id)).exception(
+                        "deadline sweep: wake failed after the claim committed"
+                    )
+    except Exception:
+        logger.exception("deadline sweep failed")
+
+    try:
+        async with async_session() as db:
+            # [R15.27]: the max wait opens a class with nobody new arriving.
+            rooms = await ConversationFacade(db).rooms_awaiting_class_start(limit=_CLASS_START_SWEEP_LIMIT)
+            orchestration = OrchestrationFacade(db)
+            for room in rooms:
+                try:
+                    wake = await orchestration.on_class_start_check(room_id=room.chatroom_id)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    logger.bind(room_id=str(room.chatroom_id)).exception("class start sweep: check failed")
+                    continue
+                if wake is not None:
+                    queued += await enqueue_platform_wake(room.chatroom_id, TRIGGER_CLASS_START, wake)
+    except Exception:
+        logger.exception("class start sweep failed")
+    return queued
 
 
 _REFRESH_BATCH = 200

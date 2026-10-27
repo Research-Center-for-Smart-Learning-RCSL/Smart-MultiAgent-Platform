@@ -27,6 +27,7 @@ from contexts.orchestration.domain.models import (
     N_MIN,
     T_MINUTES_MAX,
     T_MINUTES_MIN,
+    ClassStartTrigger,
     CountMode,
     EveryNMessagesTrigger,
     OnJoinTrigger,
@@ -220,6 +221,8 @@ def resolve_room_wakeup(
             every_n_messages=EveryNMessagesTrigger(enabled=every_enabled, n=every_n, count=count),
             silence_minutes=silence_trigger,
             on_join=OnJoinTrigger(enabled=on_join_enabled),
+            # [R15.27]: designer layer only, and never for an observer binding.
+            class_start=ClassStartTrigger(enabled=defaults.triggers.class_start.enabled and not is_observer),
         ),
     )
     return EffectiveWakeup(config=config, sources=sources, ignored_runtime=frozenset(ignored))

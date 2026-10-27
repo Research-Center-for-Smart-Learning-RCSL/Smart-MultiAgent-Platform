@@ -32,7 +32,7 @@ from contexts.orchestration.application.room_wakeup_service import (
     apply_timer_effects,
 )
 from contexts.orchestration.application.subagent_service import SubagentService
-from contexts.orchestration.application.wakeup_service import WakeTarget, WakeupService
+from contexts.orchestration.application.wakeup_service import PlatformWake, WakeTarget, WakeupService
 from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
     N_MAX,
@@ -177,6 +177,16 @@ class OrchestrationFacade:
 
     async def on_participant_joined(self, *, room_id: uuid.UUID, principal_id: uuid.UUID) -> list[WakeTarget]:
         return await self._wakeup.on_participant_joined(room_id=room_id, principal_id=principal_id)
+
+    async def on_class_start_check(
+        self, *, room_id: uuid.UUID, arriving_principal_id: uuid.UUID | None = None
+    ) -> PlatformWake | None:
+        return await self._wakeup.on_class_start_check(
+            room_id=room_id, arriving_principal_id=arriving_principal_id
+        )
+
+    async def granted_targets(self, *, room_id: uuid.UUID, activity_type_id: uuid.UUID) -> list[WakeTarget]:
+        return await self._wakeup.granted_targets(room_id=room_id, activity_type_id=activity_type_id)
 
     async def on_agent_message_sent(
         self,
@@ -479,6 +489,7 @@ __all__ = [
     "ON_JOIN_COALESCE_SECONDS",
     "T_MINUTES_MAX",
     "OrchestrationFacade",
+    "PlatformWake",
     "ResetScope",
     "RoomWakeup",
     "RoomWakeupChange",

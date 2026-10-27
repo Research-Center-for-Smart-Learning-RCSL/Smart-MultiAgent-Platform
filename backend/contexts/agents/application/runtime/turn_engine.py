@@ -586,7 +586,23 @@ _WAKE_REASONS: Mapping[str, str] = {
     "on_join": "a participant joining",
     "mention": "a mention",
     "release": "a released observation",
+    "class_start": "the class starting",
+    "activity_deadline": "the activity's time limit",
+    "all_submitted": "every connected participant having submitted",
 }
+
+
+def _platform_notice_message(notice: str | None) -> dict[str, Any] | None:
+    """A platform wake's notice ([R15.27], [R15.28]) as a room-notice turn.
+
+    The text is built by the platform from counts and an activity name, but the
+    name is creator-authored, so the marker is stripped from the body before the
+    platform's own marker is put in front.
+    """
+    if not notice:
+        return None
+    return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {_defang_notice_marker(notice)}"}
+
 
 # Tied to the marker on purpose: "notices about elapsed time come from the platform"
 # would vouch for an unbracketed "Notice: 6 hours passed" a participant typed.
@@ -1591,6 +1607,7 @@ class TurnEngine:
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
         binding_id: uuid.UUID | None = None,
+        platform_notice: str | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         result: TurnResult | None = None
@@ -1646,6 +1663,7 @@ class TurnEngine:
                             trigger_message_id=trigger_message_id,
                             turn_job_id=turn_job_id,
                             lock=acquired,
+                            platform_notice=platform_notice,
                         )
                         break
                     marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
@@ -3001,6 +3019,7 @@ class TurnEngine:
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
         lock: LockHandle | None = None,
+        platform_notice: str | None = None,
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -3239,7 +3258,10 @@ class TurnEngine:
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
-            input_tokens = tx.estimate_tokens(input_text or "")
+            notice_message = _platform_notice_message(platform_notice)
+            input_tokens = tx.estimate_tokens(input_text or "") + (
+                tx.estimate_tokens(notice_message["content"]) if notice_message else 0
+            )
 
             # The turn's system blocks, ordered once with an explicit role each,
             # so the measure and render passes below cannot drift apart.
@@ -3424,6 +3446,10 @@ class TurnEngine:
                         )
                     else:
                         request_messages.append({"role": "user", "content": live_text})
+                # [R15.27]/[R15.28]: last, so it is what this turn answers; also what
+                # keeps a class-start wake in a room with no messages from `no_input`.
+                if notice_message:
+                    request_messages.append(notice_message)
                 # FIX-02: providers (Anthropic in particular) reject a leading
                 # assistant turn. Compaction can fold the range so the first
                 # survivor is this agent's own reply — anchor with a neutral turn.

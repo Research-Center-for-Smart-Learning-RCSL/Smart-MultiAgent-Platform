@@ -42,6 +42,7 @@ def submission() -> SimpleNamespace:
         id=uuid.uuid4(),
         activity_type_id=uuid.uuid4(),
         validation_status=SimpleNamespace(value="validated"),
+        is_valid=True,
     )
 
 
@@ -58,6 +59,7 @@ def _silence_the_other_concerns(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(activities_api, "Publisher", _Publisher)
     monkeypatch.setattr(activities_api, "room_channel", lambda _r: "room")
     monkeypatch.setattr(activities_api, "dispatch_room_activation_progress", AsyncMock())
+    monkeypatch.setattr(activities_api, "dispatch_all_submitted", AsyncMock())
 
 
 class TestSubmissionReArmsTheSilenceClock:
