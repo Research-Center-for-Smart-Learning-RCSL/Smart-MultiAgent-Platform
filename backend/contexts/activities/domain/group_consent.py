@@ -14,7 +14,10 @@ numerator and denominator as authored.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from contexts.activities.domain.models import ActivityType
 
 #: Upper bound on the denominator. A fraction finer than hundredths cannot change
 #: the required count for any group a room can hold, so the only thing a larger
@@ -74,6 +77,24 @@ def parse_group_config(raw: Any) -> tuple[int, int] | None:
     return int(consent[_NUMERATOR_KEY]), int(consent[_DENOMINATOR_KEY])
 
 
+def is_individual_only(raw: Any) -> bool:
+    """Whether a stored ``group_config`` is known to mean "individual only".
+
+    A malformed config is not known to be individual, so it answers ``False``:
+    callers use this to make per-person completion claims and must claim nothing
+    when unsure.
+    """
+    try:
+        return parse_group_config(raw) is None
+    except ValueError:
+        return False
+
+
+def is_individual_type(activity_type: ActivityType | None) -> bool:
+    """:func:`is_individual_only` for a type that may be gone; a missing type is not individual."""
+    return activity_type is not None and is_individual_only(activity_type.group_config)
+
+
 def _require_int(value: Any, label: str) -> int:
     """One consent field as an ``int``, or a ``ValueError`` naming it.
 
@@ -115,6 +136,7 @@ def validate_group_config(raw: Any) -> None:
 
 __all__ = [
     "MAX_DENOMINATOR",
+    "is_individual_only",
     "is_unreachable",
     "parse_group_config",
     "required_approvals",

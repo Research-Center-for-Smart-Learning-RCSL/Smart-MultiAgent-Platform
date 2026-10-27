@@ -85,6 +85,11 @@ export const activityTypeCreateSchema = z
       emptyToNull,
       z.number().int().min(1).nullable().default(null),
     ),
+    // Blank means the type carries no default limit; the backend bounds are 1..180.
+    default_time_limit_minutes: z.preprocess(
+      emptyToNull,
+      z.number().int().min(1).max(180).nullable().default(null),
+    ),
     expose_payload_to_agent: z.boolean().default(true),
     echo_includes_content: z.boolean().default(false),
     payload_schema: payloadSchema,

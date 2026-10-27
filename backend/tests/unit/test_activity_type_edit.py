@@ -304,6 +304,28 @@ class TestUpdateService:
         assert kwargs["echo_includes_content"] is True
         svc._activation_repo.list_active_for_type.assert_not_awaited()
 
+    async def test_the_default_time_limit_is_safe_metadata(self) -> None:
+        """Phase 4 AC-3: editable while a round runs, and no version bump."""
+        existing = _make_type()
+        svc = _wire_service(existing, active=[_active(existing.id)])
+
+        await _update(svc, existing, default_time_limit_minutes=7)
+
+        kwargs = svc._repo.update.await_args.kwargs
+        assert kwargs["bump_version"] is False
+        assert kwargs["default_time_limit_minutes"] == 7
+        svc._activation_repo.list_active_for_type.assert_not_awaited()
+
+    async def test_an_edit_that_omits_the_default_keeps_it(self) -> None:
+        from contexts.activities.domain.models import Keep
+
+        existing = _make_type()
+        svc = _wire_service(existing)
+
+        await _update(svc, existing, name="renamed")
+
+        assert svc._repo.update.await_args.kwargs["default_time_limit_minutes"] is Keep.KEEP
+
     async def test_behavioral_edit_bumps_version(self) -> None:
         """AC-6: a payload_schema change bumps version and re-runs validation."""
         existing = _make_type()

@@ -76,6 +76,17 @@
             ],
             "title": "Created At"
           },
+          "deadline_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline At"
+          },
           "ended_at": {
             "anyOf": [
               {
@@ -123,6 +134,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "time_limit_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Limit Minutes"
           }
         },
         "required": [
@@ -869,8 +891,66 @@
         "title": "ActivitySubmissionsPageOut",
         "type": "object"
       },
+      "ActivityTimeLimitItem": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "time_limit_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Limit Minutes"
+          }
+        },
+        "required": [
+          "activity_type_id",
+          "time_limit_minutes"
+        ],
+        "title": "ActivityTimeLimitItem",
+        "type": "object"
+      },
+      "ActivityTimeLimitsBody": {
+        "properties": {
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityTimeLimitItem"
+            },
+            "maxItems": 200,
+            "title": "Limits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "limits"
+        ],
+        "title": "ActivityTimeLimitsBody",
+        "type": "object"
+      },
       "ActivityTypeIn": {
         "properties": {
+          "default_time_limit_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Time Limit Minutes"
+          },
           "echo_includes_content": {
             "default": false,
             "title": "Echo Includes Content",
@@ -978,6 +1058,17 @@
               }
             ],
             "title": "Created At"
+          },
+          "default_time_limit_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Time Limit Minutes"
           },
           "echo_includes_content": {
             "title": "Echo Includes Content",
@@ -1126,6 +1217,17 @@
             ],
             "title": "Created At"
           },
+          "default_time_limit_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Time Limit Minutes"
+          },
           "echo_includes_content": {
             "title": "Echo Includes Content",
             "type": "boolean"
@@ -1233,6 +1335,19 @@
       "ActivityTypeUpdateIn": {
         "description": "Full editable representation for an edit; ``key`` is intentionally absent\n(never editable, R30.23). The edit form pre-fills and resubmits every field,\nso the service diffs this against the stored row to decide the version bump.",
         "properties": {
+          "default_time_limit_minutes": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Time Limit Minutes"
+          },
           "echo_includes_content": {
             "default": false,
             "title": "Echo Includes Content",
@@ -5759,6 +5874,123 @@
         ],
         "title": "ChunkStrategy",
         "type": "string"
+      },
+      "ClassStartOut": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "first_arrival_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Arrival At"
+          },
+          "max_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Wait Minutes"
+          },
+          "min_participants": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Participants"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "configured",
+          "enabled",
+          "min_participants",
+          "max_wait_minutes",
+          "first_arrival_at",
+          "started_at"
+        ],
+        "title": "ClassStartOut",
+        "type": "object"
+      },
+      "ClassStartPatchIn": {
+        "description": "Omitted fields keep their stored value; a room with no setting needs all three.",
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "max_wait_minutes": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Wait Minutes"
+          },
+          "min_participants": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Participants"
+          },
+          "reset": {
+            "default": false,
+            "title": "Reset",
+            "type": "boolean"
+          }
+        },
+        "title": "ClassStartPatchIn",
+        "type": "object"
       },
       "CommentIn": {
         "properties": {
@@ -21324,6 +21556,101 @@
         ]
       }
     },
+    "/api/chatrooms/{chatroom_id}/activity-time-limits": {
+      "get": {
+        "operationId": "get_activity_time_limits_api_chatrooms__chatroom_id__activity_time_limits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTimeLimitsBody"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Activity Time Limits",
+        "tags": [
+          "chatrooms"
+        ]
+      },
+      "put": {
+        "description": "Replace the overrides. A type left out falls back to its default.\n\nEvery type id is resolved for the room's own project first, as the grant\nroute does, so another tenant's type id is a 422 and never a stored row.",
+        "operationId": "put_activity_time_limits_api_chatrooms__chatroom_id__activity_time_limits_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityTimeLimitsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTimeLimitsBody"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Put Activity Time Limits",
+        "tags": [
+          "chatrooms"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}/activity-types/{type_id}": {
       "get": {
         "description": "Room-scoped rendering-contract read (R30.26, Q-1): the recovery path\nwhen the activation-started broadcast was missed, the store was reset, or\na future flow needs a type that is not the currently active one. Gated by\nthe room-access chain, not project membership, so a chatroom guest is a\nfull activity participant.",
@@ -23448,6 +23775,100 @@
         "summary": "Restore Snapshot",
         "tags": [
           "canvas"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/class-start": {
+      "get": {
+        "operationId": "get_class_start_api_chatrooms__chatroom_id__class_start_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Class Start",
+        "tags": [
+          "chatrooms"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_class_start_api_chatrooms__chatroom_id__class_start_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassStartPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Patch Class Start",
+        "tags": [
+          "chatrooms"
         ]
       }
     },

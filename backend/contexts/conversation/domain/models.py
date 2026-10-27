@@ -307,7 +307,79 @@ class GuestBan:
     created_at: datetime
 
 
+CLASS_START_MIN_PARTICIPANTS_RANGE = (1, 100)
+CLASS_START_MAX_WAIT_MINUTES_RANGE = (1, 60)
+
+
+def _bounded(value: Any, bounds: tuple[int, int]) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if bounds[0] <= value <= bounds[1] else None
+
+
+@dataclass(frozen=True, slots=True)
+class ClassStartConfig:
+    """When a room's class opens without its creator ([R15.27])."""
+
+    enabled: bool
+    min_participants: int
+    max_wait_minutes: int
+
+    @classmethod
+    def from_stored(cls, raw: Any) -> ClassStartConfig | None:
+        """Tolerant parse: a malformed stored value is "off", never a guessed threshold."""
+        if not isinstance(raw, dict) or not isinstance(raw.get("enabled"), bool):
+            return None
+        minimum = _bounded(raw.get("min_participants"), CLASS_START_MIN_PARTICIPANTS_RANGE)
+        wait = _bounded(raw.get("max_wait_minutes"), CLASS_START_MAX_WAIT_MINUTES_RANGE)
+        if minimum is None or wait is None:
+            return None
+        return cls(enabled=raw["enabled"], min_participants=minimum, max_wait_minutes=wait)
+
+    def to_stored(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "min_participants": self.min_participants,
+            "max_wait_minutes": self.max_wait_minutes,
+        }
+
+    @classmethod
+    def patched(
+        cls,
+        base: ClassStartConfig | None,
+        *,
+        enabled: bool | None,
+        min_participants: int | None,
+        max_wait_minutes: int | None,
+    ) -> ClassStartConfig | None:
+        """``base`` with each given field replaced; ``None`` when a field is still missing,
+        which is only possible for a room never configured."""
+        merged_enabled = enabled if enabled is not None else (base.enabled if base else None)
+        minimum = (
+            min_participants if min_participants is not None else (base.min_participants if base else None)
+        )
+        wait = max_wait_minutes if max_wait_minutes is not None else (base.max_wait_minutes if base else None)
+        if merged_enabled is None or minimum is None or wait is None:
+            return None
+        return cls(enabled=merged_enabled, min_participants=minimum, max_wait_minutes=wait)
+
+
+@dataclass(frozen=True, slots=True)
+class ClassStartState:
+    chatroom_id: uuid.UUID
+    config: ClassStartConfig | None
+    first_arrival_at: datetime | None
+    started_at: datetime | None
+
+    @property
+    def armed(self) -> bool:
+        """Configured, switched on, and not yet started in this class."""
+        return self.config is not None and self.config.enabled and self.started_at is None
+
+
 __all__ = [
+    "CLASS_START_MAX_WAIT_MINUTES_RANGE",
+    "CLASS_START_MIN_PARTICIPANTS_RANGE",
     "ActivityControlGrant",
     "AgentObservation",
     "AttachmentExtractionStatus",
@@ -318,6 +390,8 @@ __all__ = [
     "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
     "ChatroomGuest",
+    "ClassStartConfig",
+    "ClassStartState",
     "DraftReadGrant",
     "GuestBan",
     "GuestSession",

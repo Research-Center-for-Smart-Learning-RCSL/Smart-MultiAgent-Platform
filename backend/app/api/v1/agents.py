@@ -216,6 +216,14 @@ def _validate_wakeup_config(value: dict[str, Any] | None) -> dict[str, Any] | No
                 raise ValueError("wakeup_config.triggers.on_join accepts only enabled")
             if "enabled" in oj:
                 _check_wakeup_bool(oj["enabled"], field="wakeup_config.triggers.on_join.enabled")
+        if triggers.get("class_start") is not None:
+            cs = triggers["class_start"]
+            _check_wakeup_container(cs, field="wakeup_config.triggers.class_start")
+            # [R15.27]: the room holds the thresholds; the designer only opts in.
+            if set(cs) - {"enabled"}:
+                raise ValueError("wakeup_config.triggers.class_start accepts only enabled")
+            if "enabled" in cs:
+                _check_wakeup_bool(cs["enabled"], field="wakeup_config.triggers.class_start.enabled")
     if "refresh_every_hours" in value:
         _check_wakeup_int(
             value["refresh_every_hours"],

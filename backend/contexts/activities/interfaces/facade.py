@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from contexts.activities.application.example_service import (
 )
 from contexts.activities.application.group_proposal_service import GroupProposalService
 from contexts.activities.application.observation_aggregates import ObservationAggregateService
+from contexts.activities.application.platform_events import PlatformActivityEvents
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
@@ -36,7 +37,9 @@ from contexts.activities.domain.errors import (
     ActivityTypeViolatesPolicy,
     PlatformActivityTypeReadOnly,
 )
+from contexts.activities.domain.group_consent import is_individual_type
 from contexts.activities.domain.models import (
+    TIME_LIMIT_MINUTES_RANGE,
     ActivationNotice,
     ActivationStatus,
     ActivityActivation,
@@ -56,8 +59,10 @@ from contexts.activities.domain.models import (
     GroupProposalTally,
     GroupRoundView,
     GroupSubmissionState,
+    Keep,
     MandalaGrid,
     MemberGroupRef,
+    PlatformActivityEvent,
     PolicyImpact,
     ProposalStateRow,
     ProposalStatus,
@@ -80,7 +85,10 @@ from contexts.activities.infrastructure.repositories.optin_repo import (
 from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.submission_repo import ActivitySubmissionRepository
+from contexts.activities.infrastructure.repositories.time_limit_repo import RoomTimeLimitRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
+from shared_kernel import audit
+from shared_kernel.auth.clients import now
 
 # Upper bound on the admin form's "how many types would this break" preview. A
 # platform with more live types than this gets an undercount, which the API
@@ -88,6 +96,7 @@ from contexts.activities.infrastructure.repositories.type_repo import ActivityTy
 _POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
+    "TIME_LIMIT_MINUTES_RANGE",
     "ActivationNotice",
     "ActivationStatus",
     "ActivitiesFacade",
@@ -111,6 +120,7 @@ __all__ = [
     "InstallReport",
     "MandalaGrid",
     "MemberGroupRef",
+    "PlatformActivityEvent",
     "PlatformExample",
     "ProposalStateRow",
     "RecentActivityRow",
@@ -167,6 +177,7 @@ class ActivitiesFacade:
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -184,6 +195,7 @@ class ActivitiesFacade:
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
             group_config=group_config,
+            default_time_limit_minutes=default_time_limit_minutes,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -202,6 +214,7 @@ class ActivitiesFacade:
         expose_payload_to_agent: bool = True,
         echo_includes_content: bool = False,
         group_config: dict[str, Any] | None = None,
+        default_time_limit_minutes: int | Keep | None = Keep.KEEP,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -217,6 +230,7 @@ class ActivitiesFacade:
             expose_payload_to_agent=expose_payload_to_agent,
             echo_includes_content=echo_includes_content,
             group_config=group_config,
+            default_time_limit_minutes=default_time_limit_minutes,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -521,23 +535,75 @@ class ActivitiesFacade:
         proposal counts and submitting groups of that activation. Raises on a
         failed read: the caller must say "unavailable", never "not started".
         """
+        observed_at = now()
         current = (await self._activation_repo.current_for_rooms([chatroom_id])).get(chatroom_id)
         if current is None:
-            return RoomActivityState(activation=None)
+            return RoomActivityState(activation=None, observed_at=observed_at)
         activity_type = await self._type_repo.get(current.activity_type_id)
         if current.status is not ActivationStatus.ACTIVE:
             # An ended activation's proposals and submissions are not rendered.
-            return RoomActivityState(activation=current, activity_type=activity_type)
+            return RoomActivityState(activation=current, activity_type=activity_type, observed_at=observed_at)
         proposals = await GroupProposalRepository(self._db).state_for_activation(
             chatroom_id=chatroom_id, activation_id=current.id
         )
         submitted = await ActivitySubmissionRepository(self._db).submitted_groups(activation_id=current.id)
+        progress = None
+        if is_individual_type(activity_type):
+            progress = await PlatformActivityEvents(self._db).connected_progress(chatroom_id, current)
         return RoomActivityState(
             activation=current,
             activity_type=activity_type,
             open_proposals=tuple(p for p in proposals if p.status is ProposalStatus.OPEN),
             settled_proposals=tuple(p for p in proposals if p.status is not ProposalStatus.OPEN),
             submitted_groups=tuple(submitted),
+            observed_at=observed_at,
+            connected_progress=progress,
+        )
+
+    # -- Platform wake facts ([R15.28], [R30.46]) ---------------------------
+
+    async def claim_due_deadlines(self, *, limit: int = 100) -> list[PlatformActivityEvent]:
+        """Claim and audit every reached deadline; the caller wakes after commit."""
+        return await PlatformActivityEvents(self._db).claim_due_deadlines(limit=limit)
+
+    async def claim_all_submitted(
+        self, *, chatroom_id: uuid.UUID, activation_id: uuid.UUID
+    ) -> PlatformActivityEvent | None:
+        """Claim and audit the round's all-submitted fact, if it now holds."""
+        return await PlatformActivityEvents(self._db).claim_if_complete(
+            chatroom_id=chatroom_id, activation_id=activation_id
+        )
+
+    async def room_time_limits(self, chatroom_id: uuid.UUID) -> dict[uuid.UUID, int | None]:
+        """The room's per-type overrides; a ``None`` value means "no limit"."""
+        return await RoomTimeLimitRepository(self._db).for_room(chatroom_id)
+
+    async def replace_room_time_limits(
+        self,
+        chatroom_id: uuid.UUID,
+        limits: Mapping[uuid.UUID, int | None],
+        *,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Replace the overrides and audit it; caller owns commit, authorization and
+        having resolved every type id for the room's project.
+
+        A running round keeps the limit it snapshotted at start ([R30.46]).
+        """
+        await RoomTimeLimitRepository(self._db).replace(chatroom_id, limits)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.activity_time_limits_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom",
+                resource_id=chatroom_id,
+                metadata={"limits": {str(k): v for k, v in limits.items()}},
+                request_id=request_id,
+            ),
         )
 
     async def delete_type(

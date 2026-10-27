@@ -178,6 +178,12 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     if chatroom_id is not None and result_status in ("validated", "error"):
         await _emit_validated(chatroom_id, sid, result_status)
         await dispatch_dashboard_submission_validated(chatroom_id)
+    if chatroom_id is not None and result_status == "validated":
+        # [R15.28]: an invalid verdict counts for no one, so the check finds
+        # nothing new; running it unconditionally keeps one decision point.
+        from app.wiring.platform_wakes import check_all_submitted
+
+        await check_all_submitted(chatroom_id)
     await _emit_activity_signal(signal_payload)
     return result_status
 

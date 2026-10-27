@@ -20,18 +20,24 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.interfaces.facade import Agent
 from contexts.conversation.infrastructure.presence import PresenceTracker
-from contexts.conversation.interfaces.facade import BindingWakeupState, ConversationFacade
+from contexts.conversation.interfaces.facade import (
+    HEADCOUNT_PRESENCE_LIMIT,
+    BindingWakeupState,
+    ConversationFacade,
+)
 from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
 from contexts.orchestration.domain.models import ON_JOIN_COALESCE_SECONDS
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
+from shared_kernel import audit
+from shared_kernel.auth.clients import now
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,17 @@ class WakeTarget(NamedTuple):
 
     agent_id: uuid.UUID
     binding_id: uuid.UUID
+
+
+class PlatformWake(NamedTuple):
+    """Platform-claimed wakes and the ``[Room notice]`` each turn is given."""
+
+    targets: list[WakeTarget]
+    notice: str
+
+
+def class_start_notice(connected: int) -> str:
+    return f"The class is starting: {connected} participants are connected."
 
 
 class WakeupService:
@@ -362,6 +379,101 @@ class WakeupService:
         return targets
 
     # ------------------------------------------------------------------
+    # Platform wakes: class start ([R15.27]) and activity facts ([R15.28])
+    # ------------------------------------------------------------------
+
+    async def on_class_start_check(
+        self, *, room_id: uuid.UUID, arriving_principal_id: uuid.UUID | None = None
+    ) -> PlatformWake | None:
+        """Open the room's class once, when enough students are connected or the
+        first has waited ``max_wait_minutes``.
+
+        Called on every connection, by the sweep (which opens a class on the max
+        wait with nobody new arriving) and when the room creator changes or
+        resets the setting. Unavailable presence is no signal: a class never
+        opens on a count it could not read. The room creator is never counted
+        and never starts the wait on their own. The wait starts at the first
+        check that sees a student connected, so a class enabled or reset while
+        students are already present still opens on the max wait; a room
+        everyone left stops waiting until the next student arrives.
+        """
+        state = await self._conversation.class_start_state(room_id)
+        if state is None or not state.armed or state.config is None:
+            return None
+        room = await self._conversation.get_chatroom(room_id)
+        if room is None:
+            return None
+        first_arrival = state.first_arrival_at
+        if (
+            first_arrival is None
+            and arriving_principal_id is not None
+            and arriving_principal_id != room.created_by_user_id
+        ):
+            # Before the presence read, so an outage on the arrival still puts
+            # the room in the sweep, which retries the count.
+            await self._conversation.record_class_first_arrival(room_id)
+            first_arrival = now()
+        snapshot = await self._conversation.room_presence_snapshot(room_id, limit=HEADCOUNT_PRESENCE_LIMIT)
+        if not snapshot.available:
+            return None
+        connected = len({u for u in snapshot.user_ids if u != room.created_by_user_id})
+        if connected == 0:
+            if first_arrival is not None:
+                await self._conversation.clear_class_first_arrival(room_id)
+            return None
+        if first_arrival is None:
+            await self._conversation.record_class_first_arrival(room_id)
+            first_arrival = now()
+        config = state.config
+        if connected >= config.min_participants:
+            reason = "min_participants"
+        elif first_arrival is not None and now() - first_arrival >= timedelta(
+            minutes=config.max_wait_minutes
+        ):
+            reason = "max_wait"
+        else:
+            return None
+        if not await self._conversation.claim_class_start(room_id):
+            return None
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="chatroom.class_started",
+                resource_type="chatroom",
+                resource_id=room_id,
+                metadata={"connected": str(connected), "reason": reason},
+            ),
+        )
+        targets: list[WakeTarget] = []
+        for binding in await self._conversation.room_binding_wakeup_states(room_id):
+            current = await self._room_wakeup.for_state(binding)
+            if current is None or current.is_observer:
+                continue
+            triggers = current.effective.config.triggers
+            if triggers.class_start.enabled and not triggers.call_only.enabled:
+                WAKEUP_FIRES.labels(kind="class_start").inc()
+                targets.append(WakeTarget(binding.agent_id, binding.binding_id))
+        return PlatformWake(targets=targets, notice=class_start_notice(connected))
+
+    async def granted_targets(self, *, room_id: uuid.UUID, activity_type_id: uuid.UUID) -> list[WakeTarget]:
+        """The bindings an activity fact wakes: those whose live grant covers its type.
+
+        The grant is the teacher's delegation of this activity to the agent
+        ([R30.37]); an agent the teacher did not trust to end it is not woken to.
+        """
+        targets: list[WakeTarget] = []
+        for binding in await self._conversation.room_binding_wakeup_states(room_id):
+            current = await self._room_wakeup.for_state(binding)
+            if current is None or current.is_observer or current.effective.config.triggers.call_only.enabled:
+                continue
+            grant = await self._conversation.activity_control_grant(
+                chatroom_id=room_id, agent_id=binding.agent_id
+            )
+            if grant is not None and activity_type_id in grant.activity_type_ids:
+                targets.append(WakeTarget(binding.agent_id, binding.binding_id))
+        return targets
+
+    # ------------------------------------------------------------------
     # Agent spoke without user reply → bump autostop
     # ------------------------------------------------------------------
 
@@ -386,4 +498,4 @@ class WakeupService:
         return await wakeup_state.increment_autostop(agent_id, room_id, binding_id)
 
 
-__all__ = ["WakeTarget", "WakeupService"]
+__all__ = ["PlatformWake", "WakeTarget", "WakeupService", "class_start_notice"]

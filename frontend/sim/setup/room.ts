@@ -96,6 +96,8 @@ export async function setupRoom(
         })
       }
     }
+    // Before any participant connects, so the first student arrival is the class's first arrival.
+    await configureClassFlow(facilitator, roomId, scenario, types)
     opts.log.event('room.created', { roomId, agents: room.agents.map((a) => a.name) })
   } else {
     const id = opts.roomOverride ?? (room.mode === 'existing' ? room.id : undefined)
@@ -113,6 +115,63 @@ export async function setupRoom(
     guestPath = `/g/${link.chatroom_id}/${link.guest_token}`
   }
   return { roomId, created, guestPath, agentIds, activityTypes: types }
+}
+
+interface ClassStartOut {
+  configured: boolean
+  enabled: boolean
+  min_participants: number | null
+  max_wait_minutes: number | null
+  started_at: string | null
+}
+
+interface TimeLimitsBody {
+  limits: Array<{ activity_type_id: string; time_limit_minutes: number | null }>
+}
+
+function timeLimitsBody(scenario: Scenario, types: ActivityTypeRef[]): TimeLimitsBody {
+  return {
+    limits: Object.entries(scenario.room.timeLimits).map(([key, minutes]) => ({
+      activity_type_id: resolveType(types, key).id,
+      time_limit_minutes: minutes,
+    })),
+  }
+}
+
+async function configureClassFlow(facilitator: ApiClient, roomId: string, scenario: Scenario, types: ActivityTypeRef[]): Promise<void> {
+  const cs = scenario.room.classStart
+  if (cs) {
+    await facilitator.patch(`/api/chatrooms/${roomId}/class-start`, {
+      enabled: true,
+      min_participants: cs.minParticipants,
+      max_wait_minutes: cs.maxWaitMinutes,
+    })
+  }
+  if (Object.keys(scenario.room.timeLimits).length > 0) {
+    await facilitator.put(`/api/chatrooms/${roomId}/activity-time-limits`, timeLimitsBody(scenario, types))
+  }
+}
+
+async function classFlowProblems(facilitator: ApiClient, roomId: string, scenario: Scenario, types: ActivityTypeRef[]): Promise<string[]> {
+  const problems: string[] = []
+  const cs = scenario.room.classStart
+  if (cs) {
+    const got = await facilitator.get<ClassStartOut>(`/api/chatrooms/${roomId}/class-start`)
+    if (!got.enabled || got.min_participants !== cs.minParticipants || got.max_wait_minutes !== cs.maxWaitMinutes) {
+      problems.push(`class start is not on with ${cs.minParticipants} students and ${cs.maxWaitMinutes} minutes`)
+    }
+    // An already started class never fires again until the creator resets it.
+    if (got.started_at) problems.push('the class has already started; reset it in the room settings')
+  }
+  const want = timeLimitsBody(scenario, types).limits
+  if (want.length > 0) {
+    const got = await facilitator.get<TimeLimitsBody>(`/api/chatrooms/${roomId}/activity-time-limits`)
+    for (const w of want) {
+      const hit = got.limits.find((l) => l.activity_type_id === w.activity_type_id)
+      if (!hit || hit.time_limit_minutes !== w.time_limit_minutes) problems.push(`the time limit for ${w.activity_type_id} is not ${w.time_limit_minutes ?? 'none'}`)
+    }
+  }
+  return problems
 }
 
 /** Collects every way an existing room falls short of the scenario, then fails once with all of them. */
@@ -147,5 +206,6 @@ export async function verifyRoom(
     const bg = await facilitator.get<{ member_group_ids: string[] }>(`/api/chatrooms/${roomId}/member-groups`)
     if (!bg.member_group_ids.includes(groupId)) problems.push('the scenario member group is not bound to the room')
   }
+  problems.push(...(await classFlowProblems(facilitator, roomId, scenario, types)))
   if (problems.length > 0) throw new Error(`room ${roomId} does not match the scenario: ${problems.join('; ')}`)
 }

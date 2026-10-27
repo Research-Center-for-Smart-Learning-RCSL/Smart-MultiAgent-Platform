@@ -10,6 +10,7 @@ from datetime import timedelta
 from fastapi import APIRouter, WebSocket
 
 from app.api.ws.room_access import room_read_outcome
+from app.wiring.platform_wakes import TRIGGER_CLASS_START, check_all_submitted, enqueue_platform_wake
 from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
@@ -24,7 +25,7 @@ from contexts.conversation.interfaces import (
     room_channel,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
-from contexts.orchestration.interfaces.facade import ON_JOIN_COALESCE_SECONDS
+from contexts.orchestration.interfaces.facade import ON_JOIN_COALESCE_SECONDS, OrchestrationFacade
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import async_session, get_sessionmaker
 from shared_kernel.queue import enqueue
@@ -53,15 +54,17 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
     connection's own session: a failure here must not drop the socket.
     Commits its own short-lived session because ``on_users_present`` may
     write audit rows in future."""
+    targets = []
     try:
         async with async_session() as db:
             targets = await evaluate_presence_change(db, chatroom_id=chatroom_id, principal_id=principal_id)
             await db.commit()
         # [R15.26]: deferred to the end of the coalescing window, so every arrival
         # of that minute is in the one turn's transcript.
-    except Exception:  # pragma: no cover — defensive; a failure must not drop the socket
+    except Exception:
+        # No return: the class-start check below runs in its own session and
+        # must not depend on this one succeeding.
         _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
-        return
     # Each target already holds its batch claim, so one failed enqueue must not
     # cost the others their wake.
     for target in targets:
@@ -79,6 +82,24 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
             _log.warning(
                 "on_join enqueue failed for agent %s in room %s", target.agent_id, chatroom_id, exc_info=True
             )
+    await _check_class_start(chatroom_id, principal_id)
+
+
+async def _check_class_start(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> None:
+    """[R15.27]: after the on_join wakes and in its own session, so a failed check
+    never costs the arrival record or those wakes. Not gated on a new arrival:
+    a returning student can be the one that brings the room to its minimum."""
+    try:
+        async with async_session() as db:
+            wake = await OrchestrationFacade(db).on_class_start_check(
+                room_id=chatroom_id, arriving_principal_id=principal_id
+            )
+            await db.commit()
+    except Exception:
+        _log.warning("class start check failed for room %s", chatroom_id, exc_info=True)
+        return
+    if wake is not None:
+        await enqueue_platform_wake(chatroom_id, TRIGGER_CLASS_START, wake)
 
 
 @router.websocket("/ws/chatroom/{chatroom_id}")
@@ -337,6 +358,9 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.left",
                 {"user_id": str(conn.principal.user_id)},
             )
+            # [R15.28]: completion is over the connected set, so a student leaving
+            # without a submission can complete the round with none following.
+            await check_all_submitted(chatroom_id)
 
     await connection_loop(
         ws=ws,

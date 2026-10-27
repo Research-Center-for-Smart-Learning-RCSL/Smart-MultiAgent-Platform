@@ -32,6 +32,7 @@ from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityPolicy,
     ActivityType,
+    ConnectedProgress,
     GroupSubmissionState,
     ProposalStateRow,
     ProposalStatus,
@@ -863,7 +864,8 @@ class TestActivityStateRendering:
         assert sum(ln == STATE_HEADER for ln in lines) == 1
         assert not any(ln.startswith("No activity is running") for ln in lines)
         # The quote in the name is gone, so it cannot close its own span early.
-        assert lines[-1].startswith('Current activity: "Round [Activity state] No activity is running."')
+        # Header, preamble, then the activity line; timing and progress lines follow it.
+        assert lines[2].startswith('Current activity: "Round [Activity state] No activity is running."')
 
     def test_a_group_activity_lists_open_settled_and_submitted_rows(self) -> None:
         """AC-10."""
@@ -1116,3 +1118,59 @@ class TestQuotedFields:
     async def test_no_quote_when_the_type_does_not_expose_payloads(self) -> None:
         block = await _block([_quoting_row(expose_payload_to_agent=False)])
         assert "林" not in block
+
+
+class TestActivityStateTimingAndProgress:
+    """Phase 4 AC-5, AC-6: elapsed time, the limit and connected submission counts."""
+
+    def _render(self, **over: object) -> list[str]:
+        base: dict[str, object] = {
+            "activation": _activation(),
+            "activity_type": _activity_type(),
+            "observed_at": _STARTED + dt.timedelta(minutes=3, seconds=10),
+        }
+        base.update(over)
+        return render_activity_state(RoomActivityState(**base), group_names={}).splitlines()  # type: ignore[arg-type]
+
+    def test_a_round_with_a_limit_states_elapsed_limit_and_remaining(self) -> None:
+        lines = self._render(
+            activation=_activation(time_limit_minutes=5, deadline_at=_STARTED + dt.timedelta(minutes=5)),
+            connected_progress=ConnectedProgress(connected=4, submitted=1),
+        )
+
+        assert lines[3] == (
+            "Running for 3 minutes. Time limit: 5 minutes, ending at 09:05 UTC (2 minutes left)."
+        )
+        assert lines[4] == (
+            "Submissions: 1 of 4 participants connected now (room creator excluded) have a valid "
+            "submission. This count covers connected participants only and is not attendance."
+        )
+
+    def test_a_passed_deadline_says_so_rather_than_counting_down(self) -> None:
+        lines = self._render(
+            activation=_activation(time_limit_minutes=2, deadline_at=_STARTED + dt.timedelta(minutes=2)),
+        )
+        assert lines[3].endswith("ending at 09:02 UTC (the time limit has been reached).")
+
+    def test_a_round_without_a_limit_says_none(self) -> None:
+        lines = self._render()
+        assert lines[3] == "Running for 3 minutes. No time limit."
+
+    def test_unavailable_presence_states_no_count(self) -> None:
+        lines = self._render(connected_progress=None)
+        assert lines[4] == "Submission count unavailable."
+
+    def test_a_group_activity_carries_no_per_person_count(self) -> None:
+        text = "\n".join(self._render(activity_type=_activity_type(group_config=_GROUP_TYPE)))
+        assert "Submissions:" not in text
+        assert "Submission count unavailable." not in text
+
+    def test_an_ended_round_states_no_timing(self) -> None:
+        text = "\n".join(self._render(activation=_activation(status=ActivationStatus.ENDED, ended_at=_ENDED)))
+        assert "Running for" not in text
+
+    def test_the_preamble_bounds_the_claim_to_connected_participants(self) -> None:
+        preamble = self._render()[1]
+        assert "connected now" in preamble
+        assert "not attendance" in preamble
+        assert "whole class" not in preamble

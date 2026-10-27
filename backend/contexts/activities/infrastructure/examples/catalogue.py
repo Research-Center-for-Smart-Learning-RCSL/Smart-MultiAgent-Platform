@@ -38,7 +38,7 @@ from contexts.activities.application.validators.registry import (
 from contexts.activities.application.validators.schema import validate_schema_wellformed
 from contexts.activities.domain.errors import PayloadSchemaInvalid, ValidatorConfigInvalid
 from contexts.activities.domain.group_consent import validate_group_config
-from contexts.activities.domain.models import ValidatorKind
+from contexts.activities.domain.models import TIME_LIMIT_MINUTES_RANGE, ValidatorKind
 
 COURSES_DIRNAME = "courses"
 
@@ -73,7 +73,7 @@ _TYPE_FIELDS = frozenset(
 # restrictive answer -- a missing field cannot silently make a course
 # collective. So the rule's own stated reason does not reach it, and requiring
 # it would mean editing four shipped types to declare a null.
-_OPTIONAL_TYPE_FIELDS = frozenset({"group_config"})
+_OPTIONAL_TYPE_FIELDS = frozenset({"group_config", "default_time_limit_minutes"})
 
 
 class CourseFileInvalid(ValueError):
@@ -104,6 +104,9 @@ class CourseActivityType:
     # is individual-only. See ``_OPTIONAL_TYPE_FIELDS`` for why this is the one
     # field a course file may leave out.
     group_config: dict[str, Any] | None = None
+    # [R30.46]: optional for the same reason; absent means no limit, which is
+    # what every type had before limits existed.
+    default_time_limit_minutes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +241,17 @@ def _parse_group_config(source: str, where: str, value: Any) -> dict[str, Any] |
     return dict(value)
 
 
+def _parse_time_limit(source: str, where: str, value: Any) -> int | None:
+    if value is None:
+        return None
+    low, high = TIME_LIMIT_MINUTES_RANGE
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise _fail(
+            source, f"{where}.default_time_limit_minutes", f"must be null or an integer {low} to {high}"
+        )
+    return int(value)
+
+
 def _parse_activity_type(source: str, index: int, data: Any) -> CourseActivityType:
     where = f"activity_types[{index}]"
     if not isinstance(data, dict):
@@ -271,6 +285,7 @@ def _parse_activity_type(source: str, index: int, data: Any) -> CourseActivityTy
         expose_payload_to_agent=_require_bool(source, where, data, "expose_payload_to_agent"),
         echo_includes_content=_require_bool(source, where, data, "echo_includes_content"),
         group_config=_parse_group_config(source, where, data.get("group_config")),
+        default_time_limit_minutes=_parse_time_limit(source, where, data.get("default_time_limit_minutes")),
     )
 
 

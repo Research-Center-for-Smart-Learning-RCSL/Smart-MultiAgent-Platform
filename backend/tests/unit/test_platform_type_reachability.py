@@ -177,6 +177,7 @@ def _start_activation(*, activity_type: ActivityType, project_id: uuid.UUID, opt
         activation_repo=MagicMock(create_active=probe, get_active=AsyncMock(return_value=None)),
         type_repo=MagicMock(get=AsyncMock(return_value=activity_type)),
         optin_repo=_optin_reader(opted_in=opted_in),
+        time_limits=MagicMock(for_room=AsyncMock(return_value={})),
     )
     # No policy row -> permissive, so the only gate under test is reachability.
     svc._policy._repo = MagicMock(get_platform=AsyncMock(return_value=None))

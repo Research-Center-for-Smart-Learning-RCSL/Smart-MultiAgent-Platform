@@ -628,6 +628,68 @@ describe('ActivityTypeForm', () => {
     expect(wrapper.emitted('updated')).toBeTruthy()
   })
 
+  describe('default time limit (phase 4 AC-8)', () => {
+    it.each([
+      { typed: '5', sent: 5 },
+      { typed: '', sent: null },
+    ])('sends $sent on create when the field reads "$typed"', async ({ typed, sent }) => {
+      registerMock.mockResolvedValue({ id: 't1', key: 'quiz', shadowed_by_platform: false })
+      const wrapper = await mountForm()
+      await flushPromises()
+      await fillValidWebhook(wrapper)
+      await wrapper.find('[data-testid="type-default-time-limit"]').setValue(typed)
+
+      await wrapper.find('form').trigger('submit')
+
+      await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+      expect(registerMock.mock.calls[0][1]).toHaveProperty('default_time_limit_minutes', sent)
+    })
+
+    it('refuses a limit above 180 minutes', async () => {
+      const wrapper = await mountForm()
+      await flushPromises()
+      await fillValidWebhook(wrapper)
+      await wrapper.find('[data-testid="type-default-time-limit"]').setValue('181')
+
+      await wrapper.find('form').trigger('submit')
+
+      await vi.waitFor(() =>
+        expect(wrapper.text()).toContain('activities.typeForm.defaultTimeLimitInvalid'),
+      )
+      expect(registerMock).not.toHaveBeenCalled()
+    })
+
+    it('pre-fills the stored default on edit and sends the edited value', async () => {
+      updateMock.mockResolvedValue({ id: 't1' })
+      const wrapper = await renderView(ActivityTypeForm, {
+        props: { projectId: 'p1', open: true, editType: { ...EDIT_TYPE, default_time_limit_minutes: 5 } },
+      })
+      await flushPromises()
+
+      const field = wrapper.find('[data-testid="type-default-time-limit"]')
+      expect((field.element as HTMLInputElement).value).toBe('5')
+      await field.setValue('8')
+      await wrapper.find('form').trigger('submit')
+
+      await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+      expect(updateMock.mock.calls[0][2]).toHaveProperty('default_time_limit_minutes', 8)
+    })
+
+    it('sends null on edit when the stored type has no default, rather than omitting it', async () => {
+      updateMock.mockResolvedValue({ id: 't1' })
+      const wrapper = await renderView(ActivityTypeForm, {
+        props: { projectId: 'p1', open: true, editType: EDIT_TYPE },
+      })
+      await flushPromises()
+      expect((wrapper.find('[data-testid="type-default-time-limit"]').element as HTMLInputElement).value).toBe('')
+
+      await wrapper.find('form').trigger('submit')
+
+      await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+      expect(updateMock.mock.calls[0][2]).toHaveProperty('default_time_limit_minutes', null)
+    })
+  })
+
   it('round-trips group_config on an edit rather than clearing it', async () => {
     // The PATCH body is a FULL editable representation, so a field this form
     // does not resubmit is a field it clears. This form has no group-consent

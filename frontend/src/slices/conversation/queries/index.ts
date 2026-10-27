@@ -58,6 +58,9 @@ export const convKeys = {
   // One binding's room wake-up settings ([R15.25]).
   roomWakeup: (chatroomId: string, agentId: string) =>
     ['conversation', 'room-wakeup', chatroomId, agentId] as const,
+  classStart: (chatroomId: string) => ['conversation', 'class-start', chatroomId] as const,
+  activityTimeLimits: (chatroomId: string) =>
+    ['conversation', 'activity-time-limits', chatroomId] as const,
   messages: (chatroomId: string) => ['conversation', 'messages', chatroomId] as const,
   observations: (chatroomId: string) =>
     ['conversation', 'observations', chatroomId] as const,

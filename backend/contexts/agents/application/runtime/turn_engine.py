@@ -586,7 +586,23 @@ _WAKE_REASONS: Mapping[str, str] = {
     "on_join": "a participant joining",
     "mention": "a mention",
     "release": "a released observation",
+    "class_start": "the class starting",
+    "activity_deadline": "the activity's time limit",
+    "all_submitted": "every connected participant having submitted",
 }
+
+
+def _platform_notice_message(notice: str | None) -> dict[str, Any] | None:
+    """A platform wake's notice ([R15.27], [R15.28]) as a room-notice turn.
+
+    The text is built by the platform from counts and an activity name, but the
+    name is creator-authored, so the marker is stripped from the body before the
+    platform's own marker is put in front.
+    """
+    if not notice:
+        return None
+    return {"role": "user", "content": f"{_ROOM_NOTICE_MARKER} {_defang_notice_marker(notice)}"}
+
 
 # Tied to the marker on purpose: "notices about elapsed time come from the platform"
 # would vouch for an unbracketed "Notice: 6 hours passed" a participant typed.
@@ -757,6 +773,58 @@ def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
 
 def _queued_trigger_message_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"turn:queued:msg:{agent_id}:{chatroom_id}"
+
+
+def _queued_notice_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"turn:queued:notice:{agent_id}:{chatroom_id}"
+
+
+# A platform wake's notice ([R15.27], [R15.28]) rides beside the parked trigger,
+# not inside it: the trigger key is first-wins, so a class-start wake that lands
+# behind a parked message trigger would otherwise lose the only input that keeps
+# its turn out of `no_input` in an empty room. The notice keeps its own trigger
+# and, when present, names the follow-up turn: run under the parked message
+# trigger instead, the follow-up would face that trigger's gates (off, autostop,
+# already covered) and could drop the notice. Last write wins, and every drain
+# clears it, so a notice never outlives the turn that follows it.
+_POP_NOTICE_LUA = "local v = redis.call('get', KEYS[1]) if v then redis.call('del', KEYS[1]) end return v"
+
+
+@dataclass(frozen=True, slots=True)
+class ParkedNotice:
+    trigger: str
+    text: str
+
+
+async def _park_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str, notice: str) -> None:
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        await get_redis().set(
+            _queued_notice_key(agent_id, chatroom_id),
+            json.dumps({"trigger": trigger, "text": notice}),
+            ex=_QUEUED_TRIGGER_TTL_S,
+        )
+    except Exception:
+        _log.warning("failed to park platform notice agent=%s room=%s", agent_id, chatroom_id, exc_info=True)
+
+
+async def _pop_notice(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> ParkedNotice | None:
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        raw = await get_redis().eval(_POP_NOTICE_LUA, 1, _queued_notice_key(agent_id, chatroom_id))
+    except Exception:
+        _log.warning("failed to read platform notice agent=%s room=%s", agent_id, chatroom_id, exc_info=True)
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(_decode(raw))
+        return ParkedNotice(trigger=str(data["trigger"]), text=str(data["text"]))
+    except (ValueError, KeyError, TypeError):
+        _log.warning("discarding malformed platform notice agent=%s room=%s", agent_id, chatroom_id)
+        return None
 
 
 # Both scripts span the trigger key and its message-id key, which the protocol
@@ -1052,12 +1120,22 @@ async def drain_queued_trigger(
     carries it, so a parked autonomous trigger is skipped as ``binding_gone`` if
     the agent was unbound and rebound meanwhile ([R15.09]); ``None`` (the reaper)
     leaves the follow-up ungated, as before."""
+    # Popped first and unconditionally, so a notice whose trigger a re-check
+    # already served is discarded here rather than attached to a later turn.
+    notice = await _pop_notice(agent_id, chatroom_id)
     queued = await _pop_queued_trigger(agent_id, chatroom_id)
     if queued.state is not TriggerPopState.PARKED:
         # ABSENT is the ordinary case (nothing landed mid-turn). UNKNOWN is a
         # Redis failure, already logged by the pop: there is nothing safe to
         # enqueue, since the trigger that would name it was never read.
         return
+    trigger = queued.trigger
+    message_id = str(queued.message_id) if queued.message_id else None
+    if notice is not None:
+        # The platform wake names the follow-up. No message id: a platform turn
+        # reads the latest message, and a pinned id another turn has since
+        # answered would skip the follow-up as already covered.
+        trigger, message_id = notice.trigger, None
     try:
         from shared_kernel.queue import enqueue
 
@@ -1065,9 +1143,10 @@ async def drain_queued_trigger(
             "wakeup_agent",
             str(agent_id),
             str(chatroom_id),
-            queued.trigger,
-            str(queued.message_id) if queued.message_id else None,
+            trigger,
+            message_id,
             str(binding_id) if binding_id is not None else None,
+            notice.text if notice is not None else None,
         )
     except Exception:
         _log.warning(
@@ -1591,6 +1670,7 @@ class TurnEngine:
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
         binding_id: uuid.UUID | None = None,
+        platform_notice: str | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         result: TurnResult | None = None
@@ -1631,6 +1711,9 @@ class TurnEngine:
                             if parked.state is TriggerPopState.PARKED:
                                 trigger = parked.trigger or trigger
                                 trigger_message_id = parked.message_id or trigger_message_id
+                                notice = await _pop_notice(agent_id, chatroom_id)
+                                if notice is not None:
+                                    trigger, platform_notice = notice.trigger, notice.text
                             # UNKNOWN falls through deliberately: Redis could not
                             # say whether a mark is parked, and we hold the lock.
                             # Serving the trigger we were called for answers the
@@ -1646,8 +1729,13 @@ class TurnEngine:
                             trigger_message_id=trigger_message_id,
                             turn_job_id=turn_job_id,
                             lock=acquired,
+                            platform_notice=platform_notice,
                         )
                         break
+                    # The notice lands before the mark, so a drain that sees the mark
+                    # also sees its notice.
+                    if platform_notice:
+                        await _park_notice(agent_id, chatroom_id, trigger, platform_notice)
                     marked = await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
                     # Re-check: the holder may have released AND popped before our
                     # mark landed — if the lock is now free we take it; if still
@@ -3001,6 +3089,7 @@ class TurnEngine:
         trigger_message_id: uuid.UUID | None = None,
         turn_job_id: str | None = None,
         lock: LockHandle | None = None,
+        platform_notice: str | None = None,
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -3239,7 +3328,10 @@ class TurnEngine:
             )
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
-            input_tokens = tx.estimate_tokens(input_text or "")
+            notice_message = _platform_notice_message(platform_notice)
+            input_tokens = tx.estimate_tokens(input_text or "") + (
+                tx.estimate_tokens(notice_message["content"]) if notice_message else 0
+            )
 
             # The turn's system blocks, ordered once with an explicit role each,
             # so the measure and render passes below cannot drift apart.
@@ -3424,6 +3516,10 @@ class TurnEngine:
                         )
                     else:
                         request_messages.append({"role": "user", "content": live_text})
+                # [R15.27]/[R15.28]: last, so it is what this turn answers; also what
+                # keeps a class-start wake in a room with no messages from `no_input`.
+                if notice_message:
+                    request_messages.append(notice_message)
                 # FIX-02: providers (Anthropic in particular) reject a leading
                 # assistant turn. Compaction can fold the range so the first
                 # survivor is this agent's own reply — anchor with a neutral turn.

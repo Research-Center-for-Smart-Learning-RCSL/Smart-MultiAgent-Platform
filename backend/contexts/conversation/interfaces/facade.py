@@ -28,6 +28,8 @@ from contexts.conversation.application.guest_session_service import (
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
 from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
+    CLASS_START_MAX_WAIT_MINUTES_RANGE,
+    CLASS_START_MIN_PARTICIPANTS_RANGE,
     ActivityControlGrant,
     AgentObservation,
     AttachmentExtractionStatus,
@@ -36,6 +38,8 @@ from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgentBubbleColor,
     ChatroomAgentRole,
+    ClassStartConfig,
+    ClassStartState,
     DraftReadGrant,
     GuestBan,
     Message,
@@ -55,6 +59,7 @@ from contexts.conversation.infrastructure.repositories import (
     MessageRepository,
     WorkspaceRepository,
 )
+from contexts.conversation.infrastructure.repositories.class_start_repo import ClassStartRepository
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.permissions import Principal
 
@@ -69,6 +74,11 @@ from shared_kernel.auth.permissions import Principal
 _MAX_LISTING_CANDIDATES = 2000
 
 _HUMAN_SENDERS = frozenset({SenderType.USER, SenderType.GUEST})
+
+#: The presence bound for a headcount the platform acts on (class start, all
+#: submitted). Far above any class, so a truncated read means "more than enough
+#: for a start" and "too many to vouch for every submission".
+HEADCOUNT_PRESENCE_LIMIT = 500
 
 
 def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | None) -> None:
@@ -605,6 +615,53 @@ class ConversationFacade:
             observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
         )
 
+    # Autonomous class start ([R15.27]). Orchestration decides when it fires;
+    # this context stores the setting and owns the once-per-class claim.
+
+    async def class_start_state(self, chatroom_id: uuid.UUID) -> ClassStartState | None:
+        return await ClassStartRepository(self._db).get(chatroom_id)
+
+    async def rooms_awaiting_class_start(self, *, limit: int) -> list[ClassStartState]:
+        return await ClassStartRepository(self._db).awaiting_start(limit=limit)
+
+    async def record_class_first_arrival(self, chatroom_id: uuid.UUID) -> None:
+        await ClassStartRepository(self._db).record_first_arrival(chatroom_id)
+
+    async def clear_class_first_arrival(self, chatroom_id: uuid.UUID) -> None:
+        await ClassStartRepository(self._db).clear_first_arrival(chatroom_id)
+
+    async def claim_class_start(self, chatroom_id: uuid.UUID) -> bool:
+        return await ClassStartRepository(self._db).claim_start(chatroom_id)
+
+    async def write_class_start(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        config: ClassStartConfig | None,
+        reset: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ClassStartState | None:
+        """Replace the setting and audit it; caller owns commit and authorization."""
+        from shared_kernel import audit
+
+        state = await ClassStartRepository(self._db).write(chatroom_id, config=config, reset=reset)
+        if state is not None:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="chatroom.class_start_updated",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="chatroom",
+                    resource_id=chatroom_id,
+                    metadata={**(config.to_stored() if config else {"configured": False}), "reset": reset},
+                    request_id=request_id,
+                ),
+            )
+        return state
+
     async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
         return await self._messages.room_has_messages(chatroom_id)
 
@@ -1109,12 +1166,17 @@ class ConversationFacade:
 
 
 __all__ = [
+    "CLASS_START_MAX_WAIT_MINUTES_RANGE",
+    "CLASS_START_MIN_PARTICIPANTS_RANGE",
+    "HEADCOUNT_PRESENCE_LIMIT",
     "ActivityControlGrant",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "BindingWakeupState",
     "ChatroomAgentBubbleColor",
     "ChatroomAgentRole",
+    "ClassStartConfig",
+    "ClassStartState",
     "ConversationFacade",
     "DraftReadGrant",
     "Message",

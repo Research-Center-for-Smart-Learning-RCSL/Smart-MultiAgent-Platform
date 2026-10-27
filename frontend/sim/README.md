@@ -108,9 +108,18 @@ run (`onTimeout`). Each actor's steps run in order.
 | `startActivity`, `endActivity`, `releaseObservation` | Facilitator controls. |
 | `persona` | Turns a persona on or off. |
 
+A created room can also carry the phase 4 class flow: `classStart` (`minParticipants`,
+`maxWaitMinutes`) turns class start on, and `timeLimits` maps an activity type key to minutes, or
+to `null` for an explicit no-limit. Both are written before any participant connects; for an
+existing room they are verified instead, and a class that has already started fails the check
+until it is reset in the room settings. The platform's own wakes appear in the report's wake-up
+table under the triggers `class_start`, `activity_deadline` and `all_submitted`.
+
 The shipped scenarios are `smoke-local` (the tool's own end-to-end check, no agents and no key),
-`crat-ac20` (the AC-20 protocol of the CRAT phase 2 dossier) and `crat-llm-class` (three persona
-students in the CRAT room).
+`crat-ac20` (the AC-20 protocol of the CRAT phase 2 dossier), `crat-llm-class` (three persona
+students in the CRAT room), the phase 2 AC-21 runs `charbuild-ac21` and `objreinterp-ac21`, and
+the phase 4 runs `charbuild-autonomous`, `objreinterp-autonomous` and `crat-autonomous`, in which
+the teacher agent runs the whole class.
 
 ## Local stack
 

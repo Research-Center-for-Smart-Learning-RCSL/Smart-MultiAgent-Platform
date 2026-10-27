@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.group_consent import parse_group_config
+from contexts.activities.domain.group_consent import is_individual_type, parse_group_config
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
@@ -414,8 +414,40 @@ STATE_MAX_TOKENS = 1500
 _STATE_PREAMBLE = (
     "Computed by the platform from server state for this turn, not inferred from the chat. "
     "A g: code is a group of several people, not one person. The counts say what each group "
-    "has done; this block makes no claim about whether the whole class has finished."
+    "has done. A submission count covers only the participants connected now, room creator "
+    "excluded; it is not attendance, and a participant who disconnected is not in it."
 )
+
+
+def _minutes(delta: dt.timedelta) -> int:
+    return max(0, int(delta.total_seconds() // 60))
+
+
+def _timing_line(activation: ActivityActivation, observed_at: dt.datetime) -> str:
+    running = f"Running for {_minutes(observed_at - activation.created_at)} minutes."
+    if activation.deadline_at is None or activation.time_limit_minutes is None:
+        return f"{running} No time limit."
+    ending = activation.deadline_at.astimezone(dt.UTC).strftime("%H:%M")
+    if activation.deadline_at <= observed_at:
+        left = "the time limit has been reached"
+    else:
+        # Rounded up, so a deadline 30 seconds away does not read as "0 minutes left".
+        seconds = (activation.deadline_at - observed_at).total_seconds()
+        left = f"{int(-(-seconds // 60))} minutes left"
+    return f"{running} Time limit: {activation.time_limit_minutes} minutes, ending at {ending} UTC ({left})."
+
+
+def _progress_line(state: RoomActivityState) -> str:
+    progress = state.connected_progress
+    if progress is None:
+        return "Submission count unavailable."
+    return (
+        f"Submissions: {progress.submitted} of {progress.connected} participants connected now "
+        "(room creator excluded) have a valid submission. This count covers connected "
+        "participants only and is not attendance."
+    )
+
+
 _TYPE_NAME_MAX = 120
 _GROUP_NAME_MAX = 60
 
@@ -496,6 +528,10 @@ def render_activity_state(state: RoomActivityState, *, group_names: Mapping[uuid
     head.append(_activity_line(state.activation, state.activity_type))
     if state.activation.status is not ActivationStatus.ACTIVE:
         return "\n".join(head)
+    if state.observed_at is not None:
+        head.append(_timing_line(state.activation, state.observed_at))
+    if is_individual_type(state.activity_type):
+        head.append(_progress_line(state))
 
     sections = _state_sections(state, group_names)
     total = sum(len(rows) for _, rows in sections)

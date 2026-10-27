@@ -61,6 +61,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       key: '',
       name: '',
       retention_days: null,
+      default_time_limit_minutes: null,
       expose_payload_to_agent: true,
       echo_includes_content: false,
       payload_schema: { type: 'object', properties: {} },
@@ -82,6 +83,7 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     key: row.key,
     name: row.name,
     retention_days: row.retention_days,
+    default_time_limit_minutes: row.default_time_limit_minutes ?? null,
     expose_payload_to_agent: row.expose_payload_to_agent,
     echo_includes_content: row.echo_includes_content,
     payload_schema: row.payload_schema,
@@ -110,6 +112,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, setFieldError }
 const [key] = defineField('key')
 const [name] = defineField('name')
 const [retentionDays] = defineField('retention_days')
+const [defaultTimeLimit] = defineField('default_time_limit_minutes')
 const [exposePayloadToAgent] = defineField('expose_payload_to_agent')
 const [echoIncludesContent] = defineField('echo_includes_content')
 const [payloadSchema] = defineField('payload_schema')
@@ -139,6 +142,13 @@ const retentionDisplay = computed<string | number>({
   get: () => retentionDays.value ?? '',
   set: (v) => {
     retentionDays.value = v === '' || v === null ? null : Number(v)
+  },
+})
+
+const timeLimitDisplay = computed<string | number>({
+  get: () => defaultTimeLimit.value ?? '',
+  set: (v) => {
+    defaultTimeLimit.value = v === '' || v === null ? null : Number(v)
   },
 })
 
@@ -433,6 +443,7 @@ const onSubmit = handleSubmit((formValues) => {
     validator_kind: formValues.validator_kind as ValidatorKind,
     validator_config: assembleValidatorConfig(formValues),
     retention_days: formValues.retention_days,
+    default_time_limit_minutes: formValues.default_time_limit_minutes,
     expose_payload_to_agent: formValues.expose_payload_to_agent,
     echo_includes_content: formValues.echo_includes_content,
   }
@@ -526,6 +537,22 @@ function onClose(): void {
           type="number"
           min="1"
           :max="retentionMax ?? undefined"
+        />
+      </SFormField>
+
+      <SFormField
+        :label="t('activities.typeForm.defaultTimeLimit')"
+        name="default_time_limit_minutes"
+        :error="errors.default_time_limit_minutes ? t('activities.typeForm.defaultTimeLimitInvalid') : ''"
+        :help="t('activities.typeForm.defaultTimeLimitHelp')"
+      >
+        <SInput
+          v-model="timeLimitDisplay"
+          type="number"
+          min="1"
+          max="180"
+          :error="!!errors.default_time_limit_minutes"
+          data-testid="type-default-time-limit"
         />
       </SFormField>
 

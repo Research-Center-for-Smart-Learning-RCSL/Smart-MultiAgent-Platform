@@ -21,9 +21,12 @@ import {
 } from '@shared/api-client'
 import { asBinaryFormField, http } from '@shared/transport'
 import type {
+  ActivityTimeLimitItem,
   AgentLabelOut,
   AgentNameOut,
   ChatroomMemberOut,
+  ClassStartOut,
+  ClassStartPatchIn,
   GuestBanOut,
   GuestDisplayNameOut,
   MessageOut,
@@ -650,6 +653,49 @@ export async function patchRoomWakeup(
     agentId,
     requestBody: { ...patch, binding_id: current.binding_id, expected_version: current.version },
   })
+}
+
+// ---- class start and per-type time limits (room creator only) -------------
+
+export type ClassStart = ClassStartOut
+export type ClassStartPatch = ClassStartPatchIn
+export type ActivityTimeLimit = ActivityTimeLimitItem
+
+export async function getClassStart(chatroomId: string): Promise<ClassStart> {
+  return ChatroomsService.getClassStartApiChatroomsChatroomIdClassStartGet({ chatroomId })
+}
+
+/** Omitted fields keep the stored value; the first write must carry all three
+ *  settings. `reset: true` clears the start so the room can run another class. */
+export async function patchClassStart(
+  chatroomId: string,
+  patch: ClassStartPatch,
+): Promise<ClassStart> {
+  return ChatroomsService.patchClassStartApiChatroomsChatroomIdClassStartPatch({
+    chatroomId,
+    requestBody: patch,
+  })
+}
+
+/** The room's overrides. A null limit is an explicit "no limit"; a type absent
+ *  from the list uses its own default. */
+export async function getActivityTimeLimits(chatroomId: string): Promise<ActivityTimeLimit[]> {
+  const res = await ChatroomsService.getActivityTimeLimitsApiChatroomsChatroomIdActivityTimeLimitsGet({
+    chatroomId,
+  })
+  return res.limits
+}
+
+/** Replaces the whole override set. */
+export async function putActivityTimeLimits(
+  chatroomId: string,
+  limits: ActivityTimeLimit[],
+): Promise<ActivityTimeLimit[]> {
+  const res = await ChatroomsService.putActivityTimeLimitsApiChatroomsChatroomIdActivityTimeLimitsPut({
+    chatroomId,
+    requestBody: { limits },
+  })
+  return res.limits
 }
 
 export async function resetRoomWakeup(

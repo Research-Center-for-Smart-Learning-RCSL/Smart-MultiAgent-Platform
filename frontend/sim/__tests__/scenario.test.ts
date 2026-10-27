@@ -6,6 +6,9 @@ import ac20 from '../scenarios/crat-ac20.ts'
 import llmClass from '../scenarios/crat-llm-class.ts'
 import charAc21 from '../scenarios/charbuild-ac21.ts'
 import objAc21 from '../scenarios/objreinterp-ac21.ts'
+import charAuto from '../scenarios/charbuild-autonomous.ts'
+import objAuto from '../scenarios/objreinterp-autonomous.ts'
+import cratAuto from '../scenarios/crat-autonomous.ts'
 
 const minimal: ScenarioInput = {
   name: 'x',
@@ -31,8 +34,43 @@ describe('shipped scenarios', () => {
     ['crat-llm-class', llmClass],
     ['charbuild-ac21', charAc21],
     ['objreinterp-ac21', objAc21],
+    ['charbuild-autonomous', charAuto],
+    ['objreinterp-autonomous', objAuto],
+    ['crat-autonomous', cratAuto],
   ])('%s parses', (_name, s) => {
     expect(issues(s)).toEqual([])
+  })
+
+  it('the phase 4 runs configure the class flow and leave the facilitator out (AC-11)', () => {
+    const char = ScenarioSchema.parse(charAuto)
+    const obj = ScenarioSchema.parse(objAuto)
+    const crat = ScenarioSchema.parse(cratAuto)
+    const fSteps = (s: typeof char) => s.steps.filter((x) => x.actor === 'F')
+    expect(fSteps(char)).toEqual([])
+    expect(fSteps(crat)).toEqual([])
+    // The object run's only facilitator message is the round-3 override.
+    expect(fSteps(obj).filter((x) => x.do === 'say')).toHaveLength(1)
+    for (const s of [char, obj, crat]) {
+      expect(s.room.classStart).toBeDefined()
+      expect(s.steps.some((x) => x.do === 'startActivity' || x.do === 'endActivity')).toBe(false)
+      expect(s.room.agents.find((a) => a.name.startsWith('TA'))?.grantActivityTypes).toHaveLength(1)
+    }
+    expect(char.room.timeLimits).toEqual({ 'character-building': 3 })
+    expect(obj.room.timeLimits).toEqual({ 'object-reinterpretation': 3 })
+    // One CRAT activation spans every round, so a limit would end the whole class.
+    expect(crat.room.timeLimits).toEqual({})
+  })
+
+  it('the character run leaves P4 without a submission in round 1 only', () => {
+    const s = ScenarioSchema.parse(charAuto)
+    const p4 = s.steps.filter((x) => x.actor === 'P4' && x.do === 'submit').map((x) => x.label)
+    expect(p4).toEqual([2, 3, 4, 5, 6].map((r) => `submits in round ${r}`))
+  })
+
+  it('a time limit accepts null as an explicit no-limit and rejects out-of-range minutes', () => {
+    expect(issues({ ...minimal, room: { mode: 'create', name: 'r', timeLimits: { a: null, b: 180 } } })).toEqual([])
+    expect(issues({ ...minimal, room: { mode: 'create', name: 'r', timeLimits: { a: 0 } } })).not.toEqual([])
+    expect(issues({ ...minimal, room: { mode: 'create', name: 'r', classStart: { minParticipants: 0, maxWaitMinutes: 1 } } })).not.toEqual([])
   })
 
   it('smoke-local exercises every scripted action the browser performs (AC-9)', () => {

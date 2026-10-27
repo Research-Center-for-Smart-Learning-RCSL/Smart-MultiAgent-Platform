@@ -20,6 +20,7 @@ import { useGroupProposal } from '../composables/useGroupProposal'
 import { usePolicyRefusal } from '../composables/usePolicyRefusal'
 import { useActivitiesStore } from '../stores/activities'
 import { isProposalOpen, readGroupConsent, type ActivityType, type ActivityTypePublic } from '../types'
+import ActivityCountdown from './ActivityCountdown.vue'
 import ActivityHost from './ActivityHost.vue'
 import GroupProposalCard from './GroupProposalCard.vue'
 import SchemaForm from './SchemaForm.vue'
@@ -388,6 +389,10 @@ onBeforeUnmount(() => {
       <p class="activity-panel__name">
         {{ activeType?.name ?? t('activities.panel.active') }}
       </p>
+      <ActivityCountdown
+        v-if="activation.deadlineAt"
+        :deadline-at="activation.deadlineAt"
+      />
       <!-- AC-11. Rendered beside the worksheet's own title rather than at the
            panel root, so it sits with the thing it is about. Shown on the group
            path too: a proposal is typed by one person before anyone has agreed

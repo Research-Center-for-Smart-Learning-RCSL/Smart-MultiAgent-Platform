@@ -20,7 +20,7 @@ import datetime as dt
 import enum
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 
 
 class ValidatorKind(str, enum.Enum):
@@ -131,6 +131,9 @@ class ActivityType:
     # ``validator_config``, which is owner-confidential ([R30.25]) while the
     # people voting must be able to see the bar they are voting against.
     group_config: dict[str, Any] | None = None
+    # [R30.46]: minutes a round of this type runs before its deadline, unless the
+    # room overrides it. Metadata: an edit does not bump ``version``.
+    default_time_limit_minutes: int | None = None
 
     def is_visible_to(self, project_id: uuid.UUID, *, opted_in: bool) -> bool:
         """Whether this type may be used from ``project_id`` ([R30.09], [R30.33]).
@@ -271,6 +274,13 @@ class ActivityActivation:
     # A bare id: this context may not import the agents context ([R30.05]), so it
     # resolves to a name only at the route.
     started_by_agent_id: uuid.UUID | None = None
+    # The limit resolved when the round started ([R30.46]) and the deadline it
+    # gives; both None for a round with no limit. A later settings change does
+    # not move either.
+    time_limit_minutes: int | None = None
+    deadline_at: dt.datetime | None = None
+    # When the all-submitted wake was claimed ([R15.28]); None until then.
+    completion_notified_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -760,6 +770,51 @@ class RoomActivityState:
     open_proposals: tuple[ProposalStateRow, ...] = ()
     settled_proposals: tuple[ProposalStateRow, ...] = ()
     submitted_groups: tuple[GroupSubmissionState, ...] = ()
+    #: Taken when the state was read, so elapsed and remaining minutes agree.
+    observed_at: dt.datetime | None = None
+    #: An individual activity's submission progress among connected
+    #: participants, room creator excluded; ``None`` when presence is unavailable
+    #: or the activity is a group one ([R30.44]).
+    connected_progress: ConnectedProgress | None = None
+
+
+#: [R30.46] bounds, mirrored by the 0106 CHECKs.
+TIME_LIMIT_MINUTES_RANGE: Final = (1, 180)
+
+
+class Keep(enum.Enum):
+    """An update argument meaning "leave the stored value as it is"."""
+
+    KEEP = "keep"
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectedProgress:
+    """Who is connected now and how many of them have a valid submission.
+
+    A count over the live connection set, not attendance: a student who left is
+    in neither number ([R15.28]).
+    """
+
+    connected: int
+    submitted: int
+
+    @property
+    def complete(self) -> bool:
+        return self.connected > 0 and self.submitted >= self.connected
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformActivityEvent:
+    """A claimed deadline or all-submitted fact, ready to wake the room's agents ([R15.28]).
+
+    ``notice`` holds counts and the activity name only, never participant text.
+    """
+
+    chatroom_id: uuid.UUID
+    activation_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    notice: str
 
 
 __all__ = [
@@ -767,6 +822,7 @@ __all__ = [
     "MAX_COVERAGE_FIELDS",
     "PERMISSIVE_POLICY",
     "PLATFORM_SCOPE",
+    "TIME_LIMIT_MINUTES_RANGE",
     "ActivationNotice",
     "ActivationStatus",
     "ActivityActivation",
@@ -781,6 +837,7 @@ __all__ = [
     "ActivityTypeScope",
     "AttemptSummary",
     "AttemptSummaryRow",
+    "ConnectedProgress",
     "EndedActivation",
     "FieldCoverage",
     "FieldCoverageCell",
@@ -788,7 +845,9 @@ __all__ = [
     "GroupProposalResolution",
     "GroupProposalTally",
     "GroupSubmissionState",
+    "Keep",
     "MandalaGrid",
+    "PlatformActivityEvent",
     "PolicyImpact",
     "ProjectActivityTypeOptIn",
     "ProposalStateRow",

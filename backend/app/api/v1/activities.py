@@ -23,6 +23,7 @@ from app.api.v1.deps import (
     assert_project_role,
     is_project_owner_or_admin,
 )
+from app.wiring.platform_wakes import dispatch_all_submitted
 from contexts.activities.domain.errors import (
     SessionNotFound,
     ValidatorConfigInvalid,
@@ -36,6 +37,7 @@ from contexts.activities.domain.models import (
     ActivityTypeScope,
     GroupProposalResolution,
     GroupProposalTally,
+    Keep,
     ProposalStatus,
     ValidatorKind,
     VoteChoice,
@@ -49,7 +51,7 @@ from contexts.activities.interfaces.broadcast import (
     dispatch_group_proposal,
     dispatch_room_activation_progress,
 )
-from contexts.activities.interfaces.facade import ActivitiesFacade
+from contexts.activities.interfaces.facade import TIME_LIMIT_MINUTES_RANGE, ActivitiesFacade
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.interfaces import room_channel
@@ -97,6 +99,11 @@ class ActivityTypeIn(BaseModel):
     # the service, not here: it is a domain rule and the platform-install path
     # has to run the same one.
     group_config: dict[str, Any] | None = None
+    # [R30.46]: the limit a round of this type gets unless the room overrides it;
+    # null means no limit. Safe metadata, so changing it never bumps `version`.
+    default_time_limit_minutes: int | None = Field(
+        default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
+    )
 
 
 class ActivityTypeUpdateIn(BaseModel):
@@ -116,6 +123,13 @@ class ActivityTypeUpdateIn(BaseModel):
     # declare its own type group-submittable — see §6 of the dossier for why
     # `AdminPlatformActivityTypeIn` deliberately does NOT gain it.
     group_config: dict[str, Any] | None = None
+    # Omitted means "keep the stored value", so a client that predates the field
+    # cannot clear it by resubmitting the form it knows.
+    # [R30.46]: the limit a round of this type gets unless the room overrides it;
+    # null means no limit. Safe metadata, so changing it never bumps `version`.
+    default_time_limit_minutes: int | None = Field(
+        default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
+    )
 
 
 class ActivityTypeOut(BaseModel):
@@ -137,6 +151,7 @@ class ActivityTypeOut(BaseModel):
     # owner-confidential: the people being asked to vote have to see the bar they
     # are voting against ([R30.40]), which is why it is a column of its own.
     group_config: dict[str, Any] | None = None
+    default_time_limit_minutes: int | None = None
 
 
 class ActivityTypeRegisteredOut(ActivityTypeOut):
@@ -213,6 +228,9 @@ class ActivityActivationOut(BaseModel):
     # been deleted.
     started_by_agent_id: uuid.UUID | None = None
     started_by_agent_name: str | None = None
+    # [R30.46]: snapshotted at start; both null for a round without a limit.
+    time_limit_minutes: int | None = None
+    deadline_at: str | None = None
 
 
 class ActivitySessionOut(BaseModel):
@@ -384,6 +402,7 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
         echo_includes_content=t.echo_includes_content,
         created_at=t.created_at.isoformat() if t.created_at else None,
         group_config=t.group_config,
+        default_time_limit_minutes=t.default_time_limit_minutes,
     )
 
 
@@ -472,6 +491,8 @@ def _activation_out(
         # this reader may be told about.
         started_by_agent_id=initiating_agent.agent_id if initiating_agent else None,
         started_by_agent_name=initiating_agent.name if initiating_agent else None,
+        time_limit_minutes=a.time_limit_minutes,
+        deadline_at=a.deadline_at.isoformat() if a.deadline_at else None,
     )
 
 
@@ -597,6 +618,7 @@ async def register_activity_type(
         expose_payload_to_agent=body.expose_payload_to_agent,
         echo_includes_content=body.echo_includes_content,
         group_config=body.group_config,
+        default_time_limit_minutes=body.default_time_limit_minutes,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -661,6 +683,11 @@ async def update_activity_type(
         expose_payload_to_agent=body.expose_payload_to_agent,
         echo_includes_content=body.echo_includes_content,
         group_config=body.group_config,
+        default_time_limit_minutes=(
+            body.default_time_limit_minutes
+            if "default_time_limit_minutes" in body.model_fields_set
+            else Keep.KEEP
+        ),
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -1422,6 +1449,8 @@ async def _dispatch_submission(
             await dispatch_dashboard_submission_validated(chatroom_id)
         except Exception:
             _log.warning("dashboard submission emit failed for %s", submission.id, exc_info=True)
+    if submission.is_valid:
+        await dispatch_all_submitted(db, chatroom_id)
 
 
 __all__ = [

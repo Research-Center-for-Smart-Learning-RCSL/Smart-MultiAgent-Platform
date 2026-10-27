@@ -18,3 +18,8 @@ export const workspaceCreateSchema = z.object({
 })
 
 export type WorkspaceCreateInput = z.infer<typeof workspaceCreateSchema>
+
+// Class pacing bounds mirror the routes' Pydantic fields ([R15.27], [R30.46]).
+export const classStartMinParticipantsSchema = z.number().int().min(1).max(100)
+export const classStartMaxWaitSchema = z.number().int().min(1).max(60)
+export const roomTimeLimitMinutesSchema = z.number().int().min(1).max(180)

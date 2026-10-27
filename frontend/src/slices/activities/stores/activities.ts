@@ -121,6 +121,7 @@ export const useActivitiesStore = defineStore('activities', () => {
           activityType: activation.activity_type ?? null,
           startedByAgentId: activation.started_by_agent_id ?? null,
           startedByAgentName: activation.started_by_agent_name ?? null,
+          deadlineAt: activation.deadline_at ?? null,
         }
       : activation
     activationVersions[roomId] = (activationVersions[roomId] ?? 0) + 1

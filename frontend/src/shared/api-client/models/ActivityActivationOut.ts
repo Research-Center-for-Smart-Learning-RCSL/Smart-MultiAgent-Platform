@@ -8,11 +8,13 @@ export type ActivityActivationOut = {
     activity_type_id: string;
     chatroom_id: string;
     created_at: (string | null);
+    deadline_at?: (string | null);
     ended_at: (string | null);
     id: string;
     started_by_agent_id?: (string | null);
     started_by_agent_name?: (string | null);
     started_by_user_id: string;
     status: string;
+    time_limit_minutes?: (number | null);
 };
 

@@ -245,6 +245,13 @@ class OnJoinTrigger:
 ON_JOIN_COALESCE_SECONDS: Final = 60
 
 
+@dataclass(frozen=True, slots=True)
+class ClassStartTrigger:
+    """[R15.27]: wake once when the room's class starts. Designer-set only."""
+
+    enabled: bool = False
+
+
 # R28.07: trigger kinds that represent an explicit call the room's own
 # participants made -- a @mention or a creator's release-wake -- as opposed to
 # an autonomous every_n_messages/silence_minutes round. Single source so the
@@ -253,6 +260,12 @@ ON_JOIN_COALESCE_SECONDS: Final = 60
 # `autostop_limit_for` above for the identical anti-divergence reason.
 EXPLICIT_TRIGGERS: Final[frozenset[str]] = frozenset({"mention", "release"})
 
+# [R15.27], [R15.28]: wakes the platform raises from its own facts (the class
+# starting, a deadline, every connected participant having submitted). Unlike an
+# explicit call they still need a live binding, but like one they bypass autostop
+# and are not counted: each fires at most once per class or activation.
+PLATFORM_TRIGGERS: Final[frozenset[str]] = frozenset({"class_start", "activity_deadline", "all_submitted"})
+
 
 @dataclass(frozen=True, slots=True)
 class WakeupTriggers:
@@ -260,6 +273,7 @@ class WakeupTriggers:
     silence_minutes: SilenceMinutesTrigger = field(default_factory=SilenceMinutesTrigger)
     call_only: CallOnlyTrigger = field(default_factory=CallOnlyTrigger)
     on_join: OnJoinTrigger = field(default_factory=OnJoinTrigger)
+    class_start: ClassStartTrigger = field(default_factory=ClassStartTrigger)
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +293,7 @@ class WakeupConfig:
         sm = _tolerant_dict(triggers_raw.get("silence_minutes"))
         co = _tolerant_dict(triggers_raw.get("call_only"))
         oj = _tolerant_dict(triggers_raw.get("on_join"))
+        cs = _tolerant_dict(triggers_raw.get("class_start"))
         soft_raw = raw.get("soft_bounds")
         soft_bounds = (
             WakeupSoftBounds(
@@ -328,6 +343,7 @@ class WakeupConfig:
                     enabled=_tolerant_bool(co.get("enabled", False)),
                 ),
                 on_join=OnJoinTrigger(enabled=_tolerant_bool(oj.get("enabled", False))),
+                class_start=ClassStartTrigger(enabled=_tolerant_bool(cs.get("enabled", False))),
             ),
             allow_self_open=_tolerant_bool(raw.get("allow_self_open", False)),
             refresh_every_hours=_default_below_one(
@@ -359,6 +375,9 @@ class WakeupConfig:
                 "on_join": {
                     "enabled": self.triggers.on_join.enabled,
                 },
+                "class_start": {
+                    "enabled": self.triggers.class_start.enabled,
+                },
             },
             "allow_self_open": self.allow_self_open,
             "refresh_every_hours": self.refresh_every_hours,
@@ -384,6 +403,7 @@ class WakeupConfig:
             and not self.triggers.silence_minutes.enabled
             and not self.triggers.call_only.enabled
             and not self.triggers.on_join.enabled
+            and not self.triggers.class_start.enabled
         )
 
 

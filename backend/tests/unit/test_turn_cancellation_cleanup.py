@@ -234,6 +234,11 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
 
         monkeypatch.setattr(te, "_pop_queued_trigger", _pop)
 
+        async def _no_notice(aid: uuid.UUID, rid: uuid.UUID) -> None:
+            return None
+
+        monkeypatch.setattr(te, "_pop_notice", _no_notice)
+
         async def _enqueue(*args: Any) -> None:
             enqueued.append(args)
 
@@ -260,7 +265,8 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
         )
 
         assert popped == [(agent_id, room)]
-        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None, None)]
+        # The trailing None is the platform notice slot, empty for a message trigger.
+        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "mention", None, None, None)]
 
     async def test_the_follow_up_names_the_binding_the_turn_ran_for(
         self, monkeypatch: pytest.MonkeyPatch
@@ -274,7 +280,9 @@ class TestCancelledTurnDrainsItsQueuedTrigger:
             binding_id=binding,
         )
 
-        assert enqueued == [("wakeup_agent", str(agent_id), str(room), "silence_minutes", None, str(binding))]
+        assert enqueued == [
+            ("wakeup_agent", str(agent_id), str(room), "silence_minutes", None, str(binding), None)
+        ]
 
     async def test_nothing_parked_enqueues_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         popped, enqueued, agent_id, room = await self._run(

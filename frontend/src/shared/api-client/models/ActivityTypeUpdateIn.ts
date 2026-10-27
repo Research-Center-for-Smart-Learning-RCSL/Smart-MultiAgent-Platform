@@ -9,6 +9,7 @@ import type { ValidatorKind } from './ValidatorKind';
  * so the service diffs this against the stored row to decide the version bump.
  */
 export type ActivityTypeUpdateIn = {
+    default_time_limit_minutes?: (number | null);
     echo_includes_content?: boolean;
     expose_payload_to_agent?: boolean;
     group_config?: (Record<string, any> | null);

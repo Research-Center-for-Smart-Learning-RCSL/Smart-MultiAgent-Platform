@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-27
 requirements: [R13.73, R15.02, R15.03, R15.05, R15.26, R30.21, R30.22, R30.37, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence]
@@ -434,18 +434,18 @@ nothing else reads them. Restoring the previous pack text restores phase 2 behav
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: With class start enabled (minimum 3, maximum wait 2 minutes), the third connected student other than the creator triggers exactly one `class_start` wake for each teacher binding with the trigger on; a fourth arrival, a reconnect, or the creator's arrival triggers none. With only one student connected, the wake fires within 2 minutes 30 seconds of that student's arrival. A reset allows one more.
-- [ ] AC-2: A `class_start` wake in a room with no messages produces a TA turn (not `skipped/no_input`) whose input carries the count-only notice, and the wake bypasses autostop and is not counted by `every_n_messages`.
-- [ ] AC-3: Starting an activity resolves its limit from the room override, then the type default, then none, and stores `time_limit_minutes` and `deadline_at`; changing either setting afterwards does not move the running deadline; editing the type default does not bump the type version.
-- [ ] AC-4: An active activation past its deadline yields exactly one `activity_deadline` wake for the bindings whose grant covers its type, within 30 seconds of the deadline, across a worker restart; an activation ended before its deadline yields none; a room with no granted binding yields none.
-- [ ] AC-5: In an individual activity, the valid submission that leaves no connected non-creator participant without a valid submission yields exactly one `all_submitted` wake; an invalid submission, a re-submission, unavailable presence, an empty connected set, or a group activity yields none.
-- [ ] AC-6: `[Activity state]` for an active activation shows elapsed minutes, the time limit or "no time limit", remaining minutes, and for an individual activity "N of M connected participants (room creator excluded) have a valid submission", or states the count is unavailable; the preamble states the count is not attendance. Bounds and the unavailable rendering are unchanged.
-- [ ] AC-7: The class-start and time-limit routes refuse non-creators (403) and non-members (404), validate bounds and project membership of type ids, and emit their audit events; `gen:api` is rerun and the frontend types match.
+- [x] AC-1: With class start enabled (minimum 3, maximum wait 2 minutes), the third connected student other than the creator triggers exactly one `class_start` wake for each teacher binding with the trigger on; a fourth arrival, a reconnect, or the creator's arrival triggers none. With only one student connected, the wake fires within 2 minutes 30 seconds of that student's arrival. A reset allows one more.
+- [x] AC-2: A `class_start` wake in a room with no messages produces a TA turn (not `skipped/no_input`) whose input carries the count-only notice, and the wake bypasses autostop and is not counted by `every_n_messages`.
+- [x] AC-3: Starting an activity resolves its limit from the room override, then the type default, then none, and stores `time_limit_minutes` and `deadline_at`; changing either setting afterwards does not move the running deadline; editing the type default does not bump the type version.
+- [x] AC-4: An active activation past its deadline yields exactly one `activity_deadline` wake for the bindings whose grant covers its type, within 30 seconds of the deadline, across a worker restart; an activation ended before its deadline yields none; a room with no granted binding yields none.
+- [x] AC-5: In an individual activity, the valid submission that leaves no connected non-creator participant without a valid submission yields exactly one `all_submitted` wake; an invalid submission, a re-submission, unavailable presence, an empty connected set, or a group activity yields none.
+- [x] AC-6: `[Activity state]` for an active activation shows elapsed minutes, the time limit or "no time limit", remaining minutes, and for an individual activity "N of M connected participants (room creator excluded) have a valid submission", or states the count is unavailable; the preamble states the count is not attendance. Bounds and the unavailable rendering are unchanged.
+- [x] AC-7: The class-start and time-limit routes refuse non-creators (403) and non-members (404), validate bounds and project membership of type ids, and emit their audit events; `gen:api` is rerun and the frontend types match.
 - [ ] AC-8: Room settings show and edit class start (including reset) and per-type time limits; the type editor shows the default; the participant and facilitator panels show the remaining time when a deadline exists. Strings in every locale; view tests cover each new state.
-- [ ] AC-9: The three teacher prompts contain no step that waits for the creator except the no-grant start fallback and the override sentence; each opens on `class_start`, ends work on `activity_deadline` or `all_submitted`, advances rounds by rule until the bank is exhausted, then summarizes, ends any running activity and closes. Pack tests pin these rules and keep the ban on unbacked completion or timing promises.
-- [ ] AC-10: The CRAT teacher judges a differing answer per Q-7 and names the failing word when it rejects; pack tests pin the wording; a present creator's ruling overrides it.
+- [x] AC-9: The three teacher prompts contain no step that waits for the creator except the no-grant start fallback and the override sentence; each opens on `class_start`, ends work on `activity_deadline` or `all_submitted`, advances rounds by rule until the bank is exhausted, then summarizes, ends any running activity and closes. Pack tests pin these rules and keep the ban on unbacked completion or timing promises.
+- [x] AC-10: The CRAT teacher judges a differing answer per Q-7 and names the failing word when it rejects; pack tests pin the wording; a present creator's ruling overrides it.
 - [ ] AC-11: Live runs on staging, one per course, with the creator present but silent after setup: the class opens, every round of the bank runs, the class closes, and no creator message or panel action occurs. The character or object run covers both the deadline path (a connected non-submitter) and the completion path. One run includes a creator override mid-round and TA follows it.
-- [ ] AC-12: The adoption guide describes the setup checklist and the platform facts, and no longer says the creator's 「時間到」 is required.
+- [x] AC-12: The adoption guide describes the setup checklist and the platform facts, and no longer says the creator's 「時間到」 is required.
 
 ## 12. Test Plan
 
@@ -499,6 +499,139 @@ Replace [R30.44]:
 
 Appended by /build. Empty means the implementation matches this spec exactly.
 
+- **D-1. Built before phase 2 closed (requester's decision, 2026-10-27).** `depends_on` names
+  phase 2, which was still gathering AC-14 and AC-21 live evidence. The requester chose to build
+  everything now, including the three teacher prompt rewrites, on `feat/crat-facilitation-phase4`
+  cut from `test/sim-ac21-scenarios` at `ca6176f0`. Until phase 2 closes, this branch is not merged
+  to `main` or deployed, and its pack prompts are not synced to the staging agents used for phase
+  2 runs. Phase 2 prompt fixes that land later are rebased in. AC-11 needs a staging deploy, so it
+  waits for phase 2 to close.
+- **D-2. Platform wakes are their own trigger set, not `EXPLICIT_TRIGGERS`.** §6 put the three new
+  reasons into `EXPLICIT_TRIGGERS` (`backend/contexts/orchestration/domain/models.py:254`). That set
+  means "an explicit call the room's own participants made" and also bypasses the worker's
+  binding-state gates (`backend/app/workers/tasks/orchestration.py:115-119`). The build adds
+  `PLATFORM_TRIGGERS` instead. Like an explicit call, a platform wake bypasses autostop and is not
+  counted. Unlike one, it still requires a live binding with the trigger in force. Approved by the
+  requester with the plan.
+- **D-3. OQ-1 and OQ-2 answered from the code.** Only the chatroom socket joins room presence
+  (`backend/app/api/ws/chatroom.py:325`), so a canvas-only socket is not in the connected count. A
+  guest connects through the same socket under its guest-session principal and reaches
+  `_notify_presence` and `_check_class_start` (`:338`, `:83`) exactly as a registered student
+  does, so guests count toward class start and toward the submission count.
+- **D-4. Non-members get 403, not 404 (AC-7).** The new routes reuse `resolve_room_access`, then
+  `ensure_can_read`, then `ensure_room_creator` (`backend/app/api/v1/class_flow.py:81-86`), the
+  sequence the grant and wake-up routes already use. A caller who cannot read the room gets
+  `ForbiddenInRoom` (403) and a missing room 404, rather than AC-7's 404 for non-members. Keeping
+  the sibling routes' semantics avoids one room's settings answering differently from the rest.
+- **D-5. Prompt backstop keyed on the renderer's own wording.** The prompts' deadline backstop
+  first quoted 「還剩 0 分鐘」, which `[Activity state]` never prints: remaining minutes round up,
+  and a passed deadline renders as "the time limit has been reached". The prompts quote that
+  sentence instead, and `test_the_quoted_platform_wording_is_what_the_platform_emits` pins every
+  platform sentence the prompts quote to the code that emits it.
+- **D-6. Where the activity facts live.** The deadline and completion claims sit in
+  `contexts/activities/application/platform_events.py` (the activities context owns activations
+  and submissions); orchestration only resolves which bindings to wake; the post-commit enqueue
+  is in `app/wiring/platform_wakes.py`, so neither the worker nor a context imports an API module.
+  `is_individual_only` moved to the domain module `group_consent` so the context provider can use
+  it without importing the application layer.
+- **D-7. Activity wakes skip observer and `call_only` bindings.** [R15.28] names every binding
+  whose grant allowlists the type. The build also skips observers, which never take room turns,
+  and `call_only` bindings, which by definition wake only when called
+  (`backend/contexts/orchestration/application/wakeup_service.py:456`). Granting activity control
+  to such a binding remains possible; it simply receives no deadline or completion wake.
+- **D-8. Platform course types cannot have their default edited.** Only the project type route
+  takes `default_time_limit_minutes` (`backend/app/api/v1/activities.py:682-686`); the admin edit
+  of a platform type leaves it untouched, and re-installing a course never rewrites an existing
+  type. A project that installed the Chinese-character course before this revision therefore has
+  no default limit until each room creator sets one; the adoption guide says so. FU-6 tracks the
+  admin edit.
+- **D-9. The CRAT scenario has no deadline path.** §6 asks each scenario to keep one connected
+  non-submitter for the deadline path. CRAT runs one group activation across all eight rounds
+  (FU-2), and a limit would end every remaining round at once, so `crat-autonomous` keeps no limit
+  and covers the opening, judging (including a wrong answer TA rejects itself) and the close.
+  The deadline and completion paths are covered by `charbuild-autonomous` (deadline in round 1,
+  completion after) and `objreinterp-autonomous` (deadline, a creator override in round 3, and a
+  student who leaves in round 4). The simulator gained `room.classStart` and `room.timeLimits`
+  to configure this before anyone connects.
+- **D-10. OQ-3 defaults are 3 students and 5 minutes.** The class-start card pre-fills a room
+  never configured with a minimum of 3 and a maximum wait of 5 minutes, rather than the proposed
+  2 and 3: a class of two is rarely the intended start, and five minutes covers a late corridor.
+  Both are only pre-filled values; nothing is stored until the creator saves.
+- **D-11. The live activation start carries the deadline.** §6 named only the active-activation
+  read. A round started live, which in an autonomous class is every round, would have shown no
+  countdown until a reload, so `activity.activation.started` also carries `time_limit_minutes`
+  and `deadline_at` (`backend/contexts/activities/interfaces/broadcast.py`). Every room reader,
+  guests included, already gets both from the active-activation read.
+- **D-12. A platform wake's notice survives coalescing.** The quality gate found that a
+  platform wake landing while the agent's turn lock is held was parked as a bare trigger, and the
+  trigger key is first-wins, so a class-start wake behind a parked message lost its notice (and,
+  in an empty room, its whole turn to `no_input`). The notice is now parked in its own key before
+  the mark, handed to the follow-up by the drain, and cleared by every drain
+  (`backend/contexts/agents/application/runtime/turn_engine.py`, `_park_notice`, `_pop_notice`).
+  This retires the risk first noted as FU-7.
+- **D-13. A switched-off room leaves the class-start sweep.** `_armed()` also requires the
+  stored `enabled` flag, so a room switched off after its first arrival is neither swept nor
+  claimed; the added condition still implies the 0106 partial index predicate.
+
+The entries D-14 to D-20 come from a code review of the whole task diff after the gates
+above. The user chose to verify and fix all ten of its findings.
+
+- **D-14. A platform wake is not counted toward autostop.** [R15.27] and [R15.28] say the
+  platform wakes bypass autostop and do not reset it, but a completed platform turn still bumped
+  the consecutive agent-only round count. In a class whose students work through activities
+  rather than chat, a few rounds tripped the cap, and the agent's own message and silence wakes
+  were then skipped for the rest of the class. `wakeup_agent` now counts a round only for a
+  non-platform trigger (`backend/app/workers/tasks/orchestration.py`). A mention still counts,
+  as before. `REQUIREMENTS.md` [R15.27] and [R15.28] now state that these wakes do not count as
+  autostop rounds.
+- **D-15. A coalesced platform notice names its follow-up turn.** D-12 kept the notice but let
+  the follow-up run under whichever trigger won the first-wins mark. Under a parked message
+  trigger that job faced the message trigger's gates (turned off, autostop, already covered) and
+  could drop the notice. The parked notice now carries its own trigger, and when one is present
+  the drain and the lock retry run the follow-up as that platform wake. The drained job carries
+  no message id, so an id another turn has since answered cannot skip it as covered.
+- **D-16. The class-start wait starts at the first check that sees a student.** The wait used
+  to start only on a new connection to an armed room, so enabling class start or resetting it
+  while students were already connected left the max-wait path unable to fire. The setting
+  route now runs the class-start check after it commits whenever the room is armed, which also
+  opens the class at once when enough students are present, and the check records the first
+  arrival whenever it sees a student connected and none is recorded. The check stays
+  best-effort: the setting is saved even if it fails.
+- **D-17. A room everyone left stops waiting.** A room whose students all left before the class
+  started stayed in the oldest-first sweep with its old first arrival. Enough of them would have
+  filled the 200-room batch, and a newer room would never have opened on the max wait. The check
+  now clears the first arrival when nobody but the creator is connected, so the room leaves the
+  sweep and its wait restarts with the next student (`ClassStartRepository.clear_first_arrival`).
+- **D-18. A departure re-checks the all-submitted fact.** Completion is defined over the
+  connected set, but it was checked only after a valid submission. If the last student without a
+  submission left, the round never completed and, with no time limit, never moved on. A
+  principal's last connection closing now runs the same check in its own session. This widens
+  [R15.28]'s trigger from "a valid submission" to "a valid submission or a departure", and
+  `REQUIREMENTS.md` says so; the fact itself and its once-per-activation claim are unchanged.
+- **D-19. A claimed completion skips the progress read.** The activation now carries
+  `completion_notified_at`, and `claim_if_complete` returns before the presence read and the
+  submitter scan once it is set, instead of repeating both on every later resubmission.
+- **D-20. Shared rules and bounds have one home.** The individual-only test moved to
+  `is_individual_type` in `activities/domain/group_consent.py`, used by the facade, the platform
+  events and the context provider. The presence bound for a headcount is
+  `HEADCOUNT_PRESENCE_LIMIT` in the conversation facade. The route bounds for class start and
+  time limits, including the two activity type routes, read the domain ranges. The worker's
+  all-submitted call and the departure check share `check_all_submitted`, which opens its own
+  session; the worker's outer `try` it replaced was not redundant, since it also covered a
+  session that failed to open.
+- **D-21. Two phase 2 findings fixed after the rebase onto phase 2's merge (2026-10-27).** Phase
+  2 closed on PR #283 and this branch was rebased onto it without conflict. Its D-27 and D-29
+  found that the object teacher's two panel-ended branches jump to `<步驟E2>` without wake-up
+  restore b). Since `<步驟B2>` turns silence off, a teacher that saw the panel end then stayed
+  silent for nine minutes. With no creator to move the class on, that stalls the class, so both
+  branches now restore the cadence in the same turn, as the character teacher's already did.
+  Phase 2's FU-17 found that the character teacher's A2 described the worksheet before any
+  activity ran, against its own `[Activity state]` rule. A2 now explains only how to answer, and
+  the worksheet's ten slots and minimum move into the B2 announcement, which follows the
+  activation. Pinned by `test_a_panel_ended_round_restores_the_cadence` and
+  `test_the_character_rules_do_not_describe_a_form_before_it_exists`; both failed before the
+  prompt edits.
+
 ## 16. Follow-ups
 
 - FU-1: One-click course rooms that bind the pack's agents, request the grant and apply class start and time limits in one creator action.
@@ -506,3 +639,8 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-3: A server-side round counter or bank progress, so a reinstalled or restarted TA does not depend on the transcript to know the round.
 - FU-4: Exclude admin-bypass visitors from arrivals and the class-start count (phase 3 FU-9).
 - FU-5: A platform fallback that ends an activity some minutes after its deadline if TA did not (the option declined at Q-5), should live runs show missed deadline wakes.
+- FU-6: An admin edit of a platform activity type's default time limit, and a way for a course re-install to offer the shipped default to an existing type (D-8).
+- FU-7: Resolved in the build (D-12).
+- FU-8 (security gate, MEDIUM, plausible): platform wakes bypass autostop, and a granted TA can start the next activation inside a deadline turn, so with nobody connected a short limit could chain turns until the bank runs out; only the per-room turn rate bucket and the prompt bound it. Cap agent-started activations per class, or skip the deadline wake when no human is connected.
+- FU-9 (security hardening): the workers check the room but not its workspace or project before a deadline wake, so an activation left running under a soft-deleted project can produce one wake (the silence sweep shares the gap); class start may be reached early with several guest sessions; the time-limit PUT resolves up to 200 type ids one by one.
+- FU-10 (quality gate, Info): time-limit and class-start bounds are repeated as literals across routes, domain constants, the frontend and locale copy; `is_individual` exists twice; `ActivationService` takes the concrete `RoomTimeLimitRepository` rather than a port; the class-flow write-and-audit lives in the facades; `class_flow.py` imports the private `_assert_activity_types_in_project` from `chatrooms.py`; `SInput` turns a cleared number field into 0, so the type editor shows "0" after clearing (pre-existing for retention too).

@@ -6,6 +6,7 @@ import type { ActivityTypeScope } from './ActivityTypeScope';
 import type { ValidatorKind } from './ValidatorKind';
 export type ActivityTypeOut = {
     created_at: (string | null);
+    default_time_limit_minutes?: (number | null);
     echo_includes_content: boolean;
     expose_payload_to_agent: boolean;
     group_config?: (Record<string, any> | null);

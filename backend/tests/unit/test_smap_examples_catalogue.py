@@ -60,6 +60,7 @@ MANDALA: dict[str, Any] = {
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
     "group_config": None,
+    "default_time_limit_minutes": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -103,6 +104,7 @@ NEXT_STEPS: dict[str, Any] = {
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
     "group_config": None,
+    "default_time_limit_minutes": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -126,6 +128,7 @@ THREE_EMOTIONS: dict[str, Any] = {
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
     "group_config": None,
+    "default_time_limit_minutes": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -154,6 +157,7 @@ SIX_HATS: dict[str, Any] = {
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
     "group_config": None,
+    "default_time_limit_minutes": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -194,6 +198,7 @@ SHARED_CASE: dict[str, Any] = {
     "expose_payload_to_agent": True,
     "echo_includes_content": False,
     "group_config": {"consent": {"numerator": 2, "denominator": 3}},
+    "default_time_limit_minutes": None,
     "payload_schema": {
         "type": "object",
         "properties": {
@@ -601,3 +606,22 @@ class TestLoaderRejectsAMalformedCourse:
     def test_a_key_that_could_escape_the_catalogue_directory(self, tmp_path: Path, course_key: str) -> None:
         with pytest.raises(CourseFileInvalid, match="not a valid course key"):
             load_course(course_key, root=tmp_path)
+
+
+class TestShippedTimeLimits:
+    """Phase 4 ([R30.46]): the individual tasks ship a 5-minute default, CRAT none."""
+
+    def test_the_course_ships_its_defaults(self) -> None:
+        course = load_course("chinese-character-creativity")
+        limits = {t.key: t.default_time_limit_minutes for t in course.activity_types}
+
+        assert limits == {"crat-word-puzzle": None, "character-building": 5, "object-reinterpretation": 5}
+
+    @pytest.mark.parametrize("bad", [0, 181, True, "5", 2.5])
+    def test_an_out_of_range_default_fails_the_load(self, tmp_path: Path, bad: object) -> None:
+        document = _course_document()
+        document["activity_types"][0]["default_time_limit_minutes"] = bad
+        _write_course(tmp_path, document)
+
+        with pytest.raises(CourseFileInvalid, match="default_time_limit_minutes"):
+            load_course("fixture-course", root=tmp_path)
