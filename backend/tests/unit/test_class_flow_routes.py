@@ -160,6 +160,17 @@ class TestClassStart:
         assert (out.min_participants, out.max_wait_minutes, out.started_at) == (3, 5, None)
         assert db.commits == 1
 
+    def test_patched_fills_from_the_base_and_needs_every_field_without_one(self) -> None:
+        base = ClassStartConfig(enabled=False, min_participants=3, max_wait_minutes=2)
+
+        assert ClassStartConfig.patched(base, enabled=True, min_participants=None, max_wait_minutes=None) == (
+            ClassStartConfig(enabled=True, min_participants=3, max_wait_minutes=2)
+        )
+        assert ClassStartConfig.patched(None, enabled=True, min_participants=3, max_wait_minutes=None) is None
+        assert ClassStartConfig.patched(None, enabled=False, min_participants=1, max_wait_minutes=1) == (
+            ClassStartConfig(enabled=False, min_participants=1, max_wait_minutes=1)
+        )
+
     @pytest.mark.parametrize(
         "body",
         [

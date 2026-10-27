@@ -343,6 +343,26 @@ class ClassStartConfig:
             "max_wait_minutes": self.max_wait_minutes,
         }
 
+    @classmethod
+    def patched(
+        cls,
+        base: ClassStartConfig | None,
+        *,
+        enabled: bool | None,
+        min_participants: int | None,
+        max_wait_minutes: int | None,
+    ) -> ClassStartConfig | None:
+        """``base`` with each given field replaced; ``None`` when a field is still missing,
+        which is only possible for a room never configured."""
+        merged_enabled = enabled if enabled is not None else (base.enabled if base else None)
+        minimum = (
+            min_participants if min_participants is not None else (base.min_participants if base else None)
+        )
+        wait = max_wait_minutes if max_wait_minutes is not None else (base.max_wait_minutes if base else None)
+        if merged_enabled is None or minimum is None or wait is None:
+            return None
+        return cls(enabled=merged_enabled, min_participants=minimum, max_wait_minutes=wait)
+
 
 @dataclass(frozen=True, slots=True)
 class ClassStartState:

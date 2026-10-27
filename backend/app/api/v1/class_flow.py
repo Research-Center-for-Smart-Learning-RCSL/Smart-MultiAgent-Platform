@@ -79,7 +79,7 @@ def _class_start_out(state: ClassStartState) -> ClassStartOut:
 
 
 async def _creator_access(db: AsyncSession, principal: Principal, chatroom_id: uuid.UUID) -> RoomAccess:
-    """404 for a caller who cannot read the room, then 403 for a reader who is not its creator."""
+    """403 for a caller who cannot read the room or is not its creator; 404 for a missing room (D-4)."""
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     ensure_room_creator(access, principal=principal)
@@ -112,26 +112,20 @@ async def patch_class_start(
     current = await facade.class_start_state(chatroom_id)
     if current is None:
         raise HTTPException(status_code=404, detail="chatroom not found")
-    base = current.config
-    enabled = body.enabled if body.enabled is not None else (base.enabled if base else None)
-    minimum = (
-        body.min_participants
-        if body.min_participants is not None
-        else (base.min_participants if base else None)
+    config = ClassStartConfig.patched(
+        current.config,
+        enabled=body.enabled,
+        min_participants=body.min_participants,
+        max_wait_minutes=body.max_wait_minutes,
     )
-    wait = (
-        body.max_wait_minutes
-        if body.max_wait_minutes is not None
-        else (base.max_wait_minutes if base else None)
-    )
-    if enabled is None or minimum is None or wait is None:
+    if config is None:
         raise HTTPException(
             status_code=422,
             detail="enabled, min_participants and max_wait_minutes are required the first time",
         )
     state = await facade.write_class_start(
         chatroom_id,
-        config=ClassStartConfig(enabled=enabled, min_participants=minimum, max_wait_minutes=wait),
+        config=config,
         reset=body.reset,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
