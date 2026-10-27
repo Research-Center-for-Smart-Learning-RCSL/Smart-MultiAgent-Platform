@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-10-27
 requirements: [R13.73, R15.02, R15.03, R15.05, R15.26, R30.21, R30.22, R30.37, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence]

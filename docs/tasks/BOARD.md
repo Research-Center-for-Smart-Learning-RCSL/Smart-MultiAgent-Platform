@@ -593,7 +593,7 @@ rows are added as each is written.
 
 ### Classroom facilitation phase 4 (2026-10-27)
 
-- `2026-10-27-crat-facilitation-phase4-autonomous-teacher` (feature, **draft**, SRS delta drafted:
+- `2026-10-27-crat-facilitation-phase4-autonomous-teacher` (feature, **approved 2026-10-27**, SRS delta applied:
   [R15.26] amended, [R15.27], [R15.28], [R30.46] added, [R30.44] replaced) - waiting on
   `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (its Q-10: same three teacher
   prompts, and this dossier replaces phase 2's creator-confirmation contract). The Teacher Agent
