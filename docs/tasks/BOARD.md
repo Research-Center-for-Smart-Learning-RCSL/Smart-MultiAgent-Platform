@@ -591,6 +591,18 @@ rows are added as each is written.
 
 ## Blocked
 
+### Classroom facilitation phase 4 (2026-10-27)
+
+- `2026-10-27-crat-facilitation-phase4-autonomous-teacher` (feature, **draft**, SRS delta drafted:
+  [R15.26] amended, [R15.27], [R15.28], [R30.46] added, [R30.44] replaced) - waiting on
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (its Q-10: same three teacher
+  prompts, and this dossier replaces phase 2's creator-confirmation contract). The Teacher Agent
+  runs the class with no creator message or panel action: a once-per-class `class_start` wake on
+  arrivals, activity time limits (type default, room override) with a persisted deadline claimed by
+  the 30-second sweep, a platform `all_submitted` wake for individual activities, elapsed/remaining
+  time and a connected-submitted count in `[Activity state]`, and a rewrite of all three teacher
+  prompts to rule-based transitions with the creator as override. Migration 0106.
+
 ### Classroom facilitation phase 3 (2026-10-20)
 
 - (moved to In progress on 2026-10-24, by the requester's decision recorded as the dossier's D-1)
