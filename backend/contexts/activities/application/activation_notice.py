@@ -25,7 +25,7 @@ EVENT_ENDED: Final = "ended"
 _NAME_MAX = 120
 
 
-def _display_name(activity_type: ActivityType | None) -> str | None:
+def display_name(activity_type: ActivityType | None) -> str | None:
     if activity_type is None:
         return None
     name = " ".join(activity_type.name.replace('"', "").split())[:_NAME_MAX]
@@ -34,7 +34,7 @@ def _display_name(activity_type: ActivityType | None) -> str | None:
 
 def notice_text(activity_type: ActivityType | None, event: str) -> str:
     """The canonical English sentence agents and exports read; clients localise."""
-    name = _display_name(activity_type)
+    name = display_name(activity_type)
     if name is None:
         return f"An activity {event}."
     return f'Activity "{name}" {event}.'
@@ -57,7 +57,7 @@ class ConversationActivationNotices:
         metadata: dict[str, object] = {"event": event, "activation_id": str(activation_id)}
         if activity_type is not None:
             metadata["activity_type_key"] = activity_type.key
-        name = _display_name(activity_type)
+        name = display_name(activity_type)
         if name is not None:
             metadata["activity_type_name"] = name
         message = await ConversationFacade(self._db).insert_system_message(
@@ -74,5 +74,6 @@ __all__ = [
     "EVENT_STARTED",
     "MESSAGE_TYPE",
     "ConversationActivationNotices",
+    "display_name",
     "notice_text",
 ]

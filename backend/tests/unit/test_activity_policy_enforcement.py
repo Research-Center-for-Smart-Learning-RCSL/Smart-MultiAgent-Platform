@@ -183,6 +183,7 @@ class TestActivationGate:
         type_repo.get = AsyncMock(return_value=activity_type)
         svc = ActivationService(
             MagicMock(),
+            time_limits=MagicMock(for_room=AsyncMock(return_value={})),
             activation_repo=activation_repo,
             type_repo=type_repo,
             optin_repo=MagicMock(exists=AsyncMock(return_value=opted_in)),

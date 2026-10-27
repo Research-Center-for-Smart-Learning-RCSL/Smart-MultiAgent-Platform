@@ -691,6 +691,31 @@ class ActivitySubmissionRepository:
             for r in rows
         ]
 
+    async def valid_individual_subjects(self, *, activation_id: uuid.UUID) -> set[uuid.UUID]:
+        """People (user or guest ids) holding a valid submission in one round ([R15.28]).
+
+        Individual sessions only: a group row says nothing about which members
+        wrote it.
+        """
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        rows = (
+            await self._db.execute(
+                sa.select(_SESS.c.subject_user_id)
+                .select_from(joined)
+                .where(
+                    sa.and_(
+                        _SESS.c.activation_id == activation_id,
+                        _SESS.c.subject_member_group_id.is_(None),
+                        _SESS.c.subject_user_id.is_not(None),
+                        _SUB.c.deleted_at.is_(None),
+                        _SUB.c.is_valid.is_(True),
+                    )
+                )
+                .distinct()
+            )
+        ).all()
+        return {r.subject_user_id for r in rows}
+
     async def round_subject_counts(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundSubjectCount]:
         """Valid-only per-subject counts for the requested activity rounds."""
         if not activation_ids:

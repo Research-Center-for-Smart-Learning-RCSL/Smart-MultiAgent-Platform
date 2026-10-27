@@ -36,6 +36,7 @@ _TYPE_COLS = (
     t.activity_types.c.echo_includes_content,
     t.activity_types.c.deleted_at,
     t.activity_types.c.group_config,
+    t.activity_types.c.default_time_limit_minutes,
 )
 
 
@@ -62,6 +63,7 @@ def _row_to_type(row: object) -> ActivityType:
             if row.group_config is not None  # type: ignore[attr-defined]
             else None
         ),
+        default_time_limit_minutes=row.default_time_limit_minutes,  # type: ignore[attr-defined]
     )
 
 

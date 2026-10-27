@@ -23,6 +23,8 @@ _ACTIVATION_COLS = (
     t.activity_activations.c.created_at,
     t.activity_activations.c.ended_at,
     t.activity_activations.c.started_by_agent_id,
+    t.activity_activations.c.time_limit_minutes,
+    t.activity_activations.c.deadline_at,
 )
 
 
@@ -36,6 +38,8 @@ def _row_to_activation(row: object) -> ActivityActivation:
         created_at=row.created_at,  # type: ignore[attr-defined]
         ended_at=row.ended_at,  # type: ignore[attr-defined]
         started_by_agent_id=row.started_by_agent_id,  # type: ignore[attr-defined]
+        time_limit_minutes=row.time_limit_minutes,  # type: ignore[attr-defined]
+        deadline_at=row.deadline_at,  # type: ignore[attr-defined]
     )
 
 
@@ -104,7 +108,15 @@ class ActivationRepository:
         activity_type_id: uuid.UUID,
         started_by_user_id: uuid.UUID,
         started_by_agent_id: uuid.UUID | None = None,
+        time_limit_minutes: int | None = None,
     ) -> uuid.UUID | None:
+        # The deadline is computed in SQL from the same now() that fills
+        # created_at, so the two cannot disagree by the round trip.
+        deadline = (
+            sa.func.now() + sa.func.make_interval(0, 0, 0, 0, 0, sa.literal(time_limit_minutes, sa.Integer))
+            if time_limit_minutes is not None
+            else None
+        )
         result = await self._db.execute(
             pg_insert(t.activity_activations)
             .values(
@@ -113,6 +125,8 @@ class ActivationRepository:
                 started_by_user_id=started_by_user_id,
                 started_by_agent_id=started_by_agent_id,
                 status=ActivationStatus.ACTIVE.value,
+                time_limit_minutes=time_limit_minutes,
+                deadline_at=deadline,
             )
             .on_conflict_do_nothing()
             .returning(t.activity_activations.c.id)
@@ -178,6 +192,58 @@ class ActivationRepository:
                 )
             )
             .values(status=ActivationStatus.ENDED.value, ended_at=now())
+        )
+        return bool(rowcount(result))
+
+    async def claim_due_deadlines(self, *, limit: int = 100) -> list[ActivityActivation]:
+        """Claim every active round whose deadline has passed and is unclaimed ([R15.28]).
+
+        The guarded UPDATE is the once-claim: of two concurrent sweeps, only one
+        sees a row with ``deadline_notified_at IS NULL``. A round ended before its
+        deadline is never returned, because the status guard excludes it.
+        """
+        due = (
+            sa.select(t.activity_activations.c.id)
+            .where(
+                sa.and_(
+                    t.activity_activations.c.status == ActivationStatus.ACTIVE.value,
+                    t.activity_activations.c.deadline_at.is_not(None),
+                    t.activity_activations.c.deadline_at <= sa.func.now(),
+                    t.activity_activations.c.deadline_notified_at.is_(None),
+                )
+            )
+            .order_by(t.activity_activations.c.deadline_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .scalar_subquery()
+        )
+        rows = (
+            await self._db.execute(
+                t.activity_activations.update()
+                .where(
+                    sa.and_(
+                        t.activity_activations.c.id.in_(due),
+                        t.activity_activations.c.deadline_notified_at.is_(None),
+                    )
+                )
+                .values(deadline_notified_at=sa.func.now())
+                .returning(*_ACTIVATION_COLS)
+            )
+        ).all()
+        return [_row_to_activation(r) for r in rows]
+
+    async def claim_completion(self, activation_id: uuid.UUID) -> bool:
+        """Claim the one all-submitted wake of an active round ([R15.28])."""
+        result = await self._db.execute(
+            t.activity_activations.update()
+            .where(
+                sa.and_(
+                    t.activity_activations.c.id == activation_id,
+                    t.activity_activations.c.status == ActivationStatus.ACTIVE.value,
+                    t.activity_activations.c.completion_notified_at.is_(None),
+                )
+            )
+            .values(completion_notified_at=sa.func.now())
         )
         return bool(rowcount(result))
 

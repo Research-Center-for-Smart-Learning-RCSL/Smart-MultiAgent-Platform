@@ -94,6 +94,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
             )
@@ -121,6 +122,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
             )
@@ -141,6 +143,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=_type(uuid.uuid4(), type_id))),
             )
@@ -165,6 +168,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -201,6 +205,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -234,6 +239,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -262,6 +268,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=MagicMock(close_open_for_activation=AsyncMock(return_value=0)),
@@ -288,6 +295,7 @@ class TestActivationService:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -334,6 +342,7 @@ class TestDelegatedActivation:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
             )
@@ -370,6 +379,7 @@ class TestDelegatedActivation:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=_type(project_id, type_id))),
             )
@@ -402,6 +412,7 @@ class TestDelegatedActivation:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -443,6 +454,7 @@ class TestDelegatedActivation:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=None)),
                 session_repo=closer,
@@ -475,6 +487,7 @@ class TestActivationNotices:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=activity_type)),
             )
@@ -507,6 +520,7 @@ class TestActivationNotices:
         svc = _wired(
             ActivationService(
                 MagicMock(),
+                time_limits=MagicMock(for_room=AsyncMock(return_value={})),
                 activation_repo=repo,
                 type_repo=MagicMock(get=AsyncMock(return_value=activity_type)),
                 session_repo=MagicMock(close_open_for_activation=AsyncMock(return_value=0)),

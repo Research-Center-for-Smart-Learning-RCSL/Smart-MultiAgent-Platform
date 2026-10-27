@@ -29,12 +29,14 @@ from contexts.activities.domain.models import (
     ActivityActivation,
     ActivityActivationEndResult,
     ActivityActivationStartResult,
+    ActivityType,
 )
 from contexts.activities.infrastructure.repositories.optin_repo import (
     ProjectActivityTypeOptInRepository,
 )
 from contexts.activities.infrastructure.repositories.proposal_repo import GroupProposalRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
+from contexts.activities.infrastructure.repositories.time_limit_repo import RoomTimeLimitRepository
 from shared_kernel import audit
 
 # What tells a delegated activation event apart from a facilitator's in the audit
@@ -69,6 +71,7 @@ class ActivationService:
         session_repo: ActivitySessionCloser | None = None,
         proposal_repo: GroupProposalExpirer | None = None,
         notices: ActivationNoticeWriter | None = None,
+        time_limits: RoomTimeLimitRepository | None = None,
     ) -> None:
         self._db = db
         self._repo = activation_repo
@@ -87,6 +90,7 @@ class ActivationService:
         self._proposal_repo: GroupProposalExpirer = proposal_repo or GroupProposalRepository(db)
         self._notices: ActivationNoticeWriter = notices or ConversationActivationNotices(db)
         self._policy = ActivityPolicyService(db)
+        self._time_limits = time_limits or RoomTimeLimitRepository(db)
 
     async def start(
         self,
@@ -127,6 +131,7 @@ class ActivationService:
             activity_type_id=activity_type_id,
             started_by_user_id=started_by_user_id,
             started_by_agent_id=started_by_agent_id,
+            time_limit_minutes=await self.resolve_time_limit(chatroom_id, activity_type),
         )
         if activation_id is None:
             active = await self._repo.get_active(chatroom_id)
@@ -233,6 +238,17 @@ class ActivationService:
 
     async def get_active(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
         return await self._repo.get_active(chatroom_id)
+
+    async def resolve_time_limit(self, chatroom_id: uuid.UUID, activity_type: ActivityType) -> int | None:
+        """The room's override for this type, else the type default, else none ([R30.46]).
+
+        A stored override of ``None`` means the room chose no limit, which is why
+        the presence of the key, not its value, decides whether the default applies.
+        """
+        overrides = await self._time_limits.for_room(chatroom_id)
+        if activity_type.id in overrides:
+            return overrides[activity_type.id]
+        return activity_type.default_time_limit_minutes
 
 
 __all__ = ["ActivationService"]
