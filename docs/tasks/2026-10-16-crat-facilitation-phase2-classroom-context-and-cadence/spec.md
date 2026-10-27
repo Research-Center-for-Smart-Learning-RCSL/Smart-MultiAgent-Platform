@@ -629,7 +629,7 @@ Cadence:
 
 Invitations and courses:
 
-- [ ] AC-14: Every teacher prompt carries the §6.2 invitation rules. Representative live
+- [x] AC-14: Every teacher prompt carries the §6.2 invitation rules. Representative live
   transcripts show invitations that are optional, aimed at one identifiable connected
   participant, absent during individual-work stages, rotated away from the last person
   invited, and never based on unknown, truncated or ambiguous identity. Pack text and the
@@ -655,7 +655,7 @@ Invitations and courses:
   non-speaker, same-name/guest identities, drafting, optional invitations and observer release.
   The 30-minute steady-discussion run records reply/wake counts and any rate-limit failures.
   D-22 to D-24 (rooms `97f917ca`, `b43f9794`, `82f59a53`); the SA item from phase 3's room `22078b95`.
-- [ ] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
+- [x] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
   stay in different phases without changing each other's cadence. Confirm quiet-work behavior,
   teacher-confirmed transitions, missing grants and teacher-ended activities.
 - [x] AC-23: Each room teacher ships its bank (CRAT 8, character building 6, object
@@ -1072,6 +1072,22 @@ are carried forward as release gates.
   the run's evidence does not show the tool calls, so this is not confirmed. The
   requester accepted this as a pass with the missing E2 recorded; phase 4 replaces the creator
   question with the teacher's own transition.
+- **D-28. Character run 6 passed all 32 steps; AC-14 and AC-21 closed, 2026-10-27 (room
+  `a82020af`).** The run used D-26's scenario and the unchanged v10 teacher. Times are on the run
+  clock. TA covered A1 with the AI-peer disclosure, A2, and B1 with K1 and a demo on 人、木 at 09:31,
+  revealing no reference character. Without a grant it asked the creator to start at 12:01 and
+  announced the work once, at 12:14, after the activation. No TA or SA message fell between that
+  announcement and the creator's 15:13 time-up. TA then announced time up without claiming to
+  close the form and opened D1 in the same message; the creator ended the activity from the panel.
+  In D1 TA invited 小遠, a connected participant who had submitted but not spoken, optionally
+  (「想分享再說就好」) at 21:50 and did not invite again, so `ed50c130`'s wording is observed. After
+  the creator's 進行下一輪 TA summarised (D2/D3) and posted K2 marked repeatable at 30:07. A2 again
+  described the form before any activation (FU-17).
+  With D-18's two-room cadence check, D-27's teacher-ended case and this run's missing-grant case,
+  every AC-21 clause is observed, and AC-21 is ticked. AC-14 is ticked on the invitations of D-24
+  (CRAT), D-25 and D-27 (object) and this run (character): each optional, aimed at one named
+  connected participant, outside individual work, never the creator, and not repeated to the
+  person last invited. AC-22 remains for the PR.
 
 ## 16. Follow-ups
 
