@@ -364,7 +364,9 @@ class TestAPlatformNoticeSurvivesCoalescing:
         assert (trigger, message_id) == ("class_start", None)
         assert fake.notices == {}
 
-    async def test_the_drain_keeps_an_ordinary_follow_up_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_the_drain_keeps_an_ordinary_follow_up_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake = _use(monkeypatch, _FakeRedis())
         agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         enqueued: list[tuple[Any, ...]] = []
