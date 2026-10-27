@@ -14,7 +14,7 @@ const FieldValue = z.union([z.string(), z.number(), z.boolean(), z.array(z.strin
 export const ConditionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message'),
-    /** An actor name, `agent`, `agent:<name>`, `human` or `anyone`. */
+    /** An actor name, `agent`, `agent:<name>`, `human`, `system` or `anyone` (which excludes system). */
     from: z.string().default('anyone'),
     /** A regular expression the message text must match. */
     match: z
@@ -30,6 +30,8 @@ export const ConditionSchema = z.discriminatedUnion('type', [
       .optional(),
     /** Only messages created after the step was armed count. */
     sinceArmed: z.boolean().default(true),
+    /** How many matching messages must exist; the second `ended` notice marks round 2's end. */
+    count: z.number().int().min(1).optional(),
   }),
   z.object({ type: z.literal('activation'), state: z.enum(['active', 'ended']) }),
   z.object({

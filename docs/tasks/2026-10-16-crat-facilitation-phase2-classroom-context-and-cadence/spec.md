@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-16
 requirements: [R13.33, R13.34, R13.72, R13.73, R15.01, R15.02, R15.03, R15.06, R15.06a, R15.07, R15.08, R15.09, R28.02, R28.05, R28.10, R28.12, R28.18, R30.15, R30.37, R30.38, R30.43, R32.04]
 depends_on: []
@@ -629,7 +629,7 @@ Cadence:
 
 Invitations and courses:
 
-- [ ] AC-14: Every teacher prompt carries the §6.2 invitation rules. Representative live
+- [x] AC-14: Every teacher prompt carries the §6.2 invitation rules. Representative live
   transcripts show invitations that are optional, aimed at one identifiable connected
   participant, absent during individual-work stages, rotated away from the last person
   invited, and never based on unknown, truncated or ambiguous identity. Pack text and the
@@ -655,7 +655,7 @@ Invitations and courses:
   non-speaker, same-name/guest identities, drafting, optional invitations and observer release.
   The 30-minute steady-discussion run records reply/wake counts and any rate-limit failures.
   D-22 to D-24 (rooms `97f917ca`, `b43f9794`, `82f59a53`); the SA item from phase 3's room `22078b95`.
-- [ ] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
+- [x] AC-21: Character and object live runs traverse every stage; two rooms sharing one teacher
   stay in different phases without changing each other's cadence. Confirm quiet-work behavior,
   teacher-confirmed transitions, missing grants and teacher-ended activities.
 - [x] AC-23: Each room teacher ships its bank (CRAT 8, character building 6, object
@@ -668,7 +668,7 @@ Invitations and courses:
   designer prompt carries them. The CRAT teacher confirms a matching submission itself,
   routes a differing target to the human teacher, and in a live run does not reveal the
   target or a full word before the group submits, including when a student asks for it.
-- [ ] AC-22: Required backend unit/DB/integration, lint/type checks, frontend tests/lint/typecheck/
+- [x] AC-22: Required backend unit/DB/integration, lint/type checks, frontend tests/lint/typecheck/
   build, OpenAPI drift, quality and conditional security gates pass for the final diff. The
   complete PR self-review records scope, evidence and merge decision. Live ACs remain open
   until actual observations are attached; `implemented` requires all selected ACs.
@@ -1041,6 +1041,69 @@ are carried forward as release gates.
   (「如果願意，可以說說」). After she answered, TA's next message at 09:09:39 said 「不用勉強補充」
   instead of inviting her again. AC-14 stays open, as the requester decided in D-23, until the
   AC-21 runs add the character and object teachers' invitations.
+- **D-25. AC-21 simulator runs of 2026-10-26.** Character run 4 (room `5360c3b1`) passed every
+  stage: TA opened D1 at 17:55 and posted K2 at 29:24, but invited nobody while 小遠 stayed silent.
+  Object run 2 (room `46855e0f`) carried two compliant invitations (小晴 at 21:14, 小遠 at 29:44).
+  Its D3 question came only after the creator's 進行下一輪, which the requester chose to record
+  without a prompt change. The teacher-ended case went unobserved because the scripted reactions
+  answered round 1's end notice; `61fdc664` added a `count` to the simulator's message condition so
+  they wait for the second `ended` notice. At the requester's choice the character teacher's D1
+  invitation wording was changed in `ed50c130` and synced to staging agent `5b2e0645` (v10).
+- **D-26. Character run 5, 2026-10-27, failed on pace (room `5a043b0a`).** TA split A2 over two
+  messages (04:27 and 07:04), posted B1 at 09:33 on a silence wake and asked the creator to start
+  the activity at 12:02. The ask was compliant: TA neither started the work nor announced it. The
+  simulator's start step waited only until 10:00, so the activity never started and every later
+  form step failed; D1 was never reached and `ed50c130` is still unobserved. Off-script, TA
+  repeated 「好，時間到！大家辛苦了。」 on three student messages after the creator's time-up with no
+  activity running. At the requester's choice the scenario now waits up to ten minutes for the ask
+  and opens the form only once the activation is active; the prompt is unchanged.
+- **D-27. Object run 3, 2026-10-27, passed all 33 steps (room `3d5b9bca`).** Times are on the
+  run clock. The work stayed quiet from the form announcement to the creator's 13:00 end of
+  ideation, and the C2 reminder followed it while the activity ran. TA asked the creator about
+  ending the round at 21:04, before the creator's scripted confirmation, and called `end_activity`
+  in the confirming turn (ended 21:09), so D-25's late D3 did not recur. Its one invitation went to
+  小遠 at 21:13, after the activity ended, and was not repeated. A reference use (臨時掛勾) was
+  cited only after a student had shared it. The teacher-ended case was observed for the first time:
+  the creator ended round 2 from the panel at 32:31, five seconds after TA started it, and TA
+  replied at 32:44 that the round had ended and the form could no longer be submitted, without
+  asking anyone to submit. It did not go on to E2 (asking about the next round) and stayed silent
+  until the class closed. No silence wake fired in those nine minutes, which is consistent with the
+  B2 announcement at 32:30 having switched silence off and no wake-up restore after the panel end;
+  the run's evidence does not show the tool calls, so this is not confirmed. The
+  requester accepted this as a pass with the missing E2 recorded; phase 4 replaces the creator
+  question with the teacher's own transition.
+- **D-28. Character run 6 passed all 32 steps; AC-14 and AC-21 closed, 2026-10-27 (room
+  `a82020af`).** The run used D-26's scenario and the unchanged v10 teacher. Times are on the run
+  clock. TA covered A1 with the AI-peer disclosure, A2, and B1 with K1 and a demo on 人、木 at 09:31,
+  revealing no reference character. Without a grant it asked the creator to start at 12:01 and
+  announced the work once, at 12:14, after the activation. No TA or SA message fell between that
+  announcement and the creator's 15:13 time-up. TA then announced time up without claiming to
+  close the form and opened D1 in the same message; the creator ended the activity from the panel.
+  In D1 TA invited 小遠, a connected participant who had submitted but not spoken, optionally
+  (「想分享再說就好」) at 21:50 and did not invite again, so `ed50c130`'s wording is observed. After
+  the creator's 進行下一輪 TA summarised (D2/D3) and posted K2 marked repeatable at 30:07. A2 again
+  described the form before any activation (FU-17).
+  With D-18's two-room cadence check, D-27's teacher-ended case and this run's missing-grant case,
+  every AC-21 clause is observed, and AC-21 is ticked. AC-14 is ticked on the invitations of D-24
+  (CRAT), D-25 and D-27 (object) and this run (character): each optional, aimed at one named
+  connected participant, outside individual work, never the creator, and not repeated to the
+  person last invited. AC-22 remains for the PR.
+- **D-29. AC-22 closed on PR #283, 2026-10-27.** Scope: the remaining branch
+  `test/sim-ac21-scenarios` against `main`, which holds the AC-21 simulator scenarios and their
+  condition, observer and participant fixes, the character and object teacher prompt changes
+  (`f84e4d7f`, `ed50c130`), this dossier's run records, and the phase 4 dossier merged ahead of its
+  code at the requester's choice. CI was green on every job at `8e2cdee8` (backend unit, db,
+  integration, wiring, lint and typecheck; frontend unit, lint, typecheck, e2e, OpenAPI drift and
+  every gate; dependency audit); only `compose-boot-prod` was skipped by its path filter. The
+  self-review read the prompt changes line by line and the simulator diff in full. The prompt
+  changes move the character teacher's cadence restore to the time-up turn, let both teachers
+  follow a creator's 進行下一輪 and bound follow-up questions; they add no tool, grant or answer
+  text, and every §6.2 invitation rule is unchanged. The simulator changes are operator-side only
+  and read no secret. No quality or security finding. Merge decision: ready, merged by the
+  requester. One gap is noted rather than fixed: the object teacher's panel-ended branches
+  (`<步驟C1>` and `<步驟D3>`) jump to `<步驟E2>` without the wake-up restore b), unlike the
+  character teacher's, which fits D-27's silent nine minutes. Phase 4's prompt rewrite replaces
+  these branches.
 
 ## 16. Follow-ups
 
@@ -1116,6 +1179,10 @@ are carried forward as release gates.
   **2026-10-23: folded into `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`
   (its Q-12, §6.6, AC-21 to AC-25).** The type quotes `target_character` after the participant
   marker; AC-24's remaining half closes with that dossier's AC-25.
+- **FU-17 (prompt, D-26):** the character teacher's A2 step 3 describes the worksheet before any
+  activity runs, while its [Activity state] rule says not to mention the form without one. Move the
+  form description into B2 after the activation, or exempt the rules explanation explicitly. The
+  phase 4 pack carries the same A2 text.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 

@@ -591,6 +591,18 @@ rows are added as each is written.
 
 ## Blocked
 
+### Classroom facilitation phase 4 (2026-10-27)
+
+- `2026-10-27-crat-facilitation-phase4-autonomous-teacher` (feature, **approved 2026-10-27**, SRS delta applied:
+  [R15.26] amended, [R15.27], [R15.28], [R30.46] added, [R30.44] replaced) - waiting on
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (its Q-10: same three teacher
+  prompts, and this dossier replaces phase 2's creator-confirmation contract). The Teacher Agent
+  runs the class with no creator message or panel action: a once-per-class `class_start` wake on
+  arrivals, activity time limits (type default, room override) with a persisted deadline claimed by
+  the 30-second sweep, a platform `all_submitted` wake for individual activities, elapsed/remaining
+  time and a connected-submitted count in `[Activity state]`, and a rewrite of all three teacher
+  prompts to rule-based transitions with the creator as override. Migration 0106.
+
 ### Classroom facilitation phase 3 (2026-10-20)
 
 - (moved to In progress on 2026-10-24, by the requester's decision recorded as the dossier's D-1)
@@ -854,7 +866,12 @@ each row for its own list — the frontmatter wins over this preamble.
   pending DB/e2e/live-stack verification, clean backend typecheck and a stacked PR
   on the existing source branch. See the dossier verification record.
 
-- `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
+- (implemented 2026-10-27) `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`.
+  All ACs ticked; AC-14 and AC-21 closed by the AC-21 simulator runs (D-25 to D-28), AC-22 by
+  PR #283 (CI green at `8e2cdee8`, D-29). FU-17 records the character teacher's A2 form mention.
+  It unblocks `2026-10-27-crat-facilitation-phase4-autonomous-teacher`, already in progress under
+  its D-1. The original entry, kept for its detail:
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
   2026-10-16 on `feat/crat-facilitation-phase2`, SRS delta applied) - `depends_on: []`. Bounded participant facts and
   consistent codes for teacher and observer agents (M1); three-layer room-owned wake-up
   settings with a migration and coordinated worker cutover (M2); prompt-level invitation
