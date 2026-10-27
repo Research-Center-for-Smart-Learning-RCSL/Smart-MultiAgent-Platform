@@ -29,8 +29,14 @@ def _live(chatroom_id: uuid.UUID) -> sa.ColumnElement[bool]:
 
 
 def _armed() -> sa.ColumnElement[bool]:
-    # Matches ix_chatrooms_pending_class_start (0106), so the sweep reads only the index.
-    return sa.and_(_R.c.class_start_config.isnot(None), _R.c.class_started_at.is_(None))
+    # Implies ix_chatrooms_pending_class_start's predicate (0106), so the sweep still
+    # reads only the index. The enabled test keeps a room switched off mid-wait out
+    # of the oldest-first sweep, where it would crowd out rooms that can start.
+    return sa.and_(
+        _R.c.class_start_config.isnot(None),
+        _R.c.class_start_config["enabled"].as_boolean().is_(True),
+        _R.c.class_started_at.is_(None),
+    )
 
 
 class ClassStartRepository:
@@ -42,7 +48,7 @@ class ClassStartRepository:
         return _state(row) if row is not None else None
 
     async def awaiting_start(self, *, limit: int) -> list[ClassStartState]:
-        """Armed rooms someone has already arrived in: the ones the max wait can open."""
+        """Enabled, unstarted rooms with a recorded first arrival: the ones the max wait can open."""
         rows = (
             await self._db.execute(
                 sa.select(*_COLUMNS)

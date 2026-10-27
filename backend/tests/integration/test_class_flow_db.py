@@ -308,6 +308,32 @@ class TestClassStartRepository:
         assert claims == (True, False)
         assert room not in waiting_after
 
+    async def test_a_disabled_room_is_neither_swept_nor_started(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            room = await _make_room(session, project_id, user_id)
+            repo = ClassStartRepository(session)
+            on = ClassStartConfig(enabled=True, min_participants=3, max_wait_minutes=2)
+            await repo.write(room, config=on, reset=False)
+            await repo.record_first_arrival(room)
+            # Switched off mid-wait, without a reset.
+            await repo.write(
+                room,
+                config=ClassStartConfig(enabled=False, min_participants=3, max_wait_minutes=2),
+                reset=False,
+            )
+
+            waiting = {s.chatroom_id for s in await repo.awaiting_start(limit=500)}
+            claimed = await repo.claim_start(room)
+            await session.rollback()
+
+        assert room not in waiting
+        assert claimed is False
+
     async def test_reset_rearms_and_clearing_stores_sql_null(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],
