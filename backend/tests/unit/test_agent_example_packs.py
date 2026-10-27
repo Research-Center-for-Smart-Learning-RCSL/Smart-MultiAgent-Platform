@@ -1044,6 +1044,26 @@ class TestPhase2CoursePacks:
         assert "寫著 No time limit. 時" in b2
         assert "時間由老師決定" not in b2
 
+    @pytest.mark.parametrize("teacher_key", ["ta-charbuilding-teacher", "ta-objreinterpret-teacher"])
+    def test_a_panel_ended_round_restores_the_cadence(self, teacher_key: str) -> None:
+        """Phase 2 D-27/D-29: B2 turns silence off, so a branch that skips restore b) leaves the
+        teacher silent for the rest of a class nobody else moves on."""
+        prompt = self._agent(teacher_key).system_prompt
+        branches = [
+            line for line in prompt.splitlines() if line.startswith("若你嘗試操作活動工具時發現活動已不存在")
+        ]
+        assert branches, teacher_key
+        for line in branches:
+            assert "喚醒設定 b) 調整一次" in line, f"{teacher_key}: {line}"
+
+    def test_the_character_rules_do_not_describe_a_form_before_it_exists(self) -> None:
+        """Phase 2 FU-17: the [Activity state] rule forbids naming the form with no activity
+        running, and A2 always runs before the activity starts."""
+        a2 = _section(self._agent("ta-charbuilding-teacher").system_prompt, "步驟A2")
+        assert "表單" not in a2
+        b2 = _section(self._agent("ta-charbuilding-teacher").system_prompt, "步驟B2")
+        assert "不用十格都填滿" in b2
+
     def test_object_teacher_no_longer_waits_to_close_the_round(self) -> None:
         d3 = _section(self._agent("ta-objreinterpret-teacher").system_prompt, "步驟D3")
         assert "請你問老師" not in d3
