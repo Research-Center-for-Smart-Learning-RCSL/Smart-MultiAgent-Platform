@@ -162,12 +162,13 @@ export class RoomObserver {
     switch (cond.type) {
       case 'message': {
         const re = cond.match ? new RegExp(cond.match) : null
-        return this.messages.some(
+        const hits = this.messages.filter(
           (s) =>
             (!cond.sinceArmed || s.seenAt >= armedAt) &&
             this.fromMatches(cond.from, s.message) &&
             (!re || re.test(s.message.content_md)),
         )
+        return hits.length >= (cond.count ?? 1)
       }
       case 'activation':
         return cond.state === 'active' ? this.activation !== null : this.activation === null && this.lastEndedActivation !== null

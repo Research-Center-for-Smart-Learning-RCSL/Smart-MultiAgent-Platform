@@ -106,7 +106,8 @@ export default defineScenario({
     { actor: 'P1', at: '27:30', do: 'say', text: '好' },
     { actor: 'P2', at: '27:45', do: 'say', text: '開始吧' },
     // The round-2 start drifts (31:09 in the 2026-10-26 run), so the panel end waits for TA's work
-    // announcement and the reactions follow the platform's end notice, not the clock.
+    // announcement and the reactions follow the platform's end notice, not the clock. Round 1 can
+    // end after 29:00 (29:40 in the 2026-10-27 run), so the reactions wait for the second notice.
     {
       actor: 'F',
       at: '28:00',
@@ -115,7 +116,7 @@ export default defineScenario({
       do: 'endActivity',
       label: 'ends round 2 from the panel during ideation (teacher-ended case)',
     },
-    { actor: 'P3', at: '29:00', when: { type: 'message', from: 'system', match: 'ended' }, timeoutSec: 600, do: 'say', text: '咦，表單不見了？' },
+    { actor: 'P3', at: '29:00', when: { type: 'message', from: 'system', match: 'ended', count: 2, sinceArmed: false }, timeoutSec: 720, do: 'say', text: '咦，表單不見了？' },
     { actor: 'P1', at: '29:00', when: { type: 'message', from: 'P3', match: '表單不見' }, timeoutSec: 660, do: 'say', text: '我還沒寫完' },
     { actor: 'P2', at: '29:00', when: { type: 'message', from: 'P1', match: '還沒寫完' }, timeoutSec: 720, do: 'say', text: '老師是結束了嗎？' },
     { actor: 'F', at: '42:00', do: 'say', text: '今天先到這裡，謝謝大家。' },
@@ -124,7 +125,7 @@ export default defineScenario({
     'Grant: TA calls start_activity at B2 and announces the form only after the activation; it calls end_activity in the same turn as the creator\'s 19:30 confirmation.',
     'Quiet work: no TA or SA message between the work announcement and 13:00.',
     'C2: the reminder to pick a best answer comes after 13:00 while the activity is still running.',
-    'Teacher-ended: after the 29:30 panel end TA says the round was ended, does not ask anyone to submit or mention the form, and goes to E2 (asks the creator about the next round).',
+    'Teacher-ended: after the round-2 panel end TA says the round was ended, does not ask anyone to submit or mention the form, and goes to E2 (asks the creator about the next round).',
     'Stages: A1 (with the AI-peer disclosure), A2, B1 with O1 and a demo outside the bank, B2, C1, C2, D1, D2 (follow-up on reasons), D3, E1, E2, then B1 with O2 after 26:00. No reference use is revealed during ideation.',
     'AC-14: invitations only outside C1, one connected participant at a time, never the creator, not the person last invited.',
   ],

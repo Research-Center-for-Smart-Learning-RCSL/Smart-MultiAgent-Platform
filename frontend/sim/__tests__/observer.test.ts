@@ -69,6 +69,12 @@ describe('RoomObserver', () => {
     expect(obs.fromMatches('anyone', sys)).toBe(false)
     expect(obs.fromMatches('system', sys)).toBe(true)
     expect(obs.fromMatches('system', ta)).toBe(false)
+    const ended = { type: 'message', from: 'system', match: 'ended', sinceArmed: false } as const
+    expect(obs.satisfied({ ...ended, count: 2 }, 0)).toBe(false)
+    s.latest.push(msg('d', 'system', null, 'Activity ended.'), msg('e', 'system', null, 'Activity ended.'))
+    await obs.pollMessages()
+    expect(obs.satisfied({ ...ended, count: 3 }, 0)).toBe(false)
+    expect(obs.satisfied({ ...ended, count: 2 }, 0)).toBe(true)
     obs.actorBySender.set('g1', 'P4')
     expect(obs.fromMatches('P4', guest)).toBe(true)
     expect(obs.fromMatches('P1', guest)).toBe(false)

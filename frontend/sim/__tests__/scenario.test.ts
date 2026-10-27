@@ -50,9 +50,10 @@ describe('shipped scenarios', () => {
     expect(char.steps.some((s) => s.do === 'startActivity' && s.actor === 'F')).toBe(true)
     expect(teacher(obj)?.grantActivityTypes).toEqual(['object-reinterpretation'])
     expect(obj.steps.filter((s) => s.do === 'startActivity')).toEqual([])
-    // The panel end follows TA's round-2 work announcement, and the reactions follow the end notice.
+    // The panel end follows TA's round-2 work announcement, and the reactions follow round 2's end
+    // notice (the second one), not round 1's.
     expect(obj.steps.some((s) => s.do === 'endActivity' && s.when?.type === 'message' && s.when.from === 'agent:TA')).toBe(true)
-    expect(obj.steps.some((s) => s.when?.type === 'message' && s.when.from === 'system')).toBe(true)
+    expect(obj.steps.some((s) => s.when?.type === 'message' && s.when.from === 'system' && s.when.count === 2)).toBe(true)
   })
 
   it('crat-ac20 declares the protocol preconditions (AC-16)', () => {

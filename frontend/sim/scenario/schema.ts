@@ -30,6 +30,8 @@ export const ConditionSchema = z.discriminatedUnion('type', [
       .optional(),
     /** Only messages created after the step was armed count. */
     sinceArmed: z.boolean().default(true),
+    /** How many matching messages must exist; the second `ended` notice marks round 2's end. */
+    count: z.number().int().min(1).optional(),
   }),
   z.object({ type: z.literal('activation'), state: z.enum(['active', 'ended']) }),
   z.object({
