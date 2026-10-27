@@ -53,6 +53,30 @@ activity_types = sa.Table(
     # and is refused while an activation of the type is live, so a consent
     # threshold never changes under a vote in progress.
     sa.Column("group_config", pg.JSONB, nullable=True),
+    # [R30.46], migration 0106. Metadata, not a behavioural definition: an edit
+    # does not bump `version`, and a running activation keeps its own snapshot.
+    sa.Column("default_time_limit_minutes", sa.Integer, nullable=True),
+)
+
+# A room creator's per-type override ([R30.46], 0106). A NULL limit is an explicit
+# "no limit"; a missing row falls back to the type default.
+chatroom_activity_time_limits = sa.Table(
+    "chatroom_activity_time_limits",
+    metadata,
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column(
+        "activity_type_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_types.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column("time_limit_minutes", sa.Integer, nullable=True),
+    sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 activity_sessions = sa.Table(
@@ -140,6 +164,14 @@ activity_activations = sa.Table(
     # or in the schema. A deleted agent leaves an id that resolves to nothing,
     # which is the correct reading of "the agent that started this is gone".
     sa.Column("started_by_agent_id", pg.UUID(as_uuid=True), nullable=True),
+    # Snapshot of the limit resolved at start ([R30.46], 0106); NULL together
+    # with deadline_at (a CHECK) when the round has no limit.
+    sa.Column("time_limit_minutes", sa.Integer, nullable=True),
+    sa.Column("deadline_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Once-claims for the platform wakes ([R15.28]): set by the guarded UPDATE that
+    # wins, so a second sweep or submission cannot wake the teacher again.
+    sa.Column("deadline_notified_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("completion_notified_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 activity_submissions = sa.Table(

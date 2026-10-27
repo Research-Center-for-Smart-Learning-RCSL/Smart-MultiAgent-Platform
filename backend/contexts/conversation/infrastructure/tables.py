@@ -63,6 +63,11 @@ chatrooms = sa.Table(
     # is a redundant chip, and of the opposite is unsent text read with nothing on
     # screen to say so.
     sa.Column("disclose_drafts", sa.Boolean, nullable=False, server_default=sa.text("true")),
+    # Class start ([R15.27], migration 0106). NULL config means off. The two
+    # timestamps belong to the current class; a creator reset clears both.
+    sa.Column("class_start_config", pg.JSONB, nullable=True),
+    sa.Column("class_first_arrival_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("class_started_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 chatroom_agents = sa.Table(
