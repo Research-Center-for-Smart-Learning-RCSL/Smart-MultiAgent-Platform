@@ -122,6 +122,15 @@ const AgentBindingSchema = z.object({
   grantActivityTypes: z.array(z.string()).default([]),
 })
 
+/** The room's class-start setting (phase 4); the class starts on the first of the two. */
+const ClassStartSchema = z.object({
+  minParticipants: z.number().int().min(1).max(100),
+  maxWaitMinutes: z.number().int().min(1).max(60),
+})
+
+/** Per activity type key: minutes, or null for an explicit "no limit". Absent types use the type default. */
+const TimeLimitsSchema = z.record(z.string(), z.number().int().min(1).max(180).nullable()).default({})
+
 export const RoomSchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('create'),
@@ -130,6 +139,8 @@ export const RoomSchema = z.discriminatedUnion('mode', [
     access: z.enum(['memberGroups', 'projectMembers']).default('projectMembers'),
     guestLinks: z.boolean().default(false),
     agents: z.array(AgentBindingSchema).default([]),
+    classStart: ClassStartSchema.optional(),
+    timeLimits: TimeLimitsSchema,
   }),
   z.object({
     mode: z.literal('existing'),
@@ -137,6 +148,8 @@ export const RoomSchema = z.discriminatedUnion('mode', [
     id: z.guid().optional(),
     agents: z.array(AgentBindingSchema).default([]),
     guestLinks: z.boolean().default(false),
+    classStart: ClassStartSchema.optional(),
+    timeLimits: TimeLimitsSchema,
   }),
 ])
 
