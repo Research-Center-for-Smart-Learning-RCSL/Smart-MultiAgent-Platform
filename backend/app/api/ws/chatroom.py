@@ -10,7 +10,7 @@ from datetime import timedelta
 from fastapi import APIRouter, WebSocket
 
 from app.api.ws.room_access import room_read_outcome
-from app.wiring.platform_wakes import TRIGGER_CLASS_START, enqueue_platform_wake
+from app.wiring.platform_wakes import TRIGGER_CLASS_START, check_all_submitted, enqueue_platform_wake
 from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
@@ -54,15 +54,17 @@ async def _notify_presence(chatroom_id: uuid.UUID, principal_id: uuid.UUID) -> N
     connection's own session: a failure here must not drop the socket.
     Commits its own short-lived session because ``on_users_present`` may
     write audit rows in future."""
+    targets = []
     try:
         async with async_session() as db:
             targets = await evaluate_presence_change(db, chatroom_id=chatroom_id, principal_id=principal_id)
             await db.commit()
         # [R15.26]: deferred to the end of the coalescing window, so every arrival
         # of that minute is in the one turn's transcript.
-    except Exception:  # pragma: no cover — defensive; a failure must not drop the socket
+    except Exception:
+        # No return: the class-start check below runs in its own session and
+        # must not depend on this one succeeding.
         _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
-        return
     # Each target already holds its batch claim, so one failed enqueue must not
     # cost the others their wake.
     for target in targets:
@@ -356,6 +358,9 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.left",
                 {"user_id": str(conn.principal.user_id)},
             )
+            # [R15.28]: completion is over the connected set, so a student leaving
+            # without a submission can complete the round with none following.
+            await check_all_submitted(chatroom_id)
 
     await connection_loop(
         ws=ws,

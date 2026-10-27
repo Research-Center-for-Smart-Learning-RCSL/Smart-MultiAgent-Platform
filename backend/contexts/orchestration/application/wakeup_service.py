@@ -27,7 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.interfaces.facade import Agent
 from contexts.conversation.infrastructure.presence import PresenceTracker
-from contexts.conversation.interfaces.facade import BindingWakeupState, ConversationFacade
+from contexts.conversation.interfaces.facade import (
+    HEADCOUNT_PRESENCE_LIMIT,
+    BindingWakeupState,
+    ConversationFacade,
+)
 from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
 from contexts.orchestration.domain.models import ON_JOIN_COALESCE_SECONDS
 from contexts.orchestration.infrastructure import wakeup_state
@@ -50,10 +54,6 @@ class PlatformWake(NamedTuple):
 
     targets: list[WakeTarget]
     notice: str
-
-
-#: Above every allowed ``min_participants``, so a truncated read still reaches it.
-_CLASS_PRESENCE_LIMIT = 500
 
 
 def class_start_notice(connected: int) -> str:
@@ -388,10 +388,14 @@ class WakeupService:
         """Open the room's class once, when enough students are connected or the
         first has waited ``max_wait_minutes``.
 
-        Called on every connection and by the sweep, which is what opens a class
-        on the max wait with nobody new arriving. Unavailable presence is no
-        signal: a class never opens on a count it could not read. The room
-        creator is never counted and never starts the wait.
+        Called on every connection, by the sweep (which opens a class on the max
+        wait with nobody new arriving) and when the room creator changes or
+        resets the setting. Unavailable presence is no signal: a class never
+        opens on a count it could not read. The room creator is never counted
+        and never starts the wait on their own. The wait starts at the first
+        check that sees a student connected, so a class enabled or reset while
+        students are already present still opens on the max wait; a room
+        everyone left stops waiting until the next student arrives.
         """
         state = await self._conversation.class_start_state(room_id)
         if state is None or not state.armed or state.config is None:
@@ -405,14 +409,21 @@ class WakeupService:
             and arriving_principal_id is not None
             and arriving_principal_id != room.created_by_user_id
         ):
+            # Before the presence read, so an outage on the arrival still puts
+            # the room in the sweep, which retries the count.
             await self._conversation.record_class_first_arrival(room_id)
             first_arrival = now()
-        snapshot = await self._conversation.room_presence_snapshot(room_id, limit=_CLASS_PRESENCE_LIMIT)
+        snapshot = await self._conversation.room_presence_snapshot(room_id, limit=HEADCOUNT_PRESENCE_LIMIT)
         if not snapshot.available:
             return None
         connected = len({u for u in snapshot.user_ids if u != room.created_by_user_id})
         if connected == 0:
+            if first_arrival is not None:
+                await self._conversation.clear_class_first_arrival(room_id)
             return None
+        if first_arrival is None:
+            await self._conversation.record_class_first_arrival(room_id)
+            first_arrival = now()
         config = state.config
         if connected >= config.min_participants:
             reason = "min_participants"

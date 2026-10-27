@@ -25,6 +25,7 @@ _ACTIVATION_COLS = (
     t.activity_activations.c.started_by_agent_id,
     t.activity_activations.c.time_limit_minutes,
     t.activity_activations.c.deadline_at,
+    t.activity_activations.c.completion_notified_at,
 )
 
 
@@ -40,6 +41,7 @@ def _row_to_activation(row: object) -> ActivityActivation:
         started_by_agent_id=row.started_by_agent_id,  # type: ignore[attr-defined]
         time_limit_minutes=row.time_limit_minutes,  # type: ignore[attr-defined]
         deadline_at=row.deadline_at,  # type: ignore[attr-defined]
+        completion_notified_at=row.completion_notified_at,  # type: ignore[attr-defined]
     )
 
 

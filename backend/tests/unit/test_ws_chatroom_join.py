@@ -38,6 +38,11 @@ class _Presence:
     async def join(self, **_k: object) -> tuple[bool, int]:
         return _Presence.join_result
 
+    async def leave(self, **_k: object) -> tuple[bool, int]:
+        return _Presence.leave_result
+
+    leave_result: ClassVar[tuple[bool, int]] = (True, 0)
+
 
 class _Session:
     async def __aenter__(self) -> _Session:
@@ -126,6 +131,25 @@ async def test_second_tab_of_a_connected_principal_is_not_an_arrival(harness: di
 
     assert harness["notified"] == []
     assert _Publisher.emitted == []
+
+
+@pytest.mark.parametrize(("left", "checks"), [(True, 1), (False, 0)])
+async def test_a_principal_leaving_rechecks_the_all_submitted_fact(
+    harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch, left: bool, checks: int
+) -> None:
+    """[R15.28]: a second tab closing is not a departure from the connected set."""
+    _Presence.join_result, _Presence.leave_result = (True, 1), (left, 0)
+    checked: list[uuid.UUID] = []
+
+    async def _check(chatroom_id: uuid.UUID) -> None:
+        checked.append(chatroom_id)
+
+    monkeypatch.setattr(chatroom_mod, "check_all_submitted", _check)
+    room, principal = await _open(harness)
+
+    await harness["on_close"](_Conn(principal))
+
+    assert checked == [room] * checks
 
 
 async def test_each_owed_arrival_wake_is_deferred_to_the_end_of_the_window(
@@ -272,3 +296,69 @@ async def test_a_failed_class_start_check_never_costs_the_arrival_wakes(
     await chatroom_mod._notify_presence(uuid.uuid4(), uuid.uuid4())
 
     assert jobs == [str(target.agent_id)]
+
+
+async def test_the_standalone_all_submitted_check_runs_in_its_own_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.wiring import platform_wakes
+
+    room = uuid.uuid4()
+    checked: list[uuid.UUID] = []
+
+    async def _dispatch(_db: object, chatroom_id: uuid.UUID) -> None:
+        checked.append(chatroom_id)
+
+    monkeypatch.setattr(platform_wakes, "async_session", _Session)
+    monkeypatch.setattr(platform_wakes, "dispatch_all_submitted", _dispatch)
+
+    await platform_wakes.check_all_submitted(room)
+
+    assert checked == [room]
+
+
+async def test_the_standalone_check_survives_a_session_that_cannot_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.wiring import platform_wakes
+
+    class _Broken:
+        async def __aenter__(self) -> None:
+            raise ConnectionError("db down")
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+    monkeypatch.setattr(platform_wakes, "async_session", _Broken)
+
+    await platform_wakes.check_all_submitted(uuid.uuid4())
+
+
+async def test_a_failed_presence_evaluation_never_costs_the_class_start_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.wiring import platform_wakes
+    from contexts.orchestration.interfaces.facade import PlatformWake
+
+    teacher = SimpleNamespace(agent_id=uuid.uuid4(), binding_id=uuid.uuid4())
+    _Facade.wake, _Facade.fail = PlatformWake([teacher], "N"), False
+    platform_jobs: list[tuple[Any, ...]] = []
+
+    async def _evaluate(_db: object, **_k: object) -> list[Any]:
+        raise RuntimeError("redis down")
+
+    async def _platform_enqueue(*args: Any, **_k: Any) -> None:
+        platform_jobs.append(args)
+
+    class _Db(_Session):
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(chatroom_mod, "async_session", _Db)
+    monkeypatch.setattr(chatroom_mod, "evaluate_presence_change", _evaluate)
+    monkeypatch.setattr(chatroom_mod, "OrchestrationFacade", _Facade)
+    monkeypatch.setattr(platform_wakes, "enqueue", _platform_enqueue)
+
+    await chatroom_mod._notify_presence(uuid.uuid4(), uuid.uuid4())
+
+    assert [job[3] for job in platform_jobs] == ["class_start"]

@@ -185,6 +185,16 @@ class TestAllSubmitted:
         h.activation = _activation(h.room, h.type.id, status=ActivationStatus.ENDED)
         assert await h.check() is None
 
+    async def test_a_claimed_activation_reads_no_progress(self, monkeypatch) -> None:
+        """Every later resubmission would otherwise repeat the presence read and the scan."""
+        h = _Harness(monkeypatch)
+        a = uuid.uuid4()
+        h.connected, h.submitted = [a], {a}
+        h.activation = _activation(h.room, h.type.id, completion_notified_at=_T0)
+
+        assert await h.check() is None
+        h.svc._submissions.valid_individual_subjects.assert_not_awaited()
+
 
 class TestDeadlines:
     async def test_each_claimed_deadline_is_audited_and_returned(self, monkeypatch) -> None:

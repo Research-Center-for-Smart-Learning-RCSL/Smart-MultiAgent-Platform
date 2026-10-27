@@ -44,9 +44,19 @@ class _Db:
     async def commit(self) -> None:
         self.commits += 1
 
+    async def rollback(self) -> None:
+        pass
 
-def _wire(monkeypatch: pytest.MonkeyPatch, *, access: RoomAccess, config: ClassStartConfig | None = None):
-    calls = SimpleNamespace(writes=[], limits=[], checked=[], stored={})
+
+def _wire(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    access: RoomAccess,
+    config: ClassStartConfig | None = None,
+    wake: Any = None,
+    check_fails: bool = False,
+):
+    calls = SimpleNamespace(writes=[], limits=[], checked=[], stored={}, class_checks=[], enqueued=[])
     state = ClassStartState(chatroom_id=_ROOM, config=config, first_arrival_at=None, started_at=None)
 
     async def _resolve(db: Any, *, principal: Principal, chatroom_id: uuid.UUID) -> RoomAccess:
@@ -60,13 +70,15 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, access: RoomAccess, config: ClassS
             return state
 
         async def write_class_start(self, chatroom_id: uuid.UUID, **kw: Any) -> ClassStartState:
+            nonlocal state
             calls.writes.append(kw)
-            return ClassStartState(
+            state = ClassStartState(
                 chatroom_id=chatroom_id,
                 config=kw["config"],
                 first_arrival_at=None,
                 started_at=None if kw["reset"] else state.started_at,
             )
+            return state
 
     class _Act:
         def __init__(self, db: Any) -> None:
@@ -81,6 +93,22 @@ def _wire(monkeypatch: pytest.MonkeyPatch, *, access: RoomAccess, config: ClassS
     async def _assert_types(db: Any, project_id: uuid.UUID, ids: list[uuid.UUID]) -> None:
         calls.checked.append((project_id, ids))
 
+    class _Orch:
+        def __init__(self, db: Any) -> None:
+            pass
+
+        async def on_class_start_check(self, *, room_id: uuid.UUID) -> Any:
+            calls.class_checks.append(room_id)
+            if check_fails:
+                raise RuntimeError("presence down")
+            return wake
+
+    async def _enqueue(room_id: uuid.UUID, trigger: str, w: Any) -> int:
+        calls.enqueued.append((room_id, trigger, w))
+        return 1
+
+    monkeypatch.setattr(mod, "OrchestrationFacade", _Orch)
+    monkeypatch.setattr(mod, "enqueue_platform_wake", _enqueue)
     monkeypatch.setattr(mod, "resolve_room_access", _resolve)
     monkeypatch.setattr(mod, "ConversationFacade", _Conv)
     monkeypatch.setattr(mod, "ActivitiesFacade", _Act)
@@ -158,7 +186,53 @@ class TestClassStart:
         assert write["reset"] is True
         assert write["actor_user_id"] == _CREATOR
         assert (out.min_participants, out.max_wait_minutes, out.started_at) == (3, 5, None)
-        assert db.commits == 1
+        # The write, then the check that follows arming the room.
+        assert db.commits == 2
+
+    async def test_arming_the_room_checks_the_students_already_connected(self, monkeypatch) -> None:
+        """No connection follows for students who arrived before the room was armed."""
+        wake = SimpleNamespace(targets=[], notice="N")
+        calls = _wire(monkeypatch, access=_access(), wake=wake)
+
+        await mod.patch_class_start(
+            mod.ClassStartPatchIn(enabled=True, min_participants=3, max_wait_minutes=2),
+            chatroom_id=_ROOM,
+            ctx=_CTX,
+            principal=_principal(_CREATOR),
+            db=_Db(),
+        )
+
+        assert calls.class_checks == [_ROOM]
+        assert calls.enqueued == [(_ROOM, mod.TRIGGER_CLASS_START, wake)]
+
+    async def test_switching_off_runs_no_check(self, monkeypatch) -> None:
+        stored = ClassStartConfig(enabled=True, min_participants=3, max_wait_minutes=2)
+        calls = _wire(monkeypatch, access=_access(), config=stored)
+
+        await mod.patch_class_start(
+            mod.ClassStartPatchIn(enabled=False),
+            chatroom_id=_ROOM,
+            ctx=_CTX,
+            principal=_principal(_CREATOR),
+            db=_Db(),
+        )
+
+        assert calls.class_checks == []
+
+    async def test_a_failed_check_still_saves_the_setting(self, monkeypatch) -> None:
+        calls = _wire(monkeypatch, access=_access(), check_fails=True)
+
+        out = await mod.patch_class_start(
+            mod.ClassStartPatchIn(enabled=True, min_participants=3, max_wait_minutes=2),
+            chatroom_id=_ROOM,
+            ctx=_CTX,
+            principal=_principal(_CREATOR),
+            db=_Db(),
+        )
+
+        assert out.enabled is True
+        assert len(calls.writes) == 1
+        assert calls.enqueued == []
 
     def test_patched_fills_from_the_base_and_needs_every_field_without_one(self) -> None:
         base = ClassStartConfig(enabled=False, min_participants=3, max_wait_minutes=2)

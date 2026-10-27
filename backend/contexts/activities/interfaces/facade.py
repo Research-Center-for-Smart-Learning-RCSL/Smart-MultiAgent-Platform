@@ -25,7 +25,7 @@ from contexts.activities.application.example_service import (
 )
 from contexts.activities.application.group_proposal_service import GroupProposalService
 from contexts.activities.application.observation_aggregates import ObservationAggregateService
-from contexts.activities.application.platform_events import PlatformActivityEvents, is_individual
+from contexts.activities.application.platform_events import PlatformActivityEvents
 from contexts.activities.application.policy_service import ActivityPolicyService
 from contexts.activities.application.reachability import resolve_reachable_type
 from contexts.activities.application.session_service import ActivitySessionService
@@ -37,7 +37,9 @@ from contexts.activities.domain.errors import (
     ActivityTypeViolatesPolicy,
     PlatformActivityTypeReadOnly,
 )
+from contexts.activities.domain.group_consent import is_individual_type
 from contexts.activities.domain.models import (
+    TIME_LIMIT_MINUTES_RANGE,
     ActivationNotice,
     ActivationStatus,
     ActivityActivation,
@@ -94,6 +96,7 @@ from shared_kernel.auth.clients import now
 _POLICY_PREVIEW_SCAN = 500
 
 __all__ = [
+    "TIME_LIMIT_MINUTES_RANGE",
     "ActivationNotice",
     "ActivationStatus",
     "ActivitiesFacade",
@@ -545,7 +548,7 @@ class ActivitiesFacade:
         )
         submitted = await ActivitySubmissionRepository(self._db).submitted_groups(activation_id=current.id)
         progress = None
-        if is_individual(activity_type):
+        if is_individual_type(activity_type):
             progress = await PlatformActivityEvents(self._db).connected_progress(chatroom_id, current)
         return RoomActivityState(
             activation=current,

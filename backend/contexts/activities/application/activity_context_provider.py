@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.group_consent import is_individual_only, parse_group_config
+from contexts.activities.domain.group_consent import is_individual_type, parse_group_config
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
@@ -437,10 +437,6 @@ def _timing_line(activation: ActivityActivation, observed_at: dt.datetime) -> st
     return f"{running} Time limit: {activation.time_limit_minutes} minutes, ending at {ending} UTC ({left})."
 
 
-def _individual(activity_type: ActivityType | None) -> bool:
-    return activity_type is not None and is_individual_only(activity_type.group_config)
-
-
 def _progress_line(state: RoomActivityState) -> str:
     progress = state.connected_progress
     if progress is None:
@@ -534,7 +530,7 @@ def render_activity_state(state: RoomActivityState, *, group_names: Mapping[uuid
         return "\n".join(head)
     if state.observed_at is not None:
         head.append(_timing_line(state.activation, state.observed_at))
-    if _individual(state.activity_type):
+    if is_individual_type(state.activity_type):
         head.append(_progress_line(state))
 
     sections = _state_sections(state, group_names)

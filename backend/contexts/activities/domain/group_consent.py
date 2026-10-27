@@ -14,7 +14,10 @@ numerator and denominator as authored.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from contexts.activities.domain.models import ActivityType
 
 #: Upper bound on the denominator. A fraction finer than hundredths cannot change
 #: the required count for any group a room can hold, so the only thing a larger
@@ -85,6 +88,11 @@ def is_individual_only(raw: Any) -> bool:
         return parse_group_config(raw) is None
     except ValueError:
         return False
+
+
+def is_individual_type(activity_type: ActivityType | None) -> bool:
+    """:func:`is_individual_only` for a type that may be gone; a missing type is not individual."""
+    return activity_type is not None and is_individual_only(activity_type.group_config)
 
 
 def _require_int(value: Any, label: str) -> int:

@@ -12,7 +12,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.activation_notice import display_name
-from contexts.activities.domain.group_consent import is_individual_only
+from contexts.activities.domain.group_consent import is_individual_type
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
@@ -24,10 +24,6 @@ from contexts.activities.infrastructure.repositories.activation_repo import Acti
 from contexts.activities.infrastructure.repositories.submission_repo import ActivitySubmissionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from shared_kernel import audit
-
-#: Above this many connections the set is read truncated, and a truncated set
-#: cannot support "everyone connected has submitted", so progress is withheld.
-_PRESENCE_LIMIT = 500
 
 
 def _quoted_name(activity_type: ActivityType | None) -> str:
@@ -45,10 +41,6 @@ def completion_notice(activity_type: ActivityType | None, connected: int) -> str
     )
 
 
-def is_individual(activity_type: ActivityType | None) -> bool:
-    return activity_type is not None and is_individual_only(activity_type.group_config)
-
-
 class PlatformActivityEvents:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -64,13 +56,14 @@ class PlatformActivityEvents:
         ``None`` when it cannot be stated truthfully: presence unavailable or
         truncated, or the room unreadable.
         """
-        from contexts.conversation.interfaces.facade import ConversationFacade
+        from contexts.conversation.interfaces.facade import HEADCOUNT_PRESENCE_LIMIT, ConversationFacade
 
         conversation = ConversationFacade(self._db)
         room = await conversation.get_chatroom(chatroom_id)
         if room is None:
             return None
-        snapshot = await conversation.room_presence_snapshot(chatroom_id, limit=_PRESENCE_LIMIT)
+        snapshot = await conversation.room_presence_snapshot(chatroom_id, limit=HEADCOUNT_PRESENCE_LIMIT)
+        # A truncated set cannot support "everyone connected has submitted".
         if not snapshot.available or snapshot.truncated:
             return None
         connected = {u for u in snapshot.user_ids if u != room.created_by_user_id}
@@ -113,10 +106,13 @@ class PlatformActivityEvents:
             activation is None
             or activation.chatroom_id != chatroom_id
             or activation.status is not ActivationStatus.ACTIVE
+            # Already claimed: skip the presence read and the submitter scan that
+            # every later resubmission would otherwise repeat.
+            or activation.completion_notified_at is not None
         ):
             return None
         activity_type = await self._types.get(activation.activity_type_id)
-        if not is_individual(activity_type):
+        if not is_individual_type(activity_type):
             return None
         progress = await self.connected_progress(chatroom_id, activation)
         if progress is None or not progress.complete:
@@ -148,5 +144,4 @@ __all__ = [
     "PlatformActivityEvents",
     "completion_notice",
     "deadline_notice",
-    "is_individual",
 ]

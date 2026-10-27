@@ -122,6 +122,9 @@ class _Harness:
             if self.state.first_arrival_at is None:
                 self.state = replace(self.state, first_arrival_at=self.now)
 
+        async def _clear_first_arrival(room_id):
+            self.state = replace(self.state, first_arrival_at=None)
+
         async def _claim(room_id):
             if self.state.started_at is not None:
                 return False
@@ -150,6 +153,7 @@ class _Harness:
         self.svc._conversation = SimpleNamespace(  # type: ignore[assignment]
             class_start_state=_class_start_state,
             record_class_first_arrival=_record_first_arrival,
+            clear_class_first_arrival=_clear_first_arrival,
             claim_class_start=_claim,
             room_presence_snapshot=_presence,
             get_chatroom=_room,
@@ -227,6 +231,33 @@ class TestClassStart:
 
         assert await h.sweep() is None
         assert h.state.started_at is None
+        # Out of the oldest-first sweep, where it would crowd out rooms that can start.
+        assert h.state.first_arrival_at is None
+
+    async def test_a_room_everyone_left_waits_again_from_the_next_arrival(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch, minimum=3, wait=2)
+        h.bind(_CLASS_START)
+        await h.arrive()
+        h.connected.clear()
+        h.now = _T0 + timedelta(minutes=5)
+        await h.sweep()
+
+        await h.arrive()
+        h.now = _T0 + timedelta(minutes=6)
+        assert await h.sweep() is None
+        h.now = _T0 + timedelta(minutes=7)
+        assert await h.sweep() is not None
+
+    async def test_students_present_before_the_room_was_armed_start_the_wait(self, monkeypatch) -> None:
+        """Enabling or resetting with students connected: no new connection follows."""
+        h = _Harness(monkeypatch, minimum=3, wait=2)
+        h.bind(_CLASS_START)
+        h.connected.append(uuid.uuid4())
+
+        assert await h.sweep() is None
+        assert h.state.first_arrival_at == _T0
+        h.now = _T0 + timedelta(minutes=2)
+        assert await h.sweep() is not None
 
     async def test_unavailable_presence_is_no_signal(self, monkeypatch) -> None:
         h = _Harness(monkeypatch, minimum=1)

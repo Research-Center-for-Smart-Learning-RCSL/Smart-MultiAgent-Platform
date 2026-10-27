@@ -28,6 +28,8 @@ from contexts.conversation.application.guest_session_service import (
 from contexts.conversation.application.room_guests import RoomGuests, load_room_guests, project_id_for_room
 from contexts.conversation.application.room_presence import RoomPresenceSnapshot
 from contexts.conversation.domain.models import (
+    CLASS_START_MAX_WAIT_MINUTES_RANGE,
+    CLASS_START_MIN_PARTICIPANTS_RANGE,
     ActivityControlGrant,
     AgentObservation,
     AttachmentExtractionStatus,
@@ -72,6 +74,11 @@ from shared_kernel.auth.permissions import Principal
 _MAX_LISTING_CANDIDATES = 2000
 
 _HUMAN_SENDERS = frozenset({SenderType.USER, SenderType.GUEST})
+
+#: The presence bound for a headcount the platform acts on (class start, all
+#: submitted). Far above any class, so a truncated read means "more than enough
+#: for a start" and "too many to vouch for every submission".
+HEADCOUNT_PRESENCE_LIMIT = 500
 
 
 def _warn_if_truncated(truncated: bool, *, scope: str, scope_id: uuid.UUID | None) -> None:
@@ -620,6 +627,9 @@ class ConversationFacade:
     async def record_class_first_arrival(self, chatroom_id: uuid.UUID) -> None:
         await ClassStartRepository(self._db).record_first_arrival(chatroom_id)
 
+    async def clear_class_first_arrival(self, chatroom_id: uuid.UUID) -> None:
+        await ClassStartRepository(self._db).clear_first_arrival(chatroom_id)
+
     async def claim_class_start(self, chatroom_id: uuid.UUID) -> bool:
         return await ClassStartRepository(self._db).claim_start(chatroom_id)
 
@@ -1156,6 +1166,9 @@ class ConversationFacade:
 
 
 __all__ = [
+    "CLASS_START_MAX_WAIT_MINUTES_RANGE",
+    "CLASS_START_MIN_PARTICIPANTS_RANGE",
+    "HEADCOUNT_PRESENCE_LIMIT",
     "ActivityControlGrant",
     "AttachmentExtractionStatus",
     "AttachmentStatus",

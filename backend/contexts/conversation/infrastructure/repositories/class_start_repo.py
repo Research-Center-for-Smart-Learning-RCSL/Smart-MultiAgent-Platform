@@ -73,6 +73,18 @@ class ClassStartRepository:
             .values(class_first_arrival_at=sa.func.now())
         )
 
+    async def clear_first_arrival(self, chatroom_id: uuid.UUID) -> None:
+        """Stop the max-wait clock of a room everyone left before the class started.
+
+        Takes the room out of the oldest-first sweep, which would otherwise keep
+        reading such rooms ahead of ones that can still start.
+        """
+        await self._db.execute(
+            _R.update()
+            .where(sa.and_(_live(chatroom_id), _armed(), _R.c.class_first_arrival_at.isnot(None)))
+            .values(class_first_arrival_at=None)
+        )
+
     async def claim_start(self, chatroom_id: uuid.UUID) -> bool:
         """Mark the class started; ``True`` for exactly one caller per class."""
         result = await self._db.execute(

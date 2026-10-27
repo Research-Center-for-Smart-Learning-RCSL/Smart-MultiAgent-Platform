@@ -11,6 +11,7 @@ class moves on for every participant.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 
@@ -19,18 +20,28 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.chatrooms import _assert_activity_types_in_project
-from contexts.activities.interfaces.facade import ActivitiesFacade
+from app.wiring.platform_wakes import TRIGGER_CLASS_START, enqueue_platform_wake
+from contexts.activities.interfaces.facade import TIME_LIMIT_MINUTES_RANGE, ActivitiesFacade
 from contexts.conversation.application.access import (
     RoomAccess,
     ensure_can_read,
     ensure_room_creator,
     resolve_room_access,
 )
-from contexts.conversation.interfaces.facade import ClassStartConfig, ClassStartState, ConversationFacade
+from contexts.conversation.interfaces.facade import (
+    CLASS_START_MAX_WAIT_MINUTES_RANGE,
+    CLASS_START_MIN_PARTICIPANTS_RANGE,
+    ClassStartConfig,
+    ClassStartState,
+    ConversationFacade,
+)
+from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+
+_log = logging.getLogger(__name__)
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["chatrooms"])
 
@@ -51,15 +62,19 @@ class ClassStartPatchIn(BaseModel):
     """Omitted fields keep their stored value; a room with no setting needs all three."""
 
     enabled: bool | None = None
-    min_participants: int | None = Field(default=None, ge=1, le=100)
-    max_wait_minutes: int | None = Field(default=None, ge=1, le=60)
+    min_participants: int | None = Field(
+        default=None, ge=CLASS_START_MIN_PARTICIPANTS_RANGE[0], le=CLASS_START_MIN_PARTICIPANTS_RANGE[1]
+    )
+    max_wait_minutes: int | None = Field(
+        default=None, ge=CLASS_START_MAX_WAIT_MINUTES_RANGE[0], le=CLASS_START_MAX_WAIT_MINUTES_RANGE[1]
+    )
     reset: bool = False
 
 
 class ActivityTimeLimitItem(BaseModel):
     activity_type_id: uuid.UUID
     #: Null is an explicit "no limit" that overrides the type default.
-    time_limit_minutes: int | None = Field(ge=1, le=180)
+    time_limit_minutes: int | None = Field(ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1])
 
 
 class ActivityTimeLimitsBody(BaseModel):
@@ -134,7 +149,28 @@ async def patch_class_start(
     if state is None:
         raise HTTPException(status_code=404, detail="chatroom not found")
     await db.commit()
+    if state.armed:
+        # Students who connected before the room was armed started no wait, and
+        # no later connection may come to start it or to open the class.
+        state = await _check_class_start_now(db, chatroom_id) or state
     return _class_start_out(state)
+
+
+async def _check_class_start_now(db: AsyncSession, chatroom_id: uuid.UUID) -> ClassStartState | None:
+    """Best-effort: the setting is saved either way, and the sweep or the next
+    connection retries the check."""
+    try:
+        wake = await OrchestrationFacade(db).on_class_start_check(room_id=chatroom_id)
+        await db.commit()
+        if wake is not None:
+            await enqueue_platform_wake(chatroom_id, TRIGGER_CLASS_START, wake)
+        return await ConversationFacade(db).class_start_state(chatroom_id)
+    except Exception:
+        await db.rollback()
+        _log.warning(
+            "class start check after a setting change failed for room %s", chatroom_id, exc_info=True
+        )
+        return None
 
 
 @chatroom_router.get("/{chatroom_id}/activity-time-limits", response_model=ActivityTimeLimitsBody)

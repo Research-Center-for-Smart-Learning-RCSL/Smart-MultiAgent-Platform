@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.interfaces.facade import ActivitiesFacade, PlatformActivityEvent
 from contexts.orchestration.interfaces.facade import OrchestrationFacade, PlatformWake
+from shared_kernel.db.session import async_session
 from shared_kernel.queue import enqueue
 
 _log = logging.getLogger(__name__)
@@ -74,10 +75,21 @@ async def dispatch_all_submitted(db: AsyncSession, chatroom_id: uuid.UUID) -> No
         _log.warning("all-submitted check failed for room %s", chatroom_id, exc_info=True)
 
 
+async def check_all_submitted(chatroom_id: uuid.UUID) -> None:
+    """:func:`dispatch_all_submitted` in a session of its own, for a caller
+    outside a request: a failure to open one is caught here too."""
+    try:
+        async with async_session() as db:
+            await dispatch_all_submitted(db, chatroom_id)
+    except Exception:
+        _log.warning("all-submitted check could not run for room %s", chatroom_id, exc_info=True)
+
+
 __all__ = [
     "TRIGGER_ACTIVITY_DEADLINE",
     "TRIGGER_ALL_SUBMITTED",
     "TRIGGER_CLASS_START",
+    "check_all_submitted",
     "dispatch_all_submitted",
     "enqueue_platform_wake",
     "wake_for_activity_event",

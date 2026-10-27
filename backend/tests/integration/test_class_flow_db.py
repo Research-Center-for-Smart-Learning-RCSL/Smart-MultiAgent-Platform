@@ -334,6 +334,35 @@ class TestClassStartRepository:
         assert room not in waiting
         assert claimed is False
 
+    async def test_clearing_the_first_arrival_takes_the_room_out_of_the_sweep(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            room = await _make_room(session, project_id, user_id)
+            repo = ClassStartRepository(session)
+            await repo.write(
+                room,
+                config=ClassStartConfig(enabled=True, min_participants=3, max_wait_minutes=2),
+                reset=False,
+            )
+            await repo.record_first_arrival(room)
+            await repo.clear_first_arrival(room)
+
+            cleared = await repo.get(room)
+            waiting = {s.chatroom_id for s in await repo.awaiting_start(limit=500)}
+            await repo.record_first_arrival(room)
+            again = await repo.get(room)
+            await session.rollback()
+
+        assert cleared is not None
+        assert cleared.first_arrival_at is None
+        assert room not in waiting
+        assert again is not None
+        assert again.first_arrival_at is not None
+
     async def test_reset_rearms_and_clearing_stores_sql_null(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],

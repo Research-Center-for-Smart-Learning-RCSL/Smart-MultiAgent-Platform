@@ -279,6 +279,8 @@ class ActivityActivation:
     # not move either.
     time_limit_minutes: int | None = None
     deadline_at: dt.datetime | None = None
+    # When the all-submitted wake was claimed ([R15.28]); None until then.
+    completion_notified_at: dt.datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

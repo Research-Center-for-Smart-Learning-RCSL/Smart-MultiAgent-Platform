@@ -51,7 +51,7 @@ from contexts.activities.interfaces.broadcast import (
     dispatch_group_proposal,
     dispatch_room_activation_progress,
 )
-from contexts.activities.interfaces.facade import ActivitiesFacade
+from contexts.activities.interfaces.facade import TIME_LIMIT_MINUTES_RANGE, ActivitiesFacade
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.interfaces import room_channel
@@ -101,7 +101,9 @@ class ActivityTypeIn(BaseModel):
     group_config: dict[str, Any] | None = None
     # [R30.46]: the limit a round of this type gets unless the room overrides it;
     # null means no limit. Safe metadata, so changing it never bumps `version`.
-    default_time_limit_minutes: int | None = Field(default=None, ge=1, le=180)
+    default_time_limit_minutes: int | None = Field(
+        default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
+    )
 
 
 class ActivityTypeUpdateIn(BaseModel):
@@ -125,7 +127,9 @@ class ActivityTypeUpdateIn(BaseModel):
     # cannot clear it by resubmitting the form it knows.
     # [R30.46]: the limit a round of this type gets unless the room overrides it;
     # null means no limit. Safe metadata, so changing it never bumps `version`.
-    default_time_limit_minutes: int | None = Field(default=None, ge=1, le=180)
+    default_time_limit_minutes: int | None = Field(
+        default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
+    )
 
 
 class ActivityTypeOut(BaseModel):
