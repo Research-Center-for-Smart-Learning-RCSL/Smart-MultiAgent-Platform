@@ -842,6 +842,9 @@ each row for its own list — the frontmatter wins over this preamble.
 - `2026-10-27-crat-facilitation-phase4-autonomous-teacher` (feature, **in progress 2026-10-27** on
   `feat/crat-facilitation-phase4`). `depends_on` phase 2 is relaxed by its D-1: the branch is not
   merged or deployed, and its prompts are not synced to staging, until phase 2 closes.
+  Build complete and gated (unit, db-tier, lint, type, quality and security audits; D-3 to D-13,
+  FU-6 to FU-10). Open: AC-8's browser check, and AC-11's three live simulator runs, which wait
+  for phase 2 to close and a staging deploy.
 
 ### Classroom facilitation phase 3 (2026-10-20)
 
