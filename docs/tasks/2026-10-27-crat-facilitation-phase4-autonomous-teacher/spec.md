@@ -513,6 +513,46 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   `PLATFORM_TRIGGERS` instead. Like an explicit call, a platform wake bypasses autostop and is not
   counted. Unlike one, it still requires a live binding with the trigger in force. Approved by the
   requester with the plan.
+- **D-3. OQ-1 and OQ-2 answered from the code.** Only the chatroom socket joins room presence
+  (`backend/app/api/ws/chatroom.py:325`), so a canvas-only socket is not in the connected count. A
+  guest connects through the same socket under its guest-session principal and reaches
+  `_notify_presence` and `_check_class_start` (`:338`, `:83`) exactly as a registered student
+  does, so guests count toward class start and toward the submission count.
+- **D-4. Non-members get 403, not 404 (AC-7).** The new routes reuse `resolve_room_access`, then
+  `ensure_can_read`, then `ensure_room_creator` (`backend/app/api/v1/class_flow.py:81-86`), the
+  sequence the grant and wake-up routes already use. A caller who cannot read the room gets
+  `ForbiddenInRoom` (403) and a missing room 404, rather than AC-7's 404 for non-members. Keeping
+  the sibling routes' semantics avoids one room's settings answering differently from the rest.
+- **D-5. Prompt backstop keyed on the renderer's own wording.** The prompts' deadline backstop
+  first quoted 「還剩 0 分鐘」, which `[Activity state]` never prints: remaining minutes round up,
+  and a passed deadline renders as "the time limit has been reached". The prompts quote that
+  sentence instead, and `test_the_quoted_platform_wording_is_what_the_platform_emits` pins every
+  platform sentence the prompts quote to the code that emits it.
+- **D-6. Where the activity facts live.** The deadline and completion claims sit in
+  `contexts/activities/application/platform_events.py` (the activities context owns activations
+  and submissions); orchestration only resolves which bindings to wake; the post-commit enqueue
+  is in `app/wiring/platform_wakes.py`, so neither the worker nor a context imports an API module.
+  `is_individual_only` moved to the domain module `group_consent` so the context provider can use
+  it without importing the application layer.
+- **D-7. Activity wakes skip observer and `call_only` bindings.** [R15.28] names every binding
+  whose grant allowlists the type. The build also skips observers, which never take room turns,
+  and `call_only` bindings, which by definition wake only when called
+  (`backend/contexts/orchestration/application/wakeup_service.py:456`). Granting activity control
+  to such a binding remains possible; it simply receives no deadline or completion wake.
+- **D-8. Platform course types cannot have their default edited.** Only the project type route
+  takes `default_time_limit_minutes` (`backend/app/api/v1/activities.py:682-686`); the admin edit
+  of a platform type leaves it untouched, and re-installing a course never rewrites an existing
+  type. A project that installed the Chinese-character course before this revision therefore has
+  no default limit until each room creator sets one; the adoption guide says so. FU-6 tracks the
+  admin edit.
+- **D-9. The CRAT scenario has no deadline path.** §6 asks each scenario to keep one connected
+  non-submitter for the deadline path. CRAT runs one group activation across all eight rounds
+  (FU-2), and a limit would end every remaining round at once, so `crat-autonomous` keeps no limit
+  and covers the opening, judging (including a wrong answer TA rejects itself) and the close.
+  The deadline and completion paths are covered by `charbuild-autonomous` (deadline in round 1,
+  completion after) and `objreinterp-autonomous` (deadline, a creator override in round 3, and a
+  student who leaves in round 4). The simulator gained `room.classStart` and `room.timeLimits`
+  to configure this before anyone connects.
 
 ## 16. Follow-ups
 
@@ -521,3 +561,5 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-3: A server-side round counter or bank progress, so a reinstalled or restarted TA does not depend on the transcript to know the round.
 - FU-4: Exclude admin-bypass visitors from arrivals and the class-start count (phase 3 FU-9).
 - FU-5: A platform fallback that ends an activity some minutes after its deadline if TA did not (the option declined at Q-5), should live runs show missed deadline wakes.
+- FU-6: An admin edit of a platform activity type's default time limit, and a way for a course re-install to offer the shipped default to an existing type (D-8).
+- FU-7: A platform wake that arrives while the binding's turn is parked or coalesced into a follow-up turn loses its notice; the follow-up turn still sees `[Activity state]` (which carries the timing and count facts), but not the one-line notice. Carry the notice into the follow-up if live runs show a missed opening or time-up.
