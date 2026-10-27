@@ -573,6 +573,53 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   stored `enabled` flag, so a room switched off after its first arrival is neither swept nor
   claimed; the added condition still implies the 0106 partial index predicate.
 
+The entries D-14 to D-20 come from a code review of the whole task diff after the gates
+above. The user chose to verify and fix all ten of its findings.
+
+- **D-14. A platform wake is not counted toward autostop.** [R15.27] and [R15.28] say the
+  platform wakes bypass autostop and do not reset it, but a completed platform turn still bumped
+  the consecutive agent-only round count. In a class whose students work through activities
+  rather than chat, a few rounds tripped the cap, and the agent's own message and silence wakes
+  were then skipped for the rest of the class. `wakeup_agent` now counts a round only for a
+  non-platform trigger (`backend/app/workers/tasks/orchestration.py`). A mention still counts,
+  as before. `REQUIREMENTS.md` [R15.27] and [R15.28] now state that these wakes do not count as
+  autostop rounds.
+- **D-15. A coalesced platform notice names its follow-up turn.** D-12 kept the notice but let
+  the follow-up run under whichever trigger won the first-wins mark. Under a parked message
+  trigger that job faced the message trigger's gates (turned off, autostop, already covered) and
+  could drop the notice. The parked notice now carries its own trigger, and when one is present
+  the drain and the lock retry run the follow-up as that platform wake. The drained job carries
+  no message id, so an id another turn has since answered cannot skip it as covered.
+- **D-16. The class-start wait starts at the first check that sees a student.** The wait used
+  to start only on a new connection to an armed room, so enabling class start or resetting it
+  while students were already connected left the max-wait path unable to fire. The setting
+  route now runs the class-start check after it commits whenever the room is armed, which also
+  opens the class at once when enough students are present, and the check records the first
+  arrival whenever it sees a student connected and none is recorded. The check stays
+  best-effort: the setting is saved even if it fails.
+- **D-17. A room everyone left stops waiting.** A room whose students all left before the class
+  started stayed in the oldest-first sweep with its old first arrival. Enough of them would have
+  filled the 200-room batch, and a newer room would never have opened on the max wait. The check
+  now clears the first arrival when nobody but the creator is connected, so the room leaves the
+  sweep and its wait restarts with the next student (`ClassStartRepository.clear_first_arrival`).
+- **D-18. A departure re-checks the all-submitted fact.** Completion is defined over the
+  connected set, but it was checked only after a valid submission. If the last student without a
+  submission left, the round never completed and, with no time limit, never moved on. A
+  principal's last connection closing now runs the same check in its own session. This widens
+  [R15.28]'s trigger from "a valid submission" to "a valid submission or a departure", and
+  `REQUIREMENTS.md` says so; the fact itself and its once-per-activation claim are unchanged.
+- **D-19. A claimed completion skips the progress read.** The activation now carries
+  `completion_notified_at`, and `claim_if_complete` returns before the presence read and the
+  submitter scan once it is set, instead of repeating both on every later resubmission.
+- **D-20. Shared rules and bounds have one home.** The individual-only test moved to
+  `is_individual_type` in `activities/domain/group_consent.py`, used by the facade, the platform
+  events and the context provider. The presence bound for a headcount is
+  `HEADCOUNT_PRESENCE_LIMIT` in the conversation facade. The route bounds for class start and
+  time limits, including the two activity type routes, read the domain ranges. The worker's
+  all-submitted call and the departure check share `check_all_submitted`, which opens its own
+  session; the worker's outer `try` it replaced was not redundant, since it also covered a
+  session that failed to open.
+
 ## 16. Follow-ups
 
 - FU-1: One-click course rooms that bind the pack's agents, request the grant and apply class start and time limits in one creator action.
