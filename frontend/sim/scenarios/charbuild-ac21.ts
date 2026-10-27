@@ -40,12 +40,13 @@ export default defineScenario({
     { actor: 'P2', at: '6:40', do: 'say', text: '懂了，可以開始了' },
     { actor: 'P3', at: '7:00', do: 'say', text: '好' },
     // B2 without a grant: the creator starts the activity only after TA asks for it. The ask can
-    // come right after B1 (04:26 in the 2026-10-26 run), so any earlier TA message counts.
+    // come right after B1 (04:26 in the 2026-10-26 run), so any earlier TA message counts. It can
+    // also come late (12:02 in the 2026-10-27 run, with A2 split over two messages), hence 10 minutes.
     {
       actor: 'F',
       at: '6:00',
       when: { type: 'message', from: 'agent:TA', match: '(老師|建立者).*開始|開始.*活動', sinceArmed: false },
-      timeoutSec: 240,
+      timeoutSec: 600,
       do: 'startActivity',
       type: 'character-building',
       label: 'starts the activity when TA asks for it (missing grant)',
@@ -53,11 +54,11 @@ export default defineScenario({
     // Two students react to the form so TA wakes (every_n 2) and sees the activity running.
     { actor: 'P1', at: '7:30', when: { type: 'activation', state: 'active' }, timeoutSec: 300, do: 'say', text: '表單出來了' },
     { actor: 'P2', at: '7:50', when: { type: 'activation', state: 'active' }, timeoutSec: 300, do: 'say', text: '我也看到了' },
-    // C1: quiet individual work, nobody talks.
-    { actor: 'P1', at: '10:00', do: 'openActivity' },
-    { actor: 'P2', at: '10:00', do: 'openActivity' },
-    { actor: 'P3', at: '10:00', do: 'openActivity' },
-    { actor: 'P4', at: '10:00', do: 'openActivity' },
+    // C1: quiet individual work, nobody talks. The form exists only once the late start lands.
+    { actor: 'P1', at: '10:00', when: { type: 'activation', state: 'active' }, timeoutSec: 360, do: 'openActivity' },
+    { actor: 'P2', at: '10:00', when: { type: 'activation', state: 'active' }, timeoutSec: 360, do: 'openActivity' },
+    { actor: 'P3', at: '10:00', when: { type: 'activation', state: 'active' }, timeoutSec: 360, do: 'openActivity' },
+    { actor: 'P4', at: '10:00', when: { type: 'activation', state: 'active' }, timeoutSec: 360, do: 'openActivity' },
     { actor: 'P1', at: '11:30', do: 'submit', fields: { char_01: '杏', char_02: '呆', char_03: '困' }, label: 'P1 submits three characters' },
     { actor: 'P3', at: '12:10', do: 'submit', fields: { char_01: '困', char_02: '杏', char_03: '呆', char_04: '束' } },
     { actor: 'P2', at: '12:50', do: 'submit', fields: { char_01: '束', char_02: '杏' } },
