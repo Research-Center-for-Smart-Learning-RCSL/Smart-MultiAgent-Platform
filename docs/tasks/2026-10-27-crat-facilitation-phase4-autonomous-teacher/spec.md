@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-10-27
 requirements: [R13.73, R15.02, R15.03, R15.05, R15.26, R30.21, R30.22, R30.37, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence]
@@ -498,6 +498,21 @@ Replace [R30.44]:
 ## 15. Deviation Log
 
 Appended by /build. Empty means the implementation matches this spec exactly.
+
+- **D-1. Built before phase 2 closed (requester's decision, 2026-10-27).** `depends_on` names
+  phase 2, which was still gathering AC-14 and AC-21 live evidence. The requester chose to build
+  everything now, including the three teacher prompt rewrites, on `feat/crat-facilitation-phase4`
+  cut from `test/sim-ac21-scenarios` at `ca6176f0`. Until phase 2 closes, this branch is not merged
+  to `main` or deployed, and its pack prompts are not synced to the staging agents used for phase
+  2 runs. Phase 2 prompt fixes that land later are rebased in. AC-11 needs a staging deploy, so it
+  waits for phase 2 to close.
+- **D-2. Platform wakes are their own trigger set, not `EXPLICIT_TRIGGERS`.** §6 put the three new
+  reasons into `EXPLICIT_TRIGGERS` (`backend/contexts/orchestration/domain/models.py:254`). That set
+  means "an explicit call the room's own participants made" and also bypasses the worker's
+  binding-state gates (`backend/app/workers/tasks/orchestration.py:115-119`). The build adds
+  `PLATFORM_TRIGGERS` instead. Like an explicit call, a platform wake bypasses autostop and is not
+  counted. Unlike one, it still requires a live binding with the trigger in force. Approved by the
+  requester with the plan.
 
 ## 16. Follow-ups
 
