@@ -1041,6 +1041,37 @@ are carried forward as release gates.
   (「如果願意，可以說說」). After she answered, TA's next message at 09:09:39 said 「不用勉強補充」
   instead of inviting her again. AC-14 stays open, as the requester decided in D-23, until the
   AC-21 runs add the character and object teachers' invitations.
+- **D-25. AC-21 simulator runs of 2026-10-26.** Character run 4 (room `5360c3b1`) passed every
+  stage: TA opened D1 at 17:55 and posted K2 at 29:24, but invited nobody while 小遠 stayed silent.
+  Object run 2 (room `46855e0f`) carried two compliant invitations (小晴 at 21:14, 小遠 at 29:44).
+  Its D3 question came only after the creator's 進行下一輪, which the requester chose to record
+  without a prompt change. The teacher-ended case went unobserved because the scripted reactions
+  answered round 1's end notice; `61fdc664` added a `count` to the simulator's message condition so
+  they wait for the second `ended` notice. At the requester's choice the character teacher's D1
+  invitation wording was changed in `ed50c130` and synced to staging agent `5b2e0645` (v10).
+- **D-26. Character run 5, 2026-10-27, failed on pace (room `5a043b0a`).** TA split A2 over two
+  messages (04:27 and 07:04), posted B1 at 09:33 on a silence wake and asked the creator to start
+  the activity at 12:02. The ask was compliant: TA neither started the work nor announced it. The
+  simulator's start step waited only until 10:00, so the activity never started and every later
+  form step failed; D1 was never reached and `ed50c130` is still unobserved. Off-script, TA
+  repeated 「好，時間到！大家辛苦了。」 on three student messages after the creator's time-up with no
+  activity running. At the requester's choice the scenario now waits up to ten minutes for the ask
+  and opens the form only once the activation is active; the prompt is unchanged.
+- **D-27. Object run 3, 2026-10-27, passed all 33 steps (room `3d5b9bca`).** Times are on the
+  run clock. The work stayed quiet from the form announcement to the creator's 13:00 end of
+  ideation, and the C2 reminder followed it while the activity ran. TA asked the creator about
+  ending the round at 21:04, before the creator's scripted confirmation, and called `end_activity`
+  in the confirming turn (ended 21:09), so D-25's late D3 did not recur. Its one invitation went to
+  小遠 at 21:13, after the activity ended, and was not repeated. A reference use (臨時掛勾) was
+  cited only after a student had shared it. The teacher-ended case was observed for the first time:
+  the creator ended round 2 from the panel at 32:31, five seconds after TA started it, and TA
+  replied at 32:44 that the round had ended and the form could no longer be submitted, without
+  asking anyone to submit. It did not go on to E2 (asking about the next round) and stayed silent
+  until the class closed. No silence wake fired in those nine minutes, which is consistent with the
+  B2 announcement at 32:30 having switched silence off and no wake-up restore after the panel end;
+  the run's evidence does not show the tool calls, so this is not confirmed. The
+  requester accepted this as a pass with the missing E2 recorded; phase 4 replaces the creator
+  question with the teacher's own transition.
 
 ## 16. Follow-ups
 
@@ -1116,6 +1147,10 @@ are carried forward as release gates.
   **2026-10-23: folded into `2026-10-20-crat-facilitation-phase3-late-joiners-and-activity-state`
   (its Q-12, §6.6, AC-21 to AC-25).** The type quotes `target_character` after the participant
   marker; AC-24's remaining half closes with that dossier's AC-25.
+- **FU-17 (prompt, D-26):** the character teacher's A2 step 3 describes the worksheet before any
+  activity runs, while its [Activity state] rule says not to mention the form without one. Move the
+  form description into B2 after the activation, or exempt the rules explanation explicitly. The
+  phase 4 pack carries the same A2 text.
 
 ## 17. Round bank (Q-11, approved 2026-10-16)
 
