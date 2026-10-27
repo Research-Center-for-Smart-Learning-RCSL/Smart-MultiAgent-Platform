@@ -12,6 +12,7 @@ import { ApiError } from '@shared/errors'
 import type { ActivityType } from '@slices/activities'
 import { getActivityTimeLimits, putActivityTimeLimits, type ActivityTimeLimit } from '../api'
 import { convKeys } from '../queries'
+import { roomTimeLimitMinutesSchema } from '../types/schemas'
 
 const props = defineProps<{
   chatroomId: string
@@ -84,8 +85,8 @@ function setMinutes(typeId: string, raw: string | number): void {
 }
 
 function validMinutes(raw: number | ''): number | null {
-  if (raw === '') return null
-  return Number.isInteger(raw) && raw >= BOUNDS.min && raw <= BOUNDS.max ? raw : null
+  const result = roomTimeLimitMinutesSchema.safeParse(raw)
+  return result.success ? result.data : null
 }
 
 function rowInvalid(typeId: string): boolean {

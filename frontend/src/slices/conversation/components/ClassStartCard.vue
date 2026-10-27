@@ -10,6 +10,9 @@ import { useConfirmDialog, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { getClassStart, patchClassStart, type ClassStart, type ClassStartPatch } from '../api'
 import { convKeys } from '../queries'
+import type { z } from 'zod'
+import { classStartMaxWaitSchema, classStartMinParticipantsSchema } from '../types/schemas'
+import { formatDateTime } from '@shared/utils/datetime'
 
 const props = defineProps<{
   chatroomId: string
@@ -63,14 +66,13 @@ watch(
   { immediate: true },
 )
 
-function inRange(raw: number | '' | string, bounds: { min: number; max: number }): number | null {
-  if (raw === '') return null
-  const n = Number(raw)
-  return Number.isInteger(n) && n >= bounds.min && n <= bounds.max ? n : null
+function parsed(schema: z.ZodNumber, raw: number | '' | string): number | null {
+  const result = schema.safeParse(raw === '' ? Number.NaN : Number(raw))
+  return result.success ? result.data : null
 }
 
-const minValue = computed(() => inRange(minParticipants.value, MIN_PARTICIPANTS))
-const waitValue = computed(() => inRange(maxWait.value, MAX_WAIT))
+const minValue = computed(() => parsed(classStartMinParticipantsSchema, minParticipants.value))
+const waitValue = computed(() => parsed(classStartMaxWaitSchema, maxWait.value))
 const valid = computed(() => minValue.value !== null && waitValue.value !== null)
 
 const dirty = computed(() => {
@@ -112,7 +114,7 @@ const stateText = computed(() => {
 const canReset = computed(() => !!current.value?.started_at || !!current.value?.first_arrival_at)
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString()
+  return formatDateTime(iso)
 }
 
 const mutation = useMutation({
