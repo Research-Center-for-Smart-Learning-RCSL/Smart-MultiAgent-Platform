@@ -866,7 +866,12 @@ each row for its own list — the frontmatter wins over this preamble.
   pending DB/e2e/live-stack verification, clean backend typecheck and a stacked PR
   on the existing source branch. See the dossier verification record.
 
-- `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
+- (implemented 2026-10-27) `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence`.
+  All ACs ticked; AC-14 and AC-21 closed by the AC-21 simulator runs (D-25 to D-28), AC-22 by
+  PR #283 (CI green at `8e2cdee8`, D-29). FU-17 records the character teacher's A2 form mention.
+  It unblocks `2026-10-27-crat-facilitation-phase4-autonomous-teacher`, already in progress under
+  its D-1. The original entry, kept for its detail:
+  `2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence` (feature, in progress since
   2026-10-16 on `feat/crat-facilitation-phase2`, SRS delta applied) - `depends_on: []`. Bounded participant facts and
   consistent codes for teacher and observer agents (M1); three-layer room-owned wake-up
   settings with a migration and coordinated worker cutover (M2); prompt-level invitation

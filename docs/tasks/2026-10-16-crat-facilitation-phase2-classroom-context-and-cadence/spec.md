@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-16
 requirements: [R13.33, R13.34, R13.72, R13.73, R15.01, R15.02, R15.03, R15.06, R15.06a, R15.07, R15.08, R15.09, R28.02, R28.05, R28.10, R28.12, R28.18, R30.15, R30.37, R30.38, R30.43, R32.04]
 depends_on: []
@@ -668,7 +668,7 @@ Invitations and courses:
   designer prompt carries them. The CRAT teacher confirms a matching submission itself,
   routes a differing target to the human teacher, and in a live run does not reveal the
   target or a full word before the group submits, including when a student asks for it.
-- [ ] AC-22: Required backend unit/DB/integration, lint/type checks, frontend tests/lint/typecheck/
+- [x] AC-22: Required backend unit/DB/integration, lint/type checks, frontend tests/lint/typecheck/
   build, OpenAPI drift, quality and conditional security gates pass for the final diff. The
   complete PR self-review records scope, evidence and merge decision. Live ACs remain open
   until actual observations are attached; `implemented` requires all selected ACs.
@@ -1088,6 +1088,22 @@ are carried forward as release gates.
   (CRAT), D-25 and D-27 (object) and this run (character): each optional, aimed at one named
   connected participant, outside individual work, never the creator, and not repeated to the
   person last invited. AC-22 remains for the PR.
+- **D-29. AC-22 closed on PR #283, 2026-10-27.** Scope: the remaining branch
+  `test/sim-ac21-scenarios` against `main`, which holds the AC-21 simulator scenarios and their
+  condition, observer and participant fixes, the character and object teacher prompt changes
+  (`f84e4d7f`, `ed50c130`), this dossier's run records, and the phase 4 dossier merged ahead of its
+  code at the requester's choice. CI was green on every job at `8e2cdee8` (backend unit, db,
+  integration, wiring, lint and typecheck; frontend unit, lint, typecheck, e2e, OpenAPI drift and
+  every gate; dependency audit); only `compose-boot-prod` was skipped by its path filter. The
+  self-review read the prompt changes line by line and the simulator diff in full. The prompt
+  changes move the character teacher's cadence restore to the time-up turn, let both teachers
+  follow a creator's 進行下一輪 and bound follow-up questions; they add no tool, grant or answer
+  text, and every §6.2 invitation rule is unchanged. The simulator changes are operator-side only
+  and read no secret. No quality or security finding. Merge decision: ready, merged by the
+  requester. One gap is noted rather than fixed: the object teacher's panel-ended branches
+  (`<步驟C1>` and `<步驟D3>`) jump to `<步驟E2>` without the wake-up restore b), unlike the
+  character teacher's, which fits D-27's silent nine minutes. Phase 4's prompt rewrite replaces
+  these branches.
 
 ## 16. Follow-ups
 
