@@ -115,6 +115,23 @@ async def test_activation_started_broadcast_carries_public_type(
     assert payload["activity_type"]["key"] == activity_type.key
     assert payload["activity_type"]["payload_schema"] == activity_type.payload_schema
     assert "validator_config" not in payload["activity_type"]
+    assert (payload["time_limit_minutes"], payload["deadline_at"]) == (None, None)
+
+
+async def test_activation_started_broadcast_carries_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _PublisherSpy.emitted = []
+    monkeypatch.setattr(broadcast, "Publisher", _PublisherSpy)
+    activity_type = _make_type()
+    deadline = _NOW + dt.timedelta(minutes=5)
+    activation = _make_activation(activity_type.id, time_limit_minutes=5, deadline_at=deadline)
+
+    await broadcast.dispatch_activation_started(activation, activity_type)
+
+    _channel, _event, payload = _PublisherSpy.emitted[0]
+    assert payload["time_limit_minutes"] == 5
+    assert payload["deadline_at"] == deadline.isoformat()
 
 
 async def test_resolve_activation_type_degrades_to_none_on_facade_error(

@@ -136,6 +136,10 @@ async def dispatch_activation_started(
             "activation_id": str(activation.id),
             "activity_type_id": str(activation.activity_type_id),
             "started_by": str(activation.started_by_user_id),
+            # Live starts are most of an autonomous class's rounds; without this the
+            # countdown would wait for the next full read ([R30.46]).
+            "time_limit_minutes": activation.time_limit_minutes,
+            "deadline_at": activation.deadline_at.isoformat() if activation.deadline_at else None,
         }
         if initiating_agent is not None:
             payload["started_by_agent_id"] = str(initiating_agent.agent_id)
