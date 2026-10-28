@@ -276,8 +276,12 @@ $COMPOSE build $APP
 
 # 2. Apply migrations before the new backend code starts.
 #    Staging only: the `migrate` one-shot service exists in that overlay.
+#    It has its own image, so build it too; `run` would otherwise reuse the
+#    previous build and report the old head as current without an error.
 #    On prod, run `alembic upgrade head` per §5 instead.
+$COMPOSE build migrate
 $COMPOSE run --rm migrate
+$COMPOSE exec backend-web alembic current   # must name the new head
 
 # 3. Swap the containers. --no-deps is what keeps nginx untouched.
 $COMPOSE up -d --no-deps $APP
