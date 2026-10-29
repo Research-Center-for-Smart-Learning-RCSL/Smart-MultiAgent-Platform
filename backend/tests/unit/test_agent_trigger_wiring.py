@@ -322,6 +322,38 @@ async def test_evaluate_room_activity_is_a_noop_without_bound_agents(monkeypatch
     await triggers.evaluate_room_activity(object(), chatroom_id=uuid.uuid4())
 
 
+@pytest.mark.asyncio
+async def test_an_activation_change_re_arms_and_resets_autostop_but_a_submission_does_not(
+    monkeypatch,
+) -> None:
+    """[R15.03]: a round transition lifts the autostop cap; a submission, which
+    happens once per student, must not."""
+    agent = uuid.uuid4()
+    room = uuid.uuid4()
+    calls: list[str] = []
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([agent]))
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_users_present(self, *, room_id, agent_ids):
+            calls.append("re_arm")
+
+        async def on_activation_changed(self, *, room_id):
+            assert room_id == room
+            calls.append("reset_autostop")
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+
+    await triggers.evaluate_activation_change(object(), chatroom_id=room)
+    assert calls == ["re_arm", "reset_autostop"]
+
+    calls.clear()
+    await triggers.evaluate_room_activity(object(), chatroom_id=room)
+    assert calls == ["re_arm"]
+
+
 # --------------------------------------------------------------------------- #
 # wakeup_agent task
 # --------------------------------------------------------------------------- #

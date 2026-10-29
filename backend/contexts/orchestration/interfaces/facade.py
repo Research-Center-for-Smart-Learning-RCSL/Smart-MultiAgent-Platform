@@ -175,6 +175,9 @@ class OrchestrationFacade:
             agent_ids=agent_ids,
         )
 
+    async def on_activation_changed(self, *, room_id: uuid.UUID) -> None:
+        await self._wakeup.on_activation_changed(room_id=room_id)
+
     async def on_participant_joined(self, *, room_id: uuid.UUID, principal_id: uuid.UUID) -> list[WakeTarget]:
         return await self._wakeup.on_participant_joined(room_id=room_id, principal_id=principal_id)
 
