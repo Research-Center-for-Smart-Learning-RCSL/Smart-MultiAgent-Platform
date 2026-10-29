@@ -710,7 +710,8 @@ class TestCratPackMatchesThePlatform:
         Phase 2 AC-16 makes the human count explicit."""
         ta = self._agent("ta-crat-teacher").wakeup_config["triggers"]
         assert ta["every_n_messages"] == {"enabled": True, "n": 2, "count": "human"}
-        assert ta["silence_minutes"] == {"enabled": True, "t_minutes": 2, "autostop_rounds": 2}
+        # Phase 4 D-22: six rounds, so an autonomous class reaches its next stage.
+        assert ta["silence_minutes"] == {"enabled": True, "t_minutes": 2, "autostop_rounds": 6}
 
         sa = self._agent("sa-crat-peer").wakeup_config["triggers"]
         assert sa["silence_minutes"]["t_minutes"] == 3
@@ -737,10 +738,12 @@ class TestCratPackMatchesThePlatform:
             assert "秒" not in agent.system_prompt, agent.key
 
     def test_crat_teacher_states_the_empty_reply_rule(self) -> None:
-        """AC-4: an empty reply posts nothing; the prompt has to say so."""
-        assert "要保持沉默時，回覆空白即可：空白的回覆不會送進討論室。" in (
-            self._agent("ta-crat-teacher").system_prompt
-        )
+        """AC-4: an empty reply posts nothing; the prompt has to say so. Phase 4 D-22
+        frames it as a choice not to speak, and a turn that changes the activity
+        must speak, because the platform applies the tool call and posts nothing."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        assert "你可以選擇這一輪不說話：不說話的做法是這一輪不輸出任何文字" in prompt
+        assert "只要這一輪呼叫了 start_activity 或 end_activity，就一定要說話" in prompt
 
     def test_crat_teacher_names_every_required_field(self) -> None:
         """AC-6: read from the course schema so the test follows the course."""
@@ -797,7 +800,7 @@ class TestCratPackMatchesThePlatform:
 
         assert "整數分鐘" in prompt
         assert "update_wakeup" in prompt
-        assert "回覆空白" in prompt
+        assert "不輸出任何文字" in prompt
         # Q-13: answers now live in the teacher prompt, readable by agent editors.
         assert "不要貼進任何 Agent 的設定" not in prompt
         assert "能編輯 Agent" in prompt
@@ -1064,6 +1067,21 @@ class TestPhase2CoursePacks:
         b2 = _section(self._agent("ta-charbuilding-teacher").system_prompt, "步驟B2")
         assert "不用十格都填滿" in b2
 
+    @pytest.mark.parametrize(
+        "teacher_key", ["ta-crat-teacher", "ta-charbuilding-teacher", "ta-objreinterpret-teacher"]
+    )
+    def test_a_teacher_that_changes_the_activity_says_so(self, teacher_key: str) -> None:
+        """Phase 4 D-22: an empty reply still applies its tool calls, so a silent
+        start_activity turn opened the round with no announcement (AC-11 run)."""
+        agent = self._agent(teacher_key)
+        assert "只要這一輪呼叫了 start_activity 或 end_activity，就一定要說話" in agent.system_prompt
+        assert agent.wakeup_config["triggers"]["silence_minutes"]["autostop_rounds"] == 6
+
+    def test_no_shipped_agent_is_told_to_reply_blank(self) -> None:
+        """Phase 4 D-22: silence is a choice not to speak, not an answer to give."""
+        for _, agent in SHIPPED_AGENTS:
+            assert "回覆空白" not in agent.system_prompt, agent.key
+
     def test_object_teacher_no_longer_waits_to_close_the_round(self) -> None:
         d3 = _section(self._agent("ta-objreinterpret-teacher").system_prompt, "步驟D3")
         assert "請你問老師" not in d3
@@ -1195,7 +1213,7 @@ class TestPhase2CoursePacks:
         prompt = self._agent(key).system_prompt
         assert "[u:xxxxxxxx]" in prompt
         assert re.search(r"不要寫(出)?姓名", prompt), key
-        assert "回覆空白" in prompt
+        assert "就不說話，不必硬寫" in prompt
         assert "不是全班" in prompt
 
     def test_crat_group_work_stays_with_the_group(self) -> None:
@@ -1487,7 +1505,7 @@ class TestPhase3CoursePacks:
             "討論室建立者的連線不會出現",  # the creator is never shown
             "說給大家聽",  # addressed to the room
             "不要要求剛進來的人發言",  # no demand to speak
-            "個人作答或安靜思考的時段，就回覆空白",  # silent during individual work
+            "個人作答或安靜思考的時段，就不說話",  # silent during individual work
             "只說一次",  # once per wave of arrivals
             "<邀請發言>",  # invitations keep their own rules
         ):
