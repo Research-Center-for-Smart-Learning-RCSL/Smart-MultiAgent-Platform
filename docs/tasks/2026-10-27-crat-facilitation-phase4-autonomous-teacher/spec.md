@@ -631,6 +631,27 @@ above. The user chose to verify and fix all ten of its findings.
   activation. Pinned by `test_a_panel_ended_round_restores_the_cadence` and
   `test_the_character_rules_do_not_describe_a_form_before_it_exists`; both failed before the
   prompt edits.
+- **D-22. A round transition resets autostop, and silence is a choice not to speak (2026-10-29).**
+  The first AC-11 runs on staging stalled. In the CRAT run the teacher confirmed round 1 at 7:20
+  and was never woken again until students spoke at 25:21. In the character run it summarised the
+  sharing at 19:53 and then went quiet. Platform wakes cover only the work phase. The moves from
+  sharing to the next round depend on silence wakes, and with no human message the pack's
+  `autostop_rounds` of 2 stopped those two turns after the last student message. Two changes
+  answer it. First, an activation's room notice now resets every binding's autostop count
+  (`WakeupService.on_activation_changed`, reached through `ConversationFacade.note_activation_changed`
+  from `dispatch_activation_notice`), and [R15.03] says so. Only a real transition writes a notice,
+  and a silence wake still needs a connected human ([R15.05b]), so FU-8's no-human chain is not
+  widened. A submission still resets nothing. Second, the three teachers' `autostop_rounds` rises
+  from 2 to 6, which covers the D1 to D3 sharing steps between transitions. The character run also
+  showed the teacher's turn at 12:51 calling `start_activity` with an empty reply: the platform
+  applied the tool and posted nothing, so the round opened with no K1 reveal and no B2
+  announcement (audit `wakeup.skipped` with `empty_reply`). The rule that told every agent to
+  "reply blank" when it had nothing to say also read as the default answer. The packs now tell
+  each agent it may choose not to speak, by writing no text, and tell each teacher that a turn
+  calling `start_activity` or `end_activity` must speak. The designers carry the same rule.
+  Pinned by `test_an_activity_round_change_lifts_the_autostop_cap`,
+  `test_an_activation_change_re_arms_and_resets_autostop_but_a_submission_does_not`,
+  `test_a_teacher_that_changes_the_activity_says_so` and `test_no_shipped_agent_is_told_to_reply_blank`.
 
 ## 16. Follow-ups
 
