@@ -84,12 +84,13 @@ def activity_type_public_payload(activity_type: ActivityType) -> dict[str, Any]:
 
 
 async def dispatch_activation_notice(notice: ActivationNotice) -> None:
-    """Publish an activation's room message and re-arm silence ([R30.45]).
+    """Publish an activation's room message and tell the wake-up system ([R30.45]).
 
     The row is an ordinary system message to clients, so it goes out as
-    ``message.created``; to the wake-up system it is room activity, not a message
-    agents wait on, so it re-arms the silence clock without counting toward
-    ``every_n_messages`` or resetting autostop (``note_room_activity``).
+    ``message.created``; to the wake-up system it is a stage change, not a message
+    agents wait on, so it re-arms the silence clock and resets autostop without
+    counting toward ``every_n_messages`` (``note_activation_changed``, [R15.03]).
+    Only a real transition carries a notice, which is what bounds the reset.
     """
     try:
         await Publisher(room_channel(notice.chatroom_id)).emit(
@@ -108,9 +109,9 @@ async def dispatch_activation_notice(notice: ActivationNotice) -> None:
 
     try:
         async with async_session() as db:
-            await ConversationFacade(db).note_room_activity(chatroom_id=notice.chatroom_id)
+            await ConversationFacade(db).note_activation_changed(chatroom_id=notice.chatroom_id)
     except Exception:
-        _log.warning("silence re-arm failed for activation notice %s", notice.message_id, exc_info=True)
+        _log.warning("wake-up update failed for activation notice %s", notice.message_id, exc_info=True)
 
 
 async def dispatch_activation_started(

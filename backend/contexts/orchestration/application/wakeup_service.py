@@ -331,6 +331,22 @@ class WakeupService:
             if state.agent_id in wanted:
                 await wakeup_state.touch_silence_timestamp(state.agent_id, room_id, state.binding_id)
 
+    async def on_activation_changed(self, *, room_id: uuid.UUID) -> None:
+        """An activity round started or ended: reset every binding's autostop ([R15.03]).
+
+        A round transition is a new stage of the class, not more of the same agent-only
+        exchange the cap exists to stop. Without this, a class no human speaks in
+        (the autonomous teacher of phase 4) stops being woken ``autostop_rounds`` turns
+        after its last human message, which strands every later stage that only a
+        silence wake can open.
+
+        Bounded the same way a human message bounds it: only a real transition reaches
+        here (a repeated start writes no notice), and silence wakes still need a
+        connected human ([R15.05b]).
+        """
+        for state in await self._conversation.room_binding_wakeup_states(room_id):
+            await wakeup_state.reset_autostop(state.agent_id, room_id, state.binding_id)
+
     # ------------------------------------------------------------------
     # Arrival: the on_join trigger ([R15.26])
     # ------------------------------------------------------------------

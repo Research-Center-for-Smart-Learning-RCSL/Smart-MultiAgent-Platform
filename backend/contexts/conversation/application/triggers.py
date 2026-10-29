@@ -200,6 +200,24 @@ async def evaluate_room_activity(
     await _re_arm_silence(db, chatroom_id=chatroom_id)
 
 
+async def evaluate_activation_change(
+    db: AsyncSession,
+    *,
+    chatroom_id: uuid.UUID,
+) -> None:
+    """An activity round started or ended in this room ([R15.02], [R15.03]).
+
+    Room activity like a submission, so it re-arms silence and counts toward no
+    ``every_n_messages``. Unlike a submission it also resets the autostop cap: one
+    happens per stage of the class rather than per student, so the cost argument
+    in :func:`evaluate_room_activity` does not apply.
+    """
+    await _re_arm_silence(db, chatroom_id=chatroom_id)
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    await OrchestrationFacade(db).on_activation_changed(room_id=chatroom_id)
+
+
 async def _re_arm_silence(db: AsyncSession, *, chatroom_id: uuid.UUID) -> None:
     """Touch every bound agent's silence timestamp for this room.
 

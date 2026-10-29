@@ -760,3 +760,45 @@ async def test_message_evaluation_uses_the_layers_the_caller_already_read(monkey
     )
 
     assert woke == [ws.WakeTarget(agent.id, state.binding_id)]
+
+
+async def test_an_activity_round_change_lifts_the_autostop_cap(monkeypatch) -> None:
+    """[R15.03]: a round starting or ending resets autostop for every binding.
+
+    Traced to the consumer: the agent sits at its cap, so the silence trigger
+    refuses; after ``on_activation_changed`` the same lull fires. Without the reset
+    an autonomous class stalls ``autostop_rounds`` turns after its last human message.
+    """
+    import contexts.orchestration.application.wakeup_service as ws
+
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    other = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    room = uuid.uuid4()
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+
+    async def _states(room_id):
+        return [_state(agent, room_id), _state(other, room_id, observer=True)]
+
+    svc._conversation = SimpleNamespace(room_binding_wakeup_states=_states)  # type: ignore[attr-defined]
+    counts = {(agent.id, room, agent.id): 5, (other.id, room, other.id): 5}
+
+    async def _get(agent_id, room_id, binding_id):
+        return counts.get((agent_id, room_id, binding_id), 0)
+
+    async def _reset(agent_id, room_id, binding_id):
+        counts.pop((agent_id, room_id, binding_id), None)
+
+    monkeypatch.setattr(
+        ws.wakeup_state,
+        "get_silence_timestamp",
+        _async_return(datetime.now(UTC) - timedelta(minutes=10)),
+    )
+    monkeypatch.setattr(ws.wakeup_state, "get_autostop_count", _get)
+    monkeypatch.setattr(ws.wakeup_state, "reset_autostop", _reset)
+
+    assert await svc.evaluate_silence_trigger(_state(agent, room)) is False
+
+    await svc.on_activation_changed(room_id=room)
+
+    assert counts == {}
+    assert await svc.evaluate_silence_trigger(_state(agent, room)) is True

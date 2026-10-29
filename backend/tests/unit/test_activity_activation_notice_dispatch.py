@@ -3,8 +3,8 @@
 The service writes the row inside the request transaction; these pin what the
 dispatcher does once it is committed: other participants get it live as an
 ordinary ``message.created``, and the wake-up system sees room activity through
-``note_room_activity``, the narrow path that re-arms silence without counting
-toward ``every_n_messages`` or resetting autostop.
+``note_activation_changed``, which re-arms silence and resets autostop ([R15.03])
+without counting toward ``every_n_messages``.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
         def __init__(self, _db: object) -> None:
             pass
 
-        async def note_room_activity(self, *, chatroom_id: uuid.UUID) -> None:
+        async def note_activation_changed(self, *, chatroom_id: uuid.UUID) -> None:
             s.re_armed.append(chatroom_id)
 
         async def evaluate_message_wakeups(self, *a: Any, **k: Any) -> None:
@@ -87,7 +87,7 @@ class TestDispatchActivationNotice:
             )
         ]
 
-    async def test_it_re_arms_silence_through_the_narrow_path_only(self, spy: _Spy) -> None:
+    async def test_it_reaches_the_wake_up_system_without_counting_a_message(self, spy: _Spy) -> None:
         notice = _notice()
         await broadcast.dispatch_activation_notice(notice)
 

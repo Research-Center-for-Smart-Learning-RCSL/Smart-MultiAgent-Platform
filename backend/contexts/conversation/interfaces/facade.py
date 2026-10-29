@@ -1032,6 +1032,14 @@ class ConversationFacade:
 
         await evaluate_room_activity(self._db, chatroom_id=chatroom_id)
 
+    async def note_activation_changed(self, *, chatroom_id: uuid.UUID) -> None:
+        """An activity round started or ended: re-arm silence and reset autostop
+        ([R15.03]). See
+        :func:`~contexts.conversation.application.triggers.evaluate_activation_change`."""
+        from contexts.conversation.application.triggers import evaluate_activation_change
+
+        await evaluate_activation_change(self._db, chatroom_id=chatroom_id)
+
     # -- Code-Interpreter staging (read-only) ----------------------------------
 
     async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:
