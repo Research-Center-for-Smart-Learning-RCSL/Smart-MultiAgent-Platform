@@ -53,10 +53,10 @@ export default defineScenario({
     // F has no steps: it connects at the start like everyone without a connect step and stays silent.
     { actor: 'P4', at: '1:00', do: 'connect', label: 'fourth student connects: the class starts' },
     // The opening: answer TA once it has spoken, then a rules question.
-    { actor: 'P1', at: '1:10', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 240, do: 'say', text: '好，聽起來很好玩' },
-    { actor: 'P2', do: 'wait', sec: 10, at: '1:10', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 240 },
+    { actor: 'P1', at: '1:10', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 240, do: 'say', text: '好，聽起來很好玩' },
+    { actor: 'P2', do: 'wait', sec: 10, at: '1:10', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 240 },
     { actor: 'P2', at: 0, do: 'say', text: '我準備好了' },
-    { actor: 'P3', at: '2:30', when: { type: 'message', from: 'agent:TA', count: 2 }, timeoutSec: 300, do: 'say', text: '所以只要查得到的字都算嗎？' },
+    { actor: 'P3', at: '2:30', when: { type: 'message', from: 'agent:TA', count: 2, sinceArmed: false }, timeoutSec: 300, do: 'say', text: '所以只要查得到的字都算嗎？' },
     ...ROUNDS.flatMap((r, i) => {
       const round = i + 1
       return [

@@ -100,8 +100,8 @@ export default defineScenario({
   ],
   steps: [
     { actor: 'P3', at: 40, do: 'connect', label: 'third student connects: the class starts' },
-    { actor: 'P1', at: '1:00', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 240, do: 'say', text: '我準備好了！' },
-    { actor: 'P2', at: '1:20', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 240, do: 'say', text: '我也準備好了，題目是什麼？' },
+    { actor: 'P1', at: '1:00', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 240, do: 'say', text: '我準備好了！' },
+    { actor: 'P2', at: '1:20', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 240, do: 'say', text: '我也準備好了，題目是什麼？' },
     // The single activation: each member opens the form once it starts.
     onRoundStart('P1', 1),
     onRoundStart('P2', 1),
