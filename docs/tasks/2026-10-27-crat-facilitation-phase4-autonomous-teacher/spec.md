@@ -652,6 +652,33 @@ above. The user chose to verify and fix all ten of its findings.
   Pinned by `test_an_activity_round_change_lifts_the_autostop_cap`,
   `test_an_activation_change_re_arms_and_resets_autostop_but_a_submission_does_not`,
   `test_a_teacher_that_changes_the_activity_says_so` and `test_no_shipped_agent_is_told_to_reply_blank`.
+- **D-23. The teacher running a class is not capped while a student is connected (2026-10-30).**
+  The AC-11 re-runs after D-22 showed the CRAT class advancing on its own through all eight
+  rounds, but the character class stalled twice at the same place. After round 1 ended at 15:31
+  the teacher spoke six times with no student message (the sharing summary, two concept
+  comments, a reply to the peer agent, the move to the next round, and the round 2 reveal at
+  33:01). The sixth turn reached the pack's `autostop_rounds` of 6, so the turn that should have
+  called `start_activity` was never woken, and nothing happened until a student spoke 24 minutes
+  later (audit of room 74b9c095, the last teacher `wakeup.fired` at 07:17:35 UTC). The run of
+  2026-10-29 in room abab037f stalled the same way in round 5. D-22's reset fires only on a
+  round transition, and the stretch between two rounds can need more teacher turns than any
+  fixed cap allows when the students stay quiet. The user chose a platform fix over a larger cap
+  or a shorter prompt: `WakeupService.on_agent_message_sent` no longer counts a turn of an agent
+  that holds a live activity-control grant while a principal other than the room creator is
+  connected. Both autostop gates, the silence sweep and the worker, read that count, so the one
+  change covers both. An observer is always counted, and so is a turn when the grant, the
+  binding, the room or the roster cannot be read. A teacher left alone with the creator is still
+  capped, and a silence wake still needs a connected human ([R15.05b]). The bound that remains is
+  the students' presence: a teacher in a room whose students left their tabs open keeps being
+  woken every `t_minutes`, and may choose not to speak. [R15.03] is amended. The same CRAT run
+  showed rounds 5 to 8 taking about 20 minutes each, which traced to the scenario rather than the
+  platform. P1's two approvals in round 4 both waited on any open proposal, so the second matched
+  the wrong proposal it had just approved, failed on a disabled button, and left the right
+  proposal unapproved until P1's round 5 wait timed out. Every later round inherited the offset.
+  The scenario now arms P1's second approval on the teacher's judgement of the first submission.
+  Pinned by `test_a_teacher_running_a_class_with_students_connected_is_not_capped` and the four
+  tests beside it that keep the cap for the creator alone, an ungranted agent, an observer and an
+  unreadable roster.
 
 ## 16. Follow-ups
 

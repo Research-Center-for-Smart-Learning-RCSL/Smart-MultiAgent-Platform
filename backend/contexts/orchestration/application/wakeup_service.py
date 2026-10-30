@@ -30,6 +30,7 @@ from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.conversation.interfaces.facade import (
     HEADCOUNT_PRESENCE_LIMIT,
     BindingWakeupState,
+    ChatroomAgentRole,
     ConversationFacade,
 )
 from contexts.orchestration.application.room_wakeup_service import RoomWakeupService
@@ -505,13 +506,50 @@ class WakeupService:
         The round is counted on ``binding_id``, the incarnation the turn ran for,
         so a rebind during the turn starts its own count at zero. Without one the
         live binding is used; 0 when the agent is no longer bound.
+
+        A turn of the agent running the class is not counted (see
+        :meth:`_runs_the_class`); the count it returns is then 0.
         """
+        if await self._runs_the_class(agent_id=agent_id, room_id=room_id):
+            return 0
         if binding_id is None:
             state = await self._conversation.binding_wakeup_state(chatroom_id=room_id, agent_id=agent_id)
             if state is None:
                 return 0
             binding_id = state.binding_id
         return await wakeup_state.increment_autostop(agent_id, room_id, binding_id)
+
+    async def _runs_the_class(self, *, agent_id: uuid.UUID, room_id: uuid.UUID) -> bool:
+        """[R15.03]: the agent holds activity control and a student is connected.
+
+        Such an agent is teaching, not in the agent-only exchange the cap exists to
+        stop: in an autonomous class the students work quietly while the teacher alone
+        moves the class on, and every stage after the cap would otherwise wait for a
+        student to speak. A connected student bounds it as a human message does: the
+        silence trigger never wakes the agent into a room with nobody there, and the
+        room creator watching is not a class. Observers are excluded because their
+        output never reaches the room. Any failure counts the round.
+        """
+        try:
+            grant = await self._conversation.activity_control_grant(chatroom_id=room_id, agent_id=agent_id)
+            if grant is None or not grant.activity_type_ids:
+                return False
+            state = await self._conversation.binding_wakeup_state(chatroom_id=room_id, agent_id=agent_id)
+            if state is None or state.role is ChatroomAgentRole.OBSERVER:
+                return False
+            room = await self._conversation.get_chatroom(room_id)
+            if room is None:
+                return False
+            snapshot = await self._conversation.room_presence_snapshot(
+                room_id, limit=HEADCOUNT_PRESENCE_LIMIT
+            )
+            return snapshot.available and any(u != room.created_by_user_id for u in snapshot.user_ids)
+        except Exception:
+            await self._db.rollback()
+            logger.warning(
+                "class check failed agent=%s room=%s; counting the round", agent_id, room_id, exc_info=True
+            )
+            return False
 
 
 __all__ = ["PlatformWake", "WakeTarget", "WakeupService", "class_start_notice"]

@@ -718,7 +718,9 @@ async def test_a_finished_turn_counts_its_round_on_the_binding_it_ran_for(monkey
 
     monkeypatch.setattr(ws.wakeup_state, "increment_autostop", _increment)
     svc = WakeupService.__new__(WakeupService)
-    svc._conversation = SimpleNamespace(binding_wakeup_state=_no_lookup)
+    svc._conversation = SimpleNamespace(
+        binding_wakeup_state=_no_lookup, activity_control_grant=_async_return(None)
+    )
     ran_for = uuid.uuid4()
 
     await svc.on_agent_message_sent(agent_id=uuid.uuid4(), room_id=uuid.uuid4(), binding_id=ran_for)
@@ -802,3 +804,116 @@ async def test_an_activity_round_change_lifts_the_autostop_cap(monkeypatch) -> N
 
     assert counts == {}
     assert await svc.evaluate_silence_trigger(_state(agent, room)) is True
+
+
+def _class_service(
+    monkeypatch,
+    *,
+    grant: bool = True,
+    observer: bool = False,
+    connected: tuple[str, ...] = ("student",),
+    presence_available: bool = True,
+) -> tuple[WakeupService, list[uuid.UUID], uuid.UUID, uuid.UUID]:
+    """A finished turn of an agent in a room whose creator is ``creator`` and whose
+    connected principals are named by ``connected``. Returns the bindings counted."""
+    import contexts.orchestration.application.wakeup_service as ws
+
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    room, creator = uuid.uuid4(), uuid.uuid4()
+    ids = {"creator": creator}
+    counted: list[uuid.UUID] = []
+
+    async def _increment(aid, rid, bid):
+        counted.append(bid)
+        return len(counted)
+
+    async def _grant(*, chatroom_id, agent_id):
+        assert (chatroom_id, agent_id) == (room, agent.id)
+        if not grant:
+            return None
+        return SimpleNamespace(
+            agent_id=agent_id, granted_by_user_id=creator, activity_type_ids=(uuid.uuid4(),)
+        )
+
+    async def _binding(*, chatroom_id, agent_id):
+        return _state(agent, chatroom_id, observer=observer)
+
+    async def _snapshot(chatroom_id, *, limit):
+        users = tuple(ids.get(n) or uuid.uuid4() for n in connected) if presence_available else ()
+        return SimpleNamespace(available=presence_available, user_ids=users, truncated=False)
+
+    monkeypatch.setattr(ws.wakeup_state, "increment_autostop", _increment)
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = SimpleNamespace(rollback=_async_return(None))  # type: ignore[attr-defined]
+    svc._conversation = SimpleNamespace(  # type: ignore[attr-defined]
+        activity_control_grant=_grant,
+        binding_wakeup_state=_binding,
+        get_chatroom=_async_return(SimpleNamespace(id=room, created_by_user_id=creator)),
+        room_presence_snapshot=_snapshot,
+    )
+    return svc, counted, agent.id, room
+
+
+async def test_a_teacher_running_a_class_with_students_connected_is_not_capped(monkeypatch) -> None:
+    """[R15.03]: the agent holding activity control is running the class, not in an
+    agent-only exchange, while a student is connected; its rounds are not counted.
+
+    Traced to the consumer: both autostop gates (the silence sweep and the worker)
+    read this count, so a round not counted is a cap never reached. Without it an
+    autonomous class with quiet students stalls six teacher turns after the last
+    round change (phase 4 AC-11, character-building run of 2026-10-30).
+    """
+    svc, counted, agent_id, room = _class_service(monkeypatch)
+
+    for _ in range(10):
+        await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == []
+
+
+async def test_a_teacher_alone_with_the_creator_is_still_capped(monkeypatch) -> None:
+    """The creator watching is no class: the cap still stops a teacher talking to no student."""
+    svc, counted, agent_id, room = _class_service(monkeypatch, connected=("creator",))
+
+    await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == [agent_id]
+
+
+async def test_an_agent_without_activity_control_is_still_capped(monkeypatch) -> None:
+    svc, counted, agent_id, room = _class_service(monkeypatch, grant=False)
+
+    await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == [agent_id]
+
+
+async def test_an_observer_holding_activity_control_is_still_capped(monkeypatch) -> None:
+    """An observer's output never reaches the room, so it is not running the class."""
+    svc, counted, agent_id, room = _class_service(monkeypatch, observer=True)
+
+    await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == [agent_id]
+
+
+async def test_an_unreadable_roster_counts_the_round(monkeypatch) -> None:
+    """Fails closed: a roster that could not be read is no evidence a student is there."""
+    svc, counted, agent_id, room = _class_service(monkeypatch, presence_available=False)
+
+    await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == [agent_id]
+
+
+async def test_a_failed_class_check_counts_the_round(monkeypatch) -> None:
+    svc, counted, agent_id, room = _class_service(monkeypatch)
+
+    async def _boom(**_kw):
+        raise RuntimeError("db down")
+
+    svc._conversation.activity_control_grant = _boom  # type: ignore[attr-defined]
+
+    await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
+
+    assert counted == [agent_id]
