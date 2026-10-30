@@ -53,8 +53,8 @@ export default defineScenario({
     onRoundStart('F', 3),
     { actor: 'F', at: 0, do: 'wait', sec: 60 },
     { actor: 'F', at: 0, do: 'say', text: '時間到，大家停筆。', label: 'creator override: time is up in round 3' },
-    { actor: 'P1', at: '2:00', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 300, do: 'say', text: '好，我準備好了' },
-    { actor: 'P2', at: '2:15', when: { type: 'message', from: 'agent:TA' }, timeoutSec: 300, do: 'say', text: '物品是什麼？' },
+    { actor: 'P1', at: '2:00', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 300, do: 'say', text: '好，我準備好了' },
+    { actor: 'P2', at: '2:15', when: { type: 'message', from: 'agent:TA', sinceArmed: false }, timeoutSec: 300, do: 'say', text: '物品是什麼？' },
     ...ROUNDS.flatMap((r, i) => {
       const round = i + 1
       return [

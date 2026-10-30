@@ -679,6 +679,32 @@ above. The user chose to verify and fix all ten of its findings.
   Pinned by `test_a_teacher_running_a_class_with_students_connected_is_not_capped` and the four
   tests beside it that keep the cap for the creator alone, an ungranted agent, an observer and an
   unreadable roster.
+- **D-24. The teacher's pacing rules (2026-10-30).** The character run after D-23 (room
+  a1c07c4e) confirmed the exemption: the teacher took seven turns between round 1 and round 2
+  with no student message and was never capped. It also showed the class was still slow for
+  reasons in the prompt. First, on silence wakes the teacher chose not to speak while waiting
+  for an answer, three wakes in a row (about 7.5 minutes) after asking whether the rules were
+  clear and again after inviting the sharing, although every such step already said to move on
+  after two quiet minutes. Second, the move from sharing to the next round took one step per
+  silence wake (a reply to the peer agent, two summaries, the concept, the preview, the reveal),
+  so round 2 opened about 30 minutes after round 1 ended. Third, round 2's `start_activity` came
+  in the reveal turn and the work instructions a wake later, because the step waited for
+  [Activity state] to show the activity running; the students saw the instructions with under a
+  minute of the 3-minute limit left. Round 1's start turn had also said the round had no time
+  limit, since the new activation was not yet in [Activity state]. The user chose to fix all
+  three in the prompts and to leave a submission-triggered wake for later. Each teacher now has
+  a pacing block in its general rules: a turn woken by silence must act on the step's quiet
+  branch unless the step says to stay quiet; the peer agent gets no turn of its own; and the
+  steps from the end of the sharing to the next reveal are one message, which the step-control
+  rule and the flow note now permit by name. The character and object teachers also announce
+  the work in the turn that starts the activity, take a successful `start_activity` result as
+  the activity running, never start it in the reveal turn, and in that turn say neither a
+  number of minutes nor that there is no limit. The designer packs are unchanged. The same run
+  exposed a race in the scenarios: the opening steps armed after the teacher had already spoken,
+  so two students missed the opening and never answered it. The opening steps of all three
+  autonomous scenarios now match the teacher's messages since the run began. Pinned by `test_a_silence_wake_moves_the_class_on`,
+  `test_the_move_between_rounds_is_one_message` and
+  `test_the_turn_that_starts_the_activity_announces_it`.
 
 ## 16. Follow-ups
 
