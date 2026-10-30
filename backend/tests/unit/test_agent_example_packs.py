@@ -1077,6 +1077,43 @@ class TestPhase2CoursePacks:
         assert "只要這一輪呼叫了 start_activity 或 end_activity，就一定要說話" in agent.system_prompt
         assert agent.wakeup_config["triggers"]["silence_minutes"]["autostop_rounds"] == 6
 
+    @pytest.mark.parametrize(
+        "teacher_key", ["ta-crat-teacher", "ta-charbuilding-teacher", "ta-objreinterpret-teacher"]
+    )
+    def test_a_silence_wake_moves_the_class_on(self, teacher_key: str) -> None:
+        """Phase 4 D-24: the character teacher chose not to speak on three silence wakes
+        in a row while waiting for an answer, about 7.5 minutes each time (AC-11 run)."""
+        rules = _section(self._agent(teacher_key).system_prompt, "通用規則")
+        assert "You were woken by a period of silence." in rules
+        assert "這種時候不可以選擇不說話" in rules
+        assert "不要為了它另外花一輪" in rules
+
+    @pytest.mark.parametrize(
+        ("teacher_key", "merged"),
+        [
+            ("ta-crat-teacher", "<步驟E1>講評完這一題之後，同一則訊息接著做<步驟E2>的換輪"),
+            ("ta-charbuilding-teacher", "<步驟D2>的概念和<步驟D3>的換輪合在同一則訊息裡說"),
+            ("ta-objreinterpret-teacher", "<步驟E2>的概念和換輪合在同一則訊息裡說"),
+        ],
+    )
+    def test_the_move_between_rounds_is_one_message(self, teacher_key: str, merged: str) -> None:
+        """Phase 4 D-24: one step per silence wake put about 30 minutes between two rounds."""
+        prompt = self._agent(teacher_key).system_prompt
+        assert merged in _section(prompt, "通用規則")
+        assert "同一則最後接著照<步驟B1>公布下一" in prompt
+        assert "<通用規則>的<節奏規則>寫明的合併除外" in prompt
+        assert "只有<節奏規則>寫明的合併可以在同一則訊息裡做" in prompt
+
+    @pytest.mark.parametrize("teacher_key", ["ta-charbuilding-teacher", "ta-objreinterpret-teacher"])
+    def test_the_turn_that_starts_the_activity_announces_it(self, teacher_key: str) -> None:
+        """Phase 4 D-24: round 2 started in the reveal turn and the instructions came a wake
+        later, leaving under a minute of the 3-minute limit."""
+        prompt = self._agent(teacher_key).system_prompt
+        assert "公布題目的那一輪不要呼叫 start_activity" in _section(prompt, "通用規則")
+        b2 = _section(prompt, "步驟B2")
+        assert "start_activity 回傳成功之後，就在同一輪" in b2
+        assert "不要說分鐘數，也不要說不限時" in b2
+
     def test_no_shipped_agent_is_told_to_reply_blank(self) -> None:
         """Phase 4 D-22: silence is a choice not to speak, not an answer to give."""
         for _, agent in SHIPPED_AGENTS:
