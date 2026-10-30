@@ -66,7 +66,9 @@ function roundSteps(round: number, r: (typeof ROUNDS)[number]): StepInput[] {
   if (r.wrong) {
     p3.push({ actor: 'P3', at: 0, do: 'propose', fields: r.wrong, label: `proposes a wrong target in round ${round}` })
     p1.push(approveWhenOpen(round))
-    // The second attempt follows TA's judgement of the first submission.
+    // The second attempt follows TA's judgement of the first submission. P1 waits for it too:
+    // armed at once, its next approval matched the first proposal while it still read as open.
+    p1.push({ actor: 'P1', do: 'wait', sec: 1, when: { type: 'message', from: 'agent:TA' }, timeoutSec: 4 * 60 })
     p3.push({ actor: 'P3', do: 'wait', sec: 15, when: { type: 'message', from: 'agent:TA' }, timeoutSec: 4 * 60 })
   }
   p3.push({ actor: 'P3', at: 0, do: 'propose', fields: r.answer, label: `proposes the target in round ${round}` })
