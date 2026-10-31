@@ -1,5 +1,5 @@
 import { defineScenario } from '../scenario/schema.ts'
-import { individualRound, onRoundEnd, onRoundStart } from '../scenario/rounds.ts'
+import { individualRound, onClassClose, onRoundEnd, onRoundStart } from '../scenario/rounds.ts'
 
 // Phase 4 AC-11, object course: docs/tasks/2026-10-27-crat-facilitation-phase4-autonomous-teacher.
 // The facilitator configures the room and speaks exactly once, to override round 3. The class
@@ -76,6 +76,7 @@ export default defineScenario({
     { actor: 'P4', do: 'connect', when: { type: 'message', from: 'system', match: 'ended\\.', sinceArmed: false, count: 4 }, timeoutSec: 20 * 60, label: 'P4 reconnects after round 4' },
     onRoundStart('P4', 5),
     onRoundStart('P4', 6),
+    onClassClose('P3'),
   ],
   notes: [
     'Autonomy: F sends exactly one message (round 3) and takes no panel action. Every activation is started and ended by TA through its tools.',
