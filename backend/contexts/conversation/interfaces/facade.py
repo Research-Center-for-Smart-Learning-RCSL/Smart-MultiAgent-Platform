@@ -615,6 +615,17 @@ class ConversationFacade:
             observed_at=observed_at, available=True, user_ids=tuple(ids), truncated=truncated
         )
 
+    async def room_reconnecting_user_ids(self, chatroom_id: uuid.UUID) -> frozenset[uuid.UUID] | None:
+        """Principals whose last connection closed within the reconnect grace, or
+        ``None`` when that cannot be read: an empty set would claim nobody is."""
+        try:
+            return frozenset(await PresenceTracker().list_reconnecting(chatroom_id))
+        except Exception:
+            logger.bind(room_id=str(chatroom_id)).opt(exception=True).warning(
+                "reconnecting-participant read failed"
+            )
+            return None
+
     # Autonomous class start ([R15.27]). Orchestration decides when it fires;
     # this context stores the setting and owns the once-per-class claim.
 

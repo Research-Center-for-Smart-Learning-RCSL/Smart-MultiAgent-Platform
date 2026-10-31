@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 import pytest
 
 from app.api.ws import chatroom as chatroom_mod
+from contexts.conversation.interfaces import RECONNECT_GRACE_SECONDS
 from contexts.orchestration.interfaces.facade import ON_JOIN_COALESCE_SECONDS
 from shared_kernel.auth.permissions import Principal
 
@@ -134,22 +135,49 @@ async def test_second_tab_of_a_connected_principal_is_not_an_arrival(harness: di
 
 
 @pytest.mark.parametrize(("left", "checks"), [(True, 1), (False, 0)])
-async def test_a_principal_leaving_rechecks_the_all_submitted_fact(
+async def test_a_principal_leaving_rechecks_the_all_submitted_fact_after_the_grace(
     harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch, left: bool, checks: int
 ) -> None:
-    """[R15.28]: a second tab closing is not a departure from the connected set."""
+    """[R15.28]: a second tab closing is not a departure from the connected set, and a
+    last connection closing is one only once the reconnect grace has run out (D-27)."""
+    from app.wiring import platform_wakes
+
     _Presence.join_result, _Presence.leave_result = (True, 1), (left, 0)
-    checked: list[uuid.UUID] = []
+    jobs: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
-    async def _check(chatroom_id: uuid.UUID) -> None:
-        checked.append(chatroom_id)
+    async def _enqueue(*args: Any, **kwargs: Any) -> None:
+        jobs.append((args, kwargs))
 
-    monkeypatch.setattr(chatroom_mod, "check_all_submitted", _check)
+    async def _immediate(_chatroom_id: uuid.UUID) -> None:
+        raise AssertionError("the leave must not check before the grace runs out")
+
+    monkeypatch.setattr(platform_wakes, "enqueue", _enqueue)
+    monkeypatch.setattr(platform_wakes, "check_all_submitted", _immediate)
     room, principal = await _open(harness)
 
     await harness["on_close"](_Conn(principal))
 
-    assert checked == [room] * checks
+    delay = timedelta(seconds=platform_wakes.LEAVE_RECHECK_DELAY_SECONDS)
+    assert jobs == [(("check_all_submitted", str(room)), {"_defer_by": delay})] * checks
+    assert delay.total_seconds() > RECONNECT_GRACE_SECONDS
+
+
+async def test_a_failed_recheck_enqueue_never_breaks_the_close(
+    harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.wiring import platform_wakes
+
+    _Presence.join_result, _Presence.leave_result = (True, 1), (True, 0)
+
+    async def _enqueue(*_a: Any, **_k: Any) -> None:
+        raise ConnectionError("queue down")
+
+    monkeypatch.setattr(platform_wakes, "enqueue", _enqueue)
+    _room, principal = await _open(harness)
+
+    await harness["on_close"](_Conn(principal))
+
+    assert _Publisher.emitted == ["presence.joined", "presence.left"]
 
 
 async def test_each_owed_arrival_wake_is_deferred_to_the_end_of_the_window(
@@ -314,6 +342,22 @@ async def test_the_standalone_all_submitted_check_runs_in_its_own_session(
 
     await platform_wakes.check_all_submitted(room)
 
+    assert checked == [room]
+
+
+async def test_the_deferred_recheck_job_runs_the_standalone_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.wiring import platform_wakes
+    from app.workers.tasks import activities as worker
+
+    room = uuid.uuid4()
+    checked: list[uuid.UUID] = []
+
+    async def _check(chatroom_id: uuid.UUID) -> None:
+        checked.append(chatroom_id)
+
+    monkeypatch.setattr(platform_wakes, "check_all_submitted", _check)
+
+    assert await worker.check_all_submitted({}, str(room)) == "checked"
     assert checked == [room]
 
 

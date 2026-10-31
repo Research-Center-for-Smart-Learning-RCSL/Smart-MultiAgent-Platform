@@ -53,6 +53,8 @@ class PlatformActivityEvents:
     ) -> ConnectedProgress | None:
         """Submission progress among the participants connected now, creator excluded.
 
+        A participant inside the reconnect grace counts as connected, so a dropped
+        socket does not complete the round in the seconds before it comes back.
         ``None`` when it cannot be stated truthfully: presence unavailable or
         truncated, or the room unreadable.
         """
@@ -66,7 +68,10 @@ class PlatformActivityEvents:
         # A truncated set cannot support "everyone connected has submitted".
         if not snapshot.available or snapshot.truncated:
             return None
-        connected = {u for u in snapshot.user_ids if u != room.created_by_user_id}
+        reconnecting = await conversation.room_reconnecting_user_ids(chatroom_id)
+        if reconnecting is None:
+            return None
+        connected = {u for u in (*snapshot.user_ids, *reconnecting) if u != room.created_by_user_id}
         submitted = await self._submissions.valid_individual_subjects(activation_id=activation.id)
         return ConnectedProgress(connected=len(connected), submitted=len(connected & submitted))
 

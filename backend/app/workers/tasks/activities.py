@@ -188,6 +188,18 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     return result_status
 
 
+async def check_all_submitted(ctx: dict[str, Any], chatroom_id: str) -> str:
+    """[R15.28]: the all-submitted check a participant's departure deferred past the
+    reconnect grace (``platform_wakes.schedule_leave_recheck``). Idempotent: the
+    completion is claimed once per activation, so a redelivery or a second leaver's
+    job finds nothing new."""
+    _ = ctx
+    from app.wiring import platform_wakes
+
+    await platform_wakes.check_all_submitted(uuid.UUID(chatroom_id))
+    return "checked"
+
+
 async def activities_watchdog(ctx: dict[str, Any]) -> str:
     """Sweep ``pending`` submissions older than the TTL to ``error`` (R30.06), then
     notify each swept row exactly as the completion path does (F-20): one

@@ -80,6 +80,8 @@ class _Harness:
         self.type = _type(group_config={"consent": {"numerator": 2, "denominator": 3}} if group else None)
         self.activation = _activation(self.room, self.type.id)
         self.connected: list[uuid.UUID] = []
+        # None stands for an unreadable set.
+        self.reconnecting: set[uuid.UUID] | None = set()
         self.submitted: set[uuid.UUID] = set()
         self.available = True
         self.truncated = False
@@ -101,9 +103,13 @@ class _Harness:
                 truncated=self.truncated,
             )
 
+        async def _reconnecting(room_id):
+            return None if self.reconnecting is None else frozenset(self.reconnecting)
+
         conversation = SimpleNamespace(
             get_chatroom=AsyncMock(return_value=SimpleNamespace(created_by_user_id=self.creator)),
             room_presence_snapshot=_presence,
+            room_reconnecting_user_ids=_reconnecting,
         )
         monkeypatch.setattr(
             "contexts.conversation.interfaces.facade.ConversationFacade", lambda _db: conversation
@@ -149,6 +155,39 @@ class TestAllSubmitted:
         h.submitted = {a}
 
         assert await h.check() is not None
+
+    async def test_a_student_inside_the_reconnect_grace_still_holds_the_class(self, monkeypatch) -> None:
+        """D-27: a socket dropped for a few seconds is not a departure. Room 6ecfd6dc
+        ended round 2 when a student's connection closed and came back 3 s later."""
+        h = _Harness(monkeypatch)
+        a, b, dropped = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        h.connected, h.submitted = [a, b], {a, b}
+        h.reconnecting = {dropped}
+
+        assert await h.check() is None
+
+        h.reconnecting = set()
+        event = await h.check()
+        assert event is not None
+        assert event.notice == 'Every connected participant (2) has a valid submission to "拆字 蓋樓".'
+
+    async def test_a_reconnecting_student_who_submitted_counts_once(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch)
+        a, b = uuid.uuid4(), uuid.uuid4()
+        h.connected, h.submitted, h.reconnecting = [a, b], {a, b}, {b, h.creator}
+
+        event = await h.check()
+
+        assert event is not None
+        assert h.audit.await_args.args[1].metadata["connected"] == "2"
+
+    async def test_an_unreadable_reconnecting_set_claims_nothing(self, monkeypatch) -> None:
+        h = _Harness(monkeypatch)
+        a = uuid.uuid4()
+        h.connected, h.submitted, h.reconnecting = [a], {a}, None
+
+        assert await h.check() is None
+        assert not h.claimed
 
     async def test_nobody_but_the_creator_connected_claims_nothing(self, monkeypatch) -> None:
         h = _Harness(monkeypatch)
