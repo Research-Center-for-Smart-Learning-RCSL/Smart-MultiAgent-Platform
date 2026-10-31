@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.interfaces.facade import ActivitiesFacade, PlatformActivityEvent
+from contexts.conversation.interfaces import RECONNECT_GRACE_SECONDS
 from contexts.orchestration.interfaces.facade import OrchestrationFacade, PlatformWake
 from shared_kernel.db.session import async_session
 from shared_kernel.queue import enqueue
@@ -23,6 +25,11 @@ _log = logging.getLogger(__name__)
 TRIGGER_CLASS_START = "class_start"
 TRIGGER_ACTIVITY_DEADLINE = "activity_deadline"
 TRIGGER_ALL_SUBMITTED = "all_submitted"
+
+# The grace runs on Redis's clock and the deferral on the worker's; the margin keeps
+# a job that runs a little early from reading the leaver as still reconnecting, which
+# would leave the round to its deadline.
+LEAVE_RECHECK_DELAY_SECONDS = RECONNECT_GRACE_SECONDS + 5
 
 
 async def enqueue_platform_wake(room_id: uuid.UUID, trigger: str, wake: PlatformWake) -> int:
@@ -85,12 +92,28 @@ async def check_all_submitted(chatroom_id: uuid.UUID) -> None:
         _log.warning("all-submitted check could not run for room %s", chatroom_id, exc_info=True)
 
 
+async def schedule_leave_recheck(chatroom_id: uuid.UUID) -> None:
+    """[R15.28]: a participant's last connection closed. Checking now would find them
+    reconnecting, so the check runs once the grace has run out. A lost enqueue
+    leaves that round to its deadline or the next submission."""
+    try:
+        await enqueue(
+            "check_all_submitted",
+            str(chatroom_id),
+            _defer_by=timedelta(seconds=LEAVE_RECHECK_DELAY_SECONDS),
+        )
+    except Exception:
+        _log.warning("all-submitted recheck enqueue failed for room %s", chatroom_id, exc_info=True)
+
+
 __all__ = [
+    "LEAVE_RECHECK_DELAY_SECONDS",
     "TRIGGER_ACTIVITY_DEADLINE",
     "TRIGGER_ALL_SUBMITTED",
     "TRIGGER_CLASS_START",
     "check_all_submitted",
     "dispatch_all_submitted",
     "enqueue_platform_wake",
+    "schedule_leave_recheck",
     "wake_for_activity_event",
 ]

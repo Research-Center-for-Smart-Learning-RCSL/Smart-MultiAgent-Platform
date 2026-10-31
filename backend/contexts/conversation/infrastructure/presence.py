@@ -66,6 +66,23 @@ def _conns_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     return f"ws:presence:{room_id}:{user_id}:conns"
 
 
+# A user whose last connection closed within this window is reconnecting, not
+# gone: classroom Wi-Fi drops a socket for seconds and the client is back within
+# its first backoff steps. Only the all-submitted count reads it ([R15.28]).
+RECONNECT_GRACE_SECONDS: Final = 30
+
+
+# Outside `ws:presence:` for the same reason as the typing keys below. The TTL on
+# each user's mark is the window, on Redis's clock; the per-room index only makes
+# the marks listable and is reconciled against them on read.
+def _left_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
+    return f"ws:left:{room_id}:{user_id}"
+
+
+def _left_index_key(room_id: uuid.UUID) -> str:
+    return f"ws:left:{room_id}"
+
+
 def _typing_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     # Deliberately NOT under `ws:presence:` — `scrub_stale_presence` scans that
     # prefix and discriminates roster keys from conns keys by counting ':'.
@@ -130,6 +147,8 @@ class PresenceTracker:
         pipe = r.pipeline(transaction=False)
         pipe.sadd(_user_rooms_key(user_id), str(room_id))
         pipe.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
+        pipe.delete(_left_key(room_id, user_id))
+        pipe.srem(_left_index_key(room_id), str(user_id))
         await pipe.execute()
         return first, roster_size
 
@@ -175,6 +194,13 @@ class PresenceTracker:
         remaining = await r.eval(_CONN_LEAVE_LUA, 1, ck, str(connection_id))
         if int(remaining) > 0:
             return False, -1  # -1 sentinel: roster unchanged, caller ignores
+        # Marked before the roster drops the user, so a completion count read
+        # between the two writes still finds them in one of the sets.
+        mark = r.pipeline(transaction=False)
+        mark.set(_left_key(room_id, user_id), "1", ex=RECONNECT_GRACE_SECONDS)
+        mark.sadd(_left_index_key(room_id), str(user_id))
+        mark.expire(_left_index_key(room_id), RECONNECT_GRACE_SECONDS)
+        await mark.execute()
         rk = _room_key(room_id)
         await r.eval(_ROSTER_LEAVE_LUA, 1, rk, str(user_id))
         pipe = r.pipeline(transaction=False)
@@ -305,6 +331,27 @@ class PresenceTracker:
         # leave `ids` within the limit: the members after them were never read.
         return ids[:limit], stopped_early or len(ids) > limit
 
+    async def list_reconnecting(self, room_id: uuid.UUID) -> list[uuid.UUID]:
+        """Users whose last connection to the room closed within the reconnect
+        grace and who have not come back, in id order. Prunes lapsed index entries."""
+        r = get_redis()
+        index = _left_index_key(room_id)
+        members = list(await r.smembers(index))
+        if not members:
+            return []
+        check = r.pipeline(transaction=False)
+        for member in members:
+            check.exists(_left_key(room_id, uuid.UUID(member)))
+        flags = await check.execute()
+        marked = [m for m, alive in zip(members, flags, strict=True) if alive]
+        lapsed = [m for m, alive in zip(members, flags, strict=True) if not alive]
+        if lapsed:
+            prune = r.pipeline(transaction=False)
+            for member in lapsed:
+                prune.srem(index, member)
+            await prune.execute()
+        return sorted(uuid.UUID(m) for m in marked)
+
     async def list_user_rooms(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Rooms the inverse index places this user in. Unreconciled: a ghost
         entry lingers until the next `list_room`/`leave` of that room or the
@@ -407,4 +454,4 @@ async def scrub_stale_presence() -> tuple[int, set[uuid.UUID]]:
     return removed, emptied_rooms
 
 
-__all__ = ["PresenceTracker", "scrub_stale_presence"]
+__all__ = ["RECONNECT_GRACE_SECONDS", "PresenceTracker", "scrub_stale_presence"]

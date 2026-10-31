@@ -10,7 +10,7 @@ from datetime import timedelta
 from fastapi import APIRouter, WebSocket
 
 from app.api.ws.room_access import room_read_outcome
-from app.wiring.platform_wakes import TRIGGER_CLASS_START, check_all_submitted, enqueue_platform_wake
+from app.wiring.platform_wakes import TRIGGER_CLASS_START, enqueue_platform_wake, schedule_leave_recheck
 from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
@@ -359,8 +359,9 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 {"user_id": str(conn.principal.user_id)},
             )
             # [R15.28]: completion is over the connected set, so a student leaving
-            # without a submission can complete the round with none following.
-            await check_all_submitted(chatroom_id)
+            # without a submission can complete the round with none following,
+            # once the reconnect grace shows they are not coming straight back.
+            await schedule_leave_recheck(chatroom_id)
 
     await connection_loop(
         ws=ws,

@@ -43,7 +43,7 @@ from contexts.conversation.infrastructure.drafts import (
 from contexts.conversation.infrastructure.drafts import (
     normalise_key as normalise_draft_key,
 )
-from contexts.conversation.infrastructure.presence import PresenceTracker
+from contexts.conversation.infrastructure.presence import RECONNECT_GRACE_SECONDS, PresenceTracker
 
 __all__ = [
     "ACTIVITY_SURFACE",
@@ -53,6 +53,7 @@ __all__ = [
     "DRAFT_SURFACES",
     "ORIGINAL_COMPACTED_IDS_KEY",
     "PRODUCER_AGENT_ID_KEY",
+    "RECONNECT_GRACE_SECONDS",
     "RELEASED_OBSERVATION_TYPE",
     "VOIDED_SUMMARY_TYPE",
     "DraftEntry",

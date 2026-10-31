@@ -15,6 +15,13 @@ class _FakeRedis:
 
     def __init__(self) -> None:
         self.sets: dict[str, set[str]] = {}
+        self.ttls: dict[str, int] = {}
+
+    def store_value(self, key: str, value: str, ex: int | None) -> None:
+        # A string key, held as a one-member SET so `exists` and `delete` cover it.
+        self.sets[key] = {value}
+        if ex is not None:
+            self.ttls[key] = ex
 
     async def sadd(self, key: str, member: str) -> int:
         s = self.sets.setdefault(key, set())
@@ -93,6 +100,12 @@ class _FakePipe:
     def expire(self, key: str, ttl: int) -> None:
         self._ops.append(("expire", key, ttl))
 
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self._ops.append(("set", key, value, ex))
+
+    def delete(self, key: str) -> None:
+        self._ops.append(("delete", key))
+
     def exists(self, key: str) -> None:
         self._ops.append(("exists", key))
 
@@ -107,6 +120,14 @@ class _FakePipe:
             elif op[0] == "srem":
                 results.append(await self._redis.srem(op[1], op[2]))
             elif op[0] == "expire":
+                if op[1] in self._redis.sets:
+                    self._redis.ttls[op[1]] = op[2]
+                results.append(None)
+            elif op[0] == "set":
+                self._redis.store_value(op[1], op[2], op[3])
+                results.append(True)
+            elif op[0] == "delete":
+                await self._redis.delete(op[1])
                 results.append(None)
             elif op[0] == "exists":
                 results.append(await self._redis.exists(op[1]))
@@ -285,6 +306,66 @@ async def test_scrub_does_not_report_room_still_holding_a_live_user(fake_redis: 
     assert removed == 1
     assert emptied_rooms == set()
     assert await p.list_room(room) == [live_user]
+
+
+class TestReconnectGrace:
+    """D-27 of the phase 4 dossier: a dropped socket is reconnecting, not gone, for a grace window."""
+
+    async def test_the_last_leave_marks_the_user_reconnecting_for_the_grace(
+        self, fake_redis: _FakeRedis
+    ) -> None:
+        p, room, user = PresenceTracker(), uuid.uuid4(), uuid.uuid4()
+        conn = uuid.uuid4()
+        await p.join(room_id=room, user_id=user, connection_id=conn)
+        assert await p.list_reconnecting(room) == []
+
+        await p.leave(room_id=room, user_id=user, connection_id=conn)
+
+        assert await p.list_room(room) == []
+        assert await p.list_reconnecting(room) == [user]
+        assert fake_redis.ttls[presence_mod._left_key(room, user)] == presence_mod.RECONNECT_GRACE_SECONDS
+
+    async def test_a_sibling_tab_closing_marks_nothing(self, fake_redis: _FakeRedis) -> None:
+        p, room, user = PresenceTracker(), uuid.uuid4(), uuid.uuid4()
+        c1, c2 = uuid.uuid4(), uuid.uuid4()
+        await p.join(room_id=room, user_id=user, connection_id=c1)
+        await p.join(room_id=room, user_id=user, connection_id=c2)
+
+        await p.leave(room_id=room, user_id=user, connection_id=c1)
+
+        assert await p.list_reconnecting(room) == []
+
+    async def test_coming_back_clears_the_mark(self, fake_redis: _FakeRedis) -> None:
+        p, room, user = PresenceTracker(), uuid.uuid4(), uuid.uuid4()
+        conn = uuid.uuid4()
+        await p.join(room_id=room, user_id=user, connection_id=conn)
+        await p.leave(room_id=room, user_id=user, connection_id=conn)
+
+        await p.join(room_id=room, user_id=user, connection_id=uuid.uuid4())
+
+        assert await p.list_reconnecting(room) == []
+        assert str(user) not in fake_redis.sets.get(presence_mod._left_index_key(room), set())
+
+    async def test_an_expired_mark_is_gone_and_pruned_from_the_index(self, fake_redis: _FakeRedis) -> None:
+        p, room = PresenceTracker(), uuid.uuid4()
+        gone, recent = uuid.uuid4(), uuid.uuid4()
+        for user in (gone, recent):
+            conn = uuid.uuid4()
+            await p.join(room_id=room, user_id=user, connection_id=conn)
+            await p.leave(room_id=room, user_id=user, connection_id=conn)
+        fake_redis.sets.pop(presence_mod._left_key(room, gone))
+
+        assert await p.list_reconnecting(room) == [recent]
+        assert fake_redis.sets[presence_mod._left_index_key(room)] == {str(recent)}
+
+    async def test_the_marks_are_invisible_to_the_stale_presence_scrub(self, fake_redis: _FakeRedis) -> None:
+        p, room, user = PresenceTracker(), uuid.uuid4(), uuid.uuid4()
+        conn = uuid.uuid4()
+        await p.join(room_id=room, user_id=user, connection_id=conn)
+        await p.leave(room_id=room, user_id=user, connection_id=conn)
+
+        assert await presence_mod.scrub_stale_presence() == (0, set())
+        assert await p.list_reconnecting(room) == [user]
 
 
 # ---------------------------------------------------------------------------

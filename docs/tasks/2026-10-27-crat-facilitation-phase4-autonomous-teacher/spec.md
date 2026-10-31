@@ -748,6 +748,36 @@ above. The user chose to verify and fix all ten of its findings.
   without the B2 instructions despite D-22's rule; the object had been revealed a turn earlier
   and the students submitted normally. FU-11 records it. The character and CRAT courses still
   need a run with the close step on the D-25 prompts before AC-11 is checked.
+- **D-27. The character course run, and a reconnect grace for the completion count (2026-10-31).**
+  The character run after D-26 (room 6ecfd6dc, run `20261031-084504-charbuild-autonomous`)
+  started the class at the fourth connection, with the teacher's `class_start` wake at 08:46:36
+  UTC. Round 1 ended on its deadline at 08:58:30, and rounds 3 to 6 ended on `all_submitted`
+  wakes with four connected, at 09:26:03, 09:39:00, 09:47:01 and 09:57:58. At 10:01:37 the
+  teacher summarised and said the bank was used up, the first close any autonomous scenario has
+  recorded, so the `onClassClose` step of D-26 works. Round 2 ended early instead: the
+  `activity.all_submitted` row at 09:08:12.731 counted three connected while the fourth student
+  had not submitted, and that student's later submission failed against the closed form. The
+  nginx access log shows the fourth student's socket, open since 08:46:31, closing at
+  09:08:12.727 and a new one opening at 09:08:15. Between 09:04 and 09:10 most of the run's
+  sockets from the operator's machine dropped and reconnected, which matches the simulator's
+  failed HTTP reads in the same minutes, so the drop came from the client's network. The
+  WebSocket close of a user's last connection ran the completion check at once, the check left
+  the student out of the connected set, and the round completed three seconds before the student
+  came back. The user chose a 30-second reconnect grace over keeping the behaviour and over a
+  60-second grace. A user whose last connection to a room closes is now marked as reconnecting
+  for `RECONNECT_GRACE_SECONDS` (a Redis key with that time to live, deleted when the user
+  connects again), `connected_progress` counts marked users as connected, so neither a
+  submission nor the departure itself completes a round inside the window, and the close
+  enqueues a `check_all_submitted` job deferred by 35 seconds in place of the immediate check.
+  The five extra seconds cover the gap between the Redis clock that runs the grace and the
+  worker clock that runs the deferral. The roster, class start, the silence gate and the
+  participant list do not read the mark. [R15.28] states the window. The object course's round 4
+  therefore completes no earlier than 35 seconds after its leaver goes. Pinned by
+  `test_a_student_inside_the_reconnect_grace_still_holds_the_class`, the `TestReconnectGrace`
+  presence tests and
+  `test_a_principal_leaving_rechecks_the_all_submitted_fact_after_the_grace`. The same run had
+  two smaller findings, recorded as FU-12 and FU-13. AC-11 stays open until the character and
+  CRAT courses pass on a deployment with the grace.
 
 ## 16. Follow-ups
 
@@ -762,3 +792,5 @@ above. The user chose to verify and fix all ten of its findings.
 - FU-9 (security hardening): the workers check the room but not its workspace or project before a deadline wake, so an activation left running under a soft-deleted project can produce one wake (the silence sweep shares the gap); class start may be reached early with several guest sessions; the time-limit PUT resolves up to 200 type ids one by one.
 - FU-10 (quality gate, Info): time-limit and class-start bounds are repeated as literals across routes, domain constants, the frontend and locale copy; `is_individual` exists twice; `ActivationService` takes the concrete `RoomTimeLimitRepository` rather than a port; the class-flow write-and-audit lives in the facades; `class_flow.py` imports the private `_assert_activity_types_in_project` from `chatrooms.py`; `SInput` turns a cleared number field into 0, so the type editor shows "0" after clearing (pre-existing for retention too).
 - FU-11: A teacher turn that calls `start_activity` or `end_activity` can still end with no text (D-26, round 3), which the prompt rule of D-22 does not prevent. Options are a platform notice that carries the activity's instructions, or a forced follow-up turn when an activity change produced an empty reply.
+- FU-12: `PresenceTracker.heartbeat` re-adds a live connection to its conns SET but not the user to the room roster or the user-rooms index, so a user evicted as a ghost while still connected stays off the roster until a new socket joins (D-27). The server's 120-second idle close comes before the 150-second conns expiry, so only a failed heartbeat write, which the reader suppresses, can reach it today.
+- FU-13: In the character run of D-27 the teacher invited the fourth student to share at 09:12:05 and then returned empty replies on the silence wakes between 09:14 and 09:19; it summarised the shares at 09:21:34 and started round 3 at 09:24:02, about 16 minutes after round 2 ended at 09:08:15. The pacing rule of D-24 did not hold there; the prompt should move to the next round after one unanswered invitation.

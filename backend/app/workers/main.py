@@ -38,6 +38,7 @@ from app.workers.agent_fs_gc import sweep_once as _agent_fs_gc_sweep_once
 from app.workers.agent_fs_gc import sweep_report_dict as _agent_fs_gc_report_dict
 from app.workers.tasks.activities import (
     activities_watchdog,
+    check_all_submitted,
     expire_group_proposals,
     validate_activity_submission,
 )
@@ -336,6 +337,7 @@ class WorkerSettings:
         workflow_watchdog,
         agent_turn_reaper,
         validate_activity_submission,
+        check_all_submitted,
         activities_watchdog,
         expire_group_proposals,
         retention_sweep,
