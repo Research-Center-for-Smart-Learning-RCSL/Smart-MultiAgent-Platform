@@ -490,6 +490,39 @@ class WakeupService:
                 targets.append(WakeTarget(binding.agent_id, binding.binding_id))
         return targets
 
+    async def on_creator_message(self, *, room_id: uuid.UUID, sender_id: uuid.UUID) -> list[WakeTarget]:
+        """[R15.29]: the bindings a message from the room creator wakes.
+
+        Those holding activity control: the creator's word overrides the teacher
+        agent, and while students work quietly no other message reaches the
+        ``every_n_messages`` count, so the override would otherwise wait for the
+        deadline. Any other sender, or a failure, wakes nothing here.
+        """
+        try:
+            room = await self._conversation.get_chatroom(room_id)
+            if room is None or room.created_by_user_id != sender_id:
+                return []
+            targets: list[WakeTarget] = []
+            for binding in await self._conversation.room_binding_wakeup_states(room_id):
+                current = await self._room_wakeup.for_state(binding)
+                if (
+                    current is None
+                    or current.is_observer
+                    or current.effective.config.triggers.call_only.enabled
+                ):
+                    continue
+                grant = await self._conversation.activity_control_grant(
+                    chatroom_id=room_id, agent_id=binding.agent_id
+                )
+                if grant is not None and grant.activity_type_ids:
+                    WAKEUP_FIRES.labels(kind="creator_message").inc()
+                    targets.append(WakeTarget(binding.agent_id, binding.binding_id))
+            return targets
+        except Exception:
+            await self._db.rollback()
+            logger.warning("creator message check failed room=%s", room_id, exc_info=True)
+            return []
+
     # ------------------------------------------------------------------
     # Agent spoke without user reply → bump autostop
     # ------------------------------------------------------------------

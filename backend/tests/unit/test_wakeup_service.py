@@ -917,3 +917,84 @@ async def test_a_failed_class_check_counts_the_round(monkeypatch) -> None:
     await svc.on_agent_message_sent(agent_id=agent_id, room_id=room, binding_id=agent_id)
 
     assert counted == [agent_id]
+
+
+def _creator_service(
+    *bindings: tuple[SimpleNamespace, bool, bool],
+) -> tuple[WakeupService, uuid.UUID, uuid.UUID]:
+    """A room whose creator is returned, holding ``(agent, observer, granted)`` bindings."""
+    room, creator = uuid.uuid4(), uuid.uuid4()
+    agents = {a.id: a for a, _, _ in bindings}
+    svc = WakeupService.__new__(WakeupService)
+    svc._db = SimpleNamespace(rollback=_async_return(None))  # type: ignore[attr-defined]
+    room_wakeup = RoomWakeupService.__new__(RoomWakeupService)
+
+    async def _get_agent(agent_id):
+        return agents[agent_id]
+
+    room_wakeup._agents = SimpleNamespace(get_agent=_get_agent)  # type: ignore[attr-defined]
+    svc._room_wakeup = room_wakeup  # type: ignore[attr-defined]
+
+    async def _states(room_id):
+        return [_state(a, room_id, observer=obs) for a, obs, _ in bindings]
+
+    granted = {a.id for a, _, g in bindings if g}
+
+    async def _grant(*, chatroom_id, agent_id):
+        if agent_id not in granted:
+            return None
+        return SimpleNamespace(
+            agent_id=agent_id, granted_by_user_id=creator, activity_type_ids=(uuid.uuid4(),)
+        )
+
+    svc._conversation = SimpleNamespace(  # type: ignore[attr-defined]
+        room_binding_wakeup_states=_states,
+        activity_control_grant=_grant,
+        get_chatroom=_async_return(SimpleNamespace(id=room, created_by_user_id=creator)),
+    )
+    return svc, room, creator
+
+
+async def test_a_creator_message_wakes_the_teacher_holding_activity_control() -> None:
+    """[R15.29]: the creator's word overrides the teacher, so it must reach the teacher.
+
+    Phase 4 AC-11 object run of 2026-10-31: the creator said time was up one minute
+    into round 3, but with the students working quietly that single message never
+    reached the ``every_n_messages`` count, and the round ran to its deadline.
+    """
+    teacher = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    peer = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc, room, creator = _creator_service((teacher, False, True), (peer, False, False))
+
+    import contexts.orchestration.application.wakeup_service as ws
+
+    woken = await svc.on_creator_message(room_id=room, sender_id=creator)
+
+    assert woken == [ws.WakeTarget(teacher.id, teacher.id)]
+
+
+async def test_a_student_message_wakes_no_teacher_by_itself() -> None:
+    teacher = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc, room, _ = _creator_service((teacher, False, True))
+
+    assert await svc.on_creator_message(room_id=room, sender_id=uuid.uuid4()) == []
+
+
+async def test_a_creator_message_skips_observers_and_call_only_bindings() -> None:
+    observer = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    call_only = _agent(wakeup_config={"triggers": {"call_only": {"enabled": True}}})
+    svc, room, creator = _creator_service((observer, True, True), (call_only, False, True))
+
+    assert await svc.on_creator_message(room_id=room, sender_id=creator) == []
+
+
+async def test_a_failed_creator_check_wakes_nothing() -> None:
+    teacher = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc, room, creator = _creator_service((teacher, False, True))
+
+    async def _boom(**_kw):
+        raise RuntimeError("db down")
+
+    svc._conversation.activity_control_grant = _boom  # type: ignore[attr-defined]
+
+    assert await svc.on_creator_message(room_id=room, sender_id=creator) == []

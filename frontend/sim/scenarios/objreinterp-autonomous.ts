@@ -81,7 +81,7 @@ export default defineScenario({
     'Autonomy: F sends exactly one message (round 3) and takes no panel action. Every activation is started and ended by TA through its tools.',
     'Class start: one TA wakeup.fired row with trigger class_start about 2 to 3 minutes after the first student arrived (chatroom.class_started: reason max_wait, connected 4); TA opens with A1.',
     'Deadline path: rounds 1, 2, 5 and 6 each show a TA wakeup.fired row with trigger activity_deadline; TA announces time up once and ends the activity in the same turn.',
-    'Override: in round 3 TA ends the activity right after F says time is up, well before the limit, and treats no student message as the teacher.',
+    'Override: in round 3 F saying time is up shows a TA wakeup.fired row with trigger creator_message within seconds, and TA ends the activity in that turn, well before the limit; it treats no student message as the teacher.',
     'Leaver: round 4 shows a TA wakeup.fired row with trigger all_submitted after P4 left (activity.all_submitted: connected 3), and TA ends the round before the limit.',
     'Bank: O1 to O6 in order, then a summary and the close. Reference uses are cited only after a student shares one.',
   ],

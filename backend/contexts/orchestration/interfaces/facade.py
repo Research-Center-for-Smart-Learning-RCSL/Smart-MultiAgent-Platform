@@ -191,6 +191,9 @@ class OrchestrationFacade:
     async def granted_targets(self, *, room_id: uuid.UUID, activity_type_id: uuid.UUID) -> list[WakeTarget]:
         return await self._wakeup.granted_targets(room_id=room_id, activity_type_id=activity_type_id)
 
+    async def on_creator_message(self, *, room_id: uuid.UUID, sender_id: uuid.UUID) -> list[WakeTarget]:
+        return await self._wakeup.on_creator_message(room_id=room_id, sender_id=sender_id)
+
     async def on_agent_message_sent(
         self,
         *,

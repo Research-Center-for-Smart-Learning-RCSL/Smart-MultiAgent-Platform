@@ -31,6 +31,7 @@ from contexts.conversation.application.message_service import (
     MessageService,
 )
 from contexts.conversation.application.triggers import (
+    evaluate_creator_message,
     evaluate_message_wakeups,
     filter_mentioned_bound_agents,
     list_bound_agents,
@@ -225,7 +226,12 @@ async def send_message(
         db, chatroom_id, body.mention_agent_ids, bound_agent_ids=bound_ids
     )
     await _dispatch_message_wakeups(
-        db, chatroom_id, bound_rows, trigger_message_id=msg.id, defer_to_mention=set(mentioned)
+        db,
+        chatroom_id,
+        bound_rows,
+        trigger_message_id=msg.id,
+        defer_to_mention=set(mentioned),
+        sender_user_id=None if principal.is_guest else principal.user_id,
     )
     await _dispatch_graphrag_builds(db, chatroom_id)
     await _dispatch_mention_wakeups(chatroom_id, mentioned, trigger_message_id=msg.id)
@@ -264,6 +270,7 @@ async def _dispatch_message_wakeups(
     *,
     trigger_message_id: uuid.UUID,
     defer_to_mention: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
+    sender_user_id: uuid.UUID | None = None,
 ) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
     ``wakeup_agent`` turn for each that fired. Returns the woken agent ids.
@@ -273,20 +280,32 @@ async def _dispatch_message_wakeups(
     An agent in ``defer_to_mention`` is still counted, but its turn is left to
     the mention dispatch: woken as ``every_n_messages`` it is told only that new
     messages arrived, may stay silent, and the person who called it gets nothing.
+
+    A message from the room creator (``sender_user_id``) also wakes the agents
+    holding activity control ([R15.29]), as ``creator_message`` in place of their
+    ``every_n_messages`` wake, so the turn knows whose word it is answering.
     """
     woken: set[uuid.UUID] = set()
     try:
         fired = await evaluate_message_wakeups(
             db, chatroom_id=chatroom_id, sender_is_user=True, bound_agents=bound_agents
         )
-        for target in fired:
+        by_creator = (
+            []
+            if sender_user_id is None
+            else await evaluate_creator_message(db, chatroom_id=chatroom_id, sender_user_id=sender_user_id)
+        )
+        creator_woken = {t.agent_id for t in by_creator}
+        wakes = [(t, "every_n_messages") for t in fired if t.agent_id not in creator_woken]
+        wakes += [(t, "creator_message") for t in by_creator]
+        for target, trigger in wakes:
             if target.agent_id in defer_to_mention:
                 continue
             await enqueue(
                 "wakeup_agent",
                 str(target.agent_id),
                 str(chatroom_id),
-                "every_n_messages",
+                trigger,
                 str(trigger_message_id),
                 str(target.binding_id),
             )
