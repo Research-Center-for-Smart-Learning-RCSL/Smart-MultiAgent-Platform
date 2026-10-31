@@ -705,6 +705,24 @@ above. The user chose to verify and fix all ten of its findings.
   autonomous scenarios now match the teacher's messages since the run began. Pinned by `test_a_silence_wake_moves_the_class_on`,
   `test_the_move_between_rounds_is_one_message` and
   `test_the_turn_that_starts_the_activity_announces_it`.
+- **D-25. A creator message wakes the teacher, and the teacher turns silence off only with a
+  started activity (2026-10-31).** The object run after D-24 (room b0918bae) failed two ways.
+  In round 3 the creator said time was up one minute in, but the teacher had turned its silence
+  trigger off and raised `every_n_messages` to 3 human messages for the quiet work, as its prompt
+  says; one creator message reached no trigger, so the round ran to its 3-minute deadline and the
+  override was never exercised. In round 4 the teacher, woken by silence after revealing the next
+  object, turned its silence trigger off (`agent.wakeup_toggled` at 01:16:31) but neither started
+  the activity nor spoke; with no student speaking and silence off, nothing woke it for the
+  remaining 22 minutes while the peer and observer agents kept waking. The user chose a platform
+  wake for the creator's word ([R15.29]): a message from the room creator wakes each normal
+  binding holding activity control as `creator_message`, in place of its `every_n_messages` wake
+  for that message, which keeps Q-3's override reachable whatever the teacher's cadence. For the
+  stall the user chose to keep the quiet-work toggle and tie it in both the character and object
+  teachers' wake-up rules to a successful `start_activity` in the same turn, rather than drop the
+  toggle or add a platform fallback. The CRAT teacher has no toggle. Pinned by
+  `test_a_creator_message_wakes_the_teacher_holding_activity_control`,
+  `test_a_creator_message_wakes_the_teacher_once_as_the_creator` and
+  `test_silence_is_turned_off_only_with_a_started_activity`.
 
 ## 16. Follow-ups
 
