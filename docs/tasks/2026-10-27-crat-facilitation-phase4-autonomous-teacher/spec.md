@@ -723,6 +723,31 @@ above. The user chose to verify and fix all ten of its findings.
   `test_a_creator_message_wakes_the_teacher_holding_activity_control`,
   `test_a_creator_message_wakes_the_teacher_once_as_the_creator` and
   `test_silence_is_turned_off_only_with_a_started_activity`.
+- **D-26. The object course passes AC-11, and the scenarios wait for the close (2026-10-31).**
+  The object run after D-25 (room a89ecda9, run `20261031-031344-objreinterp-autonomous`) ran all
+  104 steps with none failed or timed out, and the creator sent one message. The class started on
+  the waiting path: the first student connected at 03:13:48 UTC and the teacher's `class_start`
+  wake fired at 03:16:04. Rounds 1, 2, 5 and 6 each ended on an `activity_deadline` wake, with the
+  time-up announcement and `end_activity` in the same turn. In round 3 the creator said time was
+  up at 03:46:15, a `creator_message` wake fired, and the activity ended at 03:46:19, 1 minute 44
+  seconds before its limit. In round 4 the fourth student left; the other three submitted by
+  04:01:20 and an `all_submitted` wake ended the round at 04:01:27. The objects ran O1 to O6 in
+  order, and each demonstration used an object outside the bank. The `agent.wakeup_toggled` rows
+  pair each of the six silence-off writes with a round start within two seconds and each of the
+  six silence-on writes with that round's end, so the round 4 stall of D-25 did not recur. Two
+  writes were repeats with `changed` false. The close was missing from the evidence, and the
+  cause was the scenarios, not the platform: every actor's steps ended with the last share, the
+  run then disconnected everyone, and a silence wake needs a connected human ([R15.05b]), so the
+  teacher never had the turn that closes the class. No earlier autonomous run had recorded a
+  close either. All three autonomous scenarios now end with `onClassClose`, which keeps one
+  student connected until the teacher's closing message, for up to 10 minutes. A one-off check
+  reconnected two students to the same room: the teacher described the state at 04:49:57 and
+  at 04:52:05 summarised the transformations, said the bank was used up and thanked the class,
+  starting no further round. The same run showed the round 3 start turn calling `start_activity`
+  with an empty reply (`wakeup.skipped` with `empty_reply` at 03:45:11), so that round opened
+  without the B2 instructions despite D-22's rule; the object had been revealed a turn earlier
+  and the students submitted normally. FU-11 records it. The character and CRAT courses still
+  need a run with the close step on the D-25 prompts before AC-11 is checked.
 
 ## 16. Follow-ups
 
@@ -736,3 +761,4 @@ above. The user chose to verify and fix all ten of its findings.
 - FU-8 (security gate, MEDIUM, plausible): platform wakes bypass autostop, and a granted TA can start the next activation inside a deadline turn, so with nobody connected a short limit could chain turns until the bank runs out; only the per-room turn rate bucket and the prompt bound it. Cap agent-started activations per class, or skip the deadline wake when no human is connected.
 - FU-9 (security hardening): the workers check the room but not its workspace or project before a deadline wake, so an activation left running under a soft-deleted project can produce one wake (the silence sweep shares the gap); class start may be reached early with several guest sessions; the time-limit PUT resolves up to 200 type ids one by one.
 - FU-10 (quality gate, Info): time-limit and class-start bounds are repeated as literals across routes, domain constants, the frontend and locale copy; `is_individual` exists twice; `ActivationService` takes the concrete `RoomTimeLimitRepository` rather than a port; the class-flow write-and-audit lives in the facades; `class_flow.py` imports the private `_assert_activity_types_in_project` from `chatrooms.py`; `SInput` turns a cleared number field into 0, so the type editor shows "0" after clearing (pre-existing for retention too).
+- FU-11: A teacher turn that calls `start_activity` or `end_activity` can still end with no text (D-26, round 3), which the prompt rule of D-22 does not prevent. Options are a platform notice that carries the activity's instructions, or a forced follow-up turn when an activity change produced an empty reply.

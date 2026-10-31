@@ -1,5 +1,5 @@
 import { defineScenario } from '../scenario/schema.ts'
-import { individualRound } from '../scenario/rounds.ts'
+import { individualRound, onClassClose } from '../scenario/rounds.ts'
 
 // Phase 4 AC-11, character course: docs/tasks/2026-10-27-crat-facilitation-phase4-autonomous-teacher.
 // The facilitator creates and configures the room and then never speaks or touches the panel. The
@@ -66,6 +66,7 @@ export default defineScenario({
         ...individualRound({ actor: 'P4', round, thinkSec: 110, fields: fields(r.p4) }),
       ]
     }),
+    onClassClose('P3'),
   ],
   notes: [
     'Autonomy: no message and no panel action from F after setup. Every activation is started and ended by TA through its start_activity and end_activity tools.',

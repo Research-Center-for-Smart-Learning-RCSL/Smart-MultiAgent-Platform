@@ -31,6 +31,22 @@ export function onRoundEnd(actor: string, round: number): StepInput {
   }
 }
 
+/**
+ * Keeps the actor connected until TA closes the class after its last round. The run ends when every
+ * actor's steps are done, and silence wakes need a connected human, so without this the room empties
+ * right after the last share and TA never gets the turn that summarises and closes.
+ */
+export function onClassClose(actor: string): StepInput {
+  return {
+    actor,
+    do: 'wait',
+    sec: 5,
+    when: { type: 'message', from: 'agent:TA', match: '用完|出完|下課|感謝' },
+    timeoutSec: 10 * 60,
+    label: 'sees TA close the class',
+  }
+}
+
 /** One student's part in one individual round: open, think, submit (or not), share. */
 export function individualRound(o: {
   actor: string

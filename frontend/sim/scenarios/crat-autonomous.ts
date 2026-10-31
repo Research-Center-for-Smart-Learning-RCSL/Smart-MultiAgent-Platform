@@ -1,6 +1,6 @@
 import { defineScenario } from '../scenario/schema.ts'
 import type { ScenarioInput } from '../scenario/schema.ts'
-import { onRoundStart } from '../scenario/rounds.ts'
+import { onClassClose, onRoundStart } from '../scenario/rounds.ts'
 
 // Phase 4 AC-11, CRAT course: docs/tasks/2026-10-27-crat-facilitation-phase4-autonomous-teacher.
 // The facilitator configures the room and never speaks or touches the panel. Three group members
@@ -107,6 +107,7 @@ export default defineScenario({
     onRoundStart('P2', 1),
     onRoundStart('P3', 1),
     ...ROUNDS.flatMap((r, i) => roundSteps(i + 1, r)),
+    onClassClose('P1'),
   ],
   notes: [
     'Autonomy: no message and no panel action from F after setup. TA starts the one activation through its tool and ends it after C8.',
