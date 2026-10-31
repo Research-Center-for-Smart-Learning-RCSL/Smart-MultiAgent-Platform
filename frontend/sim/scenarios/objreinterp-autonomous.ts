@@ -1,5 +1,5 @@
 import { defineScenario } from '../scenario/schema.ts'
-import { individualRound, onRoundStart } from '../scenario/rounds.ts'
+import { individualRound, onRoundEnd, onRoundStart } from '../scenario/rounds.ts'
 
 // Phase 4 AC-11, object course: docs/tasks/2026-10-27-crat-facilitation-phase4-autonomous-teacher.
 // The facilitator configures the room and speaks exactly once, to override round 3. The class
@@ -50,6 +50,10 @@ export default defineScenario({
   ],
   steps: [
     // Round 3 override, F's only message: one minute into the round, before anyone but P1 submits.
+    // F follows the rounds' ends first: a round wait times out 20 minutes after it is armed, and
+    // armed at the start it expired before round 3 once the class ran at its own pace.
+    onRoundEnd('F', 1),
+    onRoundEnd('F', 2),
     onRoundStart('F', 3),
     { actor: 'F', at: 0, do: 'wait', sec: 60 },
     { actor: 'F', at: 0, do: 'say', text: '時間到，大家停筆。', label: 'creator override: time is up in round 3' },
