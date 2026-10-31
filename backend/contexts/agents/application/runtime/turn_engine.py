@@ -582,6 +582,7 @@ _GAP_NOTICE_MIN_SECONDS = 60
 
 _WAKE_REASONS: Mapping[str, str] = {
     "every_n_messages": "new messages",
+    "creator_message": "a message from the room creator",
     "silence_minutes": "a period of silence",
     "on_join": "a participant joining",
     "mention": "a mention",

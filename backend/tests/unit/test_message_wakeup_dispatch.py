@@ -230,6 +230,79 @@ async def test_dispatch_message_wakeups_enqueues_with_trigger_message_id(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_a_creator_message_wakes_the_teacher_once_as_the_creator(monkeypatch) -> None:
+    """[R15.29]: the teacher woken by the creator's message is told it was the creator,
+    once, even when the same message was also its every_n message; others keep theirs."""
+    from contexts.orchestration.interfaces.facade import WakeTarget
+
+    teacher, peer, creator = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    room_id, trigger_message_id = uuid.uuid4(), uuid.uuid4()
+    teacher_binding, peer_binding = uuid.uuid4(), uuid.uuid4()
+    enqueued: list[tuple[object, ...]] = []
+    asked: list[uuid.UUID] = []
+
+    async def _evaluate_message_wakeups(*_a, **_k):
+        return [WakeTarget(teacher, teacher_binding), WakeTarget(peer, peer_binding)]
+
+    async def _evaluate_creator_message(_db, *, chatroom_id, sender_user_id):
+        asked.append(sender_user_id)
+        return [WakeTarget(teacher, teacher_binding)]
+
+    async def _enqueue(*args, **_kwargs) -> None:
+        enqueued.append(args)
+
+    monkeypatch.setattr(messages_mod, "evaluate_message_wakeups", _evaluate_message_wakeups)
+    monkeypatch.setattr(messages_mod, "evaluate_creator_message", _evaluate_creator_message)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    woken = await messages_mod._dispatch_message_wakeups(
+        object(), room_id, [], trigger_message_id=trigger_message_id, sender_user_id=creator
+    )
+
+    assert asked == [creator]
+    assert woken == {teacher, peer}
+    assert sorted(enqueued) == sorted(
+        [
+            (
+                "wakeup_agent",
+                str(peer),
+                str(room_id),
+                "every_n_messages",
+                str(trigger_message_id),
+                str(peer_binding),
+            ),
+            (
+                "wakeup_agent",
+                str(teacher),
+                str(room_id),
+                "creator_message",
+                str(trigger_message_id),
+                str(teacher_binding),
+            ),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_guest_message_asks_no_creator_check(monkeypatch) -> None:
+    async def _evaluate_message_wakeups(*_a, **_k):
+        return []
+
+    async def _no_check(*_a, **_k):
+        raise AssertionError("a sender without a user id cannot be the creator")
+
+    monkeypatch.setattr(messages_mod, "evaluate_message_wakeups", _evaluate_message_wakeups)
+    monkeypatch.setattr(messages_mod, "evaluate_creator_message", _no_check)
+
+    assert (
+        await messages_mod._dispatch_message_wakeups(
+            object(), uuid.uuid4(), [], trigger_message_id=uuid.uuid4()
+        )
+        == set()
+    )
+
+
+@pytest.mark.asyncio
 async def test_dispatch_mention_wakeups_enqueues_with_trigger_message_id(monkeypatch) -> None:
     agent_id = uuid.uuid4()
     room_id = uuid.uuid4()

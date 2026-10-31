@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 __all__ = [
+    "evaluate_creator_message",
     "evaluate_message_wakeups",
     "evaluate_presence_change",
     "filter_mentioned_bound_agents",
@@ -101,6 +102,23 @@ async def evaluate_message_wakeups(
         states=states,
         **extra,
     )
+
+
+async def evaluate_creator_message(
+    db: AsyncSession,
+    *,
+    chatroom_id: uuid.UUID,
+    sender_user_id: uuid.UUID,
+) -> list[WakeTarget]:
+    """The agents a message from the room creator wakes ([R15.29]); none for anyone else.
+
+    Evaluated beside :func:`evaluate_message_wakeups`, which still counts the
+    message: the caller wakes each returned agent for this message in place of
+    its ``every_n_messages`` wake.
+    """
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    return await OrchestrationFacade(db).on_creator_message(room_id=chatroom_id, sender_id=sender_user_id)
 
 
 async def filter_mentioned_bound_agents(
