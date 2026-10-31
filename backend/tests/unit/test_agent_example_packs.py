@@ -1114,6 +1114,14 @@ class TestPhase2CoursePacks:
         assert "start_activity 回傳成功之後，就在同一輪" in b2
         assert "不要說分鐘數，也不要說不限時" in b2
 
+    @pytest.mark.parametrize("teacher_key", ["ta-charbuilding-teacher", "ta-objreinterpret-teacher"])
+    def test_silence_is_turned_off_only_with_a_started_activity(self, teacher_key: str) -> None:
+        """Phase 4 D-25: on a silence wake after the reveal the object teacher turned its
+        silence trigger off without starting the activity and was never woken again."""
+        rules = _section(self._agent(teacher_key).system_prompt, "通用規則")
+        assert "只在這一輪呼叫的 start_activity 回傳成功之後，才在同一輪這樣調整" in rules
+        assert "這一輪沒有呼叫 start_activity，或它沒有成功，就不要關沉默觸發" in rules
+
     def test_no_shipped_agent_is_told_to_reply_blank(self) -> None:
         """Phase 4 D-22: silence is a choice not to speak, not an answer to give."""
         for _, agent in SHIPPED_AGENTS:
