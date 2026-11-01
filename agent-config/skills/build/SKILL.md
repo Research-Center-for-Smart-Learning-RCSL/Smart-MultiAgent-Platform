@@ -14,8 +14,8 @@ everything this skill reads and writes — read it first.
 **Given a dossier** (path or slug under `docs/tasks/`): load `spec.md` and check status.
 
 - `approved` — check `depends_on` first: every listed slug must be `status: implemented`
-  in its own `spec.md` (don't trust `BOARD.md` alone for this gate — it's a cache; read
-  the dependency's frontmatter directly). If any dependency isn't implemented yet, refuse
+  in its own `spec.md` (read the dependency's frontmatter directly; `BOARD.md` is generated
+  from it but can be stale in an uncommitted tree). If any dependency isn't implemented yet, refuse
   and name the blocker instead of proceeding — starting anyway risks building on code or
   assumptions that don't exist yet. Otherwise proceed.
 - `in-progress` — this is a resume: unchecked ACs and the Deviation Log tell you where
@@ -55,8 +55,8 @@ contract change, cross-context changes, or auth/keys/tenant surfaces. Present th
 breakdown and wait. Everything else: proceed directly — spec approval already authorized
 the what, and the how is this skill's job.
 
-Set the dossier `status: in-progress` when implementation starts, and move its row in
-`docs/tasks/BOARD.md` to In progress.
+Set the dossier `status: in-progress` when implementation starts, and run
+`python scripts/task_board.py` to regenerate `docs/tasks/BOARD.md` (never edit it by hand).
 
 **Record the base commit** — `git rev-parse HEAD` before the first edit — and keep it for
 Step 5. This skill commits at milestones, so by the time the audit gates run the working
@@ -139,14 +139,14 @@ default scope detection run.
 2. Append **FU-n** entries for out-of-scope discoveries. Do not fix them in this task
    unless they block an AC.
 3. Set `status: implemented`.
-4. Remove this dossier's row from `docs/tasks/BOARD.md`'s active sections (it's no longer
-   Ready/Blocked/In progress), then check whether any Blocked row listed this slug in its
-   `depends_on` — if so and all of *that* row's other dependencies are also implemented,
-   move it to Ready and tell the user it just became unblocked. This is the moment a
-   sequencing change would otherwise go unnoticed.
+4. Run `python scripts/task_board.py`. The dossier leaves the board, and a Blocked
+   dossier whose last unmet dependency was this one moves to Ready; compare the board
+   before and after and tell the user about any dossier that just became unblocked. This
+   is the moment a sequencing change would otherwise go unnoticed. Write no completion
+   note on the board: the dossier is the record.
 5. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
    rather than one lump at the end (a fix and its test as separate commits, each
    migration, each refactor stage), English messages, no co-author trailer, and stage
-   only the files this task changed plus `BOARD.md` — never `git add -A`/`.`/`-a`, since
+   only the files this task changed plus the regenerated `BOARD.md` — never `git add -A`/`.`/`-a`, since
    the tree may hold unrelated in-progress work. Do not push without explicit user
    confirmation.

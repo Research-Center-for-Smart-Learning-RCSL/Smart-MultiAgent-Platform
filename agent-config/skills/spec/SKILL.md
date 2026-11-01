@@ -66,8 +66,8 @@ speculative, citations instead of pasted code. Also check intent sources — doe
 frontmatter.
 
 **Scan for dependencies.** List every dossier under `docs/tasks/` whose `status` is not
-`implemented`/`superseded`/`abandoned` (check `BOARD.md` first — it already tracks this
-set — falling back to a frontmatter grep if `BOARD.md` looks stale) and check each
+`implemented`/`superseded`/`abandoned` (`BOARD.md` lists exactly this set; it is
+generated from the frontmatter by `python scripts/task_board.py`) and check each
 against this task's touched files/areas for either kind of dependency the contract
 defines: a logical prerequisite (this task references code the other introduces) or an
 overlap prerequisite (both would edit the same files/lines). For every match, propose it
@@ -121,11 +121,11 @@ that gate only means something if this skill honors it.
 
 ## Step 7 — Update the board and commit
 
-Add a row for this dossier to `docs/tasks/BOARD.md` (create the file from the contract's
-description if it doesn't exist yet): Ready now if `depends_on` is empty or every entry
-is already `implemented`, Blocked (with the unmet slugs) otherwise. If this dossier's
-`depends_on` list turned out to reference something not yet in `BOARD.md`, that's a sign
-the scan in Step 3 missed a dossier — double check before proceeding.
+Run `python scripts/task_board.py` to regenerate `docs/tasks/BOARD.md`, and again after
+approval flips the status, since the board shows it; never edit it by hand. The script places the dossier in Ready now or Blocked from its `depends_on`, and
+fails if an entry names no dossier. If this dossier's `depends_on` names something that
+was not on the board before, that's a sign the scan in Step 3 missed a dossier — double
+check before proceeding.
 
 Commit the dossier following the CLAUDE.md commit discipline: English message, no
 co-author trailer, and stage only the files this task produced — the dossier folder,

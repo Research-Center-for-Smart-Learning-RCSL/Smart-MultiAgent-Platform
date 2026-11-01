@@ -7,7 +7,7 @@
 // told a participant to wait for the facilitator and then showed them their own
 // Start. Re-adding either key is how that comes back, and it would come back
 // silently: the component test harness mounts i18n with no bundle at all
-// (BOARD.md FU-4), so every component assertion here reads raw keys and a key
+// (FU-4 of docs/tasks/2026-08-16-shared-common-i18n-namespace), so every component assertion here reads raw keys and a key
 // nobody renders looks exactly like a key everybody renders.
 //
 // The second is bundle parity, which is the same class of invisible defect: a

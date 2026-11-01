@@ -1,5 +1,6 @@
 // The one card a group sees while it votes ([R30.41]). Component assertions
-// read raw i18n keys (the harness mounts no bundle, BOARD.md FU-4), so the
+// read raw i18n keys (the harness mounts no bundle, FU-4 of
+// docs/tasks/2026-08-16-shared-common-i18n-namespace), so the
 // threshold's actual wording is asserted in `i18n.group.test.ts`; what is
 // asserted here is which controls exist in which state.
 

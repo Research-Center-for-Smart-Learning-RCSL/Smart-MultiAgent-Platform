@@ -14,7 +14,7 @@ That the old platform-singleton unique index (``uq_prompt_assistant_config_platf
 0042) is replaced by an "at most one *enabled* platform row" index rather than
 just dropped -- multiple disabled presets must coexist, but two simultaneously
 enabled ones must still be rejected at the DB level (Gap-1 resolution, see the
-dossier's BOARD.md entry).
+dossier's entry in docs/tasks/archive/board-history-to-2026-11.md).
 
 That the seed is idempotent (re-running upgrade() must not duplicate the three
 preset rows) and that the seeded rows are unusable until an admin configures

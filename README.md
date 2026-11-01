@@ -166,7 +166,7 @@ deploy/
 docs/
   implement/         Per-phase construction plans (A through M, plus supplemental remediation docs)
   audits/            /audit dossiers — functional bug-hunt findings, one folder per sweep
-  tasks/             /spec dossiers (spec.md per change) plus BOARD.md sequencing index
+  tasks/             /spec dossiers (spec.md per change) plus the generated BOARD.md index
   operations.md      Operator manual
   release-checklist.md  Pre-release verification checklist
   frontend-exceptions.md  CI gate exception registry

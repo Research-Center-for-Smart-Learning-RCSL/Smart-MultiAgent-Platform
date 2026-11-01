@@ -189,14 +189,22 @@ The groups:
 - **In progress** — `status: in-progress`.
 
 It exists so a reader can answer "what can I pick up right now, and what can run
-alongside it" from one file instead of opening every `spec.md`. If `BOARD.md` and a
-dossier's own frontmatter ever disagree, the frontmatter wins — `BOARD.md` is a cache,
-not a second source of truth.
+alongside it" from one file instead of opening every `spec.md`.
 
-`/spec` adds a row when it writes a new dossier (its Step 7). `/build` moves a task
-between sections whenever it changes `status` (its Step 3 and Step 6) — most notably,
-finishing a task can move other dossiers from Blocked to Ready, which `/build` calls out
-to the user rather than leaving for them to notice on the next read.
+`BOARD.md` is generated, never edited by hand: `python scripts/task_board.py` rebuilds it
+from each dossier's `status`, `depends_on`, `type` and title, and the CI `repo-gates` job
+runs the same script with `--check`, so a status change committed without a regenerated
+board fails. The script also fails on a status outside the Status lifecycle section and on a
+`depends_on` entry that names no dossier. Anything worth saying about a dossier's
+progress belongs in the dossier itself; a completed dossier simply leaves the board, and
+its frontmatter and Deviation Log are the record. The hand-written board kept until
+2026-11-01, including its completion notes, is frozen in
+`archive/board-history-to-2026-11.md` and is not edited further.
+
+`/spec` regenerates the board when it writes a dossier or flips its status (its Step 7).
+`/build` regenerates it whenever it changes `status` (its Step 3 and Step 6). Finishing a
+task can move other dossiers from Blocked to Ready, which `/build` reads off the
+regenerated board and calls out to the user rather than leaving for them to notice.
 
 ## Write-back rule
 
