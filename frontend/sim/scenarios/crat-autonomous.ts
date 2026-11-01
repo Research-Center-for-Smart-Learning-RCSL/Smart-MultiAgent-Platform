@@ -38,7 +38,11 @@ const ROUNDS: Array<{ clues: [string, string, string]; guess: string; agree: str
   { clues: ['饅', '碼', '枕'], guess: '饅頭、碼頭、枕頭，是「頭」', agree: '這題比較簡單', answer: { target_character: '頭', word_1: '饅頭', word_2: '碼頭', word_3: '枕頭', reasoning: '三個都是常用詞' } },
 ]
 
-/** TA's reveal of a round: its three clue characters close together in one message. */
+/**
+ * TA's reveal of a round: its three clue characters close together in one message. In a healthy
+ * run the reveal came under four minutes after each actor's previous step; six minutes fails a run
+ * where TA closed the class early and reopened it (D-29), which took over seven.
+ */
 function onClues(actor: string, round: number, clues: [string, string, string]): StepInput {
   const [a, b, c] = clues
   return {
@@ -46,7 +50,7 @@ function onClues(actor: string, round: number, clues: [string, string, string]):
     do: 'wait',
     sec: 1,
     when: { type: 'message', from: 'agent:TA', match: `${a}[^\\n]{0,12}${b}[^\\n]{0,12}${c}`, sinceArmed: false },
-    timeoutSec: 20 * 60,
+    timeoutSec: 6 * 60,
     label: `sees round ${round}'s clues`,
   }
 }
@@ -113,6 +117,7 @@ export default defineScenario({
     'Judging: in round 4 TA rejects 「力」 itself, saying which clue word does not form a common word, then gives the bank answer 「風」 and moves to round 5 without asking the creator (Q-7).',
     'Round matching: every round from 5 on is judged on the submission made after its own clue reveal, never on the previous round\'s target (D-28).',
     'Bank: C1 to C8 in order; after C8 TA summarises, ends the activity and closes the class. No target is revealed before the group submits.',
+    'One activation: exactly one "started" and one "ended" activity notice, the end after C8 is judged; a close after C7 followed by a second activation is the D-29 failure.',
     'No time limit: [Activity state] says "No time limit." throughout, and no wakeup row with trigger activity_deadline or all_submitted appears (a group activity never completes on submissions).',
     'AC-14 still applies: invitations only where the step allows discussion, never the creator.',
   ],

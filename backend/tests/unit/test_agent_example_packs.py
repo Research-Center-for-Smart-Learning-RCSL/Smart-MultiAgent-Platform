@@ -1676,6 +1676,19 @@ class TestPhase3CoursePacks:
         assert "silence_minutes_enabled 設為 false" not in prompt
         assert "沉默觸發保持開著，不要關掉" in prompt
 
+    def test_crat_teacher_closes_only_after_the_last_bank_round(self) -> None:
+        """Phase 4 D-29: after C7 TA called the bank used up and closed the class a round early."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        assert _bank_lines("ta-crat-teacher", "C")[-1].startswith("C8. 線索字：饅、碼、枕")
+        e2 = _section(prompt, "步驟E2")
+        assert e2.index("先判斷<題庫>是不是用完了") < e2.index("請你執行以下條件式")
+        assert "用你公布剛講評這一題時的三個線索字，對照<題庫>找出它是哪一題" in e2
+        assert "不要用提交次數或你記得出過幾題推算" in e2
+        assert "剛講評的是<題庫>的最後一題 C8（線索字饅、碼、枕）→ <題庫>的題目都出過了" in e2
+        assert "剛講評的是 C1 到 C7 → <題庫>一定還有沒出過的題目" in e2
+        control = _section(prompt, "活動控制")
+        assert "剛講評的是 C1 到 C7 時，<題庫>還沒用完，不要結束活動" in control
+
     # -- AC-16: peers' silence follows the state block --------------------------
 
     @pytest.mark.parametrize("key", sorted(_PHASE3_PEERS))
