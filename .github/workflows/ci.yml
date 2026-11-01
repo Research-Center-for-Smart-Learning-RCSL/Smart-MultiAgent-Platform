@@ -50,6 +50,10 @@ jobs:
       # dangle. The script prints the exclusions it applied on every run.
       - name: traceability.csv matches REQUIREMENTS.md
         run: python scripts/traceability.py --check
+      # docs/tasks/BOARD.md is generated from the dossiers' frontmatter, which is the
+      # source of truth; a status change without a regenerated board fails here.
+      - name: task board matches dossier frontmatter
+        run: python scripts/task_board.py --check
 
   # ──────────────────────────────────────────────
   # Backend
