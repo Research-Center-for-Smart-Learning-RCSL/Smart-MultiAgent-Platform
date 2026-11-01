@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-27
 requirements: [R13.73, R15.02, R15.03, R15.05, R15.26, R30.21, R30.22, R30.37, R30.44, R30.45]
 depends_on: [2026-10-16-crat-facilitation-phase2-classroom-context-and-cadence]
@@ -441,7 +441,7 @@ nothing else reads them. Restoring the previous pack text restores phase 2 behav
 - [x] AC-5: In an individual activity, the valid submission that leaves no connected non-creator participant without a valid submission yields exactly one `all_submitted` wake; an invalid submission, a re-submission, unavailable presence, an empty connected set, or a group activity yields none.
 - [x] AC-6: `[Activity state]` for an active activation shows elapsed minutes, the time limit or "no time limit", remaining minutes, and for an individual activity "N of M connected participants (room creator excluded) have a valid submission", or states the count is unavailable; the preamble states the count is not attendance. Bounds and the unavailable rendering are unchanged.
 - [x] AC-7: The class-start and time-limit routes refuse non-creators (403) and non-members (404), validate bounds and project membership of type ids, and emit their audit events; `gen:api` is rerun and the frontend types match.
-- [ ] AC-8: Room settings show and edit class start (including reset) and per-type time limits; the type editor shows the default; the participant and facilitator panels show the remaining time when a deadline exists. Strings in every locale; view tests cover each new state.
+- [x] AC-8: Room settings show and edit class start (including reset) and per-type time limits; the type editor shows the default; the participant and facilitator panels show the remaining time when a deadline exists. Strings in every locale; view tests cover each new state.
 - [x] AC-9: The three teacher prompts contain no step that waits for the creator except the no-grant start fallback and the override sentence; each opens on `class_start`, ends work on `activity_deadline` or `all_submitted`, advances rounds by rule until the bank is exhausted, then summarizes, ends any running activity and closes. Pack tests pin these rules and keep the ban on unbacked completion or timing promises.
 - [x] AC-10: The CRAT teacher judges a differing answer per Q-7 and names the failing word when it rejects; pack tests pin the wording; a present creator's ruling overrides it.
 - [x] AC-11: Live runs on staging, one per course, with the creator present but silent after setup: the class opens, every round of the bank runs, the class closes, and no creator message or panel action occurs. The character or object run covers both the deadline path (a connected non-submitter) and the completion path. One run includes a creator override mid-round and TA follows it.
@@ -872,6 +872,24 @@ above. The user chose to verify and fix all ten of its findings.
   paths with a silent creator. After the close, while a student was still connected, silence wakes
   kept producing replies: the teacher repeated its closing message at 10:07:09, and the peer agent,
   silent through the class, posted study tips at 10:10:35 and 10:14:09. FU-16 records it.
+- **D-32. AC-8 is checked on staging rather than the local stack (2026-11-01).** The test plan
+  names the `frontend:verify` skill, which drives the local compose stack; that stack was not
+  running, and staging carried the same build, so the browser check ran there in the
+  operator's Chrome session, in the finished room of D-31 (f305b324). The class-start card showed
+  the stored setting (3 students, 5 minutes) and the line saying the class started at 17:26:18
+  local time. Saving 4 students persisted through `PATCH /class-start`, and the reset, after its
+  confirmation dialog, cleared `first_arrival_at` and `started_at`, after which the card said the
+  class had not started and disabled the reset button. The time-limit card listed the project's
+  eight types on the type default; choosing a custom limit showed the minutes field, the 1 to 180
+  validation message and a disabled save button until a value was entered, and saving 15 minutes
+  for the CRAT type stored the override. The new-type form showed the default time limit field
+  and its hint. Starting the CRAT activity from the facilitator panel showed 「剩餘 15 分鐘」, so
+  the activation took the room override, and the activity was ended 16 seconds later with no
+  agent reply in the room. The room's settings were then put back (3 students, no override);
+  the reset itself cannot be undone and leaves the finished room re-armed for a class. Every
+  `t()` key the four components use exists in both the en and zh-TW locale files, and the three
+  view test files (ActivityCountdown, ActivityTypeForm, ClassPacingCards) pass, 64 tests,
+  including the expired timer state that the live check did not wait for.
 
 ## 16. Follow-ups
 
