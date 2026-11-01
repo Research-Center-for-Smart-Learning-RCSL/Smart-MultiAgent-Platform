@@ -1689,6 +1689,17 @@ class TestPhase3CoursePacks:
         control = _section(prompt, "活動控制")
         assert "剛講評的是 C1 到 C7 時，<題庫>還沒用完，不要結束活動" in control
 
+    def test_crat_teacher_judges_a_submission_in_any_discussion_step(self) -> None:
+        """Phase 4 D-30: a wrong target arrived during C2 and TA kept the group discussing it."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        assert "4. 提交優先：" in prompt
+        assert "不論討論進行到哪裡、三個詞驗證完了沒有" in prompt
+        assert "不要再引導小組討論或驗證這一題" in prompt
+        for step in ("步驟B1", "步驟C1", "步驟C2"):
+            assert "若這一題公布之後出現了這一組的提交通知 → 照<節奏規則>第 4 條" in _section(prompt, step), (
+                step
+            )
+
     # -- AC-16: peers' silence follows the state block --------------------------
 
     @pytest.mark.parametrize("key", sorted(_PHASE3_PEERS))
