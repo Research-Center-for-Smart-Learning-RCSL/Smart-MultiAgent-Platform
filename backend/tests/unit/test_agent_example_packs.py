@@ -1614,9 +1614,20 @@ class TestPhase3CoursePacks:
             "若這一題已經提交 → 繼續執行<主流程E>。",  # submitted
             # One activation spans every round, so the block holds earlier rounds too.
             "可能包含前幾題的提案和提交",
-            "提交次數已經達到這堂課到目前為止出過的題數",
         ):
             assert branch in d1, f"D1 lacks: {branch}"
+
+    def test_crat_judges_only_a_submission_made_after_the_round_was_revealed(self) -> None:
+        """Phase 4 D-28: a round-4 resubmission made the count rule run one round ahead,
+        so round 7 was judged on round 6's target before the group submitted."""
+        prompt = self._agent("ta-crat-teacher").system_prompt
+        d1 = _section(prompt, "步驟D1")
+        assert "提交次數已經達到" not in prompt
+        assert "你公布這一題線索字的那則訊息之後，出現了這一組的提交通知" in d1
+        assert "不要用提交次數推算" in d1
+        assert "就是前一題補交的，也不算這一題的提交，不要講評它" in d1
+        e1 = _section(prompt, "步驟E1")
+        assert "<步驟D1>判斷為這一題提交的那一列" in e1
 
     def test_crat_d1_reads_the_state_before_guiding_a_submission(self) -> None:
         """Phase 3 D-12: a silence wake after a rejection re-ran D1's opening, which
