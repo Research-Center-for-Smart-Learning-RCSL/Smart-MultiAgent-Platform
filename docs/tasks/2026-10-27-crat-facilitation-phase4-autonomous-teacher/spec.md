@@ -810,6 +810,30 @@ above. The user chose to verify and fix all ten of its findings.
   not judged. E1 reads the target from that same attempt. Pinned by
   `test_crat_judges_only_a_submission_made_after_the_round_was_revealed`. The CRAT course still
   needs a passing run on the re-synced teacher before AC-11 is checked.
+- **D-29. The CRAT teacher decides the bank is used up from the round it just judged
+  (2026-11-01).** The CRAT run on the D-28 teacher (agent version 55, room c158aeda, run
+  `20261101-063922-crat-autonomous`) ran all 87 steps with none failed or timed out, and the
+  creator neither spoke nor touched the panel. The opening came on the `class_start` wake at
+  06:40:17 UTC. Every round was judged on the submission made after its own reveal, and in round 4
+  the teacher named 「颱力」 and 「兜力」 as not forming words, gave 「風」 and revealed round 5 in the
+  same message, as Q-7 asks. In the turn that judged round 7, however, the teacher ended the
+  activity at 07:09:32 and at 07:09:34 posted that all eight rounds were used up and closed the
+  class, with C8 never revealed. On the next silence wake at 07:12:15 it said one round remained, and at 07:14:33 it
+  started a new activation and revealed C8, which the group submitted as attempt 1 of the new
+  activation; the class closed at 07:18:10. The run passed only because the round 8 reveal step
+  waits up to twenty minutes. The agent history window is 500 messages
+  (`backend/contexts/agents/application/runtime/transcript.py:66`) and the class produced 51, so
+  the reveals of C1 to C7 were all in context, and the teacher had itself announced round 7 as
+  the seventh. The E2 condition 「題目都出過了」 left the teacher to count the rounds, the same kind
+  of implicit count D-28 removed from D1. The user chose to fix the rule and re-run. E2 now first
+  identifies the round just judged by matching its revealed clue characters against the bank, not
+  by submission count or a remembered number of rounds, and treats the bank as used up only when
+  that round is C8; after C1 to C7 a next round always exists. Rule 4 of the activity control
+  section says the same, so end_activity is not called after C1 to C7. Pinned by
+  `test_crat_teacher_closes_only_after_the_last_bank_round`, which also asserts that C8 is the
+  bank's last line, so a bank edit that adds rounds fails the test until the rule follows. The
+  character and object teachers closed on the right round in D-26 and D-28 and are not changed.
+  The CRAT course needs one more passing run on the re-synced teacher before AC-11 is checked.
 
 ## 16. Follow-ups
 
