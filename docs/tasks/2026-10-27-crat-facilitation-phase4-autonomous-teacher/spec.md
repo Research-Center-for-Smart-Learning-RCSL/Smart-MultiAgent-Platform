@@ -444,7 +444,7 @@ nothing else reads them. Restoring the previous pack text restores phase 2 behav
 - [ ] AC-8: Room settings show and edit class start (including reset) and per-type time limits; the type editor shows the default; the participant and facilitator panels show the remaining time when a deadline exists. Strings in every locale; view tests cover each new state.
 - [x] AC-9: The three teacher prompts contain no step that waits for the creator except the no-grant start fallback and the override sentence; each opens on `class_start`, ends work on `activity_deadline` or `all_submitted`, advances rounds by rule until the bank is exhausted, then summarizes, ends any running activity and closes. Pack tests pin these rules and keep the ban on unbacked completion or timing promises.
 - [x] AC-10: The CRAT teacher judges a differing answer per Q-7 and names the failing word when it rejects; pack tests pin the wording; a present creator's ruling overrides it.
-- [ ] AC-11: Live runs on staging, one per course, with the creator present but silent after setup: the class opens, every round of the bank runs, the class closes, and no creator message or panel action occurs. The character or object run covers both the deadline path (a connected non-submitter) and the completion path. One run includes a creator override mid-round and TA follows it.
+- [x] AC-11: Live runs on staging, one per course, with the creator present but silent after setup: the class opens, every round of the bank runs, the class closes, and no creator message or panel action occurs. The character or object run covers both the deadline path (a connected non-submitter) and the completion path. One run includes a creator override mid-round and TA follows it.
 - [x] AC-12: The adoption guide describes the setup checklist and the platform facts, and no longer says the creator's 「時間到」 is required.
 
 ## 12. Test Plan
@@ -854,6 +854,24 @@ above. The user chose to verify and fix all ten of its findings.
   reply and revealed C1 two turns later at 08:14:04, which FU-11 already records. At 08:17:37,
   after judging round 1, it posted text that was its own planning rather than a message to the
   class, and revealed C2 only on the next turn; FU-15 records it.
+- **D-31. The CRAT course passes AC-11 (2026-11-01).** The CRAT run on the D-30 teacher (agent
+  version 57, room f305b324, run `20261101-092525-crat-autonomous`) ran all 87 steps with none
+  failed or timed out, and the creator neither spoke nor touched the panel; the only human
+  messages came from two students and all eight proposals were made and accepted by students. The
+  opening came at 09:26:21 UTC on the `class_start` wake, the activity started at 09:29:34 and C1
+  was revealed four seconds later in the same turn's reply, so the empty start turn of FU-11 did
+  not recur. The bank ran C1 to C8 in order and each round was judged on the submission that
+  followed its own reveal. In round 4 the teacher was still in C2 and had asked the group to check
+  「兜」 when attempt 4 「力」 arrived at 09:41:52; on the next wake at 09:44:07 it judged that
+  submission, named 「颱力」 and 「兜力」 as not forming common words, gave 「風」 and revealed round 5
+  in the same message, as Q-7 and the D-30 rule ask. The run had exactly one activation: the
+  activity ended at 09:58:03, after attempt 8 for C8, and the teacher's closing message at
+  09:58:05 said the bank was used up and thanked the class. With all three courses passing, AC-11
+  is met: the object run of D-26 covers the deadline path, the completion path and the creator
+  override that the teacher followed, and the character run of D-28 the deadline and completion
+  paths with a silent creator. After the close, while a student was still connected, silence wakes
+  kept producing replies: the teacher repeated its closing message at 10:07:09, and the peer agent,
+  silent through the class, posted study tips at 10:10:35 and 10:14:09. FU-16 records it.
 
 ## 16. Follow-ups
 
@@ -872,3 +890,4 @@ above. The user chose to verify and fix all ten of its findings.
 - FU-13: In the character run of D-27 the teacher invited the fourth student to share at 09:12:05 and then returned empty replies on the silence wakes between 09:14 and 09:19; it summarised the shares at 09:21:34 and started round 3 at 09:24:02, about 16 minutes after round 2 ended at 09:08:15. The pacing rule of D-24 did not hold there; the prompt should move to the next round after one unanswered invitation. The character run of D-28 did not repeat it.
 - FU-14: An agent turn builds its context once, so a peer agent woken by silence just before a round starts can post into individual work from a context that showed no running activity (D-28, round 5). A non-controlling agent's reply could be dropped or re-run when an activation started in the room after its context was built.
 - FU-15: In the CRAT run of D-30 the teacher's reply at 08:17:37 was its own planning text rather than a message to the class, and the platform posted it to the room. The cause is not yet traced: whether the provider returned reasoning in the text content, and whether the turn engine should detect and drop such a reply, need a look at the turn's raw response.
+- FU-16: After a class closes, silence wakes keep running while any student stays connected, so in the CRAT run of D-31 the teacher repeated its closing message nine minutes after the close and the peer agent posted two unprompted tips. Options are a room-level "class closed" state that silence wakes respect, or a prompt rule that both agents stay silent once the teacher has closed the class.
