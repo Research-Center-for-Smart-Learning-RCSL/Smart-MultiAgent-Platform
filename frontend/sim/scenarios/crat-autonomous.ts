@@ -11,8 +11,9 @@ import { onClassClose, onRoundStart } from '../scenario/rounds.ts'
 // type ships with no time limit and this room keeps it that way: an end on the limit would end
 // every remaining round at once. The deadline path is covered by the other two courses.
 //
-// In round 4 the group first submits a wrong target, which TA must judge and explain itself without
-// asking the creator; the group then submits the right one.
+// In round 4 the group submits a wrong target, which TA must judge itself without asking the
+// creator: per Q-7 it names the clue that fails, gives the bank answer and moves to round 5. The
+// group submits once per round, as Q-7 expects.
 //
 // Preconditions as in charbuild-autonomous.ts. The group is its own, so the 2/3 consent needs the
 // proposer plus one approval.
@@ -62,16 +63,13 @@ const approveWhenOpen = (round: number): StepInput => ({
 function roundSteps(round: number, r: (typeof ROUNDS)[number]): StepInput[] {
   const p1: StepInput[] = [onClues('P1', round, r.clues), { actor: 'P1', at: 0, do: 'wait', sec: 30 }, { actor: 'P1', at: 0, do: 'say', text: r.guess }]
   const p2: StepInput[] = [onClues('P2', round, r.clues), { actor: 'P2', at: 0, do: 'wait', sec: 50 }, { actor: 'P2', at: 0, do: 'say', text: r.agree }]
-  const p3: StepInput[] = [onClues('P3', round, r.clues), { actor: 'P3', at: 0, do: 'wait', sec: 75 }]
-  if (r.wrong) {
-    p3.push({ actor: 'P3', at: 0, do: 'propose', fields: r.wrong, label: `proposes a wrong target in round ${round}` })
-    p1.push(approveWhenOpen(round))
-    // The second attempt follows TA's judgement of the first submission. P1 waits for it too:
-    // armed at once, its next approval matched the first proposal while it still read as open.
-    p1.push({ actor: 'P1', do: 'wait', sec: 1, when: { type: 'message', from: 'agent:TA' }, timeoutSec: 4 * 60 })
-    p3.push({ actor: 'P3', do: 'wait', sec: 15, when: { type: 'message', from: 'agent:TA' }, timeoutSec: 4 * 60 })
-  }
-  p3.push({ actor: 'P3', at: 0, do: 'propose', fields: r.answer, label: `proposes the target in round ${round}` })
+  const p3: StepInput[] = [
+    onClues('P3', round, r.clues),
+    { actor: 'P3', at: 0, do: 'wait', sec: 75 },
+    r.wrong
+      ? { actor: 'P3', at: 0, do: 'propose', fields: r.wrong, label: `proposes a wrong target in round ${round}` }
+      : { actor: 'P3', at: 0, do: 'propose', fields: r.answer, label: `proposes the target in round ${round}` },
+  ]
   p1.push(approveWhenOpen(round))
   return [...p1, ...p2, ...p3]
 }
@@ -112,7 +110,8 @@ export default defineScenario({
   notes: [
     'Autonomy: no message and no panel action from F after setup. TA starts the one activation through its tool and ends it after C8.',
     'Class start: one TA wakeup.fired row with trigger class_start at about 00:40 (chatroom.class_started: reason min_participants, connected 3); TA opens with A1 before any student speaks.',
-    'Judging: in round 4 TA rejects 「力」 itself, saying which clue word does not form a common word, does not reveal 「風」, and does not ask the creator; it accepts the second submission.',
+    'Judging: in round 4 TA rejects 「力」 itself, saying which clue word does not form a common word, then gives the bank answer 「風」 and moves to round 5 without asking the creator (Q-7).',
+    'Round matching: every round from 5 on is judged on the submission made after its own clue reveal, never on the previous round\'s target (D-28).',
     'Bank: C1 to C8 in order; after C8 TA summarises, ends the activity and closes the class. No target is revealed before the group submits.',
     'No time limit: [Activity state] says "No time limit." throughout, and no wakeup row with trigger activity_deadline or all_submitted appears (a group activity never completes on submissions).',
     'AC-14 still applies: invitations only where the step allows discussion, never the creator.',
