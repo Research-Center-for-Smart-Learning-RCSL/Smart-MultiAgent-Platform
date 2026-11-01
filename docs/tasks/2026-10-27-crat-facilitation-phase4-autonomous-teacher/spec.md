@@ -834,6 +834,26 @@ above. The user chose to verify and fix all ten of its findings.
   bank's last line, so a bank edit that adds rounds fails the test until the rule follows. The
   character and object teachers closed on the right round in D-26 and D-28 and are not changed.
   The CRAT course needs one more passing run on the re-synced teacher before AC-11 is checked.
+- **D-30. The CRAT teacher judges a submission in any discussion step (2026-11-01).** The CRAT run
+  on the D-29 teacher (agent version 56, room 235d465c, run `20261101-080511-crat-autonomous`)
+  timed out 13 of 87 steps. Rounds 1 to 3 were judged correctly. In round 4 the group submitted
+  「力」 as attempt 4 at 08:28:21 UTC while the teacher was in C2 with 「颱力」 not verified, and the
+  teacher kept asking the group to check its candidates for half an hour. As the scenario timed
+  out round by round, the students' messages for rounds 5 to 8 arrived in round 4 and the teacher
+  set them aside as belonging to other clues. At 08:59:45 it judged attempt 8 「頭」 as round 4's
+  submission, gave 「風」 and revealed round 5, and the scenario's time ran out. The prompt reaches
+  D1, the only step that reads submission notices, from C2 only when all three words are
+  verified; a failed word sends it back to C1, so a group that submits a target it has doubts
+  about is never judged. In D-29's run the teacher happened to judge it. The user chose to add a
+  rule and re-run. Pacing rule 4 now says that when the group's submission notice follows the
+  round's reveal while the teacher is in B1, C1 or C2, it first applies D1's test and, if the
+  submission belongs to this round, judges it with E1 and changes round, without further
+  discussion of the round; B1, C1 and C2 each open their condition list with a pointer to that
+  rule. Pinned by `test_crat_teacher_judges_a_submission_in_any_discussion_step`. The same run
+  showed two smaller faults. At 08:09:05 the teacher started the activity in a turn with an empty
+  reply and revealed C1 two turns later at 08:14:04, which FU-11 already records. At 08:17:37,
+  after judging round 1, it posted text that was its own planning rather than a message to the
+  class, and revealed C2 only on the next turn; FU-15 records it.
 
 ## 16. Follow-ups
 
@@ -847,7 +867,8 @@ above. The user chose to verify and fix all ten of its findings.
 - FU-8 (security gate, MEDIUM, plausible): platform wakes bypass autostop, and a granted TA can start the next activation inside a deadline turn, so with nobody connected a short limit could chain turns until the bank runs out; only the per-room turn rate bucket and the prompt bound it. Cap agent-started activations per class, or skip the deadline wake when no human is connected.
 - FU-9 (security hardening): the workers check the room but not its workspace or project before a deadline wake, so an activation left running under a soft-deleted project can produce one wake (the silence sweep shares the gap); class start may be reached early with several guest sessions; the time-limit PUT resolves up to 200 type ids one by one.
 - FU-10 (quality gate, Info): time-limit and class-start bounds are repeated as literals across routes, domain constants, the frontend and locale copy; `is_individual` exists twice; `ActivationService` takes the concrete `RoomTimeLimitRepository` rather than a port; the class-flow write-and-audit lives in the facades; `class_flow.py` imports the private `_assert_activity_types_in_project` from `chatrooms.py`; `SInput` turns a cleared number field into 0, so the type editor shows "0" after clearing (pre-existing for retention too).
-- FU-11: A teacher turn that calls `start_activity` or `end_activity` can still end with no text (D-26, round 3), which the prompt rule of D-22 does not prevent. Options are a platform notice that carries the activity's instructions, or a forced follow-up turn when an activity change produced an empty reply.
+- FU-11: A teacher turn that calls `start_activity` or `end_activity` can still end with no text (D-26, round 3), which the prompt rule of D-22 does not prevent. Options are a platform notice that carries the activity's instructions, or a forced follow-up turn when an activity change produced an empty reply. The CRAT run of D-30 repeated it at the start of round 1.
 - FU-12: `PresenceTracker.heartbeat` re-adds a live connection to its conns SET but not the user to the room roster or the user-rooms index, so a user evicted as a ghost while still connected stays off the roster until a new socket joins (D-27). The server's 120-second idle close comes before the 150-second conns expiry, so only a failed heartbeat write, which the reader suppresses, can reach it today.
 - FU-13: In the character run of D-27 the teacher invited the fourth student to share at 09:12:05 and then returned empty replies on the silence wakes between 09:14 and 09:19; it summarised the shares at 09:21:34 and started round 3 at 09:24:02, about 16 minutes after round 2 ended at 09:08:15. The pacing rule of D-24 did not hold there; the prompt should move to the next round after one unanswered invitation. The character run of D-28 did not repeat it.
 - FU-14: An agent turn builds its context once, so a peer agent woken by silence just before a round starts can post into individual work from a context that showed no running activity (D-28, round 5). A non-controlling agent's reply could be dropped or re-run when an activation started in the room after its context was built.
+- FU-15: In the CRAT run of D-30 the teacher's reply at 08:17:37 was its own planning text rather than a message to the class, and the platform posted it to the room. The cause is not yet traced: whether the provider returned reasoning in the text content, and whether the turn engine should detect and drop such a reply, need a look at the turn's raw response.
