@@ -14,7 +14,6 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 | [`2026-10-19-chat-bubble-sides-and-agent-colors`](2026-10-19-chat-bubble-sides-and-agent-colors/spec.md) | feature | in-progress | Chatroom bubbles: own messages on the right, and per-agent bubble colours |
 | [`2026-10-19-teacher-dashboard-redesign`](2026-10-19-teacher-dashboard-redesign/spec.md) | feature | in-progress | Teacher dashboard redesign |
 | [`2026-10-22-classroom-simulator`](2026-10-22-classroom-simulator/spec.md) | feature | in-progress | Classroom simulator: multi-participant live runs from one machine |
-| [`2026-11-03-crat-facilitation-phase6-reply-commentary-leak`](2026-11-03-crat-facilitation-phase6-reply-commentary-leak/spec.md) | bugfix | in-progress | Classroom facilitation phase 6: an agent reply carries only the model's final answer |
 
 ## Ready now
 
