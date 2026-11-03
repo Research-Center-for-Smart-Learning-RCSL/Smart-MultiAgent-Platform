@@ -15,13 +15,13 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 | [`2026-10-19-teacher-dashboard-redesign`](2026-10-19-teacher-dashboard-redesign/spec.md) | feature | in-progress | Teacher dashboard redesign |
 | [`2026-10-22-classroom-simulator`](2026-10-22-classroom-simulator/spec.md) | feature | in-progress | Classroom simulator: multi-participant live runs from one machine |
 | [`2026-11-03-crat-facilitation-phase5-class-close`](2026-11-03-crat-facilitation-phase5-class-close/spec.md) | feature | in-progress | Classroom facilitation phase 5: a closed class stops waking its agents |
+| [`2026-11-03-crat-facilitation-phase6-reply-commentary-leak`](2026-11-03-crat-facilitation-phase6-reply-commentary-leak/spec.md) | bugfix | in-progress | Classroom facilitation phase 6: an agent reply carries only the model's final answer |
 
 ## Ready now
 
 | Dossier | Type | Status | Title |
 |---|---|---|---|
 | [`2026-10-12-graphrag-phase5a2-evidence-refs-contract`](2026-10-12-graphrag-phase5a2-evidence-refs-contract/spec.md) | refactor | approved | GraphRAG Phase 5a2: switch reads to `evidence_refs`, then retire `evidence_msg_ids` |
-| [`2026-11-03-crat-facilitation-phase6-reply-commentary-leak`](2026-11-03-crat-facilitation-phase6-reply-commentary-leak/spec.md) | bugfix | approved | Classroom facilitation phase 6: an agent reply carries only the model's final answer |
 
 ## Blocked
 
