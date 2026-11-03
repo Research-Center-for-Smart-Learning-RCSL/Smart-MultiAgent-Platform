@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-11-03
 requirements: [R13.80, R13.72]
 depends_on: []
@@ -152,7 +152,7 @@ shape except audit metadata, which gains one optional key.
 - [x] AC-3: `agent.turn_finished` carries `output_shape` for an OpenAI turn on the posted,
   skipped, observer and A2A paths, with no message text in it; turns on other providers do not
   carry the key.
-- [ ] AC-4: On staging, after deploy, three CRAT autonomous runs post no agent message containing
+- [x] AC-4: On staging, after deploy, three CRAT autonomous runs post no agent message containing
   planning text, and the audit rows of their teacher turns show `output_shape`; the D-n entry
   records whether any response contained a commentary item.
 
@@ -199,6 +199,17 @@ Add after [R13.79]:
   `empty_reply`; before this fix the 108 characters would have been posted. This is the first
   direct observation of the mechanism Section 5 inferred. One other `empty_reply` (04:20:28) had a
   single empty final_answer and no commentary.
+- **D-6.** AC-4 run 2 of 3: staging run `20261103-071643-crat-class-close` (room `222e090e`). None
+  of TA's 15 messages contains planning text, and all 17 of TA's `agent.turn_finished` rows carry
+  `output_shape`. No response contained a commentary item; the two `empty_reply` skips (07:28:10,
+  07:38:41) each had a single empty final_answer. The operator's @mention after the close was
+  answered within the same minute.
+- **D-7.** AC-4 run 3 of 3: staging run `20261103-083315-crat-class-close` (room `f156eaf9`), run
+  without an operator mention. None of TA's 19 messages contains planning text, all 19 of TA's
+  `agent.turn_finished` rows carry `output_shape`, and no response contained a commentary item.
+  After TA's closing message at 09:07:06 no wake row and no agent message appear for the remaining
+  41 minutes of the run. Across the three runs one response in 57 carried a commentary item, and
+  the adapter kept it out of the room.
 
 ## 13. Follow-ups
 
