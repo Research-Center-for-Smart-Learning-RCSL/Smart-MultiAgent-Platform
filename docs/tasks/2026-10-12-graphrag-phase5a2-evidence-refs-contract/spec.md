@@ -112,9 +112,9 @@ both.
 
 - [x] AC-1: gate for B recorded — expand `implemented`, release A on every replica, the
   armed backfill's "0 remaining" output pasted here.
-- [ ] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
+- [x] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
   B snapshots restore across each other (real Neo4j).
-- [ ] AC-3: gate for C recorded — release B on every replica.
+- [x] AC-3: gate for C recorded — release B on every replica.
 - [ ] AC-4: release C writes and reads only `evidence_refs`; B and C snapshots restore
   across each other (real Neo4j).
 - [ ] AC-5: after C on every replica and 24 h, the armed `--remove-legacy` reports 0
@@ -155,7 +155,47 @@ Appended by /build.
   every writer (A and B) keeps the keys equal, so a difference cannot arise after the gate's
   `remaining=0`. The command is not to be run again after B; the clean-up milestone replaces
   it with `--remove-legacy`.
+- **D-3, release B shipped and observed (AC-2, AC-3, AC-6 for B), 2026-11-03.** Milestone B
+  merged as PR #309 with backend lint, typecheck and the db tier green in CI, which carries
+  AC-2's real-Neo4j cases. Staging was then deployed from `main` at `245f4125`; `$COMPOSE ps`
+  showed the web, worker and their two companion services up on that build, which is the
+  gate for C (AC-3). AC-6 was observed live on staging the same day, in project TEST
+  PROJECT:
+
+  - A new Concept Map on room `sim-p4-crat-20261101-092525` (config
+    `e34d0f97-0191-4f54-b2f3-cdadfd73148d`) built to 32 entities and 24 relations.
+  - A new Knowledge Map `ac6-5a2-release-b` (config
+    `8694dc80-a57e-425c-a18f-955d232ce8f5`) with one Markdown document built to 19
+    entities and 10 relations.
+  - A Knowledge Map rebuild was started and the admin reset was sent while it ran, with
+    `force=true` because a running build holds the lock. The audit row
+    `admin.knowmap_reset` recorded `previous_state=running`, `forced=true`,
+    `outcome=discarded`, which is the compensate path (`delete_by_build` then
+    `restore_from_snapshot`). The graph read back 19 entities and 10 relations, the
+    pre-rebuild graph.
+  - Retrieval was checked through release B's own read path inside `backend-web`: a script
+    called `Neo4jAsyncDriver.traverse` on each config and counted the evidence keys
+    directly in Neo4j.
+
+  ```
+  concept_map: {'edges': 24, 'equal': 24, 'no_new': 0, 'no_old': 0, 'empty_new': 0} traverse_rows=5 with_evidence=5
+  knowledge_map: {'edges': 8, 'equal': 8, 'no_new': 0, 'no_old': 0, 'empty_new': 0} traverse_rows=5 with_evidence=5
+  ```
+
+  Every edge carries both keys, equal and non-empty, and every traversed row returned
+  evidence; a read that ignored the new key would have shown `with_evidence=0`. The
+  Knowledge Map count of 8 edges was taken after one more rebuild, started to clear the
+  state left by FU-1, whose completion the browser session did not observe (the session
+  expired). The Knowledge Map retrieval was checked at the driver, not through an agent
+  turn, because the map has no bound agent. AC-6 stays open until it is observed again
+  after release C and after the clean-up.
 
 ## 12. Follow-ups
 
-None yet.
+- **FU-1, a forced admin reset during a build leaves the config `failed`.** The reset in
+  D-3 returned `idle`, but the interrupted worker then failed its next lock refresh
+  (`graphrag_builder.py:364`) and `_fail_phase1` (`graphrag_builder.py:603`) set the
+  config to `failed` without checking that it still owned the build, so the list showed
+  "failed" over a correctly restored graph. A rebuild clears it. Pre-existing, unrelated
+  to the evidence rename, and outside this dossier's scope; it belongs with the admin reset
+  and build lock work.
