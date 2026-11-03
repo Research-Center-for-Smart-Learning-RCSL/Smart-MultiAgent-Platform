@@ -7,12 +7,15 @@ import base from './crat-autonomous.ts'
 // silence wakes (TA's t_minutes is 2) that a closed room must drop. The simulator cannot send a
 // mention, so the operator @mentions TA in the room during the hold; the run ends when the hold does.
 
+const room = base.room
+if (room.mode !== 'create') throw new Error('crat-class-close renames a created room; crat-autonomous no longer creates one')
+
 export default defineScenario({
   ...base,
   name: 'crat-class-close',
   description: 'Phase 5 AC-10 / phase 6 AC-4: the CRAT class, then sixteen silent minutes after TA closes it.',
   durationSec: 75 * 60,
-  room: { ...base.room, name: 'sim-p5-crat-{ts}' },
+  room: { ...room, name: 'sim-p5-crat-{ts}' },
   steps: [...base.steps, { actor: 'P1', at: 0, do: 'silent', sec: 16 * 60, label: 'stays connected after the close' }],
   notes: [
     ...(base.notes ?? []),
