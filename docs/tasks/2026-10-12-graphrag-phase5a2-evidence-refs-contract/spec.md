@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-10-12
 requirements: [R11.15, R11.23, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand]
@@ -110,7 +110,7 @@ both.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: gate for B recorded — expand `implemented`, release A on every replica, the
+- [x] AC-1: gate for B recorded — expand `implemented`, release A on every replica, the
   armed backfill's "0 remaining" output pasted here.
 - [ ] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
   B snapshots restore across each other (real Neo4j).
@@ -133,6 +133,19 @@ None in substance. `REQUIREMENTS.md:1513`'s stale schema sketch is corrected to 
 ## 11. Deviation Log
 
 Appended by /build.
+
+- **D-1, gate for B (AC-1), 2026-11-03.** The expand dossier is `implemented`. Staging runs
+  one `backend-web` and one `backend-worker` replica, both built from `main` at the phase 6
+  deploy of 2026-11-03, which carries release A (`$COMPOSE ps`: both up and healthy for 8
+  hours). The dry run reported `pending=9 copied=0 remaining=9`; the armed run reported:
+
+  ```
+  neo4j-evidence-refs complete dry_run=False pending=9 copied=9 remaining=0 busy=0 lost_lock=0 failed=0 unattributed=0
+  ```
+
+  Neo4j warned in both runs that `evidence_refs` was not yet a known property key, so no
+  build had written through release A on staging before the backfill; the nine copied
+  edges were the first to carry the new key. Task base for milestone B: `bbef403f`.
 
 ## 12. Follow-ups
 
