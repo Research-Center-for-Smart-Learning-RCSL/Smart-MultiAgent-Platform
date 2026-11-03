@@ -5877,6 +5877,18 @@
       },
       "ClassStartOut": {
         "properties": {
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
           "configured": {
             "title": "Configured",
             "type": "boolean"
@@ -5938,7 +5950,8 @@
           "min_participants",
           "max_wait_minutes",
           "first_arrival_at",
-          "started_at"
+          "started_at",
+          "closed_at"
         ],
         "title": "ClassStartOut",
         "type": "object"
@@ -23775,6 +23788,92 @@
         "summary": "Restore Snapshot",
         "tags": [
           "canvas"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/class-close": {
+      "delete": {
+        "description": "Reopen a closed class ([R15.30]); idempotent. The class-start record is otherwise kept.",
+        "operationId": "reopen_class_api_chatrooms__chatroom_id__class_close_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Reopen Class",
+        "tags": [
+          "chatrooms"
+        ]
+      },
+      "post": {
+        "description": "Close the class by hand ([R15.30]); idempotent, with or without a class-start setting.",
+        "operationId": "close_class_api_chatrooms__chatroom_id__class_close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Close Class",
+        "tags": [
+          "chatrooms"
         ]
       }
     },

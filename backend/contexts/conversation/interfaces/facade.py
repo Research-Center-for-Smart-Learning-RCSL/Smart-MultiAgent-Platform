@@ -673,6 +673,67 @@ class ConversationFacade:
             )
         return state
 
+    async def close_class(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        actor_user_id: uuid.UUID | None,
+        actor_agent_id: uuid.UUID | None = None,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Close the room's class ([R15.30]) and audit it; ``False`` when it was already
+        closed or the room is gone. Caller owns commit and authorization."""
+        closed = await ClassStartRepository(self._db).claim_close(chatroom_id)
+        if closed:
+            await self._audit_class_close(
+                "chatroom.class_closed", chatroom_id, actor_user_id, actor_agent_id, actor_ip, request_id
+            )
+        return closed
+
+    async def reopen_class(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Reopen a closed class ([R15.30]); ``False`` when it was not closed."""
+        reopened = await ClassStartRepository(self._db).reopen(chatroom_id)
+        if reopened:
+            await self._audit_class_close(
+                "chatroom.class_reopened", chatroom_id, actor_user_id, None, actor_ip, request_id
+            )
+        return reopened
+
+    async def _audit_class_close(
+        self,
+        action: str,
+        chatroom_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None,
+        actor_agent_id: uuid.UUID | None,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> None:
+        from shared_kernel import audit
+
+        metadata: dict[str, str] = {"by": "agent" if actor_agent_id is not None else "creator"}
+        if actor_agent_id is not None:
+            metadata["agent_id"] = str(actor_agent_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=action,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom",
+                resource_id=chatroom_id,
+                metadata=metadata,
+                request_id=request_id,
+            ),
+        )
+
     async def room_has_messages(self, chatroom_id: uuid.UUID) -> bool:
         return await self._messages.room_has_messages(chatroom_id)
 

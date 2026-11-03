@@ -479,14 +479,21 @@
       "retry": "Retry",
       "reset": "Reset for another class",
       "resetTitle": "Reset the class start?",
-      "resetMessage": "The room will wait for students again and the teacher agents will open the next class when the conditions are met.",
+      "resetMessage": "The room will wait for students again and the teacher agents will open the next class when the conditions are met. A closed class is reopened.",
       "resetDone": "Ready for another class.",
+      "close": "Close the class",
+      "closeTitle": "Close the class?",
+      "closeMessage": "The room's agents will stop waking up on their own. They still answer when someone mentions them. You can reopen the class at any time.",
+      "closeDone": "Class closed.",
+      "reopen": "Reopen the class",
+      "reopenDone": "Class reopened. The agents wake up on their own again.",
       "state": {
         "unconfigured": "Not set up yet.",
         "off": "Automatic start is off.",
         "idle": "Not started. Waiting for the first student.",
         "waiting": "Not started. Waiting since the first arrival at {since}.",
-        "started": "Started at {at}."
+        "started": "Started at {at}.",
+        "closed": "Closed at {at}. The agents only answer mentions."
       }
     },
     "timeLimits": {

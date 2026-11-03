@@ -8,7 +8,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { SButton, SCard, SInput, SQueryError, SSkeleton, SToggle } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
-import { getClassStart, patchClassStart, type ClassStart, type ClassStartPatch } from '../api'
+import {
+  closeClass,
+  getClassStart,
+  patchClassStart,
+  reopenClass,
+  type ClassStart,
+  type ClassStartPatch,
+} from '../api'
 import { convKeys } from '../queries'
 import type { z } from 'zod'
 import { classStartMaxWaitSchema, classStartMinParticipantsSchema } from '../types/schemas'
@@ -92,10 +99,12 @@ type ClassState =
   | { kind: 'idle' }
   | { kind: 'waiting'; since: string }
   | { kind: 'started'; at: string }
+  | { kind: 'closed'; at: string }
 
 const state = computed<ClassState | null>(() => {
   const v = current.value
   if (!v) return null
+  if (v.closed_at) return { kind: 'closed', at: v.closed_at }
   if (v.started_at) return { kind: 'started', at: v.started_at }
   if (!v.configured) return { kind: 'unconfigured' }
   if (!v.enabled) return { kind: 'off' }
@@ -106,12 +115,16 @@ const state = computed<ClassState | null>(() => {
 const stateText = computed(() => {
   const s = state.value
   if (!s) return ''
+  if (s.kind === 'closed') return t('conversation.classStart.state.closed', { at: formatTime(s.at) })
   if (s.kind === 'started') return t('conversation.classStart.state.started', { at: formatTime(s.at) })
   if (s.kind === 'waiting') return t('conversation.classStart.state.waiting', { since: formatTime(s.since) })
   return t(`conversation.classStart.state.${s.kind}`)
 })
 
-const canReset = computed(() => !!current.value?.started_at || !!current.value?.first_arrival_at)
+const closed = computed(() => !!current.value?.closed_at)
+const canReset = computed(
+  () => !!current.value?.started_at || !!current.value?.first_arrival_at || closed.value,
+)
 
 function formatTime(iso: string): string {
   return formatDateTime(iso)
@@ -123,7 +136,33 @@ const mutation = useMutation({
     qc.setQueryData(key.value, next)
   },
 })
-const busy = computed(() => mutation.isPending.value)
+const closeMutation = useMutation({
+  mutationFn: (close: boolean) => (close ? closeClass : reopenClass)(props.chatroomId),
+  onSuccess: (next) => {
+    qc.setQueryData(key.value, next)
+  },
+})
+const busy = computed(() => mutation.isPending.value || closeMutation.isPending.value)
+
+async function toggleClose(): Promise<void> {
+  if (busy.value) return
+  const closing = !closed.value
+  if (closing) {
+    const ok = await confirm({
+      title: t('conversation.classStart.closeTitle'),
+      message: t('conversation.classStart.closeMessage'),
+      confirmLabel: t('conversation.classStart.close'),
+      variant: 'warning',
+    })
+    if (!ok) return
+  }
+  try {
+    await closeMutation.mutateAsync(closing)
+    toast.success(t(closing ? 'conversation.classStart.closeDone' : 'conversation.classStart.reopenDone'))
+  } catch {
+    toast.error(t('conversation.classStart.saveFailed'))
+  }
+}
 
 async function save(): Promise<void> {
   if (busy.value || !valid.value || !dirty.value) return
@@ -264,6 +303,14 @@ function fid(name: string): string {
           @click="reset"
         >
           {{ t('conversation.classStart.reset') }}
+        </SButton>
+        <SButton
+          size="sm"
+          :disabled="busy"
+          data-testid="class-start-close"
+          @click="toggleClose"
+        >
+          {{ closed ? t('conversation.classStart.reopen') : t('conversation.classStart.close') }}
         </SButton>
       </div>
     </template>

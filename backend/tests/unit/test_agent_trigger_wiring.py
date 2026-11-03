@@ -8,6 +8,7 @@ tier; here we pin the branch logic with fakes (no Postgres/Redis).
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -387,6 +388,9 @@ def _patch_task_env(
     }
     binding_role = role or ChatroomAgentRole.NORMAL
     rec["binding_id"] = binding_id = uuid.uuid4()
+    if room is not None and not hasattr(room, "class_closed_at"):
+        # Chatroom's own default: an open class.
+        room.class_closed_at = None
 
     @asynccontextmanager
     async def _fake_session():
@@ -926,3 +930,49 @@ async def test_a_class_start_wake_is_skipped_once_the_trigger_is_off(monkeypatch
 
     assert out == "skipped:trigger_off"
     assert rec["run_turn"] == []
+
+
+def _closed_room():
+    return SimpleNamespace(id=uuid.uuid4(), class_closed_at=dt.datetime.now(dt.UTC))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        "every_n_messages",
+        "silence_minutes",
+        "creator_message",
+        "on_join",
+        "class_start",
+        "activity_deadline",
+        "all_submitted",
+    ],
+)
+async def test_a_closed_class_skips_every_automatic_trigger(monkeypatch, trigger) -> None:
+    """Phase 5 AC-3 ([R15.30]): including a job enqueued before the close."""
+    agent = _class_start_agent()
+    agent.wakeup_config["triggers"]["on_join"] = {"enabled": True}
+    rec = _patch_task_env(monkeypatch, room=_closed_room(), agent=agent, turn_status="completed")
+
+    out = await orch_task.wakeup_agent(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), trigger, None, str(rec["binding_id"]), "N"
+    )
+
+    assert out == "skipped:class_closed"
+    assert rec["run_turn"] == []
+    assert rec["audit"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["mention", "release"])
+async def test_a_closed_class_still_answers_an_explicit_call(monkeypatch, trigger) -> None:
+    """Phase 5 AC-3: a human asking for a reply gets one after the close."""
+    aid = uuid.uuid4()
+    room = _closed_room()
+    rec = _patch_task_env(monkeypatch, room=room, agent=_agent(), turn_status="completed")
+
+    out = await orch_task.wakeup_agent({}, str(aid), str(room.id), trigger)
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, room.id, trigger, None)]

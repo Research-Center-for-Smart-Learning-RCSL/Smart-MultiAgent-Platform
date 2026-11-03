@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ClassStartOut = {
+    closed_at: (string | null);
     configured: boolean;
     enabled: boolean;
     first_arrival_at: (string | null);

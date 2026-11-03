@@ -68,6 +68,9 @@ chatrooms = sa.Table(
     sa.Column("class_start_config", pg.JSONB, nullable=True),
     sa.Column("class_first_arrival_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("class_started_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Class close ([R15.30], migration 0107). Belongs to the current class like the
+    # two above; the creator reset and reopen clear it.
+    sa.Column("class_closed_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 chatroom_agents = sa.Table(

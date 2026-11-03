@@ -9,7 +9,7 @@ nothing runs) cannot:
 - The deadline claim's guarded UPDATE over a ``FOR UPDATE SKIP LOCKED``
   subquery claims once, ignores a round that is not yet due, and never returns
   a round ended before its deadline.
-- The all-submitted claim and the class-start claim are once-only.
+- The all-submitted claim, the class-start claim and the class-close claim are once-only.
 - The distinct-subject read counts people, not submissions, and ignores invalid,
   deleted and group rows.
 - ``ClassStartRepository.write`` clears the JSONB setting to SQL NULL, not the
@@ -395,3 +395,76 @@ class TestClassStartRepository:
         assert (rearmed.started_at, rearmed.first_arrival_at) == (None, None)
         assert reclaim is True
         assert stored_null is True
+
+
+class TestClassClose:
+    """[R15.30]: the close is once-only, reopen and reset clear it, a closed room is not armed."""
+
+    async def test_close_is_claimed_once_and_reopen_clears_it(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            room = await _make_room(session, project_id, user_id)
+            repo = ClassStartRepository(session)
+            not_closed_reopen = await repo.reopen(room)
+            claims = (await repo.claim_close(room), await repo.claim_close(room))
+            closed = await repo.get(room)
+            reopens = (await repo.reopen(room), await repo.reopen(room))
+            reopened = await repo.get(room)
+            await session.rollback()
+
+        assert not_closed_reopen is False
+        assert claims == (True, False)
+        assert closed is not None
+        assert closed.closed_at is not None
+        assert reopens == (True, False)
+        assert reopened is not None
+        assert reopened.closed_at is None
+
+    async def test_a_closed_room_is_neither_swept_nor_started_until_reset(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            room = await _make_room(session, project_id, user_id)
+            repo = ClassStartRepository(session)
+            config = ClassStartConfig(enabled=True, min_participants=3, max_wait_minutes=2)
+            await repo.write(room, config=config, reset=False)
+            await repo.record_first_arrival(room)
+            assert await repo.claim_close(room)
+
+            state = await repo.get(room)
+            waiting = {s.chatroom_id for s in await repo.awaiting_start(limit=500)}
+            claimed = await repo.claim_start(room)
+            reset = await repo.write(room, config=config, reset=True)
+            reclaim = await repo.claim_start(room)
+            await session.rollback()
+
+        assert state is not None
+        assert state.armed is False
+        assert room not in waiting
+        assert claimed is False
+        assert reset is not None
+        assert reset.closed_at is None
+        assert reclaim is True
+
+    async def test_a_deleted_room_is_not_closed(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project: tuple[uuid.UUID, uuid.UUID],
+    ) -> None:
+        project_id, user_id = project
+        async with sessionmaker() as session:
+            room = await _make_room(session, project_id, user_id)
+            await session.execute(
+                t.chatrooms.update().where(t.chatrooms.c.id == room).values(deleted_at=sa.func.now())
+            )
+            claimed = await ClassStartRepository(session).claim_close(room)
+            await session.rollback()
+
+        assert claimed is False

@@ -1,4 +1,4 @@
-"""The two room-scoped tools a delegated agent gets on its turn ([R30.37]).
+"""The room-scoped tools a delegated agent gets on its turn ([R30.37], [R15.30]).
 
 Separate from ``builtin_tools`` for two reasons: the dependency on the activities
 context stays in one file, and these are the only tools in the runtime whose
@@ -192,6 +192,7 @@ def build_activity_control_tools(
     return [
         _build_start_tool(db, agent=agent, control=control, by_value=by_value, event_sink=event_sink),
         _build_end_tool(db, agent=agent, control=control, event_sink=event_sink),
+        _build_close_class_tool(db, agent=agent, control=control),
     ]
 
 
@@ -374,6 +375,52 @@ def _build_end_tool(
             "End the structured activity currently running in this chatroom, closing every "
             "participant's session for it. Class-visible, taken on the teacher's behalf, and "
             "not reversible: a new round is a new activity. Takes no arguments."
+        ),
+        input_schema=_END_SCHEMA,
+        invoke=_invoke,
+    )
+
+
+def _build_close_class_tool(db: AsyncSession, *, agent: Agent, control: ActivityControlContext) -> Tool:
+    """``close_class`` ([R15.30]): offered under the same grant as the activity tools.
+
+    It only takes wake-ups away, and only the room creator can reopen, so a
+    persuaded agent can at worst end a class early. Nothing is broadcast: the
+    agent's own closing message in the same turn is what the room sees.
+    """
+
+    async def _invoke(_args: dict[str, Any]) -> ToolResult:
+        try:
+            closed = await ConversationFacade(db).close_class(
+                control.chatroom_id,
+                actor_user_id=control.grant.granted_by_user_id,
+                actor_agent_id=agent.id,
+            )
+        except Exception as exc:
+            _reraise_if_infrastructure(exc, "close_class")
+            return ToolResult(content=f"close_class failed: {exc}", is_error=True)
+
+        recorded = await _audit_activity_tool(
+            db, agent=agent, tool_name="close_class", chatroom_id=control.chatroom_id, ok=True
+        )
+        body = (
+            "Closed the class. Automatic wake-ups in this room are off until the room "
+            "creator reopens it; you will still be woken when someone @mentions you."
+            if closed
+            else "The class was already closed; nothing changed."
+        )
+        if not recorded:
+            return _marked_unrecorded(body)
+        return ToolResult(content=clip_tool_output(body))
+
+    return Tool(
+        name="close_class",
+        description=(
+            "Close the class in this chatroom once it is over. After this, no automatic "
+            "wake-up (silence, message count, arrivals, activity deadlines) runs for any "
+            "agent here; only an @mention still reaches you. Only the room creator can "
+            "reopen it. It does not end a running activity: call end_activity first. "
+            "Takes no arguments."
         ),
         input_schema=_END_SCHEMA,
         invoke=_invoke,

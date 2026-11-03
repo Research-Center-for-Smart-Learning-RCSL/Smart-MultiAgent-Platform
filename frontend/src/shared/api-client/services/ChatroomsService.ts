@@ -593,6 +593,50 @@ export class ChatroomsService {
         });
     }
     /**
+     * Reopen Class
+     * Reopen a closed class ([R15.30]); idempotent. The class-start record is otherwise kept.
+     * @returns ClassStartOut Successful Response
+     * @throws ApiError
+     */
+    public static reopenClassApiChatroomsChatroomIdClassCloseDelete({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<ClassStartOut> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/chatrooms/{chatroom_id}/class-close',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Close Class
+     * Close the class by hand ([R15.30]); idempotent, with or without a class-start setting.
+     * @returns ClassStartOut Successful Response
+     * @throws ApiError
+     */
+    public static closeClassApiChatroomsChatroomIdClassClosePost({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<ClassStartOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/class-close',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
      * Get Class Start
      * @returns ClassStartOut Successful Response
      * @throws ApiError

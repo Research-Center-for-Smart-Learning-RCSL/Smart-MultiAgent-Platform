@@ -65,9 +65,14 @@ class _FakeRedis:
                 raise RuntimeError("redis unreachable")
             if argv[1] and argv[1] in self.sets.get(keys[2], set()):
                 return 2  # covered by a re-check: answered already, not parked
-            self.store.setdefault(keys[0], argv[0])  # NX — first trigger wins
-            if argv[1]:
-                self.store[keys[1]] = argv[1]  # plain SET — last id wins
+            explicit = set(argv[3:])
+            cur = self.store.get(keys[0])
+            # First trigger wins, except that an explicit one displaces an automatic one.
+            if cur is None or (argv[0] in explicit and cur not in explicit):
+                self.store[keys[0]] = argv[0]
+            outranked = cur is not None and cur in explicit and argv[0] not in explicit
+            if argv[1] and not outranked:
+                self.store[keys[1]] = argv[1]  # last id wins, unless an explicit call holds it
             if self._drop_marks:
                 self.store.clear()
             return 1
@@ -77,10 +82,16 @@ class _FakeRedis:
         if script == te._POP_NOTICE_LUA:
             return self.notices.pop(keys[0], None)
         if script == te._REPARK_QUEUED_LUA:
-            if keys[0] not in self.store:  # absent-only: never displaces a newer mark
+            explicit = set(argv[3:])
+            cur = self.store.get(keys[0])
+            if cur is None:  # never displaces a newer mark's message id
                 self.store[keys[0]] = argv[0]
                 if argv[1]:
                     self.store[keys[1]] = argv[1]
+            elif argv[0] in explicit and cur not in explicit:
+                self.store[keys[0]] = argv[0]  # an explicit call takes the name
+                if argv[1]:
+                    self.store.setdefault(keys[1], argv[1])  # NX: a newer id stays
             return 1
         raise AssertionError(f"unexpected script: {script!r}")
 
@@ -182,12 +193,47 @@ class TestTheProtocolKeepsItsWriteSemantics:
         agent_id, room = uuid.uuid4(), uuid.uuid4()
         first, second = uuid.uuid4(), uuid.uuid4()
 
-        await te._mark_trigger_queued(agent_id, room, "mention", first)
-        await te._mark_trigger_queued(agent_id, room, "every_n_messages", second)
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", first)
+        await te._mark_trigger_queued(agent_id, room, "creator_message", second)
 
         popped = await te._pop_queued_trigger(agent_id, room)
-        assert popped.trigger == "mention"
+        assert popped.trigger == "every_n_messages"
         assert popped.message_id == second
+
+    async def test_an_explicit_call_displaces_a_parked_automatic_trigger(self, redis: _FakeRedis) -> None:
+        """Phase 5 AC-5 ([R15.30]): otherwise a closed class drops the @mention."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        auto, mention = uuid.uuid4(), uuid.uuid4()
+
+        await te._mark_trigger_queued(agent_id, room, "silence_minutes", None)
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", auto)
+        await te._mark_trigger_queued(agent_id, room, "mention", mention)
+
+        popped = await te._pop_queued_trigger(agent_id, room)
+        assert (popped.trigger, popped.message_id) == ("mention", mention)
+
+    async def test_an_automatic_trigger_behind_an_explicit_call_changes_nothing(
+        self, redis: _FakeRedis
+    ) -> None:
+        """Phase 5 AC-5: the follow-up stays the explicit call, pinned to its own message."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        mention, later = uuid.uuid4(), uuid.uuid4()
+
+        await te._mark_trigger_queued(agent_id, room, "release", mention)
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", later)
+
+        popped = await te._pop_queued_trigger(agent_id, room)
+        assert (popped.trigger, popped.message_id) == ("release", mention)
+
+    async def test_two_explicit_calls_keep_first_wins_and_the_latest_id(self, redis: _FakeRedis) -> None:
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        first, second = uuid.uuid4(), uuid.uuid4()
+
+        await te._mark_trigger_queued(agent_id, room, "mention", first)
+        await te._mark_trigger_queued(agent_id, room, "release", second)
+
+        popped = await te._pop_queued_trigger(agent_id, room)
+        assert (popped.trigger, popped.message_id) == ("mention", second)
 
     async def test_a_mark_without_a_message_id_leaves_the_id_key_alone(self, redis: _FakeRedis) -> None:
         agent_id, room = uuid.uuid4(), uuid.uuid4()
@@ -436,6 +482,49 @@ class TestAPlatformNoticeSurvivesCoalescing:
 
         assert seen == [("all_submitted", "all in")]
 
+    async def test_a_parked_mention_keeps_its_name_and_carries_the_notice(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Phase 5 AC-5: renamed to the platform wake, the mention would face a closed class's gate."""
+        fake = _use(monkeypatch, _FakeRedis())
+        agent_id, room, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        enqueued: list[tuple[Any, ...]] = []
+
+        async def _enqueue(*args: Any) -> None:
+            enqueued.append(args)
+
+        monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
+        await te._park_notice(agent_id, room, "activity_deadline", "time is up")
+        await te._mark_trigger_queued(agent_id, room, "activity_deadline", None)
+        await te._mark_trigger_queued(agent_id, room, "mention", mid)
+
+        await te.drain_queued_trigger(agent_id, room, None)
+
+        ((_job, _agent, _room, trigger, message_id, _binding, notice),) = enqueued
+        assert (trigger, message_id, notice) == ("mention", str(mid), "time is up")
+        assert fake.notices == {}
+
+    async def test_a_retry_as_a_mention_keeps_its_name_behind_a_parked_platform_wake(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Phase 5 AC-5, the retry path: the mention takes the lock on its second attempt."""
+        fake = _FakeRedis()
+        engine, _ran = _wire_run_turn(monkeypatch, acquires=[False, True], fake=fake)
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        seen: list[tuple[str, str | None]] = []
+
+        async def _locked(*, trigger: str, platform_notice: str | None = None, **kw: Any) -> te.TurnResult:
+            seen.append((trigger, platform_notice))
+            return te.TurnResult(status="completed")
+
+        engine._run_locked = _locked  # type: ignore[attr-defined]
+        await te._park_notice(agent_id, room, "class_start", "starting")
+        await te._mark_trigger_queued(agent_id, room, "class_start", None)
+
+        await engine.run_turn(agent_id=agent_id, chatroom_id=room, trigger="mention")
+
+        assert seen == [("mention", "starting")]
+
     async def test_an_ordinary_mark_parks_no_notice(self, redis: _FakeRedis) -> None:
         await te._mark_trigger_queued(uuid.uuid4(), uuid.uuid4(), "mention", uuid.uuid4())
 
@@ -484,11 +573,26 @@ class TestTheRecheckReadsAndReturnsMarks:
         older, newer = uuid.uuid4(), uuid.uuid4()
         await te._mark_trigger_queued(agent_id, room, "every_n_messages", newer)
 
-        popped = te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention", message_id=older)
+        popped = te.QueuedTrigger(
+            state=te.TriggerPopState.PARKED, trigger="silence_minutes", message_id=older
+        )
         await te._repark_queued_trigger(agent_id, room, popped)
 
         kept = await te._pop_queued_trigger(agent_id, room)
         assert (kept.trigger, kept.message_id) == ("every_n_messages", newer)
+
+    async def test_an_explicit_repark_takes_the_name_but_keeps_the_newer_id(self, redis: _FakeRedis) -> None:
+        """Phase 5 AC-5 ([R15.30]) without undoing AC-6 above: the follow-up answers
+        the mention, anchored on the newer message."""
+        agent_id, room = uuid.uuid4(), uuid.uuid4()
+        older, newer = uuid.uuid4(), uuid.uuid4()
+        await te._mark_trigger_queued(agent_id, room, "every_n_messages", newer)
+
+        popped = te.QueuedTrigger(state=te.TriggerPopState.PARKED, trigger="mention", message_id=older)
+        await te._repark_queued_trigger(agent_id, room, popped)
+
+        kept = await te._pop_queued_trigger(agent_id, room)
+        assert (kept.trigger, kept.message_id) == ("mention", newer)
 
 
 class TestCoveredMessagesSkipTheirWakeUps:
