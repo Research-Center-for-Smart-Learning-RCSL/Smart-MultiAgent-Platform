@@ -146,6 +146,15 @@ Appended by /build.
   Neo4j warned in both runs that `evidence_refs` was not yet a known property key, so no
   build had written through release A on staging before the backfill; the nine copied
   edges were the first to carry the new key. Task base for milestone B: `bbef403f`.
+- **D-2, milestone B.** The B tests extend `test_neo4j_evidence_refs_expand.py` as §6 says,
+  with a helper that makes the old key disagree with the new one, since an edge whose keys
+  are equal cannot tell which one a read used. Release A's edge restore is copied into the
+  test verbatim for the B-to-A round trip. The backfill command is left unchanged: its
+  "unmigrated" predicate (old key set, new key missing or different) would copy the old key
+  over a differing new one, which is wrong once the new key is authoritative, but under B
+  every writer (A and B) keeps the keys equal, so a difference cannot arise after the gate's
+  `remaining=0`. The command is not to be run again after B; the clean-up milestone replaces
+  it with `--remove-legacy`.
 
 ## 12. Follow-ups
 
