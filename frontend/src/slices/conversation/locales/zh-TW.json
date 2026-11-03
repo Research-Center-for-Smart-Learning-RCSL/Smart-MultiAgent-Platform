@@ -479,14 +479,21 @@
       "retry": "重試",
       "reset": "重設以進行下一堂課",
       "resetTitle": "要重設開始上課狀態嗎？",
-      "resetMessage": "聊天室會重新等待學生，條件達成時教師代理會開始下一堂課。",
+      "resetMessage": "聊天室會重新等待學生，條件達成時教師代理會開始下一堂課。已下課的課堂也會重新開啟。",
       "resetDone": "已可進行下一堂課。",
+      "close": "下課",
+      "closeTitle": "要下課嗎？",
+      "closeMessage": "聊天室的代理將不再自行醒來發言，但有人提及它們時仍會回應。你可以隨時重新開課。",
+      "closeDone": "已下課。",
+      "reopen": "重新開課",
+      "reopenDone": "已重新開課，代理會再次自行醒來。",
       "state": {
         "unconfigured": "尚未設定。",
         "off": "自動開始上課已關閉。",
         "idle": "尚未開始，正在等待第一位學生。",
         "waiting": "尚未開始，自第一位學生於 {since} 到場後等待中。",
-        "started": "已於 {at} 開始。"
+        "started": "已於 {at} 開始。",
+        "closed": "已於 {at} 下課，代理只會回應提及。"
       }
     },
     "timeLimits": {

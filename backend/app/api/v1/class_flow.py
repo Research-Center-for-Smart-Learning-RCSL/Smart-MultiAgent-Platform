@@ -56,6 +56,7 @@ class ClassStartOut(BaseModel):
     max_wait_minutes: int | None
     first_arrival_at: datetime | None
     started_at: datetime | None
+    closed_at: datetime | None
 
 
 class ClassStartPatchIn(BaseModel):
@@ -90,6 +91,7 @@ def _class_start_out(state: ClassStartState) -> ClassStartOut:
         max_wait_minutes=config.max_wait_minutes if config else None,
         first_arrival_at=state.first_arrival_at,
         started_at=state.started_at,
+        closed_at=state.closed_at,
     )
 
 
@@ -153,6 +155,48 @@ async def patch_class_start(
         # Students who connected before the room was armed started no wait, and
         # no later connection may come to start it or to open the class.
         state = await _check_class_start_now(db, chatroom_id) or state
+    return _class_start_out(state)
+
+
+@chatroom_router.post("/{chatroom_id}/class-close", response_model=ClassStartOut)
+async def close_class(
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ClassStartOut:
+    """Close the class by hand ([R15.30]); idempotent, with or without a class-start setting."""
+    await _creator_access(db, principal, chatroom_id)
+    facade = ConversationFacade(db)
+    await facade.close_class(
+        chatroom_id, actor_user_id=principal.user_id, actor_ip=ctx.actor_ip, request_id=ctx.request_id
+    )
+    return await _committed_state(db, facade, chatroom_id)
+
+
+@chatroom_router.delete("/{chatroom_id}/class-close", response_model=ClassStartOut)
+async def reopen_class(
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ClassStartOut:
+    """Reopen a closed class ([R15.30]); idempotent. The class-start record is otherwise kept."""
+    await _creator_access(db, principal, chatroom_id)
+    facade = ConversationFacade(db)
+    await facade.reopen_class(
+        chatroom_id, actor_user_id=principal.user_id, actor_ip=ctx.actor_ip, request_id=ctx.request_id
+    )
+    return await _committed_state(db, facade, chatroom_id)
+
+
+async def _committed_state(
+    db: AsyncSession, facade: ConversationFacade, chatroom_id: uuid.UUID
+) -> ClassStartOut:
+    state = await facade.class_start_state(chatroom_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="chatroom not found")
+    await db.commit()
     return _class_start_out(state)
 
 

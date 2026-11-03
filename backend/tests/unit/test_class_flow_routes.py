@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import datetime as dt
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +20,7 @@ from shared_kernel.auth.permissions import Principal, Role
 
 _CREATOR = uuid.uuid4()
 _ROOM = uuid.uuid4()
+_CLOSED_AT = dt.datetime(2026, 11, 3, 10, 0, tzinfo=dt.UTC)
 
 
 def _principal(user_id: uuid.UUID | None = None) -> Principal:
@@ -56,7 +59,9 @@ def _wire(
     wake: Any = None,
     check_fails: bool = False,
 ):
-    calls = SimpleNamespace(writes=[], limits=[], checked=[], stored={}, class_checks=[], enqueued=[])
+    calls = SimpleNamespace(
+        writes=[], limits=[], checked=[], stored={}, class_checks=[], enqueued=[], closes=[], reopens=[]
+    )
     state = ClassStartState(chatroom_id=_ROOM, config=config, first_arrival_at=None, started_at=None)
 
     async def _resolve(db: Any, *, principal: Principal, chatroom_id: uuid.UUID) -> RoomAccess:
@@ -77,8 +82,23 @@ def _wire(
                 config=kw["config"],
                 first_arrival_at=None,
                 started_at=None if kw["reset"] else state.started_at,
+                closed_at=None if kw["reset"] else state.closed_at,
             )
             return state
+
+        async def close_class(self, chatroom_id: uuid.UUID, **kw: Any) -> bool:
+            nonlocal state
+            calls.closes.append(kw)
+            was_open = state.closed_at is None
+            state = dataclasses.replace(state, closed_at=state.closed_at or _CLOSED_AT)
+            return was_open
+
+        async def reopen_class(self, chatroom_id: uuid.UUID, **kw: Any) -> bool:
+            nonlocal state
+            calls.reopens.append(kw)
+            was_closed = state.closed_at is not None
+            state = dataclasses.replace(state, closed_at=None)
+            return was_closed
 
     class _Act:
         def __init__(self, db: Any) -> None:
@@ -131,6 +151,8 @@ class TestAuthority:
                 principal=p,
                 db=db,
             ),
+            lambda p, db: mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=p, db=db),
+            lambda p, db: mod.reopen_class(chatroom_id=_ROOM, ctx=_CTX, principal=p, db=db),
             lambda p, db: mod.get_activity_time_limits(chatroom_id=_ROOM, principal=p, db=db),
             lambda p, db: mod.put_activity_time_limits(
                 mod.ActivityTimeLimitsBody(limits=[]), chatroom_id=_ROOM, ctx=_CTX, principal=p, db=db
@@ -144,6 +166,7 @@ class TestAuthority:
             await call(_principal(), _Db())
         assert calls.writes == []
         assert calls.limits == []
+        assert calls.closes == calls.reopens == []
 
     async def test_a_caller_who_cannot_read_the_room_is_refused_before_the_creator_check(
         self, monkeypatch
@@ -257,6 +280,68 @@ class TestClassStart:
     def test_bounds_are_validated_at_the_boundary(self, body: dict) -> None:
         with pytest.raises(ValidationError):
             mod.ClassStartPatchIn(**body)
+
+
+class TestClassClose:
+    """Phase 5 AC-7 ([R15.30])."""
+
+    async def test_the_creator_closes_and_reopens_a_room_with_no_class_start(self, monkeypatch) -> None:
+        calls = _wire(monkeypatch, access=_access())
+        db = _Db()
+        principal = _principal(_CREATOR)
+
+        closed = await mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=db)
+        again = await mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=db)
+        reopened = await mod.reopen_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=db)
+        reopened_again = await mod.reopen_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=db)
+
+        assert (closed.configured, closed.closed_at) == (False, _CLOSED_AT)
+        assert again.closed_at == _CLOSED_AT
+        assert reopened.closed_at is None
+        assert reopened_again.closed_at is None
+        assert calls.closes[0] == {"actor_user_id": _CREATOR, "actor_ip": "203.0.113.9", "request_id": None}
+        assert calls.reopens[0] == {"actor_user_id": _CREATOR, "actor_ip": "203.0.113.9", "request_id": None}
+        assert db.commits == 4
+
+    async def test_get_reports_the_close(self, monkeypatch) -> None:
+        _wire(monkeypatch, access=_access())
+        principal = _principal(_CREATOR)
+        await mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=_Db())
+
+        out = await mod.get_class_start(chatroom_id=_ROOM, principal=principal, db=_Db())
+
+        assert out.closed_at == _CLOSED_AT
+
+    async def test_a_reset_reopens_a_closed_class(self, monkeypatch) -> None:
+        stored = ClassStartConfig(enabled=False, min_participants=3, max_wait_minutes=2)
+        _wire(monkeypatch, access=_access(), config=stored)
+        principal = _principal(_CREATOR)
+        await mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=_Db())
+
+        out = await mod.patch_class_start(
+            mod.ClassStartPatchIn(reset=True), chatroom_id=_ROOM, ctx=_CTX, principal=principal, db=_Db()
+        )
+
+        assert out.closed_at is None
+
+    async def test_a_missing_room_is_404(self, monkeypatch) -> None:
+        _wire(monkeypatch, access=_access())
+
+        class _Gone:
+            def __init__(self, db: Any) -> None:
+                pass
+
+            async def close_class(self, chatroom_id: uuid.UUID, **kw: Any) -> bool:
+                return False
+
+            async def class_start_state(self, chatroom_id: uuid.UUID) -> None:
+                return None
+
+        monkeypatch.setattr(mod, "ConversationFacade", _Gone)
+
+        with pytest.raises(HTTPException) as exc:
+            await mod.close_class(chatroom_id=_ROOM, ctx=_CTX, principal=_principal(_CREATOR), db=_Db())
+        assert exc.value.status_code == 404
 
 
 class TestTimeLimits:

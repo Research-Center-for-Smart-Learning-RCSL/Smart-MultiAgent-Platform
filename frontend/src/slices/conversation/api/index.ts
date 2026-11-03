@@ -677,6 +677,16 @@ export async function patchClassStart(
   })
 }
 
+/** Stops every automatic agent wake-up in the room until it is reopened. Idempotent,
+ *  and works whether or not class start is configured. */
+export async function closeClass(chatroomId: string): Promise<ClassStart> {
+  return ChatroomsService.closeClassApiChatroomsChatroomIdClassClosePost({ chatroomId })
+}
+
+export async function reopenClass(chatroomId: string): Promise<ClassStart> {
+  return ChatroomsService.reopenClassApiChatroomsChatroomIdClassCloseDelete({ chatroomId })
+}
+
 /** The room's overrides. A null limit is an explicit "no limit"; a type absent
  *  from the list uses its own default. */
 export async function getActivityTimeLimits(chatroomId: string): Promise<ActivityTimeLimit[]> {

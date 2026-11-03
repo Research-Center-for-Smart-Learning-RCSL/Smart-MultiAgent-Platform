@@ -123,6 +123,7 @@ interface ClassStartOut {
   min_participants: number | null
   max_wait_minutes: number | null
   started_at: string | null
+  closed_at: string | null
 }
 
 interface TimeLimitsBody {
@@ -162,6 +163,8 @@ async function classFlowProblems(facilitator: ApiClient, roomId: string, scenari
     }
     // An already started class never fires again until the creator resets it.
     if (got.started_at) problems.push('the class has already started; reset it in the room settings')
+    // A closed class wakes no agent on its own ([R15.30]); the reset reopens it too.
+    else if (got.closed_at) problems.push('the class is closed; reset or reopen it in the room settings')
   }
   const want = timeLimitsBody(scenario, types).limits
   if (want.length > 0) {

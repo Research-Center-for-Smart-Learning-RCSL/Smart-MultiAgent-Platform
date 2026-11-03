@@ -31,6 +31,7 @@ function classStart(overrides: Record<string, unknown> = {}): Record<string, unk
     max_wait_minutes: 10,
     first_arrival_at: null,
     started_at: null,
+    closed_at: null,
     ...overrides,
   }
 }
@@ -188,6 +189,104 @@ describe('ClassStartCard', () => {
     expect(writes).toEqual([{ reset: true }])
     expect(toast.success).toHaveBeenCalledWith('conversation.classStart.resetDone', expect.anything())
     expect(wrapper.find('[data-testid="class-start-state"]').text()).toBe('conversation.classStart.state.idle')
+  })
+
+  // Phase 5 AC-8 ([R15.30]).
+  it('closes an unconfigured room after confirmation', async () => {
+    const closes: string[] = []
+    server.use(
+      http.get('/api/chatrooms/:id/class-start', () =>
+        HttpResponse.json(
+          classStart({ configured: false, enabled: false, min_participants: null, max_wait_minutes: null }),
+        ),
+      ),
+      http.post('/api/chatrooms/:id/class-close', ({ params }) => {
+        closes.push(String(params.id))
+        return HttpResponse.json(
+          classStart({
+            configured: false,
+            enabled: false,
+            min_participants: null,
+            max_wait_minutes: null,
+            closed_at: '2026-11-03T10:00:00Z',
+          }),
+        )
+      }),
+    )
+    const wrapper = await mountClassStart()
+    const button = wrapper.find('[data-testid="class-start-close"]')
+    expect(button.text()).toBe('conversation.classStart.close')
+
+    await button.trigger('click')
+    await flushPromises()
+    useConfirmDialog().handleConfirm()
+    await flushPromises()
+    await flushPromises()
+
+    expect(closes).toEqual(['cr_1'])
+    expect(toast.success).toHaveBeenCalledWith('conversation.classStart.closeDone', expect.anything())
+    expect(wrapper.find('[data-testid="class-start-state"]').text()).toBe('conversation.classStart.state.closed')
+    expect(wrapper.find('[data-testid="class-start-close"]').text()).toBe('conversation.classStart.reopen')
+    expect(wrapper.find('[data-testid="class-start-reset"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('does not close when the confirmation is cancelled', async () => {
+    const closes: unknown[] = []
+    server.use(
+      http.get('/api/chatrooms/:id/class-start', () => HttpResponse.json(classStart())),
+      http.post('/api/chatrooms/:id/class-close', () => {
+        closes.push(1)
+        return HttpResponse.json(classStart())
+      }),
+    )
+    const wrapper = await mountClassStart()
+
+    await wrapper.find('[data-testid="class-start-close"]').trigger('click')
+    await flushPromises()
+    useConfirmDialog().handleCancel()
+    await flushPromises()
+
+    expect(closes).toEqual([])
+  })
+
+  it('reopens a closed class without asking', async () => {
+    const reopens: unknown[] = []
+    server.use(
+      http.get('/api/chatrooms/:id/class-start', () =>
+        HttpResponse.json(classStart({ started_at: '2026-11-03T09:00:00Z', closed_at: '2026-11-03T10:00:00Z' })),
+      ),
+      http.delete('/api/chatrooms/:id/class-close', () => {
+        reopens.push(1)
+        return HttpResponse.json(classStart({ started_at: '2026-11-03T09:00:00Z' }))
+      }),
+    )
+    const wrapper = await mountClassStart()
+    expect(wrapper.find('[data-testid="class-start-state"]').text()).toBe('conversation.classStart.state.closed')
+
+    await wrapper.find('[data-testid="class-start-close"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(reopens).toEqual([1])
+    expect(toast.success).toHaveBeenCalledWith('conversation.classStart.reopenDone', expect.anything())
+    expect(wrapper.find('[data-testid="class-start-state"]').text()).toBe('conversation.classStart.state.started')
+  })
+
+  it('reports a failed close', async () => {
+    server.use(
+      http.get('/api/chatrooms/:id/class-start', () =>
+        HttpResponse.json(classStart({ closed_at: '2026-11-03T10:00:00Z' })),
+      ),
+      http.delete('/api/chatrooms/:id/class-close', () => new HttpResponse(null, { status: 500 })),
+    )
+    const wrapper = await mountClassStart()
+
+    await wrapper.find('[data-testid="class-start-close"]').trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(toast.error).toHaveBeenCalledWith('conversation.classStart.saveFailed', expect.anything())
+    expect(wrapper.find('[data-testid="class-start-close"]').attributes('disabled')).toBeUndefined()
   })
 })
 
