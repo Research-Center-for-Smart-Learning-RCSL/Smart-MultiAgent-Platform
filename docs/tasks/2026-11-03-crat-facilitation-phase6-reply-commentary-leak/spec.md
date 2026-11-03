@@ -190,6 +190,15 @@ Add after [R13.79]:
 - **D-3.** `output_shape` is kept off the stored message's metadata and the `agent.finished`
   event; it is written only to the `agent.turn_finished` audit row, as Section 7 says, through a
   helper separate from `_synthesis_meta`, which does feed the message.
+- **D-5.** AC-4 run 1 of 3: staging run `20261103-034823-crat-class-close` (scenario
+  `crat-class-close`, the `crat-autonomous` class plus a post-close hold). None of TA's 26 messages
+  contains planning text, and all 21 of TA's `agent.turn_finished` rows in the window carry
+  `output_shape`. One response did contain a commentary item: the silence wake at 03:52:30 returned
+  `reasoning, message(commentary, 108 chars), reasoning, reasoning, message(final_answer, 0 chars)`.
+  The adapter dropped the commentary, the reply normalised to empty and the turn was skipped as
+  `empty_reply`; before this fix the 108 characters would have been posted. This is the first
+  direct observation of the mechanism Section 5 inferred. One other `empty_reply` (04:20:28) had a
+  single empty final_answer and no commentary.
 
 ## 13. Follow-ups
 
