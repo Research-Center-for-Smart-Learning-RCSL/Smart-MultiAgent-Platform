@@ -115,7 +115,7 @@ both.
 - [x] AC-2: release B reads `evidence_refs` and keeps both keys equal on every write; A and
   B snapshots restore across each other (real Neo4j).
 - [x] AC-3: gate for C recorded — release B on every replica.
-- [ ] AC-4: release C writes and reads only `evidence_refs`; B and C snapshots restore
+- [x] AC-4: release C writes and reads only `evidence_refs`; B and C snapshots restore
   across each other (real Neo4j).
 - [ ] AC-5: after C on every replica and 24 h, the armed `--remove-legacy` reports 0
   remaining, the old-key restore fallback is removed, and no backend code names
@@ -210,13 +210,58 @@ Appended by /build.
   left with both keys drops the old one. The quality audit over `245f4125...HEAD` reported
   no findings. The security audit is N/A: the diff changes only property names in
   Cypher constants and touches none of the triggering surfaces.
+- **D-5, release C shipped and observed (AC-4, AC-6 for C), 2026-11-03.** Milestone C
+  merged as PR #311 with backend lint, typecheck and the db tier green in CI, which carries
+  AC-4's real-Neo4j cases. Staging was then deployed from `main` at `0da83059`:
+  `backend-web` and `backend-worker` were rebuilt and came up healthy. The
+  `knowledge-ingest-worker` and `knowledge-scan-worker` services, which run the same
+  image, stayed on the release B build. Their jobs (`rag_*`/`knowmap_scan_document`,
+  `knowmap_ingest_document`, `app/workers/main.py:449-461`) scan, chunk and enqueue a
+  build that runs on `backend-worker`, and never read or write Neo4j evidence, so every
+  replica that touches evidence runs release C. The clean-up gate's 24 h is counted from
+  this deploy. AC-6 was observed live on staging with the configs from D-3:
+
+  - The Knowledge Map rebuilt twice under C (17 entities and 9 relations, then 20 and 13;
+    the extraction varies between runs), and the Concept Map built idle. The room had no
+    new messages, so that build wrote no edge and the 24 edges release B wrote were left
+    as they were.
+  - A Knowledge Map rebuild was started and the forced admin reset was sent two seconds
+    later. The audit row recorded `previous_state=running`, `outcome=discarded`, the
+    worker stopped with "lock lost during phase-1", and the graph read back the previous
+    build exactly, 20 entities and 13 relations. An earlier attempt landed after the
+    build's Neo4j write and ended in `recovery_unavailable` (FU-1); a second attempt
+    landed after the build finished and was a no-op. Neither involved evidence.
+  - The driver-level check from D-3, run again in `backend-web`:
+
+  ```
+  concept_map: {'edges': 24, 'equal': 24, 'no_new': 0, 'no_old': 0, 'empty_new': 0} traverse_rows=5 with_evidence=5
+  knowledge_map: {'edges': 13, 'equal': 0, 'no_new': 0, 'no_old': 13, 'empty_new': 0} traverse_rows=5 with_evidence=5
+  ```
+
+  These are the expected values, and both shapes read correctly under C. Every
+  Knowledge Map edge, written by C's replace build and then by C's restore, carries the
+  new key only. The Concept Map edges, last written by B, still carry both keys equal and
+  are read through the new key. The config was rebuilt to `idle` afterwards. AC-6 stays
+  open for the clean-up.
 
 ## 12. Follow-ups
 
-- **FU-1, a forced admin reset during a build leaves the config `failed`.** The reset in
-  D-3 returned `idle`, but the interrupted worker then failed its next lock refresh
-  (`graphrag_builder.py:364`) and `_fail_phase1` (`graphrag_builder.py:603`) set the
-  config to `failed` without checking that it still owned the build, so the list showed
-  "failed" over a correctly restored graph. A rebuild clears it. Pre-existing, unrelated
-  to the evidence rename, and outside this dossier's scope; it belongs with the admin reset
-  and build lock work.
+- **FU-1, a forced admin reset during a build can leave the config `failed` or
+  `recovery_unavailable`.** The reset returns `idle` after rolling the build back, but the
+  interrupted worker keeps running and records its own failure without checking that it
+  still owns the build.
+
+  - Interrupted during extraction, the worker fails its next lock refresh
+    (`graphrag_builder.py:364`), and `_fail_phase1` (`graphrag_builder.py:603`) sets
+    `failed` (D-3, D-5). The list then shows "failed" over a correctly restored graph.
+  - Interrupted after its Neo4j write, the worker fails the refresh before the Qdrant
+    upsert (`graphrag_builder.py:413`) and sets `failed_compensating` while keeping its
+    pointer. The reset has already cleared that pointer, so the reconciler finds no
+    recovery material: audit `knowmap.reconciled outcome=compensation_unavailable`. It
+    then sets `recovery_unavailable`, which blocks reads until a manual rebuild (D-5's
+    first attempt). The Neo4j writes the worker made around the reset are not rolled
+    back by anyone.
+
+  A rebuild clears either state. Pre-existing, unrelated to the evidence rename, and
+  outside this dossier's scope; it belongs with the admin reset and build lock work. The
+  second case makes it worth scheduling ahead of other reset work.
