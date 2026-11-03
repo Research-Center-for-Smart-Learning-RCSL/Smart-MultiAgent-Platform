@@ -846,15 +846,29 @@ _POP_QUEUED_LUA = (
     "return {t or '', m or ''}"
 )
 
+# ARGV[4..] name the explicit triggers. An explicit trigger displaces a parked
+# automatic one, and keeps its message id against a later automatic one ([R15.30]):
+# the follow-up then runs as the explicit call, past the gates that would drop an
+# automatic turn (autostop, a trigger switched off, a closed class). Otherwise the
+# first trigger parked wins.
+_EXPLICIT_LUA_FN = (
+    "local function explicit(v) for i = 4, #ARGV do if ARGV[i] == v then return true end end "
+    "return false end "
+)
+
 # KEYS[3] is the re-check's covered set ([R13.72]). Checked here, inside the same
 # script as the park, because a check-then-mark pair in `run_turn` loses a race:
 # a covered message's job checks first, an uncovered one parks, then the covered
 # job overwrites the message id and the follow-up skips as covered, dropping the
 # uncovered message. A covered message is answered already, so it is not parked.
 _MARK_QUEUED_LUA = (
-    "if ARGV[2] ~= '' and redis.call('sismember', KEYS[3], ARGV[2]) == 1 then return 2 end "
-    "redis.call('set', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[3]) "
-    "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
+    _EXPLICIT_LUA_FN
+    + "if ARGV[2] ~= '' and redis.call('sismember', KEYS[3], ARGV[2]) == 1 then return 2 end "
+    "local cur = redis.call('get', KEYS[1]) "
+    "local outranks = explicit(ARGV[1]) and not explicit(cur) "
+    "if (not cur) or outranks then redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[3]) end "
+    "local outranked = cur and explicit(cur) and not explicit(ARGV[1]) "
+    "if ARGV[2] ~= '' and not outranked then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
     "return 1"
 )
 
@@ -924,6 +938,7 @@ async def _mark_trigger_queued(
             trigger,
             str(trigger_message_id) if trigger_message_id is not None else "",
             str(_QUEUED_TRIGGER_TTL_S),
+            *_EXPLICIT_ARGV,
         )
     except Exception:
         _log.warning(
@@ -975,15 +990,32 @@ async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> Qu
 
 # Re-parks a trigger the re-check popped but could not serve ([R13.72]). Writes
 # both keys only when no trigger is parked: a mark that landed during the
-# re-check is newer, and `_MARK_QUEUED_LUA` would keep its trigger (NX) but
-# overwrite its message id with the older one.
+# re-check is newer, and `_MARK_QUEUED_LUA` would keep its trigger but overwrite
+# its message id with the older one. An explicit trigger re-parked over a newer
+# automatic mark takes the name ([R15.30]) and leaves a newer message id in place.
 _REPARK_QUEUED_LUA = (
-    "if redis.call('exists', KEYS[1]) == 0 then "
+    _EXPLICIT_LUA_FN + "local cur = redis.call('get', KEYS[1]) "
+    "if not cur then "
     "redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[3]) "
     "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3]) end "
+    "elseif explicit(ARGV[1]) and not explicit(cur) then "
+    "redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[3]) "
+    "if ARGV[2] ~= '' then redis.call('set', KEYS[2], ARGV[2], 'NX', 'EX', ARGV[3]) end "
     "end "
     "return 1"
 )
+
+# Sorted so the script arguments are stable across processes.
+_EXPLICIT_ARGV: tuple[str, ...] = tuple(sorted(EXPLICIT_TRIGGERS))
+
+
+def _follow_up_trigger(parked: str, notice: ParkedNotice | None) -> str:
+    """The trigger a coalesced follow-up runs as. A parked platform notice names it,
+    unless the parked trigger is an explicit call, which keeps its own name and
+    gates ([R15.30]) and carries the notice text alongside."""
+    if notice is None or parked in EXPLICIT_TRIGGERS:
+        return parked
+    return notice.trigger
 
 
 def _covered_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
@@ -1023,6 +1055,7 @@ async def _repark_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID, qu
             queued.trigger,
             str(queued.message_id) if queued.message_id is not None else "",
             str(_QUEUED_TRIGGER_TTL_S),
+            *_EXPLICIT_ARGV,
         )
     except Exception:
         _log.warning(
@@ -1130,13 +1163,13 @@ async def drain_queued_trigger(
         # Redis failure, already logged by the pop: there is nothing safe to
         # enqueue, since the trigger that would name it was never read.
         return
-    trigger = queued.trigger
     message_id = str(queued.message_id) if queued.message_id else None
-    if notice is not None:
+    trigger = _follow_up_trigger(queued.trigger or "", notice)
+    if trigger != queued.trigger:
         # The platform wake names the follow-up. No message id: a platform turn
         # reads the latest message, and a pinned id another turn has since
         # answered would skip the follow-up as already covered.
-        trigger, message_id = notice.trigger, None
+        message_id = None
     try:
         from shared_kernel.queue import enqueue
 
@@ -1710,11 +1743,18 @@ class TurnEngine:
                                 # let the enqueued follow-up serve it instead.
                                 break
                             if parked.state is TriggerPopState.PARKED:
-                                trigger = parked.trigger or trigger
-                                trigger_message_id = parked.message_id or trigger_message_id
+                                # An explicit call keeps its name and message over a
+                                # parked automatic trigger, as the mark itself does
+                                # ([R15.30]); this covers a mark that failed to land.
+                                if not (
+                                    trigger in EXPLICIT_TRIGGERS and parked.trigger not in EXPLICIT_TRIGGERS
+                                ):
+                                    trigger = parked.trigger or trigger
+                                    trigger_message_id = parked.message_id or trigger_message_id
                                 notice = await _pop_notice(agent_id, chatroom_id)
                                 if notice is not None:
-                                    trigger, platform_notice = notice.trigger, notice.text
+                                    trigger = _follow_up_trigger(trigger, notice)
+                                    platform_notice = notice.text
                             # UNKNOWN falls through deliberately: Redis could not
                             # say whether a mark is parked, and we hold the lock.
                             # Serving the trigger we were called for answers the
