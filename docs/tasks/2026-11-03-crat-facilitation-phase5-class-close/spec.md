@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-11-03
 requirements: [R15.30, R15.27, R15.28, R15.29, R15.03, R30.37]
 depends_on: []
@@ -298,7 +298,7 @@ hand before the live run (AC-9), as in phase 4.
   reopens, in both locales, including for an unconfigured room; component tests cover each state.
 - [x] AC-9: The three teacher prompts call `close_class` in their closing step after `end_activity`
   and name it in `<活動控制>` and `<通用規則>`; pinned by pack tests.
-- [ ] AC-10: On staging, the CRAT autonomous scenario with a student kept connected for at least
+- [x] AC-10: On staging, the CRAT autonomous scenario with a student kept connected for at least
   15 minutes after TA's close shows TA's `close_class` call, no agent message after the close, and
   an @mention of TA after the close answered.
 
@@ -377,6 +377,17 @@ None.
   wording in Section 6, so the agent does not read the close as permanent silence.
 - **D-9.** The full unit suite caught `tests/unit/test_room_listing_bound.py` building a chatroom
   row without the new column; the fixture gained `class_closed_at=None`.
+- **D-10.** AC-10 ran on staging on 2026-11-03 as the new scenario
+  `frontend/sim/scenarios/crat-class-close.ts` (run `20261103-034823-crat-class-close`, room
+  `d861c979`), which extends `crat-autonomous` with a sixteen-minute hold instead of changing that
+  scenario's close step. The simulator cannot send a mention, so the operator sent it from the
+  browser, 35 minutes after the close rather than inside the hold; the room's three students were
+  still connected. TA ended the activity after C8 and called `close_class` in the same turn: the
+  audit log holds one `chatroom.class_closed` row at 04:23:01 with `by: agent` and TA's id, and TA's
+  closing message followed at 04:23:07. Before the close TA's silence wakes fired roughly every
+  three and a half minutes; after it no `wakeup.fired` or `wakeup.skipped` row and no agent message
+  appear until the mention at 04:58:33 (the worker drops closed-room wakes as
+  `skipped:class_closed` without an audit row). TA answered the mention within the same minute.
 
 ## 16. Follow-ups
 
