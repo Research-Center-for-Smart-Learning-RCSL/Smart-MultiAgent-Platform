@@ -32,10 +32,16 @@ export default defineScenario({
     { actor: 'P2', at: 35, do: 'say', text: '我是小博，這是我的訊息。', label: 'second student posts' },
     { actor: 'G', at: 50, do: 'say', text: '我是訪客小林，這是我的訊息。', label: 'guest posts' },
     { actor: 'P1', at: 65, do: 'say', text: '小安的第二則訊息。', label: 'first student posts again' },
+    // Agent replies push the opening messages out of view; these keep every viewer's own message
+    // and the others' in the end screenshots.
+    { actor: 'F', at: '12:30', do: 'say', text: '老師的最後一則訊息。', label: 'facilitator posts last' },
+    { actor: 'P1', at: '12:40', do: 'say', text: '小安的最後一則訊息。', label: 'first student posts last' },
+    { actor: 'P2', at: '12:50', do: 'say', text: '小博的最後一則訊息。', label: 'second student posts last' },
+    { actor: 'G', at: '13:00', do: 'say', text: '訪客小林的最後一則訊息。', label: 'guest posts last' },
   ],
   notes: [
     'Operator, from minute 2: colour TA and SA in room settings, then @mention each so both answer.',
-    'Operator, at about minute 8: change TA to a different colour and do not reload any client.',
+    'Operator, at about minute 8: change TA to a different colour and do not reload any client; at about minute 11 @mention TA and SA again so their newest replies sit just above the closing messages.',
     'Pass (AC-17): in each end screenshot only that viewer\'s own messages sit on the right; TA and SA sit on the left in their colours.',
     'Pass (AC-13): every end screenshot shows TA in the colour chosen at minute 8, with no reload on any client.',
   ],
