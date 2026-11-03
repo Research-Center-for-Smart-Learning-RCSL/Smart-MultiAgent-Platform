@@ -146,10 +146,10 @@ shape except audit metadata, which gains one optional key.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: Regression tests 1 and 2 of Section 8 fail before the fix and pass after.
-- [ ] AC-2: Phased output without a final_answer yields an empty reply, unphased output is
+- [x] AC-1: Regression tests 1 and 2 of Section 8 fail before the fix and pass after.
+- [x] AC-2: Phased output without a final_answer yields an empty reply, unphased output is
   unchanged, and `provider_items` is unchanged in both (Section 8 test 3).
-- [ ] AC-3: `agent.turn_finished` carries `output_shape` for an OpenAI turn on the posted,
+- [x] AC-3: `agent.turn_finished` carries `output_shape` for an OpenAI turn on the posted,
   skipped, observer and A2A paths, with no message text in it; turns on other providers do not
   carry the key.
 - [ ] AC-4: On staging, after deploy, three CRAT autonomous runs post no agent message containing
@@ -168,7 +168,16 @@ Add after [R13.79]:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1.** The stream tracks message phases by `output_index` rather than by item id. Both the
+  `response.output_item.added` and the `response.output_text.delta` events carry the index, and
+  the existing stream tests already key on it.
+- **D-2.** Section 7 had the stream drop only items marked `commentary`. The quality audit noted
+  that the stored reply keeps only `final_answer` once any item is phased, so an item with any
+  other phase would stream but not be stored. The stream now drops every phased item whose phase
+  is not `final_answer`, the same rule as `_normalise_response`.
+- **D-3.** `output_shape` is kept off the stored message's metadata and the `agent.finished`
+  event; it is written only to the `agent.turn_finished` audit row, as Section 7 says, through a
+  helper separate from `_synthesis_meta`, which does feed the message.
 
 ## 13. Follow-ups
 
@@ -180,3 +189,5 @@ Appended by /build.
   `<think>` blocks or harmony channels from `content`.
 - **FU-4.** OpenAI: label replayed earlier-turn assistant messages `phase: "final_answer"`, as
   OpenAI's guidance asks for newer models.
+- **FU-5.** Security hardening: `_item_shape` copies the provider's `type` and `phase` strings
+  into the audit row uncapped; clip them to a short length.
