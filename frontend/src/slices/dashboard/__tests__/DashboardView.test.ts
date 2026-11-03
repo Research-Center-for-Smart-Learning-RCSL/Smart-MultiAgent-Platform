@@ -212,4 +212,11 @@ describe('DashboardView', () => {
     expect(wrapper.find('[data-testid="research-export-stub"]').exists()).toBe(true)
     roleScope.authorized = false
   })
+
+  it('hides export from a caller without the owner role in the viewed project', async () => {
+    roleScope.authorized = false
+    const wrapper = await renderDashboard('/workspaces/w2/dashboard')
+    expect(roleScope.projectId).toBe('project-from-workspace')
+    expect(wrapper.find('[data-testid="research-export-stub"]').exists()).toBe(false)
+  })
 })
