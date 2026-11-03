@@ -241,7 +241,7 @@ class TestToolAssembly:
             activity_control=_control(_type()),
         )
 
-        assert {t.name for t in tools} == {"start_activity", "end_activity"}
+        assert {t.name for t in tools} == {"start_activity", "end_activity", "close_class"}
 
     def test_an_ungranted_turn_carries_neither(self) -> None:
         tools = bt.build_agent_tools(
@@ -485,6 +485,85 @@ class TestEndActivity:
 
         assert result.is_error is False
         assert sink == []
+
+
+class TestCloseClass:
+    """Phase 5 AC-6 ([R15.30])."""
+
+    @staticmethod
+    def _wire(monkeypatch: pytest.MonkeyPatch, *, closed: bool | Exception) -> tuple[list, list]:
+        calls: list[dict[str, Any]] = []
+        audits: list[tuple[str, dict[str, Any]]] = []
+
+        class _Facade:
+            def __init__(self, db: object) -> None:
+                pass
+
+            async def close_class(self, chatroom_id: uuid.UUID, **kw: Any) -> bool:
+                calls.append({"chatroom_id": chatroom_id, **kw})
+                if isinstance(closed, Exception):
+                    raise closed
+                return closed
+
+        async def _emit(db: object, event: Any, **kw: Any) -> bool:
+            audits.append((event.action, event.metadata))
+            return True
+
+        monkeypatch.setattr(act, "ConversationFacade", _Facade)
+        monkeypatch.setattr("shared_kernel.audit.emit", _emit)
+        return calls, audits
+
+    async def test_it_closes_the_room_as_the_teacher_and_the_agent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls, audits = self._wire(monkeypatch, closed=True)
+        agent = _agent()
+        db = _session()
+        tools = _tools_for(_control(_type()), agent=agent, db=db)
+
+        result = await tools["close_class"].invoke({})
+
+        assert result.is_error is False
+        assert "Closed the class" in result.content
+        assert calls == [{"chatroom_id": _ROOM, "actor_user_id": _GRANTER, "actor_agent_id": agent.id}]
+        assert audits == [
+            (
+                "mcp.tool_invoked",
+                {
+                    "tool": "close_class",
+                    "source": "activity_control_grant",
+                    "chatroom_id": str(_ROOM),
+                    "ok": True,
+                },
+            )
+        ]
+        db.commit.assert_not_called()
+
+    async def test_an_already_closed_class_changes_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._wire(monkeypatch, closed=False)
+        tools = _tools_for(_control(_type()))
+
+        result = await tools["close_class"].invoke({})
+
+        assert result.is_error is False
+        assert "already closed" in result.content
+
+    async def test_an_infrastructure_fault_fails_the_turn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from sqlalchemy.exc import OperationalError
+
+        self._wire(monkeypatch, closed=OperationalError("UPDATE", {}, Exception("boom")))
+        tools = _tools_for(_control(_type()))
+
+        with pytest.raises(OperationalError):
+            await tools["close_class"].invoke({})
+
+    def test_it_takes_no_arguments_and_is_not_read_only(self) -> None:
+        from contexts.agents.application.runtime.tool_registry import READ_ONLY_TOOL_NAMES
+
+        tools = _tools_for(_control(_type()))
+
+        assert tools["close_class"].input_schema["properties"] == {}
+        assert "close_class" not in READ_ONLY_TOOL_NAMES
 
 
 class TestNothingIsPublishedFromTheTool:
