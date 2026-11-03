@@ -606,8 +606,9 @@ Stage D
 - [x] AC-22: The chart has no Title plugin, uses a bucket of 5m, 15m or 1h for 1h, 6h or 24h,
   shows a continuous zero-filled axis across the whole window, shows one series per visible room,
   and gives a room the same colour after a window change and a reload.
-- [ ] AC-23: An event for a room in the current set invalidates the dashboard queries; an event
-  for an unknown room refetches the summary; a reconnect invalidates all dashboard queries.
+- [ ] AC-23: (replaced per D-2 and D-7) A `dashboard.invalidated` event, which carries no room
+  data, invalidates every dashboard query after a 500 ms debounce; recovery from a degraded
+  connection invalidates every dashboard query.
 - [x] AC-24: With no stalled room, no alert element is rendered and a single success line is.
 
 Stage E
@@ -738,6 +739,24 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
   instead of the round's guest list. Presence is read once per request and shared by the online
   count and the roster. Commit `e6cf0b8e` carries Stage C and Stage E backend work under a
   `feat(frontend)` subject; history is left as is.
+- D-7. Close-out on 2026-11-03, after the code had been on main since 2026-10-20. Each open
+  criterion was mapped to the test that verifies it, and the gaps were filled. AC-14 is pinned by
+  `TestSubjectColumnsGolden` in `test_research_export_builder.py`, whose expected text is the
+  builder's output before the redesign: neither the builder nor `subject_code.py` changed in this
+  task. AC-15 is `test_watchlist_flags_present_students_by_their_round_submissions` and AC-17 is
+  the group-round student row added to `test_watchlist_excludes_project_owner_and_names_recent_guest`,
+  both in `test_teacher_dashboard_auth_db.py` against the real roster queries. AC-25 is covered by
+  `RoomStatusCard.test.ts` (counts, split, and a dash for an unknown online count) and by
+  `test_room_presence_is_none_not_empty_when_redis_fails`. AC-5 gains a negative button test in
+  `DashboardView.test.ts`; the export route answers 202 Accepted, not the 200 the criterion names,
+  and the Org Owner half rests on `ProjectOut.is_moderator`, which the server computes from the
+  inherited role and `useProjectRole` reads. AC-23 is reworded to the behaviour D-2 adopted, and
+  `useDashboardSocket.test.ts` verifies both of its clauses. The visual pass (AC-26) ran on
+  staging with all four states present at once, by starting rounds in two empty test rooms
+  several minutes apart and ending them afterwards; a room crossed from green to yellow on screen
+  with no reload. It found "1 participants" in English, fixed with a plural form. Chrome would not
+  size the window below 502 CSS px, which is above the 480 px `sm` breakpoint, so the
+  single-column layout a 390 px phone receives was not observed.
 
 ## 16. Follow-ups
 
@@ -758,3 +777,11 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
 - FU-8. In the egress proxy, check the project hostname allowlist before DNS resolution. The proxy
   currently resolves an unallowlisted host before denying it, which can expose DNS query metadata
   to that host. The proxy and sandbox setup are unchanged by this dashboard task.
+- FU-9. At 1280 px the participants table sits in a third-width column and its last two columns
+  (last valid submission, reason) scroll out of view, though the reason is what a teacher acts on.
+  Give the table full width below `xl` or drop a column at that width.
+- FU-10. An inactive room whose last round was fully valid shows a green validity bar, which reads
+  as healthy next to a neutral status. Mute the bar for inactive rooms.
+- FU-11. On the project keys page the usage panel opens at the end of the key list rather than
+  under the key whose usage button was pressed (observed during the AC-26 pass; not part of this
+  task's change).
