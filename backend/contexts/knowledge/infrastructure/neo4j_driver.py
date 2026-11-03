@@ -212,11 +212,8 @@ _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 
 _EVIDENCE_READ = "{r}.evidence_refs"
 
-# An edge the backfill still has to copy: written by N-1 (no new key) or touched
-# by an N-1 writer after a copy (new key stale).
-_EVIDENCE_UNMIGRATED = (
-    "r.evidence_msg_ids IS NOT NULL AND (r.evidence_refs IS NULL OR r.evidence_refs <> r.evidence_msg_ids)"
-)
+# An edge the clean-up still has to strip: last written by release B or earlier.
+_EVIDENCE_LEGACY = "r.evidence_msg_ids IS NOT NULL"
 
 
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
@@ -422,18 +419,17 @@ class Neo4jAsyncDriver:
             rows = [(rec["cid"], rec["pid"]) async for rec in result]
         return _collapse_config_rows(rows)
 
-    async def count_unmigrated_evidence(self) -> dict[str, int]:
-        """Edges per raw config id whose ``evidence_refs`` does not yet mirror the old key.
+    async def count_legacy_evidence(self) -> dict[str, int]:
+        """Edges per raw config id that still carry the old evidence key.
 
         For the ``neo4j-evidence-refs`` maintenance command only. Keys are left
         unparsed (``""`` for a missing id) so the caller can count an edge it
         cannot attribute instead of losing it from the remaining total. A full
-        relationship scan: no index covers the property comparison.
+        relationship scan: no index covers the property test.
         """
         driver = await self._ensure()
         cypher = (
-            f"MATCH ()-[r:REL]->() WHERE {_EVIDENCE_UNMIGRATED} "
-            "RETURN r.graphrag_config_id AS cid, count(r) AS n"
+            f"MATCH ()-[r:REL]->() WHERE {_EVIDENCE_LEGACY} RETURN r.graphrag_config_id AS cid, count(r) AS n"
         )
         async with driver.session() as session:
             result = await session.run(cypher)
@@ -443,11 +439,13 @@ class Neo4jAsyncDriver:
                 counts[key] = counts.get(key, 0) + int(rec["n"])
             return counts
 
-    async def copy_evidence_refs(self, *, config_id: uuid.UUID, batch: int) -> int:
-        """Copy the old key to ``evidence_refs`` on up to ``batch`` edges of one config.
+    async def remove_legacy_evidence(self, *, config_id: uuid.UUID, batch: int) -> int:
+        """Drop the old evidence key from up to ``batch`` edges of one config.
 
-        Returns how many edges it copied; the caller loops until 0, holding the
-        config's build lock so no build writes the same edges meanwhile.
+        The new key is kept where present and filled from the old one where not, so
+        no edge loses evidence. Returns how many edges it changed; the caller loops
+        until 0, holding the config's build lock so no build writes the same edges
+        meanwhile.
         """
         driver = await self._ensure()
         # `r.relation IS NOT NULL` holds for every REL (it is a MERGE key); it is
@@ -455,9 +453,10 @@ class Neo4jAsyncDriver:
         # instead of scanning every relationship once per batch.
         cypher = (
             "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
-            f"WHERE r.relation IS NOT NULL AND {_EVIDENCE_UNMIGRATED} "
+            f"WHERE r.relation IS NOT NULL AND {_EVIDENCE_LEGACY} "
             "WITH r LIMIT $batch "
-            "SET r.evidence_refs = r.evidence_msg_ids "
+            "SET r.evidence_refs = coalesce(r.evidence_refs, r.evidence_msg_ids)"
+            f"{_DROP_LEGACY_EVIDENCE} "
             "RETURN count(r) AS n"
         )
         async with driver.session() as session:

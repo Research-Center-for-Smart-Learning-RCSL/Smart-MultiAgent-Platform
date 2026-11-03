@@ -207,24 +207,36 @@ def encrypt_proxy_headers_cmd() -> None:
 
 
 @app.command("neo4j-evidence-refs")
-def neo4j_evidence_refs_cmd() -> None:
-    """Copy Neo4j relation evidence onto `evidence_refs` (rename release A).
+def neo4j_evidence_refs_cmd(
+    remove_legacy: bool = typer.Option(
+        False,
+        "--remove-legacy",
+        help="Remove the old `evidence_msg_ids` key. Required: the release A copy mode is retired.",
+    ),
+) -> None:
+    """Remove the old Neo4j relation evidence key (the rename's clean-up).
 
-    **Run only once release A is on every web and worker replica**; see
-    docs/runbook-upgrade.md. Each config is copied under its build lock, in
-    batches; a config that is building is skipped, which exits non-zero so the
-    run is repeated. "remaining=0" is the gate for the rename's next release.
+    **Run only once release C is on every replica that reads or writes evidence and
+    24 h have passed since release B rolled out**; see docs/runbook-upgrade.md. Each
+    config is handled under its build lock, in batches; a config that is building is
+    skipped, which exits non-zero so the run is repeated.
 
     Dry-run unless SMAP_NEO4J_EVIDENCE_REFS_ARMED is set to a truthy value.
     Idempotent.
     """
+    if not remove_legacy:
+        # The bare command used to run the release A copy, which would now copy a
+        # stale old key over the authoritative new one. Refuse rather than change
+        # what an old runbook line does.
+        logger.error("neo4j-evidence-refs needs --remove-legacy; the release A copy mode is retired.")
+        raise typer.Exit(code=2)
     report = asyncio.run(_neo4j_evidence_refs.run())
     logger.info(
-        "neo4j-evidence-refs complete dry_run={} pending={} copied={} remaining={} "
+        "neo4j-evidence-refs complete dry_run={} pending={} removed={} remaining={} "
         "busy={} lost_lock={} failed={} unattributed={}",
         report.dry_run,
         report.pending,
-        report.copied,
+        report.removed,
         report.remaining,
         len(report.busy),
         len(report.lost_lock),
@@ -233,13 +245,13 @@ def neo4j_evidence_refs_cmd() -> None:
     )
     if report.dry_run and report.pending:
         logger.warning(
-            "{} edge(s) need copying. Re-run with {}=1 to copy.",
+            "{} edge(s) still carry the old key. Re-run with {}=1 to remove it.",
             report.pending,
             _neo4j_evidence_refs.ARMED_ENV,
         )
     for label, ids in (
         ("skipped, building", report.busy),
-        ("stopped, lock lost mid-copy (a build may have run alongside)", report.lost_lock),
+        ("stopped, lock lost mid-run (a build may have run alongside)", report.lost_lock),
         ("failed, see the error above", report.failed),
     ):
         if ids:
@@ -249,8 +261,8 @@ def neo4j_evidence_refs_cmd() -> None:
             "{} edge(s) have no usable graphrag_config_id; inspect them by hand", report.unattributed
         )
     if not report.dry_run and report.remaining:
-        # Busy, lost, failed or unattributed configs, or edges an N-1 writer
-        # changed during the run: the gate is not met, and a scripted run must see it.
+        # Busy, lost, failed or unattributed configs, or edges a release B writer
+        # touched during the run: the gate is not met, and a scripted run must see it.
         raise typer.Exit(code=1)
 
 

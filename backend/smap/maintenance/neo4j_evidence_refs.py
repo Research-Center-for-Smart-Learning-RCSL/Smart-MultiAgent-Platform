@@ -1,18 +1,20 @@
-"""Copy Neo4j relation evidence to ``evidence_refs`` (rename release A backfill).
+"""Remove the old Neo4j relation evidence key (the rename's clean-up).
 
-Release A of ``docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand``
-writes both ``evidence_msg_ids`` and ``evidence_refs`` on every edge it touches,
-but a Concept Map delta build never touches older edges, so those keep only the
-old key. This command copies the old key onto every edge where the new one is
-missing or differs, one config at a time under that config's build lock, in
+Release C of ``docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract``
+reads and writes only ``evidence_refs`` and drops ``evidence_msg_ids`` from every
+edge it writes, but a Concept Map delta build never touches older edges, so those
+keep both keys from release B. This command removes the old key from every edge
+that still has it, keeping the new key (filling it from the old one if an edge
+somehow lacks it), one config at a time under that config's build lock, in
 batches. A config whose lock is held is skipped and reported.
 
-Run it only once release A is on every web and worker replica: before that, an
-N-1 writer can change the old key after the copy. Re-running repairs such an
-edge, since the command is idempotent. Its "0 remaining" report is what the
-contract dossier (``2026-10-12-graphrag-phase5a2-evidence-refs-contract``) is
-gated on. Dry-run unless ``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see
-``purge_session_dirs._ARMED_ENV`` for why that is not a flag.
+Run it only once the clean-up gate in that dossier's Q-2 is met: release C on
+every replica that reads or writes evidence, so no writer sets the old key again,
+and 24 h since release B rolled out. Idempotent. It replaced the release A copy mode, which copied
+the old key over a differing new one and is wrong once the new key is
+authoritative (D-2 in that dossier). Dry-run unless
+``SMAP_NEO4J_EVIDENCE_REFS_ARMED`` is truthy; see ``purge_session_dirs._ARMED_ENV``
+for why that is not a flag.
 """
 
 from __future__ import annotations
@@ -36,9 +38,9 @@ _BATCH = 1000
 
 
 class _Driver(Protocol):
-    async def count_unmigrated_evidence(self) -> dict[str, int]: ...
+    async def count_legacy_evidence(self) -> dict[str, int]: ...
 
-    async def copy_evidence_refs(self, *, config_id: uuid.UUID, batch: int) -> int: ...
+    async def remove_legacy_evidence(self, *, config_id: uuid.UUID, batch: int) -> int: ...
 
 
 class _Outcome(enum.Enum):
@@ -51,13 +53,13 @@ class _Outcome(enum.Enum):
 class EvidenceRefsReport:
     dry_run: bool
     pending: int
-    copied: int
+    removed: int
     remaining: int
     # Never acquired: a build held the lock.
     busy: tuple[uuid.UUID, ...] = ()
-    # Acquired, then lost mid-copy: a build may have written alongside the copy.
+    # Acquired, then lost mid-run: a build may have written alongside.
     lost_lock: tuple[uuid.UUID, ...] = ()
-    # The copy raised; the run went on with the other configs.
+    # The removal raised; the run went on with the other configs.
     failed: tuple[uuid.UUID, ...] = ()
     # Edges whose config id is missing or not a UUID: no lock can cover them, so
     # they are counted in ``remaining`` and left alone.
@@ -75,7 +77,7 @@ async def run(
     config_ids: Iterable[uuid.UUID] | None = None,
     batch: int = _BATCH,
 ) -> EvidenceRefsReport:
-    """Count, and when armed copy, unmigrated edges; ``config_ids`` narrows the scope."""
+    """Count, and when armed strip, legacy edges; ``config_ids`` narrows the scope."""
     from app.config.settings import get_settings
     from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
     from contexts.knowledge.infrastructure.redis_lock import RedisBuildLockStore
@@ -118,35 +120,35 @@ def _split(raw: dict[str, int], scope: set[uuid.UUID] | None) -> tuple[dict[uuid
 async def _run(
     driver: _Driver, locks: BuildLockStore, scope: set[uuid.UUID] | None, batch: int
 ) -> EvidenceRefsReport:
-    before, unattributed = _split(await driver.count_unmigrated_evidence(), scope)
+    before, unattributed = _split(await driver.count_legacy_evidence(), scope)
     pending = sum(before.values()) + unattributed
     if unattributed:
         _log.warning(
-            "neo4j-evidence-refs: %d edge(s) have no usable config id and are not copied", unattributed
+            "neo4j-evidence-refs: %d edge(s) have no usable config id and are left alone", unattributed
         )
     if not is_armed():
         return EvidenceRefsReport(
-            dry_run=True, pending=pending, copied=0, remaining=pending, unattributed=unattributed
+            dry_run=True, pending=pending, removed=0, remaining=pending, unattributed=unattributed
         )
-    copied = 0
+    removed = 0
     outcomes: dict[_Outcome, list[uuid.UUID]] = {o: [] for o in _Outcome}
     failed: list[uuid.UUID] = []
     for cid in sorted(before, key=str):
         try:
-            done, outcome = await _copy_config(driver, locks, cid, batch)
+            done, outcome = await _strip_config(driver, locks, cid, batch)
         except Exception:
             # One config's store error must not cost the others their run or the
             # operator the report.
-            _log.exception("neo4j-evidence-refs: copy failed for config %s", cid)
+            _log.exception("neo4j-evidence-refs: removal failed for config %s", cid)
             failed.append(cid)
             continue
-        copied += done
+        removed += done
         outcomes[outcome].append(cid)
-    after, unattributed_after = _split(await driver.count_unmigrated_evidence(), scope)
+    after, unattributed_after = _split(await driver.count_legacy_evidence(), scope)
     return EvidenceRefsReport(
         dry_run=False,
         pending=pending,
-        copied=copied,
+        removed=removed,
         remaining=sum(after.values()) + unattributed_after,
         busy=tuple(outcomes[_Outcome.BUSY]),
         lost_lock=tuple(outcomes[_Outcome.LOST_LOCK]),
@@ -155,25 +157,25 @@ async def _run(
     )
 
 
-async def _copy_config(
+async def _strip_config(
     driver: _Driver, locks: BuildLockStore, cid: uuid.UUID, batch: int
 ) -> tuple[int, _Outcome]:
-    """Copy one config's edges under its build lock."""
+    """Strip one config's edges under its build lock."""
     if not await locks.acquire(cid, ttl_s=LOCK_TTL_S):
         _log.warning("neo4j-evidence-refs: config %s is building; skipped", cid)
         return 0, _Outcome.BUSY
-    copied = 0
+    removed = 0
     try:
         while True:
-            n = await driver.copy_evidence_refs(config_id=cid, batch=batch)
-            copied += n
+            n = await driver.remove_legacy_evidence(config_id=cid, batch=batch)
+            removed += n
             if n == 0:
-                return copied, _Outcome.DONE
+                return removed, _Outcome.DONE
             # Fail closed like the builder: without the lock a build may be
             # writing these edges, so stop and let a re-run finish the config.
             if not await locks.refresh(cid, ttl_s=LOCK_TTL_S):
                 _log.warning("neo4j-evidence-refs: lost the lock for config %s; stopped", cid)
-                return copied, _Outcome.LOST_LOCK
+                return removed, _Outcome.LOST_LOCK
     finally:
         await locks.release(cid)
 
