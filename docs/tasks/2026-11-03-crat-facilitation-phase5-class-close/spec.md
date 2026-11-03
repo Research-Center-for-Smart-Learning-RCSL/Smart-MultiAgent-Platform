@@ -274,16 +274,16 @@ hand before the live run (AC-9), as in phase 4.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: Migration 0107 adds a nullable `chatrooms.class_closed_at` and its downgrade removes
+- [x] AC-1: Migration 0107 adds a nullable `chatrooms.class_closed_at` and its downgrade removes
   it; a db-tier migration test covers both directions.
-- [ ] AC-2: `claim_close` returns True once per class and False for a closed or deleted room;
+- [x] AC-2: `claim_close` returns True once per class and False for a closed or deleted room;
   `reopen` clears it; `write(reset=True)` clears it; a closed room is not armed and is not in
   `awaiting_start`. Covered at the db tier.
 - [x] AC-3: `wakeup_agent` returns `skipped:class_closed` without running a turn for each of
   every_n_messages, silence_minutes, creator_message, on_join, class_start, activity_deadline and
   all_submitted in a closed room, and runs the turn for mention and release.
-- [ ] AC-4: The silence sweep's read returns no binding of a closed room.
-- [ ] AC-5: With a turn holding the lock, an explicit trigger parked after an automatic one, before
+- [x] AC-4: The silence sweep's read returns no binding of a closed room.
+- [x] AC-5: With a turn holding the lock, an explicit trigger parked after an automatic one, before
   one, and with a parked platform notice, each produces exactly one follow-up named by the explicit
   trigger with its message id, and the notice text, when present, reaches that follow-up; two
   automatic triggers keep first-wins.
