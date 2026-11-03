@@ -224,14 +224,14 @@ does not start until it is reopened.
 
 ## 7. NFR Checklist
 
-- [ ] i18n: the card's new strings in en and zh-TW; tool result text is model-facing, not UI.
-- [ ] Audit log: `chatroom.class_closed` and `chatroom.class_reopened`; the tool's
+- [x] i18n: the card's new strings in en and zh-TW; tool result text is model-facing, not UI.
+- [x] Audit log: `chatroom.class_closed` and `chatroom.class_reopened`; the tool's
   `mcp.tool_invoked` as for the activity tools.
-- [ ] Tenant isolation: the new routes use `_creator_access`; the tool is offered only with a
+- [x] Tenant isolation: the new routes use `_creator_access`; the tool is offered only with a
   creator-granted grant on this room's binding.
-- [ ] Error handling UX: the card's buttons show the existing `saveFailed` toast on failure and
+- [x] Error handling UX: the card's buttons show the existing `saveFailed` toast on failure and
   stay enabled for retry; 404 for a missing room as the other class-flow routes.
-- [ ] Performance: no new query on the wake path (the worker already loads the room); the sweep
+- [x] Performance: no new query on the wake path (the worker already loads the room); the sweep
   read gains one predicate on a joined table.
 
 ## 8. Security Considerations
@@ -279,7 +279,7 @@ hand before the live run (AC-9), as in phase 4.
 - [ ] AC-2: `claim_close` returns True once per class and False for a closed or deleted room;
   `reopen` clears it; `write(reset=True)` clears it; a closed room is not armed and is not in
   `awaiting_start`. Covered at the db tier.
-- [ ] AC-3: `wakeup_agent` returns `skipped:class_closed` without running a turn for each of
+- [x] AC-3: `wakeup_agent` returns `skipped:class_closed` without running a turn for each of
   every_n_messages, silence_minutes, creator_message, on_join, class_start, activity_deadline and
   all_submitted in a closed room, and runs the turn for mention and release.
 - [ ] AC-4: The silence sweep's read returns no binding of a closed room.
@@ -287,16 +287,16 @@ hand before the live run (AC-9), as in phase 4.
   one, and with a parked platform notice, each produces exactly one follow-up named by the explicit
   trigger with its message id, and the notice text, when present, reaches that follow-up; two
   automatic triggers keep first-wins.
-- [ ] AC-6: A granted TA is offered `close_class`; an ungranted binding is not. The tool closes the
+- [x] AC-6: A granted TA is offered `close_class`; an ungranted binding is not. The tool closes the
   room, reports an already-closed room without change, emits `chatroom.class_closed` with the
   agent's id and `mcp.tool_invoked`, and does not commit. `close_class` is a reserved built-in name
   and not read-only.
-- [ ] AC-7: `POST` and `DELETE /api/chatrooms/{id}/class-close` close and reopen for the room
+- [x] AC-7: `POST` and `DELETE /api/chatrooms/{id}/class-close` close and reopen for the room
   creator, are idempotent, work for a room with no class-start setting, return 403 for a
   non-creator and 404 for a missing room, and audit; `GET /class-start` returns `closed_at`.
-- [ ] AC-8: The class-start card shows the closed state and time, closes after confirmation and
+- [x] AC-8: The class-start card shows the closed state and time, closes after confirmation and
   reopens, in both locales, including for an unconfigured room; component tests cover each state.
-- [ ] AC-9: The three teacher prompts call `close_class` in their closing step after `end_activity`
+- [x] AC-9: The three teacher prompts call `close_class` in their closing step after `end_activity`
   and name it in `<活動控制>` and `<通用規則>`; pinned by pack tests.
 - [ ] AC-10: On staging, the CRAT autonomous scenario with a student kept connected for at least
   15 minutes after TA's close shows TA's `close_class` call, no agent message after the close, and
@@ -345,4 +345,55 @@ None.
 
 ## 15. Deviation Log
 
+- **D-1.** Section 6 describes the coalescing change as a flag telling `_MARK_QUEUED_LUA` whether
+  the incoming trigger is explicit, with plain `SET` for explicit and `SET NX` for automatic. The
+  build passes the explicit trigger names as extra script arguments instead, so the script decides
+  for both the incoming and the parked value; this is what lets an automatic mark leave a parked
+  explicit trigger's message id in place, which a single flag on the incoming trigger cannot
+  express. Behaviour matches Section 5.
+- **D-2.** `_REPARK_QUEUED_LUA` also changed, which Section 6 did not list. An explicit trigger
+  re-parked over a newer automatic mark takes the trigger name but keeps the newer message id
+  (`SET NX` on the id key), so the existing rule that a re-park never overwrites a newer message id
+  ([R13.72]) still holds. The existing re-park test in `test_turn_lock_and_coalescing.py` now
+  re-parks `silence_minutes`, which still exercises that rule, and a new test covers the explicit
+  case.
+- **D-3.** The `run_turn` retry path, which adopts a parked trigger after a lost lock race, also
+  keeps its own explicit trigger and message id over a parked automatic one. Section 6 named only
+  the notice override; without this the retry path would rename an explicit call whose mark had
+  failed to land.
+- **D-4.** The existing first-wins test (`test_first_trigger_wins_and_the_latest_message_id_wins`)
+  parked `mention` then `every_n_messages` and expected the later message id. Under Q-3 an
+  automatic mark no longer moves a parked explicit trigger's id, so the test now parks two
+  automatic triggers (`every_n_messages` then `creator_message`), which is the case first-wins
+  still governs; the explicit orderings moved to new tests.
+- **D-5.** The creative-thinking room pack, which has no closing step, received the `<活動控制>`
+  sentence naming `close_class` so its tool list matches what a granted binding is offered. The
+  closing-step and rule-2 edits went only to the three course packs, as specified.
+- **D-6.** `docs/examples/chinese-character-courses-adoption.md` gained a paragraph on closing and
+  reopening a class, so a teacher installing the packs learns about the card buttons.
+- **D-7.** The simulator's closed-room check is an `else if` after the started check, so a class
+  that has both started and closed reports one problem, not two.
+- **D-8.** The tool result text adds "you will still be woken when someone @mentions you" to the
+  wording in Section 6, so the agent does not read the close as permanent silence.
+- **D-9.** The full unit suite caught `tests/unit/test_room_listing_bound.py` building a chatroom
+  row without the new column; the fixture gained `class_closed_at=None`.
+
 ## 16. Follow-ups
+
+- **FU-1.** Security MEDIUM, plausible: a student message could persuade a granted TA to call
+  `close_class` early. The effect is bounded (only automatic wakes stop, @mentions still work, the
+  creator reopens in one click) and matches the existing `end_activity` risk. Direction: name
+  `close_class` in the teacher prompts' injection line, or refuse a close before the last bank
+  round.
+- **FU-2.** Hardening: the class-flow write routes (`PATCH /class-start`, `POST`/`DELETE
+  /class-close`) have no per-route rate limit. Creator-only, and audit rows are written only on a
+  state change. Direction: one shared bucket for class-flow writes.
+- **FU-3.** Quality, Info: the `close_class` and `reopen_class` route handlers in `class_flow.py`
+  repeat the same shape; `closeMutation` in `ClassStartCard.vue` takes a boolean selecting the
+  call. Direction: fold when a third class-flow action appears.
+- **FU-4.** Pre-existing: `wakeup_agent` imports `ChatroomRepository` from conversation
+  infrastructure directly (`orchestration.py:76`), and `ConversationFacade` keeps growing.
+  Direction: route the worker's room read through the facade.
+- **FU-5.** An agent close writes two audit rows, `chatroom.class_closed` from the facade and
+  `mcp.tool_invoked` from the tool wrapper, as specified in AC-6. Recorded so a later audit-log
+  reader does not take the pair for a double close.
