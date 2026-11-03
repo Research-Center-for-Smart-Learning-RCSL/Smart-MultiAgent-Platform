@@ -1012,6 +1012,23 @@ class TestPhase2CoursePacks:
         )
         assert "然後下課" in prompt
 
+    @pytest.mark.parametrize("teacher_key", list(_PHASE2_TEACHERS.values()))
+    def test_every_teacher_closes_the_class_with_the_tool(self, teacher_key: str) -> None:
+        """Phase 5 AC-9 ([R15.30]): after the close, silence wakes kept TA and SA talking (phase 4 D-31)."""
+        prompt = self._agent(teacher_key).system_prompt
+        close = "你有 close_class 工具時，在同一輪、end_activity 之後呼叫它"
+        assert close in prompt
+        assert prompt.index("一定要呼叫 end_activity。然後下課") < prompt.index(close)
+        assert "start_activity、end_activity 與 close_class 三個工具" in prompt
+        assert "只有討論室建立者能重新開課，所以只在整堂課真的結束時呼叫" in prompt
+        assert "呼叫 close_class 的那一輪也一樣，那一輪說的話就是你的下課訊息" in prompt
+
+    def test_every_granted_pack_counts_three_activity_tools(self) -> None:
+        """A grant now builds close_class too, so no prompt may still say there are two."""
+        for pack in SHIPPED_PACKS:
+            for agent in pack.agents:
+                assert "start_activity 與 end_activity 兩個工具" not in agent.system_prompt, agent.key
+
     @pytest.mark.parametrize(
         ("teacher_key", "step"),
         [("ta-charbuilding-teacher", "步驟C1"), ("ta-objreinterpret-teacher", "步驟C1")],

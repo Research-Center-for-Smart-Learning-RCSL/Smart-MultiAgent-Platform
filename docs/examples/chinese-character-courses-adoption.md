@@ -153,7 +153,8 @@ model and key group the class will use.
   ends a work phase when the platform tells it the time limit was reached or every connected
   student has submitted, starts the next round from its bank, and closes the class when the bank
   is used up. The platform measures the time and counts the submissions; the decision to move on
-  is the model's, following its prompt. The submission count covers only the students connected
+  is the model's, following its prompt. Once TA calls `close_class`, the platform rather than the
+  prompt keeps every agent quiet, but whether and when TA calls it is the model's decision. The submission count covers only the students connected
   at that moment, so a student who disconnected is not waited for. When the room creator is
   present, a message from them saying time is up, wait, next round or end of class takes
   precedence, and ending the activity from the panel always ends it. No message from anyone else
@@ -203,8 +204,15 @@ Nothing in this list has to be repeated during the class.
    rounds end when the group's answer is judged. A limit is fixed when the activity starts;
    changing it later affects the next round only.
 
+When TA closes the class after its bank is used up, it calls `close_class` ([R15.30]). From then
+on no agent in the room is woken on its own: silence, message counts, arrivals and activity
+deadlines wake nobody, and an @mention is the only way to get a reply. The class-start card shows
+the time of the close. A room creator who runs the class without TA, or wants the agents quiet
+early, can press the close button in the same card; it works whether or not class start is on,
+and it does not end a running activity. The reopen button undoes it.
+
 To run the same room again for another class, press the reset button in the class-start card, so
-that the next arrival of students starts a new class.
+that the next arrival of students starts a new class. The reset also reopens a closed class.
 
 ## Before the first class
 
