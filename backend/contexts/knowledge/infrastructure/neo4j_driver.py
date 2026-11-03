@@ -51,16 +51,17 @@ def _collapse_config_rows(
 # restated by a second member gains that member without losing the first and a
 # member-scoped retrieval filter stays correct across delta builds.
 #
-# Evidence is stored under two keys during the rename to `evidence_refs`
-# (release B of docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract).
-# `evidence_refs` is authoritative; both keys are still written, equal, because an
-# N-1 (release A) replica reads the old one. The fallback to `evidence_msg_ids`
-# covers an edge that never got the new key; a SET reads pre-clause values, so the
-# two right-hand sides yield the same list.
+# Evidence lives under `evidence_refs` (release C of
+# docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract). Until the
+# clean-up removes it everywhere, an edge last written by release B also carries the
+# old `evidence_msg_ids`, equal to the new key; every write here computes from the new
+# key (falling back to the old one, which only an edge the backfill missed would
+# need) and then drops the old key, so an edge this code touched carries the new key
+# alone.
 _EVIDENCE_STORED = "coalesce(r.evidence_refs, r.evidence_msg_ids, [])"
 _EVIDENCE_UNION = f"{_EVIDENCE_STORED} + [x IN row.evidence_refs WHERE NOT x IN {_EVIDENCE_STORED}]"
+_DROP_LEGACY_EVIDENCE = " REMOVE r.evidence_msg_ids"
 _EVIDENCE_SET_DELTA = (
-    f"    r.evidence_msg_ids = {_EVIDENCE_UNION}, "
     f"    r.evidence_refs = {_EVIDENCE_UNION}, "
     "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
     "      [x IN row.source_member_ids "
@@ -81,7 +82,6 @@ _EVIDENCE_SET_DELTA = (
 # in Neo4j and are asserted by the F-6 regression tests.
 _EVIDENCE_REPLACE = f"CASE WHEN r.build_id = $bid THEN {_EVIDENCE_UNION} ELSE row.evidence_refs END"
 _EVIDENCE_SET_REPLACE = (
-    f"    r.evidence_msg_ids = {_EVIDENCE_REPLACE}, "
     f"    r.evidence_refs = {_EVIDENCE_REPLACE}, "
     "    r.source_member_ids = CASE WHEN r.build_id = $bid THEN "
     "        coalesce(r.source_member_ids, []) + "
@@ -165,7 +165,7 @@ def _build_upsert_cypher(*, replace: bool) -> str:
         "      THEN row.first_seen_at ELSE r.first_seen_at END, "
         "    r.last_seen_at = CASE WHEN r.last_seen_at IS NULL "
         "        OR (row.last_seen_at IS NOT NULL AND row.last_seen_at > r.last_seen_at) "
-        "      THEN row.last_seen_at ELSE r.last_seen_at END"
+        "      THEN row.last_seen_at ELSE r.last_seen_at END" + _DROP_LEGACY_EVIDENCE
     )
 
 
@@ -192,9 +192,8 @@ _RESTORE_EDGES_CYPHER = (
     "                  relation: row.relation}]->(o) "
     "SET r.build_id = row.build_id, "
     "    r.confidence = row.confidence, "
-    # Either key, the new one first: a snapshot from before the rename carries only
-    # evidence_msg_ids, and one from a release past it may carry only evidence_refs.
-    "    r.evidence_msg_ids = coalesce(row.evidence_refs, row.evidence_msg_ids), "
+    # Either key, the new one first: a snapshot taken by release B carries both, and
+    # only one from before the rename carries the old key alone (24 h TTL).
     "    r.evidence_refs = coalesce(row.evidence_refs, row.evidence_msg_ids), "
     # coalesce so an older snapshot (taken before member provenance existed)
     # restores to [] rather than nulling the property.
@@ -203,7 +202,7 @@ _RESTORE_EDGES_CYPHER = (
     # row.first_seen_at/last_seen_at are NULL — a timeless edge, which retrieval
     # treats as pure-confidence (no decay).
     "    r.first_seen_at = row.first_seen_at, "
-    "    r.last_seen_at = row.last_seen_at"
+    "    r.last_seen_at = row.last_seen_at" + _DROP_LEGACY_EVIDENCE
 )
 
 
@@ -211,9 +210,7 @@ _UPSERT_CYPHER_DELTA = _build_upsert_cypher(replace=False)
 _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 
 
-# Every read surfaces evidence under the domain name, preferring the authoritative
-# new key, so the physical spelling stops at this module.
-_EVIDENCE_READ = "coalesce({r}.evidence_refs, {r}.evidence_msg_ids)"
+_EVIDENCE_READ = "{r}.evidence_refs"
 
 # An edge the backfill still has to copy: written by N-1 (no new key) or touched
 # by an N-1 writer after a copy (new key stale).
@@ -274,9 +271,9 @@ class Neo4jAsyncDriver:
             "-[r:REL]->(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, "
             "o.name AS object, r.confidence AS confidence, "
-            # The snapshot is data that crosses versions (Redis, 24 h): an N-1
-            # restore prefers evidence_msg_ids, so it carries both keys, equal.
-            f"{evidence} AS evidence_refs, {evidence} AS evidence_msg_ids, "
+            # Release B's restore reads either key, the new one first, so a
+            # snapshot crossing back to it (Redis, 24 h) needs only the new key.
+            f"{evidence} AS evidence_refs, "
             "r.source_member_ids AS source_member_ids, "
             "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at, "
             "r.build_id AS build_id"
