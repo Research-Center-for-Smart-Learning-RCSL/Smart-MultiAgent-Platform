@@ -118,7 +118,7 @@ const messageSplitLabel = computed(() =>
           />
           <span>{{ room.online_count === null ? t('dashboard.unavailableShort') : t('dashboard.onlineCount', { count: formatNumber(room.online_count, locale) }) }}</span>
         </span>
-        <span>{{ t('dashboard.participantCount', { count: formatNumber(room.participant_count, locale) }) }}</span>
+        <span>{{ t('dashboard.participantCount', { count: formatNumber(room.participant_count, locale) }, room.participant_count) }}</span>
       </div>
 
       <div class="mt-3">

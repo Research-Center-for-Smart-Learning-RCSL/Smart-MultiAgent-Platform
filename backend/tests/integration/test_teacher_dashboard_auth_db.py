@@ -23,6 +23,7 @@ from app.api.v1.dashboard import (
 )
 from app.api.v1.research_export import create_research_export
 from contexts.activities.domain.models import ValidatorKind
+from contexts.activities.infrastructure import tables as activities_t
 from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
@@ -303,6 +304,18 @@ async def test_watchlist_excludes_project_owner_and_names_recent_guest(
         ):
             activation = await ActivationRepository(db).get(activation_ref)
             assert activation is not None
+            if room_id == scenario.visible_room_id:
+                # A student present in the group round is still not a row of their own (AC-17).
+                await db.execute(
+                    conversation_t.messages.insert().values(
+                        id=uuid.uuid4(),
+                        chatroom_id=room_id,
+                        sender_type=SenderType.USER.value,
+                        sender_id=scenario.member_id,
+                        content_md="student message",
+                        created_at=activation.created_at + dt.timedelta(seconds=1),
+                    )
+                )
             await db.execute(
                 conversation_t.messages.insert().values(
                     id=uuid.uuid4(),
@@ -348,6 +361,115 @@ async def test_watchlist_excludes_project_owner_and_names_recent_guest(
             scenario.project_id,
             [scenario.owner_id, scenario.member_id],
         )
+
+
+@pytest.mark.asyncio
+async def test_watchlist_flags_present_students_by_their_round_submissions(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """AC-15: five students present in an individual round, through the real roster queries."""
+    async with sessionmaker() as db:
+        scenario = await _room_scenario(db)
+        u = uuid.uuid4().hex[:10]
+        users = UserRepository(db)
+        names = ("Ann None", "Ben Invalid", "Cal Idle", "Dee Fresh", "Eve Fresh")
+        students = [
+            (
+                await users.insert(
+                    email=f"td-student-{i}-{u}@test.invalid", password_hash="x" * 16, display_name=name
+                )
+            ).id
+            for i, name in enumerate(names)
+        ]
+        for student in students:
+            await ProjectMemberRepository(db).add(
+                project_id=scenario.project_id, user_id=student, role=ProjectMemberRole.MEMBER
+            )
+        type_id = await ActivityTypeRepository(db).create(
+            project_id=scenario.project_id,
+            key=f"dashboard-{uuid.uuid4().hex[:10]}",
+            name="Dashboard test",
+            payload_schema={},
+            validator_kind=ValidatorKind.IN_PROCESS,
+            validator_config={"validator_id": "filled_count", "min_filled": 1},
+            retention_days=None,
+            expose_payload_to_agent=True,
+            echo_includes_content=False,
+        )
+        room = scenario.visible_room_id
+        activation_id = await ActivationRepository(db).create_active(
+            chatroom_id=room, activity_type_id=type_id, started_by_user_id=scenario.owner_id
+        )
+        assert activation_id is not None
+        now_at = dt.datetime.now(dt.UTC)
+        started = now_at - dt.timedelta(minutes=20)
+        await db.execute(
+            activities_t.activity_activations.update()
+            .where(activities_t.activity_activations.c.id == activation_id)
+            .values(created_at=started)
+        )
+        sessions = ActivitySessionRepository(db)
+        # Per student: (is_valid, minutes ago) for each submission.
+        plans: list[list[tuple[bool, int]]] = [[], [(False, 3)], [(True, 12)], [(True, 0)], [(True, 0)]]
+        for student, plan in zip(students, plans, strict=True):
+            await db.execute(
+                conversation_t.messages.insert().values(
+                    id=uuid.uuid4(),
+                    chatroom_id=room,
+                    sender_type=SenderType.USER.value,
+                    sender_id=student,
+                    content_md="present",
+                    created_at=started + dt.timedelta(minutes=1),
+                )
+            )
+            session_id = await sessions.create_open(
+                activity_type_id=type_id,
+                chatroom_id=room,
+                subject_user_id=student,
+                activation_id=activation_id,
+            )
+            assert session_id is not None
+            for attempt, (valid, minutes_ago) in enumerate(plan, start=1):
+                await db.execute(
+                    activities_t.activity_submissions.insert().values(
+                        id=uuid.uuid4(),
+                        session_id=session_id,
+                        activity_type_id=type_id,
+                        chatroom_id=room,
+                        producer_user_id=student,
+                        attempt_no=attempt,
+                        validation_status="validated",
+                        is_valid=valid,
+                        created_at=now_at - dt.timedelta(minutes=minutes_ago, seconds=30),
+                    )
+                )
+        await db.commit()
+
+        try:
+            result = await dashboard_watchlist(
+                workspace_id=scenario.workspace_id,
+                principal=_principal(scenario.owner_id),
+                db=db,
+            )
+            rows = {entry.display_name: entry for entry in result.entries if entry.room_id == room}
+            assert set(rows) == set(names)
+            assert {name: (rows[name].needs_attention, rows[name].reason) for name in names} == {
+                "Ann None": (True, "no_valid_in_round"),
+                "Ben Invalid": (True, "no_valid_in_round"),
+                "Cal Idle": (True, "idle"),
+                "Dee Fresh": (False, None),
+                "Eve Fresh": (False, None),
+            }
+            assert all(entry.kind == "user" for entry in rows.values())
+            # Flagged rows sort first.
+            flags = [entry.needs_attention for entry in result.entries if entry.room_id == room]
+            assert flags == sorted(flags, reverse=True)
+        finally:
+            await _cleanup_project_and_users(
+                sessionmaker,
+                scenario.project_id,
+                [scenario.owner_id, scenario.member_id, *students],
+            )
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-19
 requirements: [R33.01, R33.02, R33.03, R33.04, R33.10, R13.32, R8.08, R8.09, R8.11, R28.18, R24.27, R24.28]
 depends_on: []
@@ -558,13 +558,13 @@ Stage A
 
 Stage B
 
-- [ ] AC-4: A project member who cannot open room B (owners-only) receives no trace of B from
+- [x] AC-4: A project member who cannot open room B (owners-only) receives no trace of B from
   the summary; an owner receives B (route test against the real gate, not a mock).
-- [ ] AC-5: An Org Owner without an explicit project row can request a research export (200) and
+- [x] AC-5: An Org Owner without an explicit project row can request a research export (200) and
   sees the button; a Project Member gets 403 and no button.
 - [x] AC-6: With the sidebar store on project P1 and the page on a P2 workspace, the export
   button follows the caller's role in P2 (component test).
-- [ ] AC-7: The same caller as AC-4 receives no bucket and no watchlist row for room B from the
+- [x] AC-7: The same caller as AC-4 receives no bucket and no watchlist row for room B from the
   timeseries and watchlist reads.
 - [x] AC-8: The project socket admits an Org Owner without an explicit row and refuses a bare
   Org Member; a refused client stops reconnecting.
@@ -578,19 +578,19 @@ Stage C
   2 minutes ago with no submission gives `green`; last valid 10 minutes ago gives `yellow`; last
   valid 20 minutes ago gives `red`; invalid submissions do not refresh the status (unit tests on
   the status function and a route test).
-- [ ] AC-12: Summary counts cover only the current round: a submission in an earlier ended round
+- [x] AC-12: Summary counts cover only the current round: a submission in an earlier ended round
   is not counted once a new round is active (db test).
 - [x] AC-13: No `ws:project` frame contains a display name (broadcast test asserting frame keys).
-- [ ] AC-14: The research export output is byte-identical in its subject columns before and after
+- [x] AC-14: The research export output is byte-identical in its subject columns before and after
   this change for the same fixture (builder test).
-- [ ] AC-15: Watchlist: in a round with five present students where one has zero submissions,
+- [x] AC-15: Watchlist: in a round with five present students where one has zero submissions,
   one only invalid ones, one a valid submission 12 minutes ago and two a valid submission in the
   last minute, the first three are flagged with reasons `no_valid_in_round`,
   `no_valid_in_round` and `idle`, the last two are listed unflagged, and all carry display names
   (db test exercising the real roster queries).
-- [ ] AC-16: A project owner who posts in the room is not on the watchlist; a guest session seen
+- [x] AC-16: A project owner who posts in the room is not on the watchlist; a guest session seen
   since the round start appears with its guest label.
-- [ ] AC-17: In a group round, watchlist rows are groups with member-group names.
+- [x] AC-17: In a group round, watchlist rows are groups with member-group names.
 - [x] AC-18: An invalid verdict and each watchdog swept submission emit a privacy-safe dashboard
   invalidation event.
 
@@ -606,22 +606,23 @@ Stage D
 - [x] AC-22: The chart has no Title plugin, uses a bucket of 5m, 15m or 1h for 1h, 6h or 24h,
   shows a continuous zero-filled axis across the whole window, shows one series per visible room,
   and gives a room the same colour after a window change and a reload.
-- [ ] AC-23: An event for a room in the current set invalidates the dashboard queries; an event
-  for an unknown room refetches the summary; a reconnect invalidates all dashboard queries.
+- [x] AC-23: (replaced per D-2 and D-7) A `dashboard.invalidated` event, which carries no room
+  data, invalidates every dashboard query after a 500 ms debounce; recovery from a degraded
+  connection invalidates every dashboard query.
 - [x] AC-24: With no stalled room, no alert element is rendered and a single success line is.
 
 Stage E
 
-- [ ] AC-25: Room cards show online count, participant count and the human/agent message split
+- [x] AC-25: Room cards show online count, participant count and the human/agent message split
   for the current round; with Redis unavailable, the online count renders a dash, not 0.
 
 Whole change
 
-- [ ] AC-26: Visual pass on a running stack (the `frontend:verify` skill) at 1280 px and 390 px,
+- [x] AC-26: Visual pass on a running stack (the `frontend:verify` skill) at 1280 px and 390 px,
   light and dark, `en` and `zh-TW`, with at least one red, one yellow, one green and one inactive
   room; screenshots attached to the PR or recorded in §15. Admin home, admin metrics and the keys
   usage dashboard are included for R-5.
-- [ ] AC-27: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `check:bundle-size`
+- [x] AC-27: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, `check:bundle-size`
   (DashboardView stays under 200 KB gzip), `check:openapi-drift`, `ruff check`, `ruff format
   --check`, `mypy` and `pytest -q` including the `db` tier pass on CI.
 
@@ -738,6 +739,26 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
   instead of the round's guest list. Presence is read once per request and shared by the online
   count and the roster. Commit `e6cf0b8e` carries Stage C and Stage E backend work under a
   `feat(frontend)` subject; history is left as is.
+- D-7. Close-out on 2026-11-03, after the code had been on main since 2026-10-20. Each open
+  criterion was mapped to the test that verifies it, and the gaps were filled. AC-14 is pinned by
+  `TestSubjectColumnsGolden` in `test_research_export_builder.py`, whose expected text is the
+  builder's output before the redesign: neither the builder nor `subject_code.py` changed in this
+  task. AC-15 is `test_watchlist_flags_present_students_by_their_round_submissions` and AC-17 is
+  the group-round student row added to `test_watchlist_excludes_project_owner_and_names_recent_guest`,
+  both in `test_teacher_dashboard_auth_db.py` against the real roster queries. AC-25 is covered by
+  `RoomStatusCard.test.ts` (counts, split, and a dash for an unknown online count) and by
+  `test_room_presence_is_none_not_empty_when_redis_fails`. AC-5 gains a negative button test in
+  `DashboardView.test.ts`; the export route answers 202 Accepted, not the 200 the criterion names,
+  and the Org Owner half rests on `ProjectOut.is_moderator`, which the server computes from the
+  inherited role and `useProjectRole` reads. AC-23 is reworded to the behaviour D-2 adopted, and
+  `useDashboardSocket.test.ts` verifies both of its clauses. The visual pass (AC-26) ran on
+  staging with all four states present at once, by starting rounds in two empty test rooms
+  several minutes apart and ending them afterwards; a room crossed from green to yellow on screen
+  with no reload. It found "1 participants" in English, fixed with a plural form. Chrome would not
+  size the window below 502 CSS px, which is above the 480 px `sm` breakpoint, so the
+  single-column layout a 390 px phone receives was not observed; AC-26 is closed with that
+  check moved to FU-12, by the requester's decision. AC-27 rests on PR #315's CI run, whose
+  `backend-db` job executed the new db-tier tests.
 
 ## 16. Follow-ups
 
@@ -758,3 +779,13 @@ Run `python scripts/traceability.py` after applying, so `docs/traceability.csv` 
 - FU-8. In the egress proxy, check the project hostname allowlist before DNS resolution. The proxy
   currently resolves an unallowlisted host before denying it, which can expose DNS query metadata
   to that host. The proxy and sandbox setup are unchanged by this dashboard task.
+- FU-9. At 1280 px the participants table sits in a third-width column and its last two columns
+  (last valid submission, reason) scroll out of view, though the reason is what a teacher acts on.
+  Give the table full width below `xl` or drop a column at that width.
+- FU-10. An inactive room whose last round was fully valid shows a green validity bar, which reads
+  as healthy next to a neutral status. Mute the bar for inactive rooms.
+- FU-11. On the project keys page the usage panel opens at the end of the key list rather than
+  under the key whose usage button was pressed (observed during the AC-26 pass; not part of this
+  task's change).
+- FU-12. Check the dashboard at 390 px on a phone or a device emulator: the room cards drop to
+  one column below the 480 px `sm` breakpoint, which the AC-26 pass could not reach.

@@ -144,6 +144,74 @@ class TestSubmissionsCsv:
         assert header == expected
 
 
+class TestSubjectColumnsGolden:
+    """Teacher dashboard redesign AC-14: the subject columns stay byte-identical.
+
+    The expected text was produced by the builder as it stood before the redesign
+    (its source and `subject_code.py` are unchanged since), so a drift here is a
+    change to what researchers receive.
+    """
+
+    _U = uuid.UUID("1a2b3c4d-0000-4000-8000-000000000001")
+    _G = uuid.UUID("5e6f7a8b-0000-4000-8000-000000000002")
+    _R = uuid.UUID("9c0d1e2f-0000-4000-8000-000000000003")
+    _AT = datetime(2026, 10, 19, 9, 30, tzinfo=UTC)
+
+    def test_submissions_csv(self) -> None:
+        rows = [
+            SubmissionRow(
+                chatroom_id=self._R,
+                subject_user_id=self._U,
+                subject_member_group_id=None,
+                activity_type_key="rat",
+                attempt_no=1,
+                is_valid=True,
+                error_class=None,
+                latency_ms=120,
+                created_at=self._AT,
+                payload={"a": "x"},
+                sub_scores={},
+            ),
+            SubmissionRow(
+                chatroom_id=self._R,
+                subject_user_id=None,
+                subject_member_group_id=self._G,
+                activity_type_key="rat",
+                attempt_no=2,
+                is_valid=False,
+                error_class="schema",
+                latency_ms=None,
+                created_at=self._AT,
+                payload={},
+                sub_scores={},
+            ),
+        ]
+        assert ResearchExportBuilder()._build_submissions_csv(rows) == (
+            "subject_code,activity_type_key,room_id,attempt_no,is_valid,error_class,latency_ms,"
+            "created_at,payload_json,sub_scores_json\r\n"
+            "u:1a2b3c4d,rat,9c0d1e2f-0000-4000-8000-000000000003,1,True,,120,"
+            '2026-10-19T09:30:00+00:00,"{""a"": ""x""}",{}\r\n'
+            "g:5e6f7a8b,rat,9c0d1e2f-0000-4000-8000-000000000003,2,False,schema,,"
+            "2026-10-19T09:30:00+00:00,{},{}\r\n"
+        )
+
+    def test_transcripts_json(self) -> None:
+        rows = [
+            MessageRow(
+                chatroom_id=self._R,
+                sender_type="user",
+                sender_id=self._U,
+                content_md="hi",
+                created_at=self._AT,
+            )
+        ]
+        assert ResearchExportBuilder()._build_transcripts_json(rows, {}) == (
+            '{\n  "9c0d1e2f-0000-4000-8000-000000000003": [\n    {\n'
+            '      "subject_code": "u:1a2b3c4d",\n      "sender_type": "user",\n'
+            '      "content_md": "hi",\n      "created_at": "2026-10-19T09:30:00+00:00"\n    }\n  ]\n}'
+        )
+
+
 class TestObservationsJson:
     def test_blocks_preserved_as_structured_json(self) -> None:
         builder = ResearchExportBuilder()

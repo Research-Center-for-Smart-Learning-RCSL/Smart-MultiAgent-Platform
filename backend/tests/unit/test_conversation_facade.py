@@ -82,3 +82,28 @@ async def test_list_attachments_for_messages_groups_by_message_id() -> None:
     grouped = await facade.list_attachments_for_messages([m1, m2])
 
     assert grouped == {m1: [a1], m2: [a2]}
+
+
+async def test_room_presence_is_none_not_empty_when_redis_fails(monkeypatch) -> None:
+    """Teacher dashboard AC-25: an unreadable presence store must not read as zero online."""
+    import contexts.conversation.interfaces.facade as facade_mod
+
+    class _Down:
+        async def list_rooms(self, _room_ids):
+            raise ConnectionError("redis down")
+
+    class _Up:
+        async def list_rooms(self, room_ids):
+            return {room_ids[0]: [uuid.uuid4()]}
+
+    room, empty = uuid.uuid4(), uuid.uuid4()
+    facade = ConversationFacade(AsyncMock())
+
+    monkeypatch.setattr(facade_mod, "PresenceTracker", _Down)
+    assert await facade.room_presence([room]) is None
+
+    monkeypatch.setattr(facade_mod, "PresenceTracker", _Up)
+    out = await facade.room_presence([room, empty])
+    assert out is not None
+    assert len(out[room]) == 1
+    assert out[empty] == []
