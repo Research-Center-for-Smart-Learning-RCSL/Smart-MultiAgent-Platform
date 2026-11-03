@@ -185,6 +185,26 @@ class TestTheAgentDecides:
         finished = h.trace.audited("agent.turn_finished")
         assert finished[-1]["recheck"] == "unchanged"
 
+    async def test_the_drafts_output_shape_is_kept_beside_the_rechecks(self, monkeypatch) -> None:
+        """[R13.80]: the reviewed draft came from the first response, so its shape is kept."""
+        draft_shape = [{"type": "message", "phase": "final_answer", "chars": 4}]
+        recheck_shape = [{"type": "message", "phase": "commentary", "chars": 9}]
+        h = _Harness(
+            monkeypatch,
+            outcomes=[
+                te.ToolLoopOutcome(text="Same", rounds=0, output_shape=draft_shape),
+                te.ToolLoopOutcome(text="", rounds=0, output_shape=recheck_shape),
+            ],
+            fresh=[_row("more")],
+        )
+
+        await h.run()
+
+        finished = h.trace.audited("agent.turn_finished")[-1]
+        assert finished["recheck"] == "withdrawn"
+        assert finished["output_shape"] == recheck_shape
+        assert finished["draft_output_shape"] == draft_shape
+
     async def test_an_empty_recheck_withdraws_the_reply(self, monkeypatch) -> None:
         """AC-3."""
         h = _Harness(monkeypatch, outcomes=[_out("Stale"), _out("")], fresh=[_row("more")])

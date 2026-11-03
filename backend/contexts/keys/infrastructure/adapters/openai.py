@@ -292,6 +292,41 @@ def _usage(data: dict[str, Any]) -> tuple[int, int]:
     return int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
 
 
+_FINAL_PHASE = "final_answer"
+# The shape is provider-controlled input written to every turn's audit row.
+_SHAPE_MAX_ITEMS = 32
+_SHAPE_MAX_CHARS = 32
+
+
+def _is_reply(item: dict[str, Any]) -> bool:
+    """[R13.80]: a message the model marked as anything but its final answer is not
+    the reply. One rule for the stored text and the streamed tokens."""
+    phase = item.get("phase")
+    return not phase or phase == _FINAL_PHASE
+
+
+def _message_text(item: dict[str, Any]) -> str:
+    return "".join(
+        part["text"]
+        for part in item.get("content") or []
+        if part.get("type") == "output_text" and part.get("text")
+    )
+
+
+def _with_text(output: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str | None]]:
+    return [(item, _message_text(item) if item.get("type") == "message" else None) for item in output]
+
+
+def _item_shape(item: dict[str, Any], text: str | None) -> dict[str, Any]:
+    """Structure only, for the turn's audit row ([R13.80]): never text or ids."""
+    shape: dict[str, Any] = {"type": str(item.get("type"))[:_SHAPE_MAX_CHARS]}
+    if item.get("phase"):
+        shape["phase"] = str(item["phase"])[:_SHAPE_MAX_CHARS]
+    if text is not None:
+        shape["chars"] = len(text)
+    return shape
+
+
 def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]:
     """Response object -> the neutral chat body the turn engine consumes.
 
@@ -299,16 +334,13 @@ def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]
     carries the same object the non-streaming call returns, so there is exactly
     one place where output items become `{text, tool_calls, finish_reason}`.
     """
-    text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     output = data.get("output") or []
+    with_text = _with_text(output)
+    # Commentary is left out of the reply but stays in `provider_items` for the model.
+    text = "".join(t for item, t in with_text if t is not None and _is_reply(item))
     for item in output:
-        kind = item.get("type")
-        if kind == "message":
-            for part in item.get("content") or []:
-                if part.get("type") == "output_text" and part.get("text"):
-                    text_parts.append(part["text"])
-        elif kind == "function_call":
+        if item.get("type") == "function_call":
             tool_calls.append(
                 {
                     # `call_id`, not the item's own `id`: this is the value the
@@ -319,9 +351,10 @@ def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]
                 }
             )
     return {
-        "text": "".join(text_parts),
+        "text": text,
         "tool_calls": tool_calls,
         "finish_reason": _finish_reason(data),
+        "output_shape": [_item_shape(item, t) for item, t in with_text[:_SHAPE_MAX_ITEMS]],
         # Opaque above this module: the turn engine copies both onto the
         # assistant turn without reading either, and `_input_items` replays the
         # items only when the tag still matches the key in hand. See Q-4 and
@@ -418,12 +451,20 @@ class OpenAIAdapter:
                         ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
+                # Output indexes of items `_is_reply` rejects, as announced by
+                # `output_item.added`. A phase that only arrives later cannot be
+                # applied to tokens already sent; the stored reply still drops it.
+                not_final: set[int] = set()
                 async for data in base.iter_sse_lines(resp):
                     ev = json.loads(data)
                     kind = ev.get("type")
-                    if kind == "response.output_text.delta":
+                    if kind == "response.output_item.added":
+                        index = ev.get("output_index")
+                        if index is not None and not _is_reply(ev.get("item") or {}):
+                            not_final.add(index)
+                    elif kind == "response.output_text.delta":
                         chunk = ev.get("delta")
-                        if chunk:
+                        if chunk and ev.get("output_index") not in not_final:
                             yield TokenDelta(chunk)
                     elif kind in ("response.completed", "response.incomplete"):
                         # `incomplete` is truncation, not an error: it carries a

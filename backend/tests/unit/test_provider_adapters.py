@@ -943,6 +943,134 @@ async def test_openai_stream_cut_before_a_terminal_event_is_a_failure() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# OpenAI message phases ([R13.80])                                             #
+# --------------------------------------------------------------------------- #
+def _phased_item(text: str, phase: str) -> dict:
+    return {**_text_item(text), "phase": phase}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_reply_is_the_final_answer_without_commentary() -> None:
+    output = [_phased_item("Need concise notes.", "commentary"), _phased_item("答對了。", "final_answer")]
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6-luna"))
+    assert res.body["text"] == "答對了。"
+    # The model's own context keeps every item, commentary included.
+    assert res.body["provider_items"] == output
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_stream_does_not_relay_commentary_tokens() -> None:
+    output = [_phased_item("Plan.", "commentary"), _phased_item("答對了。", "final_answer")]
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {"type": "response.output_item.added", "output_index": 0, "item": {**output[0], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 0, "delta": "Plan."},
+            {"type": "response.output_item.added", "output_index": 1, "item": {**output[1], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 1, "delta": "答對"},
+            {"type": "response.output_text.delta", "output_index": 1, "delta": "了。"},
+            {"type": "response.completed", "response": _response_obj(output=output)},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-6-luna"))]
+    assert "".join(e.text for e in events if isinstance(e, TokenDelta)) == "答對了。"
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body["text"] == "答對了。"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_phased_output_without_a_final_answer_is_an_empty_reply() -> None:
+    output = [_phased_item("Thinking about the round.", "commentary")]
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6-luna"))
+    assert res.body["text"] == ""
+    assert res.body["provider_items"] == output
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_unphased_messages_are_joined_as_before() -> None:
+    output = [_text_item("Hel"), _text_item("lo")]
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
+    assert res.body["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_an_unphased_message_beside_a_final_answer_streams_and_is_stored() -> None:
+    # One rule for both paths: only a message marked as something other than the
+    # final answer is left out, so what streams is what is stored.
+    output = [_text_item("前言。"), _phased_item("答對了。", "final_answer")]
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {"type": "response.output_item.added", "output_index": 0, "item": {**output[0], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 0, "delta": "前言。"},
+            {"type": "response.output_item.added", "output_index": 1, "item": {**output[1], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 1, "delta": "答對了。"},
+            {"type": "response.completed", "response": _response_obj(output=output)},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-6-luna"))]
+    streamed = "".join(e.text for e in events if isinstance(e, TokenDelta))
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert streamed == final.result.body["text"] == "前言。答對了。"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_an_added_event_without_an_index_suppresses_nothing() -> None:
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {"type": "response.output_item.added", "item": {"type": "message", "phase": "commentary"}},
+            {"type": "response.output_text.delta", "delta": "Hi"},
+            {"type": "response.completed", "response": _response_obj(output=[_text_item("Hi")])},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-6-luna"))]
+    assert "".join(e.text for e in events if isinstance(e, TokenDelta)) == "Hi"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_output_shape_is_capped() -> None:
+    output = [{"type": "x" * 500, "phase": "p" * 500}] * 100
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6-luna"))
+    shape = res.body["output_shape"]
+    assert len(shape) == 32
+    assert shape[0] == {"type": "x" * 32, "phase": "p" * 32}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_output_shape_records_structure_but_no_text() -> None:
+    output = [
+        {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque"},
+        _phased_item("Plan.", "commentary"),
+        _phased_item("答對了。", "final_answer"),
+        _call_item("c1", "end_activity", "{}"),
+    ]
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6-luna"))
+    assert res.body["output_shape"] == [
+        {"type": "reasoning"},
+        {"type": "message", "phase": "commentary", "chars": 5},
+        {"type": "message", "phase": "final_answer", "chars": 4},
+        {"type": "function_call"},
+    ]
+    dumped = json.dumps(res.body["output_shape"], ensure_ascii=False)
+    assert "Plan" not in dumped
+    assert "答對" not in dumped
+    assert "opaque" not in dumped
+
+
+# --------------------------------------------------------------------------- #
 # Gemini — key MUST be a header, never the query string                        #
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
