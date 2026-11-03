@@ -293,7 +293,6 @@ def _usage(data: dict[str, Any]) -> tuple[int, int]:
 
 
 _FINAL_PHASE = "final_answer"
-_COMMENTARY_PHASE = "commentary"
 
 
 def _message_text(item: dict[str, Any]) -> str:
@@ -445,18 +444,20 @@ class OpenAIAdapter:
                         ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
-                # Output indexes of commentary messages, whose deltas are not the
-                # reply ([R13.80]); an index never announced streams as before.
-                commentary: set[int] = set()
+                # Output indexes of messages marked as something other than the
+                # final answer, by the same rule as `_normalise_response`
+                # ([R13.80]); an index never announced streams as before.
+                not_final: set[int] = set()
                 async for data in base.iter_sse_lines(resp):
                     ev = json.loads(data)
                     kind = ev.get("type")
                     if kind == "response.output_item.added":
-                        if (ev.get("item") or {}).get("phase") == _COMMENTARY_PHASE:
-                            commentary.add(ev.get("output_index"))
+                        phase = (ev.get("item") or {}).get("phase")
+                        if phase and phase != _FINAL_PHASE:
+                            not_final.add(ev.get("output_index"))
                     elif kind == "response.output_text.delta":
                         chunk = ev.get("delta")
-                        if chunk and ev.get("output_index") not in commentary:
+                        if chunk and ev.get("output_index") not in not_final:
                             yield TokenDelta(chunk)
                     elif kind in ("response.completed", "response.incomplete"):
                         # `incomplete` is truncation, not an error: it carries a
