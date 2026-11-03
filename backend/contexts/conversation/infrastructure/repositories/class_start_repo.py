@@ -1,4 +1,4 @@
-"""A room's autonomous class start ([R15.27]): its setting and its once-per-class claim."""
+"""A room's class start and close ([R15.27], [R15.30]): the setting and the once-per-class claims."""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ from contexts.conversation.domain.models import ClassStartConfig, ClassStartStat
 from contexts.conversation.infrastructure import tables as t
 
 _R = t.chatrooms
-_COLUMNS = (_R.c.id, _R.c.class_start_config, _R.c.class_first_arrival_at, _R.c.class_started_at)
+_COLUMNS = (
+    _R.c.id,
+    _R.c.class_start_config,
+    _R.c.class_first_arrival_at,
+    _R.c.class_started_at,
+    _R.c.class_closed_at,
+)
 
 
 def _state(row: Any) -> ClassStartState:
@@ -21,6 +27,7 @@ def _state(row: Any) -> ClassStartState:
         config=ClassStartConfig.from_stored(row.class_start_config),
         first_arrival_at=row.class_first_arrival_at,
         started_at=row.class_started_at,
+        closed_at=row.class_closed_at,
     )
 
 
@@ -36,6 +43,8 @@ def _armed() -> sa.ColumnElement[bool]:
         _R.c.class_start_config.isnot(None),
         _R.c.class_start_config["enabled"].as_boolean().is_(True),
         _R.c.class_started_at.is_(None),
+        # [R15.30]: a closed room does not start a class until it is reopened.
+        _R.c.class_closed_at.is_(None),
     )
 
 
@@ -105,12 +114,33 @@ class ClassStartRepository:
         if reset:
             values["class_started_at"] = None
             values["class_first_arrival_at"] = None
+            values["class_closed_at"] = None
         row = (
             await self._db.execute(
                 _R.update().where(_live(chatroom_id)).values(**values).returning(*_COLUMNS)
             )
         ).first()
         return _state(row) if row is not None else None
+
+    async def claim_close(self, chatroom_id: uuid.UUID) -> bool:
+        """Mark the class closed; ``True`` for exactly one caller per class."""
+        result = await self._db.execute(
+            _R.update()
+            .where(sa.and_(_live(chatroom_id), _R.c.class_closed_at.is_(None)))
+            .values(class_closed_at=sa.func.now())
+            .returning(_R.c.id)
+        )
+        return result.first() is not None
+
+    async def reopen(self, chatroom_id: uuid.UUID) -> bool:
+        """Clear the close; ``True`` only when the room was closed."""
+        result = await self._db.execute(
+            _R.update()
+            .where(sa.and_(_live(chatroom_id), _R.c.class_closed_at.isnot(None)))
+            .values(class_closed_at=None)
+            .returning(_R.c.id)
+        )
+        return result.first() is not None
 
 
 __all__ = ["ClassStartRepository"]

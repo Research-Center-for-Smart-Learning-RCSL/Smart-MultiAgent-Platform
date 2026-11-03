@@ -67,6 +67,7 @@ def _row_to_chatroom(row: Any) -> Chatroom:
         created_by_user_id=row.created_by_user_id,
         disclose_observers=row.disclose_observers,
         disclose_drafts=row.disclose_drafts,
+        class_closed_at=row.class_closed_at,
     )
 
 

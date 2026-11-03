@@ -107,6 +107,8 @@ class Chatroom:
     # §32 ([R32.05]). True by default, matching `disclose_observers` and the column:
     # a room that has never been configured tells its participants.
     disclose_drafts: bool = True
+    # [R15.30]: while set, no automatic trigger runs a turn in this room.
+    class_closed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,11 +372,17 @@ class ClassStartState:
     config: ClassStartConfig | None
     first_arrival_at: datetime | None
     started_at: datetime | None
+    closed_at: datetime | None = None
 
     @property
     def armed(self) -> bool:
-        """Configured, switched on, and not yet started in this class."""
-        return self.config is not None and self.config.enabled and self.started_at is None
+        """Configured, switched on, and neither started nor closed in this class ([R15.30])."""
+        return (
+            self.config is not None
+            and self.config.enabled
+            and self.started_at is None
+            and self.closed_at is None
+        )
 
 
 __all__ = [
