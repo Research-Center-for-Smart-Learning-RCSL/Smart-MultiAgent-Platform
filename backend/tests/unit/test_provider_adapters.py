@@ -1002,6 +1002,53 @@ async def test_openai_unphased_messages_are_joined_as_before() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_openai_an_unphased_message_beside_a_final_answer_streams_and_is_stored() -> None:
+    # One rule for both paths: only a message marked as something other than the
+    # final answer is left out, so what streams is what is stored.
+    output = [_text_item("前言。"), _phased_item("答對了。", "final_answer")]
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {"type": "response.output_item.added", "output_index": 0, "item": {**output[0], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 0, "delta": "前言。"},
+            {"type": "response.output_item.added", "output_index": 1, "item": {**output[1], "content": []}},
+            {"type": "response.output_text.delta", "output_index": 1, "delta": "答對了。"},
+            {"type": "response.completed", "response": _response_obj(output=output)},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-6-luna"))]
+    streamed = "".join(e.text for e in events if isinstance(e, TokenDelta))
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert streamed == final.result.body["text"] == "前言。答對了。"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_an_added_event_without_an_index_suppresses_nothing() -> None:
+    respx.post(_RESPONSES_URL).mock(
+        return_value=_sse(
+            {"type": "response.output_item.added", "item": {"type": "message", "phase": "commentary"}},
+            {"type": "response.output_text.delta", "delta": "Hi"},
+            {"type": "response.completed", "response": _response_obj(output=[_text_item("Hi")])},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-6-luna"))]
+    assert "".join(e.text for e in events if isinstance(e, TokenDelta)) == "Hi"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_output_shape_is_capped() -> None:
+    output = [{"type": "x" * 500, "phase": "p" * 500}] * 100
+    respx.post(_RESPONSES_URL).respond(200, json=_response_obj(output=output))
+    res = await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-6-luna"))
+    shape = res.body["output_shape"]
+    assert len(shape) == 32
+    assert shape[0] == {"type": "x" * 32, "phase": "p" * 32}
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_openai_output_shape_records_structure_but_no_text() -> None:
     output = [
         {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque"},

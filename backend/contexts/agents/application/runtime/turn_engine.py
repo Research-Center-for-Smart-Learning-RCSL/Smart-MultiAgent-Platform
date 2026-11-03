@@ -3739,6 +3739,7 @@ class TurnEngine:
             # to post. Only for a draft whose turn changed nothing a room can see,
             # so withdrawing or rewriting it cannot orphan a side effect.
             recheck: str | None = None
+            draft_shape: list[dict[str, Any]] | None = None
             draft_out = observation_md or final_text
             if (
                 (final_text.strip() or observation_md.strip())
@@ -3768,6 +3769,9 @@ class TurnEngine:
                 )
                 if rechecked is not None:
                     recheck_claim = rechecked.claim
+                    # The draft under review came from the first response; keep its
+                    # structure next to the recheck's ([R13.80]).
+                    draft_shape = outcome.output_shape
                     outcome = rechecked.outcome
                     final_text = outcome.text
                     rounds += outcome.rounds
@@ -3784,6 +3788,8 @@ class TurnEngine:
                         recheck = "revised"
                     synthesis_meta = {**synthesis_meta, "recheck": recheck}
             shape_meta = _shape_meta(outcome)
+            if draft_shape is not None:
+                shape_meta["draft_output_shape"] = draft_shape
 
             if not final_text.strip() and not observation_md.strip():
                 # Nothing to say — never persist an empty agent message. When the
@@ -5028,6 +5034,7 @@ class TurnEngine:
         actually ran, which is what decides whether a turn may be re-checked."""
         tool_specs = registry.specs()
         last_text = ""
+        last_shape: list[dict[str, Any]] | None = None
         tool_rounds = 0
         rejections = 0
         # Sticky, not one-shot: once a rejection has been blamed on the replayed
@@ -5089,9 +5096,10 @@ class TurnEngine:
                 continue
 
             last_text = str(body.get("text", ""))
+            last_shape = _output_shape(body)
             tool_calls = body.get("tool_calls") or []
             if not tool_calls:
-                return ToolLoopOutcome(text=last_text, rounds=tool_rounds, output_shape=_output_shape(body))
+                return ToolLoopOutcome(text=last_text, rounds=tool_rounds, output_shape=last_shape)
             # The response was cut off at the output ceiling, so whatever it was
             # writing when it stopped is incomplete. For a tool_use block that
             # means the argument JSON is unterminated, which both adapters that
@@ -5254,6 +5262,7 @@ class TurnEngine:
                 rounds=tool_rounds,
                 synthesis_failed=True,
                 error_kind=_err_kind(exc),
+                output_shape=last_shape,
             )
         if final_body is None:
             # The call did not raise but no terminal event arrived, so there is no
@@ -5266,6 +5275,7 @@ class TurnEngine:
                 rounds=tool_rounds,
                 synthesis_failed=True,
                 error_kind="provider_no_terminal_event",
+                output_shape=last_shape,
             )
         return ToolLoopOutcome(
             text=str(final_body.get("text", "")), rounds=tool_rounds, output_shape=_output_shape(final_body)

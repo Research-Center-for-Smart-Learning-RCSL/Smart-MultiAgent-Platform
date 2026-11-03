@@ -140,6 +140,67 @@ class _QuietPublisher:
         return None
 
 
+_ROUND_SHAPE = [{"type": "message", "phase": "commentary", "chars": 26}, {"type": "function_call"}]
+
+
+class _RoundsThenFailingSynthesis:
+    """Every tool round reports a shape; the final no-tools call then fails."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def call_stream(self, *, group_id: Any, request: Any) -> Any:
+        self.calls += 1
+        if self.calls > te.MAX_TOOL_ROUNDS:
+            raise RuntimeError("provider down")
+        yield StreamComplete(
+            ProviderCallResult(
+                200,
+                {
+                    "text": "Let me check that for you.",
+                    "tool_calls": [{"id": "t1", "name": "noop", "arguments": {}}],
+                    "finish_reason": "tool_use",
+                    "output_shape": _ROUND_SHAPE,
+                },
+            )
+        )
+
+
+def _loop_agent() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        effort=None,
+        temperature=None,
+        top_p=None,
+        seed=None,
+        custom_capabilities=None,
+    )
+
+
+async def test_a_failed_synthesis_keeps_the_last_rounds_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The posted text is the last round's, so that round's structure is what explains it.
+    monkeypatch.setattr(te, "Publisher", _QuietPublisher)
+    engine: Any = te.TurnEngine.__new__(te.TurnEngine)
+    engine._router = _RoundsThenFailingSynthesis()
+
+    outcome = await engine._stream_with_tools(
+        agent=_loop_agent(),
+        chatroom_id=uuid.uuid4(),
+        parent_agent_id=None,
+        system_text="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        provider=ApiKeyProvider.OPENAI,
+        model="gpt-6-luna",
+        registry=_OneToolRegistry(),
+        room=None,
+    )
+
+    assert outcome.synthesis_failed is True
+    assert outcome.text == "Let me check that for you."
+    assert outcome.output_shape == _ROUND_SHAPE
+
+
 async def test_the_loop_keeps_the_final_responses_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(te, "Publisher", _QuietPublisher)
     engine: Any = te.TurnEngine.__new__(te.TurnEngine)

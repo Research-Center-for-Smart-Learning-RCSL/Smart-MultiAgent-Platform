@@ -293,6 +293,16 @@ def _usage(data: dict[str, Any]) -> tuple[int, int]:
 
 
 _FINAL_PHASE = "final_answer"
+# The shape is provider-controlled input written to every turn's audit row.
+_SHAPE_MAX_ITEMS = 32
+_SHAPE_MAX_CHARS = 32
+
+
+def _is_reply(item: dict[str, Any]) -> bool:
+    """[R13.80]: a message the model marked as anything but its final answer is not
+    the reply. One rule for the stored text and the streamed tokens."""
+    phase = item.get("phase")
+    return not phase or phase == _FINAL_PHASE
 
 
 def _message_text(item: dict[str, Any]) -> str:
@@ -309,9 +319,9 @@ def _with_text(output: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str |
 
 def _item_shape(item: dict[str, Any], text: str | None) -> dict[str, Any]:
     """Structure only, for the turn's audit row ([R13.80]): never text or ids."""
-    shape: dict[str, Any] = {"type": str(item.get("type"))}
+    shape: dict[str, Any] = {"type": str(item.get("type"))[:_SHAPE_MAX_CHARS]}
     if item.get("phase"):
-        shape["phase"] = str(item["phase"])
+        shape["phase"] = str(item["phase"])[:_SHAPE_MAX_CHARS]
     if text is not None:
         shape["chars"] = len(text)
     return shape
@@ -327,11 +337,8 @@ def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]
     tool_calls: list[dict[str, Any]] = []
     output = data.get("output") or []
     with_text = _with_text(output)
-    messages = [(item, t) for item, t in with_text if t is not None]
-    # [R13.80]: once the model marks its messages with a phase, only the final
-    # answer is the reply; commentary stays in `provider_items` for the model.
-    phased = any(item.get("phase") for item, _ in messages)
-    text = "".join(t for item, t in messages if not phased or item.get("phase") == _FINAL_PHASE)
+    # Commentary is left out of the reply but stays in `provider_items` for the model.
+    text = "".join(t for item, t in with_text if t is not None and _is_reply(item))
     for item in output:
         if item.get("type") == "function_call":
             tool_calls.append(
@@ -347,7 +354,7 @@ def _normalise_response(data: dict[str, Any], *, key_tag: str) -> dict[str, Any]
         "text": text,
         "tool_calls": tool_calls,
         "finish_reason": _finish_reason(data),
-        "output_shape": [_item_shape(item, t) for item, t in with_text],
+        "output_shape": [_item_shape(item, t) for item, t in with_text[:_SHAPE_MAX_ITEMS]],
         # Opaque above this module: the turn engine copies both onto the
         # assistant turn without reading either, and `_input_items` replays the
         # items only when the tag still matches the key in hand. See Q-4 and
@@ -444,17 +451,17 @@ class OpenAIAdapter:
                         ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
-                # Output indexes of messages marked as something other than the
-                # final answer, by the same rule as `_normalise_response`
-                # ([R13.80]); an index never announced streams as before.
+                # Output indexes of items `_is_reply` rejects, as announced by
+                # `output_item.added`. A phase that only arrives later cannot be
+                # applied to tokens already sent; the stored reply still drops it.
                 not_final: set[int] = set()
                 async for data in base.iter_sse_lines(resp):
                     ev = json.loads(data)
                     kind = ev.get("type")
                     if kind == "response.output_item.added":
-                        phase = (ev.get("item") or {}).get("phase")
-                        if phase and phase != _FINAL_PHASE:
-                            not_final.add(ev.get("output_index"))
+                        index = ev.get("output_index")
+                        if index is not None and not _is_reply(ev.get("item") or {}):
+                            not_final.add(index)
                     elif kind == "response.output_text.delta":
                         chunk = ev.get("delta")
                         if chunk and ev.get("output_index") not in not_final:

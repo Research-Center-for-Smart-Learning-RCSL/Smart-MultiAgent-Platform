@@ -175,6 +175,18 @@ Add after [R13.79]:
   that the stored reply keeps only `final_answer` once any item is phased, so an item with any
   other phase would stream but not be stored. The stream now drops every phased item whose phase
   is not `final_answer`, the same rule as `_normalise_response`.
+- **D-4.** Changes after the /code-review pass on PR #305:
+  - **One reply rule.** The stored-reply rule now matches the stream. A message is left out
+    only when its phase is set and is not `final_answer`. An unphased message beside a phased
+    one is therefore kept and streamed, where Section 7 dropped it from the stored text only.
+  - **Late or missing phase.** An `output_item.added` event without an index no longer
+    suppresses unindexed deltas.
+  - **Failed synthesis.** Both synthesis-failure returns now carry the last round's shape, so
+    a turn that posts partial text still records where that text came from.
+  - **Recheck turns.** The audit row also carries `draft_output_shape`, the structure of the
+    first response that produced the draft under review.
+  - **Caps (was FU-5).** `output_shape` is capped at 32 entries of at most 32 characters per
+    string.
 - **D-3.** `output_shape` is kept off the stored message's metadata and the `agent.finished`
   event; it is written only to the `agent.turn_finished` audit row, as Section 7 says, through a
   helper separate from `_synthesis_meta`, which does feed the message.
@@ -189,5 +201,11 @@ Add after [R13.79]:
   `<think>` blocks or harmony channels from `content`.
 - **FU-4.** OpenAI: label replayed earlier-turn assistant messages `phase: "final_answer"`, as
   OpenAI's guidance asks for newer models.
-- **FU-5.** Security hardening: `_item_shape` copies the provider's `type` and `phase` strings
-  into the audit row uncapped; clip them to a short length.
+- **FU-5.** Done in this task (D-4): the shape is capped.
+- **FU-6.** A2A turns (`run_input_turn`) have no empty-reply guard, so a commentary-only response
+  now returns `completed` with empty text to the delegating agent, where it used to return the
+  commentary. Decide whether an empty headless answer should be a distinct status.
+- **FU-7.** A message whose phase is announced only after its first delta (on
+  `output_item.done` rather than `output_item.added`) still streams live, though the stored
+  reply leaves it out. If the staging `output_shape` records show this happening, hold a
+  message's deltas until its phase is known.
