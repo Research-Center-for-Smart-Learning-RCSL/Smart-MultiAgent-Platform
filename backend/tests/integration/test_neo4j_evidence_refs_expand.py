@@ -2,9 +2,10 @@
 
 Release A (``docs/tasks/2026-10-12-graphrag-phase5a-evidence-refs-expand``) wrote both
 keys and read the old one. Release B
-(``docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract``) reads the new key,
-falling back to the old one, and still writes both keys equal, so a release A replica
-and a release B replica can run side by side and restore each other's snapshots. The
+(``docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract``) read the new key,
+falling back to the old one, and wrote both keys equal. Release C reads and writes only
+the new key and drops the old one from every edge it writes, so a release B replica and
+a release C replica can run side by side and restore each other's snapshots. The
 backfill command copies legacy edges under each config's build lock.
 """
 
@@ -26,9 +27,9 @@ pytestmark = pytest.mark.db
 
 _PROJECT_ID = uuid.uuid4()
 
-# Release N-1's edge restore, verbatim, so a snapshot written by release A is
-# checked against the code an N-1 reconciler would really run.
-_N_MINUS_1_RESTORE_EDGES_CYPHER = (
+# Release B's edge restore, verbatim, so a snapshot written by release C is checked
+# against the code a release B reconciler would really run.
+_RELEASE_B_RESTORE_EDGES_CYPHER = (
     "UNWIND $rows AS row "
     "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
     "  ON CREATE SET s.build_id = row.build_id "
@@ -38,25 +39,8 @@ _N_MINUS_1_RESTORE_EDGES_CYPHER = (
     "                  relation: row.relation}]->(o) "
     "SET r.build_id = row.build_id, "
     "    r.confidence = row.confidence, "
-    "    r.evidence_msg_ids = row.evidence_msg_ids, "
-    "    r.source_member_ids = coalesce(row.source_member_ids, []), "
-    "    r.first_seen_at = row.first_seen_at, "
-    "    r.last_seen_at = row.last_seen_at"
-)
-
-# Release A's edge restore, verbatim, for the release B snapshot round trip.
-_RELEASE_A_RESTORE_EDGES_CYPHER = (
-    "UNWIND $rows AS row "
-    "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
-    "  ON CREATE SET s.build_id = row.build_id "
-    "MERGE (o:Entity {graphrag_config_id: $cid, name: row.object}) "
-    "  ON CREATE SET o.build_id = row.build_id "
-    "MERGE (s)-[r:REL {graphrag_config_id: $cid, "
-    "                  relation: row.relation}]->(o) "
-    "SET r.build_id = row.build_id, "
-    "    r.confidence = row.confidence, "
-    "    r.evidence_msg_ids = coalesce(row.evidence_msg_ids, row.evidence_refs), "
-    "    r.evidence_refs = coalesce(row.evidence_msg_ids, row.evidence_refs), "
+    "    r.evidence_msg_ids = coalesce(row.evidence_refs, row.evidence_msg_ids), "
+    "    r.evidence_refs = coalesce(row.evidence_refs, row.evidence_msg_ids), "
     "    r.source_member_ids = coalesce(row.source_member_ids, []), "
     "    r.first_seen_at = row.first_seen_at, "
     "    r.last_seen_at = row.last_seen_at"
@@ -135,23 +119,8 @@ def _sorted(value: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-async def test_a_legacy_edge_reads_with_its_evidence(
-    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
-) -> None:
-    await _legacy_edge(raw, config_id, ["m1", "m2"])
-
-    rows = await driver.traverse(config_id=config_id, seed_entities=["alice"], hops=1)
-    assert [sorted(r["evidence_refs"]) for r in rows] == [["m1", "m2"]]
-
-    snapshot = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
-    (edge,) = snapshot["edges"]
-    assert sorted(edge["evidence_refs"]) == ["m1", "m2"]
-    # An N-1 restore reads this key from the snapshot, so it must carry it too.
-    assert sorted(edge["evidence_msg_ids"]) == ["m1", "m2"]
-
-
 async def _diverge(raw: AsyncDriver, cid: uuid.UUID) -> None:
-    """Make the old key disagree with the new one, which release B must ignore."""
+    """Make the old key disagree with the new one, which reads and writes must ignore."""
     async with raw.session() as session:
         await session.run(
             "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
@@ -160,7 +129,7 @@ async def _diverge(raw: AsyncDriver, cid: uuid.UUID) -> None:
         )
 
 
-async def test_the_new_key_wins_while_both_exist(
+async def test_reads_and_snapshots_use_only_the_new_key(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     await _legacy_edge(raw, config_id, ["m1"])
@@ -170,33 +139,39 @@ async def test_the_new_key_wins_while_both_exist(
     assert [r["evidence_refs"] for r in rows] == [["m1"]]
     snapshot = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
     (edge,) = snapshot["edges"]
-    assert edge["evidence_refs"] == edge["evidence_msg_ids"] == ["m1"]
+    assert edge["evidence_refs"] == ["m1"]
+    assert "evidence_msg_ids" not in edge
 
 
-# ---------------------------------------------------------------------------
-# Writes (AC-1)
-# ---------------------------------------------------------------------------
-
-
-async def test_a_delta_write_sets_both_keys_from_the_old_one(
+async def test_a_read_no_longer_falls_back_to_the_old_key(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
+    # The gate for release C (backfill remaining=0, then B on every replica) leaves no
+    # such edge; this pins that the fallback is gone rather than silently kept.
     await _legacy_edge(raw, config_id, ["m1"])
+
+    rows = await driver.traverse(config_id=config_id, seed_entities=["alice"], hops=1)
+    assert [r["evidence_refs"] for r in rows] == [None]
+
+
+# ---------------------------------------------------------------------------
+# Writes
+# ---------------------------------------------------------------------------
+
+
+async def test_a_delta_write_carries_only_the_new_key(
+    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
+) -> None:
     await driver.apply_triples(
         config_id=config_id,
         project_id=_PROJECT_ID,
         build_id=uuid.uuid4(),
-        triples=[
-            Triple("alice", "knows", "bob", 0.8, ("m2",)),
-            Triple("alice", "likes", "bob", 0.7, ("m3",)),
-        ],
+        triples=[Triple("alice", "likes", "bob", 0.7, ("m3",))],
     )
-    stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
-    assert stored["likes"][0] == stored["likes"][1] == ["m3"]
+    assert (await _raw_evidence(raw, config_id))["likes"] == (None, ["m3"])
 
 
-async def test_a_delta_write_sets_both_keys_from_the_new_one(
+async def test_a_delta_write_computes_from_the_new_key_and_drops_the_old(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     await _legacy_edge(raw, config_id, ["m1"])
@@ -208,20 +183,14 @@ async def test_a_delta_write_sets_both_keys_from_the_new_one(
         triples=[Triple("alice", "knows", "bob", 0.8, ("m2",))],
     )
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
+    assert stored["knows"][0] is None
+    assert _sorted(stored["knows"][1]) == ["m1", "m2"]
 
 
-async def test_a_delta_write_keeps_evidence_held_only_under_the_new_key(
+async def test_a_delta_write_moves_an_unmigrated_edge_to_the_new_key(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
-    # What a rollback from a release that stopped writing the old key leaves.
     await _legacy_edge(raw, config_id, ["m1"])
-    async with raw.session() as session:
-        await session.run(
-            "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
-            "SET r.evidence_refs = r.evidence_msg_ids REMOVE r.evidence_msg_ids",
-            cid=str(config_id),
-        )
     await driver.apply_triples(
         config_id=config_id,
         project_id=_PROJECT_ID,
@@ -229,13 +198,15 @@ async def test_a_delta_write_keeps_evidence_held_only_under_the_new_key(
         triples=[Triple("alice", "knows", "bob", 0.8, ("m2",))],
     )
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
+    assert stored["knows"][0] is None
+    assert _sorted(stored["knows"][1]) == ["m1", "m2"]
 
 
-async def test_a_replace_write_sets_both_keys(
+async def test_a_replace_write_carries_only_the_new_key(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     await _legacy_edge(raw, config_id, ["docA"])
+    await _diverge(raw, config_id)
     await driver.replace_triples(
         config_id=config_id,
         project_id=_PROJECT_ID,
@@ -246,15 +217,16 @@ async def test_a_replace_write_sets_both_keys(
         ],
     )
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["docB", "docC"]
+    assert stored["knows"][0] is None
+    assert _sorted(stored["knows"][1]) == ["docB", "docC"]
 
 
 # ---------------------------------------------------------------------------
-# Snapshot restore across the version boundary (AC-3)
+# Snapshot restore across the version boundary
 # ---------------------------------------------------------------------------
 
 
-async def test_a_release_a_snapshot_restores_with_the_n_minus_1_cypher(
+async def test_a_release_c_snapshot_restores_with_release_b(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     await driver.apply_triples(
@@ -267,13 +239,13 @@ async def test_a_release_a_snapshot_restores_with_the_n_minus_1_cypher(
     await driver.delete_all(config_id=config_id)
 
     async with raw.session() as session:
-        await session.run(_N_MINUS_1_RESTORE_EDGES_CYPHER, rows=snapshot["edges"], cid=str(config_id))
+        await session.run(_RELEASE_B_RESTORE_EDGES_CYPHER, rows=snapshot["edges"], cid=str(config_id))
 
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == ["m1", "m2"]
+    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
 
 
-async def test_an_n_minus_1_snapshot_restores_with_release_a(
+async def test_a_pre_rename_snapshot_restores_with_release_c(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
     # The shape release N-1 put into Redis: no evidence_refs key at all.
@@ -296,29 +268,16 @@ async def test_an_n_minus_1_snapshot_restores_with_release_a(
     await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
+    assert stored["knows"][0] is None
+    assert _sorted(stored["knows"][1]) == ["m1", "m2"]
     rows = await driver.traverse(config_id=config_id, seed_entities=["alice"], hops=1)
     assert [sorted(r["evidence_refs"]) for r in rows] == [["m1", "m2"]]
 
 
-async def test_a_release_b_snapshot_restores_with_release_a(
+async def test_a_release_b_snapshot_restores_with_release_c(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
-    await _legacy_edge(raw, config_id, ["m1"])
-    await _diverge(raw, config_id)
-    snapshot = await driver.snapshot_subgraph(config_id=config_id, build_id=None)
-    await driver.delete_all(config_id=config_id)
-
-    async with raw.session() as session:
-        await session.run(_RELEASE_A_RESTORE_EDGES_CYPHER, rows=snapshot["edges"], cid=str(config_id))
-
-    assert (await _raw_evidence(raw, config_id))["knows"] == (["m1"], ["m1"])
-
-
-async def test_a_release_a_snapshot_restores_with_release_b(
-    driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
-) -> None:
-    # Release A's snapshot carries both keys, equal, read from the old key.
+    # Release B's snapshot carries both keys, equal.
     snapshot = {
         "edges": [
             {
@@ -339,12 +298,16 @@ async def test_a_release_a_snapshot_restores_with_release_b(
     await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
     stored = await _raw_evidence(raw, config_id)
-    assert _sorted(stored["knows"][0]) == _sorted(stored["knows"][1]) == ["m1", "m2"]
+    assert stored["knows"][0] is None
+    assert _sorted(stored["knows"][1]) == ["m1", "m2"]
 
 
-async def test_restore_prefers_the_new_key_of_a_snapshot(
+async def test_restore_prefers_the_new_key_of_a_snapshot_and_drops_the_old(
     driver: Neo4jAsyncDriver, raw: AsyncDriver, config_id: uuid.UUID
 ) -> None:
+    # The restore MERGEs onto an edge a release B build left with both keys.
+    await _legacy_edge(raw, config_id, ["m0"])
+    await _diverge(raw, config_id)
     snapshot = {
         "edges": [
             {
@@ -361,7 +324,7 @@ async def test_restore_prefers_the_new_key_of_a_snapshot(
     }
     await driver.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
 
-    assert (await _raw_evidence(raw, config_id))["knows"] == (["m1"], ["m1"])
+    assert (await _raw_evidence(raw, config_id))["knows"] == (None, ["m1"])
 
 
 # ---------------------------------------------------------------------------
