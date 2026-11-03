@@ -1,8 +1,8 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-11-03
-requirements: [R15.27, R15.28, R15.29, R15.03, R30.37]
+requirements: [R15.30, R15.27, R15.28, R15.29, R15.03, R30.37]
 depends_on: []
 ---
 

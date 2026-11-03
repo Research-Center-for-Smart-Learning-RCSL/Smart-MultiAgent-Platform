@@ -20,7 +20,7 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 | Dossier | Type | Status | Title |
 |---|---|---|---|
 | [`2026-10-12-graphrag-phase5a2-evidence-refs-contract`](2026-10-12-graphrag-phase5a2-evidence-refs-contract/spec.md) | refactor | approved | GraphRAG Phase 5a2: switch reads to `evidence_refs`, then retire `evidence_msg_ids` |
-| [`2026-11-03-crat-facilitation-phase5-class-close`](2026-11-03-crat-facilitation-phase5-class-close/spec.md) | feature | draft | Classroom facilitation phase 5: a closed class stops waking its agents |
+| [`2026-11-03-crat-facilitation-phase5-class-close`](2026-11-03-crat-facilitation-phase5-class-close/spec.md) | feature | approved | Classroom facilitation phase 5: a closed class stops waking its agents |
 
 ## Blocked
 
