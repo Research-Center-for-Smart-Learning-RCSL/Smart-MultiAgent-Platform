@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-22
 requirements: [R6.03, R13.06a, R19.04]
 depends_on: []
@@ -426,7 +426,7 @@ LLM personas
 - [x] AC-10: A persona replies through its own composer, may choose silence, respects
   `minIntervalSec`, and stops (silent, logged) when its turn cap or the run's call or token cap is
   reached (unit tests with a stub provider).
-- [ ] AC-11: The OpenAI and Anthropic adapters build the documented request shape and parse a
+- [x] AC-11: The OpenAI and Anthropic adapters build the documented request shape and parse a
   `say`, a `silent` and a malformed reply (unit tests against recorded fixtures); one live call per
   provider succeeds with an operator key (manual, recorded in §15).
 - [x] AC-12: For a `hybrid` actor, a due script step cancels a pending persona reply, and the
@@ -452,7 +452,7 @@ Repository and live
 
 - [x] AC-18: `pnpm typecheck`, `pnpm lint` and `pnpm test` cover `frontend/sim/` and pass in CI;
   the `frontend-e2e` job's test count is unchanged (the simulator is not in `testDir`).
-- [ ] AC-19: One run of `crat-ac20` on staging completes with every participant connected for
+- [x] AC-19: One run of `crat-ac20` on staging completes with every participant connected for
   the 30 minutes, the AUTH policy restored, and a run directory that the phase 2 dossier's D-n
   entry for AC-20 can cite. Judging AC-20 itself stays in that dossier.
 
@@ -556,6 +556,17 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   in progress, so the handler logs and lets the run's own error path finish; `uncaughtException`
   still exits 2 and prints the `restore-limits` command. A rejection injected through `--import`
   during `restore-limits` was logged and the command still completed with exit 0.
+- **D-17, AC-11 live half waived (2026-11-03).** No scenario run so far has used a persona: every
+  staging run from 2026-10-24 to 2026-11-03 was scripted. By the user's decision the live call per
+  provider is not made to close this task; AC-11 is ticked on its fixture half (request shape and
+  `say`, `silent` and malformed-reply parsing in the unit tests). The first scenario run that uses a
+  persona doubles as the live check, and its `report.md` persona usage line is the evidence.
+- **D-18, AC-19 evidence.** `crat-ac20` ran on staging three times on 2026-10-25 (runs
+  `20261025-062420`, `20261025-075825` and `20261025-083949`, rooms `97f917ca`, `b43f9794`,
+  `82f59a53`). Each ran for about 32 minutes with five `actor.connected` events and no disconnect,
+  each report records the AUTH limit restored to 20 per 60 s, and the phase 2 dossier's D-22 to
+  D-24 cite the three rooms for AC-20. The first run's one `step.error` (a scripted AA release that
+  found no observation) is a scenario timing finding judged in that dossier, not a simulator fault.
 
 ### Verification record (2026-10-22, local test stack)
 

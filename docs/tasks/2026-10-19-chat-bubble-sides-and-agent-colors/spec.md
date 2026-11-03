@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-10-19
 requirements: [R13.77, R13.78, R15.25, R28.02, R28.10]
 depends_on: []
@@ -441,7 +441,7 @@ Part B
 - [x] AC-12: `GET /chatrooms/{id}/agents` returns `bubble_color` for normal bindings to
   every reader (creator, member, guest), and still returns no observer binding to
   non-creators.
-- [ ] AC-13: In room settings, the colour control appears for normal rows under the
+- [x] AC-13: In room settings, the colour control appears for normal rows under the
   `:860` condition, never for observer rows, and a save updates another open client's
   bubbles for that agent without a reload.
 - [x] AC-14: An agent's persisted and streaming bubbles both use its colour; an agent with
@@ -452,7 +452,7 @@ Both
 - [x] AC-15: The e2e specs selecting `.bubble-row`/`.bubble-row--pending` pass unchanged.
 - [x] AC-16: `docs/UI/07-conversation.md` describes both rules and the settings control;
   `REQUIREMENTS.md` carries §13's delta and `docs/traceability.csv` is regenerated.
-- [ ] AC-17: Manual check on a running stack, light and dark, desktop and mobile width:
+- [x] AC-17: Manual check on a running stack, light and dark, desktop and mobile width:
   two signed-in users, one guest and two coloured agents in one room; each person sees
   only their own messages on the right, and both agents on the left in their colours.
 - [x] AC-18: Backend `ruff`, `mypy`, `pytest`; frontend `pnpm lint`, `typecheck`, `test`,
@@ -562,6 +562,21 @@ All ten findings were accepted and fixed in `8a05ff1b`, `53605585` and `18b4a2df
   the whole card. A refused save (403/404/409) reloads, so a row that another tab made
   an observer loses its picker. A failed re-read after a good save can no longer
   revert the picker.
+- D-8: AC-13's cross-client half and AC-17 were checked on staging on 2026-11-03 with the
+  new simulator scenario `frontend/sim/scenarios/bubble-check.ts` (run
+  `20261103-111956-bubble-check`, room `5d39db43`). The room held two signed-in students
+  (小安, 小博), one guest (訪客小林), the facilitator account (晨瑋) and TA and SA as normal
+  bindings. From the owner's browser TA was set to teal and SA to amber, both were
+  @mentioned, and at 19:27:58 TA was changed to violet. Every simulated client had loaded
+  the room before that change and none reloaded; in all four end-of-run screenshots TA's
+  19:31 reply is violet and SA's replies are amber, and each viewer has only their own
+  message on the right, with the other three people and both agents on the left (the
+  guest's own message is on the right only in the guest's view). The owner's browser
+  showed the same in light and dark at desktop width, and in light and dark at 520 px,
+  Chrome's minimum window width, which already uses the single-column mobile layout; the
+  390 px viewport named in §12 was not reachable from a desktop window. The control
+  appeared on both normal rows; the observer half of AC-13 stays on its component tests,
+  since the room had no observer. AC-13 and AC-17 are ticked.
 
 ## 16. Follow-ups
 
@@ -583,6 +598,18 @@ All ten findings were accepted and fixed in `8a05ff1b`, `53605585` and `18b4a2df
   The new write uses the facade; wider port/facade migration remains separate.
 - FU-6: Restore the clean backend typecheck baseline for the three unchanged-file
   errors recorded in §17; do not silence the type checker in this task.
+- FU-7: In the people list, a guest row that carries the guest badge and action buttons
+  (the guest's own view, with the rename pencil, and the creator's view, with the moderation
+  buttons) squeezes the name to one character per line at 1440 px (D-8 screenshots
+  `end-G.png`, `end-F.png`).
+- FU-8: At 520 px the header hides the theme toggle and the navigation menu does not
+  offer it, so a phone user cannot switch theme from the room view.
+- FU-9: Not a bubble defect, seen during D-8 and in the run before it: SA answered one
+  @mention twice with near-identical text (19:26 and 19:29 in room `5d39db43`; 18:24 and
+  18:28 in room `62809a81`). Worth tracing the mention wake and its coalesced follow-up.
+- FU-10: The owner's tab showed "連線數已達上限，請關閉其他分頁" in the room header while
+  live updates still arrived; the connection cap counts the owner's account across the
+  simulator's facilitator client and the browser.
 
 ## 17. Implementation verification (2026-10-20)
 
