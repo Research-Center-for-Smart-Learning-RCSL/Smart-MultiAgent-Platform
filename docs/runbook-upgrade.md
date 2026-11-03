@@ -234,6 +234,11 @@ After `remaining=0`, deploy the release that drops the old property's name from 
 code. Rolling back to release A or earlier after this point loses evidence on every
 relation.
 
+That release also removes the `neo4j-evidence-refs` command and no longer reads the old
+property at all. An installation upgrading across it must first deploy the release that
+still ships the command, finish the steps above on it, and only then continue: a
+relation still carrying only `evidence_msg_ids` would read as having no evidence.
+
 ### 3.2 Agent-group Concept Map provenance rebuild
 
 From the release of `docs/tasks/2026-10-12-graphrag-phase5b-member-filter`, an

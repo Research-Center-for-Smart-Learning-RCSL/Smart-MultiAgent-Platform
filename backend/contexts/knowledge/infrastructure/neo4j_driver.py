@@ -50,17 +50,8 @@ def _collapse_config_rows(
 # Phase 2b (R11.22): source_member_ids accumulates the same way, so a relation
 # restated by a second member gains that member without losing the first and a
 # member-scoped retrieval filter stays correct across delta builds.
-#
-# Evidence lives under `evidence_refs` (release C of
-# docs/tasks/2026-10-12-graphrag-phase5a2-evidence-refs-contract). Until the
-# clean-up removes it everywhere, an edge last written by release B also carries the
-# old `evidence_msg_ids`, equal to the new key; every write here computes from the new
-# key (falling back to the old one, which only an edge the backfill missed would
-# need) and then drops the old key, so an edge this code touched carries the new key
-# alone.
-_EVIDENCE_STORED = "coalesce(r.evidence_refs, r.evidence_msg_ids, [])"
+_EVIDENCE_STORED = "coalesce(r.evidence_refs, [])"
 _EVIDENCE_UNION = f"{_EVIDENCE_STORED} + [x IN row.evidence_refs WHERE NOT x IN {_EVIDENCE_STORED}]"
-_DROP_LEGACY_EVIDENCE = " REMOVE r.evidence_msg_ids"
 _EVIDENCE_SET_DELTA = (
     f"    r.evidence_refs = {_EVIDENCE_UNION}, "
     "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
@@ -165,7 +156,7 @@ def _build_upsert_cypher(*, replace: bool) -> str:
         "      THEN row.first_seen_at ELSE r.first_seen_at END, "
         "    r.last_seen_at = CASE WHEN r.last_seen_at IS NULL "
         "        OR (row.last_seen_at IS NOT NULL AND row.last_seen_at > r.last_seen_at) "
-        "      THEN row.last_seen_at ELSE r.last_seen_at END" + _DROP_LEGACY_EVIDENCE
+        "      THEN row.last_seen_at ELSE r.last_seen_at END"
     )
 
 
@@ -192,9 +183,7 @@ _RESTORE_EDGES_CYPHER = (
     "                  relation: row.relation}]->(o) "
     "SET r.build_id = row.build_id, "
     "    r.confidence = row.confidence, "
-    # Either key, the new one first: a snapshot taken by release B carries both, and
-    # only one from before the rename carries the old key alone (24 h TTL).
-    "    r.evidence_refs = coalesce(row.evidence_refs, row.evidence_msg_ids), "
+    "    r.evidence_refs = row.evidence_refs, "
     # coalesce so an older snapshot (taken before member provenance existed)
     # restores to [] rather than nulling the property.
     "    r.source_member_ids = coalesce(row.source_member_ids, []), "
@@ -202,7 +191,7 @@ _RESTORE_EDGES_CYPHER = (
     # row.first_seen_at/last_seen_at are NULL — a timeless edge, which retrieval
     # treats as pure-confidence (no decay).
     "    r.first_seen_at = row.first_seen_at, "
-    "    r.last_seen_at = row.last_seen_at" + _DROP_LEGACY_EVIDENCE
+    "    r.last_seen_at = row.last_seen_at"
 )
 
 
@@ -211,9 +200,6 @@ _UPSERT_CYPHER_REPLACE = _build_upsert_cypher(replace=True)
 
 
 _EVIDENCE_READ = "{r}.evidence_refs"
-
-# An edge the clean-up still has to strip: last written by release B or earlier.
-_EVIDENCE_LEGACY = "r.evidence_msg_ids IS NOT NULL"
 
 
 def _triple_rows(triples: list[Triple]) -> list[dict[str, Any]]:
@@ -268,8 +254,6 @@ class Neo4jAsyncDriver:
             "-[r:REL]->(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, "
             "o.name AS object, r.confidence AS confidence, "
-            # Release B's restore reads either key, the new one first, so a
-            # snapshot crossing back to it (Redis, 24 h) needs only the new key.
             f"{evidence} AS evidence_refs, "
             "r.source_member_ids AS source_member_ids, "
             "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at, "
@@ -418,51 +402,6 @@ class Neo4jAsyncDriver:
             result = await session.run(cypher)
             rows = [(rec["cid"], rec["pid"]) async for rec in result]
         return _collapse_config_rows(rows)
-
-    async def count_legacy_evidence(self) -> dict[str, int]:
-        """Edges per raw config id that still carry the old evidence key.
-
-        For the ``neo4j-evidence-refs`` maintenance command only. Keys are left
-        unparsed (``""`` for a missing id) so the caller can count an edge it
-        cannot attribute instead of losing it from the remaining total. A full
-        relationship scan: no index covers the property test.
-        """
-        driver = await self._ensure()
-        cypher = (
-            f"MATCH ()-[r:REL]->() WHERE {_EVIDENCE_LEGACY} RETURN r.graphrag_config_id AS cid, count(r) AS n"
-        )
-        async with driver.session() as session:
-            result = await session.run(cypher)
-            counts: dict[str, int] = {}
-            async for rec in result:
-                key = "" if rec["cid"] is None else str(rec["cid"])
-                counts[key] = counts.get(key, 0) + int(rec["n"])
-            return counts
-
-    async def remove_legacy_evidence(self, *, config_id: uuid.UUID, batch: int) -> int:
-        """Drop the old evidence key from up to ``batch`` edges of one config.
-
-        The new key is kept where present and filled from the old one where not, so
-        no edge loses evidence. Returns how many edges it changed; the caller loops
-        until 0, holding the config's build lock so no build writes the same edges
-        meanwhile.
-        """
-        driver = await self._ensure()
-        # `r.relation IS NOT NULL` holds for every REL (it is a MERGE key); it is
-        # here so the planner seeks the (graphrag_config_id, relation) index
-        # instead of scanning every relationship once per batch.
-        cypher = (
-            "MATCH ()-[r:REL {graphrag_config_id: $cid}]->() "
-            f"WHERE r.relation IS NOT NULL AND {_EVIDENCE_LEGACY} "
-            "WITH r LIMIT $batch "
-            "SET r.evidence_refs = coalesce(r.evidence_refs, r.evidence_msg_ids)"
-            f"{_DROP_LEGACY_EVIDENCE} "
-            "RETURN count(r) AS n"
-        )
-        async with driver.session() as session:
-            result = await session.run(cypher, cid=str(config_id), batch=batch)
-            record = await result.single()
-        return int(record["n"]) if record is not None else 0
 
     async def restore_from_snapshot(
         self,
