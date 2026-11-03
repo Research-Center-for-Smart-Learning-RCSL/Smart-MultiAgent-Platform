@@ -6,7 +6,8 @@ keys and read the old one. Release B
 falling back to the old one, and wrote both keys equal. Release C reads and writes only
 the new key and drops the old one from every edge it writes, so a release B replica and
 a release C replica can run side by side and restore each other's snapshots. The
-backfill command copies legacy edges under each config's build lock.
+clean-up command strips the old key from the edges left over, under each config's
+build lock.
 """
 
 from __future__ import annotations
@@ -328,7 +329,7 @@ async def test_restore_prefers_the_new_key_of_a_snapshot_and_drops_the_old(
 
 
 # ---------------------------------------------------------------------------
-# Backfill command (AC-4)
+# Clean-up command, --remove-legacy (AC-5)
 # ---------------------------------------------------------------------------
 
 
@@ -344,7 +345,16 @@ async def redis() -> AsyncIterator[Redis]:
         await client.aclose()
 
 
-async def test_the_backfill_counts_copies_and_is_idempotent(
+async def _set_raw(raw: AsyncDriver, cid: uuid.UUID, rel: str, cypher_set: str) -> None:
+    async with raw.session() as session:
+        await session.run(
+            f"MATCH ()-[r:REL {{graphrag_config_id: $cid, relation: $rel}}]->() {cypher_set}",
+            cid=str(cid),
+            rel=rel,
+        )
+
+
+async def test_remove_legacy_counts_strips_and_is_idempotent(
     driver: Neo4jAsyncDriver,
     raw: AsyncDriver,
     redis: Redis,
@@ -353,34 +363,49 @@ async def test_the_backfill_counts_copies_and_is_idempotent(
 ) -> None:
     from smap.maintenance import neo4j_evidence_refs as cmd
 
+    # As release B leaves an edge: both keys, equal.
     await _legacy_edge(raw, config_id, ["m1"], rel="knows")
-    await _legacy_edge(raw, config_id, ["m2"], rel="likes")
+    await _set_raw(raw, config_id, "knows", "SET r.evidence_refs = r.evidence_msg_ids")
+    # Keys that disagree: the new one is authoritative and must survive.
+    await _legacy_edge(raw, config_id, ["stale"], rel="likes")
+    await _set_raw(raw, config_id, "likes", "SET r.evidence_refs = ['m2']")
+    # An edge the release A backfill missed: its evidence must move, not vanish.
+    await _legacy_edge(raw, config_id, ["m3"], rel="trusts")
+    # As release C leaves an edge: nothing to do.
+    await _legacy_edge(raw, config_id, ["m4"], rel="sees")
+    await _set_raw(
+        raw, config_id, "sees", "SET r.evidence_refs = r.evidence_msg_ids REMOVE r.evidence_msg_ids"
+    )
     locks = RedisBuildLockStore(redis)
 
     monkeypatch.delenv(cmd.ARMED_ENV, raising=False)
     dry = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id], batch=1)
-    assert (dry.dry_run, dry.pending, dry.copied, dry.remaining) == (True, 2, 0, 2)
-    assert (await _raw_evidence(raw, config_id))["knows"] == (["m1"], None)
+    assert (dry.dry_run, dry.pending, dry.removed, dry.remaining) == (True, 3, 0, 3)
+    assert (await _raw_evidence(raw, config_id))["knows"] == (["m1"], ["m1"])
 
     monkeypatch.setenv(cmd.ARMED_ENV, "1")
     armed = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id], batch=1)
-    assert (armed.dry_run, armed.pending, armed.copied, armed.remaining, armed.busy) == (
+    assert (armed.dry_run, armed.pending, armed.removed, armed.remaining, armed.busy) == (
         False,
-        2,
-        2,
+        3,
+        3,
         0,
         (),
     )
-    stored = await _raw_evidence(raw, config_id)
-    assert stored == {"knows": (["m1"], ["m1"]), "likes": (["m2"], ["m2"])}
+    assert await _raw_evidence(raw, config_id) == {
+        "knows": (None, ["m1"]),
+        "likes": (None, ["m2"]),
+        "trusts": (None, ["m3"]),
+        "sees": (None, ["m4"]),
+    }
     # The lock was released: a build could take it now.
     assert not await redis.exists(f"graphrag:lock:{config_id}")
 
     again = await cmd.run(driver=driver, lock_store=locks, config_ids=[config_id], batch=1)
-    assert (again.pending, again.copied, again.remaining) == (0, 0, 0)
+    assert (again.pending, again.removed, again.remaining) == (0, 0, 0)
 
 
-async def test_the_backfill_skips_a_busy_config(
+async def test_remove_legacy_skips_a_busy_config(
     driver: Neo4jAsyncDriver,
     raw: AsyncDriver,
     redis: Redis,
@@ -400,7 +425,7 @@ async def test_the_backfill_skips_a_busy_config(
         await redis.delete(lock_key)
 
     assert report.busy == (config_id,)
-    assert (report.copied, report.remaining) == (0, 1)
+    assert (report.removed, report.remaining) == (0, 1)
     # Never broke or released the build's lock.
     assert held_by == b"a-build"
     assert (await _raw_evidence(raw, config_id))["knows"] == (["m1"], None)

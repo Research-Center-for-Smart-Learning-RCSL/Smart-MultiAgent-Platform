@@ -212,6 +212,28 @@ An armed run ends with `remaining=0` and exit status 0 once every relation carri
 switches reads to the new property, must not be deployed before a run has reported
 `remaining=0` with release A on every replica.
 
+**The copy above is retired.** Once release B was out it would copy a stale old
+property over the authoritative new one, so the bare command now refuses to run. The
+rename's last step uses the same command with `--remove-legacy`. It removes
+`evidence_msg_ids` from every relation that still has it, keeping `evidence_refs`, or
+filling it from the old property on a relation that somehow lacks it. Run it once
+release C is on every backend-web and backend-worker replica and 24 hours have passed
+since release B rolled out. Locking, batching, skips and exit status work as for the
+copy.
+
+```bash
+# Dry run: counts the relations that still carry the old property
+docker compose exec backend-worker python -m smap.maintenance neo4j-evidence-refs --remove-legacy
+
+# Remove
+docker compose exec -e SMAP_NEO4J_EVIDENCE_REFS_ARMED=1 backend-worker \
+  python -m smap.maintenance neo4j-evidence-refs --remove-legacy
+```
+
+After `remaining=0`, deploy the release that drops the old property's name from the
+code. Rolling back to release A or earlier after this point loses evidence on every
+relation.
+
 ### 3.2 Agent-group Concept Map provenance rebuild
 
 From the release of `docs/tasks/2026-10-12-graphrag-phase5b-member-filter`, an
