@@ -1008,10 +1008,12 @@ class ChatroomAgentRepository:
         return [self._wakeup_state(r) for r in rows]
 
     async def live_wakeup_states(self, *, limit: int, offset: int) -> Sequence[BindingWakeupState]:
-        """Every live binding's layers, a page at a time, for the silence sweep."""
+        """Every live binding's layers in a room whose class is not closed ([R15.30]),
+        a page at a time, for the silence sweep."""
         rows = (
             await self._db.execute(
                 self._live_wakeup_select()
+                .where(t.chatrooms.c.class_closed_at.is_(None))
                 .order_by(t.chatroom_agents.c.chatroom_id, t.chatroom_agents.c.agent_id)
                 .limit(limit)
                 .offset(offset)

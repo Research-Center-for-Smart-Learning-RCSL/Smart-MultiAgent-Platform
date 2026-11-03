@@ -57,7 +57,8 @@ async def wakeup_agent(
     current latest user message, which is correct for a time-based trigger.
     Guards before spending a provider call:
 
-    - room still live (not soft-deleted);
+    - room still live (not soft-deleted), and for an autonomous trigger, its class
+      not closed ([R15.30]);
     - agent still exists (``get_agent`` filters deleted);
     - autostop not tripped — consecutive agent-only rounds below the binding's
       effective cap (R15.03/R15.04), a backstop against turn storms for both
@@ -119,6 +120,13 @@ async def wakeup_agent(
             bound = await ConversationFacade(db).binding_wakeup_state(chatroom_id=rid, agent_id=aid)
             turn_binding = bound.binding_id if bound is not None else None
         else:
+            # [R15.30]: checked here rather than where each trigger is decided, so a
+            # job enqueued or parked before the close is dropped too.
+            if room.class_closed_at is not None:
+                logger.bind(agent_id=agent_id, room_id=room_id, trigger=trigger).info(
+                    "wakeup skipped: class closed"
+                )
+                return "skipped:class_closed"
             current = await OrchestrationFacade(db).room_wakeup(agent_id=aid, room_id=rid)
             if current is None or (binding_id is not None and str(current.state.binding_id) != binding_id):
                 logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: binding gone")

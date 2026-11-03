@@ -391,3 +391,17 @@ class TestMigration0104DataStep:
             drifted: {"triggers": {"every_n_messages": {"n": 9}}},
             empty_snapshot: {"triggers": {"every_n_messages": {"n": 9}}},
         }
+
+
+class TestSilenceSweepRead:
+    async def test_a_closed_class_is_left_out_of_the_silence_sweep(self, sessionmaker, room_agent) -> None:
+        """Phase 5 AC-4 ([R15.30])."""
+        room_a, room_b, agent_id = room_agent
+        async with sessionmaker() as session:
+            await session.execute(
+                t.chatrooms.update().where(t.chatrooms.c.id == room_a).values(class_closed_at=sa.func.now())
+            )
+            swept = await ChatroomAgentRepository(session).live_wakeup_states(limit=1_000_000, offset=0)
+            await session.rollback()
+
+        assert {s.chatroom_id for s in swept if s.agent_id == agent_id} == {room_b}
