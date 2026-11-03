@@ -1367,6 +1367,9 @@ class ToolLoopOutcome:
     rounds: int
     synthesis_failed: bool = False
     error_kind: str | None = None
+    # The final response's structure from a provider that reports one ([R13.80]),
+    # for the audit row only; never text.
+    output_shape: list[dict[str, Any]] | None = None
 
 
 def _lock_liveness_check(lock: LockHandle | None) -> CancelCheck | None:
@@ -2091,7 +2094,7 @@ class TurnEngine:
                 agent,
                 None,
                 "agent.turn_finished",
-                {"mode": "a2a", "tool_rounds": rounds, **_synthesis_meta(outcome)},
+                {"mode": "a2a", "tool_rounds": rounds, **_synthesis_meta(outcome), **_shape_meta(outcome)},
             )
             await self._db.commit()
             await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
@@ -3780,6 +3783,7 @@ class TurnEngine:
                     else:
                         recheck = "revised"
                     synthesis_meta = {**synthesis_meta, "recheck": recheck}
+            shape_meta = _shape_meta(outcome)
 
             if not final_text.strip() and not observation_md.strip():
                 # Nothing to say — never persist an empty agent message. When the
@@ -3811,7 +3815,7 @@ class TurnEngine:
                     agent,
                     chatroom_id,
                     "agent.turn_finished",
-                    {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta},
+                    {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta, **shape_meta},
                 )
                 await self._db.commit()
                 outcome_committed = True
@@ -3895,7 +3899,7 @@ class TurnEngine:
                     agent,
                     chatroom_id,
                     "agent.turn_finished",
-                    {"tool_rounds": rounds, "observer": True, **synthesis_meta},
+                    {"tool_rounds": rounds, "observer": True, **synthesis_meta, **shape_meta},
                 )
                 await self._db.commit()
                 outcome_committed = True
@@ -3947,7 +3951,10 @@ class TurnEngine:
                 turn_job_id=turn_job_id,
             )
             await self._audit(
-                agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds, **synthesis_meta}
+                agent,
+                chatroom_id,
+                "agent.turn_finished",
+                {"tool_rounds": rounds, **synthesis_meta, **shape_meta},
             )
             await self._db.commit()
             outcome_committed = True
@@ -5084,7 +5091,7 @@ class TurnEngine:
             last_text = str(body.get("text", ""))
             tool_calls = body.get("tool_calls") or []
             if not tool_calls:
-                return ToolLoopOutcome(text=last_text, rounds=tool_rounds)
+                return ToolLoopOutcome(text=last_text, rounds=tool_rounds, output_shape=_output_shape(body))
             # The response was cut off at the output ceiling, so whatever it was
             # writing when it stopped is incomplete. For a tool_use block that
             # means the argument JSON is unterminated, which both adapters that
@@ -5260,7 +5267,9 @@ class TurnEngine:
                 synthesis_failed=True,
                 error_kind="provider_no_terminal_event",
             )
-        return ToolLoopOutcome(text=str(final_body.get("text", "")), rounds=tool_rounds)
+        return ToolLoopOutcome(
+            text=str(final_body.get("text", "")), rounds=tool_rounds, output_shape=_output_shape(final_body)
+        )
 
     async def _rag_context(
         self, agent: Agent, queries: Sequence[str], *, token_budget: int | None = None
@@ -5547,6 +5556,17 @@ def _memory_entry(timestamp: str, content_md: str) -> str:
     """
     head, *rest = content_md.splitlines() or [""]
     return "\n".join([f"- ({timestamp}) {head}", *(f"  {line}" for line in rest)])
+
+
+def _output_shape(body: dict[str, Any]) -> list[dict[str, Any]] | None:
+    shape = body.get("output_shape")
+    return list(shape) if isinstance(shape, list) else None
+
+
+def _shape_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:
+    """``agent.turn_finished`` only, never the message metadata: it diagnoses what
+    the provider returned ([R13.80]) and is absent for providers that report none."""
+    return {"output_shape": outcome.output_shape} if outcome.output_shape is not None else {}
 
 
 def _synthesis_meta(outcome: ToolLoopOutcome) -> dict[str, Any]:

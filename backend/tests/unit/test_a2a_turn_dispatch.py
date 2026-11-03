@@ -12,6 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -313,6 +314,35 @@ async def test_a_healthy_headless_turn_records_no_synthesis_marker(monkeypatch) 
     finished = next(meta for action, meta in audits if action == "agent.turn_finished")
     assert "synthesis_failed" not in finished
     assert "synthesis_error" not in finished
+    assert "output_shape" not in finished
+
+
+@pytest.mark.asyncio
+async def test_a_headless_turn_audits_the_providers_output_shape(monkeypatch) -> None:
+    """[R13.80]: the structure only, as on the room path."""
+    agent = _agent()
+    _wire_engine(monkeypatch, agent)
+
+    engine: Any = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()
+    engine._router = object()
+    audits: list = []
+    shape = [{"type": "message", "phase": "final_answer", "chars": 15}]
+
+    async def _ok_stream(**_kw):
+        return te.ToolLoopOutcome(text="the real answer", rounds=0, output_shape=shape)
+
+    async def _capture_audit(_agent, _room, action, meta):
+        audits.append((action, meta))
+
+    engine._stream_with_tools = _ok_stream
+    engine._audit = _capture_audit
+    _wire_knowledge(engine)
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi")
+
+    finished = next(meta for action, meta in audits if action == "agent.turn_finished")
+    assert finished["output_shape"] == shape
 
 
 @pytest.mark.asyncio
