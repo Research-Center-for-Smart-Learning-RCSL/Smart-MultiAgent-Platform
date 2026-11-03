@@ -41,6 +41,12 @@ describe('RoomStatusCard', () => {
     expect(text).toContain('2 agent')
   })
 
+  it('uses the singular for one participant', () => {
+    const text = mountCard(room({ participant_count: 1 })).text()
+    expect(text).toContain('1 participant')
+    expect(text).not.toContain('1 participants')
+  })
+
   it('renders a dash, not 0, when presence is unavailable', () => {
     const text = mountCard(room({ online_count: null })).text()
     expect(text).toContain('—')
