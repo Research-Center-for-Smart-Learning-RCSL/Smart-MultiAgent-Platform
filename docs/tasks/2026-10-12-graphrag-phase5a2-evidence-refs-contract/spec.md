@@ -189,6 +189,27 @@ Appended by /build.
   expired). The Knowledge Map retrieval was checked at the driver, not through an agent
   turn, because the map has no bound agent. AC-6 stays open until it is observed again
   after release C and after the clean-up.
+- **D-4, milestone C.** Task base `245f4125`. Two choices the spec left open:
+
+  - **Writes drop the old key.** Writes do not just stop setting the old key; the delta
+    upsert, the replace upsert and the snapshot restore end with `REMOVE
+    r.evidence_msg_ids`. Without it, an edge release B wrote and release C then
+    re-MERGEd would keep a stale old key. That would contradict §8's "edges C wrote
+    carry only the new key", and the clean-up would have more to remove.
+  - **Writes keep the fallback.** The read is `r.evidence_refs` alone, as §5 says, but
+    the write still computes its starting list as `coalesce(r.evidence_refs,
+    r.evidence_msg_ids, [])`. The gate leaves no edge without the new key. If one were
+    missed, removing the old key without the fallback would delete that edge's
+    evidence; with it, the write migrates the edge. Both the write fallback and the
+    restore fallback go in the clean-up milestone.
+
+  The release B tests were rewritten for C in place. The old "both keys equal after a
+  write" assertions now assert `(None, refs)`. The release A and pre-rename restore Cypher
+  copies were replaced by release B's restore, copied verbatim for the C-to-B round trip.
+  Added: a read no longer falls back to the old key, and a restore onto an edge release B
+  left with both keys drops the old one. The quality audit over `245f4125...HEAD` reported
+  no findings. The security audit is N/A: the diff changes only property names in
+  Cypher constants and touches none of the triggering surfaces.
 
 ## 12. Follow-ups
 
