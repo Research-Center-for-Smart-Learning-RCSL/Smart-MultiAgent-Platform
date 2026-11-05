@@ -1531,13 +1531,18 @@ Indexes of note:
 
 ### 21.3 Neo4j
 
-Per-project subgraph labeled with `:P_{project_id}`.
+One subgraph per Concept Map or Knowledge Map config, scoped by the `graphrag_config_id`
+property on every node and relation.
 
 ```
-(:Entity {project_id, graphrag_config_id, name, kind, confidence})
--[:REL {type, weight, evidence_message_ids, created_at}]->
+(:Entity {graphrag_config_id, project_id, name, type, build_id})
+-[:REL {graphrag_config_id, relation, confidence, evidence_refs, source_member_ids,
+        first_seen_at, last_seen_at, build_id}]->
 (:Entity ...)
 ```
+
+`evidence_refs` holds message ids for a Concept Map and `{document_id}#{chunk_idx}`
+tokens for a Knowledge Map.
 
 ### 21.4 Qdrant
 
