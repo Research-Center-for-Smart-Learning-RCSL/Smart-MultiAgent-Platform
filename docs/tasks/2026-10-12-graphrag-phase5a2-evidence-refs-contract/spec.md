@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-10-12
 requirements: [R11.15, R11.23, R11a.01]
 depends_on: [2026-10-12-graphrag-phase5a-evidence-refs-expand]
@@ -117,12 +117,12 @@ both.
 - [x] AC-3: gate for C recorded — release B on every replica.
 - [x] AC-4: release C writes and reads only `evidence_refs`; B and C snapshots restore
   across each other (real Neo4j).
-- [ ] AC-5: after C on every replica and 24 h, the armed `--remove-legacy` reports 0
+- [x] AC-5: after C on every replica and 24 h, the armed `--remove-legacy` reports 0
   remaining, the old-key restore fallback is removed, and no backend code names
   `evidence_msg_ids` except the model-facing prompt and parser keys (grep check).
-- [ ] AC-6: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
+- [x] AC-6: Concept Map and Knowledge Map build, retrieval and admin-reset restore behave
   as before on the compose stack after each release, observed live.
-- [ ] AC-7: backend lint, typecheck and tests (db tier included) pass in CI for each
+- [x] AC-7: backend lint, typecheck and tests (db tier included) pass in CI for each
   milestone.
 
 ## 10. SRS Delta
@@ -243,6 +243,44 @@ Appended by /build.
   new key only. The Concept Map edges, last written by B, still carry both keys equal and
   are read through the new key. The config was rebuilt to `idle` afterwards. AC-6 stays
   open for the clean-up.
+- **D-6, clean-up run, shipped and observed (AC-5, AC-6, AC-7), 2026-11-08.** The 24 h
+  gate counted from D-5 had passed (about five days). Staging was first deployed from
+  `main` at `999030ea`, which carries the `--remove-legacy` command (#313) on top of
+  release C, so the command ran on the release before the one that drops the old name, as
+  the runbook requires. The dry run reported `pending=33 removed=0 remaining=33`: the 24
+  Concept Map edges release B left with both keys (D-5) and 9 more B-era edges in other
+  configs. The armed run and a dry re-run reported:
+
+  ```
+  neo4j-evidence-refs complete dry_run=False pending=33 removed=33 remaining=0 busy=0 lost_lock=0 failed=0 unattributed=0
+  neo4j-evidence-refs complete dry_run=True pending=0 removed=0 remaining=0 busy=0 lost_lock=0 failed=0 unattributed=0
+  ```
+
+  The command's own count was checked against Neo4j directly with `cypher-shell` over
+  every relation: `rels=44 old_key=0 new_key=44 nonempty_new=44`, so no edge lost its
+  evidence. PR #314 (the old-name removal: write and restore fallbacks, the maintenance
+  command, `REQUIREMENTS.md`) then merged with backend lint, typecheck and the db tier
+  green in CI (AC-7), and staging was deployed from `main` at `c3b39326`. The AC-5 grep
+  over `main` finds `evidence_msg_ids` only in the two extractor prompts, the parser that
+  reads the model's JSON (`triple_extractor.py:164`), and `REQUIREMENTS.md:551,561`,
+  which describe the same model-facing triple shape.
+
+  AC-6 was observed live by a script run inside `backend-web` against the D-3 configs,
+  using the service and driver code paths directly (no browser session):
+
+  - Before: Concept Map 32 entities and 24 relations, Knowledge Map 19 and 11, every edge
+    with the new key only and non-empty evidence; a 1-hop `traverse` from three seeds
+    returned 3 rows on each, all with evidence.
+  - Build: a Knowledge Map rebuild (revision 11) ran to `idle` in 14 s with 12 entities
+    and 6 relations, new key only; `traverse` returned 3 rows, all with evidence.
+  - Forced reset: a second rebuild (revision 12) was started and `admin_reset(force=True)`
+    sent 2 s into `running`. The audit row recorded `previous_state=running`,
+    `forced=true`, `outcome=discarded`, and the graph read back identical, edge for edge,
+    to the build before it, with evidence on every edge and on every traversed row.
+  - The interrupted worker then logged `knowmap_build done ... state=failed triples=0`
+    and left the config `failed` over the correctly restored graph, which is FU-1's first
+    case again. A further rebuild (revision 13) returned it to `idle` with 16 entities and
+    8 relations.
 
 ## 12. Follow-ups
 
@@ -264,4 +302,5 @@ Appended by /build.
 
   A rebuild clears either state. Pre-existing, unrelated to the evidence rename, and
   outside this dossier's scope; it belongs with the admin reset and build lock work. The
-  second case makes it worth scheduling ahead of other reset work.
+  second case makes it worth scheduling ahead of other reset work. Reproduced again in
+  D-6.
