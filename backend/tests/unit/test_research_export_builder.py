@@ -1,6 +1,8 @@
-"""Research export builder tests (AC-4, AC-5, AC-6, AC-7, AC-12).
+"""Research export builder tests.
 
-Verifies CSV/JSON output structure and de-identification without a database.
+Bundle shape: docs/tasks/2026-11-08-research-data-integrity/spec.md section 5
+(AC-7 to AC-9). Verifies CSV/JSON output structure and de-identification without
+a database.
 """
 
 from __future__ import annotations
@@ -8,11 +10,17 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import uuid
 import zipfile
 from datetime import UTC, datetime
 
-from contexts.activities.domain.subject_code import group_subject_code, subject_code
+from contexts.activities.domain.subject_code import (
+    group_subject_code,
+    room_code,
+    subject_code,
+    workspace_code,
+)
 from contexts.conversation.application.research_export_builder import (
     MessageRow,
     ObservationRow,
@@ -23,18 +31,20 @@ from contexts.conversation.application.research_export_builder import (
 _ROOM_1 = uuid.uuid4()
 _ROOM_2 = uuid.uuid4()
 _USER_1 = uuid.uuid4()
-_USER_2 = uuid.uuid4()
+_GUEST_1 = uuid.uuid4()
+_GUEST_2 = uuid.uuid4()
 _GROUP_1 = uuid.uuid4()
 _AGENT_1 = uuid.uuid4()
 _WORKSPACE = uuid.uuid4()
-_JOB = uuid.uuid4()
 _NOW = datetime(2026, 9, 21, 10, 0, 0, tzinfo=UTC)
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 
 
 def _sub_row(
     chatroom_id: uuid.UUID = _ROOM_1,
     subject_user_id: uuid.UUID | None = _USER_1,
     subject_member_group_id: uuid.UUID | None = None,
+    subject_kind: str = "user",
     activity_type_key: str = "six-thinking-hats",
     attempt_no: int = 1,
     is_valid: bool = True,
@@ -43,6 +53,7 @@ def _sub_row(
     created_at: datetime = _NOW,
     payload: dict | None = None,
     sub_scores: dict | None = None,
+    payload_fields: tuple[str, ...] = ("answer",),
 ) -> SubmissionRow:
     return SubmissionRow(
         chatroom_id=chatroom_id,
@@ -55,27 +66,20 @@ def _sub_row(
         latency_ms=latency_ms,
         created_at=created_at,
         payload=payload or {"answer": "red hat"},
-        sub_scores=sub_scores or {"creativity": 8},
+        sub_scores=sub_scores or {"filled": 1},
+        subject_kind=subject_kind,
+        payload_fields=payload_fields,
     )
 
 
-def _obs_row(
-    chatroom_id: uuid.UUID = _ROOM_1,
-    agent_id: uuid.UUID = _AGENT_1,
-    content_md: str = "The participant showed divergent thinking.",
-    blocks: list | None = None,
-    trigger: str = "submission",
-    created_at: datetime = _NOW,
-    released_at: datetime | None = None,
-) -> ObservationRow:
+def _obs_row(chatroom_id: uuid.UUID = _ROOM_1, blocks: list | None = None) -> ObservationRow:
     return ObservationRow(
         chatroom_id=chatroom_id,
-        agent_id=agent_id,
-        content_md=content_md,
+        agent_id=_AGENT_1,
+        content_md="The participant showed divergent thinking.",
         blocks=blocks or [{"type": "prose", "text": "Good work"}],
-        trigger=trigger,
-        created_at=created_at,
-        released_at=released_at,
+        trigger="submission",
+        created_at=_NOW,
     )
 
 
@@ -84,215 +88,249 @@ def _msg_row(
     sender_type: str = "user",
     sender_id: uuid.UUID | None = _USER_1,
     content_md: str = "Hello",
-    created_at: datetime = _NOW,
 ) -> MessageRow:
     return MessageRow(
         chatroom_id=chatroom_id,
         sender_type=sender_type,
         sender_id=sender_id,
         content_md=content_md,
-        created_at=created_at,
+        created_at=_NOW,
     )
 
 
-class TestSubmissionsCsv:
-    def test_user_subject_gets_subject_code(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_sub_row(subject_user_id=_USER_1)]
-        result = builder._build_submissions_csv(rows)
-        reader = csv.reader(io.StringIO(result))
-        header = next(reader)
-        assert "subject_code" in header
-        data = next(reader)
-        assert data[0] == subject_code(_USER_1)
+def _files(
+    submissions: list[SubmissionRow] | None = None,
+    messages: list[MessageRow] | None = None,
+    observations: list[ObservationRow] | None = None,
+) -> dict[str, str]:
+    return ResearchExportBuilder().build_files(
+        workspace_id=_WORKSPACE,
+        room_count=2,
+        submissions=submissions if submissions is not None else [_sub_row()],
+        observations=observations if observations is not None else [_obs_row()],
+        messages=messages if messages is not None else [_msg_row()],
+        agent_key_map={_AGENT_1: "TA-agent"},
+    )
 
-    def test_group_subject_gets_group_code(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_sub_row(subject_user_id=None, subject_member_group_id=_GROUP_1)]
-        result = builder._build_submissions_csv(rows)
-        reader = csv.reader(io.StringIO(result))
-        next(reader)  # header
-        data = next(reader)
-        assert data[0] == group_subject_code(_GROUP_1)
 
-    def test_no_display_names_or_emails(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_sub_row()]
-        result = builder._build_submissions_csv(rows)
-        assert str(_USER_1) not in result
-        assert "display_name" not in result.lower()
-        assert "email" not in result.lower()
+def _csv(content: str) -> list[dict[str, str]]:
+    assert content.startswith("﻿")
+    return list(csv.DictReader(io.StringIO(content.removeprefix("﻿"))))
+
+
+def _header(content: str) -> list[str]:
+    return next(csv.reader(io.StringIO(content.removeprefix("﻿"))))
+
+
+class TestSubjects:
+    """AC-7: every subject keeps its own code, the same in every file."""
+
+    def test_guests_get_distinct_codes_that_join_transcripts_to_submissions(self) -> None:
+        subs = [
+            _sub_row(subject_user_id=_GUEST_1, subject_kind="guest"),
+            _sub_row(subject_user_id=_GUEST_2, subject_kind="guest"),
+            _sub_row(subject_user_id=_USER_1, subject_kind="user"),
+            _sub_row(subject_user_id=None, subject_member_group_id=_GROUP_1),
+        ]
+        msgs = [
+            _msg_row(sender_type="guest", sender_id=_GUEST_1),
+            _msg_row(sender_type="guest", sender_id=_GUEST_2),
+            _msg_row(sender_type="user", sender_id=_USER_1),
+        ]
+        files = _files(subs, msgs)
+
+        rows = _csv(files["submissions/six-thinking-hats.csv"])
+        assert [(r["subject_code"], r["subject_kind"]) for r in rows] == [
+            (subject_code(_GUEST_1), "guest"),
+            (subject_code(_GUEST_2), "guest"),
+            (subject_code(_USER_1), "user"),
+            (group_subject_code(_GROUP_1), "group"),
+        ]
+        said = json.loads(files["transcripts.json"])[room_code(_ROOM_1)]
+        assert [(m["subject_code"], m["subject_kind"]) for m in said] == [
+            (subject_code(_GUEST_1), "guest"),
+            (subject_code(_GUEST_2), "guest"),
+            (subject_code(_USER_1), "user"),
+        ]
+        assert subject_code(_GUEST_1) != subject_code(_GUEST_2)
+
+    def test_agent_and_system_messages_are_labelled_by_kind(self) -> None:
+        msgs = [
+            _msg_row(sender_type="agent", sender_id=_AGENT_1),
+            _msg_row(sender_type="system", sender_id=None),
+        ]
+        said = json.loads(_files(messages=msgs)["transcripts.json"])[room_code(_ROOM_1)]
+        assert [(m["subject_code"], m["subject_kind"]) for m in said] == [
+            ("TA-agent", "agent"),
+            ("system", "system"),
+        ]
+
+
+class TestNoFullIds:
+    """AC-8: no 36-character UUID in any file; rooms and the workspace are codes."""
+
+    def test_no_uuid_anywhere_in_the_unpacked_zip(self) -> None:
+        subs = [
+            _sub_row(chatroom_id=_ROOM_1, subject_user_id=_GUEST_1, subject_kind="guest"),
+            _sub_row(chatroom_id=_ROOM_2, subject_user_id=None, subject_member_group_id=_GROUP_1),
+        ]
+        msgs = [_msg_row(chatroom_id=_ROOM_2, sender_type="guest", sender_id=_GUEST_1)]
+        archive = ResearchExportBuilder()._package_zip(_files(subs, msgs, [_obs_row(_ROOM_2)]))
+        with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+            for name in zf.namelist():
+                text = zf.read(name).decode("utf-8")
+                assert not _UUID.search(text), f"{name} carries a full id"
+
+    def test_rooms_and_workspace_read_as_codes(self) -> None:
+        files = _files(observations=[_obs_row(_ROOM_2)])
+        assert _csv(files["submissions/six-thinking-hats.csv"])[0]["room_code"] == room_code(_ROOM_1)
+        assert json.loads(files["observations.json"])[0]["room_code"] == room_code(_ROOM_2)
+        assert list(json.loads(files["transcripts.json"])) == [room_code(_ROOM_1)]
+        manifest = json.loads(files["manifest.json"])
+        assert manifest["schema_version"] == 2
+        assert manifest["workspace_code"] == workspace_code(_WORKSPACE)
+        assert "workspace_id" not in manifest
+        assert room_code(_ROOM_1) == f"r:{str(_ROOM_1)[:8]}"
+
+
+class TestSubmissionCsvs:
+    """AC-9: one CSV per type, section 5's columns, readable CJK, a BOM."""
+
+    def test_one_file_per_type_listed_in_the_manifest(self) -> None:
+        files = _files([_sub_row(activity_type_key="RAT test"), _sub_row(activity_type_key="mandala")])
+        assert {p for p in files if p.startswith("submissions/")} == {
+            "submissions/rat-test.csv",
+            "submissions/mandala.csv",
+        }
+        assert json.loads(files["manifest.json"])["submission_files"] == {
+            "RAT test": "submissions/rat-test.csv",
+            "mandala": "submissions/mandala.csv",
+        }
+
+    def test_type_keys_that_sanitise_alike_do_not_overwrite_each_other(self) -> None:
+        files = _files([_sub_row(activity_type_key="a b"), _sub_row(activity_type_key="a.b")])
+        assert {p for p in files if p.startswith("submissions/")} == {
+            "submissions/a-b.csv",
+            "submissions/a-b-2.csv",
+        }
 
     def test_columns_match_spec(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_sub_row()]
-        result = builder._build_submissions_csv(rows)
-        reader = csv.reader(io.StringIO(result))
-        header = next(reader)
-        expected = [
+        """Replaces the schema-v1 header test: section 5's order, payload fields in the middle."""
+        row = _sub_row(payload={"answer": "x", "reason": "y"}, payload_fields=("answer", "reason"))
+        assert _header(_files([row])["submissions/six-thinking-hats.csv"]) == [
             "subject_code",
-            "activity_type_key",
-            "room_id",
+            "subject_kind",
+            "room_code",
             "attempt_no",
             "is_valid",
             "error_class",
             "latency_ms",
             "created_at",
+            "answer",
+            "reason",
+            "sub_scores_filled",
+            "sub_scores_filled_fields",
             "payload_json",
             "sub_scores_json",
         ]
-        assert header == expected
 
+    def test_payload_fields_are_the_union_in_first_seen_order(self) -> None:
+        rows = [
+            _sub_row(payload={"b": 1}, payload_fields=("b", "a")),
+            _sub_row(payload={"c": 2}, payload_fields=("a", "c")),
+        ]
+        header = _header(_files(rows)["submissions/six-thinking-hats.csv"])
+        assert header[8:11] == ["b", "a", "c"]
 
-class TestSubjectColumnsGolden:
-    """Teacher dashboard redesign AC-14: the subject columns stay byte-identical.
+    def test_chinese_stays_readable_and_the_file_starts_with_a_bom(self) -> None:
+        content = _files([_sub_row(payload={"answer": "林"})])["submissions/six-thinking-hats.csv"]
+        assert content.startswith("﻿")
+        (row,) = _csv(content)
+        assert row["answer"] == "林"
+        assert row["payload_json"] == '{"answer": "林"}'
+        assert "\\u" not in content
 
-    The expected text was produced by the builder as it stood before the redesign
-    (its source and `subject_code.py` are unchanged since), so a drift here is a
-    change to what researchers receive.
-    """
+    def test_arrays_join_objects_stay_json_and_fill_counts_are_split_out(self) -> None:
+        row = _sub_row(
+            payload={"ideas": ["紅", "黃"], "meta": {"k": "值"}},
+            payload_fields=("ideas", "meta"),
+            sub_scores={"filled": 2, "filled_fields": ["ideas", "meta"]},
+        )
+        (out,) = _csv(_files([row])["submissions/six-thinking-hats.csv"])
+        assert out["ideas"] == "紅; 黃"
+        assert out["meta"] == '{"k": "值"}'
+        assert (out["sub_scores_filled"], out["sub_scores_filled_fields"]) == ("2", "ideas; meta")
 
-    _U = uuid.UUID("1a2b3c4d-0000-4000-8000-000000000001")
-    _G = uuid.UUID("5e6f7a8b-0000-4000-8000-000000000002")
-    _R = uuid.UUID("9c0d1e2f-0000-4000-8000-000000000003")
-    _AT = datetime(2026, 10, 19, 9, 30, tzinfo=UTC)
+    def test_a_cell_that_would_be_a_spreadsheet_formula_is_neutralised(self) -> None:
+        row = _sub_row(payload={"answer": '=HYPERLINK("http://x","y")'})
+        (out,) = _csv(_files([row])["submissions/six-thinking-hats.csv"])
+        assert out["answer"] == '\'=HYPERLINK("http://x","y")'
 
-    def test_submissions_csv(self) -> None:
+    def test_submission_csv_golden(self) -> None:
+        """Replaces the schema-v1 golden. The subject codes are unchanged from it
+        (teacher dashboard redesign AC-14); the room is now a code."""
+        u = uuid.UUID("1a2b3c4d-0000-4000-8000-000000000001")
+        g = uuid.UUID("5e6f7a8b-0000-4000-8000-000000000002")
+        r = uuid.UUID("9c0d1e2f-0000-4000-8000-000000000003")
+        at = datetime(2026, 10, 19, 9, 30, tzinfo=UTC)
         rows = [
             SubmissionRow(
-                chatroom_id=self._R,
-                subject_user_id=self._U,
+                chatroom_id=r,
+                subject_user_id=u,
                 subject_member_group_id=None,
                 activity_type_key="rat",
                 attempt_no=1,
                 is_valid=True,
                 error_class=None,
                 latency_ms=120,
-                created_at=self._AT,
+                created_at=at,
                 payload={"a": "x"},
                 sub_scores={},
+                payload_fields=("a",),
             ),
             SubmissionRow(
-                chatroom_id=self._R,
+                chatroom_id=r,
                 subject_user_id=None,
-                subject_member_group_id=self._G,
+                subject_member_group_id=g,
                 activity_type_key="rat",
                 attempt_no=2,
                 is_valid=False,
                 error_class="schema",
                 latency_ms=None,
-                created_at=self._AT,
+                created_at=at,
                 payload={},
                 sub_scores={},
+                payload_fields=("a",),
             ),
         ]
-        assert ResearchExportBuilder()._build_submissions_csv(rows) == (
-            "subject_code,activity_type_key,room_id,attempt_no,is_valid,error_class,latency_ms,"
-            "created_at,payload_json,sub_scores_json\r\n"
-            "u:1a2b3c4d,rat,9c0d1e2f-0000-4000-8000-000000000003,1,True,,120,"
-            '2026-10-19T09:30:00+00:00,"{""a"": ""x""}",{}\r\n'
-            "g:5e6f7a8b,rat,9c0d1e2f-0000-4000-8000-000000000003,2,False,schema,,"
-            "2026-10-19T09:30:00+00:00,{},{}\r\n"
+        assert _files(rows)["submissions/rat.csv"] == (
+            "﻿subject_code,subject_kind,room_code,attempt_no,is_valid,error_class,latency_ms,"
+            "created_at,a,sub_scores_filled,sub_scores_filled_fields,payload_json,sub_scores_json\r\n"
+            "u:1a2b3c4d,user,r:9c0d1e2f,1,True,,120,"
+            '2026-10-19T09:30:00+00:00,x,,,"{""a"": ""x""}",{}\r\n'
+            "g:5e6f7a8b,group,r:9c0d1e2f,2,False,schema,,"
+            "2026-10-19T09:30:00+00:00,,,,{},{}\r\n"
         )
 
-    def test_transcripts_json(self) -> None:
-        rows = [
-            MessageRow(
-                chatroom_id=self._R,
-                sender_type="user",
-                sender_id=self._U,
-                content_md="hi",
-                created_at=self._AT,
-            )
-        ]
-        assert ResearchExportBuilder()._build_transcripts_json(rows, {}) == (
-            '{\n  "9c0d1e2f-0000-4000-8000-000000000003": [\n    {\n'
-            '      "subject_code": "u:1a2b3c4d",\n      "sender_type": "user",\n'
-            '      "content_md": "hi",\n      "created_at": "2026-10-19T09:30:00+00:00"\n    }\n  ]\n}'
-        )
+    def test_no_display_names_or_emails(self) -> None:
+        content = _files()["submissions/six-thinking-hats.csv"]
+        assert str(_USER_1) not in content
+        assert "display_name" not in content.lower()
+        assert "email" not in content.lower()
 
 
 class TestObservationsJson:
     def test_blocks_preserved_as_structured_json(self) -> None:
-        builder = ResearchExportBuilder()
         blocks = [{"type": "prose", "text": "Good"}, {"type": "key_points", "items": ["A", "B"]}]
-        rows = [_obs_row(blocks=blocks)]
-        result = builder._build_observations_json(rows, {_AGENT_1: "AA"})
-        parsed = json.loads(result)
-        assert len(parsed) == 1
+        parsed = json.loads(_files(observations=[_obs_row(blocks=blocks)])["observations.json"])
         assert parsed[0]["blocks"] == blocks
-
-    def test_agent_key_used(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_obs_row()]
-        result = builder._build_observations_json(rows, {_AGENT_1: "AA-agent"})
-        parsed = json.loads(result)
-        assert parsed[0]["agent_key"] == "AA-agent"
-
-
-class TestTranscriptsJson:
-    def test_user_messages_get_subject_code(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_msg_row(sender_type="user", sender_id=_USER_1)]
-        result = builder._build_transcripts_json(rows, {})
-        parsed = json.loads(result)
-        room_msgs = parsed[str(_ROOM_1)]
-        assert room_msgs[0]["subject_code"] == subject_code(_USER_1)
-        assert room_msgs[0]["sender_type"] == "user"
-
-    def test_agent_messages_get_agent_key(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_msg_row(sender_type="agent", sender_id=_AGENT_1)]
-        result = builder._build_transcripts_json(rows, {_AGENT_1: "TA-agent"})
-        parsed = json.loads(result)
-        room_msgs = parsed[str(_ROOM_1)]
-        assert room_msgs[0]["subject_code"] == "TA-agent"
-
-    def test_system_messages_have_system_identifier(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [_msg_row(sender_type="system", sender_id=None)]
-        result = builder._build_transcripts_json(rows, {})
-        parsed = json.loads(result)
-        room_msgs = parsed[str(_ROOM_1)]
-        assert room_msgs[0]["subject_code"] == "system"
-
-    def test_per_room_grouping(self) -> None:
-        builder = ResearchExportBuilder()
-        rows = [
-            _msg_row(chatroom_id=_ROOM_1),
-            _msg_row(chatroom_id=_ROOM_2),
-        ]
-        result = builder._build_transcripts_json(rows, {})
-        parsed = json.loads(result)
-        assert str(_ROOM_1) in parsed
-        assert str(_ROOM_2) in parsed
-
-
-class TestManifestJson:
-    def test_manifest_structure(self) -> None:
-        builder = ResearchExportBuilder()
-        result = builder._build_manifest(
-            workspace_id=_WORKSPACE,
-            room_count=3,
-            created_after=None,
-            created_before=None,
-            submission_count=10,
-            observation_count=5,
-        )
-        parsed = json.loads(result)
-        assert parsed["schema_version"] == 1
-        assert parsed["workspace_id"] == str(_WORKSPACE)
-        assert parsed["room_count"] == 3
-        assert "exported_at" in parsed
+        assert parsed[0]["agent_key"] == "TA-agent"
 
 
 class TestZipPackage:
-    def test_zip_contains_all_files(self) -> None:
-        builder = ResearchExportBuilder()
-        result = builder._package_zip("csv", "obs", "trans", "man")
-        with zipfile.ZipFile(io.BytesIO(result)) as zf:
-            names = zf.namelist()
-            assert "submissions.csv" in names
-            assert "observations.json" in names
-            assert "transcripts.json" in names
-            assert "manifest.json" in names
+    def test_zip_holds_every_file(self) -> None:
+        files = _files()
+        archive = ResearchExportBuilder()._package_zip(files)
+        with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+            assert set(zf.namelist()) == set(files)
+            assert {"observations.json", "transcripts.json", "manifest.json"} <= set(zf.namelist())

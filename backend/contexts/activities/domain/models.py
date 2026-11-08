@@ -727,6 +727,11 @@ class ResearchExportSubmission:
     created_at: dt.datetime | None
     payload: dict[str, Any] = field(default_factory=dict)
     sub_scores: dict[str, Any] = field(default_factory=dict)
+    #: ``user``, ``guest`` or ``group``. A guest's ``subject_user_id`` is its guest
+    #: session id, which its messages carry too, so both get one code.
+    subject_kind: str = "user"
+    #: The properties the type's payload schema declares, in schema order.
+    payload_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

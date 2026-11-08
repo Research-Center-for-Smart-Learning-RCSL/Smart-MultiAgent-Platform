@@ -437,6 +437,8 @@ async def research_data_export(
                     created_at=s.created_at,
                     payload=s.payload,
                     sub_scores=s.sub_scores,
+                    subject_kind=s.subject_kind,
+                    payload_fields=s.payload_fields,
                 )
                 for s in raw_subs
             ]
