@@ -26,6 +26,7 @@ from contexts.activities.domain.creativity_judge import (
 )
 from contexts.activities.domain.models import ValidatorKind
 from contexts.activities.infrastructure import tables as at
+from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
 from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 from contexts.activities.interfaces.facade import ActivitiesFacade
 from contexts.conversation.infrastructure import tables as ct
@@ -279,12 +280,21 @@ async def _next_round(
     type_id: uuid.UUID,
     owner_id: uuid.UUID,
 ) -> None:
+    # As ending a round does: its open sessions close with it, which frees the
+    # subject to open one in the next round.
     async with sessionmaker() as session:
-        await session.execute(
-            at.activity_activations.update()
-            .where(at.activity_activations.c.chatroom_id == chatroom_id)
-            .values(status="ended", ended_at=sa.func.now())
-        )
+        ended = (
+            await session.execute(
+                at.activity_activations.update()
+                .where(
+                    at.activity_activations.c.chatroom_id == chatroom_id,
+                    at.activity_activations.c.status == "active",
+                )
+                .values(status="ended", ended_at=sa.func.now())
+                .returning(at.activity_activations.c.id)
+            )
+        ).scalar_one()
+        await ActivitySessionRepository(session).close_open_for_activation(ended)
         await session.execute(
             at.activity_activations.insert().values(
                 chatroom_id=chatroom_id, activity_type_id=type_id, started_by_user_id=owner_id
