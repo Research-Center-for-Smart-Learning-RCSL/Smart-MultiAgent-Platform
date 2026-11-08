@@ -13,6 +13,7 @@ import json
 import re
 import uuid
 import zipfile
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from contexts.activities.domain.subject_code import (
@@ -114,12 +115,12 @@ def _files(
 
 
 def _csv(content: str) -> list[dict[str, str]]:
-    assert content.startswith("﻿")
-    return list(csv.DictReader(io.StringIO(content.removeprefix("﻿"))))
+    assert content.startswith("\ufeff")
+    return list(csv.DictReader(io.StringIO(content.removeprefix("\ufeff"))))
 
 
 def _header(content: str) -> list[str]:
-    return next(csv.reader(io.StringIO(content.removeprefix("﻿"))))
+    return next(csv.reader(io.StringIO(content.removeprefix("\ufeff"))))
 
 
 class TestSubjects:
@@ -181,6 +182,14 @@ class TestNoFullIds:
                 text = zf.read(name).decode("utf-8")
                 assert not _UUID.search(text), f"{name} carries a full id"
 
+    def test_rooms_sharing_a_code_prefix_stay_apart(self) -> None:
+        a = uuid.UUID("abcdef01-0000-4000-8000-000000000001")
+        b = uuid.UUID("abcdef01-0000-4000-8000-000000000002")
+        msgs = [_msg_row(chatroom_id=a), _msg_row(chatroom_id=b)]
+        files = _files([_sub_row(chatroom_id=b)], msgs, [])
+        assert sorted(json.loads(files["transcripts.json"])) == ["r:abcdef01~1", "r:abcdef01~2"]
+        assert _csv(files["submissions/six-thinking-hats.csv"])[0]["room_code"] == "r:abcdef01~2"
+
     def test_rooms_and_workspace_read_as_codes(self) -> None:
         files = _files(observations=[_obs_row(_ROOM_2)])
         assert _csv(files["submissions/six-thinking-hats.csv"])[0]["room_code"] == room_code(_ROOM_1)
@@ -202,10 +211,27 @@ class TestSubmissionCsvs:
             "submissions/rat-test.csv",
             "submissions/mandala.csv",
         }
-        assert json.loads(files["manifest.json"])["submission_files"] == {
-            "RAT test": "submissions/rat-test.csv",
-            "mandala": "submissions/mandala.csv",
-        }
+        assert json.loads(files["manifest.json"])["submission_files"] == [
+            {"type_key": "RAT test", "file": "submissions/rat-test.csv"},
+            {"type_key": "mandala", "file": "submissions/mandala.csv"},
+        ]
+
+    def test_two_types_sharing_a_key_get_their_own_files(self) -> None:
+        """Keys are unique only per project among live types (0076)."""
+        platform, project = uuid.uuid4(), uuid.uuid4()
+        rows = [
+            replace(
+                _sub_row(activity_type_key="rat", payload={"a": 1}, payload_fields=("a",)),
+                activity_type_id=platform,
+            ),
+            replace(
+                _sub_row(activity_type_key="rat", payload={"b": 2}, payload_fields=("b",)),
+                activity_type_id=project,
+            ),
+        ]
+        files = _files(rows)
+        assert _header(files["submissions/rat.csv"])[8] == "a"
+        assert _header(files["submissions/rat-2.csv"])[8] == "b"
 
     def test_type_keys_that_sanitise_alike_do_not_overwrite_each_other(self) -> None:
         files = _files([_sub_row(activity_type_key="a b"), _sub_row(activity_type_key="a.b")])
@@ -244,7 +270,7 @@ class TestSubmissionCsvs:
 
     def test_chinese_stays_readable_and_the_file_starts_with_a_bom(self) -> None:
         content = _files([_sub_row(payload={"answer": "林"})])["submissions/six-thinking-hats.csv"]
-        assert content.startswith("﻿")
+        assert content.startswith("\ufeff")
         (row,) = _csv(content)
         assert row["answer"] == "林"
         assert row["payload_json"] == '{"answer": "林"}'
@@ -262,9 +288,21 @@ class TestSubmissionCsvs:
         assert (out["sub_scores_filled"], out["sub_scores_filled_fields"]) == ("2", "ideas; meta")
 
     def test_a_cell_that_would_be_a_spreadsheet_formula_is_neutralised(self) -> None:
-        row = _sub_row(payload={"answer": '=HYPERLINK("http://x","y")'})
-        (out,) = _csv(_files([row])["submissions/six-thinking-hats.csv"])
-        assert out["answer"] == '\'=HYPERLINK("http://x","y")'
+        evil = '=HYPERLINK("http://x","y")'
+        row = _sub_row(
+            payload={"answer": evil, "+sum": "x"},
+            payload_fields=("answer", "+sum"),
+            error_class="@cmd",
+            sub_scores={"filled": "-2+3", "filled_fields": ["=A1"]},
+        )
+        content = _files([row])["submissions/six-thinking-hats.csv"]
+        assert "'+sum" in _header(content)
+        (out,) = _csv(content)
+        assert out["answer"] == "'" + evil
+        assert out["error_class"] == "'@cmd"
+        assert out["sub_scores_filled"] == "'-2+3"
+        assert out["sub_scores_filled_fields"] == "'=A1"
+        assert out["'+sum"] == "x"
 
     def test_submission_csv_golden(self) -> None:
         """Replaces the schema-v1 golden. The subject codes are unchanged from it
@@ -304,7 +342,7 @@ class TestSubmissionCsvs:
             ),
         ]
         assert _files(rows)["submissions/rat.csv"] == (
-            "﻿subject_code,subject_kind,room_code,attempt_no,is_valid,error_class,latency_ms,"
+            "\ufeffsubject_code,subject_kind,room_code,attempt_no,is_valid,error_class,latency_ms,"
             "created_at,a,sub_scores_filled,sub_scores_filled_fields,payload_json,sub_scores_json\r\n"
             "u:1a2b3c4d,user,r:9c0d1e2f,1,True,,120,"
             '2026-10-19T09:30:00+00:00,x,,,"{""a"": ""x""}",{}\r\n'

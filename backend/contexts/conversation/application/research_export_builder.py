@@ -41,7 +41,7 @@ from shared_kernel.storage import export_key, get_minio_client
 _EXPORT_PUT_TIMEOUT_SECONDS = 120
 SCHEMA_VERSION: Final = 2
 # Excel reads a CSV as the system code page unless it starts with a BOM.
-_BOM: Final = "﻿"
+_BOM: Final = "\ufeff"
 _LEADING_COLUMNS: Final = (
     "subject_code",
     "subject_kind",
@@ -62,6 +62,13 @@ _TRAILING_COLUMNS: Final = (
 # text reaches these cells, and the files are meant to be opened in Excel.
 _FORMULA_PREFIXES: Final = ("=", "+", "-", "@", "\t", "\r")
 _UNSAFE_FILE_CHARS: Final = re.compile(r"[^a-z0-9_-]+")
+_MANIFEST_NOTES: Final = (
+    "People, groups, rooms and the workspace appear only as codes. Free text (answers, "
+    "messages, observations) is exported as written and is not scrubbed of names.",
+    "A CSV text cell starting with =, +, -, @, a tab or a carriage return is prefixed "
+    "with an apostrophe so a spreadsheet does not run it as a formula; strip it before "
+    "parsing such a value as a number.",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +86,7 @@ class SubmissionRow:
     sub_scores: dict[str, Any] = field(default_factory=dict)
     subject_kind: str = "user"
     payload_fields: tuple[str, ...] = ()
+    activity_type_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,11 +190,16 @@ class ResearchExportBuilder:
         created_before: datetime | None = None,
     ) -> dict[str, str]:
         """Every file of the bundle by its path inside the ZIP."""
-        csvs = self._build_submission_csvs(submissions)
+        rooms = _room_codes(
+            [r.chatroom_id for r in submissions]
+            + [o.chatroom_id for o in observations]
+            + [m.chatroom_id for m in messages]
+        )
+        csvs = self._build_submission_csvs(submissions, rooms)
         return {
             **{path: content for path, (_, content) in csvs.items()},
-            "observations.json": self._build_observations_json(observations, agent_key_map),
-            "transcripts.json": self._build_transcripts_json(messages, agent_key_map),
+            "observations.json": self._build_observations_json(observations, agent_key_map, rooms),
+            "transcripts.json": self._build_transcripts_json(messages, agent_key_map, rooms),
             "manifest.json": self._build_manifest(
                 workspace_id=workspace_id,
                 room_count=room_count,
@@ -194,30 +207,34 @@ class ResearchExportBuilder:
                 created_before=created_before,
                 submission_count=len(submissions),
                 observation_count=len(observations),
-                submission_files={type_key: path for path, (type_key, _) in csvs.items()},
+                submission_files=[{"type_key": key, "file": path} for path, (key, _) in csvs.items()],
             ),
         }
 
     # -- Serialization ------------------------------------------------------ #
 
-    def _build_submission_csvs(self, rows: list[SubmissionRow]) -> dict[str, tuple[str, str]]:
+    def _build_submission_csvs(
+        self, rows: list[SubmissionRow], rooms: dict[uuid.UUID, str]
+    ) -> dict[str, tuple[str, str]]:
         """One CSV per activity type: ``{path: (type_key, content)}``."""
-        by_type: dict[str, list[SubmissionRow]] = {}
+        by_type: dict[uuid.UUID | str, list[SubmissionRow]] = {}
         for row in rows:
-            by_type.setdefault(row.activity_type_key, []).append(row)
+            by_type.setdefault(row.activity_type_id or row.activity_type_key, []).append(row)
 
         out: dict[str, tuple[str, str]] = {}
-        for type_key, type_rows in by_type.items():
+        for type_rows in by_type.values():
+            type_key = type_rows[0].activity_type_key
             path = _unique_path(type_key, out)
-            out[path] = (type_key, self._build_type_csv(type_rows))
+            out[path] = (type_key, self._build_type_csv(type_rows, rooms))
         return out
 
-    def _build_type_csv(self, rows: list[SubmissionRow]) -> str:
+    def _build_type_csv(self, rows: list[SubmissionRow], rooms: dict[uuid.UUID, str]) -> str:
         fields = _payload_columns(rows)
         buf = io.StringIO()
         buf.write(_BOM)
         writer = csv.writer(buf)
-        writer.writerow([*_LEADING_COLUMNS, *fields, *_TRAILING_COLUMNS])
+        # Property names are the type author's text, so they are cells like any other.
+        writer.writerow([*_LEADING_COLUMNS, *map(_cell, fields), *_TRAILING_COLUMNS])
         for row in rows:
             code, kind = _subject(row)
             filled_fields = row.sub_scores.get(FILLED_FIELDS_SUB_SCORE)
@@ -225,14 +242,15 @@ class ResearchExportBuilder:
                 [
                     _cell(code),
                     kind,
-                    room_code(row.chatroom_id),
+                    rooms[row.chatroom_id],
                     row.attempt_no,
                     row.is_valid,
                     _cell(row.error_class),
                     row.latency_ms,
                     row.created_at.isoformat() if row.created_at else None,
                     *(_cell(_flatten(row.payload.get(name))) for name in fields),
-                    row.sub_scores.get("filled"),
+                    # An MCP or webhook validator writes sub_scores, so any value may be text.
+                    _cell(row.sub_scores.get("filled")),
                     _cell("; ".join(map(str, filled_fields))) if isinstance(filled_fields, list) else None,
                     _json(row.payload or {}),
                     _json(row.sub_scores or {}),
@@ -244,12 +262,13 @@ class ResearchExportBuilder:
         self,
         rows: list[ObservationRow],
         agent_key_map: dict[uuid.UUID, str],
+        rooms: dict[uuid.UUID, str],
     ) -> str:
         observations = []
         for row in rows:
             observations.append(
                 {
-                    "room_code": room_code(row.chatroom_id),
+                    "room_code": rooms[row.chatroom_id],
                     "agent_key": agent_key_map.get(row.agent_id, str(row.agent_id)[:8]),
                     "blocks": list(row.blocks or []),
                     "content_md": row.content_md,
@@ -264,6 +283,7 @@ class ResearchExportBuilder:
         self,
         rows: list[MessageRow],
         agent_key_map: dict[uuid.UUID, str],
+        room_codes: dict[uuid.UUID, str],
     ) -> str:
         rooms: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
@@ -282,7 +302,7 @@ class ResearchExportBuilder:
             else:
                 identifier, kind = sender_type or "system", sender_type or "system"
 
-            rooms.setdefault(room_code(row.chatroom_id), []).append(
+            rooms.setdefault(room_codes[row.chatroom_id], []).append(
                 {
                     "subject_code": identifier,
                     "subject_kind": kind,
@@ -302,7 +322,7 @@ class ResearchExportBuilder:
         created_before: datetime | None,
         submission_count: int,
         observation_count: int,
-        submission_files: dict[str, str],
+        submission_files: list[dict[str, str]],
     ) -> str:
         manifest = {
             "schema_version": SCHEMA_VERSION,
@@ -315,6 +335,7 @@ class ResearchExportBuilder:
             "submission_count": submission_count,
             "observation_count": observation_count,
             "submission_files": submission_files,
+            "notes": list(_MANIFEST_NOTES),
             "exported_at": now().isoformat(),
         }
         return json.dumps(manifest, ensure_ascii=False, indent=2, default=str)
@@ -333,6 +354,21 @@ def _subject(row: SubmissionRow) -> tuple[str, str]:
     if row.subject_user_id:
         return subject_code(row.subject_user_id), row.subject_kind
     return "unknown", "unknown"
+
+
+def _room_codes(room_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """``r:<8>`` per room, suffixed where two rooms of the export share the prefix.
+
+    A shared code would merge two rooms' transcripts under one key.
+    """
+    by_code: dict[str, list[uuid.UUID]] = {}
+    for room_id in sorted(set(room_ids)):
+        by_code.setdefault(room_code(room_id), []).append(room_id)
+    codes: dict[uuid.UUID, str] = {}
+    for code, ids in by_code.items():
+        for n, room_id in enumerate(ids, start=1):
+            codes[room_id] = code if len(ids) == 1 else f"{code}~{n}"
+    return codes
 
 
 def _payload_columns(rows: list[SubmissionRow]) -> list[str]:

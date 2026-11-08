@@ -93,7 +93,15 @@ async def room(
                 project_id=project_id,
                 key="export-itest-type",
                 name="export itest type",
-                payload_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
+                # jsonb returns these as zz, answer, because; x-order says answer first.
+                payload_schema={
+                    "type": "object",
+                    "properties": {
+                        "answer": {"type": "string", "x-order": 1},
+                        "zz": {"type": "string", "x-order": 2},
+                        "because": {"type": "string"},
+                    },
+                },
                 validator_kind="in_process",
                 validator_config={"validator_id": "filled_count", "min_filled": 1},
             )
@@ -162,6 +170,7 @@ async def _seed(sessionmaker: async_sessionmaker[AsyncSession], room: Room) -> N
             member_group_id=room.group_id,
             activation_id=room.activation_id,
         )
+        assert group_session is not None
         await session.execute(
             at.activity_submissions.insert().values(
                 session_id=group_session,
@@ -207,7 +216,8 @@ async def test_guests_keep_distinct_codes_that_join_transcripts_to_submissions(
         (room.owner_user_id, "user"),
         (room.group_id, "group"),
     }
-    assert all(s.payload_fields == ("answer",) for s in listed)
+    assert all(s.payload_fields == ("answer", "zz", "because") for s in listed)
+    assert {s.activity_type_id for s in listed} == {room.activity_type_id}
 
     files = ResearchExportBuilder().build_files(
         workspace_id=room.workspace_id,
@@ -227,6 +237,7 @@ async def test_guests_keep_distinct_codes_that_join_transcripts_to_submissions(
                 sub_scores=s.sub_scores,
                 subject_kind=s.subject_kind,
                 payload_fields=s.payload_fields,
+                activity_type_id=s.activity_type_id,
             )
             for s in listed
         ],

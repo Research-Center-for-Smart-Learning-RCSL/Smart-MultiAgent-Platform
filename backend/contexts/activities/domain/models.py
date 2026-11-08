@@ -730,8 +730,12 @@ class ResearchExportSubmission:
     #: ``user``, ``guest`` or ``group``. A guest's ``subject_user_id`` is its guest
     #: session id, which its messages carry too, so both get one code.
     subject_kind: str = "user"
-    #: The properties the type's payload schema declares, in schema order.
+    #: The properties the type's payload schema declares, in declared order
+    #: (``x-order``, see ``property_order``).
     payload_fields: tuple[str, ...] = ()
+    #: Keys are unique only per project and among live types, so two types in one
+    #: export may share one.
+    activity_type_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
