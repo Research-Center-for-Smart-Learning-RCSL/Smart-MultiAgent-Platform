@@ -574,7 +574,7 @@ That is stated in the release note.
 
 **Overall**
 
-- [ ] AC-19: Backend lint, typecheck and tests (db tier included) pass in CI for each
+- [x] AC-19: Backend lint, typecheck and tests (db tier included) pass in CI for each
   milestone, as do frontend lint, typecheck, tests and build.
 - [ ] AC-20: On staging, a real export of a classroom-simulator room with a scoring-enabled
   type opens in Excel with readable Chinese, joins guest transcripts to submissions by
