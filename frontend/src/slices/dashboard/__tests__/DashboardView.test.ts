@@ -64,7 +64,7 @@ vi.mock('../components/ResearchExportButton.vue', () => ({
   default: {
     name: 'ResearchExportButton',
     template: '<button data-testid="research-export-stub" />',
-    props: ['workspaceId'],
+    props: ['workspaceId', 'openJobId'],
   },
 }))
 
@@ -210,6 +210,13 @@ describe('DashboardView', () => {
     const wrapper = await renderDashboard('/workspaces/w2/dashboard')
     expect(roleScope.projectId).toBe('project-from-workspace')
     expect(wrapper.find('[data-testid="research-export-stub"]').exists()).toBe(true)
+    roleScope.authorized = false
+  })
+
+  it('passes the researchExport query to the export button', async () => {
+    roleScope.authorized = true
+    const wrapper = await renderDashboard('/workspaces/w2/dashboard?researchExport=j1')
+    expect(wrapper.findComponent({ name: 'ResearchExportButton' }).props('openJobId')).toBe('j1')
     roleScope.authorized = false
   })
 

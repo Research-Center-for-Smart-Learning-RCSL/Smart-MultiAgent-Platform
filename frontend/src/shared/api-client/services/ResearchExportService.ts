@@ -4,11 +4,33 @@
 /* eslint-disable */
 import type { ResearchExportCreateIn } from '../models/ResearchExportCreateIn';
 import type { ResearchExportCreateOut } from '../models/ResearchExportCreateOut';
+import type { ResearchExportLatestOut } from '../models/ResearchExportLatestOut';
 import type { ResearchExportStatusOut } from '../models/ResearchExportStatusOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ResearchExportService {
+    /**
+     * Get Latest Research Export
+     * @returns ResearchExportLatestOut Successful Response
+     * @throws ApiError
+     */
+    public static getLatestResearchExportApiExportsResearchLatestGet({
+        workspaceId,
+    }: {
+        workspaceId: string,
+    }): CancelablePromise<ResearchExportLatestOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/exports/research/latest',
+            query: {
+                'workspace_id': workspaceId,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
     /**
      * Get Research Export
      * @returns ResearchExportStatusOut Successful Response

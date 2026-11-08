@@ -296,6 +296,7 @@ export type { ReleaseIn } from './models/ReleaseIn';
 export type { ReorderIn } from './models/ReorderIn';
 export type { ResearchExportCreateIn } from './models/ResearchExportCreateIn';
 export type { ResearchExportCreateOut } from './models/ResearchExportCreateOut';
+export type { ResearchExportLatestOut } from './models/ResearchExportLatestOut';
 export type { ResearchExportStatusOut } from './models/ResearchExportStatusOut';
 export type { ResolvedAssistantOut } from './models/ResolvedAssistantOut';
 export type { RestoreOut } from './models/RestoreOut';

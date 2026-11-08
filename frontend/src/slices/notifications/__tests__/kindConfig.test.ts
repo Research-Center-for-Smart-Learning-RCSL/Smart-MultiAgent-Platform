@@ -59,4 +59,21 @@ describe('kindConfig', () => {
       to: { name: 'tenancy.inbox' },
     })
   })
+
+  it('wires a research export notification to its job on the dashboard', () => {
+    const cfg = kindConfig('export.ready')
+    const n = notif('export.ready', { export: 'research', job_id: 'j1', workspace_id: 'w1' })
+    expect(cfg.action?.(n)).toEqual({
+      labelKey: 'notifications.viewExport',
+      to: { name: 'dashboard', params: { workspaceId: 'w1' }, query: { researchExport: 'j1' } },
+    })
+  })
+
+  it.each([
+    { job_id: 'j1', workspace_id: 'w1' },
+    { export: 'research', workspace_id: 'w1' },
+    { export: 'research', job_id: 'j1' },
+  ])('returns no export action without a research job and workspace (%o)', (metadata) => {
+    expect(kindConfig('export.ready').action?.(notif('export.ready', metadata))).toBeNull()
+  })
 })

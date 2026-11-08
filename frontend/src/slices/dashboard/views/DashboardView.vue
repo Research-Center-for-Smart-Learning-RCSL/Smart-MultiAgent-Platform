@@ -20,6 +20,10 @@ import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel
 const route = useRoute()
 const { t } = useI18n()
 const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
+const openExportJobId = computed(() => {
+  const q = route.query.researchExport
+  return typeof q === 'string' && q ? q : null
+})
 const {
   connected,
   workspace,
@@ -81,6 +85,7 @@ const {
           <ResearchExportButton
             v-if="roleDecided && canExport"
             :workspace-id="workspaceId"
+            :open-job-id="openExportJobId"
           />
         </div>
       </template>
