@@ -166,7 +166,8 @@ class ActivityTypeRepository:
         )
 
     async def lock_version(self, type_id: uuid.UUID) -> int | None:
-        """The type's current ``version`` under ``FOR SHARE``, or ``None`` if gone.
+        """The type's current ``version`` under ``FOR SHARE``, or ``None`` if gone
+        or tombstoned (as :meth:`get` treats it).
 
         Held to the end of the caller's transaction, so a behavioural edit (an
         UPDATE of this row) waits for it and the version read cannot be replaced
@@ -175,7 +176,12 @@ class ActivityTypeRepository:
         return (
             await self._db.execute(
                 sa.select(t.activity_types.c.version)
-                .where(t.activity_types.c.id == type_id)
+                .where(
+                    sa.and_(
+                        t.activity_types.c.id == type_id,
+                        t.activity_types.c.deleted_at.is_(None),
+                    )
+                )
                 .with_for_update(read=True)
             )
         ).scalar_one_or_none()

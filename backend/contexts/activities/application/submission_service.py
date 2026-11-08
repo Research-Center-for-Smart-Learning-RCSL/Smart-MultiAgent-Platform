@@ -61,6 +61,12 @@ _MAX_ECHO_ERRORS = 5
 _ROLLING_WINDOW_SECONDS = 60
 
 
+def _ensure_payload_valid(payload_schema: dict[str, Any], payload: dict[str, object]) -> None:
+    errors = payload_errors(payload_schema, dict(payload))
+    if errors:
+        raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+
+
 class SubmissionService:
     def __init__(self, db: AsyncSession, *, activation_repo: ActivityActivationRepository) -> None:
         self._db = db
@@ -111,9 +117,7 @@ class SubmissionService:
         if activation is None or activation.activity_type_id != activity_type_id:
             raise ActivityNotActive(str(activity_type_id))
 
-        errors = payload_errors(activity_type.payload_schema, dict(payload))
-        if errors:
-            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        _ensure_payload_valid(activity_type.payload_schema, payload)
 
         session = await self._resolve_session(
             activation=activation,
@@ -173,9 +177,7 @@ class SubmissionService:
         accepted proposal is the declaration -- which is the decision the dossier's
         FU-4 left open.
         """
-        errors = payload_errors(activity_type.payload_schema, dict(payload))
-        if errors:
-            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        _ensure_payload_valid(activity_type.payload_schema, payload)
         session = await self._resolve_group_session(activation=activation, member_group_id=member_group_id)
         recorded = await self._record(
             activity_type=activity_type,
@@ -211,9 +213,7 @@ class SubmissionService:
         current = await self._type_repo.get(activity_type.id)
         if current is None:
             raise ActivityTypeNotFound(str(activity_type.id))
-        errors = payload_errors(current.payload_schema, dict(payload))
-        if errors:
-            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        _ensure_payload_valid(current.payload_schema, payload)
         return current
 
     async def _record(

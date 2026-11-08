@@ -257,6 +257,9 @@ class ActivityTypeService:
             default_time_limit_minutes=default_time_limit_minutes,
             actor_user_id=actor_user_id,
         )
+        updated = await self._repo.get(type_id)
+        if updated is None:  # pragma: no cover — just updated in this transaction
+            raise ActivityTypeNotFound(str(type_id))
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -265,13 +268,14 @@ class ActivityTypeService:
                 actor_ip=actor_ip,
                 resource_type="activity_type",
                 resource_id=type_id,
-                metadata={"project_id": str(project_id), "version_bumped": behavioral_changed},
+                metadata={
+                    "project_id": str(project_id),
+                    "version_bumped": behavioral_changed,
+                    "version": updated.version,
+                },
                 request_id=request_id,
             ),
         )
-        updated = await self._repo.get(type_id)
-        if updated is None:  # pragma: no cover — just updated in this transaction
-            raise ActivityTypeNotFound(str(type_id))
         return updated
 
     async def update_platform_type(

@@ -23,6 +23,22 @@ def test_no_route_or_facade_names_the_revisions_table() -> None:
     assert offenders == []
 
 
+def test_only_the_activities_infrastructure_names_the_table() -> None:
+    """A service could otherwise read revisions and hand them out through an
+    existing facade method, which the route scan above would not see."""
+    allowed = {
+        "contexts/activities/infrastructure/tables.py",
+        "contexts/activities/infrastructure/repositories/type_repo.py",
+        "contexts/activities/infrastructure/repositories/submission_repo.py",
+    }
+    named = {
+        p.relative_to(_BACKEND).as_posix()
+        for p in (_BACKEND / "contexts").rglob("*.py")
+        if _TABLE in p.read_text(encoding="utf-8")
+    }
+    assert named <= allowed, named - allowed
+
+
 def test_the_scan_would_see_a_reference() -> None:
     """The repository does name it, so a scan that cannot find it there is blind."""
     repo = _BACKEND / "contexts/activities/infrastructure/repositories/type_repo.py"

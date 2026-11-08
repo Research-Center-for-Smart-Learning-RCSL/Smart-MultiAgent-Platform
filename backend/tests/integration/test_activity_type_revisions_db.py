@@ -223,6 +223,13 @@ async def test_a_concurrent_edit_waits_for_the_submission_it_would_change(
     assert current is not None
     assert current.version == 2
 
+    # The export reads the schema the row was submitted under, not the current one.
+    async with sessionmaker() as session:
+        (listed,) = await ActivitiesFacade(session).list_submissions_for_research_export(
+            chatroom_ids=[room.chatroom_id]
+        )
+    assert (listed.type_version, listed.payload_fields) == (1, ("answer",))
+
 
 async def test_a_submission_after_an_edit_records_the_new_version(
     sessionmaker: async_sessionmaker[AsyncSession],
@@ -261,4 +268,4 @@ async def test_a_submission_after_an_edit_records_the_new_version(
         listed = await ActivitiesFacade(session).list_submissions_for_research_export(
             chatroom_ids=[room.chatroom_id]
         )
-    assert [s.type_version for s in listed] == [2]
+    assert [(s.type_version, s.payload_fields) for s in listed] == [(2, ("answer", "reason"))]

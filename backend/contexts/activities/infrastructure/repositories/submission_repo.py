@@ -821,8 +821,17 @@ class ActivitySubmissionRepository:
         if created_before:
             clauses.append(_SUB.c.created_at < created_before)
 
-        j = _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id).join(
-            _SESS, _SUB.c.session_id == _SESS.c.id
+        rev = t.activity_type_revisions
+        j = (
+            _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id)
+            .join(_SESS, _SUB.c.session_id == _SESS.c.id)
+            .outerjoin(
+                rev,
+                sa.and_(
+                    rev.c.activity_type_id == _SUB.c.activity_type_id,
+                    rev.c.version == _SUB.c.type_version,
+                ),
+            )
         )
 
         stmt = (
@@ -838,7 +847,11 @@ class ActivitySubmissionRepository:
                 _TYPE.c.key.label("activity_type_key"),
                 _SUB.c.activity_type_id,
                 _SUB.c.type_version,
-                _TYPE.c.payload_schema,
+                # The schema the row was submitted under, so the builder's column
+                # union spans every revision present (spec section 5). The type's
+                # current schema stands in where the version is unknown or has no
+                # revision row (D-15).
+                sa.func.coalesce(rev.c.payload_schema, _TYPE.c.payload_schema).label("payload_schema"),
                 _SESS.c.subject_user_id,
                 _SESS.c.subject_member_group_id,
                 _SESS.c.subject_kind,
