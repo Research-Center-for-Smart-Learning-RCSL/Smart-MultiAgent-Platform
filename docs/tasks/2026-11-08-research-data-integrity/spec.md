@@ -550,26 +550,26 @@ That is stated in the release note.
   - the others read `NULL` and export as `unknown`.
 
   The downgrade then removes all of it (migration test).
-- [ ] AC-13: No HTTP route, room event or export file contains `validator_config` or the
+- [x] AC-13: No HTTP route, room event or export file contains `validator_config` or the
   rubric. Non-owner project reads omit `creativity_scoring` (route tests plus the AC-8
   grep extended to rubric text).
 
 **Creativity scoring**
 
-- [ ] AC-14: For a type with scoring, a submission is recorded with
+- [x] AC-14: For a type with scoring, a submission is recorded with
   `judge_status=pending`, and its `is_valid` and class-flow events are unchanged. The job
   then writes all four scores (fluency computed, the rest 0-4) plus `provider`, `model`
   and `prompt_version` (worker test with a fake router).
-- [ ] AC-15: A judge agent not bound to the room yields `skipped`. Router exhaustion,
+- [x] AC-15: A judge agent not bound to the room yields `skipped`. Router exhaustion,
   non-JSON output or out-of-range scores yield `error` with no scores. A score still
   pending after 900 s is swept to `error`.
-- [ ] AC-16: A payload containing an instruction to award maximum scores reaches the model
+- [x] AC-16: A payload containing an instruction to award maximum scores reaches the model
   only inside the delimited JSON block. An output carrying anything but the expected keys
   is rejected (unit tests on prompt build and parse).
-- [ ] AC-17: Scores do not appear in `ActivitySubmissionOut`, the agent digest, the
+- [x] AC-17: Scores do not appear in `ActivitySubmissionOut`, the agent digest, the
   activity context, the room echo or any room event. They do appear in the dashboard
   participants table for an owner and in the export columns.
-- [ ] AC-18: A type can enable scoring only with an agent of its own project. A platform
+- [x] AC-18: A type can enable scoring only with an agent of its own project. A platform
   type cannot carry it, and editing it bumps the version (service tests).
 
 **Overall**
