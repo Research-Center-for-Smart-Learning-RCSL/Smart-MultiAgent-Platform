@@ -380,10 +380,12 @@ class ActivityTypeRepository:
         expose_payload_to_agent: bool,
         echo_includes_content: bool,
         bump_version: bool,
+        # Required, unlike group_config: an omitted value would turn scoring off
+        # and write that into the revision row.
+        creativity_scoring: dict[str, Any] | None,
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | Keep | None = Keep.KEEP,
         actor_user_id: uuid.UUID | None = None,
-        creativity_scoring: dict[str, Any] | None = None,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
         ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op

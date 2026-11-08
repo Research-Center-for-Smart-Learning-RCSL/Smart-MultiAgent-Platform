@@ -10,6 +10,7 @@ redelivery or a race with the watchdog is a no-op.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import Any
@@ -23,6 +24,7 @@ from contexts.activities.application.validators.base import (
 from contexts.activities.domain.creativity_judge import (
     JUDGE_BAD_OUTPUT,
     JUDGE_MISCONFIGURED,
+    JUDGE_TIMEOUT,
     JUDGE_UNAVAILABLE,
     MAX_OUTPUT_TOKENS,
     SKIP_JUDGE_NOT_BOUND,
@@ -47,9 +49,10 @@ from contexts.activities.interfaces.broadcast import dispatch_dashboard_submissi
 # single safety net for a stalled worker OR a dropped post-commit enqueue.
 _PENDING_TTL_SECONDS = 900
 
-# One provider call with the router's own retries; well under the TTL, so a
-# killed job is swept as judge_timeout on the next watchdog tick after it.
-JUDGE_JOB_TIMEOUT_S = 120
+# Covers the router's 60 s quota wait plus the default retry policy (4 attempts
+# at a 120 s HTTP timeout, with backoff) and stays under the TTL. A group with a
+# longer policy is cut off here; the cancel path still commits its usage rows.
+JUDGE_JOB_TIMEOUT_S = 660
 
 # Proposals expired per sweep tick. Bounded so one sweep cannot hold a lock over
 # an unbounded set; the next tick takes the rest.
@@ -289,6 +292,19 @@ async def _call_judge(db: Any, item: SubmissionForJudging) -> tuple[dict[str, An
     return scores, model
 
 
+async def _record_judge_timeout(db: Any, sid: uuid.UUID) -> None:
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+
+    try:
+        await ActivitiesFacade(db).record_judgement(
+            submission_id=sid, status=JudgeStatus.ERROR, scores=None, reason=JUDGE_TIMEOUT, model=None
+        )
+        await db.commit()
+    except Exception as exc:
+        # The watchdog still sweeps the row; only the usage rows are lost.
+        logger.bind(submission_id=str(sid)).warning(f"judge timeout write-back failed: {type(exc).__name__}")
+
+
 async def score_activity_submission(ctx: dict[str, Any], submission_id: str) -> str:
     """Score one submission with the type's judge agent and write the result back.
 
@@ -327,6 +343,17 @@ async def score_activity_submission(ctx: dict[str, Any], submission_id: str) -> 
                 status = JudgeStatus.SCORED
             except _JudgeFailed as exc:
                 status, reason = JudgeStatus.ERROR, exc.reason
+            except asyncio.CancelledError:
+                # arq enforces the timeout by cancelling. Without this the session
+                # rolls back the usage rows of calls the provider already billed.
+                # Shielded so the write lands; re-raised to keep arq's contract.
+                logger.bind(submission_id=str(sid)).warning("activity judge timed out")
+                await asyncio.shield(_record_judge_timeout(db, sid))
+                raise
+            except Exception as exc:
+                # A lookup before the provider call failed; the class only, as above.
+                logger.bind(submission_id=str(sid)).warning(f"judge setup failed: {type(exc).__name__}")
+                status, reason = JudgeStatus.ERROR, JUDGE_UNAVAILABLE
         changed = await facade.record_judgement(
             submission_id=sid, status=status, scores=scores, reason=reason, model=model
         )

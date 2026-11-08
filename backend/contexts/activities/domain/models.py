@@ -747,7 +747,6 @@ class SubmissionForJudging:
 
     id: uuid.UUID
     chatroom_id: uuid.UUID
-    activity_type_id: uuid.UUID
     project_id: uuid.UUID | None
     payload: dict[str, Any]
     judge_status: str | None

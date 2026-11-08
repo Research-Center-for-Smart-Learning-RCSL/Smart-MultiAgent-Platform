@@ -271,3 +271,98 @@ async def test_the_dashboard_means_count_each_round_once(
     assert (row.chatroom_id, row.subject_id, row.scored_rounds) == (chatroom_id, owner_id, 1)
     assert (row.fluency, row.flexibility, row.originality, row.convergence) == (3.0, 2.0, 4.0, 0.0)
     assert (row.last_status, row.last_reason) == ("error", "judge_bad_output")
+
+
+async def _next_round(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    chatroom_id: uuid.UUID,
+    type_id: uuid.UUID,
+    owner_id: uuid.UUID,
+) -> None:
+    async with sessionmaker() as session:
+        await session.execute(
+            at.activity_activations.update()
+            .where(at.activity_activations.c.chatroom_id == chatroom_id)
+            .values(status="ended", ended_at=sa.func.now())
+        )
+        await session.execute(
+            at.activity_activations.insert().values(
+                chatroom_id=chatroom_id, activity_type_id=type_id, started_by_user_id=owner_id
+            )
+        )
+        await session.commit()
+
+
+async def test_the_dashboard_means_average_across_rounds(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """Each round contributes its latest scored attempt; the mean is over rounds."""
+    project_id, owner_id = project
+    type_id, chatroom_id, _scoring = await _scored_room(sessionmaker, project_id, owner_id)
+    round_scores = [
+        {"fluency": 1, "flexibility": 1, "originality": 2, "convergence": 0},
+        {"fluency": 3, "flexibility": 2, "originality": 4, "convergence": 3},
+    ]
+    for n, scores in enumerate(round_scores):
+        if n:
+            await _next_round(sessionmaker, chatroom_id, type_id, owner_id)
+        submission_id = await _submit(
+            sessionmaker,
+            project_id=project_id,
+            owner_id=owner_id,
+            type_id=type_id,
+            chatroom_id=chatroom_id,
+            answer=f"round {n}",
+        )
+        async with sessionmaker() as session:
+            await ActivitiesFacade(session).record_judgement(
+                submission_id=submission_id, status=JudgeStatus.SCORED, scores=scores
+            )
+            await session.commit()
+
+    async with sessionmaker() as session:
+        (row,) = await ActivitiesFacade(session).creativity_for_rooms(chatroom_ids=[chatroom_id])
+    assert row.scored_rounds == 2
+    assert (row.fluency, row.flexibility, row.originality, row.convergence) == (2.0, 1.5, 3.0, 1.5)
+    assert row.last_status == "scored"
+
+
+async def test_a_revision_with_scoring_off_does_not_borrow_the_current_rubric(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    project_id, owner_id = project
+    type_id, chatroom_id, scoring = await _scored_room(sessionmaker, project_id, owner_id)
+
+    async def _set_scoring(value: dict[str, Any] | None) -> None:
+        async with sessionmaker() as session:
+            await ActivityTypeRepository(session).update(
+                type_id,
+                name="judging itest",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config=_VALIDATOR,
+                retention_days=None,
+                expose_payload_to_agent=True,
+                echo_includes_content=False,
+                bump_version=True,
+                creativity_scoring=value,
+            )
+            await session.commit()
+
+    await _set_scoring(None)
+    submission_id = await _submit(
+        sessionmaker,
+        project_id=project_id,
+        owner_id=owner_id,
+        type_id=type_id,
+        chatroom_id=chatroom_id,
+        answer="unscored",
+    )
+    await _set_scoring({**scoring, "rubric": _RUBRIC_V2})
+
+    async with sessionmaker() as session:
+        item = await ActivitiesFacade(session).get_submission_for_judging(submission_id)
+    assert item is not None
+    assert item.creativity_scoring is None

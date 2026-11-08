@@ -18,7 +18,7 @@ from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.agent_digest import build_agent_digest
-from contexts.activities.domain.creativity_judge import JudgeStatus
+from contexts.activities.domain.creativity_judge import JUDGE_DIMENSIONS, JudgeStatus
 from contexts.activities.domain.models import (
     FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
@@ -48,7 +48,7 @@ _TYPE = t.activity_types
 # vocabulary as activity_sessions.subject_kind.
 _USER = SubjectKind.USER.value
 _GUEST = SubjectKind.GUEST.value
-_CREATIVITY_DIMENSIONS = ("fluency", "flexibility", "originality", "convergence")
+_CREATIVITY_DIMENSIONS = ("fluency", *JUDGE_DIMENSIONS)
 _JUDGE_SLOT_STATUSES = (JudgeStatus.PENDING.value, JudgeStatus.SCORED.value, JudgeStatus.ERROR.value)
 
 _SUB_COLS = (
@@ -357,7 +357,6 @@ class ActivitySubmissionRepository:
                 sa.select(
                     _SUB.c.id,
                     _SUB.c.chatroom_id,
-                    _SUB.c.activity_type_id,
                     _TYPE.c.project_id,
                     _SUB.c.payload,
                     _SUB.c.judge_status,
@@ -385,7 +384,6 @@ class ActivitySubmissionRepository:
         return SubmissionForJudging(
             id=row.id,
             chatroom_id=row.chatroom_id,
-            activity_type_id=row.activity_type_id,
             project_id=row.project_id,
             payload=dict(row.payload or {}),
             judge_status=row.judge_status,

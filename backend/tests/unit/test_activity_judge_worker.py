@@ -11,6 +11,7 @@ called; and no outcome reaches the room, only the dashboard.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from contextlib import ExitStack
@@ -25,6 +26,7 @@ from contexts.activities.domain.creativity_judge import (
     JUDGE_BAD_OUTPUT,
     JUDGE_DIMENSIONS,
     JUDGE_MISCONFIGURED,
+    JUDGE_TIMEOUT,
     JUDGE_UNAVAILABLE,
     MAX_OUTPUT_TOKENS,
     SKIP_JUDGE_NOT_BOUND,
@@ -55,7 +57,6 @@ def _item(*, judge_status: str | None = "pending", scoring: bool = True) -> Subm
     return SubmissionForJudging(
         id=uuid.uuid4(),
         chatroom_id=uuid.uuid4(),
-        activity_type_id=uuid.uuid4(),
         project_id=_PROJECT,
         payload={"a": "red umbrella", "b": "", "c": "kite"},
         judge_status=judge_status,
@@ -87,7 +88,7 @@ class _Harness:
         *,
         agent: SimpleNamespace | None = None,
         bound: bool = True,
-        result: ProviderCallResult | Exception | None = None,
+        result: ProviderCallResult | BaseException | None = None,
         changed: bool = True,
     ) -> None:
         self.activities = MagicMock()
@@ -100,7 +101,7 @@ class _Harness:
         self.agents.chat_model_capabilities = MagicMock(return_value={})
         self.agents.chat_model_catalog = MagicMock(return_value=())
         self.router = MagicMock()
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             self.router.call = AsyncMock(side_effect=result)
         else:
             self.router.call = AsyncMock(
@@ -285,6 +286,46 @@ class TestSkipsAndNoOps:
         assert await h.run(item.id) == "not-pending"
 
         h.dashboard.assert_not_called()
+        # The router's usage row for the call is in this session either way.
+        h.db.commit.assert_awaited_once()
+
+
+class TestCancellation:
+    async def test_a_timed_out_call_commits_its_usage_and_a_timeout_reason(self) -> None:
+        item = _item()
+        h = _Harness(item, result=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await h.run(item.id)
+
+        kwargs = h.recorded()
+        assert (kwargs["status"], kwargs["reason"], kwargs["scores"]) == (
+            JudgeStatus.ERROR,
+            JUDGE_TIMEOUT,
+            None,
+        )
+        h.db.commit.assert_awaited_once()
+        h.dashboard.assert_not_called()
+
+    async def test_a_failed_timeout_write_still_propagates_the_cancel(self) -> None:
+        item = _item()
+        h = _Harness(item, result=asyncio.CancelledError())
+        h.db.commit = AsyncMock(side_effect=RuntimeError("connection lost"))
+
+        with pytest.raises(asyncio.CancelledError):
+            await h.run(item.id)
+
+
+class TestSetupFailure:
+    async def test_a_lookup_that_raises_is_unavailable_not_left_pending(self) -> None:
+        item = _item()
+        h = _Harness(item)
+        h.agents.get_agent = AsyncMock(side_effect=RuntimeError("db hiccup"))
+
+        assert await h.run(item.id) == "error"
+
+        assert h.recorded()["reason"] == JUDGE_UNAVAILABLE
+        h.router.call.assert_not_called()
 
 
 class TestWatchdogSweep:
