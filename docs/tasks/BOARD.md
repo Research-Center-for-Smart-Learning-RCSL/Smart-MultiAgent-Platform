@@ -12,12 +12,11 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 |---|---|---|---|
 | [`2026-07-19-large-artifacts-silently-dropped`](2026-07-19-large-artifacts-silently-dropped/spec.md) | bugfix | in-progress | A `code_exec` artifact over 8 MiB is silently destroyed |
 | [`2026-10-12-graphrag-phase5a2-evidence-refs-contract`](2026-10-12-graphrag-phase5a2-evidence-refs-contract/spec.md) | refactor | in-progress | GraphRAG Phase 5a2: switch reads to `evidence_refs`, then retire `evidence_msg_ids` |
+| [`2026-11-08-research-data-integrity`](2026-11-08-research-data-integrity/spec.md) | feature | in-progress | Research data integrity before formal data collection |
 
 ## Ready now
 
-| Dossier | Type | Status | Title |
-|---|---|---|---|
-| [`2026-11-08-research-data-integrity`](2026-11-08-research-data-integrity/spec.md) | feature | approved | Research data integrity before formal data collection |
+None.
 
 ## Blocked
 

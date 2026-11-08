@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-11-08
 requirements: [R33.10, R33.02, R30.01, R30.05, R30.23, R30.25, R30.26, R30.27]
 depends_on: []
@@ -507,19 +507,19 @@ That is stated in the release note.
 
 **Delivery**
 
-- [ ] AC-1: A ready export whose object has been deleted returns the expired error from
+- [x] AC-1: A ready export whose object has been deleted returns the expired error from
   `GET /api/exports/research/{job_id}`, never `ready` with a link. The record's expiry is
   `uploaded_at + 23 h` (unit test with a fake clock and a fake object store).
 - [ ] AC-2: After the dialog closes or polling gives up, reopening the dialog re-attaches
   to the running or ready job and offers Download. Clicking the `export.ready`
   notification opens it on that job (component test plus one Playwright check).
-- [ ] AC-3: A POST while the owner's export for the workspace is queued or running
+- [x] AC-3: A POST while the owner's export for the workspace is queued or running
   returns 409 with that job's id, and the dialog continues it.
-- [ ] AC-4: A notification send failure after `mark_ready` leaves the job `ready` and
+- [x] AC-4: A notification send failure after `mark_ready` leaves the job `ready` and
   writes one audit row (worker unit test).
-- [ ] AC-5: A requester demoted from Project Owner after the POST gets a failed job with
+- [x] AC-5: A requester demoted from Project Owner after the POST gets a failed job with
   no bundle, and a demoted owner's GET is refused (worker test plus route test).
-- [ ] AC-6: A job cancelled by timeout reads `failed` ("timed out"). The task is
+- [x] AC-6: A job cancelled by timeout reads `failed` ("timed out"). The task is
   registered with `max_tries=1`. Starting it from any status other than QUEUED does
   nothing and writes no audit row.
 
@@ -650,6 +650,49 @@ New entries, appended to section 30:
 
 Appended by /build.
 
+- **D-1 (milestone 1).** A ready export whose object is gone answers 410 with the problem
+  type `conversation/export-expired`, not 404. The user chose this during plan review: a
+  410 tells the dialog the job existed and lapsed, while a 404 stays reserved for a job id
+  the server never had or has forgotten. The frontend treats both as expired
+  (`shared/utils/download.ts`).
+- **D-2 (milestone 1).** The record's expiry counts from `upload_started_at`, captured
+  just before the upload begins, rather than from the end of the upload. The bucket
+  lifecycle counts from the object's creation, which is later, so the record always
+  expires first; the spec's `uploaded_at` would leave a race equal to the upload time.
+- **D-3 (milestone 1).** The per-owner, per-workspace index key
+  (`research_export:latest:{owner}:{workspace}`) is both the latest pointer and the
+  active-export slot, claimed with the same compare-and-swap takeover as the chat export.
+  The takeover was extracted from `export_service.py` into
+  `contexts/conversation/application/export_slot.py` so both exports share it instead of
+  duplicating the Lua script. A holder older than twice the task timeout counts as
+  abandoned and is marked failed on takeover.
+- **D-4 (milestone 1).** The 409 is a new error, `ResearchExportInProgress`
+  (`conversation/research-export-in-progress`), rather than the chat export's
+  `ExportInProgress`, so each dialog matches only its own problem type.
+- **D-5 (milestone 1).** The status GET keeps the stored-owner comparison and adds the
+  computed-role re-check, instead of replacing one with the other. A job therefore stays
+  readable only by its requester, as before; the re-check refuses that requester once
+  they are no longer a Project Owner or admin.
+- **D-6 (milestone 1).** Closing the dialog no longer waits for the job: it keeps
+  polling in the background, so a completion still raises the toast, and reopening shows
+  the same job. Starting a new export stays allowed once the previous one is ready, since
+  a ready job does not hold the slot.
+- **D-7 (milestone 1, from the quality gate).** Staleness counts from `running_since`,
+  stamped by `mark_running`, and from `created_at` only while the job is still queued. A
+  job that waited in the queue may then run its full timeout without being taken over.
+  `mark_running` moves only a queued job, `mark_ready` only a running one, and
+  `mark_failed` never overwrites a finished outcome, so a run whose job was taken over as
+  abandoned cannot turn it back to ready or notify. `export_slot.claim` raises
+  `SlotContended` instead of naming the caller's own deleted job when the slot changes
+  hands on every attempt.
+- **D-8 (milestone 1, from the quality and security gates).** The dialog's job logic
+  lives in `slices/dashboard/composables/useResearchExport.ts`, following
+  `useChatroomExport`. The dashboard accepts `?researchExport=` only as a UUID, passes it
+  to the button as a fresh request object, and then removes it from the URL, so a reload
+  does not reopen the job and following the same link again does. The job id is
+  URL-encoded in the status request. A job the dialog found by itself that turns out
+  failed or gone goes back to the form without an error toast.
+
 ## 16. Follow-ups
 
 - **FU-1.** A PENDING (MCP or webhook) validation can complete after its activation
@@ -666,3 +709,21 @@ Appended by /build.
   (`type_service.py:229`). The `FOR SHARE` in this task orders submissions against
   edits, but an activation can still start while an edit commits. The guard could take
   the same lock.
+- **FU-6 (milestone 1 quality gate).** `app/api/v1/research_export.py` imports the
+  conversation application layer directly (pre-existing) and now also decides "ready but
+  purged" with a MinIO `stat` in the route. Move both behind `ConversationFacade`.
+- **FU-7 (milestone 1 quality gate).** `research_export_access.still_entitled` repeats
+  the rule of `assert_computed_project_owner` (`app/api/v1/deps.py`), and the two
+  exports' `_blocks` functions are near-identical. Share one "computed project owner"
+  predicate, and give `export_slot` a staleness helper. `export_slot.claim` types its
+  client as `Any`; a small protocol would do.
+- **FU-8 (milestone 1 security gate, pre-existing).** The worker stores `str(exc)` as the
+  job's `error`, which the status GET returns, and can carry internal host or bucket
+  names. Store a generic message and log the detail.
+- **FU-9 (milestone 1 security gate, pre-existing).** The research export routes answer
+  404 for a missing workspace or job and 403 for someone else's, before any membership
+  check, so existence is observable. The ids are random UUIDs; a uniform 404 would close
+  it. A download ticket minted before a demotion stays valid for its 15 minutes, which is
+  accepted.
+- **FU-10 (milestone 1 quality gate, pre-existing).** The export dialog's Escape handler
+  sits on a backdrop that never takes focus, so Escape does not close it.
