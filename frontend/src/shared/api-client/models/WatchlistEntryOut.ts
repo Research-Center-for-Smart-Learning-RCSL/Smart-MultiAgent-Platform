@@ -2,7 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { CreativityMeansOut } from './CreativityMeansOut';
 export type WatchlistEntryOut = {
+    creativity?: (CreativityMeansOut | null);
     display_name: (string | null);
     kind: 'user' | 'guest' | 'group';
     last_valid_submission_at: (string | null);

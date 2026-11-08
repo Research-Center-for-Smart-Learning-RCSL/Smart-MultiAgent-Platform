@@ -165,6 +165,21 @@
       "exactMatchCaseSensitive": "文字須完全符合大小寫",
       "filledCountMin": "最少作答欄位數",
       "filledCountMinHelp": "至少這麼多欄位有作答時，提交即為有效。設為 0 表示只收集回應、不判定對錯。",
+      "scoring": "創造力評分",
+      "scoringLabel": "每次提交後由評審 agent 評分",
+      "scoringHelp": "評審 agent 會在每次提交後，就變通性、獨創性與聚斂性給出 0 到 4 分；流暢性則是有作答的欄位數。分數只會在儀表板和研究資料匯出中顯示給你，不會讓參與者或其他 agent 看到。評審必須先加入聊天室才會為該聊天室評分，每次評分都會使用評審 agent 的金鑰群組計費。",
+      "judgeAgent": "評審 agent",
+      "judgeAgentHelp": "本專案中的 agent，評分時使用它的模型與金鑰群組。",
+      "rubric": {
+        "rubric_flexibility": "評分準則：變通性",
+        "rubric_originality": "評分準則：獨創性",
+        "rubric_convergence": "評分準則：聚斂性"
+      },
+      "rubricHelp": {
+        "rubric_flexibility": "說明回答涵蓋類別廣度在 0 分與 4 分時的樣子。最多 {max} 字。",
+        "rubric_originality": "說明想法罕見程度在 0 分與 4 分時的樣子。最多 {max} 字。",
+        "rubric_convergence": "說明想法整合成可用答案的程度在 0 分與 4 分時的樣子。最多 {max} 字。"
+      },
       "filledCountExceeds": "這個數字超過作答欄位總數，將導致任何提交都無法通過。",
       "webhookUrl": "Webhook 網址",
       "webhookUrlPlaceholder": "https://example.com/score",

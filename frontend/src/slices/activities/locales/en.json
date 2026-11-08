@@ -165,6 +165,21 @@
       "exactMatchCaseSensitive": "Match text case exactly",
       "filledCountMin": "Minimum fields answered",
       "filledCountMinHelp": "A submission is valid once at least this many fields carry an answer. Set 0 to collect responses without judging them.",
+      "scoring": "Creativity scoring",
+      "scoringLabel": "Score each submission with a judge agent",
+      "scoringHelp": "A judge agent scores flexibility, originality and convergence from 0 to 4 after each submission; fluency is the count of answered fields. Scores are shown only to you on the dashboard and in the research export, never to participants or other agents. The judge must also be added to a room before it scores that room, and each call is billed to the judge agent's key group.",
+      "judgeAgent": "Judge agent",
+      "judgeAgentHelp": "An agent in this project. Its model and key group are used for scoring.",
+      "rubric": {
+        "rubric_flexibility": "Rubric: flexibility",
+        "rubric_originality": "Rubric: originality",
+        "rubric_convergence": "Rubric: convergence"
+      },
+      "rubricHelp": {
+        "rubric_flexibility": "What a 0 and a 4 look like for the range of categories an answer covers. Up to {max} characters.",
+        "rubric_originality": "What a 0 and a 4 look like for how uncommon the ideas are. Up to {max} characters.",
+        "rubric_convergence": "What a 0 and a 4 look like for how well the ideas come together into a usable answer. Up to {max} characters."
+      },
       "filledCountExceeds": "This is higher than the number of submission fields, so no submission could ever be valid.",
       "webhookUrl": "Webhook URL",
       "webhookUrlPlaceholder": "https://example.com/score",

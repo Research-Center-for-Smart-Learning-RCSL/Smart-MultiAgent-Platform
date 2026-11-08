@@ -77,6 +77,10 @@ const payloadSchema = z.custom<JSONSchema>().refine(
   { message: 'schemaEmpty' },
 )
 
+/** Mirrors `MAX_RUBRIC_CHARS` in `backend/contexts/activities/domain/creativity_judge.py`. */
+export const RUBRIC_MAX_CHARS = 2000
+export const RUBRIC_FIELDS = ['rubric_flexibility', 'rubric_originality', 'rubric_convergence'] as const
+
 export const activityTypeCreateSchema = z
   .object({
     key: z.string().trim().min(1).max(128),
@@ -115,8 +119,20 @@ export const activityTypeCreateSchema = z
     // filled_count_coverage's quote_fields (R30.15 amended). The form has no
     // control for it yet; it is carried through so an edit does not drop it.
     quote_fields: z.array(z.string()).default([]),
+    // Creativity scoring (research data integrity spec, section 5). Folded into
+    // `creativity_scoring` by `assembleCreativityScoring` at submit.
+    scoring_enabled: z.boolean().default(false),
+    judge_agent_id: z.string().trim().default(''),
+    rubric_flexibility: z.string().trim().max(RUBRIC_MAX_CHARS).default(''),
+    rubric_originality: z.string().trim().max(RUBRIC_MAX_CHARS).default(''),
+    rubric_convergence: z.string().trim().max(RUBRIC_MAX_CHARS).default(''),
   })
   .superRefine((val, ctx) => {
+    if (val.scoring_enabled) {
+      for (const f of ['judge_agent_id', ...RUBRIC_FIELDS] as const) {
+        if (!val[f]) ctx.addIssue({ code: 'custom', path: [f], message: 'required' })
+      }
+    }
     if (val.validator_kind === 'webhook') {
       if (!val.webhook_url) {
         ctx.addIssue({ code: 'custom', path: ['webhook_url'], message: 'required' })
@@ -170,6 +186,21 @@ export const activityTypeCreateSchema = z
   })
 
 export type ActivityTypeCreateInput = z.infer<typeof activityTypeCreateSchema>
+
+/** The `creativity_scoring` body value: `null` turns scoring off. */
+export function assembleCreativityScoring(
+  values: ActivityTypeCreateInput,
+): Record<string, unknown> | null {
+  if (!values.scoring_enabled) return null
+  return {
+    judge_agent_id: values.judge_agent_id,
+    rubric: {
+      flexibility: values.rubric_flexibility,
+      originality: values.rubric_originality,
+      convergence: values.rubric_convergence,
+    },
+  }
+}
 
 export function assembleValidatorConfig(
   values: ActivityTypeCreateInput,

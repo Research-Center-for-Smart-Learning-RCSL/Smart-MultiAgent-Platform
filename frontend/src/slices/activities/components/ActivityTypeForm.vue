@@ -7,7 +7,7 @@ import { toTypedSchema } from '@shared/utils/zodTypedSchema'
 
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 
-import { SModal, SFormField, SInput, SSelect, SCheckbox, SButton } from '@shared/ui'
+import { SModal, SFormField, SInput, SSelect, SCheckbox, SButton, STextarea } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { agentsApi, agentKeys } from '@slices/agents'
@@ -29,8 +29,11 @@ import {
 import { activityKeys } from '../queries'
 import {
   EXACT_MATCH_VALIDATOR_ID,
+  RUBRIC_FIELDS,
+  RUBRIC_MAX_CHARS,
   VALIDATOR_KINDS,
   activityTypeCreateSchema,
+  assembleCreativityScoring,
   assembleValidatorConfig,
   usesMinFilled,
   type ActivityTypeCreateInput,
@@ -76,9 +79,17 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
       exact_match_case_sensitive: false,
       filled_count_min: 0,
       quote_fields: [],
+      scoring_enabled: false,
+      judge_agent_id: '',
+      rubric_flexibility: '',
+      rubric_originality: '',
+      rubric_convergence: '',
     }
   }
   const cfg = (row.validator_config ?? {}) as Record<string, unknown>
+  const scoring = (row.creativity_scoring ?? null) as Record<string, unknown> | null
+  const rubric = (scoring?.rubric ?? {}) as Record<string, unknown>
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '')
   return {
     key: row.key,
     name: row.name,
@@ -100,6 +111,11 @@ function toFormValues(row: ActivityTypeOut | null): Partial<ActivityTypeCreateIn
     quote_fields: Array.isArray(cfg.quote_fields)
       ? cfg.quote_fields.filter((n): n is string => typeof n === 'string')
       : [],
+    scoring_enabled: scoring !== null,
+    judge_agent_id: text(scoring?.judge_agent_id),
+    rubric_flexibility: text(rubric.flexibility),
+    rubric_originality: text(rubric.originality),
+    rubric_convergence: text(rubric.convergence),
   }
 }
 
@@ -126,6 +142,16 @@ const [exactMatchField] = defineField('exact_match_field')
 const [exactMatchExpected] = defineField('exact_match_expected')
 const [exactMatchCaseSensitive] = defineField('exact_match_case_sensitive')
 const [filledCountMin] = defineField('filled_count_min')
+const [scoringEnabled] = defineField('scoring_enabled')
+const [judgeAgentId] = defineField('judge_agent_id')
+const [rubricFlexibility] = defineField('rubric_flexibility')
+const [rubricOriginality] = defineField('rubric_originality')
+const [rubricConvergence] = defineField('rubric_convergence')
+const rubricModels = {
+  rubric_flexibility: rubricFlexibility,
+  rubric_originality: rubricOriginality,
+  rubric_convergence: rubricConvergence,
+} as const
 
 // i18n key of a raw-JSON parse error surfaced by PayloadSchemaField, or null.
 // When set, it takes precedence over the field's own `schemaEmpty` message so a
@@ -288,7 +314,8 @@ const schemaFieldOptions = computed(() => {
 const agentsQuery = useQuery({
   queryKey: agentKeys.agents(props.projectId),
   queryFn: () => agentsApi.list(props.projectId),
-  enabled: computed(() => validatorKind.value === 'mcp'),
+  // The same project agents serve the MCP validator and the creativity judge.
+  enabled: computed(() => validatorKind.value === 'mcp' || scoringEnabled.value === true),
 })
 
 const agentOptions = computed(() =>
@@ -446,6 +473,7 @@ const onSubmit = handleSubmit((formValues) => {
     default_time_limit_minutes: formValues.default_time_limit_minutes,
     expose_payload_to_agent: formValues.expose_payload_to_agent,
     echo_includes_content: formValues.echo_includes_content,
+    creativity_scoring: assembleCreativityScoring(formValues),
   }
   if (isEdit.value && props.editType) {
     // `group_config` is round-tripped, not edited here. The PATCH body is a
@@ -749,6 +777,55 @@ function onClose(): void {
             v-model="filledCountDisplay"
             :error="!!errors.filled_count_min"
             data-testid="type-filled-count-min"
+          />
+        </SFormField>
+      </template>
+
+      <SFormField
+        :label="t('activities.typeForm.scoring')"
+        name="scoring_enabled"
+        :help="t('activities.typeForm.scoringHelp')"
+      >
+        <SCheckbox
+          v-model="scoringEnabled"
+          data-testid="type-scoring-enabled"
+        >
+          {{ t('activities.typeForm.scoringLabel') }}
+        </SCheckbox>
+      </SFormField>
+
+      <template v-if="scoringEnabled">
+        <SFormField
+          :label="t('activities.typeForm.judgeAgent')"
+          name="judge_agent_id"
+          :error="errors.judge_agent_id ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t('activities.typeForm.judgeAgentHelp')"
+          required
+        >
+          <SSelect
+            v-model="judgeAgentId"
+            :options="agentOptions"
+            :placeholder="t('activities.typeForm.mcpAgentPlaceholder')"
+            data-testid="type-judge-agent"
+          />
+        </SFormField>
+
+        <SFormField
+          v-for="field in RUBRIC_FIELDS"
+          :key="field"
+          :label="t(`activities.typeForm.rubric.${field}`)"
+          :name="field"
+          :error="errors[field] ? t('activities.typeForm.fieldRequired') : ''"
+          :help="t(`activities.typeForm.rubricHelp.${field}`, { max: RUBRIC_MAX_CHARS })"
+          required
+        >
+          <STextarea
+            :id="field"
+            v-model="rubricModels[field].value"
+            :rows="3"
+            :maxlength="RUBRIC_MAX_CHARS"
+            :error="!!errors[field]"
+            :data-testid="`type-${field}`"
           />
         </SFormField>
       </template>
