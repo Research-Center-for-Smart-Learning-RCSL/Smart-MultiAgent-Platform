@@ -796,7 +796,12 @@ Appended by /build.
   export jobs use, so a key group with a longer policy still leaves its usage on record. A
   lookup that fails before the provider call is recorded as `judge_unavailable` rather than
   left `pending` for the watchdog to mislabel as a timeout.
-
+- **D-26 (milestone 4 security gate).** The judge reads only the fields the type's schema
+  declares, and an encoded answer over 32,000 characters is recorded as `skipped` with
+  `judge_answer_too_large` instead of being sent, since the participant controls its size
+  and the owner's key pays for it; a truncated answer would be scored as if it were whole.
+  Lookalike angle brackets and the Unicode line separators are escaped with `<` and `>`,
+  and a reply over 16,000 characters is rejected before parsing. `PROMPT_VERSION` is 2.
 ## 16. Follow-ups
 
 - **FU-1.** A PENDING (MCP or webhook) validation can complete after its activation
@@ -843,3 +848,23 @@ Appended by /build.
   (for example `?token=`) that an owner rotates by editing the type stays at rest in the
   older revisions. State that `validator_config` must not hold credentials, or redact URL
   query strings in revision rows.
+- **FU-14 (milestone 4 security gate).** The judged-attempt cap is per session, and a
+  guest's session is keyed by a browser id the client chooses, so one holder of the guest
+  link can mint up to 50 guests (`max_guests_per_chatroom`) and get five judgements as
+  each. Add a per-room bound on judge enqueues (for example a multiple of the roster
+  size) and rate-limit the submit endpoint. A group member also gets five judgements
+  individually and five for the group, which is accepted.
+- **FU-15 (milestone 4 security gate, hardening).** Judge jobs share the main arq queue
+  (`max_jobs = 50`) with agent turns and the watchdogs; a throttled key group can hold
+  slots for up to the 660-second timeout. A dedicated queue or a per-project semaphore
+  would isolate them. The dashboard `creativity_for_rooms` read has no time window and
+  runs on every invalidation; bound it or debounce. `CreativityMeansOut.last_reason` could
+  be a `Literal` like `last_status`.
+- **FU-16 (milestone 4 security gate, hardening).** Judge rationales are stored in
+  `judge_scores` but never read back. Either stop storing them or bring them under
+  retention and erasure.
+- **FU-17 (milestone 4 quality gate).** `_call_judge` resolves the provider and default
+  model the same way `turn_engine._resolve_provider_and_model` and `prompt_assistant` do;
+  expose one `AgentsFacade` helper. `creativity_for_rooms` assembles rows through a
+  `dict[str, Any]` scratch structure that two typed dicts would replace, and
+  `test_dashboard_creativity.py` carries an unexplained `type: ignore[arg-type]`.
