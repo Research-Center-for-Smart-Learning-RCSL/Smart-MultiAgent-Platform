@@ -21,7 +21,8 @@ export type FreshDownloadResult = 'ok' | 'expired' | 'failed'
 
 // Download an export from a link minted now, not the one held since the job
 // became ready: links are short-lived and the user may click much later. A job
-// the server no longer knows (404) has outlived its 24 h archive.
+// the server no longer knows (404), or one whose archive is gone (410), has
+// outlived its 24 h archive.
 export async function downloadFresh(
   fetchStatus: () => Promise<{ status: string; url?: string | null }>,
 ): Promise<FreshDownloadResult> {
@@ -33,6 +34,6 @@ export async function downloadFresh(
     }
     return fresh.status === 'failed' ? 'failed' : 'expired'
   } catch (err) {
-    return err instanceof ApiError && err.status === 404 ? 'expired' : 'failed'
+    return err instanceof ApiError && (err.status === 404 || err.status === 410) ? 'expired' : 'failed'
   }
 }

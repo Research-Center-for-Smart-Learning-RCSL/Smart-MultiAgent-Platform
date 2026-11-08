@@ -233,6 +233,22 @@ class ExportInProgress(ConversationError):
         self.job_id = job_id
 
 
+class ResearchExportInProgress(ConversationError):
+    """[R33.10]: one research export in progress per owner per workspace."""
+
+    code = "conversation/research-export-in-progress"
+
+    def __init__(self, *, job_id: uuid.UUID) -> None:
+        super().__init__("A research export of this workspace is already in progress.")
+        self.job_id = job_id
+
+
+class ResearchExportExpired(ConversationError):
+    """The record still reads ready but its archive has been purged."""
+
+    code = "conversation/export-expired"
+
+
 __all__ = [
     "AttachmentBindingFailed",
     "AttachmentExpired",
@@ -259,6 +275,8 @@ __all__ = [
     "NotRoomCreator",
     "ObservationAlreadyReleased",
     "ObservationNotFound",
+    "ResearchExportExpired",
+    "ResearchExportInProgress",
     "RoomAccessFlagsConflict",
     "TusMetadataInvalid",
     "TusOffsetMismatch",

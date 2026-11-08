@@ -64,7 +64,7 @@ vi.mock('../components/ResearchExportButton.vue', () => ({
   default: {
     name: 'ResearchExportButton',
     template: '<button data-testid="research-export-stub" />',
-    props: ['workspaceId'],
+    props: ['workspaceId', 'openRequest'],
   },
 }))
 
@@ -210,6 +210,23 @@ describe('DashboardView', () => {
     const wrapper = await renderDashboard('/workspaces/w2/dashboard')
     expect(roleScope.projectId).toBe('project-from-workspace')
     expect(wrapper.find('[data-testid="research-export-stub"]').exists()).toBe(true)
+    roleScope.authorized = false
+  })
+
+  it('opens the researchExport job once and drops the query', async () => {
+    roleScope.authorized = true
+    const job = '0b8f6c1e-2d3a-4b5c-8d7e-9f0a1b2c3d4e'
+    const wrapper = await renderDashboard(`/workspaces/w2/dashboard?researchExport=${job}&tab=x`)
+    expect(wrapper.findComponent({ name: 'ResearchExportButton' }).props('openRequest')).toEqual({ jobId: job })
+    expect(wrapper.vm.$route.query).toEqual({ tab: 'x' })
+    roleScope.authorized = false
+  })
+
+  it('ignores a researchExport value that is not a job id', async () => {
+    roleScope.authorized = true
+    const wrapper = await renderDashboard('/workspaces/w2/dashboard?researchExport=..%2F..%2Fadmin')
+    expect(wrapper.findComponent({ name: 'ResearchExportButton' }).props('openRequest')).toBeNull()
+    expect(wrapper.vm.$route.query).toEqual({})
     roleScope.authorized = false
   })
 

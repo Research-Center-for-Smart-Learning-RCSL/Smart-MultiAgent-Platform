@@ -104,6 +104,7 @@ from app.workers.tasks.workflow_steps import (
 )
 from app.workers.tasks.workflow_watchdog import workflow_watchdog
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.application.research_export_service import RESEARCH_EXPORT_TIMEOUT_S
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from contexts.keys.infrastructure import revocation_listener
 from contexts.orchestration.application.a2a_consumer import A2AConsumerSupervisor
@@ -304,7 +305,13 @@ class WorkerSettings:
         # Not retry-safe either: a re-run delivers a second archive and a second
         # `message.exported` audit row. Its timeout covers the attachment budget.
         func(chat_export, name="chat_export", timeout=CHAT_EXPORT_TIMEOUT_S, max_tries=1),
-        research_data_export,
+        # Same reason: a re-run uploads a second bundle and audit row.
+        func(
+            research_data_export,
+            name="research_data_export",
+            timeout=RESEARCH_EXPORT_TIMEOUT_S,
+            max_tries=1,
+        ),
         # A turn is not retry-safe: it commits its reply with post-commit work
         # still to run, and the turn lock's `finally` releases during the
         # cancellation unwind, so arq's worker-wide `retry_jobs` default would

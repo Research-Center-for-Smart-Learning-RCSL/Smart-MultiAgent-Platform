@@ -62,6 +62,8 @@
       "ready": "Research data export is ready.",
       "error": "Research data export failed.",
       "timeout": "Export is taking longer than expected. You will be notified when it is ready.",
+      "checkAgain": "Check again",
+      "close": "Close",
       "status": {
         "queued": "Preparing export...",
         "running": "Generating export...",

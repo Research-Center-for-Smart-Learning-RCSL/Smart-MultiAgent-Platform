@@ -24,6 +24,7 @@ from contexts.conversation.application.attachment_service import (
     AttachmentService,
 )
 from contexts.conversation.domain.models import MessageAttachment, ScanStatus
+from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
 
 _file_scan_warned = False
@@ -368,10 +369,14 @@ async def research_data_export(
     workspace_id: str,
     owner_user_id: str,
 ) -> str:
-    """Build a de-identified research data ZIP and upload to MinIO (R33.10)."""
+    """Build a de-identified research data ZIP and upload to MinIO (R33.10).
+
+    Registered with ``max_tries=1`` and runs only from ``queued``: a second run
+    would upload a second bundle and write a second audit row.
+    """
     from contexts.activities.interfaces.facade import ActivitiesFacade
     from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.conversation.application import research_export_service
+    from contexts.conversation.application import research_export_access, research_export_service
     from contexts.conversation.application.research_export_builder import (
         MessageRow,
         ObservationRow,
@@ -395,11 +400,19 @@ async def research_data_export(
             error="job parameters do not match stored state",
         )
         raise PermissionError(f"research export job {jid} args mismatch stored state")
-
-    await research_export_service.mark_running(jid)
+    sm = get_sessionmaker()
     try:
-        sm = get_sessionmaker()
+        if not await research_export_service.mark_running(jid):
+            logger.bind(
+                event="research_data_export_skipped", job_id=str(jid), status=state.status.value
+            ).warning("research export job is not queued; not running it again")
+            return "skipped:not_queued"
+        # Taken before the upload, so the archive is no older than this.
+        upload_started_at = now()
         async with sm() as session, session.begin():
+            if not await research_export_access.still_entitled(session, workspace_id=wid, user_id=oid):
+                await research_export_service.mark_failed(job_id=jid, error="export authority revoked")
+                return "failed:forbidden"
             conv_facade = ConversationFacade(session)
             room_ids = await conv_facade.list_chatroom_ids_for_workspace(wid)
             if not room_ids:
@@ -487,16 +500,19 @@ async def research_data_export(
                 actor_ip=state.actor_ip,
             )
 
-        await research_export_service.mark_ready(job_id=jid, bucket=bucket, object_key=key)
-
-        async with sm() as session, session.begin():
-            await NotificationFacade(session).send(
-                user_id=oid,
-                kind=NotificationKind.EXPORT_READY,
-                title="Research data export ready",
-                metadata={"job_id": str(jid), "workspace_id": str(wid)},
-                dedup_key=f"research_export:{jid}",
-            )
+        if not await research_export_service.mark_ready(
+            job_id=jid, bucket=bucket, object_key=key, upload_started_at=upload_started_at
+        ):
+            # Taken over as abandoned, or built past the archive's lifetime: the
+            # record already says failed, and there is nothing to announce.
+            return "failed:not_ready"
+    except asyncio.CancelledError:
+        # arq enforces the job timeout by cancelling, and CancelledError is not
+        # an Exception. Shielded so the write lands; re-raised to keep arq's
+        # cancellation contract.
+        logger.bind(event="research_data_export_cancelled", job_id=str(jid)).warning("export timed out")
+        await asyncio.shield(research_export_service.mark_failed(job_id=jid, error="timed out"))
+        raise
     except Exception as exc:
         logger.bind(event="research_data_export_failed", job_id=str(jid)).exception(
             "research data export failed",
@@ -504,6 +520,22 @@ async def research_data_export(
         )
         await research_export_service.mark_failed(job_id=jid, error=str(exc))
         raise
+
+    # The export is ready whether or not the notice is delivered: the dashboard
+    # re-opens it from the latest-job lookup (audit 2026-10-05 F-12).
+    try:
+        async with sm() as session, session.begin():
+            await NotificationFacade(session).send(
+                user_id=oid,
+                kind=NotificationKind.EXPORT_READY,
+                title="Research data export ready",
+                metadata={"export": "research", "job_id": str(jid), "workspace_id": str(wid)},
+                dedup_key=f"research_export:{jid}",
+            )
+    except Exception as exc:
+        logger.bind(event="research_data_export_notify_failed", job_id=str(jid)).warning(
+            "research export ready notification failed", exc_info=exc
+        )
     return "ok"
 
 

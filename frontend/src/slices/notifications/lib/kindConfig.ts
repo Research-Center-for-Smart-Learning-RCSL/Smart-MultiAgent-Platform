@@ -43,6 +43,18 @@ function keyAction(n: Notification): KindAction | null {
   }
 }
 
+// Only a research export has a page to reopen; a chat export is downloaded
+// from its room's export dialog.
+function exportAction(n: Notification): KindAction | null {
+  const { export: kind, job_id: jobId, workspace_id: workspaceId } = n.metadata ?? {}
+  if (kind !== 'research' || typeof jobId !== 'string' || !jobId) return null
+  if (typeof workspaceId !== 'string' || !workspaceId) return null
+  return {
+    labelKey: 'notifications.viewExport',
+    to: { name: 'dashboard', params: { workspaceId }, query: { researchExport: jobId } },
+  }
+}
+
 const KIND_CONFIG: Record<string, KindConfig> = {
   'key.usage_threshold': {
     icon: ExclamationTriangleIcon,
@@ -82,6 +94,7 @@ const KIND_CONFIG: Record<string, KindConfig> = {
     tintBg: 'var(--color-success-tint)',
     iconColor: 'var(--color-success)',
     labelKey: 'notifications.kindExportReady',
+    action: exportAction,
   },
 }
 

@@ -67,6 +67,17 @@ describe('downloadFresh', () => {
     expect(hrefs).toEqual([])
   })
 
+  it('reports a job whose archive is gone (410) as expired', async () => {
+    const hrefs = clicks()
+    const purged = new ApiError({
+      type: 'https://smap.local/problems/conversation/export-expired',
+      title: 'Gone',
+      status: 410,
+    })
+    await expect(downloadFresh(() => Promise.reject(purged))).resolves.toBe('expired')
+    expect(hrefs).toEqual([])
+  })
+
   it('reports a failed job or any other error as failed, not expired', async () => {
     clicks()
     await expect(downloadFresh(async () => ({ status: 'failed', url: null }))).resolves.toBe('failed')
