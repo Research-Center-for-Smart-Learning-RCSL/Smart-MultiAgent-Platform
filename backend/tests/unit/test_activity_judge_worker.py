@@ -28,7 +28,9 @@ from contexts.activities.domain.creativity_judge import (
     JUDGE_MISCONFIGURED,
     JUDGE_TIMEOUT,
     JUDGE_UNAVAILABLE,
+    MAX_ANSWER_CHARS,
     MAX_OUTPUT_TOKENS,
+    SKIP_ANSWER_TOO_LARGE,
     SKIP_JUDGE_NOT_BOUND,
     JudgeStatus,
 )
@@ -249,6 +251,18 @@ class TestFailures:
 
 
 class TestSkipsAndNoOps:
+    async def test_an_answer_too_large_is_skipped_without_a_call(self) -> None:
+        item = _item()
+        item.payload["a"] = "x" * MAX_ANSWER_CHARS
+
+        h = _Harness(item)
+
+        assert await h.run(item.id) == "skipped"
+
+        kwargs = h.recorded()
+        assert (kwargs["status"], kwargs["reason"]) == (JudgeStatus.SKIPPED, SKIP_ANSWER_TOO_LARGE)
+        h.router.call.assert_not_called()
+
     async def test_a_judge_not_in_the_room_is_skipped_without_a_call(self) -> None:
         item = _item()
         h = _Harness(item, bound=False)

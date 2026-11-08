@@ -27,7 +27,9 @@ from contexts.activities.domain.creativity_judge import (
     JUDGE_TIMEOUT,
     JUDGE_UNAVAILABLE,
     MAX_OUTPUT_TOKENS,
+    SKIP_ANSWER_TOO_LARGE,
     SKIP_JUDGE_NOT_BOUND,
+    JudgeAnswerTooLarge,
     JudgeOutputInvalid,
     JudgeStatus,
     build_judge_prompt,
@@ -213,9 +215,10 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
 class _JudgeFailed(Exception):
     """One judge call ended without scores; ``reason`` is a closed vocabulary."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, status: JudgeStatus = JudgeStatus.ERROR) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.status = status
 
 
 async def _call_judge(db: Any, item: SubmissionForJudging) -> tuple[dict[str, Any], str]:
@@ -250,7 +253,12 @@ async def _call_judge(db: Any, item: SubmissionForJudging) -> tuple[dict[str, An
     if not model:
         raise _JudgeFailed(JUDGE_MISCONFIGURED)
 
-    system, user = build_judge_prompt(rubric=config["rubric"], payload=item.payload)
+    try:
+        system, user = build_judge_prompt(
+            rubric=config["rubric"], payload=item.payload, payload_schema=item.payload_schema
+        )
+    except JudgeAnswerTooLarge as exc:
+        raise _JudgeFailed(SKIP_ANSWER_TOO_LARGE, JudgeStatus.SKIPPED) from exc
     payload: dict[str, Any] = {
         "model": model,
         "system": system,
@@ -342,7 +350,7 @@ async def score_activity_submission(ctx: dict[str, Any], submission_id: str) -> 
                 scores, model = await _call_judge(db, item)
                 status = JudgeStatus.SCORED
             except _JudgeFailed as exc:
-                status, reason = JudgeStatus.ERROR, exc.reason
+                status, reason = exc.status, exc.reason
             except asyncio.CancelledError:
                 # arq enforces the timeout by cancelling. Without this the session
                 # rolls back the usage rows of calls the provider already billed.

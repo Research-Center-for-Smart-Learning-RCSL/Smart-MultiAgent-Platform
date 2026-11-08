@@ -52,6 +52,7 @@
       "error": "Scoring failed",
       "reason": {
         "judge_not_bound": "Not scored: the judge agent is not in this room",
+        "judge_answer_too_large": "Not scored: the answer is too long to send to the judge",
         "judge_cap": "Not scored: this participant reached the limit of scored attempts in the round",
         "judge_timeout": "Scoring did not finish in time",
         "judge_unavailable": "Scoring failed: the judge agent's provider could not be reached",

@@ -7,11 +7,13 @@ WHY THE ANSWER IS ESCAPED AS WELL AS DELIMITED
 ---------------------------------------------
 The participant's answer is the one input here an adversary controls, and it
 may ask the judge to award itself full marks. It reaches the model only as a
-JSON document between two fixed markers, and ``<`` and ``>`` inside it are
-written as ``\\u003c`` and ``\\u003e``, so no string a participant types can
-spell the closing marker and continue as instructions. The reply is then
-accepted only in one exact shape, so a successful injection can at most move a
-number within 0 to 4; the scores drive no automation (Q-11).
+JSON document between two fixed markers, and ``<`` and ``>`` inside it (with
+their lookalikes and the Unicode line separators) are written as ``\\u``
+escapes, so no string a participant types can spell the closing marker and
+continue as instructions. The reply is then accepted only in one exact shape,
+so a successful injection can at most move a number within 0 to 4; the scores
+drive no automation (Q-11). Only the fields the schema declares are sent, and an
+answer over MAX_ANSWER_CHARS is skipped, because the owner's key pays for it.
 """
 
 from __future__ import annotations
@@ -36,11 +38,18 @@ MAX_RATIONALE_CHARS: Final = 200
 MAX_JUDGED_ATTEMPTS_PER_SESSION: Final = 5
 #: Bumped whenever the prompt text changes, so scores from two prompts are
 #: never silently pooled.
-PROMPT_VERSION: Final = 1
+PROMPT_VERSION: Final = 2
 MAX_OUTPUT_TOKENS: Final = 800
+#: The encoded answer the judge may read. A participant controls its size and
+#: the owner's key pays for it, so a longer one is skipped, never cut short:
+#: a truncated answer would be scored as if it were the whole one.
+MAX_ANSWER_CHARS: Final = 32_000
+#: Bounds the parse independently of whether an adapter honours max_tokens.
+MAX_REPLY_CHARS: Final = 16_000
 
 SKIP_JUDGE_NOT_BOUND: Final = "judge_not_bound"
 SKIP_JUDGE_CAP: Final = "judge_cap"
+SKIP_ANSWER_TOO_LARGE: Final = "judge_answer_too_large"
 #: `error` reasons. Never the model's text: that is participant-influenced.
 JUDGE_TIMEOUT: Final = "judge_timeout"
 JUDGE_UNAVAILABLE: Final = "judge_unavailable"
@@ -49,6 +58,12 @@ JUDGE_MISCONFIGURED: Final = "judge_misconfigured"
 
 _OPEN: Final = "<<<ANSWER_JSON"
 _CLOSE: Final = "ANSWER_JSON>>>"
+# Characters a model may read as an angle bracket or a line break, escaped like
+# `<` and `>` so no lookalike can spell the closing marker either.
+_ESCAPED: Final = {
+    c: f"\\u{ord(c):04x}"
+    for c in "<>\u2028\u2029\u2039\u203a\u2329\u232a\u3008\u3009\ufe64\ufe65\uff1c\uff1e"
+}
 _FENCE: Final = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
 _OBJECT_SPAN: Final = re.compile(r"\{[\s\S]*\}")
 
@@ -62,6 +77,10 @@ class JudgeStatus(str, enum.Enum):
 
 class JudgeOutputInvalid(ValueError):
     """The model's reply is not exactly the expected shape."""
+
+
+class JudgeAnswerTooLarge(ValueError):
+    """The encoded answer exceeds :data:`MAX_ANSWER_CHARS`."""
 
 
 def validate_creativity_scoring(config: Any) -> dict[str, Any]:
@@ -95,8 +114,13 @@ def judge_agent_id(config: dict[str, Any]) -> uuid.UUID:
     return uuid.UUID(str(config["judge_agent_id"]))
 
 
-def build_judge_prompt(*, rubric: dict[str, str], payload: dict[str, Any]) -> tuple[str, str]:
-    """``(system, user)`` messages for one submission."""
+def build_judge_prompt(
+    *, rubric: dict[str, str], payload: dict[str, Any], payload_schema: dict[str, Any]
+) -> tuple[str, str]:
+    """``(system, user)`` messages for one submission, or :class:`JudgeAnswerTooLarge`."""
+    answer = _encode_answer(payload, payload_schema)
+    if len(answer) > MAX_ANSWER_CHARS:
+        raise JudgeAnswerTooLarge(f"answer is {len(answer)} characters")
     criteria = "\n".join(f"- {d}: {rubric[d]}" for d in JUDGE_DIMENSIONS)
     system = (
         "You score one answer to a creative-thinking activity against a rubric.\n"
@@ -113,13 +137,19 @@ def build_judge_prompt(*, rubric: dict[str, str], payload: dict[str, Any]) -> tu
         '"convergence": {"score": 0, "rationale": "..."}}\n'
         f"Each rationale is at most {MAX_RATIONALE_CHARS} characters."
     )
-    user = f"{_OPEN}\n{_encode_answer(payload)}\n{_CLOSE}"
+    user = f"{_OPEN}\n{answer}\n{_CLOSE}"
     return system, user
 
 
-def _encode_answer(payload: dict[str, Any]) -> str:
+def _encode_answer(payload: dict[str, Any], payload_schema: dict[str, Any]) -> str:
+    # Only the fields the schema declares: an undeclared key is not part of the
+    # answer, and would otherwise be a free channel to the owner's key.
+    declared = payload_schema.get("properties")
+    if isinstance(declared, dict) and declared:
+        payload = {k: v for k, v in payload.items() if k in declared}
+    # Non-ASCII stays readable: most answers are not in English.
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
-    return encoded.replace("<", "\\u003c").replace(">", "\\u003e")
+    return "".join(_ESCAPED.get(c, c) for c in encoded)
 
 
 def parse_judgement(text: str) -> dict[str, dict[str, Any]]:
@@ -130,6 +160,8 @@ def parse_judgement(text: str) -> dict[str, dict[str, Any]]:
     an out-of-range number says the model did not follow the rubric's scale. Only
     an overlong rationale is trimmed.
     """
+    if len(text) > MAX_REPLY_CHARS:
+        raise JudgeOutputInvalid("reply is longer than any valid judgement")
     data = _load_object(text)
     if set(data) != set(JUDGE_DIMENSIONS):
         raise JudgeOutputInvalid("reply keys are not exactly the judged dimensions")
@@ -192,11 +224,14 @@ __all__ = [
     "JUDGE_MISCONFIGURED",
     "JUDGE_TIMEOUT",
     "JUDGE_UNAVAILABLE",
+    "MAX_ANSWER_CHARS",
     "MAX_JUDGED_ATTEMPTS_PER_SESSION",
     "MAX_OUTPUT_TOKENS",
     "PROMPT_VERSION",
+    "SKIP_ANSWER_TOO_LARGE",
     "SKIP_JUDGE_CAP",
     "SKIP_JUDGE_NOT_BOUND",
+    "JudgeAnswerTooLarge",
     "JudgeOutputInvalid",
     "JudgeStatus",
     "build_judge_prompt",
