@@ -125,6 +125,13 @@ class GroupConfigInvalid(ActivitiesError):
     code = "activities/group-config-invalid"
 
 
+class CreativityScoringInvalid(ActivitiesError):
+    """A type's ``creativity_scoring`` is malformed, names an agent outside the
+    type's project, or sits on a platform type (422)."""
+
+    code = "activities/creativity-scoring-invalid"
+
+
 class ActivityTypeNotGroupSubmittable(ActivitiesError):
     """A group proposal was made against a type carrying no ``group_config`` (409).
 

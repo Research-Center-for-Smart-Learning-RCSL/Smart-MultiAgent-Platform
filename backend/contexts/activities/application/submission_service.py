@@ -27,6 +27,12 @@ from contexts.activities.application.subject_identity import is_guest_subject
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.agent_digest import build_agent_digest
+from contexts.activities.domain.creativity_judge import (
+    JUDGE_TIMEOUT,
+    MAX_JUDGED_ATTEMPTS_PER_SESSION,
+    SKIP_JUDGE_CAP,
+    JudgeStatus,
+)
 from contexts.activities.domain.errors import (
     ActivityNotActive,
     ActivityTypeNotFound,
@@ -40,6 +46,7 @@ from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
     SubjectKind,
+    SubmissionForJudging,
     ValidationResult,
     ValidationStatus,
     ValidatorKind,
@@ -216,6 +223,21 @@ class SubmissionService:
         _ensure_payload_valid(current.payload_schema, payload)
         return current
 
+    async def _initial_judge_state(
+        self, activity_type: ActivityType, session_id: uuid.UUID
+    ) -> tuple[JudgeStatus | None, str | None]:
+        """``pending`` for a scored type until the session's cap, then ``skipped``.
+
+        Counted under the session lock ``_record`` already holds, so two
+        concurrent attempts cannot both take the last judged slot.
+        """
+        if activity_type.creativity_scoring is None:
+            return None, None
+        judged = await self._sub_repo.count_judged_in_session(session_id)
+        if judged >= MAX_JUDGED_ATTEMPTS_PER_SESSION:
+            return JudgeStatus.SKIPPED, SKIP_JUDGE_CAP
+        return JudgeStatus.PENDING, None
+
     async def _record(
         self,
         *,
@@ -310,6 +332,7 @@ class SubmissionService:
         # available yet); the two ActivityType flags gate presentation per
         # channel, not this write (agent_digest.py docstring).
         agent_digest = build_agent_digest(payload=dict(payload), detail=detail)
+        judge_status, judge_reason = await self._initial_judge_state(activity_type, session.id)
 
         submission_id = await self._sub_repo.insert(
             session_id=session.id,
@@ -328,6 +351,8 @@ class SubmissionService:
             agent_digest=agent_digest,
             producer_is_guest=producer_is_guest,
             type_version=activity_type.version,
+            judge_status=judge_status,
+            judge_reason=judge_reason,
         )
 
         # Adversarial-review fix: a chat message visible to human participants
@@ -458,6 +483,41 @@ class SubmissionService:
         swept_at = now()
         cutoff = swept_at - timedelta(seconds=ttl_seconds)
         return await self._sub_repo.sweep_stalled(cutoff=cutoff, error_class=error_class, swept_at=swept_at)
+
+    async def get_submission_for_judging(self, submission_id: uuid.UUID) -> SubmissionForJudging | None:
+        return await self._sub_repo.get_for_judging(submission_id)
+
+    async def record_judgement(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        status: JudgeStatus,
+        scores: dict[str, Any] | None = None,
+        reason: str | None = None,
+        model: str | None = None,
+    ) -> bool:
+        """The judge job's write-back, idempotent over ``pending``. The audit row
+        names the outcome and the model, never a score (spec section 7)."""
+        changed = await self._sub_repo.record_judgement(
+            submission_id=submission_id, status=status, scores=scores, reason=reason, judged_at=now()
+        )
+        if changed:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="activity.judged",
+                    resource_type="activity_submission",
+                    resource_id=submission_id,
+                    metadata={"judge_status": status.value, "reason": reason, "model": model},
+                ),
+            )
+        return changed
+
+    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[uuid.UUID]:
+        swept_at = now()
+        return await self._sub_repo.sweep_stalled_judging(
+            cutoff=swept_at - timedelta(seconds=ttl_seconds), reason=JUDGE_TIMEOUT, swept_at=swept_at
+        )
 
     async def get_submission(self, submission_id: uuid.UUID) -> ActivitySubmission | None:
         return await self._sub_repo.get(submission_id)

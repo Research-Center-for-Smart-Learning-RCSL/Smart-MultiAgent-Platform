@@ -32,6 +32,7 @@ from contexts.activities.application.session_service import ActivitySessionServi
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService, TypeRegistration
 from contexts.activities.application.validators.registry import ValidatorInfo, list_registered
+from contexts.activities.domain.creativity_judge import JudgeStatus
 from contexts.activities.domain.errors import (
     ActivityTypeNotFound,
     ActivityTypeViolatesPolicy,
@@ -73,6 +74,7 @@ from contexts.activities.domain.models import (
     RoundSubject,
     RoundSubjectCount,
     SubjectKind,
+    SubmissionForJudging,
     TimeseriesBucket,
     ValidationResult,
     ValidatorKind,
@@ -181,6 +183,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | None = None,
     ) -> TypeRegistration:
         """Register a project-scoped type; the result carries any advisory warning
         the act produced, so a caller that ignores it still registers correctly."""
@@ -199,6 +202,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            creativity_scoring=creativity_scoring,
         )
 
     async def update_type(
@@ -218,6 +222,7 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | Keep | None = Keep.KEEP,
     ) -> ActivityType:
         return await self._types.update(
             project_id=project_id,
@@ -234,6 +239,7 @@ class ActivitiesFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
+            creativity_scoring=creativity_scoring,
         )
 
     async def update_platform_type(
@@ -1013,6 +1019,27 @@ class ActivitiesFacade:
         self, *, ttl_seconds: int, error_class: str = "validation_timeout"
     ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
         return await self._submissions.sweep_stalled(ttl_seconds=ttl_seconds, error_class=error_class)
+
+    # -- Creativity judging (worker only; never a room-scoped surface) -------
+
+    async def get_submission_for_judging(self, submission_id: uuid.UUID) -> SubmissionForJudging | None:
+        return await self._submissions.get_submission_for_judging(submission_id)
+
+    async def record_judgement(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        status: JudgeStatus,
+        scores: dict[str, Any] | None = None,
+        reason: str | None = None,
+        model: str | None = None,
+    ) -> bool:
+        return await self._submissions.record_judgement(
+            submission_id=submission_id, status=status, scores=scores, reason=reason, model=model
+        )
+
+    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[uuid.UUID]:
+        return await self._submissions.sweep_stalled_judging(ttl_seconds=ttl_seconds)
 
     # -- Read model ---------------------------------------------------------
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,6 +21,11 @@ import pytest
 from contexts.activities.application import submission_service as ss
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.validators import registry
+from contexts.activities.domain.creativity_judge import (
+    MAX_JUDGED_ATTEMPTS_PER_SESSION,
+    SKIP_JUDGE_CAP,
+    JudgeStatus,
+)
 from contexts.activities.domain.errors import ActivityTypeNotFound, SubmissionPayloadInvalid
 from contexts.activities.domain.models import (
     ActivationStatus,
@@ -420,3 +425,38 @@ class TestTheRecordedTypeVersion:
         with pytest.raises(ActivityTypeNotFound):
             await _submit(svc, at, activation)
         sub_repo.insert.assert_not_awaited()
+
+
+class TestTheInitialJudgeState:
+    """A scored type's submission starts ``pending`` until the session's cap
+    (research data integrity spec AC-14, D-18)."""
+
+    _SCORING: ClassVar[dict[str, Any]] = {
+        "judge_agent_id": str(uuid.uuid4()),
+        "rubric": {"flexibility": "f", "originality": "o", "convergence": "c"},
+    }
+
+    async def test_an_unscored_type_records_no_judge_state(self) -> None:
+        at = _type()
+        svc, sub_repo, activation, _session = _wire(at)
+        await _submit(svc, at, activation)
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert (kwargs["judge_status"], kwargs["judge_reason"]) == (None, None)
+
+    async def test_a_scored_type_records_pending_and_leaves_the_verdict_alone(self) -> None:
+        at = _type(creativity_scoring=self._SCORING)
+        svc, sub_repo, activation, _session = _wire(at)
+        sub_repo.count_judged_in_session = AsyncMock(return_value=MAX_JUDGED_ATTEMPTS_PER_SESSION - 1)
+        await _submit(svc, at, activation)
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert kwargs["judge_status"] is JudgeStatus.PENDING
+        assert (kwargs["is_valid"], kwargs["validation_status"]) == (True, ValidationStatus.VALIDATED)
+
+    async def test_past_the_cap_it_is_skipped(self) -> None:
+        at = _type(creativity_scoring=self._SCORING)
+        svc, sub_repo, activation, session = _wire(at)
+        sub_repo.count_judged_in_session = AsyncMock(return_value=MAX_JUDGED_ATTEMPTS_PER_SESSION)
+        await _submit(svc, at, activation)
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert (kwargs["judge_status"], kwargs["judge_reason"]) == (JudgeStatus.SKIPPED, SKIP_JUDGE_CAP)
+        sub_repo.count_judged_in_session.assert_awaited_once_with(session.id)

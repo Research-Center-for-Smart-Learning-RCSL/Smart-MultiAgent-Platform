@@ -25,6 +25,7 @@ from app.api.v1.deps import (
 )
 from app.wiring.platform_wakes import dispatch_all_submitted
 from contexts.activities.domain.errors import (
+    CreativityScoringInvalid,
     SessionNotFound,
     ValidatorConfigInvalid,
 )
@@ -104,6 +105,11 @@ class ActivityTypeIn(BaseModel):
     default_time_limit_minutes: int | None = Field(
         default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
     )
+    # Judge agent and rubric; null means the type is not scored. Behavioural and
+    # owner-confidential like `validator_config` ([R30.25]). Shape-checked in the
+    # service; the agent's project is checked here, where the agents context is
+    # reachable.
+    creativity_scoring: dict[str, Any] | None = None
 
 
 class ActivityTypeUpdateIn(BaseModel):
@@ -130,6 +136,11 @@ class ActivityTypeUpdateIn(BaseModel):
     default_time_limit_minutes: int | None = Field(
         default=None, ge=TIME_LIMIT_MINUTES_RANGE[0], le=TIME_LIMIT_MINUTES_RANGE[1]
     )
+    # Judge agent and rubric; null means the type is not scored. Behavioural and
+    # owner-confidential like `validator_config` ([R30.25]). Shape-checked in the
+    # service; the agent's project is checked here, where the agents context is
+    # reachable.
+    creativity_scoring: dict[str, Any] | None = None
 
 
 class ActivityTypeOut(BaseModel):
@@ -152,6 +163,8 @@ class ActivityTypeOut(BaseModel):
     # are voting against ([R30.40]), which is why it is a column of its own.
     group_config: dict[str, Any] | None = None
     default_time_limit_minutes: int | None = None
+    # Owner-only on read, like `validator_config`: it holds the rubric.
+    creativity_scoring: dict[str, Any] | None = None
 
 
 class ActivityTypeRegisteredOut(ActivityTypeOut):
@@ -403,6 +416,7 @@ def _type_out(t: ActivityType, *, include_validator_config: bool = True) -> Acti
         created_at=t.created_at.isoformat() if t.created_at else None,
         group_config=t.group_config,
         default_time_limit_minutes=t.default_time_limit_minutes,
+        creativity_scoring=t.creativity_scoring if include_validator_config else None,
     )
 
 
@@ -607,6 +621,7 @@ async def register_activity_type(
     await assert_project_owner(db=db, principal=principal, project_id=project_id)
     if body.validator_kind is ValidatorKind.MCP:
         await _assert_mcp_binding_in_project(db, project_id, body.validator_config)
+    await _assert_judge_agent_in_project(db, project_id, body.creativity_scoring)
     registration = await ActivitiesFacade(db).register_type(
         project_id=project_id,
         key=body.key,
@@ -622,6 +637,7 @@ async def register_activity_type(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        creativity_scoring=body.creativity_scoring,
     )
     await db.commit()
     return ActivityTypeRegisteredOut(
@@ -660,6 +676,25 @@ async def _assert_mcp_binding_in_project(
         raise ValidatorConfigInvalid("mcp validator binding_id is not a hosted_mcp tool on this agent")
 
 
+async def _assert_judge_agent_in_project(
+    db: AsyncSession, project_id: uuid.UUID, config: dict[str, Any] | None
+) -> None:
+    """Reject a judge agent from another project, for the reason
+    ``_assert_mcp_binding_in_project`` gives. A malformed config returns early so
+    the service raises the precise ``CreativityScoringInvalid``."""
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    if not isinstance(config, dict):
+        return
+    try:
+        agent_id = uuid.UUID(str(config["judge_agent_id"]))
+    except (KeyError, ValueError, TypeError):
+        return
+    agent = await AgentsFacade(db).get_agent(agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise CreativityScoringInvalid("judge_agent_id is not an agent in this project")
+
+
 @project_router.patch("/{project_id}/activity-types/{type_id}")
 async def update_activity_type(
     body: ActivityTypeUpdateIn,
@@ -672,6 +707,7 @@ async def update_activity_type(
     await assert_project_owner(db=db, principal=principal, project_id=project_id)
     if body.validator_kind is ValidatorKind.MCP:
         await _assert_mcp_binding_in_project(db, project_id, body.validator_config)
+    await _assert_judge_agent_in_project(db, project_id, body.creativity_scoring)
     activity_type = await ActivitiesFacade(db).update_type(
         project_id=project_id,
         type_id=type_id,
@@ -691,6 +727,10 @@ async def update_activity_type(
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        # Omitted keeps the stored value, as for the time limit above.
+        creativity_scoring=(
+            body.creativity_scoring if "creativity_scoring" in body.model_fields_set else Keep.KEEP
+        ),
     )
     await db.commit()
     return _type_out(activity_type)

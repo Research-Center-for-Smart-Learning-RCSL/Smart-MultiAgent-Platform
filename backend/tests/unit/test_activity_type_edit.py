@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,6 +25,7 @@ from contexts.activities.domain.errors import (
     ActivityTypeActive,
     ActivityTypeNotFound,
     ActivityTypeViolatesPolicy,
+    CreativityScoringInvalid,
     PayloadSchemaInvalid,
     PlatformActivityTypeReadOnly,
     ValidatorConfigInvalid,
@@ -550,3 +551,69 @@ class TestValidatorListRoute:
         out = await activities.list_activity_validators(principal=SimpleNamespace(user_id=uuid.uuid4()))
 
         assert out == []
+
+
+class TestCreativityScoringIsBehavioural:
+    """AC-18 (research data integrity spec): scoring is a behavioural field, and
+    a platform type cannot carry it."""
+
+    _SCORING: ClassVar[dict[str, Any]] = {
+        "judge_agent_id": "00000000-0000-4000-8000-000000000001",
+        "rubric": {"flexibility": "f", "originality": "o", "convergence": "c"},
+    }
+
+    async def test_enabling_it_bumps_the_version(self) -> None:
+        existing = _make_type()
+        svc = _wire_service(existing)
+        await _update(svc, existing, creativity_scoring=self._SCORING)
+        written = svc._repo.update.await_args.kwargs
+        assert written["bump_version"] is True
+        assert written["creativity_scoring"] == self._SCORING
+
+    async def test_resubmitting_the_stored_rubric_does_not(self) -> None:
+        existing = _make_type(creativity_scoring=self._SCORING)
+        svc = _wire_service(existing)
+        padded = {**self._SCORING, "rubric": {k: f" {v} " for k, v in self._SCORING["rubric"].items()}}
+        await _update(svc, existing, creativity_scoring=padded)
+        assert svc._repo.update.await_args.kwargs["bump_version"] is False
+
+    async def test_omitting_it_keeps_the_stored_value(self) -> None:
+        existing = _make_type(creativity_scoring=self._SCORING)
+        svc = _wire_service(existing)
+        await _update(svc, existing)
+        written = svc._repo.update.await_args.kwargs
+        assert (written["bump_version"], written["creativity_scoring"]) == (False, self._SCORING)
+
+    async def test_a_scoring_edit_is_refused_while_an_activation_is_live(self) -> None:
+        existing = _make_type()
+        svc = _wire_service(existing, active=[_active(existing.id)])
+        with pytest.raises(ActivityTypeActive):
+            await _update(svc, existing, creativity_scoring=self._SCORING)
+        svc._repo.update.assert_not_awaited()
+
+    async def test_a_platform_type_cannot_carry_it(self) -> None:
+        svc = ActivityTypeService(MagicMock())
+        with pytest.raises(CreativityScoringInvalid, match="platform"):
+            await svc.register(
+                project_id=None,
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.WEBHOOK,
+                validator_config={"url": "https://example.test/score"},
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+                scope=ActivityTypeScope.PLATFORM,
+                creativity_scoring=self._SCORING,
+            )
+
+    async def test_the_judge_must_be_an_agent_of_the_project(self) -> None:
+        project_id = uuid.uuid4()
+        foreign = MagicMock(project_id=uuid.uuid4())
+        with patch("contexts.agents.interfaces.facade.AgentsFacade") as agents:
+            agents.return_value.get_agent = AsyncMock(return_value=foreign)
+            with pytest.raises(CreativityScoringInvalid, match="not an agent in this project"):
+                await activities._assert_judge_agent_in_project(MagicMock(), project_id, self._SCORING)
+            agents.return_value.get_agent = AsyncMock(return_value=MagicMock(project_id=project_id))
+            await activities._assert_judge_agent_in_project(MagicMock(), project_id, self._SCORING)

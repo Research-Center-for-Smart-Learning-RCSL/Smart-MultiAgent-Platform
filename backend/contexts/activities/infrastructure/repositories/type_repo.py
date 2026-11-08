@@ -43,6 +43,7 @@ _TYPE_COLS = (
     t.activity_types.c.deleted_at,
     t.activity_types.c.group_config,
     t.activity_types.c.default_time_limit_minutes,
+    t.activity_types.c.creativity_scoring,
 )
 
 
@@ -70,6 +71,11 @@ def _row_to_type(row: object) -> ActivityType:
             else None
         ),
         default_time_limit_minutes=row.default_time_limit_minutes,  # type: ignore[attr-defined]
+        creativity_scoring=(
+            dict(row.creativity_scoring)  # type: ignore[attr-defined]
+            if row.creativity_scoring is not None  # type: ignore[attr-defined]
+            else None
+        ),
     )
 
 
@@ -93,6 +99,7 @@ class ActivityTypeRepository:
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | None = None,
         created_by: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | None = None,
     ) -> uuid.UUID:
         """Insert a type and its version-1 revision; return its id (caller owns commit).
 
@@ -124,6 +131,7 @@ class ActivityTypeRepository:
                     echo_includes_content=echo_includes_content,
                     group_config=group_config,
                     default_time_limit_minutes=default_time_limit_minutes,
+                    creativity_scoring=creativity_scoring,
                 )
                 .returning(t.activity_types.c.id)
             )
@@ -144,6 +152,7 @@ class ActivityTypeRepository:
             validator_kind=validator_kind,
             validator_config=validator_config,
             group_config=group_config,
+            creativity_scoring=creativity_scoring,
             created_by=created_by,
         )
         return type_id
@@ -157,6 +166,7 @@ class ActivityTypeRepository:
         validator_kind: ValidatorKind,
         validator_config: dict[str, Any],
         group_config: dict[str, Any] | None,
+        creativity_scoring: dict[str, Any] | None,
         created_by: uuid.UUID | None,
     ) -> None:
         await self._db.execute(
@@ -167,6 +177,7 @@ class ActivityTypeRepository:
                 validator_kind=validator_kind.value,
                 validator_config=validator_config,
                 group_config=group_config,
+                creativity_scoring=creativity_scoring,
                 created_by=created_by,
             )
         )
@@ -372,6 +383,7 @@ class ActivityTypeRepository:
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | Keep | None = Keep.KEEP,
         actor_user_id: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | None = None,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
         ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op
@@ -387,6 +399,7 @@ class ActivityTypeRepository:
             "expose_payload_to_agent": expose_payload_to_agent,
             "echo_includes_content": echo_includes_content,
             "group_config": group_config,
+            "creativity_scoring": creativity_scoring,
         }
         if not isinstance(default_time_limit_minutes, Keep):
             values["default_time_limit_minutes"] = default_time_limit_minutes
@@ -416,6 +429,7 @@ class ActivityTypeRepository:
                 validator_kind=validator_kind,
                 validator_config=validator_config,
                 group_config=group_config,
+                creativity_scoring=creativity_scoring,
                 created_by=actor_user_id,
             )
         return True
