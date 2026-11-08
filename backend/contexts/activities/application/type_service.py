@@ -133,6 +133,7 @@ class ActivityTypeService:
             scope=scope,
             group_config=group_config,
             default_time_limit_minutes=default_time_limit_minutes,
+            created_by=actor_user_id,
         )
         await audit.emit(
             self._db,
@@ -254,6 +255,7 @@ class ActivityTypeService:
             # [R30.46]: when the next round ends, not how it is scored, so it is
             # safe metadata: no version bump, editable while a round runs.
             default_time_limit_minutes=default_time_limit_minutes,
+            actor_user_id=actor_user_id,
         )
         await audit.emit(
             self._db,

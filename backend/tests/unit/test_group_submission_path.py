@@ -21,7 +21,7 @@ import pytest
 from contexts.activities.application import submission_service as ss
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.validators import registry
-from contexts.activities.domain.errors import SubmissionPayloadInvalid
+from contexts.activities.domain.errors import ActivityTypeNotFound, SubmissionPayloadInvalid
 from contexts.activities.domain.models import (
     ActivationStatus,
     ActivityActivation,
@@ -91,7 +91,10 @@ def _wire(
     activation = _activation(activity_type.id)
     session = existing_session if existing_session is not None else _group_session(activation)
     svc = SubmissionService(MagicMock(), activation_repo=MagicMock())
-    svc._type_repo = MagicMock(get=AsyncMock(return_value=activity_type))  # type: ignore[assignment]
+    svc._type_repo = MagicMock(  # type: ignore[assignment]
+        get=AsyncMock(return_value=activity_type),
+        lock_version=AsyncMock(return_value=activity_type.version),
+    )
     svc._session_repo = MagicMock(  # type: ignore[assignment]
         get_for_activation_group=AsyncMock(return_value=session),
         create_open_for_group=AsyncMock(return_value=session.id),
@@ -367,3 +370,53 @@ class TestTheReactiveSignal:
 
         assert signal["subject_kind"] == SubjectKind.USER.value
         assert signal["subject_member_group_id"] is None
+
+
+class TestTheRecordedTypeVersion:
+    """The version a submission records (research data integrity spec, AC-11).
+
+    ``_record`` is shared by both submit paths, so the group path stands in for
+    the individual one here. The race itself is pinned at the db tier.
+    """
+
+    async def test_the_insert_carries_the_locked_version(self) -> None:
+        at = _type(version=3)
+        svc, sub_repo, activation, _session = _wire(at)
+
+        await _submit(svc, at, activation)
+
+        svc._type_repo.lock_version.assert_awaited_once_with(at.id)  # type: ignore[attr-defined]
+        svc._type_repo.get.assert_not_awaited()  # type: ignore[attr-defined]
+        assert sub_repo.insert.await_args.kwargs["type_version"] == 3
+
+    async def test_a_newer_committed_definition_is_reloaded_and_recorded(self) -> None:
+        at = _type(version=1)
+        newer = _type(id=at.id, version=2)
+        svc, sub_repo, activation, _session = _wire(at)
+        svc._type_repo.lock_version = AsyncMock(return_value=2)  # type: ignore[attr-defined]
+        svc._type_repo.get = AsyncMock(return_value=newer)  # type: ignore[attr-defined]
+
+        await _submit(svc, at, activation)
+
+        assert sub_repo.insert.await_args.kwargs["type_version"] == 2
+
+    async def test_a_payload_the_newer_definition_refuses_is_not_recorded(self) -> None:
+        at = _type(version=1)
+        stricter = {**_SCHEMA, "required": ["case", "reason"]}
+        newer = _type(id=at.id, version=2, payload_schema=stricter)
+        svc, sub_repo, activation, _session = _wire(at)
+        svc._type_repo.lock_version = AsyncMock(return_value=2)  # type: ignore[attr-defined]
+        svc._type_repo.get = AsyncMock(return_value=newer)  # type: ignore[attr-defined]
+
+        with pytest.raises(SubmissionPayloadInvalid):
+            await _submit(svc, at, activation)
+        sub_repo.insert.assert_not_awaited()
+
+    async def test_a_type_gone_under_the_lock_is_not_found(self) -> None:
+        at = _type()
+        svc, sub_repo, activation, _session = _wire(at)
+        svc._type_repo.lock_version = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+        with pytest.raises(ActivityTypeNotFound):
+            await _submit(svc, at, activation)
+        sub_repo.insert.assert_not_awaited()

@@ -218,6 +218,35 @@ activity_submissions = sa.Table(
     sa.Column("agent_digest", sa.Text, nullable=True),
     sa.Column("validated_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # The type's version at insert (0108). NULL only for a pre-0108 row of a type
+    # that had already been bumped, where the version cannot be proven (Q-7).
+    sa.Column("type_version", sa.Integer, nullable=True),
+)
+
+# One immutable row per definition a type has had (0108). Written by the type
+# repository on create and on every version bump; never updated. Internal only:
+# no route reads it ([R30.25]).
+activity_type_revisions = sa.Table(
+    "activity_type_revisions",
+    metadata,
+    sa.Column(
+        "activity_type_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_types.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column("version", sa.Integer, primary_key=True),
+    sa.Column("payload_schema", pg.JSONB, nullable=False),
+    sa.Column("validator_kind", _validator_kind, nullable=False),
+    sa.Column("validator_config", pg.JSONB, nullable=False),
+    sa.Column("group_config", pg.JSONB, nullable=True),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column(
+        "created_by",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
 )
 
 

@@ -191,6 +191,7 @@ class ActivitySubmissionRepository:
         validated_at: dt.datetime | None,
         agent_digest: str | None,
         producer_is_guest: bool = False,
+        type_version: int | None = None,
     ) -> uuid.UUID:
         row = await self._db.execute(
             _SUB.insert()
@@ -210,6 +211,7 @@ class ActivitySubmissionRepository:
                 retain_until=retain_until,
                 validated_at=validated_at,
                 agent_digest=agent_digest,
+                type_version=type_version,
             )
             .returning(_SUB.c.id)
         )
@@ -835,6 +837,7 @@ class ActivitySubmissionRepository:
                 _SUB.c.created_at,
                 _TYPE.c.key.label("activity_type_key"),
                 _SUB.c.activity_type_id,
+                _SUB.c.type_version,
                 _TYPE.c.payload_schema,
                 _SESS.c.subject_user_id,
                 _SESS.c.subject_member_group_id,
@@ -863,6 +866,7 @@ class ActivitySubmissionRepository:
                 subject_kind="group" if r.subject_member_group_id else r.subject_kind,
                 activity_type_id=r.activity_type_id,
                 payload_fields=_declared_properties(r.payload_schema),
+                type_version=r.type_version,
             )
             for r in rows
         ]

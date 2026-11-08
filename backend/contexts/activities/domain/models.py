@@ -736,6 +736,8 @@ class ResearchExportSubmission:
     #: Keys are unique only per project and among live types, so two types in one
     #: export may share one.
     activity_type_id: uuid.UUID | None = None
+    #: ``None`` where the version cannot be proven (Q-7, migration 0108).
+    type_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
