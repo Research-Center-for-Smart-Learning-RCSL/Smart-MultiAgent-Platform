@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   SEmptyState,
@@ -18,12 +18,24 @@ import DashboardChartPanel from '../components/DashboardChartPanel.vue'
 import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const workspaceId = computed(() => String(route.params.workspaceId ?? ''))
-const openExportJobId = computed(() => {
-  const q = route.query.researchExport
-  return typeof q === 'string' && q ? q : null
-})
+// `?researchExport=<job_id>` (the export.ready notification's link) opens that
+// job once. The parameter is then dropped, so a reload does not reopen it and
+// the same link followed again is a fresh request.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const openExport = ref<{ jobId: string } | null>(null)
+watch(
+  () => route.query.researchExport,
+  (q) => {
+    if (q === undefined) return
+    if (typeof q === 'string' && UUID_RE.test(q)) openExport.value = { jobId: q }
+    const { researchExport: _dropped, ...query } = route.query
+    void router.replace({ query })
+  },
+  { immediate: true },
+)
 const {
   connected,
   workspace,
@@ -85,7 +97,7 @@ const {
           <ResearchExportButton
             v-if="roleDecided && canExport"
             :workspace-id="workspaceId"
-            :open-job-id="openExportJobId"
+            :open-request="openExport"
           />
         </div>
       </template>

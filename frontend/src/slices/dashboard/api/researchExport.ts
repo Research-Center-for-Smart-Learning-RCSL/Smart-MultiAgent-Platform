@@ -1,7 +1,7 @@
 import { ApiError } from '@shared/errors'
 import { http } from '@shared/transport'
 
-interface ResearchExportCreateIn {
+export interface ResearchExportCreateIn {
   created_after?: string | null
   created_before?: string | null
 }
@@ -54,7 +54,7 @@ export async function getResearchExportStatus(
   jobId: string,
 ): Promise<ResearchExportStatusOut> {
   const { data } = await http.get<ResearchExportStatusOut>(
-    `/exports/research/${jobId}`,
+    `/exports/research/${encodeURIComponent(jobId)}`,
   )
   return data
 }

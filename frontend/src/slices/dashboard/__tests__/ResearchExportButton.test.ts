@@ -65,7 +65,7 @@ const i18n = createI18n({
   },
 })
 
-function mountButton(props: { openJobId?: string | null } = {}) {
+function mountButton(props: { openRequest?: { jobId: string } | null } = {}) {
   return mount(ResearchExportButton, {
     props: { workspaceId: 'w1', ...props },
     global: {
@@ -223,7 +223,7 @@ describe('ResearchExportButton', () => {
   // AC-2: the `export.ready` notification links here with the job id.
   it('opens on the job id it is given', async () => {
     api.getResearchExportStatus.mockResolvedValue(status('j5', 'ready', '/api/files/j5.t'))
-    const wrapper = mountButton({ openJobId: 'j5' })
+    const wrapper = mountButton({ openRequest: { jobId: 'j5' } })
     await flushPromises()
 
     expect(api.getResearchExportStatus).toHaveBeenCalledWith('j5')
@@ -233,7 +233,7 @@ describe('ResearchExportButton', () => {
 
   it.each([404, 410])('reports an opened job answered with %i as expired', async (code) => {
     api.getResearchExportStatus.mockRejectedValue(problem(code, '/conversation/export-expired'))
-    const wrapper = mountButton({ openJobId: 'j5' })
+    const wrapper = mountButton({ openRequest: { jobId: 'j5' } })
     await flushPromises()
 
     expect(toast.error).toHaveBeenCalledWith('Expired')
@@ -245,7 +245,7 @@ describe('ResearchExportButton', () => {
     api.getResearchExportStatus
       .mockResolvedValueOnce(status('j5', 'ready', '/api/files/j5.t'))
       .mockRejectedValueOnce(problem(410, '/conversation/export-expired'))
-    const wrapper = mountButton({ openJobId: 'j5' })
+    const wrapper = mountButton({ openRequest: { jobId: 'j5' } })
     await flushPromises()
     await wrapper.find(sel('download')).trigger('click')
     await flushPromises()
@@ -253,6 +253,68 @@ describe('ResearchExportButton', () => {
     expect(downloads).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Expired')
     expect(wrapper.find(sel('download')).exists()).toBe(false)
+  })
+
+  it('drops a latest lookup that answers after Export was clicked', async () => {
+    let answerLatest!: (v: { job_id: string; status: string }) => void
+    api.getLatestResearchExport.mockReturnValue(new Promise((resolve) => { answerLatest = resolve }))
+    api.createResearchExport.mockResolvedValue({ job_id: 'new', status: 'queued' })
+    api.getResearchExportStatus.mockResolvedValue(status('new', 'running'))
+    const wrapper = mountButton()
+    await wrapper.find(sel('open')).trigger('click')
+    await wrapper.find(sel('start')).trigger('click')
+    await flushPromises()
+    answerLatest({ job_id: 'old', status: 'running' })
+    await flushPromises()
+
+    expect(api.getResearchExportStatus).not.toHaveBeenCalledWith('old')
+    expect(wrapper.find(sel('progress')).text()).toContain('Generating...')
+  })
+
+  it('drops a create that answers after a job was opened by link', async () => {
+    let answerCreate!: (v: { job_id: string; status: string }) => void
+    api.createResearchExport.mockReturnValue(new Promise((resolve) => { answerCreate = resolve }))
+    api.getResearchExportStatus.mockImplementation(async (id: string) =>
+      status(id, 'ready', `/api/files/${id}.t`),
+    )
+    const wrapper = mountButton()
+    await wrapper.find(sel('open')).trigger('click')
+    await flushPromises()
+    await wrapper.find(sel('start')).trigger('click')
+    await wrapper.setProps({ openRequest: { jobId: 'linked' } })
+    await flushPromises()
+    answerCreate({ job_id: 'created', status: 'queued' })
+    await flushPromises()
+
+    expect(api.getResearchExportStatus).not.toHaveBeenCalledWith('created')
+    api.getResearchExportStatus.mockClear()
+    await wrapper.find(sel('download')).trigger('click')
+    await flushPromises()
+    expect(downloads).toEqual(['/api/files/linked.t'])
+  })
+
+  it('opens the same job again on a new request for it', async () => {
+    api.getResearchExportStatus.mockResolvedValue(status('j5', 'ready', '/api/files/j5.t'))
+    const wrapper = mountButton({ openRequest: { jobId: 'j5' } })
+    await flushPromises()
+    await wrapper.find(sel('close')).trigger('click')
+    expect(wrapper.find(sel('download')).exists()).toBe(false)
+
+    await wrapper.setProps({ openRequest: { jobId: 'j5' } })
+    await flushPromises()
+    expect(wrapper.find(sel('download')).exists()).toBe(true)
+    expect(api.getResearchExportStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('goes quietly back to the form when the job it found on its own is gone', async () => {
+    api.getLatestResearchExport.mockResolvedValue({ job_id: 'j7', status: 'ready' })
+    api.getResearchExportStatus.mockRejectedValue(problem(410, '/conversation/export-expired'))
+    const wrapper = mountButton()
+    await wrapper.find(sel('open')).trigger('click')
+    await flushPromises()
+
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(wrapper.find(sel('start')).attributes('disabled')).toBeUndefined()
   })
 
   it('offers Check again when polling gives up, and resumes the same job', async () => {
