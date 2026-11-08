@@ -400,17 +400,15 @@ async def research_data_export(
             error="job parameters do not match stored state",
         )
         raise PermissionError(f"research export job {jid} args mismatch stored state")
-    if state.status is not research_export_service.ResearchExportJobStatus.QUEUED:
-        logger.bind(event="research_data_export_skipped", job_id=str(jid), status=state.status.value).warning(
-            "research export job is not queued; not running it again"
-        )
-        return "skipped:not_queued"
-
-    await research_export_service.mark_running(jid)
-    # Taken before the upload, so the archive is no older than this.
-    upload_started_at = now()
+    sm = get_sessionmaker()
     try:
-        sm = get_sessionmaker()
+        if not await research_export_service.mark_running(jid):
+            logger.bind(
+                event="research_data_export_skipped", job_id=str(jid), status=state.status.value
+            ).warning("research export job is not queued; not running it again")
+            return "skipped:not_queued"
+        # Taken before the upload, so the archive is no older than this.
+        upload_started_at = now()
         async with sm() as session, session.begin():
             if not await research_export_access.still_entitled(session, workspace_id=wid, user_id=oid):
                 await research_export_service.mark_failed(job_id=jid, error="export authority revoked")
@@ -502,9 +500,12 @@ async def research_data_export(
                 actor_ip=state.actor_ip,
             )
 
-        await research_export_service.mark_ready(
+        if not await research_export_service.mark_ready(
             job_id=jid, bucket=bucket, object_key=key, upload_started_at=upload_started_at
-        )
+        ):
+            # Taken over as abandoned, or built past the archive's lifetime: the
+            # record already says failed, and there is nothing to announce.
+            return "failed:not_ready"
     except asyncio.CancelledError:
         # arq enforces the job timeout by cancelling, and CancelledError is not
         # an Exception. Shielded so the write lands; re-raised to keep arq's

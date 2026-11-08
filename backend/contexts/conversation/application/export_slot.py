@@ -49,7 +49,14 @@ async def claim(
             return None
     # Lost every race for the slot: another create just won it.
     winner = await redis.get(key)
-    return uuid.UUID(winner) if winner else job_id
+    if winner is None:
+        # Released again after every attempt: no job to name, and none holds it.
+        raise SlotContended(key)
+    return uuid.UUID(winner)
 
 
-__all__ = ["claim"]
+class SlotContended(RuntimeError):
+    """The slot changed hands on every attempt; practically unreachable."""
+
+
+__all__ = ["SlotContended", "claim"]

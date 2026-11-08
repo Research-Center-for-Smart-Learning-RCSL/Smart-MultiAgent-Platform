@@ -83,9 +83,10 @@ async def test_ready_record_expires_23_hours_after_the_upload_started(
     redis: _Redis, clock: list[datetime]
 ) -> None:
     state = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
+    assert await svc.mark_running(state.job_id)
     upload_started = _T0
     clock[0] = _T0 + timedelta(minutes=10)
-    await svc.mark_ready(
+    assert await svc.mark_ready(
         job_id=state.job_id, bucket="exports", object_key="k", upload_started_at=upload_started
     )
     # 23 h from the upload's start, not from mark_ready: the sweep and the bucket
@@ -93,6 +94,20 @@ async def test_ready_record_expires_23_hours_after_the_upload_started(
     assert redis.ttl[f"research_export:{state.job_id}"] == int(
         timedelta(hours=22, minutes=50).total_seconds()
     )
+
+
+async def test_a_build_that_outlived_the_archive_lifetime_is_failed_not_ready(
+    redis: _Redis, clock: list[datetime]
+) -> None:
+    state = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
+    assert await svc.mark_running(state.job_id)
+    clock[0] = _T0 + svc.READY_LIFETIME
+    assert not await svc.mark_ready(
+        job_id=state.job_id, bucket="exports", object_key="k", upload_started_at=_T0
+    )
+    after = await svc.get(state.job_id)
+    assert after is not None
+    assert (after.status, after.error) == (ResearchExportJobStatus.FAILED, "expired before ready")
 
 
 async def test_ready_export_whose_object_is_gone_is_expired_not_ready(
@@ -134,7 +149,8 @@ async def test_create_after_the_previous_finished_takes_over_and_becomes_latest(
     redis: _Redis, clock: list[datetime]
 ) -> None:
     first = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
-    await svc.mark_ready(job_id=first.job_id, bucket="exports", object_key="k", upload_started_at=_T0)
+    assert await svc.mark_running(first.job_id)
+    assert await svc.mark_ready(job_id=first.job_id, bucket="exports", object_key="k", upload_started_at=_T0)
     second = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
     latest = await svc.latest(owner_user_id=_OWNER, workspace_id=_WORKSPACE)
     assert latest is not None
@@ -145,7 +161,8 @@ async def test_latest_returns_the_ready_job_after_the_dialog_lost_it(
     redis: _Redis, clock: list[datetime]
 ) -> None:
     job = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
-    await svc.mark_ready(job_id=job.job_id, bucket="exports", object_key="k", upload_started_at=_T0)
+    assert await svc.mark_running(job.job_id)
+    assert await svc.mark_ready(job_id=job.job_id, bucket="exports", object_key="k", upload_started_at=_T0)
     latest = await svc.latest(owner_user_id=_OWNER, workspace_id=_WORKSPACE)
     assert latest is not None
     assert (latest.job_id, latest.status) == (job.job_id, ResearchExportJobStatus.READY)
@@ -163,6 +180,85 @@ async def test_an_abandoned_running_job_does_not_hold_the_workspace(
     assert old is not None
     assert old.status == ResearchExportJobStatus.FAILED
     assert fresh.job_id != stuck.job_id
+    # The abandoned run cannot later overwrite that failure with a ready record.
+    assert not await svc.mark_ready(
+        job_id=stuck.job_id, bucket="exports", object_key="k", upload_started_at=_T0
+    )
+    after = await svc.get(stuck.job_id)
+    assert after is not None
+    assert (after.status, after.error) == (ResearchExportJobStatus.FAILED, "abandoned")
+
+
+async def test_a_job_that_waited_in_the_queue_keeps_the_slot_while_it_runs(
+    redis: _Redis, clock: list[datetime]
+) -> None:
+    job = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
+    clock[0] = _T0 + timedelta(minutes=20)
+    assert await svc.mark_running(job.job_id)
+    # Past the stale window from creation, well inside it from the run's start.
+    clock[0] = _T0 + svc.ACTIVE_EXPORT_STALE_AFTER + timedelta(minutes=1)
+    with pytest.raises(ResearchExportInProgress) as exc:
+        await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
+    assert exc.value.job_id == job.job_id
+
+
+async def test_a_job_runs_only_from_queued_and_a_finished_one_keeps_its_outcome(
+    redis: _Redis, clock: list[datetime]
+) -> None:
+    job = await svc.create(workspace_id=_WORKSPACE, owner_user_id=_OWNER)
+    assert await svc.mark_running(job.job_id)
+    assert not await svc.mark_running(job.job_id)
+    assert await svc.mark_ready(job_id=job.job_id, bucket="exports", object_key="k", upload_started_at=_T0)
+    await svc.mark_failed(job_id=job.job_id, error="late")
+    after = await svc.get(job.job_id)
+    assert after is not None
+    assert after.status == ResearchExportJobStatus.READY
+
+
+# ---- export_slot.claim races ---------------------------------------------
+
+
+class _RacingRedis(_Redis):
+    """Another create takes the slot between this claim's read and its takeover."""
+
+    def __init__(self, rival: str | None) -> None:
+        super().__init__()
+        self.rival = rival
+
+    async def eval(self, script: str, numkeys: int, key: str, expected: str, new: str, ttl: str) -> int:
+        if self.rival is None:
+            self.store.pop(key, None)
+        else:
+            self.store[key] = self.rival
+        return 0
+
+
+async def test_a_claim_that_loses_the_takeover_names_the_winner() -> None:
+    from contexts.conversation.application import export_slot
+
+    rival = uuid.uuid4()
+    fake = _RacingRedis(str(rival))
+    fake.store["slot"] = str(uuid.uuid4())
+
+    async def _blocks(holder: uuid.UUID) -> bool:
+        return holder == rival
+
+    assert await export_slot.claim(fake, "slot", uuid.uuid4(), ttl_seconds=60, blocks=_blocks) == rival
+
+
+async def test_a_claim_that_never_settles_raises_instead_of_naming_itself() -> None:
+    from contexts.conversation.application import export_slot
+
+    class _Flapping(_RacingRedis):
+        async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False) -> bool | None:
+            self.store[key] = str(uuid.uuid4())  # someone else holds it at every attempt
+            return None
+
+    async def _never(holder: uuid.UUID) -> bool:
+        return False
+
+    with pytest.raises(export_slot.SlotContended):
+        await export_slot.claim(_Flapping(None), "slot", uuid.uuid4(), ttl_seconds=60, blocks=_never)
 
 
 # ---- Worker: AC-4, AC-5, AC-6 ---------------------------------------------
@@ -180,6 +276,8 @@ def worker(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "notify_raises": False,
         "build_blocks": False,
         "building": asyncio.Event(),
+        "failing": asyncio.Event(),
+        "ready_ok": True,
     }
 
     async def _get(job_id: uuid.UUID) -> ResearchExportJobState:
@@ -191,15 +289,17 @@ def worker(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             created_at=_T0,
         )
 
-    async def _running(job_id: uuid.UUID) -> None:
-        pass
+    async def _running(job_id: uuid.UUID) -> bool:
+        return calls["status"] is ResearchExportJobStatus.QUEUED
 
     async def _failed(*, job_id: uuid.UUID, error: str) -> None:
-        await asyncio.sleep(0.01)  # must survive the cancellation it runs under
+        calls["failing"].set()
+        await asyncio.sleep(0.05)  # must survive the cancellation it runs under
         calls["failed"].append(error)
 
-    async def _ready(**kwargs: object) -> None:
+    async def _ready(**kwargs: object) -> bool:
         calls["ready"].append(kwargs)
+        return bool(calls["ready_ok"])
 
     async def _entitled(db: object, *, workspace_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         return bool(calls["entitled"])
@@ -267,6 +367,8 @@ async def _run(job_id: uuid.UUID | None = None) -> str:
 async def test_a_notification_failure_leaves_the_export_ready(worker: dict[str, Any]) -> None:
     worker["notify_raises"] = True
     assert await _run() == "ok"
+    # One build, which writes the one audit row; nothing runs it again.
+    assert worker["built"] == 1
     assert len(worker["ready"]) == 1
     assert worker["failed"] == []
 
@@ -309,6 +411,26 @@ async def test_a_cancelled_export_is_marked_failed_and_still_cancels(worker: dic
         await job
     assert worker["failed"] == ["timed out"]
     assert worker["ready"] == []
+
+
+async def test_the_timeout_write_survives_a_second_cancellation(worker: dict[str, Any]) -> None:
+    worker["build_blocks"] = True
+    job = asyncio.create_task(_run())
+    await asyncio.wait_for(worker["building"].wait(), timeout=5)
+    job.cancel()
+    await asyncio.wait_for(worker["failing"].wait(), timeout=5)
+    job.cancel()  # arrives while the failure write is in flight
+    with pytest.raises(asyncio.CancelledError):
+        await job
+    await asyncio.sleep(0.1)
+    assert worker["failed"] == ["timed out"]
+
+
+async def test_a_run_whose_job_was_taken_over_announces_nothing(worker: dict[str, Any]) -> None:
+    worker["ready_ok"] = False
+    assert await _run() == "failed:not_ready"
+    assert worker["notified"] == []
+    assert worker["failed"] == []
 
 
 def test_research_export_runs_once_with_its_own_timeout() -> None:

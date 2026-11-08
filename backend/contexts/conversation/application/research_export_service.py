@@ -29,7 +29,9 @@ _JOB_TTL_SECONDS: Final = 24 * 3600
 READY_LIFETIME: Final = timedelta(hours=23)
 RESEARCH_EXPORT_TIMEOUT_S: Final = 15 * 60
 # Past this a job still reading queued or running was abandoned (worker killed
-# mid-job) and must not keep the workspace's slot.
+# mid-job) and must not keep the workspace's slot. Counted from the start of the
+# run, or from creation while queued: a job that waited in the queue may still
+# run its full timeout after it starts.
 ACTIVE_EXPORT_STALE_AFTER: Final = timedelta(seconds=2 * RESEARCH_EXPORT_TIMEOUT_S)
 
 
@@ -62,6 +64,7 @@ class ResearchExportJobState:
     actor_ip: str | None = None
     error: str | None = None
     upload_started_at: datetime | None = None
+    running_since: datetime | None = None
 
     @property
     def is_active(self) -> bool:
@@ -111,7 +114,7 @@ async def _blocks(holder_id: uuid.UUID) -> bool:
     holder = await get(holder_id)
     if holder is None or not holder.is_active:
         return False
-    if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
+    if now() - (holder.running_since or holder.created_at) < ACTIVE_EXPORT_STALE_AFTER:
         return True
     await _store(replace(holder, status=ResearchExportJobStatus.FAILED, error="abandoned"))
     return False
@@ -122,11 +125,13 @@ async def latest(*, owner_user_id: uuid.UUID, workspace_id: uuid.UUID) -> Resear
     return None if held is None else await get(uuid.UUID(held))
 
 
-async def mark_running(job_id: uuid.UUID) -> None:
+async def mark_running(job_id: uuid.UUID) -> bool:
+    """Start the job; ``False`` when it is not queued, so it must not run."""
     state = await get(job_id)
-    if state is None:
-        return
-    await _store(replace(state, status=ResearchExportJobStatus.RUNNING))
+    if state is None or state.status is not ResearchExportJobStatus.QUEUED:
+        return False
+    await _store(replace(state, status=ResearchExportJobStatus.RUNNING, running_since=now()))
+    return True
 
 
 async def mark_ready(
@@ -135,11 +140,15 @@ async def mark_ready(
     bucket: str,
     object_key: str,
     upload_started_at: datetime,
-) -> None:
-    """``upload_started_at`` is taken before the upload, so the archive is no older than it."""
+) -> bool:
+    """``upload_started_at`` is taken before the upload, so the archive is no older than it.
+
+    ``False`` when the job is no longer running: a newer export took the slot
+    over and marked it abandoned, and the failure stands.
+    """
     state = await get(job_id)
-    if state is None:
-        return
+    if state is None or state.status is not ResearchExportJobStatus.RUNNING:
+        return False
     ready = replace(
         state,
         status=ResearchExportJobStatus.READY,
@@ -151,13 +160,15 @@ async def mark_ready(
     if remaining <= 0:
         # The build outlived the archive's own lifetime; nothing is left to offer.
         await _store(replace(ready, status=ResearchExportJobStatus.FAILED, error="expired before ready"))
-        return
+        return False
     await _store(ready, ttl_seconds=remaining)
+    return True
 
 
 async def mark_failed(*, job_id: uuid.UUID, error: str) -> None:
+    """A finished job keeps its outcome."""
     state = await get(job_id)
-    if state is None:
+    if state is None or not state.is_active:
         return
     await _store(replace(state, status=ResearchExportJobStatus.FAILED, error=error))
 
@@ -180,6 +191,7 @@ async def get(job_id: uuid.UUID) -> ResearchExportJobState | None:
         actor_ip=data.get("actor_ip"),
         error=data.get("error"),
         upload_started_at=_dt(data.get("upload_started_at")),
+        running_since=_dt(data.get("running_since")),
     )
 
 
@@ -205,6 +217,7 @@ async def _store(state: ResearchExportJobState, *, ttl_seconds: int = _JOB_TTL_S
         "actor_ip": state.actor_ip,
         "error": state.error,
         "upload_started_at": _iso(state.upload_started_at),
+        "running_since": _iso(state.running_since),
     }
     await get_redis().set(_job_key(state.job_id), json.dumps(payload), ex=ttl_seconds)
 
