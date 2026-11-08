@@ -538,12 +538,12 @@ That is stated in the release note.
 
 **Versioning**
 
-- [ ] AC-10: Every behavioral edit writes a revision row equal to the new definition.
+- [x] AC-10: Every behavioral edit writes a revision row equal to the new definition.
   Creation writes version 1. A metadata-only edit writes none (db-tier test).
-- [ ] AC-11: A submission records its type's version at insert. A behavioral edit
+- [x] AC-11: A submission records its type's version at insert. A behavioral edit
   committed concurrently cannot change the version a submission records (db-tier test
   with two sessions).
-- [ ] AC-12: After migration 0108 on a database holding a version-1 type and a version-3
+- [x] AC-12: After migration 0108 on a database holding a version-1 type and a version-3
   type with submissions:
   - every type has a revision at its current version;
   - version-1 submissions read 1;
