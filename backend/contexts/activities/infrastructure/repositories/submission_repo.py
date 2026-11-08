@@ -28,6 +28,7 @@ from contexts.activities.domain.models import (
     RecentActivityRow,
     RoundDashboardAggregate,
     RoundSubjectCount,
+    SubjectCreativity,
     SubjectKind,
     SubmissionForJudging,
     TimeseriesBucket,
@@ -47,6 +48,7 @@ _TYPE = t.activity_types
 # vocabulary as activity_sessions.subject_kind.
 _USER = SubjectKind.USER.value
 _GUEST = SubjectKind.GUEST.value
+_CREATIVITY_DIMENSIONS = ("fluency", "flexibility", "originality", "convergence")
 _JUDGE_SLOT_STATUSES = (JudgeStatus.PENDING.value, JudgeStatus.SCORED.value, JudgeStatus.ERROR.value)
 
 _SUB_COLS = (
@@ -780,6 +782,89 @@ class ActivitySubmissionRepository:
                 last_valid_submission_at=r.last_valid_at,
             )
             for r in rows
+        ]
+
+    async def creativity_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[SubjectCreativity]:
+        """Per-subject creativity means and latest judge state, per room.
+
+        Two grouped reads over the rooms' submissions of scored types; both use
+        ``DISTINCT ON`` so a subject's resubmissions within one round count once.
+        """
+        if not chatroom_ids:
+            return []
+        rooms = list(chatroom_ids)
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        subject = sa.func.coalesce(_SESS.c.subject_member_group_id, _SESS.c.subject_user_id)
+        live = sa.and_(_SUB.c.chatroom_id.in_(rooms), _SUB.c.deleted_at.is_(None))
+
+        latest_scored = (
+            sa.select(
+                _SUB.c.chatroom_id,
+                subject.label("subject_id"),
+                _SUB.c.judge_scores,
+            )
+            .select_from(joined)
+            .where(sa.and_(live, _SUB.c.judge_status == JudgeStatus.SCORED.value))
+            .distinct(_SUB.c.chatroom_id, _SESS.c.activation_id, subject)
+            .order_by(
+                _SUB.c.chatroom_id, _SESS.c.activation_id, subject, _SUB.c.created_at.desc(), _SUB.c.id.desc()
+            )
+            .subquery()
+        )
+
+        def _mean(dimension: str) -> sa.ColumnElement[Any]:
+            value = latest_scored.c.judge_scores[dimension].astext.cast(sa.Numeric)
+            return sa.func.avg(value).label(dimension)
+
+        means = (
+            await self._db.execute(
+                sa.select(
+                    latest_scored.c.chatroom_id,
+                    latest_scored.c.subject_id,
+                    sa.func.count().label("scored_rounds"),
+                    *(_mean(d) for d in _CREATIVITY_DIMENSIONS),
+                ).group_by(latest_scored.c.chatroom_id, latest_scored.c.subject_id)
+            )
+        ).all()
+        last = (
+            await self._db.execute(
+                sa.select(
+                    _SUB.c.chatroom_id,
+                    subject.label("subject_id"),
+                    _SUB.c.judge_status,
+                    _SUB.c.judge_reason,
+                )
+                .select_from(joined)
+                .where(sa.and_(live, _SUB.c.judge_status.is_not(None)))
+                .distinct(_SUB.c.chatroom_id, subject)
+                .order_by(_SUB.c.chatroom_id, subject, _SUB.c.created_at.desc(), _SUB.c.id.desc())
+            )
+        ).all()
+
+        by_key: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
+        for r in last:
+            by_key[(r.chatroom_id, r.subject_id)] = {
+                "last_status": r.judge_status,
+                "last_reason": r.judge_reason,
+            }
+        for r in means:
+            entry = by_key.setdefault(
+                (r.chatroom_id, r.subject_id), {"last_status": None, "last_reason": None}
+            )
+            entry["scored_rounds"] = int(r.scored_rounds or 0)
+            for d in _CREATIVITY_DIMENSIONS:
+                value = getattr(r, d)
+                entry[d] = float(value) if value is not None else None
+        return [
+            SubjectCreativity(
+                chatroom_id=room_id,
+                subject_id=subject_id,
+                scored_rounds=entry.get("scored_rounds", 0),
+                **{d: entry.get(d) for d in _CREATIVITY_DIMENSIONS},
+                last_status=entry["last_status"],
+                last_reason=entry["last_reason"],
+            )
+            for (room_id, subject_id), entry in by_key.items()
         ]
 
     async def submitted_groups(self, *, activation_id: uuid.UUID) -> list[GroupSubmissionState]:

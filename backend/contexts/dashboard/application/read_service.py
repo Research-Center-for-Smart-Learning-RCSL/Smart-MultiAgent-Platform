@@ -9,6 +9,8 @@ from typing import Literal, Protocol
 
 from contexts.dashboard.domain.models import (
     DashboardActivation,
+    DashboardCreativity,
+    DashboardCreativityOut,
     DashboardMessageCounts,
     DashboardRoom,
     DashboardRound,
@@ -84,6 +86,10 @@ class ActivitiesReader(Protocol):
     ) -> list[DashboardWatchlistCandidate]: ...
 
     async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]: ...
+
+    async def creativity_for_rooms(
+        self, *, chatroom_ids: Sequence[uuid.UUID]
+    ) -> list[DashboardCreativity]: ...
 
 
 class ConversationReader(Protocol):
@@ -271,7 +277,10 @@ class DashboardReadService:
         room_map: Mapping[uuid.UUID, str],
         *,
         project_id: uuid.UUID,
+        include_creativity: bool = False,
     ) -> DashboardWatchlist:
+        """``include_creativity`` is the caller's owner-or-admin decision (Q-11):
+        without it no score is read at all, not merely left out of the output."""
         if not room_map:
             return DashboardWatchlist(entries=[])
         activities = self._activities
@@ -298,6 +307,14 @@ class DashboardReadService:
         user_names = await self._identity.get_display_names(user_ids)
         guest_names = await self._conversation.guest_labels(guest_ids)
         group_names = await activities.resolve_member_group_names(group_ids)
+        creativity = (
+            {
+                (row.room_id, row.subject_id): row
+                for row in await activities.creativity_for_rooms(chatroom_ids=list(activations))
+            }
+            if include_creativity
+            else {}
+        )
 
         output: list[DashboardWatchlistEntry] = []
         for entry in entries:
@@ -324,9 +341,24 @@ class DashboardReadService:
                     last_valid_submission_at=entry.last_valid_submission_at,
                     needs_attention=entry.needs_attention,
                     reason=reason,
+                    creativity=_creativity_out(creativity.get((entry.room_id, entry.subject_id))),
                 )
             )
         return DashboardWatchlist(entries=output)
+
+
+def _creativity_out(row: DashboardCreativity | None) -> DashboardCreativityOut | None:
+    if row is None:
+        return None
+    return DashboardCreativityOut(
+        scored_rounds=row.scored_rounds,
+        fluency=row.fluency,
+        flexibility=row.flexibility,
+        originality=row.originality,
+        convergence=row.convergence,
+        last_status=row.last_status,
+        last_reason=row.last_reason,
+    )
 
 
 def _watchlist_reason(value: str | None) -> Literal["no_valid_in_round", "idle"] | None:

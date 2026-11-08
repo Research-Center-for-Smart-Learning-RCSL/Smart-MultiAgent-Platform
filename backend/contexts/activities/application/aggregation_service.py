@@ -20,6 +20,7 @@ from contexts.activities.domain.models import (
     ResearchExportSubmission,
     RoundDashboardAggregate,
     RoundSubject,
+    SubjectCreativity,
     SubjectKind,
     TimeseriesBucket,
     WatchlistEntry,
@@ -77,6 +78,9 @@ class AggregationService:
         activation_ids: Sequence[uuid.UUID],
     ) -> list[RoundDashboardAggregate]:
         return await self._repo.round_aggregates(activation_ids=activation_ids)
+
+    async def creativity_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[SubjectCreativity]:
+        return await self._repo.creativity_for_rooms(chatroom_ids=chatroom_ids)
 
     async def timeseries_for_rooms(
         self,

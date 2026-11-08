@@ -73,6 +73,7 @@ from contexts.activities.domain.models import (
     RoundDashboardAggregate,
     RoundSubject,
     RoundSubjectCount,
+    SubjectCreativity,
     SubjectKind,
     SubmissionForJudging,
     TimeseriesBucket,
@@ -1139,6 +1140,10 @@ class ActivitiesFacade:
 
     async def round_aggregates(self, *, activation_ids: Sequence[uuid.UUID]) -> list[RoundDashboardAggregate]:
         return await self._aggregation.round_aggregates(activation_ids=activation_ids)
+
+    async def creativity_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[SubjectCreativity]:
+        """Creativity means for the teacher dashboard. Owner-or-admin only: the caller gates."""
+        return await self._aggregation.creativity_for_rooms(chatroom_ids=chatroom_ids)
 
     async def round_session_subjects(
         self, *, activation_ids: Sequence[uuid.UUID]

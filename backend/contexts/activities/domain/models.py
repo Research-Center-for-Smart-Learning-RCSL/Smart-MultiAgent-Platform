@@ -679,6 +679,27 @@ class RoundDashboardAggregate:
 
 
 @dataclass(frozen=True, slots=True)
+class SubjectCreativity:
+    """One subject's creativity scores in one room (research data integrity spec, section 5).
+
+    Each mean is over the subject's latest scored attempt per activation, so
+    resubmitting within a round replaces that round's score rather than adding
+    one. ``last_status`` and ``last_reason`` describe the subject's latest
+    attempt of a scored type, which tells the teacher why a mean is missing.
+    """
+
+    chatroom_id: uuid.UUID
+    subject_id: uuid.UUID
+    scored_rounds: int
+    fluency: float | None
+    flexibility: float | None
+    originality: float | None
+    convergence: float | None
+    last_status: str | None
+    last_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RoundSubjectCount:
     """Valid submission count for one subject in one activation."""
 

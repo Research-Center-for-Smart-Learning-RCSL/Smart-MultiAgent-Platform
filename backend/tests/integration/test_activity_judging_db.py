@@ -228,3 +228,46 @@ async def test_write_backs_apply_only_over_pending(
         )
     assert stored.judge_scores == scores
     assert stored.judged_at is not None
+
+
+async def test_the_dashboard_means_count_each_round_once(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    project: tuple[uuid.UUID, uuid.UUID],
+) -> None:
+    """Two scored attempts in one round count as that round's latest only, and the
+    latest judge state is reported even when it is not a score."""
+    project_id, owner_id = project
+    type_id, chatroom_id, _scoring = await _scored_room(sessionmaker, project_id, owner_id)
+    first, second, third = [
+        await _submit(
+            sessionmaker,
+            project_id=project_id,
+            owner_id=owner_id,
+            type_id=type_id,
+            chatroom_id=chatroom_id,
+            answer=answer,
+        )
+        for answer in ("first", "second", "third")
+    ]
+    async with sessionmaker() as session:
+        facade = ActivitiesFacade(session)
+        await facade.record_judgement(
+            submission_id=first,
+            status=JudgeStatus.SCORED,
+            scores={"fluency": 1, "flexibility": 1, "originality": 1, "convergence": 1},
+        )
+        await facade.record_judgement(
+            submission_id=second,
+            status=JudgeStatus.SCORED,
+            scores={"fluency": 3, "flexibility": 2, "originality": 4, "convergence": 0},
+        )
+        await facade.record_judgement(
+            submission_id=third, status=JudgeStatus.ERROR, reason="judge_bad_output"
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        (row,) = await ActivitiesFacade(session).creativity_for_rooms(chatroom_ids=[chatroom_id])
+    assert (row.chatroom_id, row.subject_id, row.scored_rounds) == (chatroom_id, owner_id, 1)
+    assert (row.fluency, row.flexibility, row.originality, row.convergence) == (3.0, 2.0, 4.0, 0.0)
+    assert (row.last_status, row.last_reason) == ("error", "judge_bad_output")
