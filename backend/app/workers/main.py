@@ -37,9 +37,11 @@ from app.workers.agent_fs_gc import AGENT_FS_GC_TIMEOUT_S
 from app.workers.agent_fs_gc import sweep_once as _agent_fs_gc_sweep_once
 from app.workers.agent_fs_gc import sweep_report_dict as _agent_fs_gc_report_dict
 from app.workers.tasks.activities import (
+    JUDGE_JOB_TIMEOUT_S,
     activities_watchdog,
     check_all_submitted,
     expire_group_proposals,
+    score_activity_submission,
     validate_activity_submission,
 )
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
@@ -344,6 +346,14 @@ class WorkerSettings:
         workflow_watchdog,
         agent_turn_reaper,
         validate_activity_submission,
+        # A retry bills the project owner's key again for a reply already
+        # received or refused; the watchdog records a job that never ran.
+        func(
+            score_activity_submission,
+            name="score_activity_submission",
+            timeout=JUDGE_JOB_TIMEOUT_S,
+            max_tries=1,
+        ),
         check_all_submitted,
         activities_watchdog,
         expire_group_proposals,

@@ -43,6 +43,7 @@ def submission() -> SimpleNamespace:
         activity_type_id=uuid.uuid4(),
         validation_status=SimpleNamespace(value="validated"),
         is_valid=True,
+        judge_status=None,
     )
 
 
@@ -207,3 +208,30 @@ class TestSubmissionRepublishesTheFacilitatorCounts:
         names = [call.args[0] for call in enqueued.await_args_list if call.args]
         assert "validate_activity_submission" in names
         assert "workflow_signal" in names
+
+
+class TestTheJudgeEnqueue:
+    """Scoring is queued only for a submission recorded ``pending`` (spec section 5)."""
+
+    @pytest.mark.parametrize(
+        ("judge_status", "queued"), [("pending", True), ("skipped", False), (None, False)]
+    )
+    async def test_only_a_pending_submission_is_queued_for_scoring(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        submission: SimpleNamespace,
+        judge_status: str | None,
+        queued: bool,
+    ) -> None:
+        _silence_the_other_concerns(monkeypatch)
+        enqueued = AsyncMock()
+        monkeypatch.setattr(activities_api, "enqueue", enqueued)
+        monkeypatch.setattr(activities_api, "ConversationFacade", lambda _db: AsyncMock())
+        submission.judge_status = judge_status
+
+        await activities_api._dispatch_submission(uuid.uuid4(), submission, {}, db=object())
+
+        calls = [
+            c.args for c in enqueued.await_args_list if c.args and c.args[0] == "score_activity_submission"
+        ]
+        assert calls == ([("score_activity_submission", str(submission.id))] if queued else [])

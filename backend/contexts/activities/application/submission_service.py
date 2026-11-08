@@ -513,7 +513,7 @@ class SubmissionService:
             )
         return changed
 
-    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[uuid.UUID]:
+    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
         swept_at = now()
         return await self._sub_repo.sweep_stalled_judging(
             cutoff=swept_at - timedelta(seconds=ttl_seconds), reason=JUDGE_TIMEOUT, swept_at=swept_at

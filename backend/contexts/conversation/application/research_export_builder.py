@@ -53,9 +53,13 @@ _LEADING_COLUMNS: Final = (
     "latency_ms",
     "created_at",
 )
+_SCORE_COLUMNS: Final = ("fluency", "flexibility", "originality", "convergence")
 _TRAILING_COLUMNS: Final = (
     "sub_scores_filled",
     "sub_scores_filled_fields",
+    "judge_status",
+    *_SCORE_COLUMNS,
+    "judge_model",
     "payload_json",
     "sub_scores_json",
 )
@@ -72,6 +76,10 @@ _MANIFEST_NOTES: Final = (
     "type_version is the activity type's version when the submission was made. It reads "
     "unknown for a submission made before versions were recorded, under a type that had "
     "already been edited.",
+    "judge_status is empty for a type without creativity scoring. The four scores and "
+    "judge_model are filled only where judge_status is scored. fluency counts the answered "
+    "fields; flexibility, originality and convergence are 0 to 4 from the judge model "
+    "named in judge_model.",
 )
 _UNKNOWN_VERSION: Final = "unknown"
 
@@ -93,6 +101,8 @@ class SubmissionRow:
     payload_fields: tuple[str, ...] = ()
     activity_type_id: uuid.UUID | None = None
     type_version: int | None = None
+    judge_status: str | None = None
+    judge_scores: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +269,7 @@ class ResearchExportBuilder:
                     # An MCP or webhook validator writes sub_scores, so any value may be text.
                     _cell(row.sub_scores.get("filled")),
                     _cell("; ".join(map(str, filled_fields))) if isinstance(filled_fields, list) else None,
+                    *_judge_cells(row),
                     _json(row.payload or {}),
                     _json(row.sub_scores or {}),
                 ]
@@ -353,6 +364,26 @@ class ResearchExportBuilder:
             for path, content in files.items():
                 zf.writestr(path, content)
         return buf.getvalue()
+
+
+def _judge_cells(row: SubmissionRow) -> list[Any]:
+    """``judge_status``, the four scores and ``judge_model``.
+
+    Scores are written only for ``scored``: a ``skipped`` or ``error`` row has none,
+    and an empty cell must not read as a zero.
+    """
+    scores = row.judge_scores if row.judge_status == "scored" and row.judge_scores else None
+    if scores is None:
+        return [row.judge_status, *([None] * len(_SCORE_COLUMNS)), None]
+    return [
+        row.judge_status,
+        *(_score(scores.get(name)) for name in _SCORE_COLUMNS),
+        _cell(scores.get("model")),
+    ]
+
+
+def _score(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _subject(row: SubmissionRow) -> tuple[str, str]:

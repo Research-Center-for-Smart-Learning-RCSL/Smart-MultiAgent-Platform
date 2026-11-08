@@ -1038,7 +1038,7 @@ class ActivitiesFacade:
             submission_id=submission_id, status=status, scores=scores, reason=reason, model=model
         )
 
-    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[uuid.UUID]:
+    async def sweep_stalled_judging(self, *, ttl_seconds: int) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
         return await self._submissions.sweep_stalled_judging(ttl_seconds=ttl_seconds)
 
     # -- Read model ---------------------------------------------------------

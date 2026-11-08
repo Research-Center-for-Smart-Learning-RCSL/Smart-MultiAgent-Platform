@@ -68,6 +68,7 @@ _SUB_COLS = (
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
     _SUB.c.producer_kind,
+    _SUB.c.judge_status,
 )
 
 
@@ -155,6 +156,7 @@ def _row_to_submission(row: object) -> ActivitySubmission:
         validated_at=row.validated_at,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
         producer_is_guest=row.producer_kind == _GUEST,  # type: ignore[attr-defined]
+        judge_status=row.judge_status,  # type: ignore[attr-defined]
     )
 
 
@@ -414,8 +416,9 @@ class ActivitySubmissionRepository:
 
     async def sweep_stalled_judging(
         self, *, cutoff: dt.datetime, reason: str, swept_at: dt.datetime, limit: int = 500
-    ) -> Sequence[uuid.UUID]:
-        """Move scoring still ``pending`` past ``cutoff`` to ``error``."""
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
+        """Move scoring still ``pending`` past ``cutoff`` to ``error``, returning
+        each ``(id, chatroom_id)`` so the watchdog can invalidate that room's dashboard."""
         batch = (
             sa.select(_SUB.c.id)
             .where(
@@ -430,9 +433,9 @@ class ActivitySubmissionRepository:
             _SUB.update()
             .where(sa.and_(_SUB.c.judge_status == JudgeStatus.PENDING.value, _SUB.c.id.in_(batch)))
             .values(judge_status=JudgeStatus.ERROR.value, judge_reason=reason, judged_at=swept_at)
-            .returning(_SUB.c.id)
+            .returning(_SUB.c.id, _SUB.c.chatroom_id)
         )
-        return [row.id for row in result]
+        return [(row.id, row.chatroom_id) for row in result]
 
     async def sweep_stalled(
         self, *, cutoff: dt.datetime, error_class: str, swept_at: dt.datetime, limit: int = 500
@@ -964,6 +967,8 @@ class ActivitySubmissionRepository:
                 _TYPE.c.key.label("activity_type_key"),
                 _SUB.c.activity_type_id,
                 _SUB.c.type_version,
+                _SUB.c.judge_status,
+                _SUB.c.judge_scores,
                 # The schema the row was submitted under, so the builder's column
                 # union spans every revision present (spec section 5). The type's
                 # current schema stands in where the version is unknown or has no
@@ -997,6 +1002,8 @@ class ActivitySubmissionRepository:
                 activity_type_id=r.activity_type_id,
                 payload_fields=_declared_properties(r.payload_schema),
                 type_version=r.type_version,
+                judge_status=r.judge_status,
+                judge_scores=dict(r.judge_scores) if r.judge_scores is not None else None,
             )
             for r in rows
         ]

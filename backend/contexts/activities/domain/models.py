@@ -370,6 +370,9 @@ class ActivitySubmission:
     deleted_at: dt.datetime | None = None
     # ``producer_user_id`` is an anonymous guest's session id (0098).
     producer_is_guest: bool = False
+    # ``pending`` when creativity scoring is queued. Read by the post-commit
+    # dispatch only; never serialised to the room or an agent (spec section 7).
+    judge_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -757,6 +760,9 @@ class ResearchExportSubmission:
     activity_type_id: uuid.UUID | None = None
     #: ``None`` where the version cannot be proven (Q-7, migration 0108).
     type_version: int | None = None
+    #: Both ``None`` for a type without creativity scoring.
+    judge_status: str | None = None
+    judge_scores: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

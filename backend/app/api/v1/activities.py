@@ -24,6 +24,7 @@ from app.api.v1.deps import (
     is_project_owner_or_admin,
 )
 from app.wiring.platform_wakes import dispatch_all_submitted
+from contexts.activities.domain.creativity_judge import JudgeStatus
 from contexts.activities.domain.errors import (
     CreativityScoringInvalid,
     SessionNotFound,
@@ -1451,6 +1452,13 @@ async def _dispatch_submission(
             await enqueue("validate_activity_submission", str(submission.id))
         except Exception:
             _log.warning("activity validation enqueue failed for %s", submission.id, exc_info=True)
+    if submission.judge_status == JudgeStatus.PENDING.value:
+        # A dropped enqueue leaves the row pending; the watchdog records it as
+        # judge_timeout rather than leaving it unexplained.
+        try:
+            await enqueue("score_activity_submission", str(submission.id))
+        except Exception:
+            _log.warning("activity judge enqueue failed for %s", submission.id, exc_info=True)
     # Reactive-rules signal (R30.12): the submit-time emit, using the payload
     # ``submit`` already built (no re-fetch). For an in_process type the verdict is
     # final here (rolling reflects it); for an async type it carries
