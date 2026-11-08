@@ -746,6 +746,56 @@ Appended by /build.
   nothing outside the repository reads a revision: the export joins each submission to its
   revision's `payload_schema` in the listing query, which is the one reader section 5
   needs. Section 6 listed both.
+- **D-18 (milestone 4, user's choice).** Each session is judged at most
+  `MAX_JUDGED_ATTEMPTS_PER_SESSION` (5) times; a later attempt is recorded `skipped` with
+  reason `judge_cap` and never reaches the model. Section 5 assumed the submit route's rate
+  limit bounded the judge's cost, but no per-participant limit on submissions exists, so a
+  participant resubmitting in a loop would otherwise bill the owner's key without bound.
+  The count covers `pending`, `scored` and `error`, so a skipped attempt does not use a
+  slot.
+- **D-19 (milestone 4, user's choice).** The dashboard means are shown to the project
+  owner and platform admins only, not to every project member whom the dashboard
+  otherwise admits ([R33.02]), because a score is a judgement about one participant and
+  Q-11 limits it to the teacher. For any other member the scores are not read at all.
+  They ride on the existing watchlist response as an optional `creativity` object rather
+  than a new endpoint.
+- **D-20 (milestone 4).** "Over their latest attempt per activation" reads as the latest
+  scored attempt per activation, meaned across the room's activations. A subject whose
+  latest attempt was skipped or failed keeps the earlier round scores, and the response
+  carries the status and reason of the latest judged attempt so the dashboard can say why
+  a cell is empty.
+- **D-21 (milestone 4).** Section 5 said the judge's reply is "clamped". An out-of-range,
+  non-integer or extra-keyed reply is instead rejected as `error` / `judge_bad_output`,
+  because a number outside 0 to 4 shows the model did not follow the rubric's scale, and
+  clamping would store a confident-looking score for a reply that was not one (AC-15).
+  Only an overlong rationale is trimmed. `<` and `>` inside the answer are additionally
+  escaped, so a participant cannot spell the closing delimiter.
+- **D-22 (milestone 4).** `activity_submissions` gains `judge_reason` beside the columns
+  section 5 lists, holding the closed reason vocabulary (`judge_not_bound`, `judge_cap`,
+  `judge_timeout`, `judge_unavailable`, `judge_bad_output`, `judge_misconfigured`); the
+  model's own text never goes there, since it is participant-influenced. `JudgeStatus` and
+  the prompt live in `domain/creativity_judge.py`, not `application/`, as pure functions,
+  and `_is_filled` moved from the validator plugins into `domain/fill_rule.py` so the
+  fluency count and `filled_count` share one definition.
+- **D-23 (milestone 4).** The agent-in-project check runs at the route, as the MCP
+  validator's does, because the activities context may not import the agents context; the
+  job repeats it before the call. Consequently an edit that resubmits a scoring
+  configuration whose judge agent was since deleted is refused until scoring is turned off
+  or another judge chosen. The project types read returns `creativity_scoring` under the
+  same owner-or-admin gate as `validator_config`; the platform admin's cross-project
+  listing (`admin_activities.py`) does not carry it.
+- **D-24 (milestone 4).** The export does not carry the judge's rationales. Section 5's
+  column list names none, and a rationale is model text about a participant's answer that
+  the participant can influence.
+- **D-25 (milestone 4).** The judge job runs with a 660-second timeout, not the 120 seconds
+  first implemented. One router call under the default rotation policy can take a 60-second
+  quota wait plus four attempts at a 120-second HTTP timeout with backoff, so 120 seconds
+  cancelled calls that the provider had already billed, and the cancellation rolled back the
+  `activity_judge` usage rows written in the same session. The job now also catches the
+  cancellation, writes `judge_timeout` and commits under `asyncio.shield`, the pattern the
+  export jobs use, so a key group with a longer policy still leaves its usage on record. A
+  lookup that fails before the provider call is recorded as `judge_unavailable` rather than
+  left `pending` for the watchdog to mislabel as a timeout.
 
 ## 16. Follow-ups
 
