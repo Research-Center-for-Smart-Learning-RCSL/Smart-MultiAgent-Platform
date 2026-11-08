@@ -529,9 +529,9 @@ That is stated in the release note.
   has a distinct `u:` code. That code is identical across `transcripts.json` and their
   submission CSV rows, and `subject_kind` reads `guest`, `user` and `group` correctly
   (builder test plus a db-tier test through the real listing).
-- [ ] AC-8: No 36-character UUID appears in any file of a bundle. Rooms read `r:<8>`, and
+- [x] AC-8: No 36-character UUID appears in any file of a bundle. Rooms read `r:<8>`, and
   the manifest has `workspace_code` and `schema_version: 2` (test greps the unpacked ZIP).
-- [ ] AC-9: Each activity type in the export has its own `submissions/<key>.csv`, with the
+- [x] AC-9: Each activity type in the export has its own `submissions/<key>.csv`, with the
   columns of section 5 in that order. A payload `{"answer":"林"}` appears as `林` both in
   the flattened column and in `payload_json`, and the file starts with a UTF-8 BOM. The
   two old header tests are replaced, not deleted.
@@ -692,6 +692,30 @@ Appended by /build.
   does not reopen the job and following the same link again does. The job id is
   URL-encoded in the status request. A job the dialog found by itself that turns out
   failed or gone goes back to the form without an error toast.
+- **D-9 (milestone 2).** Until milestone 3 adds revisions, a type's payload columns are
+  the properties its current `payload_schema` declares, in declared order: `x-order`
+  first, since jsonb does not keep key order. That ordering moved from
+  `observation_aggregates.declared_fields` into `domain/property_order.py`, which both
+  now use. The builder takes the union across rows in first-seen order, so milestone 3
+  only has to hand it each row's revision. A property named like a fixed column stays in
+  `payload_json` only. Until milestone 3 and 4, the CSV has no `type_version` or judge
+  columns (section 10).
+- **D-12 (milestone 2, from the gate).** Submissions are grouped into files by type id,
+  not key, because a platform type and a project type, or a deleted type and its
+  replacement, may share a key; the second file gets a `-2` suffix and `submission_files`
+  is a list of `{type_key, file}`. Rooms whose eight-character codes collide within one
+  export get `~1`, `~2` suffixes, so their transcripts are not merged under one key. The
+  manifest carries `notes` stating that free text is not scrubbed and how formula cells
+  are escaped.
+- **D-10 (milestone 2).** A text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage
+  return is written with a leading apostrophe. The BOM is there so that the files open in
+  Excel, and participant text reaches these cells, so an unescaped `=HYPERLINK(...)`
+  would run as a formula on the researcher's machine (OWASP CSV injection). The JSON
+  columns start with `{` and are unaffected.
+- **D-11 (milestone 2).** The workspace code is `w:<8>`, parallel to `r:<8>`. The manifest
+  also lists `submission_files`, mapping each type key to its CSV, since a file name is a
+  sanitised and possibly suffixed key. Transcript entries gain `subject_kind` (`user`,
+  `guest`, `agent` or `system`) beside the existing `sender_type`.
 
 ## 16. Follow-ups
 
@@ -727,3 +751,10 @@ Appended by /build.
   accepted.
 - **FU-10 (milestone 1 quality gate, pre-existing).** The export dialog's Escape handler
   sits on a backdrop that never takes focus, so Escape does not close it.
+- **FU-11 (milestone 2 security gate, pre-existing).** Free text in the bundle (answers,
+  messages, observations) can name participants, and agents may address them by name.
+  The manifest now says so. Scrubbing UUIDs and emails from free text, or a documented
+  decision not to, belongs in [R33.10].
+- **FU-12 (milestone 2 security gate).** `sub_scores_json` and `payload_json` pass through
+  whatever an MCP or webhook validator returned. An allow-list of exported `sub_scores`
+  keys would bound what an external validator can place in the bundle.
