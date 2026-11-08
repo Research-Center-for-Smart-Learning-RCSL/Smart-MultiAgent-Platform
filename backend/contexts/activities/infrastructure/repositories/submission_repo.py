@@ -834,8 +834,11 @@ class ActivitySubmissionRepository:
                 _SUB.c.latency_ms,
                 _SUB.c.created_at,
                 _TYPE.c.key.label("activity_type_key"),
+                _SUB.c.activity_type_id,
+                _TYPE.c.payload_schema,
                 _SESS.c.subject_user_id,
                 _SESS.c.subject_member_group_id,
+                _SESS.c.subject_kind,
             )
             .select_from(j)
             .where(sa.and_(*clauses))
@@ -855,9 +858,20 @@ class ActivitySubmissionRepository:
                 created_at=r.created_at,
                 payload=dict(r.payload or {}),
                 sub_scores=dict(r.sub_scores or {}),
+                # A group row keeps the column's 'user' default (0098), so the
+                # group id decides.
+                subject_kind="group" if r.subject_member_group_id else r.subject_kind,
+                activity_type_id=r.activity_type_id,
+                payload_fields=_declared_properties(r.payload_schema),
             )
             for r in rows
         ]
+
+
+def _declared_properties(payload_schema: Any) -> tuple[str, ...]:
+    from contexts.activities.domain.property_order import ordered_properties
+
+    return tuple(name for name, _ in ordered_properties(payload_schema))
 
 
 __all__ = ["ActivitySubmissionRepository"]

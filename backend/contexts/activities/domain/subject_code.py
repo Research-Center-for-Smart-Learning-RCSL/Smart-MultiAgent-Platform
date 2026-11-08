@@ -43,6 +43,15 @@ def group_subject_code(member_group_id: uuid.UUID) -> str:
     return f"g:{str(member_group_id)[:_CODE_CHARS]}"
 
 
+def room_code(chatroom_id: uuid.UUID) -> str:
+    """A room as the research export names it ([R33.10]: no full UUID in the output)."""
+    return f"r:{str(chatroom_id)[:_CODE_CHARS]}"
+
+
+def workspace_code(workspace_id: uuid.UUID) -> str:
+    return f"w:{str(workspace_id)[:_CODE_CHARS]}"
+
+
 def outcome_word(status: ValidationStatus, is_valid: bool | None) -> str:
     """One of ``pending`` / ``error`` / ``valid`` / ``invalid``.
 
@@ -56,4 +65,4 @@ def outcome_word(status: ValidationStatus, is_valid: bool | None) -> str:
     return "valid" if is_valid else "invalid"
 
 
-__all__ = ["group_subject_code", "outcome_word", "subject_code"]
+__all__ = ["group_subject_code", "outcome_word", "room_code", "subject_code", "workspace_code"]

@@ -40,6 +40,7 @@ from contexts.activities.domain.models import (
     FieldCoverageCell,
     MandalaGrid,
 )
+from contexts.activities.domain.property_order import ordered_properties
 from contexts.activities.infrastructure.repositories.submission_repo import (
     ActivitySubmissionRepository,
 )
@@ -185,23 +186,11 @@ def declared_fields(payload_schema: dict[str, Any]) -> list[tuple[str, str]]:
     :data:`MAX_COVERAGE_FIELDS` — the query builds one aggregate per field, so the
     bound is on the statement, not merely on the picture.
     """
-    properties = payload_schema.get("properties")
-    if not isinstance(properties, dict) or not properties:
+    ordered = ordered_properties(payload_schema)
+    if len(ordered) > MAX_COVERAGE_FIELDS:
         return []
-    if len(properties) > MAX_COVERAGE_FIELDS:
-        return []
-
-    def sort_key(item: tuple[int, tuple[str, Any]]) -> tuple[int, float, int]:
-        index, (_, spec) = item
-        order = spec.get("x-order") if isinstance(spec, dict) else None
-        if isinstance(order, bool) or not isinstance(order, int | float):
-            return (1, 0.0, index)
-        return (0, float(order), index)
-
-    ordered = sorted(enumerate(properties.items()), key=sort_key)
     return [
-        (name, str(spec.get("title") or name) if isinstance(spec, dict) else name)
-        for _, (name, spec) in ordered
+        (name, str(spec.get("title") or name) if isinstance(spec, dict) else name) for name, spec in ordered
     ]
 
 
