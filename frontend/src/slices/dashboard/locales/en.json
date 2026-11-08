@@ -41,6 +41,25 @@
     "agentMessages": "{count} agent",
     "messageSplitLabel": "Human messages: {human}; agent messages: {agent}",
     "unavailableShort": "—",
+    "creativity": {
+      "fluency": "Fluency",
+      "flexibility": "Flexibility",
+      "originality": "Originality",
+      "convergence": "Convergence",
+      "none": "Not scored yet",
+      "pending": "Being scored",
+      "skipped": "Not scored",
+      "error": "Scoring failed",
+      "reason": {
+        "judge_not_bound": "Not scored: the judge agent is not in this room",
+        "judge_answer_too_large": "Not scored: the answer is too long to send to the judge",
+        "judge_cap": "Not scored: this participant reached the limit of scored attempts in the round",
+        "judge_timeout": "Scoring did not finish in time",
+        "judge_unavailable": "Scoring failed: the judge agent's provider could not be reached",
+        "judge_bad_output": "Scoring failed: the judge's reply was not a valid score",
+        "judge_misconfigured": "Scoring failed: the judge agent is missing or belongs to another project"
+      }
+    },
     "never": "Never",
     "reason": {
       "no_valid_in_round": "No valid submission this round",

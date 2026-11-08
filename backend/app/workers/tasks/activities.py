@@ -10,6 +10,7 @@ redelivery or a race with the watchdog is a no-op.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import Any
@@ -20,9 +21,27 @@ from contexts.activities.application.validators.base import (
     ValidatorUnavailable,
     result_from_json,
 )
+from contexts.activities.domain.creativity_judge import (
+    JUDGE_BAD_OUTPUT,
+    JUDGE_MISCONFIGURED,
+    JUDGE_TIMEOUT,
+    JUDGE_UNAVAILABLE,
+    MAX_OUTPUT_TOKENS,
+    SKIP_ANSWER_TOO_LARGE,
+    SKIP_JUDGE_NOT_BOUND,
+    JudgeAnswerTooLarge,
+    JudgeOutputInvalid,
+    JudgeStatus,
+    build_judge_prompt,
+    fluency,
+    judge_agent_id,
+    judge_scores,
+    parse_judgement,
+)
 from contexts.activities.domain.models import (
     ActivitySubmission,
     ActivityType,
+    SubmissionForJudging,
     ValidationResult,
     ValidatorKind,
 )
@@ -31,6 +50,11 @@ from contexts.activities.interfaces.broadcast import dispatch_dashboard_submissi
 # TTL after which a still-``pending`` async validation is swept to ``error`` — the
 # single safety net for a stalled worker OR a dropped post-commit enqueue.
 _PENDING_TTL_SECONDS = 900
+
+# Covers the router's 60 s quota wait plus the default retry policy (4 attempts
+# at a 120 s HTTP timeout, with backoff) and stays under the TTL. A group with a
+# longer policy is cut off here; the cancel path still commits its usage rows.
+JUDGE_JOB_TIMEOUT_S = 660
 
 # Proposals expired per sweep tick. Bounded so one sweep cannot hold a lock over
 # an unbounded set; the next tick takes the rest.
@@ -188,6 +212,170 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     return result_status
 
 
+class _JudgeFailed(Exception):
+    """One judge call ended without scores; ``reason`` is a closed vocabulary."""
+
+    def __init__(self, reason: str, status: JudgeStatus = JudgeStatus.ERROR) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status
+
+
+async def _call_judge(db: Any, item: SubmissionForJudging) -> tuple[dict[str, Any], str]:
+    """``(stored scores, model)`` for one submission, or :class:`_JudgeFailed`.
+
+    The call is billed to the judge agent's key group and recorded under
+    ``usage_context="activity_judge"`` with the room attached, so the owner can
+    see what scoring cost. Nothing the model writes leaves this function except
+    through :func:`parse_judgement`.
+    """
+    from contexts.agents.interfaces.facade import AgentsFacade
+    from contexts.keys.application.provider_router import ProviderRequest
+    from contexts.keys.domain.errors import KeyGroupExhausted
+    from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
+    from contexts.keys.infrastructure.adapters import build_router
+
+    config = item.creativity_scoring
+    if config is None:
+        raise _JudgeFailed(JUDGE_MISCONFIGURED)
+    agents = AgentsFacade(db)
+    agent = await agents.get_agent(judge_agent_id(config))
+    # Checked at configuration time too; this is the line that holds if the agent
+    # was deleted or the row got in another way.
+    if agent is None or agent.project_id != item.project_id:
+        raise _JudgeFailed(JUDGE_MISCONFIGURED)
+
+    provider = ApiKeyProvider(agent.model_hint.value)
+    model = agent.model_id
+    if not model:
+        entry = next((c for c in agents.chat_model_catalog() if c.provider == provider.value), None)
+        model = entry.default if entry is not None else None
+    if not model:
+        raise _JudgeFailed(JUDGE_MISCONFIGURED)
+
+    try:
+        system, user = build_judge_prompt(
+            rubric=config["rubric"], payload=item.payload, payload_schema=item.payload_schema
+        )
+    except JudgeAnswerTooLarge as exc:
+        raise _JudgeFailed(SKIP_ANSWER_TOO_LARGE, JudgeStatus.SKIPPED) from exc
+    payload: dict[str, Any] = {
+        "model": model,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+        "max_tokens": MAX_OUTPUT_TOKENS,
+        # Forwarded only to models that accept sampling parameters.
+        "temperature": 0,
+    }
+    payload.update(agents.chat_model_capabilities(provider.value, model))
+    request = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload=payload,
+        agent_id=agent.id,
+        chatroom_id=item.chatroom_id,
+        provider=provider,
+        usage_context="activity_judge",
+    )
+    try:
+        result = await build_router(db).call(group_id=agent.key_group_id, request=request)
+    except KeyGroupExhausted as exc:
+        raise _JudgeFailed(JUDGE_UNAVAILABLE) from exc
+    except Exception as exc:
+        # Only the class: a provider message can echo the prompt, which carries the answer.
+        logger.bind(submission_id=str(item.id)).warning(f"judge call failed: {type(exc).__name__}")
+        raise _JudgeFailed(JUDGE_UNAVAILABLE) from exc
+    text = result.body.get("text") if isinstance(result.body, dict) else None
+    if result.http_status != 200 or not isinstance(text, str):
+        raise _JudgeFailed(JUDGE_UNAVAILABLE)
+    try:
+        parsed = parse_judgement(text)
+    except JudgeOutputInvalid as exc:
+        raise _JudgeFailed(JUDGE_BAD_OUTPUT) from exc
+    scores = judge_scores(
+        parsed=parsed,
+        fluency_count=fluency(item.payload, item.payload_schema),
+        provider=provider.value,
+        model=model,
+    )
+    return scores, model
+
+
+async def _record_judge_timeout(db: Any, sid: uuid.UUID) -> None:
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+
+    try:
+        await ActivitiesFacade(db).record_judgement(
+            submission_id=sid, status=JudgeStatus.ERROR, scores=None, reason=JUDGE_TIMEOUT, model=None
+        )
+        await db.commit()
+    except Exception as exc:
+        # The watchdog still sweeps the row; only the usage rows are lost.
+        logger.bind(submission_id=str(sid)).warning(f"judge timeout write-back failed: {type(exc).__name__}")
+
+
+async def score_activity_submission(ctx: dict[str, Any], submission_id: str) -> str:
+    """Score one submission with the type's judge agent and write the result back.
+
+    Single attempt (``max_tries=1``): a retry would bill the owner's key again for
+    a reply that was already received or already refused. A job that never runs is
+    caught by the watchdog's ``judge_timeout`` sweep. The result goes to the
+    dashboard only: the room never hears about scoring (spec section 7, AC-17).
+    """
+    _ = ctx
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+    from contexts.conversation.interfaces.facade import ConversationFacade
+    from shared_kernel.audit import flush_tail_events
+    from shared_kernel.db.session import async_session
+
+    sid = uuid.UUID(str(submission_id))
+    async with async_session() as db:
+        facade = ActivitiesFacade(db)
+        item = await facade.get_submission_for_judging(sid)
+        if item is None:
+            return "missing"
+        if item.judge_status != JudgeStatus.PENDING.value:
+            return "not-pending"
+
+        scores: dict[str, Any] | None = None
+        reason: str | None = None
+        model: str | None = None
+        if item.creativity_scoring is not None and not await ConversationFacade(db).is_agent_in_chatroom(
+            chatroom_id=item.chatroom_id, agent_id=judge_agent_id(item.creativity_scoring)
+        ):
+            # The owner chose a judge but did not bring it into this room; the
+            # room's members never agreed to that agent reading their answers.
+            status, reason = JudgeStatus.SKIPPED, SKIP_JUDGE_NOT_BOUND
+        else:
+            try:
+                scores, model = await _call_judge(db, item)
+                status = JudgeStatus.SCORED
+            except _JudgeFailed as exc:
+                status, reason = exc.status, exc.reason
+            except asyncio.CancelledError:
+                # arq enforces the timeout by cancelling. Without this the session
+                # rolls back the usage rows of calls the provider already billed.
+                # Shielded so the write lands; re-raised to keep arq's contract.
+                logger.bind(submission_id=str(sid)).warning("activity judge timed out")
+                await asyncio.shield(_record_judge_timeout(db, sid))
+                raise
+            except Exception as exc:
+                # A lookup before the provider call failed; the class only, as above.
+                logger.bind(submission_id=str(sid)).warning(f"judge setup failed: {type(exc).__name__}")
+                status, reason = JudgeStatus.ERROR, JUDGE_UNAVAILABLE
+        changed = await facade.record_judgement(
+            submission_id=sid, status=status, scores=scores, reason=reason, model=model
+        )
+        # Commit even when nothing changed: the router has recorded the usage row.
+        await db.commit()
+        await flush_tail_events(db)
+
+    if not changed:
+        return "not-pending"
+    logger.bind(submission_id=str(sid), judge_status=status.value, reason=reason).info("activity judged")
+    await dispatch_dashboard_submission_validated(item.chatroom_id)
+    return status.value
+
+
 async def check_all_submitted(ctx: dict[str, Any], chatroom_id: str) -> str:
     """[R15.28]: the all-submitted check a participant's departure deferred past the
     reconnect grace (``platform_wakes.schedule_leave_recheck``). Idempotent: the
@@ -251,11 +439,33 @@ async def activities_watchdog(ctx: dict[str, Any]) -> str:
             await _emit_validated(chatroom_id, submission_id, "error")
             await _emit_activity_signal(payload)
 
+    judged_swept = await _sweep_stalled_judging()
+
     swept_count = len(swept)
-    logger.bind(event="activities_watchdog_done", swept=swept_count).info(
-        f"activities watchdog: swept {swept_count} stalled submissions"
+    logger.bind(event="activities_watchdog_done", swept=swept_count, judge_swept=judged_swept).info(
+        f"activities watchdog: swept {swept_count} stalled submissions, {judged_swept} stalled judgements"
     )
-    return f"swept={swept_count}"
+    return f"swept={swept_count} judge_swept={judged_swept}"
+
+
+async def _sweep_stalled_judging() -> int:
+    """Move scoring still ``pending`` past the TTL to ``error`` / ``judge_timeout``.
+
+    Its own transaction, so a failure here cannot undo the validation sweep. It
+    invalidates the dashboard and nothing else: scoring has no room event and no
+    workflow signal to replay (spec section 7).
+    """
+    from contexts.activities.interfaces.facade import ActivitiesFacade
+    from shared_kernel.audit import flush_tail_events
+    from shared_kernel.db.session import async_session
+
+    async with async_session() as db:
+        swept = await ActivitiesFacade(db).sweep_stalled_judging(ttl_seconds=_PENDING_TTL_SECONDS)
+        await db.commit()
+        await flush_tail_events(db)
+    for chatroom_id in {room for _sid, room in swept}:
+        await dispatch_dashboard_submission_validated(chatroom_id)
+    return len(swept)
 
 
 async def expire_group_proposals(ctx: dict[str, Any]) -> str:
@@ -293,4 +503,9 @@ async def expire_group_proposals(ctx: dict[str, Any]) -> str:
     return f"expired={count}"
 
 
-__all__ = ["activities_watchdog", "expire_group_proposals", "validate_activity_submission"]
+__all__ = [
+    "activities_watchdog",
+    "expire_group_proposals",
+    "score_activity_submission",
+    "validate_activity_submission",
+]

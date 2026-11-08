@@ -14,6 +14,7 @@ import type { ValidatorKind } from './ValidatorKind';
  */
 export type ActivityTypeRegisteredOut = {
     created_at: (string | null);
+    creativity_scoring?: (Record<string, any> | null);
     default_time_limit_minutes?: (number | null);
     echo_includes_content: boolean;
     expose_payload_to_agent: boolean;

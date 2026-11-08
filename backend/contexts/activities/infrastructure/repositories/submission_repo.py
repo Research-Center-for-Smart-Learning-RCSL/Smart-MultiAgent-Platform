@@ -18,6 +18,7 @@ from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.agent_digest import build_agent_digest
+from contexts.activities.domain.creativity_judge import JUDGE_DIMENSIONS, JudgeStatus
 from contexts.activities.domain.models import (
     FILLED_FIELDS_SUB_SCORE,
     ActivityAggregate,
@@ -27,7 +28,9 @@ from contexts.activities.domain.models import (
     RecentActivityRow,
     RoundDashboardAggregate,
     RoundSubjectCount,
+    SubjectCreativity,
     SubjectKind,
+    SubmissionForJudging,
     TimeseriesBucket,
     ValidationStatus,
     ValidatorKind,
@@ -45,6 +48,8 @@ _TYPE = t.activity_types
 # vocabulary as activity_sessions.subject_kind.
 _USER = SubjectKind.USER.value
 _GUEST = SubjectKind.GUEST.value
+_CREATIVITY_DIMENSIONS = ("fluency", *JUDGE_DIMENSIONS)
+_JUDGE_SLOT_STATUSES = (JudgeStatus.PENDING.value, JudgeStatus.SCORED.value, JudgeStatus.ERROR.value)
 
 _SUB_COLS = (
     _SUB.c.id,
@@ -65,6 +70,7 @@ _SUB_COLS = (
     _SUB.c.validated_at,
     _SUB.c.deleted_at,
     _SUB.c.producer_kind,
+    _SUB.c.judge_status,
 )
 
 
@@ -152,6 +158,7 @@ def _row_to_submission(row: object) -> ActivitySubmission:
         validated_at=row.validated_at,  # type: ignore[attr-defined]
         deleted_at=row.deleted_at,  # type: ignore[attr-defined]
         producer_is_guest=row.producer_kind == _GUEST,  # type: ignore[attr-defined]
+        judge_status=row.judge_status,  # type: ignore[attr-defined]
     )
 
 
@@ -192,6 +199,8 @@ class ActivitySubmissionRepository:
         agent_digest: str | None,
         producer_is_guest: bool = False,
         type_version: int | None = None,
+        judge_status: JudgeStatus | None = None,
+        judge_reason: str | None = None,
     ) -> uuid.UUID:
         row = await self._db.execute(
             _SUB.insert()
@@ -212,6 +221,8 @@ class ActivitySubmissionRepository:
                 validated_at=validated_at,
                 agent_digest=agent_digest,
                 type_version=type_version,
+                judge_status=judge_status.value if judge_status is not None else None,
+                judge_reason=judge_reason,
             )
             .returning(_SUB.c.id)
         )
@@ -316,6 +327,115 @@ class ActivitySubmissionRepository:
             )
         )
         return bool(rowcount(result))
+
+    async def count_judged_in_session(self, session_id: uuid.UUID) -> int:
+        """Attempts in this session that took a judge slot (not ``skipped``)."""
+        return int(
+            (
+                await self._db.execute(
+                    sa.select(sa.func.count()).where(
+                        sa.and_(
+                            _SUB.c.session_id == session_id,
+                            _SUB.c.judge_status.in_(_JUDGE_SLOT_STATUSES),
+                        )
+                    )
+                )
+            ).scalar_one()
+        )
+
+    async def get_for_judging(self, submission_id: uuid.UUID) -> SubmissionForJudging | None:
+        """The submission with the definition it was made under.
+
+        The revision decides when the submission's version has one; a CASE rather
+        than a COALESCE, because a revision with scoring switched off holds a NULL
+        that must not fall through to the type's current rubric.
+        """
+        rev = t.activity_type_revisions
+        has_rev = rev.c.version.is_not(None)
+        row = (
+            await self._db.execute(
+                sa.select(
+                    _SUB.c.id,
+                    _SUB.c.chatroom_id,
+                    _TYPE.c.project_id,
+                    _SUB.c.payload,
+                    _SUB.c.judge_status,
+                    sa.case((has_rev, rev.c.payload_schema), else_=_TYPE.c.payload_schema).label(
+                        "payload_schema"
+                    ),
+                    sa.case((has_rev, rev.c.creativity_scoring), else_=_TYPE.c.creativity_scoring).label(
+                        "creativity_scoring"
+                    ),
+                )
+                .select_from(
+                    _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id).outerjoin(
+                        rev,
+                        sa.and_(
+                            rev.c.activity_type_id == _SUB.c.activity_type_id,
+                            rev.c.version == _SUB.c.type_version,
+                        ),
+                    )
+                )
+                .where(sa.and_(_SUB.c.id == submission_id, _SUB.c.deleted_at.is_(None)))
+            )
+        ).first()
+        if row is None:
+            return None
+        return SubmissionForJudging(
+            id=row.id,
+            chatroom_id=row.chatroom_id,
+            project_id=row.project_id,
+            payload=dict(row.payload or {}),
+            judge_status=row.judge_status,
+            payload_schema=dict(row.payload_schema or {}),
+            creativity_scoring=dict(row.creativity_scoring) if row.creativity_scoring is not None else None,
+        )
+
+    async def record_judgement(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        status: JudgeStatus,
+        scores: dict[str, Any] | None,
+        reason: str | None,
+        judged_at: dt.datetime,
+    ) -> bool:
+        """Write the judge's outcome, only over ``pending``: a late job after the
+        watchdog swept the row, or a second delivery, is a no-op."""
+        result = await self._db.execute(
+            _SUB.update()
+            .where(
+                sa.and_(
+                    _SUB.c.id == submission_id,
+                    _SUB.c.judge_status == JudgeStatus.PENDING.value,
+                )
+            )
+            .values(judge_status=status.value, judge_scores=scores, judge_reason=reason, judged_at=judged_at)
+        )
+        return bool(rowcount(result))
+
+    async def sweep_stalled_judging(
+        self, *, cutoff: dt.datetime, reason: str, swept_at: dt.datetime, limit: int = 500
+    ) -> Sequence[tuple[uuid.UUID, uuid.UUID]]:
+        """Move scoring still ``pending`` past ``cutoff`` to ``error``, returning
+        each ``(id, chatroom_id)`` so the watchdog can invalidate that room's dashboard."""
+        batch = (
+            sa.select(_SUB.c.id)
+            .where(
+                sa.and_(
+                    _SUB.c.judge_status == JudgeStatus.PENDING.value,
+                    _SUB.c.created_at < cutoff,
+                )
+            )
+            .limit(limit)
+        )
+        result = await self._db.execute(
+            _SUB.update()
+            .where(sa.and_(_SUB.c.judge_status == JudgeStatus.PENDING.value, _SUB.c.id.in_(batch)))
+            .values(judge_status=JudgeStatus.ERROR.value, judge_reason=reason, judged_at=swept_at)
+            .returning(_SUB.c.id, _SUB.c.chatroom_id)
+        )
+        return [(row.id, row.chatroom_id) for row in result]
 
     async def sweep_stalled(
         self, *, cutoff: dt.datetime, error_class: str, swept_at: dt.datetime, limit: int = 500
@@ -662,6 +782,89 @@ class ActivitySubmissionRepository:
             for r in rows
         ]
 
+    async def creativity_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[SubjectCreativity]:
+        """Per-subject creativity means and latest judge state, per room.
+
+        Two grouped reads over the rooms' submissions of scored types; both use
+        ``DISTINCT ON`` so a subject's resubmissions within one round count once.
+        """
+        if not chatroom_ids:
+            return []
+        rooms = list(chatroom_ids)
+        joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
+        subject = sa.func.coalesce(_SESS.c.subject_member_group_id, _SESS.c.subject_user_id)
+        live = sa.and_(_SUB.c.chatroom_id.in_(rooms), _SUB.c.deleted_at.is_(None))
+
+        latest_scored = (
+            sa.select(
+                _SUB.c.chatroom_id,
+                subject.label("subject_id"),
+                _SUB.c.judge_scores,
+            )
+            .select_from(joined)
+            .where(sa.and_(live, _SUB.c.judge_status == JudgeStatus.SCORED.value))
+            .distinct(_SUB.c.chatroom_id, _SESS.c.activation_id, subject)
+            .order_by(
+                _SUB.c.chatroom_id, _SESS.c.activation_id, subject, _SUB.c.created_at.desc(), _SUB.c.id.desc()
+            )
+            .subquery()
+        )
+
+        def _mean(dimension: str) -> sa.ColumnElement[Any]:
+            value = latest_scored.c.judge_scores[dimension].astext.cast(sa.Numeric)
+            return sa.func.avg(value).label(dimension)
+
+        means = (
+            await self._db.execute(
+                sa.select(
+                    latest_scored.c.chatroom_id,
+                    latest_scored.c.subject_id,
+                    sa.func.count().label("scored_rounds"),
+                    *(_mean(d) for d in _CREATIVITY_DIMENSIONS),
+                ).group_by(latest_scored.c.chatroom_id, latest_scored.c.subject_id)
+            )
+        ).all()
+        last = (
+            await self._db.execute(
+                sa.select(
+                    _SUB.c.chatroom_id,
+                    subject.label("subject_id"),
+                    _SUB.c.judge_status,
+                    _SUB.c.judge_reason,
+                )
+                .select_from(joined)
+                .where(sa.and_(live, _SUB.c.judge_status.is_not(None)))
+                .distinct(_SUB.c.chatroom_id, subject)
+                .order_by(_SUB.c.chatroom_id, subject, _SUB.c.created_at.desc(), _SUB.c.id.desc())
+            )
+        ).all()
+
+        by_key: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
+        for r in last:
+            by_key[(r.chatroom_id, r.subject_id)] = {
+                "last_status": r.judge_status,
+                "last_reason": r.judge_reason,
+            }
+        for r in means:
+            entry = by_key.setdefault(
+                (r.chatroom_id, r.subject_id), {"last_status": None, "last_reason": None}
+            )
+            entry["scored_rounds"] = int(r.scored_rounds or 0)
+            for d in _CREATIVITY_DIMENSIONS:
+                value = getattr(r, d)
+                entry[d] = float(value) if value is not None else None
+        return [
+            SubjectCreativity(
+                chatroom_id=room_id,
+                subject_id=subject_id,
+                scored_rounds=entry.get("scored_rounds", 0),
+                **{d: entry.get(d) for d in _CREATIVITY_DIMENSIONS},
+                last_status=entry["last_status"],
+                last_reason=entry["last_reason"],
+            )
+            for (room_id, subject_id), entry in by_key.items()
+        ]
+
     async def submitted_groups(self, *, activation_id: uuid.UUID) -> list[GroupSubmissionState]:
         """The groups that have submitted in one round, longest-standing first ([R30.44])."""
         joined = _SUB.join(_SESS, _SESS.c.id == _SUB.c.session_id)
@@ -847,6 +1050,8 @@ class ActivitySubmissionRepository:
                 _TYPE.c.key.label("activity_type_key"),
                 _SUB.c.activity_type_id,
                 _SUB.c.type_version,
+                _SUB.c.judge_status,
+                _SUB.c.judge_scores,
                 # The schema the row was submitted under, so the builder's column
                 # union spans every revision present (spec section 5). The type's
                 # current schema stands in where the version is unknown or has no
@@ -880,6 +1085,8 @@ class ActivitySubmissionRepository:
                 activity_type_id=r.activity_type_id,
                 payload_fields=_declared_properties(r.payload_schema),
                 type_version=r.type_version,
+                judge_status=r.judge_status,
+                judge_scores=dict(r.judge_scores) if r.judge_scores is not None else None,
             )
             for r in rows
         ]

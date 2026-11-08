@@ -938,6 +938,18 @@
       },
       "ActivityTypeIn": {
         "properties": {
+          "creativity_scoring": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creativity Scoring"
+          },
           "default_time_limit_minutes": {
             "anyOf": [
               {
@@ -1058,6 +1070,18 @@
               }
             ],
             "title": "Created At"
+          },
+          "creativity_scoring": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creativity Scoring"
           },
           "default_time_limit_minutes": {
             "anyOf": [
@@ -1217,6 +1241,18 @@
             ],
             "title": "Created At"
           },
+          "creativity_scoring": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creativity Scoring"
+          },
           "default_time_limit_minutes": {
             "anyOf": [
               {
@@ -1335,6 +1371,18 @@
       "ActivityTypeUpdateIn": {
         "description": "Full editable representation for an edit; ``key`` is intentionally absent\n(never editable, R30.23). The edit form pre-fills and resubmits every field,\nso the service diffs this against the stored row to decide the version bump.",
         "properties": {
+          "creativity_scoring": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creativity Scoring"
+          },
           "default_time_limit_minutes": {
             "anyOf": [
               {
@@ -6155,6 +6203,98 @@
         ],
         "title": "ContextMode",
         "type": "string"
+      },
+      "CreativityMeansOut": {
+        "description": "Means over the participant's latest scored attempt per round, in this room.",
+        "properties": {
+          "convergence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Convergence"
+          },
+          "flexibility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flexibility"
+          },
+          "fluency": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fluency"
+          },
+          "last_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reason"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "scored",
+                  "skipped",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status"
+          },
+          "originality": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Originality"
+          },
+          "scored_rounds": {
+            "title": "Scored Rounds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scored_rounds",
+          "fluency",
+          "flexibility",
+          "originality",
+          "convergence",
+          "last_status",
+          "last_reason"
+        ],
+        "title": "CreativityMeansOut",
+        "type": "object"
       },
       "CustomCapabilitiesIn": {
         "additionalProperties": false,
@@ -13336,6 +13476,16 @@
       },
       "WatchlistEntryOut": {
         "properties": {
+          "creativity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreativityMeansOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "display_name": {
             "anyOf": [
               {

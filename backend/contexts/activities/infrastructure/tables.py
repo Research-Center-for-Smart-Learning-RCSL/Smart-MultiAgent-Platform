@@ -56,6 +56,9 @@ activity_types = sa.Table(
     # [R30.46], migration 0106. Metadata, not a behavioural definition: an edit
     # does not bump `version`, and a running activation keeps its own snapshot.
     sa.Column("default_time_limit_minutes", sa.Integer, nullable=True),
+    # Judge agent and rubric (0109). Behavioural and owner-confidential like
+    # validator_config ([R30.25]); NULL means the type is not scored.
+    sa.Column("creativity_scoring", pg.JSONB, nullable=True),
 )
 
 # A room creator's per-type override ([R30.46], 0106). A NULL limit is an explicit
@@ -221,6 +224,12 @@ activity_submissions = sa.Table(
     # The type's version at insert (0108). NULL only for a pre-0108 row of a type
     # that had already been bumped, where the version cannot be proven (Q-7).
     sa.Column("type_version", sa.Integer, nullable=True),
+    # Creativity scoring (0109). NULL status: the type is not scored. Text +
+    # CHECK, like `scope`. Never on a room-scoped surface (spec section 5).
+    sa.Column("judge_status", sa.Text, nullable=True),
+    sa.Column("judge_scores", pg.JSONB, nullable=True),
+    sa.Column("judge_reason", sa.Text, nullable=True),
+    sa.Column("judged_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 # One immutable row per definition a type has had (0108). Written by the type
@@ -240,6 +249,7 @@ activity_type_revisions = sa.Table(
     sa.Column("validator_kind", _validator_kind, nullable=False),
     sa.Column("validator_config", pg.JSONB, nullable=False),
     sa.Column("group_config", pg.JSONB, nullable=True),
+    sa.Column("creativity_scoring", pg.JSONB, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column(
         "created_by",

@@ -196,6 +196,7 @@ async def test_a_concurrent_edit_waits_for_the_submission_it_would_change(
                 expose_payload_to_agent=True,
                 echo_includes_content=False,
                 bump_version=True,
+                creativity_scoring=None,
                 actor_user_id=room.owner_id,
             )
             await editor.commit()
@@ -263,6 +264,7 @@ async def test_a_metadata_edit_does_not_wait_for_an_open_submission(
                 expose_payload_to_agent=False,
                 echo_includes_content=False,
                 bump_version=False,
+                creativity_scoring=None,
             )
             await editor.commit()
 
@@ -289,6 +291,7 @@ async def test_a_submission_after_an_edit_records_the_new_version(
             expose_payload_to_agent=True,
             echo_includes_content=False,
             bump_version=True,
+            creativity_scoring=None,
         )
         await session.commit()
 

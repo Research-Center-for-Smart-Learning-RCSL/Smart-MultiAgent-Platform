@@ -16,6 +16,8 @@ import zipfile
 from dataclasses import replace
 from datetime import UTC, datetime
 
+import pytest
+
 from contexts.activities.domain.subject_code import (
     group_subject_code,
     room_code,
@@ -257,6 +259,12 @@ class TestSubmissionCsvs:
             "reason",
             "sub_scores_filled",
             "sub_scores_filled_fields",
+            "judge_status",
+            "fluency",
+            "flexibility",
+            "originality",
+            "convergence",
+            "judge_model",
             "payload_json",
             "sub_scores_json",
         ]
@@ -327,6 +335,15 @@ class TestSubmissionCsvs:
                 sub_scores={},
                 payload_fields=("a",),
                 type_version=3,
+                judge_status="scored",
+                judge_scores={
+                    "fluency": 1,
+                    "flexibility": 2,
+                    "originality": 3,
+                    "convergence": 0,
+                    "rationales": {"originality": "not exported"},
+                    "model": "judge-m",
+                },
             ),
             SubmissionRow(
                 chatroom_id=r,
@@ -345,12 +362,25 @@ class TestSubmissionCsvs:
         ]
         assert _files(rows)["submissions/rat.csv"] == (
             "\ufeffsubject_code,subject_kind,room_code,type_version,attempt_no,is_valid,error_class,latency_ms,"
-            "created_at,a,sub_scores_filled,sub_scores_filled_fields,payload_json,sub_scores_json\r\n"
+            "created_at,a,sub_scores_filled,sub_scores_filled_fields,judge_status,fluency,flexibility,"
+            "originality,convergence,judge_model,payload_json,sub_scores_json\r\n"
             "u:1a2b3c4d,user,r:9c0d1e2f,3,1,True,,120,"
-            '2026-10-19T09:30:00+00:00,x,,,"{""a"": ""x""}",{}\r\n'
+            '2026-10-19T09:30:00+00:00,x,,,scored,1,2,3,0,judge-m,"{""a"": ""x""}",{}\r\n'
             "g:5e6f7a8b,group,r:9c0d1e2f,unknown,2,False,schema,,"
-            "2026-10-19T09:30:00+00:00,,,,{},{}\r\n"
+            "2026-10-19T09:30:00+00:00,,,,,,,,,,{},{}\r\n"
         )
+
+    @pytest.mark.parametrize("status", ["skipped", "error", "pending"])
+    def test_an_unscored_row_has_its_status_and_no_numbers(self, status: str) -> None:
+        """An empty score cell must not read as a zero, and a stale document is not trusted."""
+        row = replace(
+            _sub_row(), judge_status=status, judge_scores={"fluency": 4, "originality": 4, "model": "m"}
+        )
+        (out,) = _csv(_files([row])["submissions/six-thinking-hats.csv"])
+        assert out["judge_status"] == status
+        assert [out[c] for c in ("fluency", "flexibility", "originality", "convergence", "judge_model")] == [
+            ""
+        ] * 5
 
     def test_an_unproven_type_version_reads_unknown(self) -> None:
         """AC-12: a NULL version is exported as unknown, never as a guess."""

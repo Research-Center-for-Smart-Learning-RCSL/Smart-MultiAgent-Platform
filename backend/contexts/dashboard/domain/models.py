@@ -110,6 +110,32 @@ class DashboardTimeseriesBucket:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardCreativity:
+    """A participant's creativity means in one room; see ``SubjectCreativity``."""
+
+    room_id: uuid.UUID
+    subject_id: uuid.UUID
+    scored_rounds: int
+    fluency: float | None
+    flexibility: float | None
+    originality: float | None
+    convergence: float | None
+    last_status: str | None
+    last_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardCreativityOut:
+    scored_rounds: int
+    fluency: float | None
+    flexibility: float | None
+    originality: float | None
+    convergence: float | None
+    last_status: str | None
+    last_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardWatchlistEntry:
     room_id: uuid.UUID
     kind: Literal["user", "guest", "group"]
@@ -119,6 +145,8 @@ class DashboardWatchlistEntry:
     last_valid_submission_at: dt.datetime | None
     needs_attention: bool
     reason: Literal["no_valid_in_round", "idle"] | None
+    #: Owner or admin only, and only where the room has a scored type.
+    creativity: DashboardCreativityOut | None = None
 
 
 @dataclass(frozen=True, slots=True)

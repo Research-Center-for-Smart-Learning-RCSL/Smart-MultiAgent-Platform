@@ -182,7 +182,10 @@ async def test_dashboard_routes_filter_rooms_by_the_real_room_gate(
                 for room_id in room_map
             ]
 
-        async def watchlist(_facade, room_map, *, project_id):
+        creativity_asked: list[bool] = []
+
+        async def watchlist(_facade, room_map, *, project_id, include_creativity):
+            creativity_asked.append(include_creativity)
             return DashboardWatchlist(
                 entries=[
                     DashboardWatchlistEntry(
@@ -229,6 +232,8 @@ async def test_dashboard_routes_filter_rooms_by_the_real_room_gate(
                     assert {room.room_id for room in summary.rooms} == expected
                     assert {bucket.room_id for bucket in ts.buckets} == expected
                     assert {entry.room_id for entry in roster.entries} == expected
+                # Creativity means are read for the owner only, never the member.
+                assert creativity_asked == [False, True]
 
                 await db.execute(
                     update(projects_t)

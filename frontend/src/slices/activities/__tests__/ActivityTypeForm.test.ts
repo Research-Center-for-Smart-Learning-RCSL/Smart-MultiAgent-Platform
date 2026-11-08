@@ -9,7 +9,11 @@ import { flushPromises } from '@vue/test-utils'
 import type * as AgentsSlice from '@slices/agents'
 import { renderView } from '../../../../tests/utils'
 import ActivityTypeForm from '../components/ActivityTypeForm.vue'
-import { activityTypeCreateSchema, assembleValidatorConfig } from '../types/schemas'
+import {
+  activityTypeCreateSchema,
+  assembleCreativityScoring,
+  assembleValidatorConfig,
+} from '../types/schemas'
 
 const registerMock = vi.hoisted(() => vi.fn())
 const updateMock = vi.hoisted(() => vi.fn())
@@ -775,6 +779,88 @@ describe('ActivityTypeForm', () => {
 
     await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
     expect(updateMock.mock.calls[0][2].group_config).toBeNull()
+  })
+})
+
+// Research data integrity spec, section 5 (Creativity scoring) and AC-18.
+describe('ActivityTypeForm — creativity scoring', () => {
+  const SCORING = {
+    judge_agent_id: 'a1',
+    rubric: { flexibility: 'many kinds', originality: 'rare', convergence: 'usable' },
+  }
+
+  async function enableScoring(wrapper: Awaited<ReturnType<typeof mountForm>>) {
+    await wrapper.find('[data-testid="type-scoring-enabled"] input[type="checkbox"]').trigger('change')
+    await flushPromises()
+  }
+
+  it('sends no scoring for a type that does not enable it', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await fillValidWebhook(wrapper)
+    expect(wrapper.find('[data-testid="type-judge-agent"]').exists()).toBe(false)
+
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock.mock.calls[0][1].creativity_scoring).toBeNull()
+  })
+
+  it('assembles the judge and the three rubric texts', async () => {
+    registerMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await mountForm()
+    await fillValidWebhook(wrapper)
+    await enableScoring(wrapper)
+
+    await wrapper.find('[data-testid="type-judge-agent"]').setValue('a1')
+    await wrapper.find('[data-testid="type-rubric_flexibility"]').setValue('many kinds')
+    await wrapper.find('[data-testid="type-rubric_originality"]').setValue('rare')
+    await wrapper.find('[data-testid="type-rubric_convergence"]').setValue('usable')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock.mock.calls[0][1].creativity_scoring).toEqual(SCORING)
+  })
+
+  it('refuses to submit scoring without a rubric', async () => {
+    const wrapper = await mountForm()
+    await fillValidWebhook(wrapper)
+    await enableScoring(wrapper)
+    await wrapper.find('[data-testid="type-judge-agent"]').setValue('a1')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it('round-trips the stored scoring on an unrelated edit', async () => {
+    // The PATCH body is a full representation: an edit that omitted it would
+    // turn scoring off, and bump the version, on a rename.
+    updateMock.mockResolvedValue({ id: 't1' })
+    const wrapper = await renderView(ActivityTypeForm, {
+      props: { projectId: 'p1', open: true, editType: { ...EDIT_TYPE, creativity_scoring: SCORING } },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-testid="type-name"]').setValue('Quiz v2')
+    await wrapper.find('form').trigger('submit')
+
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][2].creativity_scoring).toEqual(SCORING)
+  })
+
+  it('turns scoring off with an explicit null', () => {
+    const values = activityTypeCreateSchema.parse({
+      key: 'k',
+      name: 'n',
+      payload_schema: { type: 'object', properties: { a: { type: 'string' } } },
+      validator_kind: 'webhook',
+      webhook_url: 'https://x.test',
+      scoring_enabled: false,
+      judge_agent_id: 'a1',
+    })
+    expect(assembleCreativityScoring(values)).toBeNull()
   })
 })
 

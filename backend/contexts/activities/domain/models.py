@@ -134,6 +134,10 @@ class ActivityType:
     # [R30.46]: minutes a round of this type runs before its deadline, unless the
     # room overrides it. Metadata: an edit does not bump ``version``.
     default_time_limit_minutes: int | None = None
+    # Judge agent and rubric (``domain/creativity_judge.py``); ``None`` means the
+    # type is not scored. Behavioural and owner-confidential like
+    # ``validator_config`` ([R30.25]).
+    creativity_scoring: dict[str, Any] | None = None
 
     def is_visible_to(self, project_id: uuid.UUID, *, opted_in: bool) -> bool:
         """Whether this type may be used from ``project_id`` ([R30.09], [R30.33]).
@@ -366,6 +370,9 @@ class ActivitySubmission:
     deleted_at: dt.datetime | None = None
     # ``producer_user_id`` is an anonymous guest's session id (0098).
     producer_is_guest: bool = False
+    # ``pending`` when creativity scoring is queued. Read by the post-commit
+    # dispatch only; never serialised to the room or an agent (spec section 7).
+    judge_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -672,6 +679,27 @@ class RoundDashboardAggregate:
 
 
 @dataclass(frozen=True, slots=True)
+class SubjectCreativity:
+    """One subject's creativity scores in one room (research data integrity spec, section 5).
+
+    Each mean is over the subject's latest scored attempt per activation, so
+    resubmitting within a round replaces that round's score rather than adding
+    one. ``last_status`` and ``last_reason`` describe the subject's latest
+    attempt of a scored type, which tells the teacher why a mean is missing.
+    """
+
+    chatroom_id: uuid.UUID
+    subject_id: uuid.UUID
+    scored_rounds: int
+    fluency: float | None
+    flexibility: float | None
+    originality: float | None
+    convergence: float | None
+    last_status: str | None
+    last_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RoundSubjectCount:
     """Valid submission count for one subject in one activation."""
 
@@ -713,6 +741,20 @@ class TimeseriesBucket:
 
 
 @dataclass(frozen=True, slots=True)
+class SubmissionForJudging:
+    """What the judge job needs about one submission, under the definition it was
+    submitted under: its revision where one exists, else the type's current one."""
+
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    project_id: uuid.UUID | None
+    payload: dict[str, Any]
+    judge_status: str | None
+    payload_schema: dict[str, Any]
+    creativity_scoring: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
 class ResearchExportSubmission:
     """Projection for the research data export ([R33.10])."""
 
@@ -738,6 +780,9 @@ class ResearchExportSubmission:
     activity_type_id: uuid.UUID | None = None
     #: ``None`` where the version cannot be proven (Q-7, migration 0108).
     type_version: int | None = None
+    #: Both ``None`` for a type without creativity scoring.
+    judge_status: str | None = None
+    judge_scores: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

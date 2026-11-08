@@ -22,6 +22,7 @@ from contexts.dashboard.application.read_service import (
 )
 from contexts.dashboard.domain.models import (
     DashboardActivation,
+    DashboardCreativity,
     DashboardRoundAggregate,
     DashboardRoundSubject,
     DashboardSubjectKind,
@@ -136,6 +137,23 @@ class _ActivitiesDashboardReader:
     async def resolve_member_group_names(self, group_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
         return await self._facade.resolve_member_group_names(group_ids)
 
+    async def creativity_for_rooms(self, *, chatroom_ids: Sequence[uuid.UUID]) -> list[DashboardCreativity]:
+        rows = await self._facade.creativity_for_rooms(chatroom_ids=chatroom_ids)
+        return [
+            DashboardCreativity(
+                room_id=r.chatroom_id,
+                subject_id=r.subject_id,
+                scored_rounds=r.scored_rounds,
+                fluency=r.fluency,
+                flexibility=r.flexibility,
+                originality=r.originality,
+                convergence=r.convergence,
+                last_status=r.last_status,
+                last_reason=r.last_reason,
+            )
+            for r in rows
+        ]
+
 
 class DashboardFacade:
     GREEN_MINUTES = GREEN_MINUTES
@@ -164,6 +182,12 @@ class DashboardFacade:
         return await self._service.timeseries(room_map, since=since, bucket_seconds=bucket_seconds)
 
     async def watchlist(
-        self, room_map: Mapping[uuid.UUID, str], *, project_id: uuid.UUID
+        self,
+        room_map: Mapping[uuid.UUID, str],
+        *,
+        project_id: uuid.UUID,
+        include_creativity: bool = False,
     ) -> DashboardWatchlist:
-        return await self._service.watchlist(room_map, project_id=project_id)
+        return await self._service.watchlist(
+            room_map, project_id=project_id, include_creativity=include_creativity
+        )

@@ -63,6 +63,11 @@ _MAP: ErrorMap = {
         422,
         "The validator configuration is invalid",
     ),
+    errors.CreativityScoringInvalid: (
+        "activities/creativity-scoring-invalid",
+        422,
+        "The creativity scoring configuration is invalid",
+    ),
     errors.SubmissionPayloadInvalid: (
         "activities/submission-payload-invalid",
         422,

@@ -41,6 +41,25 @@
     "agentMessages": "代理 {count}",
     "messageSplitLabel": "人類訊息：{human}；代理訊息：{agent}",
     "unavailableShort": "—",
+    "creativity": {
+      "fluency": "流暢性",
+      "flexibility": "變通性",
+      "originality": "獨創性",
+      "convergence": "聚斂性",
+      "none": "尚未評分",
+      "pending": "評分中",
+      "skipped": "未評分",
+      "error": "評分失敗",
+      "reason": {
+        "judge_not_bound": "未評分：評審代理 不在這個聊天室",
+        "judge_answer_too_large": "未評分：答案過長，無法送交評審",
+        "judge_cap": "未評分：此參與者本輪的評分次數已達上限",
+        "judge_timeout": "評分未能及時完成",
+        "judge_unavailable": "評分失敗：無法連線到評審代理 的模型供應商",
+        "judge_bad_output": "評分失敗：評審的回覆不是有效的分數",
+        "judge_misconfigured": "評分失敗：評審代理 不存在或屬於其他專案"
+      }
+    },
     "never": "從未",
     "reason": {
       "no_valid_in_round": "本回合沒有有效提交",

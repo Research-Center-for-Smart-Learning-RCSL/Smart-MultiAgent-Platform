@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import assert_project_role
+from app.api.v1.deps import assert_project_role, is_project_owner_or_admin
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.dashboard.interfaces.facade import DashboardFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -86,6 +86,18 @@ class DashboardTimeseriesOut(BaseModel):
     buckets: list[TimeseriesBucketOut]
 
 
+class CreativityMeansOut(BaseModel):
+    """Means over the participant's latest scored attempt per round, in this room."""
+
+    scored_rounds: int
+    fluency: float | None
+    flexibility: float | None
+    originality: float | None
+    convergence: float | None
+    last_status: Literal["pending", "scored", "skipped", "error"] | None
+    last_reason: str | None
+
+
 class WatchlistEntryOut(BaseModel):
     room_id: uuid.UUID
     kind: Literal["user", "guest", "group"]
@@ -95,6 +107,8 @@ class WatchlistEntryOut(BaseModel):
     last_valid_submission_at: dt.datetime | None
     needs_attention: bool
     reason: Literal["no_valid_in_round", "idle"] | None
+    # Project owner or platform admin only (Q-11); null for every other caller.
+    creativity: CreativityMeansOut | None = None
 
 
 class DashboardWatchlistOut(BaseModel):
@@ -186,5 +200,8 @@ async def dashboard_watchlist(
     project_id, room_map = await _resolve_workspace_rooms(
         db=db, principal=principal, workspace_id=workspace_id
     )
-    result = await DashboardFacade(db).watchlist(room_map, project_id=project_id)
+    include_creativity = await is_project_owner_or_admin(db=db, principal=principal, project_id=project_id)
+    result = await DashboardFacade(db).watchlist(
+        room_map, project_id=project_id, include_creativity=include_creativity
+    )
     return DashboardWatchlistOut.model_validate(asdict(result))

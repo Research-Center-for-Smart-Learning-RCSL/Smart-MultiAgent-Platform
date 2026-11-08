@@ -21,9 +21,11 @@ from contexts.activities.application.validators.registry import (
     is_registered,
 )
 from contexts.activities.application.validators.schema import validate_schema_wellformed
+from contexts.activities.domain.creativity_judge import validate_creativity_scoring
 from contexts.activities.domain.errors import (
     ActivityTypeActive,
     ActivityTypeNotFound,
+    CreativityScoringInvalid,
     GroupConfigInvalid,
     PlatformActivityTypeReadOnly,
     ValidatorConfigInvalid,
@@ -53,6 +55,18 @@ class TypeRegistration:
 
     activity_type: ActivityType
     shadowed_by_platform: bool
+
+
+def _normalize_creativity_scoring(
+    raw: dict[str, Any] | None, *, scope: ActivityTypeScope
+) -> dict[str, Any] | None:
+    """The scoring gate both write paths run. A platform type cannot carry it:
+    the judge agent belongs to one project, and a platform type to none."""
+    if raw is None:
+        return None
+    if scope is ActivityTypeScope.PLATFORM:
+        raise CreativityScoringInvalid("a platform activity type cannot carry creativity scoring")
+    return validate_creativity_scoring(raw)
 
 
 def _assert_group_config(raw: dict[str, Any] | None) -> None:
@@ -96,6 +110,7 @@ class ActivityTypeService:
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | None = None,
         request_id: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | None = None,
     ) -> TypeRegistration:
         if (project_id is None) is (scope is ActivityTypeScope.PROJECT):
             # Caught by ck_activity_types_project_scope anyway, but a 500 from a
@@ -104,6 +119,7 @@ class ActivityTypeService:
         validate_schema_wellformed(payload_schema)
         self._validate_validator_config(validator_kind, validator_config, payload_schema=payload_schema)
         _assert_group_config(group_config)
+        creativity_scoring = _normalize_creativity_scoring(creativity_scoring, scope=scope)
         # [R30.30] first gate: reject a violating type at authoring time so the
         # activation-time gate seldom has to fire in front of a class.
         await self._policy.assert_allows(
@@ -134,6 +150,7 @@ class ActivityTypeService:
             group_config=group_config,
             default_time_limit_minutes=default_time_limit_minutes,
             created_by=actor_user_id,
+            creativity_scoring=creativity_scoring,
         )
         await audit.emit(
             self._db,
@@ -187,6 +204,7 @@ class ActivityTypeService:
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | Keep | None = Keep.KEEP,
         request_id: uuid.UUID | None = None,
+        creativity_scoring: dict[str, Any] | Keep | None = Keep.KEEP,
     ) -> ActivityType:
         """Edit an existing type's fields (``key`` is never editable, R30.23).
 
@@ -217,11 +235,18 @@ class ActivityTypeService:
         # `group_config` joins the behavioural set rather than the safe-metadata
         # one ([R30.40]): it governs a vote, and a threshold that moved under an
         # open proposal would change what a group already agreed to clear.
+        # Normalized first, so resubmitting the stored rubric is not a change.
+        scoring = (
+            existing.creativity_scoring
+            if isinstance(creativity_scoring, Keep)
+            else _normalize_creativity_scoring(creativity_scoring, scope=existing.scope)
+        )
         behavioral_changed = (
             payload_schema != existing.payload_schema
             or validator_kind != existing.validator_kind
             or validator_config != existing.validator_config
             or group_config != existing.group_config
+            or scoring != existing.creativity_scoring
         )
         if behavioral_changed:
             validate_schema_wellformed(payload_schema)
@@ -256,6 +281,7 @@ class ActivityTypeService:
             # safe metadata: no version bump, editable while a round runs.
             default_time_limit_minutes=default_time_limit_minutes,
             actor_user_id=actor_user_id,
+            creativity_scoring=scoring,
         )
         updated = await self._repo.get(type_id)
         if updated is None:  # pragma: no cover — just updated in this transaction
@@ -335,6 +361,7 @@ class ActivityTypeService:
             # install surface deliberately does not author those (§6 of the
             # dossier). Omitting it would null the fraction on every admin edit.
             group_config=existing.group_config,
+            creativity_scoring=existing.creativity_scoring,
             # No behavioral field can change here, so `version` never moves — and
             # the "rejected while an activation is live" rule that guards a
             # behavioral edit does not apply either. A governance flag must stay

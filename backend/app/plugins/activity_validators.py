@@ -26,6 +26,8 @@ from typing import Any
 
 from contexts.activities.application.validators.registry import register_in_process_validator
 from contexts.activities.domain.errors import ValidatorConfigInvalid
+from contexts.activities.domain.fill_rule import count_filled
+from contexts.activities.domain.fill_rule import is_filled as _is_filled
 from contexts.activities.domain.models import (
     FILLED_FIELDS_SUB_SCORE,
     ActivityType,
@@ -80,32 +82,6 @@ def validate_exact_match_config(config: dict[str, Any]) -> None:
         raise ValidatorConfigInvalid("exact_match validator requires an 'expected' value")
 
 
-def _is_filled(value: Any) -> bool:
-    """Whether one payload value counts as answered ([R30.27]: non-empty fields).
-
-    ``False`` does **not** count. The generic schema form submits a boolean for
-    every declared boolean property whether or not the participant touched it
-    (``schemaFields.ts`` ``assemblePayload`` writes ``v === true`` unconditionally),
-    so an unticked box is indistinguishable from an untouched one. Counting it
-    would let a submission with nothing filled in at all score
-    ``filled == len(properties)`` and pass any threshold — the metric would report
-    the schema's size rather than the participant's effort.
-
-    The cost is that a deliberate "no" is not counted as an answer. That is the
-    right trade for a *completeness* measure, which is what this validator is.
-
-    Numbers still count, including ``0``: a numeric field is only present when the
-    participant typed something.
-    """
-    if value is None or value is False:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list | dict):
-        return len(value) > 0
-    return True
-
-
 def filled_count_scorer(payload: dict[str, Any], activity_type: ActivityType, *, db: Any) -> ValidationResult:
     """Score completeness: how many payload fields carry an answer ([R30.27]).
 
@@ -122,8 +98,7 @@ def filled_count_scorer(payload: dict[str, Any], activity_type: ActivityType, *,
     than by submission width.
     """
     min_filled = int(activity_type.validator_config.get("min_filled", 0))
-    declared = activity_type.payload_schema.get("properties") or {}
-    filled = sum(1 for name in declared if _is_filled(payload.get(name)))
+    filled = count_filled(payload, activity_type.payload_schema)
     sub_scores: dict[str, Any] = {"filled": filled}
 
     if filled >= min_filled:
