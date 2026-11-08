@@ -5,8 +5,8 @@ Spec: docs/tasks/2026-11-08-research-data-integrity/spec.md, section 5
 
 A db-tier test because both properties live in PostgreSQL: the revision row is
 written in the type's own transaction, and the ordering of a submission against
-a concurrent behavioural edit is a row lock (``FOR SHARE``) that a faked
-repository cannot take.
+a concurrent behavioural edit is a PostgreSQL advisory lock that a faked
+repository cannot take. The same lock must not hold up a metadata edit (D-16).
 """
 
 from __future__ import annotations
@@ -229,6 +229,48 @@ async def test_a_concurrent_edit_waits_for_the_submission_it_would_change(
             chatroom_ids=[room.chatroom_id]
         )
     assert (listed.type_version, listed.payload_fields) == (1, ("answer",))
+
+
+async def test_a_metadata_edit_does_not_wait_for_an_open_submission(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    active_room: Room,
+) -> None:
+    """A governance flag must stay editable while classes submit ([R30.23], D-16)."""
+    room = active_room
+    submitter = sessionmaker()
+    editor = sessionmaker()
+    try:
+        await ActivitiesFacade(submitter).submit(
+            project_id=room.project_id,
+            activity_type_id=room.type_id,
+            chatroom_id=room.chatroom_id,
+            producer_user_id=room.owner_id,
+            subject_user_id=room.owner_id,
+            caller_user_id=None,
+            payload={"answer": "open"},
+            actor_user_id=room.owner_id,
+            actor_ip=None,
+        )
+
+        async def _edit() -> None:
+            await ActivityTypeRepository(editor).update(
+                room.type_id,
+                name="renamed",
+                payload_schema=_SCHEMA_V1,
+                validator_kind=ValidatorKind.IN_PROCESS,
+                validator_config=_VALIDATOR,
+                retention_days=None,
+                expose_payload_to_agent=False,
+                echo_includes_content=False,
+                bump_version=False,
+            )
+            await editor.commit()
+
+        await asyncio.wait_for(_edit(), timeout=_BLOCKED_PROBE_SECONDS * 5)
+        await submitter.commit()
+    finally:
+        await submitter.close()
+        await editor.close()
 
 
 async def test_a_submission_after_an_edit_records_the_new_version(

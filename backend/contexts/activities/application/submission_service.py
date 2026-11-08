@@ -198,7 +198,7 @@ class SubmissionService:
     async def _pin_definition(self, activity_type: ActivityType, payload: dict[str, object]) -> ActivityType:
         """The definition this submission is recorded under, held until commit.
 
-        The ``FOR SHARE`` lock makes a concurrent behavioural edit wait for this
+        The shared definition lock makes a concurrent behavioural edit wait for this
         transaction, so the stored ``type_version`` cannot be replaced before the
         submission commits. An edit that committed after the caller loaded the
         type but before the lock is seen here as a newer version: the type is

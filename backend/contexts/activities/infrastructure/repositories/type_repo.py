@@ -18,7 +18,13 @@ from contexts.activities.domain.errors import ActivityTypeKeyConflict
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, Keep, ValidatorKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+from shared_kernel.db.advisory_lock import advisory_xact_lock, advisory_xact_lock_shared
 from shared_kernel.db.rowcount import rowcount
+
+
+def _definition_lock_key(type_id: uuid.UUID) -> str:
+    return f"activity_type_definition:{type_id}"
+
 
 _TYPE_COLS = (
     t.activity_types.c.id,
@@ -166,23 +172,25 @@ class ActivityTypeRepository:
         )
 
     async def lock_version(self, type_id: uuid.UUID) -> int | None:
-        """The type's current ``version`` under ``FOR SHARE``, or ``None`` if gone
-        or tombstoned (as :meth:`get` treats it).
+        """The type's current ``version``, read under the shared definition lock;
+        ``None`` if gone or tombstoned (as :meth:`get` treats it).
 
-        Held to the end of the caller's transaction, so a behavioural edit (an
-        UPDATE of this row) waits for it and the version read cannot be replaced
-        before the caller commits what it recorded under it.
+        The lock is held to the end of the caller's transaction, and a version
+        bump takes it exclusively (:meth:`update`), so the version read cannot be
+        replaced before the caller commits what it recorded under it. It is an
+        advisory lock rather than ``FOR SHARE`` on the row because a row lock
+        would also hold up every metadata or governance edit, which must stay
+        possible while classes submit ([R30.23]; spec D-16).
         """
+        await advisory_xact_lock_shared(self._db, _definition_lock_key(type_id))
         return (
             await self._db.execute(
-                sa.select(t.activity_types.c.version)
-                .where(
+                sa.select(t.activity_types.c.version).where(
                     sa.and_(
                         t.activity_types.c.id == type_id,
                         t.activity_types.c.deleted_at.is_(None),
                     )
                 )
-                .with_for_update(read=True)
             )
         ).scalar_one_or_none()
 
@@ -384,6 +392,8 @@ class ActivityTypeRepository:
             values["default_time_limit_minutes"] = default_time_limit_minutes
         if bump_version:
             values["version"] = t.activity_types.c.version + 1
+            # Waits for every open submission that read the current version.
+            await advisory_xact_lock(self._db, _definition_lock_key(type_id))
         result = await self._db.execute(
             t.activity_types.update()
             .where(
