@@ -672,7 +672,7 @@ function onClose(): void {
           <SSelect
             v-model="mcpAgentId"
             :options="agentOptions"
-            :placeholder="t('activities.typeForm.mcpAgentPlaceholder')"
+            :placeholder="t('activities.typeForm.agentPlaceholder')"
             data-testid="type-mcp-agent"
           />
         </SFormField>
@@ -805,7 +805,7 @@ function onClose(): void {
           <SSelect
             v-model="judgeAgentId"
             :options="agentOptions"
-            :placeholder="t('activities.typeForm.mcpAgentPlaceholder')"
+            :placeholder="t('activities.typeForm.agentPlaceholder')"
             data-testid="type-judge-agent"
           />
         </SFormField>

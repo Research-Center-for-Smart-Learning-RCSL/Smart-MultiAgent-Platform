@@ -117,7 +117,11 @@ const reasonLabel = (reason: WatchlistEntry['reason']) =>
         <span
           class="text-[var(--color-muted)]"
           :data-testid="`creativity-${dimension}-missing`"
-        >-</span>
+        >
+          <span aria-hidden="true">{{ t('dashboard.unavailableShort') }}</span>
+          <!-- The tooltip is hover-only, so the reason is also given as text. -->
+          <span class="visually-hidden">{{ creativityMissing(row as WatchlistEntry) }}</span>
+        </span>
       </STooltip>
     </template>
     <template #cell-reason="{ value }">

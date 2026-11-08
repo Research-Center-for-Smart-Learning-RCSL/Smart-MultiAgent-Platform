@@ -185,7 +185,7 @@
       "webhookUrlPlaceholder": "https://example.com/score",
       "webhookUrlHelp": "The endpoint that receives each submission and returns a JSON verdict.",
       "mcpAgent": "Agent",
-      "mcpAgentPlaceholder": "Select an agent",
+      "agentPlaceholder": "Select an agent",
       "mcpAgentHelp": "The agent whose MCP binding hosts the scoring tool.",
       "mcpBinding": "MCP binding",
       "mcpBindingPlaceholder": "Select a binding",

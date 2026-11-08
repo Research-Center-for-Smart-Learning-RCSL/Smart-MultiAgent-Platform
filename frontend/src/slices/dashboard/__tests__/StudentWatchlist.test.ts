@@ -74,4 +74,27 @@ describe('StudentWatchlist creativity columns', () => {
     expect(wrapper.find('[data-testid="creativity-originality"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="creativity-originality-missing"]')).toHaveLength(2)
   })
+
+  it.each([
+    ['error', 'judge_bad_output', 'dashboard.creativity.reason.judge_bad_output'],
+    ['skipped', 'judge_cap', 'dashboard.creativity.reason.judge_cap'],
+    ['error', null, 'dashboard.creativity.error'],
+    ['pending', null, 'dashboard.creativity.pending'],
+  ] as const)('says why a %s mean is missing (%s)', async (status, reason, key) => {
+    const wrapper = await mount([
+      entry({
+        creativity: {
+          scored_rounds: 0,
+          fluency: null,
+          flexibility: null,
+          originality: null,
+          convergence: null,
+          last_status: status,
+          last_reason: reason,
+        },
+      }),
+    ])
+    // The reason is in the cell as text, not only in the hover tooltip.
+    expect(wrapper.find('[data-testid="creativity-originality-missing"]').text()).toContain(key)
+  })
 })
