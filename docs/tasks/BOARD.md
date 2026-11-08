@@ -17,7 +17,7 @@ until 2026-11-01 is frozen in `archive/board-history-to-2026-11.md`.
 
 | Dossier | Type | Status | Title |
 |---|---|---|---|
-| [`2026-11-08-research-data-integrity`](2026-11-08-research-data-integrity/spec.md) | feature | draft | Research data integrity before formal data collection |
+| [`2026-11-08-research-data-integrity`](2026-11-08-research-data-integrity/spec.md) | feature | approved | Research data integrity before formal data collection |
 
 ## Blocked
 

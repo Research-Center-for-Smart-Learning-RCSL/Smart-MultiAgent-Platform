@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-11-08
 requirements: [R33.10, R33.02, R30.01, R30.05, R30.23, R30.25, R30.26, R30.27]
 depends_on: []
