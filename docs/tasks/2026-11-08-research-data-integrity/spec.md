@@ -510,7 +510,7 @@ That is stated in the release note.
 - [x] AC-1: A ready export whose object has been deleted returns the expired error from
   `GET /api/exports/research/{job_id}`, never `ready` with a link. The record's expiry is
   `uploaded_at + 23 h` (unit test with a fake clock and a fake object store).
-- [ ] AC-2: After the dialog closes or polling gives up, reopening the dialog re-attaches
+- [x] AC-2: After the dialog closes or polling gives up, reopening the dialog re-attaches
   to the running or ready job and offers Download. Clicking the `export.ready`
   notification opens it on that job (component test plus one Playwright check).
 - [x] AC-3: A POST while the owner's export for the workspace is queued or running
@@ -525,7 +525,7 @@ That is stated in the release note.
 
 **Data shape**
 
-- [ ] AC-7: In a bundle from a room with two guests and one registered user, each guest
+- [x] AC-7: In a bundle from a room with two guests and one registered user, each guest
   has a distinct `u:` code. That code is identical across `transcripts.json` and their
   submission CSV rows, and `subject_kind` reads `guest`, `user` and `group` correctly
   (builder test plus a db-tier test through the real listing).
@@ -538,12 +538,12 @@ That is stated in the release note.
 
 **Versioning**
 
-- [ ] AC-10: Every behavioral edit writes a revision row equal to the new definition.
+- [x] AC-10: Every behavioral edit writes a revision row equal to the new definition.
   Creation writes version 1. A metadata-only edit writes none (db-tier test).
-- [ ] AC-11: A submission records its type's version at insert. A behavioral edit
+- [x] AC-11: A submission records its type's version at insert. A behavioral edit
   committed concurrently cannot change the version a submission records (db-tier test
   with two sessions).
-- [ ] AC-12: After migration 0108 on a database holding a version-1 type and a version-3
+- [x] AC-12: After migration 0108 on a database holding a version-1 type and a version-3
   type with submissions:
   - every type has a revision at its current version;
   - version-1 submissions read 1;
@@ -716,6 +716,36 @@ Appended by /build.
   also lists `submission_files`, mapping each type key to its CSV, since a file name is a
   sanitised and possibly suffixed key. Transcript entries gain `subject_kind` (`user`,
   `guest`, `agent` or `system`) beside the existing `sender_type`.
+- **D-13 (milestone 3, approved with the plan).** The single migration 0108 of section 6
+  is split. `0108_activity_type_revisions.py` holds only the versioning (the revisions
+  table, `type_version`, the seed and the backfill), and the judging columns, including
+  `activity_type_revisions.creativity_scoring`, arrive in 0109 with milestone 4, so each
+  milestone reverts on its own.
+- **D-14 (milestone 3, approved with the plan).** The locked version read happens at the start
+  of `_record`, before validation. When the locked version differs from the type the
+  caller loaded, because an edit committed in between, the type is reloaded and the
+  payload re-checked against it, so the validator, the stored version and the schema the
+  payload was checked against are the same definition. Section 5 stored the locked
+  version without saying what to do on a mismatch.
+- **D-15 (milestone 3).** Seeded revision rows take the migration's `now()` as
+  `created_at` and a NULL `created_by`, since when and by whom a version above 1 came into
+  being is recorded nowhere. `type_version` carries no foreign key to the revisions
+  table: a type created by pre-0108 code during a rolling deploy has no revision row until
+  its next bump.
+- **D-16 (milestone 3, security gate, user's choice).** The version is pinned with a
+  transaction-level advisory lock keyed on the type, not `FOR SHARE` on the type row.
+  `_record` takes it shared and then reads the version; a version bump takes it
+  exclusively before its UPDATE. A row lock conflicts with every UPDATE of the row, so
+  under section 5's design a stream of submissions to a busy platform type would also
+  hold up metadata edits and a platform admin's governance edit ([R30.23]) until the
+  statement timeout. Section 10's note that the lock only orders a race that should not
+  occur held for behavioural edits alone. The ordering between a submission and a bump is
+  unchanged.
+- **D-17 (milestone 3).** `type_version` reaches the domain only through
+  `ResearchExportSubmission`, and no `ActivityTypeRevision` domain record exists, since
+  nothing outside the repository reads a revision: the export joins each submission to its
+  revision's `payload_schema` in the listing query, which is the one reader section 5
+  needs. Section 6 listed both.
 
 ## 16. Follow-ups
 
@@ -758,3 +788,8 @@ Appended by /build.
 - **FU-12 (milestone 2 security gate).** `sub_scores_json` and `payload_json` pass through
   whatever an MCP or webhook validator returned. An allow-list of exported `sub_scores`
   keys would bound what an external validator can place in the bundle.
+- **FU-13 (milestone 3 security gate, hardening).** `activity_type_revisions` keeps every
+  past `validator_config` for the life of the type. A webhook URL carrying a credential
+  (for example `?token=`) that an owner rotates by editing the type stays at rest in the
+  older revisions. State that `validator_config` must not hold credentials, or redact URL
+  query strings in revision rows.

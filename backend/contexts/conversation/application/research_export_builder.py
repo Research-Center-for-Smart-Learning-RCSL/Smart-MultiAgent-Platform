@@ -46,6 +46,7 @@ _LEADING_COLUMNS: Final = (
     "subject_code",
     "subject_kind",
     "room_code",
+    "type_version",
     "attempt_no",
     "is_valid",
     "error_class",
@@ -68,7 +69,11 @@ _MANIFEST_NOTES: Final = (
     "A CSV text cell starting with =, +, -, @, a tab or a carriage return is prefixed "
     "with an apostrophe so a spreadsheet does not run it as a formula; strip it before "
     "parsing such a value as a number.",
+    "type_version is the activity type's version when the submission was made. It reads "
+    "unknown for a submission made before versions were recorded, under a type that had "
+    "already been edited.",
 )
+_UNKNOWN_VERSION: Final = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +92,7 @@ class SubmissionRow:
     subject_kind: str = "user"
     payload_fields: tuple[str, ...] = ()
     activity_type_id: uuid.UUID | None = None
+    type_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +249,7 @@ class ResearchExportBuilder:
                     _cell(code),
                     kind,
                     rooms[row.chatroom_id],
+                    _UNKNOWN_VERSION if row.type_version is None else row.type_version,
                     row.attempt_no,
                     row.is_valid,
                     _cell(row.error_class),

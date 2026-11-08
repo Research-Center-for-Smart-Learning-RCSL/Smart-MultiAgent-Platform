@@ -191,6 +191,7 @@ class ActivitySubmissionRepository:
         validated_at: dt.datetime | None,
         agent_digest: str | None,
         producer_is_guest: bool = False,
+        type_version: int | None = None,
     ) -> uuid.UUID:
         row = await self._db.execute(
             _SUB.insert()
@@ -210,6 +211,7 @@ class ActivitySubmissionRepository:
                 retain_until=retain_until,
                 validated_at=validated_at,
                 agent_digest=agent_digest,
+                type_version=type_version,
             )
             .returning(_SUB.c.id)
         )
@@ -819,8 +821,17 @@ class ActivitySubmissionRepository:
         if created_before:
             clauses.append(_SUB.c.created_at < created_before)
 
-        j = _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id).join(
-            _SESS, _SUB.c.session_id == _SESS.c.id
+        rev = t.activity_type_revisions
+        j = (
+            _SUB.join(_TYPE, _SUB.c.activity_type_id == _TYPE.c.id)
+            .join(_SESS, _SUB.c.session_id == _SESS.c.id)
+            .outerjoin(
+                rev,
+                sa.and_(
+                    rev.c.activity_type_id == _SUB.c.activity_type_id,
+                    rev.c.version == _SUB.c.type_version,
+                ),
+            )
         )
 
         stmt = (
@@ -835,7 +846,12 @@ class ActivitySubmissionRepository:
                 _SUB.c.created_at,
                 _TYPE.c.key.label("activity_type_key"),
                 _SUB.c.activity_type_id,
-                _TYPE.c.payload_schema,
+                _SUB.c.type_version,
+                # The schema the row was submitted under, so the builder's column
+                # union spans every revision present (spec section 5). The type's
+                # current schema stands in where the version is unknown or has no
+                # revision row (D-15).
+                sa.func.coalesce(rev.c.payload_schema, _TYPE.c.payload_schema).label("payload_schema"),
                 _SESS.c.subject_user_id,
                 _SESS.c.subject_member_group_id,
                 _SESS.c.subject_kind,
@@ -863,6 +879,7 @@ class ActivitySubmissionRepository:
                 subject_kind="group" if r.subject_member_group_id else r.subject_kind,
                 activity_type_id=r.activity_type_id,
                 payload_fields=_declared_properties(r.payload_schema),
+                type_version=r.type_version,
             )
             for r in rows
         ]

@@ -1157,6 +1157,7 @@ def _wire_submission_service(
     svc = SubmissionService(MagicMock(), activation_repo=activation_repo)
     svc._type_repo = MagicMock()
     svc._type_repo.get = AsyncMock(return_value=activity_type)
+    svc._type_repo.lock_version = AsyncMock(return_value=activity_type.version)
     svc._session_repo = MagicMock()
     svc._session_repo.get_for_activation = AsyncMock(return_value=session)
     svc._session_repo.set_completed = AsyncMock(return_value=True)
@@ -1666,6 +1667,7 @@ def _wire_signal_service(
     svc._sub_repo.count_recent_same_error = AsyncMock(return_value=same_error_count)
     svc._type_repo = MagicMock()
     svc._type_repo.get = AsyncMock(return_value=activity_type)
+    svc._type_repo.lock_version = AsyncMock(return_value=activity_type.version)
     svc._session_repo = MagicMock()
     svc._session_repo.get = AsyncMock(return_value=session)
     return svc, svc._sub_repo
@@ -2314,6 +2316,7 @@ class TestGuestSubmission:
         svc = SubmissionService(MagicMock(), activation_repo=activation_repo)
         svc._type_repo = MagicMock()
         svc._type_repo.get = AsyncMock(return_value=activity_type)
+        svc._type_repo.lock_version = AsyncMock(return_value=activity_type.version)
         svc._session_repo = MagicMock()
         svc._session_repo.get_for_activation = AsyncMock(return_value=session)
         svc._session_repo.set_completed = AsyncMock(return_value=True)

@@ -230,8 +230,8 @@ class TestSubmissionCsvs:
             ),
         ]
         files = _files(rows)
-        assert _header(files["submissions/rat.csv"])[8] == "a"
-        assert _header(files["submissions/rat-2.csv"])[8] == "b"
+        assert _header(files["submissions/rat.csv"])[9] == "a"
+        assert _header(files["submissions/rat-2.csv"])[9] == "b"
 
     def test_type_keys_that_sanitise_alike_do_not_overwrite_each_other(self) -> None:
         files = _files([_sub_row(activity_type_key="a b"), _sub_row(activity_type_key="a.b")])
@@ -247,6 +247,7 @@ class TestSubmissionCsvs:
             "subject_code",
             "subject_kind",
             "room_code",
+            "type_version",
             "attempt_no",
             "is_valid",
             "error_class",
@@ -266,7 +267,7 @@ class TestSubmissionCsvs:
             _sub_row(payload={"c": 2}, payload_fields=("a", "c")),
         ]
         header = _header(_files(rows)["submissions/six-thinking-hats.csv"])
-        assert header[8:11] == ["b", "a", "c"]
+        assert header[9:12] == ["b", "a", "c"]
 
     def test_chinese_stays_readable_and_the_file_starts_with_a_bom(self) -> None:
         content = _files([_sub_row(payload={"answer": "林"})])["submissions/six-thinking-hats.csv"]
@@ -325,6 +326,7 @@ class TestSubmissionCsvs:
                 payload={"a": "x"},
                 sub_scores={},
                 payload_fields=("a",),
+                type_version=3,
             ),
             SubmissionRow(
                 chatroom_id=r,
@@ -342,13 +344,22 @@ class TestSubmissionCsvs:
             ),
         ]
         assert _files(rows)["submissions/rat.csv"] == (
-            "\ufeffsubject_code,subject_kind,room_code,attempt_no,is_valid,error_class,latency_ms,"
+            "\ufeffsubject_code,subject_kind,room_code,type_version,attempt_no,is_valid,error_class,latency_ms,"
             "created_at,a,sub_scores_filled,sub_scores_filled_fields,payload_json,sub_scores_json\r\n"
-            "u:1a2b3c4d,user,r:9c0d1e2f,1,True,,120,"
+            "u:1a2b3c4d,user,r:9c0d1e2f,3,1,True,,120,"
             '2026-10-19T09:30:00+00:00,x,,,"{""a"": ""x""}",{}\r\n'
-            "g:5e6f7a8b,group,r:9c0d1e2f,2,False,schema,,"
+            "g:5e6f7a8b,group,r:9c0d1e2f,unknown,2,False,schema,,"
             "2026-10-19T09:30:00+00:00,,,,{},{}\r\n"
         )
+
+    def test_an_unproven_type_version_reads_unknown(self) -> None:
+        """AC-12: a NULL version is exported as unknown, never as a guess."""
+        known, unproven = _csv(
+            _files([replace(_sub_row(), type_version=2), _sub_row()])["submissions/six-thinking-hats.csv"]
+        )
+        assert (known["type_version"], unproven["type_version"]) == ("2", "unknown")
+        notes = " ".join(json.loads(_files()["manifest.json"])["notes"])
+        assert "type_version" in notes
 
     def test_no_display_names_or_emails(self) -> None:
         content = _files()["submissions/six-thinking-hats.csv"]

@@ -19,7 +19,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-__all__ = ["advisory_xact_lock", "knowmap_builder_lock_key"]
+__all__ = ["advisory_xact_lock", "advisory_xact_lock_shared", "knowmap_builder_lock_key"]
 
 
 async def advisory_xact_lock(db: AsyncSession, name: str) -> None:
@@ -28,6 +28,16 @@ async def advisory_xact_lock(db: AsyncSession, name: str) -> None:
     Held until the current transaction ends; re-entrant within a transaction.
     """
     await db.execute(sa.text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": name})
+
+
+async def advisory_xact_lock_shared(db: AsyncSession, name: str) -> None:
+    """The shared form of :func:`advisory_xact_lock` on the same key.
+
+    Shared holders never wait for each other, only for an exclusive holder, and
+    an exclusive request waits for every shared holder. A new shared request
+    queues behind a waiting exclusive one, so the exclusive side is not starved.
+    """
+    await db.execute(sa.text("SELECT pg_advisory_xact_lock_shared(hashtext(:key))"), {"key": name})
 
 
 def knowmap_builder_lock_key(config_id: uuid.UUID) -> str:

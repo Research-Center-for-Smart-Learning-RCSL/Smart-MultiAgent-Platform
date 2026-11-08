@@ -18,7 +18,13 @@ from contexts.activities.domain.errors import ActivityTypeKeyConflict
 from contexts.activities.domain.models import ActivityType, ActivityTypeScope, Keep, ValidatorKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+from shared_kernel.db.advisory_lock import advisory_xact_lock, advisory_xact_lock_shared
 from shared_kernel.db.rowcount import rowcount
+
+
+def _definition_lock_key(type_id: uuid.UUID) -> str:
+    return f"activity_type_definition:{type_id}"
+
 
 _TYPE_COLS = (
     t.activity_types.c.id,
@@ -86,8 +92,9 @@ class ActivityTypeRepository:
         scope: ActivityTypeScope = ActivityTypeScope.PROJECT,
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | None = None,
+        created_by: uuid.UUID | None = None,
     ) -> uuid.UUID:
-        """Insert a type and return its id (caller owns commit).
+        """Insert a type and its version-1 revision; return its id (caller owns commit).
 
         Two partial-uniques guard the key, one per scope, and each maps to the
         same domain 409: ``uq_activity_types_project_key_active`` for a duplicate
@@ -129,7 +136,63 @@ class ActivityTypeRepository:
             if "uq_activity_types_platform_key_active" in msg:
                 raise ActivityTypeKeyConflict(f"platform activity type key {key!r} already exists") from exc
             raise
-        return uuid.UUID(str(row.scalar_one()))
+        type_id = uuid.UUID(str(row.scalar_one()))
+        await self._insert_revision(
+            type_id,
+            version=1,
+            payload_schema=payload_schema,
+            validator_kind=validator_kind,
+            validator_config=validator_config,
+            group_config=group_config,
+            created_by=created_by,
+        )
+        return type_id
+
+    async def _insert_revision(
+        self,
+        type_id: uuid.UUID,
+        *,
+        version: int,
+        payload_schema: dict[str, Any],
+        validator_kind: ValidatorKind,
+        validator_config: dict[str, Any],
+        group_config: dict[str, Any] | None,
+        created_by: uuid.UUID | None,
+    ) -> None:
+        await self._db.execute(
+            t.activity_type_revisions.insert().values(
+                activity_type_id=type_id,
+                version=version,
+                payload_schema=payload_schema,
+                validator_kind=validator_kind.value,
+                validator_config=validator_config,
+                group_config=group_config,
+                created_by=created_by,
+            )
+        )
+
+    async def lock_version(self, type_id: uuid.UUID) -> int | None:
+        """The type's current ``version``, read under the shared definition lock;
+        ``None`` if gone or tombstoned (as :meth:`get` treats it).
+
+        The lock is held to the end of the caller's transaction, and a version
+        bump takes it exclusively (:meth:`update`), so the version read cannot be
+        replaced before the caller commits what it recorded under it. It is an
+        advisory lock rather than ``FOR SHARE`` on the row because a row lock
+        would also hold up every metadata or governance edit, which must stay
+        possible while classes submit ([R30.23]; spec D-16).
+        """
+        await advisory_xact_lock_shared(self._db, _definition_lock_key(type_id))
+        return (
+            await self._db.execute(
+                sa.select(t.activity_types.c.version).where(
+                    sa.and_(
+                        t.activity_types.c.id == type_id,
+                        t.activity_types.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).scalar_one_or_none()
 
     async def get(self, type_id: uuid.UUID) -> ActivityType | None:
         """A single live type, or ``None`` if missing/soft-deleted."""
@@ -308,11 +371,13 @@ class ActivityTypeRepository:
         bump_version: bool,
         group_config: dict[str, Any] | None = None,
         default_time_limit_minutes: int | Keep | None = Keep.KEEP,
+        actor_user_id: uuid.UUID | None = None,
     ) -> bool:
         """Replace a live type's editable fields (``key`` excluded); the
         ``deleted_at IS NULL`` guard makes an update of a tombstoned type a no-op
         (0 rows). ``version`` increments only when ``bump_version`` is set — the
-        service passes it when a behavioral field actually changed (R30.23)."""
+        service passes it when a behavioral field actually changed (R30.23) —
+        and each increment writes the new definition's revision row."""
         values: dict[str, Any] = {
             "name": name,
             "payload_schema": payload_schema,
@@ -327,6 +392,8 @@ class ActivityTypeRepository:
             values["default_time_limit_minutes"] = default_time_limit_minutes
         if bump_version:
             values["version"] = t.activity_types.c.version + 1
+            # Waits for every open submission that read the current version.
+            await advisory_xact_lock(self._db, _definition_lock_key(type_id))
         result = await self._db.execute(
             t.activity_types.update()
             .where(
@@ -336,8 +403,22 @@ class ActivityTypeRepository:
                 )
             )
             .values(**values)
+            .returning(t.activity_types.c.version)
         )
-        return bool(rowcount(result))
+        new_version = result.scalar_one_or_none()
+        if new_version is None:
+            return False
+        if bump_version:
+            await self._insert_revision(
+                type_id,
+                version=new_version,
+                payload_schema=payload_schema,
+                validator_kind=validator_kind,
+                validator_config=validator_config,
+                group_config=group_config,
+                created_by=actor_user_id,
+            )
+        return True
 
     async def soft_delete(self, type_id: uuid.UUID) -> bool:
         """Tombstone a type; the ``deleted_at IS NULL`` guard makes a

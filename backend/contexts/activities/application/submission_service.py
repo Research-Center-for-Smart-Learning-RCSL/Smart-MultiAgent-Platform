@@ -29,6 +29,7 @@ from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.agent_digest import build_agent_digest
 from contexts.activities.domain.errors import (
     ActivityNotActive,
+    ActivityTypeNotFound,
     SessionNotFound,
     SubmissionNotFound,
     SubmissionPayloadInvalid,
@@ -58,6 +59,12 @@ from shared_kernel.auth.clients import now
 _ECHO_TYPE = "activity_submission"
 _MAX_ECHO_ERRORS = 5
 _ROLLING_WINDOW_SECONDS = 60
+
+
+def _ensure_payload_valid(payload_schema: dict[str, Any], payload: dict[str, object]) -> None:
+    errors = payload_errors(payload_schema, dict(payload))
+    if errors:
+        raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
 
 
 class SubmissionService:
@@ -110,9 +117,7 @@ class SubmissionService:
         if activation is None or activation.activity_type_id != activity_type_id:
             raise ActivityNotActive(str(activity_type_id))
 
-        errors = payload_errors(activity_type.payload_schema, dict(payload))
-        if errors:
-            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        _ensure_payload_valid(activity_type.payload_schema, payload)
 
         session = await self._resolve_session(
             activation=activation,
@@ -172,9 +177,7 @@ class SubmissionService:
         accepted proposal is the declaration -- which is the decision the dossier's
         FU-4 left open.
         """
-        errors = payload_errors(activity_type.payload_schema, dict(payload))
-        if errors:
-            raise SubmissionPayloadInvalid("; ".join(errors[:_MAX_ECHO_ERRORS]))
+        _ensure_payload_valid(activity_type.payload_schema, payload)
         session = await self._resolve_group_session(activation=activation, member_group_id=member_group_id)
         recorded = await self._record(
             activity_type=activity_type,
@@ -191,6 +194,27 @@ class SubmissionService:
         # that carried one, and stamping first would have it cleared again.
         await self._session_repo.set_completed(session.id, completed=True)
         return recorded
+
+    async def _pin_definition(self, activity_type: ActivityType, payload: dict[str, object]) -> ActivityType:
+        """The definition this submission is recorded under, held until commit.
+
+        The shared definition lock makes a concurrent behavioural edit wait for this
+        transaction, so the stored ``type_version`` cannot be replaced before the
+        submission commits. An edit that committed after the caller loaded the
+        type but before the lock is seen here as a newer version: the type is
+        reloaded and the payload re-checked, so the validator, the stored version
+        and the definition the payload was checked against all agree.
+        """
+        locked = await self._type_repo.lock_version(activity_type.id)
+        if locked is None:
+            raise ActivityTypeNotFound(str(activity_type.id))
+        if locked == activity_type.version:
+            return activity_type
+        current = await self._type_repo.get(activity_type.id)
+        if current is None:
+            raise ActivityTypeNotFound(str(activity_type.id))
+        _ensure_payload_valid(current.payload_schema, payload)
+        return current
 
     async def _record(
         self,
@@ -217,6 +241,7 @@ class SubmissionService:
         ([R30.08]); an individual submission passes ``None`` and the echo reads
         exactly as it always has.
         """
+        activity_type = await self._pin_definition(activity_type, payload)
         activity_type_id = activity_type.id
         # Answering again retracts "I am finished" ([R30.22]): a participant who
         # declared themselves done and then kept working is not done, and making
@@ -302,6 +327,7 @@ class SubmissionService:
             validated_at=validated_at,
             agent_digest=agent_digest,
             producer_is_guest=producer_is_guest,
+            type_version=activity_type.version,
         )
 
         # Adversarial-review fix: a chat message visible to human participants
