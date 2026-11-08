@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
+from contexts.conversation.application import export_slot
 from contexts.conversation.domain.errors import ExportInProgress
 from contexts.conversation.domain.models import ExportSenderScope
 from shared_kernel.auth.clients import get_redis, now
@@ -127,38 +128,27 @@ async def create(
     return state
 
 
-# Replace the slot's holder only if it is still the one that was inspected, so
-# two creates taking over a finished holder at once cannot both win.
-_TAKEOVER: Final = """
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-  return 1
-end
-return 0
-"""
+async def _blocks(holder_id: uuid.UUID) -> bool:
+    holder = await get(holder_id)
+    if holder is None or not holder.is_active:
+        return False
+    if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
+        return True
+    # Abandoned (worker killed mid-job): it must not read running forever.
+    await _store(_replace(holder, status=ExportJobStatus.FAILED, error="abandoned"))
+    return False
 
 
 async def _claim_active(owner_user_id: uuid.UUID, chatroom_id: uuid.UUID, job_id: uuid.UUID) -> None:
-    redis = get_redis()
-    key = _active_key(owner_user_id, chatroom_id)
-    for _ in range(3):
-        if await redis.set(key, str(job_id), ex=_JOB_TTL_SECONDS, nx=True):
-            return
-        held = await redis.get(key)
-        if held is None:
-            continue  # released between the two calls; claim it afresh
-        holder = await get(uuid.UUID(held))
-        if holder is not None and holder.is_active:
-            if now() - holder.created_at < ACTIVE_EXPORT_STALE_AFTER:
-                raise ExportInProgress(job_id=holder.job_id)
-            # Abandoned (worker killed mid-job): it must not read running forever.
-            await _store(_replace(holder, status=ExportJobStatus.FAILED, error="abandoned"))
-        # The holder finished, expired or was abandoned: take the slot over.
-        if await redis.eval(_TAKEOVER, 1, key, held, str(job_id), str(_JOB_TTL_SECONDS)):
-            return
-    # Lost every race for the slot: another create for this room just won it.
-    winner = await redis.get(key)
-    raise ExportInProgress(job_id=uuid.UUID(winner) if winner else job_id)
+    holder = await export_slot.claim(
+        get_redis(),
+        _active_key(owner_user_id, chatroom_id),
+        job_id,
+        ttl_seconds=_JOB_TTL_SECONDS,
+        blocks=_blocks,
+    )
+    if holder is not None:
+        raise ExportInProgress(job_id=holder)
 
 
 async def _release_active(state: ExportJobState) -> None:

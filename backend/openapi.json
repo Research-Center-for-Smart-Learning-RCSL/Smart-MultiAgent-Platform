@@ -10704,6 +10704,25 @@
         "title": "ResearchExportCreateOut",
         "type": "object"
       },
+      "ResearchExportLatestOut": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "ResearchExportLatestOut",
+        "type": "object"
+      },
       "ResearchExportStatusOut": {
         "properties": {
           "error": {
@@ -24919,6 +24938,49 @@
         "summary": "Csp Report",
         "tags": [
           "csp"
+        ]
+      }
+    },
+    "/api/exports/research/latest": {
+      "get": {
+        "operationId": "get_latest_research_export_api_exports_research_latest_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchExportLatestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblem"
+                }
+              }
+            },
+            "description": "Request Validation Problem"
+          }
+        },
+        "summary": "Get Latest Research Export",
+        "tags": [
+          "research-export"
         ]
       }
     },

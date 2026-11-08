@@ -149,13 +149,19 @@ class TestGetResearchExport:
             object_key="research/test/file.zip",
         )
         principal = _make_principal()
+        minio = AsyncMock()
+        minio.stat.return_value = MagicMock()
 
-        with patch(
-            "contexts.conversation.application.research_export_service.get",
-            new_callable=AsyncMock,
-            return_value=state,
+        with (
+            patch(
+                "contexts.conversation.application.research_export_service.get",
+                new_callable=AsyncMock,
+                return_value=state,
+            ),
+            patch("app.api.v1.research_export.still_entitled", AsyncMock(return_value=True)),
+            patch("app.api.v1.research_export.get_minio_client", return_value=minio),
         ):
-            result = await get_research_export(job_id=_JOB, principal=principal)
+            result = await get_research_export(job_id=_JOB, principal=principal, db=AsyncMock())
             assert isinstance(result, ResearchExportStatusOut)
             assert result.status == ResearchExportJobStatus.READY
             ticket = await decode(result.url)
@@ -178,7 +184,7 @@ class TestGetResearchExport:
             ),
             pytest.raises(ExportJobNotFound),
         ):
-            await get_research_export(job_id=_JOB, principal=principal)
+            await get_research_export(job_id=_JOB, principal=principal, db=AsyncMock())
 
 
 class TestResolveWindow:

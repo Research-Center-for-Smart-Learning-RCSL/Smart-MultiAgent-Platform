@@ -27,7 +27,7 @@ _USER = uuid.uuid4()
 def mock_redis() -> AsyncMock:
     redis = AsyncMock()
     redis.get.return_value = None
-    redis.set.return_value = None
+    redis.set.return_value = True
     return redis
 
 
@@ -45,9 +45,12 @@ class TestCreateJobState:
             assert state.status == ResearchExportJobStatus.QUEUED
             assert state.workspace_id == _WORKSPACE
             assert state.owner_user_id == _USER
-            mock_redis.set.assert_awaited_once()
-            call_args = mock_redis.set.call_args
-            assert call_args.kwargs["ex"] == _JOB_TTL_SECONDS
+            # The job record, then the owner's latest-job slot for the workspace.
+            record, slot = mock_redis.set.call_args_list
+            assert record.args[0] == f"research_export:{state.job_id}"
+            assert record.kwargs["ex"] == _JOB_TTL_SECONDS
+            assert slot.args == (f"research_export:latest:{_USER}:{_WORKSPACE}", str(state.job_id))
+            assert slot.kwargs["nx"] is True
 
 
 class TestJobTtl:
@@ -113,7 +116,12 @@ class TestMarkTransitions:
             "contexts.conversation.application.research_export_service.get_redis",
             return_value=mock_redis,
         ):
-            await mark_ready(job_id=jid, bucket="exports", object_key="research/x/y.zip")
+            await mark_ready(
+                job_id=jid,
+                bucket="exports",
+                object_key="research/x/y.zip",
+                upload_started_at=datetime.now(UTC),
+            )
             set_call = mock_redis.set.call_args
             payload = json.loads(set_call.args[1])
             assert payload["status"] == ResearchExportJobStatus.READY

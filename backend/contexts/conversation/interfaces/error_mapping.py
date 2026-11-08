@@ -185,6 +185,16 @@ _MAP: ErrorMap = {
         409,
         "An export of this room is already in progress",
     ),
+    errors.ResearchExportInProgress: (
+        "conversation/research-export-in-progress",
+        409,
+        "A research export of this workspace is already in progress",
+    ),
+    errors.ResearchExportExpired: (
+        "conversation/export-expired",
+        410,
+        "Export expired",
+    ),
     errors.ExportJobNotReady: (
         "conversation/export-not-ready",
         409,
@@ -201,7 +211,7 @@ def _extras(exc: Exception) -> dict[str, object]:
     """Problem members the client acts on: the count it shows, the job it follows."""
     if isinstance(exc, errors.ExportTooLargeForPdf):
         return {"message_count": exc.message_count, "limit": exc.limit}
-    if isinstance(exc, errors.ExportInProgress):
+    if isinstance(exc, errors.ExportInProgress | errors.ResearchExportInProgress):
         return {"job_id": str(exc.job_id)}
     return {}
 
