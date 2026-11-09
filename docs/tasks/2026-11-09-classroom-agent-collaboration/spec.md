@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-11-09
 requirements: [R28.01, R28.03, R28.07, R28.13, R28.16, R33.02, R33.10, R13.72, R15.09, R29.01]
 depends_on: []
@@ -46,8 +46,9 @@ The 2026-09-13 assessment `docs/assessments/nstc-undergrad-proposal-fit-assessme
 | Q-5 | How does a room say which agent is TA, SA, AA? | A per-room `classroom_role` on the room-agent binding (`none`, `teacher`, `peer`, `analyst`), set by the room manager, at most one teacher per room. | User's choice over a role fixed on the agent (one agent could not play different roles in different rooms) and pairwise rules (heaviest UI and validation for no current need). |
 | Q-6 | Where does the DA run, and how is its output written? | A "Design classroom agents" panel on the workspace dashboard. The DA is called outside chat with a platform output contract; the teacher compares current and proposed prompts and applies explicitly. Writes go through the normal agent patch with optimistic concurrency, and every system-prompt change records a revision. | User's choice over automatic write (an LLM overwrites working prompts unreviewed) and an in-chat write tool (misses the dashboard parameters and gives an LLM a config-writing tool). |
 | Q-7 | Milestone order? | M1 roles and alert reaction times; M2 analyst notices and collaboration log; M3 peer reply review; M4 DA design panel and prompt revisions. | User's choice. M1 lays the role designation M2 and M3 need; M4 is independent. |
-| Q-8 | What may a held peer turn do besides produce text? | A peer binding under review is offered only read-only tools (`READ_ONLY_TOOL_NAMES`, `backend/contexts/agents/application/runtime/tool_registry.py:157`). Activity control, canvas writes and `update_wakeup` are withheld. | A rejected reply must leave nothing behind; tool side effects commit in the turn's transaction before any review could run. Decided at spec time as the only design consistent with Q-2's fail-closed rule; flagged for the user at approval. |
-| Q-9 | What happens to a peer agent's replies when the room has no teacher agent (for example the teacher binding was removed)? | They are held and expire unposted, and the room's agent settings show a warning on the peer binding. | Fail closed, consistent with Q-2. Posting directly would silently change the research condition. Flagged for the user at approval. |
+| Q-8 | What may a held peer turn do besides produce text? | A peer binding under review is offered only read-only tools (`READ_ONLY_TOOL_NAMES`, `backend/contexts/agents/application/runtime/tool_registry.py:157`). Activity control, canvas writes and `update_wakeup` are withheld. | A rejected reply must leave nothing behind; tool side effects commit in the turn's transaction before any review could run. Proposed at spec time as the only design consistent with Q-2's fail-closed rule; confirmed by the user at approval. |
+| Q-9 | What happens to a peer agent's replies when the room has no teacher agent (for example the teacher binding was removed)? | They are held and expire unposted, and the room's agent settings show a warning on the peer binding. | Fail closed, consistent with Q-2. Posting directly would silently change the research condition. Confirmed by the user at approval. |
+| Q-10 | Should this depend on `2026-07-19-large-artifacts-silently-dropped` (in progress), since both edit `turn_engine.py`? | No dependency. | That dossier changes the `code_exec` artifact path; this one adds a peer routing branch beside the observer branch and does not touch artifact handling, so the edits do not overlap. User's choice. |
 
 ## 4. Current State
 
