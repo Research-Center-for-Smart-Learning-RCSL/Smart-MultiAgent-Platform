@@ -1,7 +1,7 @@
 """Classroom design run worker ([R34.08]).
 
 A composition root like the judge worker: it reads and writes the run through
-``AgentsFacade`` and calls the design agent through the provider router on the
+``ClassroomDesignFacade`` and calls the design agent through the provider router on the
 agent's own key group, with no tools. Nothing the model writes leaves this
 module except through ``parse_design_reply``, and the result is a proposal the
 owner must apply; no agent is written here.
@@ -72,10 +72,10 @@ async def _call_design_agent(db: Any, run: ClassroomDesignRun) -> DesignProposal
 
 
 async def _record_timeout(db: Any, run_id: uuid.UUID) -> None:
-    from contexts.agents.interfaces.facade import AgentsFacade
+    from contexts.agents.interfaces.classroom_design_facade import ClassroomDesignFacade
 
     try:
-        await AgentsFacade(db).record_design_failure(run_id, DESIGN_TIMEOUT)
+        await ClassroomDesignFacade(db).record_failure(run_id, DESIGN_TIMEOUT)
         await db.commit()
     except Exception as exc:
         # The stale threshold still frees the project; only the usage rows are lost.
@@ -90,14 +90,14 @@ async def run_classroom_design(ctx: dict[str, Any], run_id: str) -> str:
     submit.
     """
     _ = ctx
-    from contexts.agents.interfaces.facade import AgentsFacade
+    from contexts.agents.interfaces.classroom_design_facade import ClassroomDesignFacade
     from shared_kernel.audit import flush_tail_events
     from shared_kernel.db.session import async_session
 
     rid = uuid.UUID(str(run_id))
     async with async_session() as db:
-        facade = AgentsFacade(db)
-        run = await facade.begin_design_run(rid)
+        facade = ClassroomDesignFacade(db)
+        run = await facade.begin(rid)
         if run is None:
             return "not-pending"
         # Committed before the call, so the panel shows `running` while it waits.
@@ -120,9 +120,9 @@ async def run_classroom_design(ctx: dict[str, Any], run_id: str) -> str:
             logger.bind(run_id=str(rid)).warning(f"design setup failed: {type(exc).__name__}")
             reason = DESIGN_UNAVAILABLE
         if proposal is not None:
-            changed = await facade.record_design_success(rid, proposal)
+            changed = await facade.record_success(rid, proposal)
         else:
-            changed = await facade.record_design_failure(rid, reason or DESIGN_UNAVAILABLE)
+            changed = await facade.record_failure(rid, reason or DESIGN_UNAVAILABLE)
         # Commit even when nothing changed: the router has recorded the usage row.
         await db.commit()
         await flush_tail_events(db)

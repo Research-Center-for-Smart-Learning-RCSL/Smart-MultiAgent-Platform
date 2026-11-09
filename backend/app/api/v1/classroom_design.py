@@ -19,12 +19,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.interfaces.facade import ActivitiesFacade
-from contexts.agents.interfaces.facade import (
+from contexts.agents.interfaces.classroom_design_facade import (
     DESIGN_UNAVAILABLE,
     MAX_FORM_NOTES_CHARS,
     MAX_ROUNDS,
     MIN_ROUNDS,
-    AgentsFacade,
+    ClassroomDesignFacade,
     ClassroomDesignRun,
     DesignActivity,
     DesignForm,
@@ -158,8 +158,8 @@ async def create_design_run(
         tone=Tone(body.tone),
         notes=body.notes,
     )
-    facade = AgentsFacade(db)
-    run = await facade.create_design_run(project_id=project_id, form=form, actor_user_id=principal.user_id)
+    facade = ClassroomDesignFacade(db)
+    run = await facade.create_run(project_id=project_id, form=form, actor_user_id=principal.user_id)
     # The job reads the row, so it must be committed first.
     await db.commit()
     try:
@@ -167,9 +167,9 @@ async def create_design_run(
     except Exception as exc:
         # Otherwise the run would block the project until the stale threshold.
         logger.bind(run_id=str(run.id)).warning(f"design run enqueue failed: {type(exc).__name__}")
-        await facade.record_design_failure(run.id, DESIGN_UNAVAILABLE)
+        await facade.record_failure(run.id, DESIGN_UNAVAILABLE)
         await db.commit()
-        run = await facade.get_design_run(project_id=project_id, run_id=run.id)
+        run = await facade.get_run(project_id=project_id, run_id=run.id)
     return _to_out(run)
 
 
@@ -181,7 +181,7 @@ async def list_design_runs(
     db: AsyncSession = Depends(db_session),
 ) -> list[DesignRunOut]:
     """Newest first, so the panel can resume a run after a reload."""
-    runs = await AgentsFacade(db).list_design_runs(project_id, limit=limit)
+    runs = await ClassroomDesignFacade(db).list_runs(project_id, limit=limit)
     return [_to_out(r) for r in runs]
 
 
@@ -192,7 +192,7 @@ async def get_design_run(
     _=_EDITOR,
     db: AsyncSession = Depends(db_session),
 ) -> DesignRunOut:
-    return _to_out(await AgentsFacade(db).get_design_run(project_id=project_id, run_id=run_id))
+    return _to_out(await ClassroomDesignFacade(db).get_run(project_id=project_id, run_id=run_id))
 
 
 @router.post("/runs/{run_id}/apply")
@@ -210,15 +210,15 @@ async def apply_design_run(
     run was drafted. The session rolls back, so nothing is written; the panel
     asks for a new run, which drafts from the current prompts.
     """
-    facade = AgentsFacade(db)
-    teacher, peer = await facade.apply_design(
+    facade = ClassroomDesignFacade(db)
+    teacher, peer = await facade.apply(
         project_id=project_id,
         run_id=run_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    run = await facade.get_design_run(project_id=project_id, run_id=run_id)
+    run = await facade.get_run(project_id=project_id, run_id=run_id)
     return DesignApplyOut(run=_to_out(run), teacher_version=teacher.version, peer_version=peer.version)
 
 

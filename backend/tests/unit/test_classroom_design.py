@@ -542,10 +542,11 @@ class _WorkerHarness:
         result: ProviderCallResult | BaseException | None = None,
     ) -> None:
         self.agents = MagicMock()
-        self.agents.begin_design_run = AsyncMock(return_value=run)
+        self.design = MagicMock()
+        self.design.begin = AsyncMock(return_value=run)
         self.agents.get_agent = AsyncMock(return_value=design)
-        self.agents.record_design_success = AsyncMock(return_value=True)
-        self.agents.record_design_failure = AsyncMock(return_value=True)
+        self.design.record_success = AsyncMock(return_value=True)
+        self.design.record_failure = AsyncMock(return_value=True)
         self.agents.chat_model_capabilities = MagicMock(return_value={})
         self.agents.chat_model_catalog = MagicMock(return_value=())
         self.router = MagicMock()
@@ -567,6 +568,12 @@ class _WorkerHarness:
                 patch("contexts.agents.interfaces.facade.AgentsFacade", return_value=self.agents)
             )
             stack.enter_context(
+                patch(
+                    "contexts.agents.interfaces.classroom_design_facade.ClassroomDesignFacade",
+                    return_value=self.design,
+                )
+            )
+            stack.enter_context(
                 patch("contexts.keys.infrastructure.adapters.build_router", return_value=self.router)
             )
             stack.enter_context(patch("shared_kernel.audit.flush_tail_events", new=AsyncMock()))
@@ -586,9 +593,9 @@ class TestWorker:
 
         assert await h.run(run.id) == "succeeded"
 
-        proposal = h.agents.record_design_success.await_args.args[1]
+        proposal = h.design.record_success.await_args.args[1]
         assert (proposal.teacher_system_prompt, proposal.peer_system_prompt) == ("T new", "P new")
-        h.agents.record_design_failure.assert_not_awaited()
+        h.design.record_failure.assert_not_awaited()
 
     async def test_the_call_bills_the_design_agent_with_no_tools(self) -> None:
         run, design = self._setup()
@@ -625,8 +632,8 @@ class TestWorker:
 
         assert await h.run(run.id) == "failed"
 
-        assert h.agents.record_design_failure.await_args.args == (run.id, reason)
-        h.agents.record_design_success.assert_not_awaited()
+        assert h.design.record_failure.await_args.args == (run.id, reason)
+        h.design.record_success.assert_not_awaited()
 
     async def test_a_design_agent_moved_to_another_project_is_misconfigured(self) -> None:
         run, design = self._setup()
@@ -634,7 +641,7 @@ class TestWorker:
 
         assert await h.run(run.id) == "failed"
 
-        assert h.agents.record_design_failure.await_args.args == (run.id, DESIGN_MISCONFIGURED)
+        assert h.design.record_failure.await_args.args == (run.id, DESIGN_MISCONFIGURED)
         h.router.call.assert_not_awaited()
 
     async def test_a_failed_success_write_is_not_retried_as_a_design_failure(self) -> None:
@@ -642,12 +649,12 @@ class TestWorker:
         # raise in turn and mislabel the run. The stale sweep frees it instead.
         run, design = self._setup()
         h = _WorkerHarness(run=run, design=design)
-        h.agents.record_design_success = AsyncMock(side_effect=RuntimeError("db down"))
+        h.design.record_success = AsyncMock(side_effect=RuntimeError("db down"))
 
         with pytest.raises(RuntimeError, match="db down"):
             await h.run(run.id)
 
-        h.agents.record_design_failure.assert_not_awaited()
+        h.design.record_failure.assert_not_awaited()
 
     async def test_a_run_that_is_not_pending_is_left_alone(self) -> None:
         h = _WorkerHarness(run=None, design=None)
@@ -655,7 +662,7 @@ class TestWorker:
         assert await h.run(uuid.uuid4()) == "not-pending"
 
         h.router.call.assert_not_awaited()
-        h.agents.record_design_failure.assert_not_awaited()
+        h.design.record_failure.assert_not_awaited()
 
 
 # -- Route gates (AC-20) ---------------------------------------------------------
