@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { BucketSize } from '../models/BucketSize';
 import type { DashboardAlertsOut } from '../models/DashboardAlertsOut';
+import type { DashboardCollaborationOut } from '../models/DashboardCollaborationOut';
 import type { DashboardSummaryOut } from '../models/DashboardSummaryOut';
 import type { DashboardTimeseriesOut } from '../models/DashboardTimeseriesOut';
 import type { DashboardWatchlistOut } from '../models/DashboardWatchlistOut';
@@ -33,6 +34,39 @@ export class DashboardService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/workspaces/{workspace_id}/dashboard/alerts',
+            path: {
+                'workspace_id': workspaceId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Dashboard Collaboration
+     * The collaboration log of the rooms the caller created ([R34.03]).
+     *
+     * Notices are as confidential as observations ([R28.03]): only the room's
+     * creator reads them, whoever else may open the room.
+     * @returns DashboardCollaborationOut Successful Response
+     * @throws ApiError
+     */
+    public static dashboardCollaborationApiV1WorkspacesWorkspaceIdDashboardCollaborationGet({
+        workspaceId,
+        limit = 50,
+        offset,
+    }: {
+        workspaceId: string,
+        limit?: number,
+        offset?: number,
+    }): CancelablePromise<DashboardCollaborationOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workspaces/{workspace_id}/dashboard/collaboration',
             path: {
                 'workspace_id': workspaceId,
             },
