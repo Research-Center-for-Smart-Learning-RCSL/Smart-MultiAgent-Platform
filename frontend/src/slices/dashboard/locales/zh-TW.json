@@ -21,6 +21,21 @@
     "noValidityData": "尚無提交",
     "stalledRooms": "停滯聊天室",
     "participantsNeedAttention": "需要關注的參與者",
+    "alerts": {
+      "title": "分析代理警示",
+      "openCount": "{count} 則待處理",
+      "new": "未讀",
+      "seen": "已讀",
+      "noReason": "未提供原因",
+      "unknownAgent": "未知代理",
+      "action": {
+        "released": "已發布",
+        "deleted": "已刪除",
+        "room_message": "您已在聊天室回應",
+        "activity_started": "您已開始活動",
+        "activity_ended": "您已結束活動"
+      }
+    },
     "classSummary": "課堂摘要",
     "attentionRequired": "聊天室需要關注",
     "noStalledRooms": "所有聊天室狀態正常。",

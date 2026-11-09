@@ -46,6 +46,7 @@ import GuestBansCard from '../components/GuestBansCard.vue'
 import AgentActivityControl from '../components/AgentActivityControl.vue'
 import AgentCanvasAccess from '../components/AgentCanvasAccess.vue'
 import AgentDraftAccess from '../components/AgentDraftAccess.vue'
+import AgentClassroomRole from '../components/AgentClassroomRole.vue'
 import AgentBubbleColorPicker from '../components/AgentBubbleColorPicker.vue'
 import RoomWakeupPanel from '../components/RoomWakeupPanel.vue'
 import ClassStartCard from '../components/ClassStartCard.vue'
@@ -133,6 +134,7 @@ const {
   onSetActivityControl,
   onSetCanvasAccess,
   onSetCanvasWriteAccess,
+  onSetClassroomRole,
   onSetDraftAccess,
   onSetRole,
   onSetBubbleColor,
@@ -829,6 +831,12 @@ watchEffect(() => {
             >
               {{ t('conversation.observers.observerRoleHelp') }}
             </p>
+            <AgentClassroomRole
+              v-if="isCreator"
+              :agent="agent"
+              :busy="bindingBusy"
+              @save="(role) => onSetClassroomRole(agent.id, role)"
+            />
             <!-- Delegated activity control ([R30.37]). Creator-only, like the role
                  picker above and for the same reason: it is an authority decision
                  about this room, and a non-creator is not even told the layout. -->

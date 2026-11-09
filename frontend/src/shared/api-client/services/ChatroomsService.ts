@@ -7,6 +7,7 @@ import type { AgentActivityControlIn } from '../models/AgentActivityControlIn';
 import type { AgentAppearanceIn } from '../models/AgentAppearanceIn';
 import type { AgentCanvasAccessIn } from '../models/AgentCanvasAccessIn';
 import type { AgentCanvasWriteAccessIn } from '../models/AgentCanvasWriteAccessIn';
+import type { AgentClassroomRoleIn } from '../models/AgentClassroomRoleIn';
 import type { AgentDraftAccessIn } from '../models/AgentDraftAccessIn';
 import type { AgentLabelOut } from '../models/AgentLabelOut';
 import type { AgentRef } from '../models/AgentRef';
@@ -410,6 +411,38 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/canvas-write-access',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Request Validation Problem`,
+            },
+        });
+    }
+    /**
+     * Patch Chatroom Agent Classroom Role
+     * Set a binding's classroom role ([R34.01]).
+     *
+     * Creator-gated like every other authority decision about this room's bindings:
+     * the role decides whose replies are held for review and who may notify whom.
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentClassroomRoleApiChatroomsChatroomIdAgentsAgentIdClassroomRolePatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentClassroomRoleIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}/classroom-role',
             path: {
                 'chatroom_id': chatroomId,
                 'agent_id': agentId,

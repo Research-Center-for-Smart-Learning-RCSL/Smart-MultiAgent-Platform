@@ -16,6 +16,7 @@ import DashboardOverview from '../components/DashboardOverview.vue'
 import DashboardAttentionPanel from '../components/DashboardAttentionPanel.vue'
 import DashboardChartPanel from '../components/DashboardChartPanel.vue'
 import DashboardParticipantsPanel from '../components/DashboardParticipantsPanel.vue'
+import DashboardAlertsPanel from '../components/DashboardAlertsPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -152,6 +153,8 @@ const {
         :watchlist-error="watchlistError"
         :thresholds="thresholds"
       />
+
+      <DashboardAlertsPanel :workspace-id="workspaceId" />
 
       <div class="grid grid-cols-1 gap-4 md:grid-cols-12">
         <section

@@ -2,8 +2,19 @@
   <li
     ref="rootRef"
     class="obs-card"
+    :class="{ 'obs-card--alert': observation.is_alert }"
   >
     <div class="obs-card__head">
+      <span
+        v-if="observation.is_alert"
+        class="obs-card__alert"
+      >
+        <ExclamationTriangleIcon
+          class="w-3.5 h-3.5"
+          aria-hidden="true"
+        />
+        {{ t('conversation.observers.alert') }}
+      </span>
       <span class="obs-card__agent">{{ agentName }}</span>
       <SRelativeTime
         v-if="observation.created_at"
@@ -12,6 +23,12 @@
       />
       <span class="obs-card__trigger">{{ triggerLabel }}</span>
     </div>
+    <p
+      v-if="observation.is_alert && observation.alert_reason"
+      class="obs-card__alert-reason"
+    >
+      {{ observation.alert_reason }}
+    </p>
 
     <!-- R28.15: blocks when the turn assembled any, the markdown body otherwise.
          Every observation recorded before presentation blocks existed, and every
@@ -86,7 +103,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { TrashIcon } from '@heroicons/vue/24/outline'
+import { ExclamationTriangleIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { SButton, SRelativeTime } from '@shared/ui'
 import ObservationBlocks from './observation-blocks/ObservationBlocks.vue'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
@@ -162,6 +179,26 @@ const releaseChip = computed<string | null>(() => {
   padding: var(--space-3);
   background: var(--color-surface);
   list-style: none;
+}
+
+.obs-card--alert {
+  border-color: var(--color-warning);
+}
+
+.obs-card__alert {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning);
+}
+
+.obs-card__alert-reason {
+  margin: 0 0 var(--space-1-5);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+  overflow-wrap: anywhere;
 }
 
 .obs-card__head {

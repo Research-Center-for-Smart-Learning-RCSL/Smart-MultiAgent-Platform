@@ -270,6 +270,51 @@ describe('conversation api wire contract', () => {
     expect(cap.value?.query.limit).toBe('500')
   })
 
+  it('listChatroomAgents carries the classroom role and drops a null one ([R34.01])', async () => {
+    captureAll()
+    server.use(
+      mswHttp.get('/api/chatrooms/:chatroomId/agents', () =>
+        HttpResponse.json([
+          { agent_id: 'a_1', role: 'normal', classroom_role: 'teacher' },
+          { agent_id: 'a_2', role: 'observer', classroom_role: null },
+        ]),
+      ),
+    )
+    const refs = await api.listChatroomAgents('cr_1')
+    expect(refs[0]).toMatchObject({ agent_id: 'a_1', classroom_role: 'teacher' })
+    expect('classroom_role' in refs[1]!).toBe(false)
+  })
+
+  it('setChatroomAgentClassroomRole PATCHes the classroom-role route', async () => {
+    let seen: { path: string; body: unknown } | null = null
+    server.use(
+      mswHttp.patch('/api/chatrooms/:chatroomId/agents/:agentId/classroom-role', async ({ request }) => {
+        seen = { path: new URL(request.url).pathname, body: await request.json() }
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await api.setChatroomAgentClassroomRole('cr_1', 'a_1', 'peer')
+    expect(seen).toEqual({
+      path: '/api/chatrooms/cr_1/agents/a_1/classroom-role',
+      body: { classroom_role: 'peer' },
+    })
+  })
+
+  it('recordAlertViews POSTs the ids and the surface ([R34.02])', async () => {
+    let seen: { path: string; body: unknown } | null = null
+    server.use(
+      mswHttp.post('/api/chatrooms/:chatroomId/observations/viewed', async ({ request }) => {
+        seen = { path: new URL(request.url).pathname, body: await request.json() }
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await api.recordAlertViews('cr_1', ['o_1'], 'panel')
+    expect(seen).toEqual({
+      path: '/api/chatrooms/cr_1/observations/viewed',
+      body: { observation_ids: ['o_1'], via: 'panel' },
+    })
+  })
+
   it('listChatroomAgents normalizes a null role to absent (bridge B2)', async () => {
     const cap = captureAll()
     const refs = await api.listChatroomAgents('cr_1')

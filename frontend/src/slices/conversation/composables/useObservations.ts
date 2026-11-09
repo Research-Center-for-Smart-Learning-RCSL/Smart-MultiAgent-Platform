@@ -17,6 +17,7 @@ import { useSessionStore } from '@shared/stores/session'
 import {
   deleteObservation,
   listObservations,
+  recordAlertViews,
   releaseObservation,
   type BoundAgentRef,
   type ReleaseBody,
@@ -163,6 +164,45 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
     panelOpen.value = open
     if (open) unreadCount.value = 0
   }
+
+  // ---- alert views ([R34.02]) ---------------------------------------------------
+  //
+  // The first time an alert is on screen is the RQ2 "teacher saw it" moment, so it
+  // is reported only while the panel is open AND the page is visible: an open panel
+  // in a background tab is not a teacher looking. The server keeps the first write
+  // only, so a repeat from another tab is harmless; `reported` just avoids sending
+  // one per refetch. Best-effort: a lost report costs one data point, not the panel.
+  const VIEW_BATCH = 50
+  const reported = new Set<string>()
+  const pageVisible = ref(typeof document === 'undefined' || document.visibilityState === 'visible')
+
+  function onVisibilityChange(): void {
+    pageVisible.value = document.visibilityState === 'visible'
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    onScopeDispose(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+  }
+
+  watch(
+    [panelOpen, pageVisible, observations],
+    () => {
+      // The literal creator only: the server records nobody else's view, so an
+      // admin's or a moderator-fallback reader's request would be wasted.
+      if (!panelOpen.value || !pageVisible.value || !receivesLiveStatus.value) return
+      const ids = observations.value
+        .filter((o) => o.is_alert && !o.first_viewed_at && !reported.has(o.id))
+        .map((o) => o.id)
+      for (let i = 0; i < ids.length; i += VIEW_BATCH) {
+        const batch = ids.slice(i, i + VIEW_BATCH)
+        for (const id of batch) reported.add(id)
+        recordAlertViews(chatroomId, batch, 'panel').catch(() => {
+          for (const id of batch) reported.delete(id)
+        })
+      }
+    },
+    { immediate: true },
+  )
 
   // F-13. The badge counted only WS arrivals, so an `observation.created` lost
   // to a socket gap raised nothing even after the reconnect refetch recovered

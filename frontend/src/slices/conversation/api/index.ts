@@ -236,6 +236,8 @@ export interface BoundAgentRef {
   may_read_drafts?: boolean
   may_read_canvas?: boolean
   may_write_canvas?: boolean
+  // [R34.01], creator-only.
+  classroom_role?: ClassroomRole
   // For every room participant, guests included: a guest cannot read the
   // project's agent-name list, and needs the name to label and @-mention.
   name?: string
@@ -269,6 +271,7 @@ export async function listChatroomAgents(
     ...(r.may_read_drafts != null ? { may_read_drafts: r.may_read_drafts } : {}),
     ...(r.may_read_canvas != null ? { may_read_canvas: r.may_read_canvas } : {}),
     ...(r.may_write_canvas != null ? { may_write_canvas: r.may_write_canvas } : {}),
+    ...(r.classroom_role != null ? { classroom_role: r.classroom_role } : {}),
   }))
 }
 
@@ -312,6 +315,31 @@ export async function setChatroomAgentDraftAccess(
       requestBody: { granted },
     },
   )
+}
+
+export type ClassroomRole = 'none' | 'teacher' | 'peer' | 'analyst'
+
+/** Set one binding's classroom role ([R34.01]). Creator-only server-side. */
+export async function setChatroomAgentClassroomRole(
+  chatroomId: string,
+  agentId: string,
+  classroomRole: ClassroomRole,
+): Promise<void> {
+  await ChatroomsService.patchChatroomAgentClassroomRoleApiChatroomsChatroomIdAgentsAgentIdClassroomRolePatch(
+    { chatroomId, agentId, requestBody: { classroom_role: classroomRole } },
+  )
+}
+
+/** Report alerts the creator has just seen on an open, visible surface ([R34.02]). */
+export async function recordAlertViews(
+  chatroomId: string,
+  observationIds: string[],
+  via: 'panel' | 'dashboard',
+): Promise<void> {
+  await ObservationsService.recordAlertViewsApiChatroomsChatroomIdObservationsViewedPost({
+    chatroomId,
+    requestBody: { observation_ids: observationIds, via },
+  })
 }
 
 /** Grant or revoke one bound agent's canvas reading ([R13.47]).

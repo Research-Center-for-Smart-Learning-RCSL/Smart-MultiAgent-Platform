@@ -68,6 +68,14 @@ vi.mock('../components/ResearchExportButton.vue', () => ({
   },
 }))
 
+vi.mock('../components/DashboardAlertsPanel.vue', () => ({
+  default: {
+    name: 'DashboardAlertsPanel',
+    template: '<div data-testid="alerts-panel-stub" />',
+    props: ['workspaceId'],
+  },
+}))
+
 vi.mock('@slices/tenancy', async (importOriginal) => {
   const actual = await importOriginal()
   return {

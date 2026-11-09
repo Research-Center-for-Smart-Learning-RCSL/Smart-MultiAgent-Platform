@@ -2,6 +2,7 @@
 // Extracted from ChatroomSettingsView.vue (H16 SoC fix).
 
 import { useToast } from '@shared/composables'
+import { ApiError } from '@shared/errors'
 import { useI18n } from 'vue-i18n'
 import type { AgentBubbleColor } from '../utils/agentBubbleColors'
 import { computed, ref } from 'vue'
@@ -17,9 +18,11 @@ import {
   setChatroomAgentActivityControl,
   setChatroomAgentCanvasAccess,
   setChatroomAgentCanvasWriteAccess,
+  setChatroomAgentClassroomRole,
   setChatroomAgentDraftAccess,
   setChatroomAgentRole,
   setChatroomAgentAppearance,
+  type ClassroomRole,
 } from '../api'
 import { convKeys } from '../queries'
 import { activityKeys, listActivityTypes, type ActivityType } from '@slices/activities'
@@ -42,6 +45,8 @@ export interface BoundAgent {
   may_read_drafts?: boolean
   may_read_canvas?: boolean
   may_write_canvas?: boolean
+  // [R34.01], creator-only with the same three-state meaning.
+  classroom_role?: ClassroomRole
 }
 
 interface AgentName {
@@ -93,6 +98,7 @@ export function useChatroomBindings(
   const boundDraftGrants = ref<Record<string, boolean | undefined>>({})
   const boundCanvasGrants = ref<Record<string, boolean | undefined>>({})
   const boundCanvasWriteGrants = ref<Record<string, boolean | undefined>>({})
+  const boundClassroomRoles = ref<Record<string, ClassroomRole | undefined>>({})
   // The project's usable activity types, for the grant multi-select. A query
   // rather than part of `loadBindings`: the creator bit can settle after the
   // bindings did (the session's `me` may arrive after the room), and the query
@@ -141,6 +147,7 @@ export function useChatroomBindings(
         const draftGrant = boundDraftGrants.value[a.id]
         const canvasGrant = boundCanvasGrants.value[a.id]
         const canvasWriteGrant = boundCanvasWriteGrants.value[a.id]
+        const classroomRole = boundClassroomRoles.value[a.id]
         return {
           id: a.id,
           name: a.name,
@@ -153,6 +160,7 @@ export function useChatroomBindings(
           ...(draftGrant !== undefined && { may_read_drafts: draftGrant }),
           ...(canvasGrant !== undefined && { may_read_canvas: canvasGrant }),
           ...(canvasWriteGrant !== undefined && { may_write_canvas: canvasWriteGrant }),
+          ...(classroomRole !== undefined && { classroom_role: classroomRole }),
         }
       }),
   )
@@ -203,6 +211,9 @@ export function useChatroomBindings(
       )
       boundCanvasWriteGrants.value = Object.fromEntries(
         bound.map((b) => [b.agent_id, b.may_write_canvas]),
+      )
+      boundClassroomRoles.value = Object.fromEntries(
+        bound.map((b) => [b.agent_id, b.classroom_role]),
       )
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
@@ -329,6 +340,25 @@ export function useChatroomBindings(
     }
   }
 
+  /** [R34.01]. A 409 means the room already has a teacher agent; it gets its own
+   *  message because the fix (demote the other agent first) is the teacher's. */
+  async function onSetClassroomRole(agentId: string, role: ClassroomRole): Promise<void> {
+    if (bindingBusy.value || boundClassroomRoles.value[agentId] === role) return
+    bindingBusy.value = true
+    bindingError.value = null
+    try {
+      await setChatroomAgentClassroomRole(chatroomId, agentId, role)
+      await loadBindings()
+    } catch (err) {
+      bindingError.value =
+        err instanceof ApiError && err.status === 409
+          ? 'conversation.classroomRole.teacherTaken'
+          : 'conversation.classroomRole.failed'
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
   /** Unlike the grant writes, a 204 here means the server now holds exactly
    *  `color` (written or already equal), so the local map is patched instead of
    *  reloading the whole card. A failure reloads: a 404/409 means another tab
@@ -383,6 +413,7 @@ export function useChatroomBindings(
     onSetDraftAccess,
     onSetCanvasAccess,
     onSetCanvasWriteAccess,
+    onSetClassroomRole,
     onSetRole,
     onSetBubbleColor,
   }

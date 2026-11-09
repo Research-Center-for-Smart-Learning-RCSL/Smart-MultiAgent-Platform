@@ -277,6 +277,7 @@
       "collapse": "Show less",
       "release": "Release",
       "delete": "Delete",
+      "alert": "Alert",
       "releasedToRoom": "Released to room",
       "releasedToAgents": "Sent to {n} agents",
       "andWoken": "and woken",
@@ -439,6 +440,16 @@
       "discloseOnHelp": "Everyone in this room sees a small notice on the message box and the activity panel whenever an agent here can read unsent text.",
       "discloseOffHelp": "Nobody is told. If you have also given an agent permission to read unsent text, people will be typing in front of it without knowing.",
       "undisclosedCallout": "An agent in this room can read what people are typing before they send it, and this room does not tell them. Turning the notice back on is the only thing that does."
+    },
+    "classroomRole": {
+      "label": "Classroom role",
+      "help": "What this agent is in the class. A room has at most one teacher agent. Teacher and student agents take part in the conversation; an analyst is an observer that can flag alerts for you.",
+      "none": "None",
+      "teacher": "Teacher agent",
+      "peer": "Student agent",
+      "analyst": "Analyst",
+      "failed": "Could not change the classroom role.",
+      "teacherTaken": "This room already has a teacher agent. Set that agent to another role first."
     },
     "draftAccess": {
       "label": "May read unsent text",

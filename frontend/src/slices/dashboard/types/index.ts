@@ -5,6 +5,7 @@ export type {
   DashboardTimeseriesOut as DashboardTimeseriesResponse,
   WatchlistEntryOut as WatchlistEntry,
   DashboardWatchlistOut as DashboardWatchlistResponse,
+  AlertOut as DashboardAlert,
   TrafficLight,
   TimeWindow,
   BucketSize,
