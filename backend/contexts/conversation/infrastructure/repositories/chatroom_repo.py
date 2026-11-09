@@ -558,6 +558,28 @@ class ChatroomAgentRepository:
         ).first()
         return (ChatroomAgentRole(row.role), ClassroomRole(row.classroom_role)) if row else None
 
+    async def classroom_binding(
+        self, *, chatroom_id: uuid.UUID, classroom_role: ClassroomRole
+    ) -> tuple[uuid.UUID, uuid.UUID] | None:
+        """``(agent_id, binding_id)`` of the room's binding in ``classroom_role``.
+
+        For the teacher there is at most one (0110's unique index)."""
+        stmt = sa.select(t.chatroom_agents.c.agent_id, t.chatroom_agents.c.binding_id).where(
+            t.chatroom_agents.c.chatroom_id == chatroom_id,
+            t.chatroom_agents.c.classroom_role == classroom_role.value,
+        )
+        row = (await self._db.execute(stmt.limit(1))).first()
+        return (row.agent_id, row.binding_id) if row else None
+
+    async def binding_id_of(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID | None:
+        return (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.binding_id).where(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id, t.chatroom_agents.c.agent_id == agent_id
+                )
+            )
+        ).scalar_one_or_none()
+
     async def set_classroom_role(
         self,
         *,
