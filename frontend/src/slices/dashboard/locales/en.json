@@ -75,6 +75,72 @@
         }
       }
     },
+    "design": {
+      "title": "Design classroom agents",
+      "description": "The design agent drafts system prompts for the teacher and student agents from this form. Nothing changes until you compare the drafts with the current prompts and apply them.",
+      "choose": "Choose",
+      "required": "Required",
+      "sameAgent": "The teacher and student agents must be different agents.",
+      "field": {
+        "designAgent": "Design agent",
+        "activityType": "Activity type",
+        "teacherAgent": "Teacher agent",
+        "peerAgent": "Student agent",
+        "difficulty": "Difficulty",
+        "rounds": "Number of rounds",
+        "peerErrorPattern": "Student agent deliberate errors",
+        "tone": "Tone",
+        "notes": "Notes for the design agent"
+      },
+      "notesHelp": "Optional, at most {max} characters.",
+      "difficulty": {
+        "introductory": "Introductory",
+        "intermediate": "Intermediate",
+        "advanced": "Advanced"
+      },
+      "errorPattern": {
+        "none": "None",
+        "one_in_three": "One answer in three"
+      },
+      "tone": {
+        "warm": "Warm",
+        "neutral": "Neutral",
+        "concise": "Concise"
+      },
+      "submit": "Draft prompts",
+      "submitFailed": "The design could not be started.",
+      "inFlight": "A design for this project is already being drafted.",
+      "status": {
+        "pending": "Waiting for the design agent...",
+        "running": "The design agent is drafting the prompts..."
+      },
+      "failure": {
+        "design_timeout": "The design agent did not finish in time.",
+        "design_unavailable": "The design agent's model provider could not be reached.",
+        "design_bad_output": "The design agent's reply was not in the expected format.",
+        "design_too_large": "A drafted prompt was longer than the 32,000-character limit.",
+        "design_misconfigured": "The design agent is missing or belongs to another project.",
+        "design_stale": "The design did not start. Try again."
+      },
+      "notes": "Design agent's notes:",
+      "target": {
+        "teacher": "Teacher agent: {name}",
+        "peer": "Student agent: {name}"
+      },
+      "current": "Current",
+      "proposed": "Proposed",
+      "emptyPrompt": "(empty)",
+      "startOver": "New design",
+      "backToProposal": "Back to the drafts",
+      "apply": "Apply",
+      "applyTitle": "Apply both prompts?",
+      "applyMessage": "The system prompts of {teacher} and {peer} are replaced with the drafts. Earlier prompts stay in each agent's prompt history.",
+      "applied": "Both prompts were applied.",
+      "appliedNote": "The drafts were applied to {teacher} and {peer}.",
+      "applyFailed": "The prompts could not be applied.",
+      "notApplicable": "This design has already been applied or is no longer available.",
+      "conflict": "An agent changed after these drafts were made, so nothing was applied. Start a new design to draft from the current prompts."
+    },
     "classSummary": "Class summary",
     "attentionRequired": "Rooms need attention",
     "noStalledRooms": "All rooms are on track.",

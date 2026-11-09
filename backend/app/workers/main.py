@@ -46,6 +46,7 @@ from app.workers.tasks.activities import (
 )
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import approval_gate_announce, drive_approver_turn
+from app.workers.tasks.classroom_design import DESIGN_JOB_TIMEOUT_S, run_classroom_design
 from app.workers.tasks.conversation import (
     CHAT_EXPORT_TIMEOUT_S,
     chat_export,
@@ -360,6 +361,13 @@ class WorkerSettings:
             score_activity_submission,
             name="score_activity_submission",
             timeout=JUDGE_JOB_TIMEOUT_S,
+            max_tries=1,
+        ),
+        # Same reason: a retry bills the design agent's key a second time.
+        func(
+            run_classroom_design,
+            name="run_classroom_design",
+            timeout=DESIGN_JOB_TIMEOUT_S,
             max_tries=1,
         ),
         check_all_submitted,

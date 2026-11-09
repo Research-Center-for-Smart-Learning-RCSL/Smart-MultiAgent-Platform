@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     # the two example methods import the service inside their own bodies.
     from contexts.agents.application.example_service import CataloguePack, PackInstallReport
 
-from contexts.agents.domain.errors import AgentVersionMismatch
+from contexts.agents.domain.classroom_design import PromptRevision, PromptRevisionSource
+from contexts.agents.domain.errors import AgentNotFound, AgentVersionMismatch
 from contexts.agents.domain.model_specs import capability_fields, resolve_spec
 from contexts.agents.domain.models import (
     Agent,
@@ -41,12 +42,15 @@ from contexts.agents.infrastructure.repositories import (
 __all__ = [
     "Agent",
     "AgentDraft",
+    "AgentNotFound",
     "AgentTool",
     "AgentVersionMismatch",
     "AgentsFacade",
     "ChatModelCatalogEntry",
     "EgressResponse",
     "McpInvokeResult",
+    "PromptRevision",
+    "PromptRevisionSource",
     "WorkspaceFile",
 ]
 
@@ -184,6 +188,7 @@ class AgentsFacade:
         expected_version: int,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
     ) -> Agent:
         """Delegate to ``AgentService.patch`` for wakeup-config updates.
 
@@ -199,6 +204,40 @@ class AgentsFacade:
             expected_version=expected_version,
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Prompt revisions ([R34.07]); design runs live in ClassroomDesignFacade
+    # ------------------------------------------------------------------
+
+    async def list_prompt_revisions(
+        self, agent_id: uuid.UUID, *, limit: int, offset: int
+    ) -> Sequence[PromptRevision]:
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).list_prompt_revisions(agent_id, limit=limit, offset=offset)
+
+    async def restore_prompt_revision(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        revision_id: uuid.UUID,
+        expected_version: int,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Agent:
+        """Never commits."""
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).restore_prompt_revision(
+            agent_id=agent_id,
+            revision_id=revision_id,
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
         )
 
     async def detach_agents_colliding_with_knowmap_builder(

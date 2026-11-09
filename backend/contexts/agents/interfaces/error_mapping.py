@@ -134,6 +134,33 @@ _MAP: ErrorMap = {
         422,
         "Merged workflow capabilities are inconsistent",
     ),
+    errors.PromptRevisionNotFound: (
+        "agents/prompt-revision-not-found",
+        404,
+        "Prompt revision not found",
+    ),
+    errors.DesignRunNotFound: ("agents/design-run-not-found", 404, "Design run not found"),
+    errors.DesignAgentOutOfProject: ("agents/design-agent-not-found", 404, "Agent not found"),
+    errors.DesignTargetsInvalid: (
+        "agents/design-targets-invalid",
+        422,
+        "The teacher and peer agents must be different agents",
+    ),
+    errors.DesignRunInFlight: (
+        "agents/design-run-in-flight",
+        409,
+        "A design run for this project is already in progress",
+    ),
+    errors.DesignRunNotApplicable: (
+        "agents/design-run-not-applicable",
+        409,
+        "This design run has no proposal to apply",
+    ),
+    errors.DesignApplyConflict: (
+        "agents/design-apply-conflict",
+        409,
+        "An agent changed since this design was drafted",
+    ),
 }
 
 

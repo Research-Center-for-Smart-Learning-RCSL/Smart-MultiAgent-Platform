@@ -6,4 +6,5 @@ export const dashboardKeys = {
   watchlist: (workspaceId: string) => ['dashboard', 'watchlist', workspaceId] as const,
   alerts: (workspaceId: string) => ['dashboard', 'alerts', workspaceId] as const,
   collaboration: (workspaceId: string) => ['dashboard', 'collaboration', workspaceId] as const,
+  designRun: (projectId: string) => ['dashboard', 'designRun', projectId] as const,
 }

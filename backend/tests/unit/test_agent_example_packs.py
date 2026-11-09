@@ -1518,6 +1518,14 @@ class TestPeerDeliberateErrors:
     # -- AC-7: the designers carry both rules into their drafts -------------------
 
     @pytest.mark.parametrize("key", _DESIGNERS)
+    def test_designer_knows_the_dashboard_panel_writes_only_on_apply(self, key: str) -> None:
+        """Classroom collaboration M4 ([R34.08]): the panel replaces copy and paste."""
+        block = _section(self._prompt(key), "提示詞規範")
+        assert "「設計課堂代理人」面板" in block, key
+        assert "按下套用才會寫入" in block, key
+        assert "依平台附上的格式回覆" in block, key
+
+    @pytest.mark.parametrize("key", _DESIGNERS)
     def test_designer_carries_the_peer_error_and_teacher_rules(self, key: str) -> None:
         block = _section(self._prompt(key), "提示詞規範")
         assert _PEER_ERROR_POSITIONS in block, key

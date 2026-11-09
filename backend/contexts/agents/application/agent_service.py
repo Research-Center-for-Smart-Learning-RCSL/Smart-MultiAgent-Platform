@@ -40,17 +40,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
+from contexts.agents.domain.classroom_design import PromptRevision, PromptRevisionSource
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentConfigTooLarge,
     AgentNotFound,
     AgentToolNotFound,
     AgentToolTypeImmutable,
+    AgentVersionMismatch,
     FileSearchNeedsKnowledge,
     KeyGroupNoMatchingProvider,
     KeyGroupOutOfProject,
     KnowmapBuilderKeyGroupConflict,
     KnowmapConfigOutOfProject,
+    PromptRevisionNotFound,
     RagConfigOutOfProject,
     ToolNotAvailable,
     WorkflowCapabilitiesInvalid,
@@ -65,6 +68,7 @@ from contexts.agents.domain.models import (
     McpToolSpec,
     ToolProbeResult,
 )
+from contexts.agents.infrastructure.classroom_design_repositories import PromptRevisionRepository
 from contexts.agents.infrastructure.repositories import (
     AgentRepository,
     AgentToolRepository,
@@ -432,6 +436,7 @@ class AgentService:
         self._db = db
         self._agents = AgentRepository(db)
         self._tools = AgentToolRepository(db)
+        self._revisions = PromptRevisionRepository(db)
         self._keys = KeysFacade(db)
         self._knowledge = KnowledgeFacade(db)
         self._skills = SkillsFacade(db)
@@ -743,7 +748,15 @@ class AgentService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        prompt_source: PromptRevisionSource = PromptRevisionSource.MANUAL,
+        design_run_id: uuid.UUID | None = None,
+        restored_from_id: uuid.UUID | None = None,
     ) -> Agent:
+        """Apply a partial update under If-Match.
+
+        ``prompt_source`` and the two ids describe a ``system_prompt`` change for
+        its revision row; they are ignored when the prompt does not change.
+        """
         current = await self.get(agent_id)
 
         # If the key group is being swapped, validate project membership.
@@ -914,6 +927,15 @@ class AgentService:
             # UPDATE and no version bump. Mirror ChatroomService.patch: emit
             # no `agent.edited` audit row, since nothing was actually edited.
             return updated
+        if updated.system_prompt != current.system_prompt:
+            await self._record_prompt_revision(
+                before=current,
+                after=updated,
+                actor_user_id=actor_user_id,
+                source=prompt_source,
+                design_run_id=design_run_id,
+                restored_from_id=restored_from_id,
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -923,6 +945,90 @@ class AgentService:
                 resource_type="agent",
                 resource_id=updated.id,
                 metadata={"fields": sorted(values.keys())},
+                request_id=request_id,
+            ),
+        )
+        return updated
+
+    async def _record_prompt_revision(
+        self,
+        *,
+        before: Agent,
+        after: Agent,
+        actor_user_id: uuid.UUID,
+        source: PromptRevisionSource,
+        design_run_id: uuid.UUID | None,
+        restored_from_id: uuid.UUID | None,
+    ) -> None:
+        # The agent row's version lock is held by the UPDATE above, so two patches
+        # of one agent cannot both find no history and both write the baseline.
+        if not await self._revisions.has_any(after.id):
+            await self._revisions.add(
+                agent_id=after.id,
+                agent_version=before.version,
+                system_prompt=before.system_prompt,
+                source=PromptRevisionSource.INITIAL,
+                actor_user_id=None,
+            )
+        await self._revisions.add(
+            agent_id=after.id,
+            agent_version=after.version,
+            system_prompt=after.system_prompt,
+            source=source,
+            actor_user_id=None if actor_user_id == _SYSTEM_ACTOR_ID else actor_user_id,
+            design_run_id=design_run_id,
+            restored_from_id=restored_from_id,
+        )
+
+    async def list_prompt_revisions(
+        self, agent_id: uuid.UUID, *, limit: int, offset: int
+    ) -> Sequence[PromptRevision]:
+        """Newest first. Empty for an agent whose prompt never changed (D-11)."""
+        await self.get(agent_id)
+        return await self._revisions.list(agent_id, limit=limit, offset=offset)
+
+    async def restore_prompt_revision(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        revision_id: uuid.UUID,
+        expected_version: int,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Agent:
+        """Set the prompt back to a revision's text, itself recorded as a revision.
+
+        Restoring the prompt the agent already has writes nothing, so a double
+        click cannot bump the version and stale the other open editors.
+        """
+        revision = await self._revisions.get(agent_id=agent_id, revision_id=revision_id)
+        if revision is None:
+            raise PromptRevisionNotFound(str(revision_id))
+        current = await self.get(agent_id)
+        if current.version != expected_version:
+            raise AgentVersionMismatch(str(agent_id))
+        if current.system_prompt == revision.system_prompt:
+            return current
+        updated = await self.patch(
+            agent_id=agent_id,
+            draft=AgentDraft(system_prompt=revision.system_prompt),
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+            prompt_source=PromptRevisionSource.RESTORE,
+            restored_from_id=revision.id,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent.prompt_restored",
+                actor_user_id=None if actor_user_id == _SYSTEM_ACTOR_ID else actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent",
+                resource_id=agent_id,
+                metadata={"revision_id": str(revision.id)},
                 request_id=request_id,
             ),
         )

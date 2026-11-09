@@ -35,6 +35,7 @@ Declared in `frontend/eslint.config.js`'s `SLICE_DEPS` map — the executable so
 | `agent-groups` | `agents`, `keys`, `tenancy`, `identity` |
 | `activities` | `agents`, `tenancy` (hosted inside `conversation` via a plugin bridge, must never import `conversation` back) |
 | `canvas` | — (leaf; `conversation` imports it one-way) |
+| `dashboard` | `agents`, `activities`, `tenancy` |
 | `workflow` | `agent-groups`, `agents`, `keys`, `tenancy`, `identity` (hosted below `conversation`; wraps its own read-only workspace/chatroom lookups in `workflow/api` instead of importing `conversation`) |
 | `conversation` | `canvas`, `workflow`, `activities`, `agent-groups`, `agents`, `keys`, `tenancy`, `identity` |
 | `admin` | `prompt-studio`, `skills` |

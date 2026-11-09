@@ -234,6 +234,48 @@ class WorkspaceFileNotFound(AgentsError):
     code = "agents/workspace-file-not-found"
 
 
+class PromptRevisionNotFound(AgentsError):
+    code = "agents/prompt-revision-not-found"
+
+
+class DesignRunNotFound(AgentsError):
+    code = "agents/design-run-not-found"
+
+
+class DesignAgentOutOfProject(AgentsError):
+    """A design run names an agent outside its project ([R34.08]).
+
+    Surfaced as 404, like `RagConfigOutOfProject`, so a probe cannot tell
+    another project's agent from a missing one.
+    """
+
+    code = "agents/design-agent-not-found"
+
+
+class DesignTargetsInvalid(AgentsError):
+    """The teacher and peer targets are the same agent."""
+
+    code = "agents/design-targets-invalid"
+
+
+class DesignRunInFlight(AgentsError):
+    """The project already has a pending or running design run."""
+
+    code = "agents/design-run-in-flight"
+
+
+class DesignRunNotApplicable(AgentsError):
+    """The run has no proposal to apply: it is unfinished, failed, or applied."""
+
+    code = "agents/design-run-not-applicable"
+
+
+class DesignApplyConflict(AgentsError):
+    """A target agent changed since the run's proposal was drafted."""
+
+    code = "agents/design-apply-conflict"
+
+
 __all__ = [
     "A2AForbidden",
     "AgentCapExceeded",
@@ -246,6 +288,12 @@ __all__ = [
     "AgentVersionMismatch",
     "AgentsError",
     "CapabilityMismatch",
+    "DesignAgentOutOfProject",
+    "DesignApplyConflict",
+    "DesignRunInFlight",
+    "DesignRunNotApplicable",
+    "DesignRunNotFound",
+    "DesignTargetsInvalid",
     "FileSearchNeedsKnowledge",
     "KeyGroupNoMatchingProvider",
     "KeyGroupOutOfProject",
@@ -255,6 +303,7 @@ __all__ = [
     "McpEgressDenied",
     "McpTestFailed",
     "McpTimeout",
+    "PromptRevisionNotFound",
     "RagConfigOutOfProject",
     "SandboxReconcileError",
     "SandboxRuntimeViolation",

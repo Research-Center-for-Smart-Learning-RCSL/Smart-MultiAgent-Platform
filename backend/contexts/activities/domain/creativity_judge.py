@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import enum
 import json
-import re
 import uuid
 from typing import Any, Final
 
 from contexts.activities.domain.errors import CreativityScoringInvalid
 from contexts.activities.domain.fill_rule import count_filled
+from shared_kernel.llm_reply import ReplyNotJsonObject, load_json_object
 
 #: The judged dimensions. Fluency is the fourth and is counted, not judged.
 JUDGE_DIMENSIONS: Final = ("flexibility", "originality", "convergence")
@@ -64,8 +64,6 @@ _ESCAPED: Final = {
     c: f"\\u{ord(c):04x}"
     for c in "<>\u2028\u2029\u2039\u203a\u2329\u232a\u3008\u3009\ufe64\ufe65\uff1c\uff1e"
 }
-_FENCE: Final = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
-_OBJECT_SPAN: Final = re.compile(r"\{[\s\S]*\}")
 
 
 class JudgeStatus(str, enum.Enum):
@@ -180,23 +178,10 @@ def parse_judgement(text: str) -> dict[str, dict[str, Any]]:
 
 
 def _load_object(text: str) -> dict[str, Any]:
-    body = text.strip()
-    fenced = _FENCE.match(body)
-    if fenced:
-        body = fenced.group(1)
     try:
-        data = json.loads(body)
-    except json.JSONDecodeError:
-        span = _OBJECT_SPAN.search(body)
-        if span is None:
-            raise JudgeOutputInvalid("reply is not JSON") from None
-        try:
-            data = json.loads(span.group(0))
-        except json.JSONDecodeError:
-            raise JudgeOutputInvalid("reply is not JSON") from None
-    if not isinstance(data, dict):
-        raise JudgeOutputInvalid("reply is not a JSON object")
-    return data
+        return load_json_object(text)
+    except ReplyNotJsonObject as exc:
+        raise JudgeOutputInvalid(str(exc)) from None
 
 
 def fluency(payload: dict[str, Any], payload_schema: dict[str, Any]) -> int:

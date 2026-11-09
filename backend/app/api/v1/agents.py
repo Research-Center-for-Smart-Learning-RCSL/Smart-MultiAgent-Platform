@@ -15,9 +15,10 @@ AuthZ (§5.2, cap #15 `RESOURCE_CREATE_EDIT`):
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +33,13 @@ from contexts.agents.domain.models import (
     AgentToolType,
     ContextMode,
 )
-from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.agents.interfaces.facade import (
+    Agent,
+    AgentNotFound,
+    AgentsFacade,
+    PromptRevision,
+    PromptRevisionSource,
+)
 from contexts.orchestration.domain.models import (
     AUTOSTOP_HARD_CAP,
     EVERY_N_COUNT_MODES,
@@ -854,6 +861,76 @@ async def patch_agent(
     updated = await service.patch(
         agent_id=agent_id,
         draft=draft,
+        expected_version=expected,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_agent_out(updated)
+
+
+class PromptRevisionOut(BaseModel):
+    id: uuid.UUID
+    agent_version: int
+    system_prompt: str
+    source: PromptRevisionSource
+    actor_user_id: uuid.UUID | None
+    design_run_id: uuid.UUID | None
+    restored_from_id: uuid.UUID | None
+    created_at: datetime
+
+
+def _to_revision_out(r: PromptRevision) -> PromptRevisionOut:
+    return PromptRevisionOut(
+        id=r.id,
+        agent_version=r.agent_version,
+        system_prompt=r.system_prompt,
+        source=r.source,
+        actor_user_id=r.actor_user_id,
+        design_run_id=r.design_run_id,
+        restored_from_id=r.restored_from_id,
+        created_at=r.created_at,
+    )
+
+
+async def _editable_agent(db: AsyncSession, principal: Principal, agent_id: uuid.UUID) -> Agent:
+    agent = await AgentsFacade(db).get_agent(agent_id)
+    if agent is None:
+        raise AgentNotFound(str(agent_id))
+    await assert_project_capability(
+        db=db, principal=principal, project_id=agent.project_id, capability=Capability.RESOURCE_CREATE_EDIT
+    )
+    return agent
+
+
+@agent_router.get("/{agent_id}/prompt-revisions")
+async def list_prompt_revisions(
+    agent_id: uuid.UUID = Path(...),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=10_000),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[PromptRevisionOut]:
+    """Newest first ([R34.07]). Empty until the prompt first changes."""
+    await _editable_agent(db, principal, agent_id)
+    rows = await AgentsFacade(db).list_prompt_revisions(agent_id, limit=limit, offset=offset)
+    return [_to_revision_out(r) for r in rows]
+
+
+@agent_router.post("/{agent_id}/prompt-revisions/{revision_id}/restore")
+async def restore_prompt_revision(
+    agent_id: uuid.UUID = Path(...),
+    revision_id: uuid.UUID = Path(...),
+    if_match: str = Header(..., alias="If-Match"),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentOut:
+    expected = require_if_match(if_match)
+    await _editable_agent(db, principal, agent_id)
+    updated = await AgentsFacade(db).restore_prompt_revision(
+        agent_id=agent_id,
+        revision_id=revision_id,
         expected_version=expected,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,

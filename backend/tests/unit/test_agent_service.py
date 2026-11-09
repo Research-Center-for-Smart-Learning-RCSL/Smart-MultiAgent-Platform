@@ -129,6 +129,8 @@ def _make_service(
     db = AsyncMock()
     db.execute = AsyncMock()
     svc = AgentService(db)
+    # Prompt revisions have their own tests (test_prompt_revisions.py).
+    svc._revisions = AsyncMock()
     if agent_repo is not None:
         svc._agents = agent_repo
     if tool_repo is not None:

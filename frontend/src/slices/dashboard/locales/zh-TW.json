@@ -75,6 +75,72 @@
         }
       }
     },
+    "design": {
+      "title": "設計課堂代理人",
+      "description": "設計代理會依這份表單，為教師代理與學生代理草擬系統提示詞。在您比對草稿與目前的提示詞並按下套用之前，什麼都不會改變。",
+      "choose": "請選擇",
+      "required": "必填",
+      "sameAgent": "教師代理與學生代理必須是不同的代理人。",
+      "field": {
+        "designAgent": "設計代理",
+        "activityType": "活動類型",
+        "teacherAgent": "教師代理",
+        "peerAgent": "學生代理",
+        "difficulty": "難度",
+        "rounds": "回合數",
+        "peerErrorPattern": "學生代理刻意出錯",
+        "tone": "語氣",
+        "notes": "給設計代理的備註"
+      },
+      "notesHelp": "選填，最多 {max} 字。",
+      "difficulty": {
+        "introductory": "入門",
+        "intermediate": "中等",
+        "advanced": "進階"
+      },
+      "errorPattern": {
+        "none": "不出錯",
+        "one_in_three": "每三個答案錯一個"
+      },
+      "tone": {
+        "warm": "溫暖",
+        "neutral": "中性",
+        "concise": "簡潔"
+      },
+      "submit": "草擬提示詞",
+      "submitFailed": "無法開始設計。",
+      "inFlight": "這個專案已經有一份設計正在草擬中。",
+      "status": {
+        "pending": "等待設計代理中...",
+        "running": "設計代理正在草擬提示詞..."
+      },
+      "failure": {
+        "design_timeout": "設計代理未能及時完成。",
+        "design_unavailable": "無法連線到設計代理的模型供應商。",
+        "design_bad_output": "設計代理的回覆不是預期的格式。",
+        "design_too_large": "草擬的提示詞超過 32,000 字的上限。",
+        "design_misconfigured": "設計代理不存在或屬於其他專案。",
+        "design_stale": "設計沒有開始執行，請再試一次。"
+      },
+      "notes": "設計代理的說明：",
+      "target": {
+        "teacher": "教師代理：{name}",
+        "peer": "學生代理：{name}"
+      },
+      "current": "目前",
+      "proposed": "草稿",
+      "emptyPrompt": "（空白）",
+      "startOver": "重新設計",
+      "backToProposal": "回到草稿",
+      "apply": "套用",
+      "applyTitle": "套用兩份提示詞？",
+      "applyMessage": "{teacher} 與 {peer} 的系統提示詞會換成草稿。先前的提示詞會保留在各代理人的提示詞歷史中。",
+      "applied": "兩份提示詞都已套用。",
+      "appliedNote": "草稿已套用到 {teacher} 與 {peer}。",
+      "applyFailed": "無法套用提示詞。",
+      "notApplicable": "這份設計已經套用過，或已無法使用。",
+      "conflict": "草稿產生後有代理人被修改過，因此沒有套用任何內容。請重新設計，以目前的提示詞為基礎草擬。"
+    },
     "classSummary": "課堂摘要",
     "attentionRequired": "聊天室需要關注",
     "noStalledRooms": "所有聊天室狀態正常。",

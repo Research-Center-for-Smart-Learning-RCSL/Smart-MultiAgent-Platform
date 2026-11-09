@@ -48,6 +48,28 @@
       "title": "Editors only",
       "text": "Only a project owner can view agent settings. Agents in your rooms are still shown by name."
     },
+    "revisions": {
+      "title": "Prompt history",
+      "description": "Every change of this agent's system prompt. Restoring a version is itself recorded here.",
+      "empty": "The prompt has not been changed since this history started.",
+      "version": "Version {version}",
+      "current": "Current prompt",
+      "show": "Show prompt",
+      "restore": "Restore",
+      "restored": "Prompt restored.",
+      "restoreFailed": "The prompt could not be restored.",
+      "conflict": "The agent changed since this page loaded. The page has been reloaded; try again.",
+      "confirmTitle": "Restore this prompt?",
+      "confirmMessage": "The agent's system prompt is replaced with this version.",
+      "confirmDirty": "The agent's system prompt is replaced with this version, and your unsaved edits in the editor are discarded.",
+      "retry": "Retry",
+      "source": {
+        "initial": "Before history",
+        "manual": "Edited",
+        "design": "Classroom design",
+        "restore": "Restored"
+      }
+    },
     "list": {
       "title": "AI Agents",
       "actions": "AI Agent actions",

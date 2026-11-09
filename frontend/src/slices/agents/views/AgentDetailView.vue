@@ -53,6 +53,7 @@ import { SkillBindingsPanel } from '@slices/skills'
 import { agentsApi, type AgentTool, type AgentToolType, type ConceptMapOwnerKind } from '../api'
 import { agentKeys } from '../queries'
 import AgentsForbidden from '../components/AgentsForbidden.vue'
+import PromptRevisionsCard from '../components/PromptRevisionsCard.vue'
 import { useModelCatalog } from '@shared/composables'
 import { graphragBuildStateVariant, graphragBuildStateLabelKey } from '../lib/graphragBuildState'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -692,6 +693,7 @@ const patchMutation = useMutation({
   onSuccess: () => {
     conflictDetected.value = false
     qc.invalidateQueries({ queryKey: agentKeys.agent(agentId) })
+    qc.invalidateQueries({ queryKey: agentKeys.promptRevisions(agentId) })
     toast.success(t('agents.detail.saved'))
   },
   onError: (err) => {
@@ -1219,6 +1221,14 @@ const breadcrumbs = computed(() => [
               />
             </div>
           </div>
+          <PromptRevisionsCard
+            v-if="!isCreateMode && query.data.value"
+            class="mt-6"
+            :agent-id="agentId"
+            :version="query.data.value.version"
+            :current-prompt="query.data.value.system_prompt"
+            :dirty="(systemPrompt ?? '') !== query.data.value.system_prompt"
+          />
         </div>
 
         <!-- Tab: Knowledge -->
