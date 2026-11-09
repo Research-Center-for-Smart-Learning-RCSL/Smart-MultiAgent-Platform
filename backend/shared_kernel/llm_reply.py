@@ -12,7 +12,6 @@ import re
 from typing import Any, Final
 
 _FENCE: Final = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
-_OBJECT_SPAN: Final = re.compile(r"\{[\s\S]*\}")
 
 
 class ReplyNotJsonObject(ValueError):
@@ -28,11 +27,14 @@ def load_json_object(text: str) -> dict[str, Any]:
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
-        span = _OBJECT_SPAN.search(body)
-        if span is None:
+        # First "{" to last "}" by index: a regex for the same span backtracks
+        # quadratically on a reply of unclosed braces, and replies are
+        # provider-controlled (a custom base_url) and up to tens of KB.
+        start, end = body.find("{"), body.rfind("}")
+        if start < 0 or end < start:
             raise ReplyNotJsonObject("reply is not JSON") from None
         try:
-            data = json.loads(span.group(0))
+            data = json.loads(body[start : end + 1])
         except json.JSONDecodeError:
             raise ReplyNotJsonObject("reply is not JSON") from None
     if not isinstance(data, dict):

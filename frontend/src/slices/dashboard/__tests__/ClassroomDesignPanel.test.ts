@@ -178,6 +178,14 @@ describe('ClassroomDesignPanel', () => {
     expect(wrapper.find('[data-testid="design-form"]').exists()).toBe(true)
   })
 
+  it('offers a retry instead of empty pickers when the agent list fails', async () => {
+    seed(null)
+    server.use(http.get('/api/projects/p1/agents', () => problem(500, 'internal')))
+    const wrapper = await mount()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="design-pickers-error"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="design-form"]').exists()).toBe(false)
+  })
+
   it('shows a run in flight instead of the form', async () => {
     seed(run({ status: 'running' }))
     const wrapper = await mount()

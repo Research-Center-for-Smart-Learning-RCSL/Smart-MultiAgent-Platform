@@ -637,6 +637,18 @@ class TestWorker:
         assert h.agents.record_design_failure.await_args.args == (run.id, DESIGN_MISCONFIGURED)
         h.router.call.assert_not_awaited()
 
+    async def test_a_failed_success_write_is_not_retried_as_a_design_failure(self) -> None:
+        # The session is aborted after a failed write; a second write on it would
+        # raise in turn and mislabel the run. The stale sweep frees it instead.
+        run, design = self._setup()
+        h = _WorkerHarness(run=run, design=design)
+        h.agents.record_design_success = AsyncMock(side_effect=RuntimeError("db down"))
+
+        with pytest.raises(RuntimeError, match="db down"):
+            await h.run(run.id)
+
+        h.agents.record_design_failure.assert_not_awaited()
+
     async def test_a_run_that_is_not_pending_is_left_alone(self) -> None:
         h = _WorkerHarness(run=None, design=None)
 

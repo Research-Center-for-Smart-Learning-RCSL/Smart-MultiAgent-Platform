@@ -56,6 +56,11 @@ const agentOptions = computed(() =>
 const typeOptions = computed(() =>
   (typesQuery.data.value ?? []).map((ty) => ({ value: ty.id, label: ty.name })),
 )
+const pickerError = computed(() => agentsQuery.error.value ?? typesQuery.error.value ?? null)
+function refetchPickers(): void {
+  void agentsQuery.refetch()
+  void typesQuery.refetch()
+}
 const agentName = (id: string): string =>
   agentsQuery.data.value?.find((a) => a.id === id)?.name ?? t('dashboard.alerts.unknownAgent')
 
@@ -196,6 +201,12 @@ const targets = computed<{ role: 'teacher' | 'peer'; target: DesignTargetOut }[]
         @retry="design.refetch()"
       />
 
+      <SLoadingSpinner
+        v-else-if="design.isLoading.value"
+        size="sm"
+        data-testid="design-loading"
+      />
+
       <div
         v-else-if="inFlight"
         class="flex items-center gap-2 text-sm text-[var(--color-muted)]"
@@ -302,8 +313,15 @@ const targets = computed<{ role: 'teacher' | 'peer'; target: DesignTargetOut }[]
           </div>
         </div>
 
+        <SQueryError
+          v-if="showForm && pickerError"
+          :message="pickerError.message"
+          :retry-label="t('dashboard.retry')"
+          data-testid="design-pickers-error"
+          @retry="refetchPickers"
+        />
         <form
-          v-if="showForm"
+          v-else-if="showForm"
           class="grid grid-cols-1 gap-3 md:grid-cols-2"
           data-testid="design-form"
           novalidate

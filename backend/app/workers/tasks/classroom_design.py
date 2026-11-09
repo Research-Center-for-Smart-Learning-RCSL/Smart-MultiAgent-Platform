@@ -126,13 +126,14 @@ async def run_classroom_design(ctx: dict[str, Any], run_id: str) -> str:
             return "not-pending"
         # Committed before the call, so the panel shows `running` while it waits.
         await db.commit()
+        # Only the call sits in the try: a failed write below must not be taken
+        # for a design failure and retried on the same aborted transaction.
+        proposal: DesignProposal | None = None
         reason: str | None = None
         try:
             proposal = await _call_design_agent(db, run)
-            changed = await facade.record_design_success(rid, proposal)
         except _DesignFailed as exc:
             reason = exc.reason
-            changed = await facade.record_design_failure(rid, reason)
         except asyncio.CancelledError:
             # arq enforces the timeout by cancelling; shielded so the failure and
             # the usage rows of a call already billed still land.
@@ -142,7 +143,10 @@ async def run_classroom_design(ctx: dict[str, Any], run_id: str) -> str:
         except Exception as exc:
             logger.bind(run_id=str(rid)).warning(f"design setup failed: {type(exc).__name__}")
             reason = DESIGN_UNAVAILABLE
-            changed = await facade.record_design_failure(rid, reason)
+        if proposal is not None:
+            changed = await facade.record_design_success(rid, proposal)
+        else:
+            changed = await facade.record_design_failure(rid, reason or DESIGN_UNAVAILABLE)
         # Commit even when nothing changed: the router has recorded the usage row.
         await db.commit()
         await flush_tail_events(db)
