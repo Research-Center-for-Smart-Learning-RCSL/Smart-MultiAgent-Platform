@@ -10,15 +10,15 @@ import datetime as dt
 import enum
 import uuid
 from dataclasses import asdict
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import assert_project_role, is_project_owner_or_admin
 from contexts.agents.interfaces.facade import AgentsFacade
-from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.conversation.interfaces.facade import AnalystNotice, ConversationFacade, PeerReplyReview
 from contexts.dashboard.interfaces.facade import DashboardFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.dependencies import current_principal
@@ -251,51 +251,98 @@ class CollaborationEntryOut(BaseModel):
     responded_at: dt.datetime | None
 
 
+class PeerReviewEntryOut(BaseModel):
+    kind: Literal["peer_review"]
+    id: uuid.UUID
+    room_id: uuid.UUID
+    room_name: str
+    from_agent_name: str | None
+    to_agent_name: str | None
+    draft: str
+    created_at: dt.datetime
+    status: Literal["pending", "approved", "modified", "rejected", "expired"]
+    attempt: int
+    reason: str | None
+    revised_text: str | None
+    expire_reason: Literal["no_teacher", "no_decision", "binding_changed", "defer_limit", "failed"] | None
+    decided_at: dt.datetime | None
+    posted_message_id: uuid.UUID | None
+
+
 class DashboardCollaborationOut(BaseModel):
-    entries: list[CollaborationEntryOut]
+    entries: list[Annotated[CollaborationEntryOut | PeerReviewEntryOut, Field(discriminator="kind")]]
 
 
 @router.get("/{workspace_id}/dashboard/collaboration")
 async def dashboard_collaboration(
     workspace_id: uuid.UUID = Path(...),
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0, le=10_000),
+    # The log merges two sources read to the page's end (D-10), so the offset is
+    # held well below the other dashboard lists' cap.
+    offset: int = Query(0, ge=0, le=1_000),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> DashboardCollaborationOut:
-    """The collaboration log of the rooms the caller created ([R34.03]).
+    """The collaboration log of the rooms the caller created ([R34.03], [R34.06]).
 
-    Notices are as confidential as observations ([R28.03]): only the room's
-    creator reads them, whoever else may open the room."""
+    Notices and held drafts are as confidential as observations ([R28.03]): only
+    the room's creator reads them, whoever else may open the room."""
     own = await _resolve_own_rooms(db=db, principal=principal, workspace_id=workspace_id)
-    rows = await ConversationFacade(db).list_notices_for_rooms(
+    log = await ConversationFacade(db).collaboration_log_for_rooms(
         chatroom_ids=list(own), limit=limit, offset=offset
     )
+    reviews = [e for e in log if isinstance(e, PeerReplyReview)]
+    notices = [e for e in log if not isinstance(e, PeerReplyReview)]
     names = await AgentsFacade(db).agent_names(
-        list({r.analyst_agent_id for r in rows} | {r.teacher_agent_id for r in rows})
+        list(
+            {r.analyst_agent_id for r in notices}
+            | {r.teacher_agent_id for r in notices}
+            | {r.peer_agent_id for r in reviews}
+            | {r.teacher_agent_id for r in reviews if r.teacher_agent_id is not None}
+        )
     )
     now = dt.datetime.now(dt.UTC)
+
+    def _notice(r: AnalystNotice) -> CollaborationEntryOut:
+        return CollaborationEntryOut(
+            kind="analyst_notice",
+            id=r.id,
+            room_id=r.chatroom_id,
+            room_name=own[r.chatroom_id],
+            from_agent_name=names.get(r.analyst_agent_id),
+            to_agent_name=names.get(r.teacher_agent_id),
+            error_kind=r.error_kind.value,
+            error=r.error,
+            suggestion=r.suggestion,
+            about_message_id=r.about_message_id,
+            created_at=r.created_at,
+            status=r.status_at(now).value,
+            decision=r.decision.value if r.decision else None,
+            reason=r.reason,
+            responded_at=r.responded_at,
+        )
+
+    def _review(r: PeerReplyReview) -> PeerReviewEntryOut:
+        return PeerReviewEntryOut(
+            kind="peer_review",
+            id=r.id,
+            room_id=r.chatroom_id,
+            room_name=own[r.chatroom_id],
+            from_agent_name=names.get(r.peer_agent_id),
+            to_agent_name=names.get(r.teacher_agent_id) if r.teacher_agent_id else None,
+            draft=r.draft,
+            created_at=r.created_at,
+            status=r.status_at(now).value,
+            attempt=r.attempt,
+            reason=r.reason,
+            revised_text=r.revised_text,
+            expire_reason=r.expire_reason.value if r.expire_reason else None,
+            decided_at=r.decided_at,
+            posted_message_id=r.posted_message_id,
+        )
+
     return DashboardCollaborationOut(
-        entries=[
-            CollaborationEntryOut(
-                kind="analyst_notice",
-                id=r.id,
-                room_id=r.chatroom_id,
-                room_name=own[r.chatroom_id],
-                from_agent_name=names.get(r.analyst_agent_id),
-                to_agent_name=names.get(r.teacher_agent_id),
-                error_kind=r.error_kind.value,
-                error=r.error,
-                suggestion=r.suggestion,
-                about_message_id=r.about_message_id,
-                created_at=r.created_at,
-                status=r.status_at(now).value,
-                decision=r.decision.value if r.decision else None,
-                reason=r.reason,
-                responded_at=r.responded_at,
-            )
-            for r in rows
-        ]
+        entries=[_review(e) if isinstance(e, PeerReplyReview) else _notice(e) for e in log]
     )
 
 

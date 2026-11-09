@@ -90,6 +90,26 @@ _MANIFEST_NOTES: Final = (
     "agent and the teacher agent's answer. status is answered once a decision exists, "
     "unanswered when none came within 15 minutes, and pending otherwise, as of exported_at. "
     "response_latency_s is seconds from raised_at.",
+    "peer_reviews.csv lists every reply a student agent wrote that was held for the teacher "
+    "agent's review. draft is what the student agent wrote; revised_text is what was posted "
+    "instead when status is modified. status reads expired for a review left pending past its "
+    "window as of exported_at, with expire_reason empty when no reason was recorded. attempt "
+    "counts reviews including deferrals; decision_latency_s is seconds from held_at.",
+)
+_PEER_REVIEW_COLUMNS: Final = (
+    "room_code",
+    "peer_agent_key",
+    "teacher_agent_key",
+    "draft",
+    "held_at",
+    "status",
+    "attempt",
+    "reason",
+    "revised_text",
+    "expire_reason",
+    "decided_at",
+    "decision_latency_s",
+    "posted",
 )
 _NOTICE_COLUMNS: Final = (
     "room_code",
@@ -182,6 +202,22 @@ class NoticeRow:
 
 
 @dataclass(frozen=True, slots=True)
+class PeerReviewRow:
+    chatroom_id: uuid.UUID
+    peer_agent_id: uuid.UUID
+    teacher_agent_id: uuid.UUID | None
+    draft: str
+    created_at: datetime
+    status: str
+    attempt: int
+    reason: str | None = None
+    revised_text: str | None = None
+    expire_reason: str | None = None
+    decided_at: datetime | None = None
+    posted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class MessageRow:
     chatroom_id: uuid.UUID
     sender_type: str
@@ -208,6 +244,7 @@ class ResearchExportBuilder:
         actor_ip: str | None = None,
         alerts: list[AlertRow] | None = None,
         notices: list[NoticeRow] | None = None,
+        peer_reviews: list[PeerReviewRow] | None = None,
     ) -> tuple[str, str]:
         files = self.build_files(
             workspace_id=workspace_id,
@@ -220,6 +257,7 @@ class ResearchExportBuilder:
             created_before=created_before,
             alerts=alerts,
             notices=notices,
+            peer_reviews=peer_reviews,
         )
         zip_bytes = self._package_zip(files)
 
@@ -275,22 +313,26 @@ class ResearchExportBuilder:
         created_before: datetime | None = None,
         alerts: list[AlertRow] | None = None,
         notices: list[NoticeRow] | None = None,
+        peer_reviews: list[PeerReviewRow] | None = None,
     ) -> dict[str, str]:
         """Every file of the bundle by its path inside the ZIP."""
         alert_rows = alerts or []
         notice_rows = notices or []
+        review_rows = peer_reviews or []
         rooms = _room_codes(
             [r.chatroom_id for r in submissions]
             + [o.chatroom_id for o in observations]
             + [m.chatroom_id for m in messages]
             + [a.chatroom_id for a in alert_rows]
             + [n.chatroom_id for n in notice_rows]
+            + [r.chatroom_id for r in review_rows]
         )
         csvs = self._build_submission_csvs(submissions, rooms)
         return {
             **{path: content for path, (_, content) in csvs.items()},
             "alerts.csv": self._build_alerts_csv(alert_rows, agent_key_map, rooms),
             "analyst_notices.csv": self._build_notices_csv(notice_rows, agent_key_map, rooms),
+            "peer_reviews.csv": self._build_peer_reviews_csv(review_rows, agent_key_map, rooms),
             "observations.json": self._build_observations_json(observations, agent_key_map, rooms),
             "transcripts.json": self._build_transcripts_json(messages, agent_key_map, rooms),
             "manifest.json": self._build_manifest(
@@ -302,6 +344,7 @@ class ResearchExportBuilder:
                 observation_count=len(observations),
                 alert_count=len(alert_rows),
                 notice_count=len(notice_rows),
+                peer_review_count=len(review_rows),
                 submission_files=[{"type_key": key, "file": path} for path, (key, _) in csvs.items()],
             ),
         }
@@ -356,6 +399,36 @@ class ResearchExportBuilder:
                     _cell(row.reason),
                     _iso(row.responded_at),
                     _seconds_between(row.created_at, row.responded_at),
+                ]
+            )
+        return buf.getvalue()
+
+    def _build_peer_reviews_csv(
+        self, rows: list[PeerReviewRow], agent_key_map: dict[uuid.UUID, str], rooms: dict[uuid.UUID, str]
+    ) -> str:
+        def key(agent_id: uuid.UUID | None) -> Any:
+            return None if agent_id is None else _cell(agent_key_map.get(agent_id, str(agent_id)[:8]))
+
+        buf = io.StringIO()
+        buf.write(_BOM)
+        writer = csv.writer(buf)
+        writer.writerow(_PEER_REVIEW_COLUMNS)
+        for row in sorted(rows, key=lambda r: r.created_at):
+            writer.writerow(
+                [
+                    rooms[row.chatroom_id],
+                    key(row.peer_agent_id),
+                    key(row.teacher_agent_id),
+                    _cell(row.draft),
+                    _iso(row.created_at),
+                    row.status,
+                    row.attempt,
+                    _cell(row.reason),
+                    _cell(row.revised_text),
+                    row.expire_reason,
+                    _iso(row.decided_at),
+                    _seconds_between(row.created_at, row.decided_at),
+                    row.posted,
                 ]
             )
         return buf.getvalue()
@@ -476,6 +549,7 @@ class ResearchExportBuilder:
         submission_files: list[dict[str, str]],
         alert_count: int = 0,
         notice_count: int = 0,
+        peer_review_count: int = 0,
     ) -> str:
         manifest = {
             "schema_version": SCHEMA_VERSION,
@@ -489,6 +563,7 @@ class ResearchExportBuilder:
             "observation_count": observation_count,
             "alert_count": alert_count,
             "notice_count": notice_count,
+            "peer_review_count": peer_review_count,
             "submission_files": submission_files,
             "notes": list(_MANIFEST_NOTES),
             "exported_at": now().isoformat(),
@@ -605,6 +680,7 @@ __all__ = [
     "MessageRow",
     "NoticeRow",
     "ObservationRow",
+    "PeerReviewRow",
     "ResearchExportBuilder",
     "SubmissionRow",
 ]

@@ -150,6 +150,9 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         # classroom role.
         "notify_teacher_agent",
         "respond_to_notice",
+        # The teacher's review of a held peer reply ([R34.06]); offered only on the
+        # headless review turn.
+        "review_peer_reply",
     }
 )
 
@@ -294,6 +297,12 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._by_name.get(name)
+
+    def restricted_to(self, names: frozenset[str]) -> ToolRegistry:
+        """The same registry with only ``names`` left in it."""
+        return ToolRegistry(
+            [t for n, t in self._by_name.items() if n in names], is_infra_error=self._is_infra_error
+        )
 
     def expects_arguments(self, name: str) -> bool:
         """Does this tool declare any parameters at all?

@@ -331,6 +331,9 @@ def worker(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         async def list_notices_for_rooms(self, **kwargs: object) -> list[Any]:
             return []
 
+        async def list_peer_reviews_for_rooms(self, **kwargs: object) -> list[Any]:
+            return []
+
         async def list_messages_for_rooms(self, **kwargs: object) -> list[Any]:
             return []
 

@@ -72,10 +72,12 @@ from app.workers.tasks.knowmap import (
     knowmap_scan_document,
 )
 from app.workers.tasks.orchestration import (
+    REVIEW_PEER_REPLY_TIMEOUT_S,
     WAKEUP_TURN_TIMEOUT_S,
     approval_timeout,
     evaluate_silence,
     make_dlq_audit_callback,
+    review_peer_reply,
     wakeup_agent,
     wakeup_refresh,
 )
@@ -323,6 +325,12 @@ class WorkerSettings:
         # is a runaway backstop over the turn lock TTL — see
         # WAKEUP_TURN_TIMEOUT_S for why it is not tightened below it.
         func(wakeup_agent, name="wakeup_agent", timeout=WAKEUP_TURN_TIMEOUT_S, max_tries=1),
+        func(
+            review_peer_reply,
+            name="review_peer_reply",
+            timeout=REVIEW_PEER_REPLY_TIMEOUT_S,
+            max_tries=1,
+        ),
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,

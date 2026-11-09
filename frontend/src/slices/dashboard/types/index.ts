@@ -6,8 +6,13 @@ export type {
   WatchlistEntryOut as WatchlistEntry,
   DashboardWatchlistOut as DashboardWatchlistResponse,
   AlertOut as DashboardAlert,
-  CollaborationEntryOut as CollaborationEntry,
+  CollaborationEntryOut as NoticeEntry,
+  PeerReviewEntryOut as PeerReviewEntry,
   TrafficLight,
   TimeWindow,
   BucketSize,
 } from '@shared/api-client'
+
+import type { CollaborationEntryOut, PeerReviewEntryOut } from '@shared/api-client'
+
+export type CollaborationEntry = CollaborationEntryOut | PeerReviewEntryOut

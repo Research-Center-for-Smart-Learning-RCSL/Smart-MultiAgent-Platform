@@ -54,6 +54,7 @@ from contexts.agents.application.runtime.tool_registry import (
     MAX_ARTIFACTS_PER_TURN,
     READ_ONLY_TOOL_NAMES,
     Tool,
+    ToolRegistry,
     WakeupBinding,
     artifact_size_bytes,
     build_cast_approval_vote_tool,
@@ -71,7 +72,13 @@ from contexts.agents.infrastructure.turn_lock import turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.application.observation_service import ObservationService
-from contexts.conversation.domain.models import ChatroomAgentRole, ClassroomRole
+from contexts.conversation.domain.models import (
+    PEER_REVIEW_DEADLINE,
+    ChatroomAgentRole,
+    ClassroomRole,
+    PeerReviewExpiry,
+    PeerReviewStatus,
+)
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     MessageRepository,
@@ -85,6 +92,9 @@ from contexts.conversation.interfaces import (
 from contexts.conversation.interfaces.facade import (
     ConversationFacade,
     MessageAttachment,
+    ReviewDecided,
+    ReviewDeferred,
+    ReviewPosted,
     RoomGuests,
     RoomPresenceSnapshot,
 )
@@ -3161,6 +3171,9 @@ class TurnEngine:
         is_observer = role is ChatroomAgentRole.OBSERVER
         is_analyst = is_observer and classroom_role is ClassroomRole.ANALYST
         is_teacher = not is_observer and classroom_role is ClassroomRole.TEACHER
+        # [R34.06]: a peer's reply is held for the teacher agent, so its turn
+        # streams nothing to the room and may not touch anything the room can see.
+        is_peer = not is_observer and classroom_role is ClassroomRole.PEER
         # Replay short-circuit (F-7). A turn is not retry-safe: it commits its
         # reply with post-commit work still to run. `max_tries=1` stops arq
         # replaying the job, but not a turn that ran twice because its lock
@@ -3332,8 +3345,17 @@ class TurnEngine:
             # above, and the teacher's open notices ride in the notifications block.
             # Teacher wakes are owed only once the turn commits the notice.
             notice_wakes: list[dict[str, Any]] = []
+            # Rejected drafts this peer is being told about; marked told only by
+            # the commit that ends the turn, so a failed turn tells them again.
+            told_rejections: list[uuid.UUID] = []
             notice_block, notice_tools = await self._collaboration_context(
-                agent, chatroom_id, is_analyst=is_analyst, is_teacher=is_teacher, wake_sink=notice_wakes
+                agent,
+                chatroom_id,
+                is_analyst=is_analyst,
+                is_teacher=is_teacher,
+                wake_sink=notice_wakes,
+                is_peer=is_peer,
+                told_sink=told_rejections,
             )
             extra_tools = extra_tools + notice_tools
             if notice_block:
@@ -3393,6 +3415,12 @@ class TurnEngine:
                 is_infra_error=_is_infrastructure_error,
                 wakeup_binding=await self._wakeup_binding(chatroom_id, agent.id, effect_sink=wakeup_effects),
             )
+            if is_peer:
+                # Q-8: a write would commit before the teacher could reject the reply.
+                registry = registry.restricted_to(READ_ONLY_TOOL_NAMES)
+            # The room channel still carries thinking and finished; a held peer's
+            # tokens and tool events must not reach it before the decision.
+            stream_room = None if is_peer else room
             tool_specs = registry.specs()
             tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
             notice_message = _platform_notice_message(platform_notice)
@@ -3739,7 +3767,7 @@ class TurnEngine:
                 provider=provider,
                 model=model,
                 registry=registry,
-                room=room,
+                room=stream_room,
                 # Fail closed on a lost lock (F-23). Checked only at a round
                 # boundary, so a provider response is never truncated mid-stream;
                 # the cost of one more round on a lock we no longer hold is far
@@ -3775,7 +3803,7 @@ class TurnEngine:
                     agent=agent,
                     chatroom_id=chatroom_id,
                     parent_agent_id=parent_agent_id,
-                    room=room,
+                    room=stream_room,
                     history=history,
                     guests=guests,
                     system_text=system_text,
@@ -3846,6 +3874,7 @@ class TurnEngine:
                     "agent.turn_finished",
                     {"tool_rounds": rounds, "reason": skip_reason, **synthesis_meta, **shape_meta},
                 )
+                await self._mark_rejections_told(told_rejections)
                 await self._db.commit()
                 outcome_committed = True
                 # [R13.27] — the skip is now durable; nothing below decides it (S-1).
@@ -3978,6 +4007,47 @@ class TurnEngine:
                     error_kind=outcome.error_kind,
                 )
 
+            if is_peer:
+                # [R34.06]: held for the teacher agent instead of posted. The review
+                # job owns what the room sees next; this turn only says it is done.
+                review = await ConversationFacade(self._db).hold_peer_reply(
+                    chatroom_id=chatroom_id,
+                    peer_agent_id=agent.id,
+                    draft=final_text,
+                    trigger_message_id=trigger_message_id,
+                    reply_metadata=reply_meta,
+                )
+                await self._mark_rejections_told(told_rejections)
+                await self._audit(
+                    agent,
+                    chatroom_id,
+                    "agent.turn_finished",
+                    {"tool_rounds": rounds, "held_for_review": True, **synthesis_meta, **shape_meta},
+                )
+                await self._db.commit()
+                outcome_committed = True
+                self._compact_forced_rooms.pop(chatroom_id, None)
+                if room is not None:
+                    async with _post_commit("agent.finished emit (held)"):
+                        await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
+                if review is not None and review.status is PeerReviewStatus.PENDING:
+                    async with _post_commit("peer review job"):
+                        from shared_kernel.queue import enqueue
+
+                        await enqueue("review_peer_reply", str(review.id))
+                async with _post_commit("settle pending approvals (held)"):
+                    await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
+                return TurnResult(
+                    status="completed",
+                    message_id=None,
+                    text=final_text,
+                    tool_rounds=rounds,
+                    approvals_voted=len(voted_approvals),
+                    voted_approval_ids=frozenset(voted_approvals),
+                    synthesis_failed=outcome.synthesis_failed,
+                    error_kind=outcome.error_kind,
+                )
+
             msg = await MessageService(self._db).send_agent(
                 chatroom_id=chatroom_id,
                 agent_id=agent.id,
@@ -4014,34 +4084,16 @@ class TurnEngine:
             # `room is not None` always holds here (the observer branch returned
             # above) — the guard exists to narrow the type and stay fail-closed.
             if room is not None:
-                pub = Publisher(room)
                 async with _post_commit("message.created emit"):
-                    await pub.emit(
-                        "message.created",
-                        {
-                            "message_id": str(msg.id),
-                            "sender_type": "agent",
-                            "sender_id": str(agent.id),
-                            "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                        },
-                    )
+                    await self._emit_message_created(room, agent.id, msg)
                 # `synthesis_meta` rides along so the client can mark the bubble
                 # without refetching the message to read its metadata.
                 async with _post_commit("agent.finished emit"):
-                    await pub.emit(
+                    await Publisher(room).emit(
                         "agent.finished",
                         {"message_id": str(msg.id), "agent_id": str(agent.id), **synthesis_meta},
                     )
-            # K.4: agent replies feed workflow `message` triggers/waits exactly
-            # like user sends do (sender_filter agent/any). Best-effort,
-            # post-commit — never fails the turn.
-            async with _post_commit("workflow message signal"):
-                await self._dispatch_agent_message_signal(chatroom_id, final_text)
-            # R15.01: an agent reply counts toward other bound agents'
-            # every_n triggers and touches their silence timers; R11.02:
-            # it also feeds GraphRAG message triggers.
-            async with _post_commit("agent reply wakeups"):
-                await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
+            await self._dispatch_reply_followups(agent, chatroom_id, msg.id, final_text)
             async with _post_commit("settle pending approvals"):
                 await self._settle_pending_approvals(agent, pending_notes, voted_approvals)
             return TurnResult(
@@ -4276,18 +4328,22 @@ class TurnEngine:
         is_analyst: bool,
         is_teacher: bool,
         wake_sink: list[dict[str, Any]],
+        is_peer: bool = False,
+        told_sink: list[uuid.UUID] | None = None,
     ) -> tuple[str | None, list[Tool]]:
-        """The analyst's notify tool, or the teacher's open notices and answer tool.
+        """The analyst's notify tool, the teacher's open notices and answer tool,
+        or the peer's rejected drafts ([R34.04]-[R34.06]).
 
         Fails closed: any error yields no block and no tools, so a fault here
         cannot cost the turn its other tools."""
-        if not (is_analyst or is_teacher):
+        if not (is_analyst or is_teacher or is_peer):
             return None, []
         try:
             from contexts.agents.application.runtime.collaboration_tools import (
                 build_notify_teacher_agent_tool,
                 build_respond_to_notice_tool,
                 render_notice_block,
+                render_rejections_block,
             )
 
             facade = ConversationFacade(self._db)
@@ -4295,10 +4351,18 @@ class TurnEngine:
             async with self._db.begin_nested():
                 if is_analyst:
                     has_teacher = await facade.room_has_teacher_agent(chatroom_id=chatroom_id)
-                else:
+                elif is_teacher:
                     notices = await facade.open_notices_for_teacher(
                         chatroom_id=chatroom_id, agent_id=agent.id
                     )
+                else:
+                    rejected = await facade.untold_peer_rejections(chatroom_id=chatroom_id, agent_id=agent.id)
+            if is_peer:
+                if not rejected:
+                    return None, []
+                if told_sink is not None:
+                    told_sink.extend(r.id for r in rejected)
+                return render_rejections_block(rejected), []
             if is_analyst:
                 if not has_teacher:
                     return None, []
@@ -4317,6 +4381,152 @@ class TurnEngine:
         except Exception:
             _log.warning("collaboration context failed for agent %s", agent.id, exc_info=True)
             return None, []
+
+    async def _mark_rejections_told(self, review_ids: list[uuid.UUID]) -> None:
+        """In the turn's closing transaction, so only a turn that ends tells them."""
+        if review_ids:
+            await ConversationFacade(self._db).mark_peer_rejections_told(review_ids)
+
+    async def run_review_turn(self, *, review_id: uuid.UUID) -> str:
+        """The teacher agent's decision on a held peer reply ([R34.06]).
+
+        Headless: the teacher's own system prompt, the room transcript, the
+        draft as framed data, and one tool. Nothing the model writes is posted;
+        only an approve or modify decision posts, as the peer, after the commit
+        that decided it. Every other way out leaves the review expired. Returns
+        the review's resulting state for the worker's log."""
+        from contexts.agents.application.runtime.collaboration_tools import (
+            build_review_peer_reply_tool,
+            render_review_block,
+        )
+
+        facade = ConversationFacade(self._db)
+        review = await facade.open_peer_review(review_id)
+        if review is None or review.teacher_agent_id is None:
+            await self._db.commit()
+            return "closed"
+        agents = AgentsFacade(self._db)
+        teacher = await agents.get_agent(review.teacher_agent_id)
+        peer = await agents.get_agent(review.peer_agent_id)
+        if (
+            teacher is None
+            or peer is None
+            or await self._key_group_out_of_scope(teacher)
+            or await self._model_hint_unserviceable(teacher)
+        ):
+            await facade.expire_peer_review(review_id, PeerReviewExpiry.FAILED)
+            await self._db.commit()
+            return "expired:failed"
+
+        chatroom_id = review.chatroom_id
+        provider, model = _resolve_provider_and_model(teacher)
+        # No compaction here: it would consume the teacher's own /compact flag and
+        # spend a summariser call. The newest rows that fit half the window suffice.
+        history = await tx.load_model_history(self._db, chatroom_id=chatroom_id, for_agent_id=teacher.id)
+        budget, kept = _context_limit_for(teacher) // 2, []
+        for hm in reversed(_stream_rows(history)):
+            budget -= hm.token_count
+            if budget < 0:
+                break
+            kept.append(hm)
+        rows = list(reversed(kept))
+        guests = await self._room_guests(chatroom_id)
+        agent_names, user_names = await self._participant_labels(teacher, chatroom_id, rows, guests=guests)
+        messages = [self._provider_message(hm, teacher.id, agent_names, user_names) for hm in rows]
+        notice = _platform_notice_message("A reply from the student agent is waiting for your review.")
+        if notice is not None:
+            messages.append(notice)
+        if messages and messages[0].get("role") == "assistant":
+            messages.insert(0, {"role": "user", "content": _HISTORY_RESUME_NOTE})
+        system_text = "\n\n".join(
+            [
+                teacher.system_prompt or "",
+                *_summary_blocks(history),
+                render_review_block(review, peer_name=peer.name),
+            ]
+        ).strip()
+        outcomes: list[ReviewDecided] = []
+        registry = ToolRegistry(
+            [
+                build_review_peer_reply_tool(
+                    self._db, review=review, teacher_agent_id=teacher.id, outcome_sink=outcomes
+                )
+            ],
+            is_infra_error=_is_infrastructure_error,
+        )
+        # Nothing is pending in the transaction yet; committing keeps it short
+        # across the provider call, as a room turn does.
+        await self._db.commit()
+        try:
+            await asyncio.wait_for(
+                self._stream_with_tools(
+                    agent=teacher,
+                    chatroom_id=chatroom_id,
+                    parent_agent_id=None,
+                    system_text=system_text,
+                    messages=messages,
+                    provider=provider,
+                    model=model,
+                    registry=registry,
+                    room=None,
+                ),
+                timeout=PEER_REVIEW_DEADLINE.total_seconds(),
+            )
+        except Exception as exc:
+            _log.warning("peer review turn failed review=%s", review_id, exc_info=True)
+            await self._db.rollback()
+            reason = (
+                PeerReviewExpiry.NO_DECISION if isinstance(exc, TimeoutError) else PeerReviewExpiry.FAILED
+            )
+            await facade.expire_peer_review(review_id, reason)
+            await self._db.commit()
+            return f"expired:{reason.value}"
+        if not outcomes:
+            await facade.expire_peer_review(review_id, PeerReviewExpiry.NO_DECISION)
+            await self._db.commit()
+            return "expired:no_decision"
+        outcome = outcomes[0]
+        await self._db.commit()
+
+        if isinstance(outcome, ReviewPosted):
+            message = outcome.message
+            async with _post_commit("message.created emit (peer review)"):
+                await self._emit_message_created(room_channel(chatroom_id), peer.id, message)
+            await self._dispatch_reply_followups(peer, chatroom_id, message.id, message.content_md)
+        elif isinstance(outcome, ReviewDeferred):
+            async with _post_commit("peer review re-review"):
+                from shared_kernel.queue import enqueue
+
+                await enqueue("review_peer_reply", str(review_id), _defer_by=outcome.delay)
+        return outcome.review.status.value
+
+    @staticmethod
+    async def _emit_message_created(room: str, sender_id: uuid.UUID, msg: Any) -> None:
+        """After the commit that wrote ``msg``, so a client's refetch sees it."""
+        await Publisher(room).emit(
+            "message.created",
+            {
+                "message_id": str(msg.id),
+                "sender_type": "agent",
+                "sender_id": str(sender_id),
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            },
+        )
+
+    async def _dispatch_reply_followups(
+        self, sender: Agent, chatroom_id: uuid.UUID, message_id: uuid.UUID, content: str
+    ) -> None:
+        """What every posted agent message owes the room after commit, each step
+        best-effort on its own."""
+        # K.4: agent replies feed workflow `message` triggers/waits exactly like
+        # user sends do (sender_filter agent/any).
+        async with _post_commit("workflow message signal"):
+            await self._dispatch_agent_message_signal(chatroom_id, content)
+        # R15.01: an agent reply counts toward other bound agents' every_n
+        # triggers and touches their silence timers; R11.02: it also feeds
+        # GraphRAG message triggers.
+        async with _post_commit("agent reply wakeups"):
+            await self._dispatch_agent_reply_wakeups(sender, chatroom_id, message_id)
 
     async def _dispatch_notice_wakes(self, chatroom_id: uuid.UUID, wakes: list[dict[str, Any]]) -> None:
         """Wake the teacher for the notices this turn committed ([R34.04]).

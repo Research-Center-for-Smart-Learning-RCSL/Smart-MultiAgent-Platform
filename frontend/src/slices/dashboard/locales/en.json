@@ -54,6 +54,25 @@
         "accepted": "Accepted",
         "partly_accepted": "Partly accepted",
         "declined": "Declined"
+      },
+      "peerReview": {
+        "kind": "Student agent reply review",
+        "draft": "Draft:",
+        "revised": "Posted instead:",
+        "status": {
+          "pending": "Awaiting review",
+          "approved": "Approved",
+          "modified": "Modified",
+          "rejected": "Rejected",
+          "expired": "Not shown"
+        },
+        "expire": {
+          "no_teacher": "No teacher agent in the room",
+          "no_decision": "No decision in time",
+          "binding_changed": "An agent left or was replaced",
+          "defer_limit": "Deferred too many times",
+          "failed": "The review could not run"
+        }
       }
     },
     "classSummary": "Class summary",

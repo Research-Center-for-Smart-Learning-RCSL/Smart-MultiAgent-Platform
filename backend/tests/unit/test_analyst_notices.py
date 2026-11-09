@@ -591,7 +591,13 @@ class TestTurns:
             trigger_message_id=None,
         )
 
-        assert flags == {"is_analyst": False, "is_teacher": True, "wake_sink": []}
+        assert flags == {
+            "is_analyst": False,
+            "is_teacher": True,
+            "wake_sink": [],
+            "is_peer": False,
+            "told_sink": [],
+        }
         assert secret in seen["system_text"]
         assert ct.RESPOND_TOOL_NAME in seen["extra"]
         assert all(secret not in str(kw) for kw in sent)
@@ -679,7 +685,7 @@ class TestDashboardCollaboration:
                     SimpleNamespace(id=theirs, name="theirs", created_by_user_id=uuid.uuid4()),
                 ]
 
-            async def list_notices_for_rooms(self, **kw: Any) -> Any:
+            async def collaboration_log_for_rooms(self, **kw: Any) -> Any:
                 asked.append(kw)
                 return [old]
 
@@ -712,6 +718,7 @@ class TestDashboardCollaboration:
 
         assert asked == [{"chatroom_ids": [mine], "limit": 20, "offset": 40}]
         entry = out.entries[0]
+        assert entry.kind == "analyst_notice"
         assert (entry.room_name, entry.from_agent_name, entry.to_agent_name) == ("mine", "AA", "TA")
         assert entry.error == old.error
         assert entry.status == "unanswered"

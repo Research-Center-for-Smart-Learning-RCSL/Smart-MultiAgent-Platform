@@ -244,6 +244,33 @@ async def wakeup_agent(
     return result.status
 
 
+# The review turn bounds its own provider call at PEER_REVIEW_DEADLINE; this is
+# the backstop for the reads and the post around it.
+REVIEW_PEER_REPLY_TIMEOUT_S = 120
+
+
+async def review_peer_reply(ctx: dict[str, Any], review_id: str) -> str:
+    """The teacher agent's decision on one held peer reply ([R34.06]).
+
+    ``max_tries=1``: a retry would be a second decision attempt the teacher did
+    not make. A duplicate run is harmless, since only the run whose compare-and-set
+    leaves ``pending`` posts anything."""
+    from app.config.settings import get_settings
+    from contexts.agents.application.runtime.turn_engine import TurnEngine
+
+    settings = get_settings()
+    async with async_session() as db:
+        engine = TurnEngine(
+            db,
+            qdrant_url=settings.qdrant.url,
+            qdrant_api_key=settings.qdrant.api_key,
+            bge_reranker_url=settings.knowledge.bge_reranker_url,
+        )
+        result = await engine.run_review_turn(review_id=uuid.UUID(review_id))
+    logger.bind(event="peer_review", review_id=review_id, result=result).info("peer review ran")
+    return result
+
+
 # The gate is armed inside the caller's (executor's) transaction, so the
 # deadline can fire before that commit lands and observe no approval row.
 # Distinguish that (retry within a small budget, mirroring drive_approver_turn)

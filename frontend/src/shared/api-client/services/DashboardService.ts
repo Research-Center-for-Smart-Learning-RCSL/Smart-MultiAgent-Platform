@@ -48,10 +48,10 @@ export class DashboardService {
     }
     /**
      * Dashboard Collaboration
-     * The collaboration log of the rooms the caller created ([R34.03]).
+     * The collaboration log of the rooms the caller created ([R34.03], [R34.06]).
      *
-     * Notices are as confidential as observations ([R28.03]): only the room's
-     * creator reads them, whoever else may open the room.
+     * Notices and held drafts are as confidential as observations ([R28.03]): only
+     * the room's creator reads them, whoever else may open the room.
      * @returns DashboardCollaborationOut Successful Response
      * @throws ApiError
      */
